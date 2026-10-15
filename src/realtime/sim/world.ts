@@ -259,6 +259,11 @@ export interface HeroMove {
    * last link of each colour segment), not reached yet (absent when none: dashes without the rule hash as before).
    */
   shifts?: number[];
+  /**
+   * Task 38 (`Params.tethers`, tethers.ts): the tethers the release fixed for this dash to cut (the plan's `cuts`, by their held
+   * body) — cut when the dash ends, whatever the bodies did on the way. Absent when none (dashes without them hash as before).
+   */
+  cuts?: number[];
 }
 
 /**
@@ -491,7 +496,16 @@ export type WorldEvent =
   | { type: 'bossMove'; id: number; move: 'flail' | 'throw' | 'whistle'; stage: 'start' | 'hit' }
   | { type: 'partSevered'; id: number; x: number; y: number }
   | { type: 'bossPlate'; id: number; plates: number }
-  | { type: 'bossPhase'; id: number; phase: number };
+  | { type: 'bossPhase'; id: number; phase: number }
+  /**
+   * Task 38 (tethers.ts): a tether is gone — `cut` by the dash (at its end; `x`, `y` — where the dash crossed it first), `death` of
+   * an end (the holder's death frees every hound it held). The rules never read it.
+   */
+  | { type: 'tether'; action: 'cut' | 'death'; holder: number; held: number; x: number; y: number }
+  /** Task 38 (enemies/garrison.ts): a loosed hound's frenzy began (`start`) or ended (`end`); it bit an enemy (`bite`). */
+  | { type: 'frenzy'; action: 'start' | 'end' | 'bite'; id: number; target?: number; x: number; y: number }
+  /** Task 38 (enemies/garrison.ts): the Castellan's move — «Спустить пса» (`lunge`: windup `start`, `hit`) or «Караул!» (`guard`). */
+  | { type: 'castellanMove'; id: number; move: 'lunge' | 'guard'; stage: 'start' | 'hit' };
 
 export interface World {
   arena: ArenaTemplate;
@@ -622,7 +636,18 @@ export interface World {
    * it, nothing spawns, the hero is not hurt any more. Absent until then (worlds without it hash as before).
    */
   bossCleared?: true;
+  /**
+   * Task 38 «Гарнизон» (`Params.tethers`, tethers.ts): the tethers on the arena — absent until a fight makes one (and again once the
+   * last is gone: worlds without them hash as before).
+   */
+  tethers?: Tether[];
 }
+
+/**
+ * Task 38 (tethers.ts): a tether between two bodies — `holder` holds `held` (the dog handler or the Castellan and a hound). One
+ * tether a held body: `held` names it (the dash's `cuts`, the plan's `cuts`). `kind` — `leash` (the shackles of the keeper — step 1б).
+ */
+export interface Tether { holder: number; held: number; kind: 'leash' }
 
 /**
  * The lamps of a `shield` arena (`World.shieldGoal`): `lit` — shield windows that absorbed a touch which would have hurt (at
@@ -694,6 +719,8 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   // Task 32: the boss arena's colourless core and its HP — when the values hold the old ones (absent: an older journal, as it was).
   if (arena.jailerColorless && params.jailerColorless === false) params = { ...copyParams(params), jailerColorless: true };
   if (arena.jailerHp !== undefined && params.jailerHp === DEFAULT_PARAMS.jailerHp) params = { ...copyParams(params), jailerHp: arena.jailerHp };
+  // Task 38: an arena of the garrison plays the law of tethers and the guards' formation (the given object stays as it is).
+  if (arena.garrison && (!params.tethers || !params.guardFormation)) params = { ...copyParams(params), tethers: true, guardFormation: true };
   const maxHp = start ? Math.max(1, Math.floor(start.maxHp)) : params.heroHp;
   const hp = start ? Math.max(1, Math.min(maxHp, Math.floor(start.hp))) : params.heroHp;
   // Stage 2, step 3 («Песочные часы»): the phase table starts later — the delay is the talisman's, read once at the start.
@@ -806,6 +833,8 @@ function placeStartEnemy(world: World, s: StartEnemy): Enemy {
   if (s.leader) e.leader = true;
   // Task 28: a boss core without its shield (the run's viewer has not met the shieldbearer; the var only on it).
   if (s.shieldless) e.vars.bare = 1;
+  // Task 38: a start guard of a formation (the var only on it; −n, apart from the newcomers' ids).
+  if (s.formation !== undefined) e.vars.fm = -s.formation;
   // Stage 2, step 3: an elite from the start (arenas 9–10 of step 4).
   if (s.elite) makeElite(world, e);
   pushOutOfObstacles(e, bodyRadiusOf(world.params, e), world.arena);

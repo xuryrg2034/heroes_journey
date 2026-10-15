@@ -54,6 +54,11 @@ export interface EnemyBehavior {
    * first. State lives in `enemy.vars`.
    */
   beforeStep?(world: World, members: readonly Enemy[], dt: number): void;
+  /**
+   * Task 38 (tethers.ts `cutTethers`): a dash has just cut a tether this enemy held (`held` — the body it held, loose now). The
+   * Castellan loses a plate after the dash here.
+   */
+  onTetherCut?(world: World, holder: Enemy, held: Enemy): void;
 }
 
 /**

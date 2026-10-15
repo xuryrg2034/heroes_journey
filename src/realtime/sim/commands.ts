@@ -109,6 +109,11 @@ export function applyCommand(world: World, cmd: Command): CommandResult {
     case 'clear':
       world.enemies = cmd.keepMarked ? world.enemies.filter(e => e.marked) : [];
       world.markers.length = 0; world.queue.length = 0; world.chain = []; delete world.chainClosed;
+      // Task 38: the tethers whose ends left go with them (absent once none is left).
+      if (world.tethers) {
+        world.tethers = world.tethers.filter(t => world.enemies.some(e => e.id === t.holder) && world.enemies.some(e => e.id === t.held));
+        if (!world.tethers.length) delete world.tethers;
+      }
       return;
     case 'place': {
       const e = spawnEnemy(world, { x: cmd.x, y: cmd.y }, cmd.color, cmd.hp, cmd.kind);

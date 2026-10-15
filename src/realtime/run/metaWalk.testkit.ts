@@ -10,7 +10,7 @@ import { RESOURCE_KINDS } from '../forest/resources';
 import {
   createRtRun, resolveArena, rtAvailableNodes, rtCasinoLeave, rtCasinoPlay, rtCasinoView, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick,
   rtChooseHammer, rtChooseTalisman, rtHammerRerollView, rtRerollHammers, rtEnterNode, rtEventView, rtGiftView, rtNode, rtRerollView, rtRerollTalismans, rtRestCraft, rtRestFinish, rtRestHeal,
-  rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun, type RtArenaOutcome, type RtRunState, type RtRunStep,
+  rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun, rtEnterGarrison, type RtArenaOutcome, type RtRunState, type RtRunStep,
 } from './rtRun';
 
 export const seedOf = (k: number): number => Math.imul(k, 2654435761) >>> 0;
@@ -66,7 +66,8 @@ export function offeredNow(run: RtRunState): string[] {
 /** The walk: see the file's comment. */
 export function walkRun(options: WalkOptions): Walk {
   const { k } = options;
-  let run = createRtRun(options.seed ?? seedOf(k), options.create ?? { gift: k % 2 ? 'full' : 'mini' });
+  // Task 38: a walk is of the forest run (the references of tasks 36–37) unless its options ask for the garrison.
+  let run = createRtRun(options.seed ?? seedOf(k), { garrison: false, ...options.create ?? { gift: k % 2 ? 'full' : 'mini' } });
   let digest = fnv(0x811c9dc5, serializeRtRun(run)), steps = 0;
   const offered = new Set<string>();
   const seen = (next: RtRunState): RtRunState => {
@@ -139,6 +140,8 @@ export function walkRun(options: WalkOptions): Walk {
         run = seen(table && step % 2 === 0 ? ok(rtCasinoPlay(run, table.table), 'casino') : ok(rtCasinoLeave(run), 'casino leave'));
         break;
       }
+      // Task 38: «Предместье» — «В гарнизон».
+      case 'outskirts': run = seen(ok(rtEnterGarrison(run), 'garrison')); break;
       default: throw new Error(`seed ${k}: no walk for ${pending.kind}`);
     }
   }

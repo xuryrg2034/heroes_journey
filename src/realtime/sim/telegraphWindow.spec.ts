@@ -18,6 +18,7 @@
  */
 import { registeredEnemyKinds } from './enemies/kinds';
 import { FLAIL_RADIUS, JAILER, JAILER_HP, JAILER_MOVES, JAILER_WEIGHT, JAILER_WINDUP, THROW_RADIUS, WEIGHT_HP } from './enemies/jailer';
+import { CASTELLAN, LUNGE_WIDTH, LUNGE_WINDUP } from './enemies/garrison';
 import { registerArena } from './arenas';
 import { defaultParams, heroRadius, type Params } from './params';
 import { Simulation, SIM_DT } from './simulation';
@@ -60,6 +61,9 @@ const THREATS: readonly Threat[] = [
   // sideways out of the half disc is shorter). The throw's — the circle's centre, as the archer's mark.
   { id: 'jailer-flail', source: JAILER, move: 'flail', title: 'Тюремщик: кистень', window: () => JAILER_WINDUP, exit: p => FLAIL_RADIUS + heroRadius(p) - touchDistance(p) },
   { id: 'jailer-throw', source: JAILER_WEIGHT, move: 'throw', title: 'Тюремщик: бросок гири', window: () => JAILER_WINDUP, exit: p => THROW_RADIUS + heroRadius(p) },
+  // Task 38 (the Castellan v0, design 2.4): «Спустить пса» — a lane of 4 × 0.8 from the hound; the worst point is the lane's axis,
+  // the way out sideways (half its width + the hero's body). The shorter windup 0.8 s (the first of a fight is 1.2).
+  { id: 'castellan-lunge', source: CASTELLAN, title: 'Кастелян: спустить пса', window: () => LUNGE_WINDUP, exit: p => LUNGE_WIDTH / 2 + heroRadius(p) },
 ];
 
 /** Task 27: the Jailer's moves without a hit on the hero, and why. */
@@ -77,6 +81,10 @@ const OUTSIDE: Readonly<Record<string, string>> = {
   boar: 'полоса рывка: удар телом в пути, а не в зоне в момент; окно меряет телеметрия (исследование, И5)',
   lynx: 'линия прыжка: удар телом в пути; окно меряет телеметрия (И5)',
   wolf: 'бросок по линии: удар — касание в пути; окно меряет телеметрия (И5)',
+  // Task 38 «Гарнизон».
+  guard: 'касание, без телеграфа (строй — готовая цепь)',
+  handler: 'касание, без телеграфа (держит псов на поводках)',
+  hound: 'касание, без телеграфа (ярость кусает врагов; рывок у Кастеляна — запись «Кастелян: спустить пса»)',
 };
 
 /** A run battle's params (the run's numbers, the short fuse of task 19). */

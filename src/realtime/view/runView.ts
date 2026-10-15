@@ -12,6 +12,7 @@ import { RESOURCE_KINDS, RESOURCES } from '../forest/resources';
 import type { ResourceKind } from '../forest/types';
 import type { GiftOption } from '../forest/runGift';
 import { arenaTitle, runRow } from '../run/arenaPools';
+import { GARRISON_TITLE, rtGarrisonNodeId } from '../run/garrison';
 import { rosterTitle } from '../sim/rosters';
 import { rtHp } from '../run/hpScale';
 import {
@@ -20,6 +21,7 @@ import {
   rtOathPreview, rtOathStakeOn, rtArenaRules, RT_SECOND_WIND_LAST_ROW, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
   rtCasinoView, rtCasinoPlay, rtCasinoLeave, rtCasinoNode, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE,
   healOffer, healOnMap, healVisible, rtResourceTotal, rtNodeFeat, RT_HEAL_MAP_GAIN, rtAsh, rtAshOptions, rtAshTitle, rtRunWon, isRtAshLevel, rtScheduleMet, RT_JAILER_SEVERED_SLOTS, rtFormReplaces, rtFormSlotField,
+  rtEnterGarrison, rtLevel,
   type RtArenaOutcome, type RtArenaRules, type RtCasinoTable, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
@@ -234,9 +236,15 @@ const STATUS_LABEL = { visited: 'Пройден', current: 'Текущий', ope
  * What the node card says about the node (the rules of this run). An ordinary battle and the breakthrough say nothing here (design
  * 13.10.2026): the card's head already says «Бой · ряд похода N» and its lines the arena.
  */
-const nodeHint = (node: ForestMapNode, run: Pick<RtRunState, 'jailer' | 'forms' | 'talismans'>): string | undefined => {
+const nodeHint = (node: ForestMapNode, run: Pick<RtRunState, 'jailer' | 'forms' | 'talismans' | 'garrison'>): string | undefined => {
   // Task 30: a run with forms — the form of the other field in the rare place of «Застава» (`rtFormSlotField`).
   const formField = rtFormSlotField(run);
+  // Task 38: the garrison's nodes, and the forest final of a run that goes on into the garrison (placeholder lines).
+  if (rtGarrisonNodeId(node.id)) {
+    if (node.type === 'hard') return `Трудный бой: арена «Караульня». Победа: +${rtHp(FOREST_HARD_HEAL)} HP и талисман на выбор из трёх (один всегда редкий).`;
+    if (node.type === 'checkpoint') return 'Караульня: трудный бой. Победа: клятва или реликвия на выбор.';
+    if (node.type === 'boss') return 'Кастелян: бой с боссом. Победа завершает поход.';
+  } else if (node.type === 'boss' && run.garrison) return 'Последний рубеж: финал леса. Победа: реликвия на выбор, затем гарнизон.';
   switch (node.type) {
     case 'find': return 'Находка: один из трёх расходников.';
     case 'rest': return `Лечение +${rtHp(FOREST_REST_HEAL)} HP или крафт: 2 ресурса одного вида — расходник.`;
@@ -668,6 +676,8 @@ export class RunView {
     if (action === 'hammer-reroll') { this.apply(rtRerollHammers(run)); return; }
     if (action === 'hammer') { this.apply(rtChooseHammer(run, (target.dataset.option || null) as Parameters<typeof rtChooseHammer>[1])); return; }
     if (action === 'shop-leave') { this.apply(rtShopLeave(run)); return; }
+    // Task 38: «В гарнизон» from «Предместье» (a placeholder screen; its look is the ui session's).
+    if (action === 'garrison') { this.apply(rtEnterGarrison(run)); return; }
     if (action === 'shop-buy') { this.apply(rtShopBuy(run, target.dataset.good!)); return; }
     // B7 К9: the circle's tables (the outcome fixed at the click, then 1.2 s of rolling), «Уйти»; a click skips the roll.
     if (action === 'casino-play') { this.playCasino(run, target.dataset.table as RtCasinoTable); return; }
@@ -964,7 +974,8 @@ export class RunView {
     const heal = run.pending?.kind === 'battle' ? '' : this.healHtml(run);
     // Task 18: the run's level, small, by the title («Испытание III»; nothing at 0).
     const ash = rtAshTitle(rtAsh(run));
-    return `<header class="rt-run-head"><b>Поход</b>${ash ? `<span class="rt-run-ash" data-testid="run-ash-title">${ash}</span>` : ''}<span class="rt-run-hp" data-testid="run-hp">HP ${run.hp} / ${run.maxHp}</span>${windHtml}${heal}`
+    // Task 38: the garrison's map is headed «Гарнизон».
+    return `<header class="rt-run-head"><b data-testid="run-title">${rtLevel(run) === 2 ? GARRISON_TITLE : 'Поход'}</b>${ash ? `<span class="rt-run-ash" data-testid="run-ash-title">${ash}</span>` : ''}<span class="rt-run-hp" data-testid="run-hp">HP ${run.hp} / ${run.maxHp}</span>${windHtml}${heal}`
       + `<span class="rt-run-items" data-testid="run-items">${items}</span>${talismans ? `<span class="rt-run-talismans" data-testid="run-talismans">${talismans}</span>` : ''}`
       + `${run.energy > 0 ? `<span class="rt-run-energy" data-testid="run-energy">⚡ ${run.energy} к арене</span>` : ''}`
       + `${resources}${reset}${this.sandboxButton(run)}${this.logsButton()}${this.settingsHtml()}</header>`
@@ -1205,6 +1216,11 @@ export class RunView {
         + `<small>${!view.heal.available ? 'выбран крафт' : view.heal.amount < view.heal.value ? `не выше максимума (лечит до ${view.heal.value})` : `лечит до ${view.heal.value} HP`}</small></button>${recipes}</div>`
         + (view.canFinish ? `<button class="rt-other" data-action="rest-finish" data-testid="rest-finish">К карте</button>` : ''), 'run-rest');
     }
+    if (pending.kind === 'outskirts') {
+      // Task 38: «Предместье» — a placeholder (the HP bar filling, the cart — the ui session's).
+      return card(`<h2>Предместье</h2><p data-testid="outskirts-hp">HP ${run.hp} / ${run.maxHp}</p>`
+        + `<button class="rt-again" data-action="garrison" data-testid="run-garrison">В гарнизон</button>`, 'run-outskirts');
+    }
     if (pending.kind === 'hammer') {
       // Phase B (Т2): the Jailer's first screen — a hammer 3 of 4; one hammer a run, it acts on every later arena.
       const fresh = this.newOffers(`hammer:${pending.nodeId}:${pending.options.join(',')}`, pending.options);
@@ -1223,7 +1239,7 @@ export class RunView {
       // Task 16: the feat's talisman choice, the last screen of the won fight (its card `run-feat-talisman`).
       // Task 30: the Jailer's form screen of a run with forms (its card `run-form`).
       const formScreen = pending.source === 'form';
-      const title = pending.source === 'oath' ? 'Клятва или реликвия на выбор' : chest ? 'Проклятый сундук' : feat ? 'Подвиг: талисман на выбор' : formScreen ? 'Форма на выбор' : 'Талисман на выбор';
+      const title = pending.source === 'oath' ? 'Клятва или реликвия на выбор' : pending.source === 'level' ? 'Реликвия на выбор' : chest ? 'Проклятый сундук' : feat ? 'Подвиг: талисман на выбор' : formScreen ? 'Форма на выбор' : 'Талисман на выбор';
       const fresh = this.newOffers(`talisman:${pending.nodeId}:${pending.source ?? ''}:${pending.options.join(',')}`, pending.options);
       const options = pending.options.map(option => `<button class="rt-run-choice" data-action="talisman" data-option="${option}" data-testid="talisman-${option}"><b>${rtTalisman(option)?.rarity === 'relic' ? '◆ ' : ''}${escapeHtml(talismanName(option, run))}${newSign(fresh, option)}</b>${talismanCardLines(option, run)}</button>`).join('');
       // Task 28: a severed weight gave the Jailer's screen a fourth card (`rtOathSlots`) — the note says why.

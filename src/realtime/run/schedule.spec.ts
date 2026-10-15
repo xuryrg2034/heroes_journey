@@ -66,7 +66,7 @@ interface Seen { run: number; row: number; arena: string; arc: string | null; fr
 function viewer(k: number, runs: number, seconds: number, history: string[] = []): Seen[] {
   const out: Seen[] = [];
   for (let r = 1; r <= runs; r++) {
-    let run = createRtRun(seedOf(1000 * k + r), { gift: 'mini', schedule: history });
+    let run = createRtRun(seedOf(1000 * k + r), { gift: 'mini', schedule: history, garrison: false });
     for (let step = 0; step < 300 && !run.result; step++) {
       const pending = run.pending;
       if (pending?.kind === 'battle') {
@@ -128,7 +128,7 @@ function quickWalk(run: RtRunState, k: number, each?: (run: RtRunState) => void)
 
 check('the forest\'s outputs (300 seeds, the run\'s own commands): a run with the schedule has the map, the visited nodes, the events, the event choices, the gift and the stream counters of a run without it', () => {
   for (let k = 1; k <= 300; k++) {
-    const plain = quickWalk(createRtRun(seedOf(k), { gift: 'mini' }), k), scheduled = quickWalk(createRtRun(seedOf(k), { gift: 'mini', schedule: k % 2 ? [] : VETERAN }), k);
+    const plain = quickWalk(createRtRun(seedOf(k), { gift: 'mini', garrison: false }), k), scheduled = quickWalk(createRtRun(seedOf(k), { gift: 'mini', schedule: k % 2 ? [] : VETERAN, garrison: false }), k);
     assert(scheduled.schedule && !plain.schedule, `seed ${k}: the flag`);
     for (const [what, a, b] of [['map', plain.map, scheduled.map], ['visited', plain.visited, scheduled.visited], ['events', plain.picks.map(p => p.eventId ?? null), scheduled.picks.map(p => p.eventId ?? null)],
       ['event choices', plain.eventChoices, scheduled.eventChoices], ['gift', plain.gift, scheduled.gift], ['streams', plain.streams, scheduled.streams]] as const)
@@ -138,7 +138,7 @@ check('the forest\'s outputs (300 seeds, the run\'s own commands): a run with th
 
 check('a run without the schedule (40 runs, the walk of the reference): the arenas and rosters of every node are those of main before the task (reference made 15.10.2026 on 9c43931; task 28 — a run without the Jailer fight, `jailer: false`); every step saves and reads back the same', () => {
   for (let k = 1; k <= 40; k++) {
-    let run = createRtRun(seedOf(k), { gift: 'mini', jailer: false });
+    let run = createRtRun(seedOf(k), { gift: 'mini', jailer: false, garrison: false });
     for (let step = 0; step < 300 && !run.result; step++) {
       const pending = run.pending;
       if (!pending) { const next = rtAvailableNodes(run); run = ok(rtEnterNode(run, next[(k * 7 + step) % next.length].id), 'enter'); }
@@ -155,7 +155,7 @@ check('a run without the schedule (40 runs, the walk of the reference): the aren
 check('variety and repeat (a veteran: everything met — every fight a practice fight): over 24 seeds the second fight takes at least 4 arenas; the same seed gives the same arenas, rosters and arcs; no arena of the last two fights again while another fits', () => {
   const second = new Set<string>();
   for (let k = 1; k <= 24; k++) {
-    const walk = (): RtRunState => quickWalk(createRtRun(seedOf(k + 500), { gift: 'mini', schedule: VETERAN }), k);
+    const walk = (): RtRunState => quickWalk(createRtRun(seedOf(k + 500), { gift: 'mini', schedule: VETERAN, garrison: false }), k);
     const a = walk(), b = walk();
     assert(same(a.picks, b.picks), `seed ${k}: the same seed, other picks`);
     const arenas = a.picks.filter(p => p.arena).map(p => p.arena!);
@@ -168,11 +168,11 @@ check('variety and repeat (a veteran: everything met — every fight a practice 
 });
 
 check('the save of a scheduled run reads back; a changed arena, arc, snapshot or record is no run; «Испытание II» never has a schedule', () => {
-  let run = quickWalk(createRtRun(seedOf(77), { gift: 'mini', schedule: [] }), 3, r => {
+  let run = quickWalk(createRtRun(seedOf(77), { gift: 'mini', schedule: [], garrison: false }), 3, r => {
     assert(same(parseRtRun(serializeRtRun(r)), r), 'the save reads back');
   });
   assert(run.result && run.battles.every(b => Array.isArray(b.seen)), 'every record has what it showed');
-  run = createRtRun(seedOf(78), { gift: 'mini', schedule: [] });
+  run = createRtRun(seedOf(78), { gift: 'mini', schedule: [], garrison: false });
   for (let step = 0; step < 300 && !(run.pending?.kind === 'battle' && run.battles.length >= 3); step++) run = run.pending ? (run.pending.kind === 'battle' ? ok(resolveArena(run, { nodeId: run.pending.nodeId, won: true, hp: run.maxHp, kills: 30, damage: 0, time: 60, kinds: [] }), 'resolve') : closeNode(run)) : enterNext(run, 1, step);
   const text = serializeRtRun(run), saved = JSON.parse(text);
   assert(parseRtRun(text), 'the open battle reads');
@@ -190,7 +190,7 @@ check('the save of a scheduled run reads back; a changed arena, arc, snapshot or
 
 /** A scheduled run (history `seen`) walked until a battle of run row `row` of one of `types` is open; null — not on this seed. */
 function openOn(k: number, seen: readonly string[], test: (run: RtRunState) => boolean): RtRunState | null {
-  let run = createRtRun(seedOf(k), { gift: 'mini', schedule: seen });
+  let run = createRtRun(seedOf(k), { gift: 'mini', schedule: seen, garrison: false });
   for (let step = 0; step < 300 && !run.result; step++) {
     const pending = run.pending;
     if (pending?.kind === 'battle') {
@@ -237,7 +237,7 @@ check('the loadout of a scheduled fight: a veteran — rows 6–8 plates 4 and t
 check('card = fight and В-1 (new viewers and veterans, 60 runs, the run\'s own commands): the card of every available arena node (its preview) and of every open battle has the elite and enemy rules of the fight\'s loadout; no ordinary fight has more special kinds standing than the row\'s cap (2 on rows 1–5, 3 on 6–9)', () => {
   let cards = 0, fights = 0;
   for (let k = 1; k <= 60; k++) {
-    quickWalk(createRtRun(seedOf(k + 3000), { gift: 'mini', schedule: k % 2 ? [] : VETERAN }), k, run => {
+    quickWalk(createRtRun(seedOf(k + 3000), { gift: 'mini', schedule: k % 2 ? [] : VETERAN, garrison: false }), k, run => {
       const pending = run.pending;
       if (pending?.kind === 'battle') {
         const node = rtNode(run, pending.nodeId)!, kit = rtArenaLoadout(run), rules = cardRules(run, node);

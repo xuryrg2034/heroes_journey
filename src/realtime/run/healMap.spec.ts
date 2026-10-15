@@ -239,7 +239,7 @@ function cardOpen(run: RtRunState, fight: boolean): void {
 await check('open on the map and on every battle card before «В бой» (battle, «Застава», breakthrough, the Jailer, the final, an event\'s battle); a heal on the card keeps its fight; closed in the started fight and on every other screen — whole runs, several seeds', () => {
   const open = new Set<string>(), closed = new Set<string>(), fought = new Set<string>();
   for (let k = 1; k <= 12 && !(['battle', 'hard', 'breakthrough', 'checkpoint', 'boss', 'event-battle'].every(t => open.has(t)) && k > 4); k++) {
-    let run = createRtRun(seedOf(200 + k), { gift: 'mini' });
+    let run = createRtRun(seedOf(200 + k), { gift: 'mini', garrison: false });
     closedAt(run); closed.add('gift');
     run = takeGift(run);
     for (let step = 0; step < 200 && !run.result; step++) {

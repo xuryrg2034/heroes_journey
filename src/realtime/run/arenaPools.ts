@@ -95,6 +95,8 @@ export const ARENA_TITLES: Readonly<Record<string, string>> = {
   // Task 28 «Тюремщик в походе»: the Jailer's fight on the run's row 5 — one name for the full arena and the yard without the ravine
   // (design 15.10.2026: the name on screen is the same).
   jailer: 'Тюремщик', 'jailer-yard': 'Тюремщик',
+  // Task 38 «Гарнизон»: the garrison's arenas (sim/arenasGarrison.ts; run/garrison.ts).
+  'g-yard': 'Плац', 'g-kennel': 'Псарня', 'g-gallery': 'Галерея', 'g-guardroom': 'Караульня', 'g-castellan': 'Двор кастеляна',
 };
 export const arenaTitle = (arena: string): string => ARENA_TITLES[arena] ?? arena;
 /** Every arena a run may play (a save naming another one is malformed). */

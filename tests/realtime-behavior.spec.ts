@@ -1,7 +1,7 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
-import { untilFrame } from './realtimeFrames';
+import { gameWait, untilFrame } from './realtimeFrames';
 
 /**
  * Enemy behaviour of stage 3a, steps 3–4 in the sandbox (docs/realtime-stage3.md, section 10): the wolves' howl circle,
@@ -299,5 +299,62 @@ test('fights on «Рысье логово» and «Круг шамана» record
     expect(recorded.journal.ticks).toBeGreaterThan(300);
     expect(replay(recorded.journal).hash(), `arena ${n}`).toBe(recorded.hash);
   }
+  expect(errors).toEqual([]);
+});
+
+/**
+ * Task 38 «Гарнизон» (docs/realtime-elite-behaviors.md, «Гарнизон»): the sandbox «Псарня» (`?arena=21`). A real chain drawn with the
+ * mouse across a leash: while it is drawn the leash is red (the highlight's cut, the placeholder line of the view), after the dash it
+ * is gone and the hound runs mad at the bodies around it; the browser fight replays in Node to the same hash.
+ */
+test('task 38: «Псарня» — a chain drawn with the mouse across a leash: red while drawn, cut after the dash, the hound runs mad at the crowd; the fight replays in Node', async ({ page }) => {
+  const errors = collectErrors(page);
+  await openSandbox(page, '&arena=21');
+  await expect.poll(async () => (await snap(page)).arena).toBe('g-kennel');
+  await quiet(page, { x: 4, y: 8.5 });
+  const handler = await place(page, 8.5, 8.5, 1, 1, 'handler');
+  // The handler gets its hounds; they run at the hero to the end of their leashes, then everybody stands.
+  await page.evaluate(() => (window as any).__realtime.setParam('enemySpeed', 1.5));
+  await gameWait(page, 2.5);
+  await page.evaluate(() => (window as any).__realtime.setParam('enemySpeed', 0));
+  await gameWait(page, 0.1);
+  type Body = { id: number; kind: string; x: number; y: number; vars: Record<string, number> };
+  type TetherSnap = { list: { holder: number; held: number }[]; lines: number; cut: number };
+  const read = async (): Promise<{ enemies: Body[]; tethers: TetherSnap; chain: number[] }> => page.evaluate(() => (window as any).__realtime.snapshot());
+  let s = await read();
+  expect(s.tethers.list.length).toBe(2);
+  expect(s.tethers.lines).toBe(2);
+  const h = s.enemies.find(e => e.id === handler)!, hound = s.enemies.find(e => e.id === s.tethers.list[0].held)!;
+  const mx = (h.x + hound.x) / 2, my = (h.y + hound.y) / 2, d = Math.hypot(hound.x - h.x, hound.y - h.y), px = -(hound.y - h.y) / d, py = (hound.x - h.x) / d;
+  const a = await place(page, mx + px * 0.9, my + py * 0.9, 0, 0, 'basic'), b = await place(page, mx - px * 0.9, my - py * 0.9, 0, 0, 'basic');
+  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [mx + px * 1.9, my + py * 1.9] as const);
+  // The chain with the mouse: press on a, drag to b — the leash between them turns red while the chain is held.
+  const at = async (id: number): Promise<{ x: number; y: number }> => { const e = (await read()).enemies.find(x => x.id === id)!; return page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [e.x, e.y] as const); };
+  const pa = await at(a);
+  await page.mouse.move(pa.x, pa.y);
+  await page.mouse.down();
+  const pb = await at(b);
+  await page.mouse.move(pb.x, pb.y, { steps: 6 });
+  await expect.poll(async () => (await read()).chain).toEqual([a, b]);
+  await expect.poll(async () => (await read()).tethers.cut).toBeGreaterThanOrEqual(1);
+  await page.screenshot({ path: 'artifacts/realtime-garrison-leash-cut.png' });
+  await page.mouse.up();
+  await expect.poll(async () => (await read()).tethers.list.some(t => t.held === hound.id), { timeout: 5_000 }).toBe(false);
+  s = await read();
+  expect((s.enemies.find(e => e.id === hound.id)?.vars.fz ?? 0) > 0 || !s.enemies.some(e => e.id === hound.id), 'the hound runs mad').toBe(true);
+  // The crowd by the mad hound (held by the cold): its bites take them — not the player's kills.
+  const crowd = await page.evaluate(([x, y]) => {
+    const rt = (window as any).__realtime, ids = [rt.place(x + 1.1, y, 2, 0, 'basic'), rt.place(x + 1.1, y + 0.8, 2, 0, 'basic'), rt.place(x + 1.1, y - 0.8, 2, 0, 'basic')];
+    for (const id of ids) rt.chill(id, 30);
+    rt.teleport(15, 2);
+    rt.setParam('enemySpeed', 1.5);
+    return ids as number[];
+  }, [hound.x, hound.y] as const);
+  const kills = (await page.evaluate(() => (window as any).__realtime.snapshot().stats.kills)) as number;
+  await expect.poll(async () => { const now = await read(); return crowd.filter(id => now.enemies.some(e => e.id === id)).length; }, { timeout: 8_000 }).toBeLessThan(3);
+  await page.screenshot({ path: 'artifacts/realtime-garrison-frenzy.png' });
+  expect(await page.evaluate(() => (window as any).__realtime.snapshot().stats.kills)).toBe(kills);
+  const recorded = await page.evaluate(() => { const rt = (window as any).__realtime; return { journal: rt.journal(), hash: rt.hash() }; }) as { journal: Journal; hash: string };
+  expect(replay(recorded.journal).hash()).toBe(recorded.hash);
   expect(errors).toEqual([]);
 });

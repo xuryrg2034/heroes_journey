@@ -44,6 +44,8 @@ import { leverReady, pullLever, slotFeedEnd } from './slot';
 import { doorFinaleOn, greedRelease, linkEmbers, planCheque, purseOn, settleCheque, tallyLink, type Cheque } from './purse';
 import { oathButton, oathCrystal, oathDashEnd, oathJump, oathLink, oathRelease } from './oath';
 import { bagKill } from './bag';
+// Task 38 «Гарнизон»: the law of tethers — the plan lists the tethers the dash cuts, the release fixes them, the dash's end cuts them.
+import { cutTethers, dashPathPoints, planTetherCuts, tethersOn } from './tethers';
 import { NO_COLOR, OBJECT_RADIUS, checkGoals, damageEnemy, doorOf, doorOpen, enemyFrozen, findObject, nextFiring, startShieldWindow, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
 
 export { OBJECT_RADIUS };
@@ -164,6 +166,12 @@ export interface ChainPlan {
    * without the hammer.
    */
   fire?: FirePreview;
+  /**
+   * Task 38 «Гарнизон» (`Params.tethers`, tethers.ts): the tethers the dash of this chain cuts — by their held body — read from the
+   * bodies where they stand now along the dash's path (the hero, then the links up to the one it stops on). The release fixes the
+   * same list (`HeroMove.cuts`). Absent when none.
+   */
+  cuts?: number[];
 }
 
 /**
@@ -248,7 +256,10 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   let cleared = false;
   // Task 31: the enemy links the dash reaches (`ChainEnd.links`), up to the survivor it stops on.
   let reached = 0;
+  // Task 38: how many links the dash's path runs through (up to its first survivor, or the core that ends the fight); -1 — all.
+  let pathEnd = -1, linkIndex = -1;
   for (const link of links) {
+    linkIndex++;
     if (cleared) { out.push({ link, outcome: null }); continue; }
     const enemy = link.kind === 'enemy' ? findEnemy(world, link.id) : undefined;
     if (!enemy) {
@@ -268,11 +279,17 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
     if (!endsOnSurvivor) { reached++; purse?.struck.push({ enemy, outcome }); }
     if (outcome.killed) kills++;
     // The package: a plate hit is no survivor — the chain goes on through the armoured elite.
-    else if (!outcome.plate) { if (!endsOnSurvivor) stopPower = power; endsOnSurvivor = true; }
+    else if (!outcome.plate) { if (!endsOnSurvivor) { stopPower = power; pathEnd = linkIndex + 1; } endsOnSurvivor = true; }
     // Task 27: a part this strike kills, with no survivor before it (the dash reaches it), is severed.
     out.push({ link, outcome, ...outcome.killed && !endsOnSurvivor && enemy.partOf !== undefined ? { severs: true as const } : {} });
-    if (outcome.killed && !endsOnSurvivor && endsFight(world, enemy)) cleared = true;
+    if (outcome.killed && !endsOnSurvivor && endsFight(world, enemy)) { cleared = true; pathEnd = linkIndex + 1; }
   }
+  // Task 38: the tethers the dash's path crosses (only while the law acts and a tether stands); one whose end the dash kills goes
+  // with that death, not by the cut.
+  const reachedLinks = pathEnd < 0 ? links.length : pathEnd;
+  const cuts = tethersOn(world) && world.tethers?.length
+    ? planTetherCuts(world, dashPathPoints(world.hero, links, reachedLinks, l => linkPoint(world, l)),
+      new Set(out.slice(0, reachedLinks).flatMap(l => l.outcome?.killed && l.link.kind === 'enemy' ? [l.link.id] : []))) : [];
   const last = links[links.length - 1];
   const endsOnObject = !!last && last.kind === 'object' && !passObject(world, last);
   let seal = links === world.chain && loopClosed(world) ? sealPreview(world, world.chainClosed!) : null;
@@ -307,7 +324,7 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   // Task 31: the fire of «Огненный проход» — lit once the dash reaches the threshold.
   const need = fireMinLinks(world.params);
   const fire: FirePreview | null = fireOn(world) ? { lit: reached >= need, links: reached, need } : null;
-  return { links: out, endsOnSurvivor, endsOnObject, power, kills, ...seal ? { seal } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {} };
+  return { links: out, endsOnSurvivor, endsOnObject, power, kills, ...seal ? { seal } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {}, ...cuts.length ? { cuts } : {} };
 }
 
 // ---- Task 31: the threshold of «Огненный проход» (the fire itself — hammers.ts) ----
@@ -1125,6 +1142,8 @@ export function releaseChain(world: World): boolean {
   const live = world.status === 'playing' && !world.move, backFixed = live && returnFixedOn(world);
   const full = live && (pierceOn(world) || backFixed) ? planChain(world) : null;
   const pierce = pierceOn(world) ? full?.pierce : undefined, back = backFixed ? full?.back : undefined;
+  // Task 38: the tethers the player saw cut — fixed now, cut when the dash ends (only while the law acts and a tether stands).
+  const cuts = live && tethersOn(world) && world.tethers?.length ? (full ?? planChain(world, world.chain, NO_PIERCE)).cuts : undefined;
   const links = world.chain.filter(l => linkPoint(world, l));
   world.chain = [];
   delete world.chainClosed;
@@ -1135,6 +1154,7 @@ export function releaseChain(world: World): boolean {
     world.events.push({ type: 'seal', phase: 'release', kind: seal.kind, points: seal.ring.map(q => ({ x: q.x, y: q.y })), inside: [...seal.inside], links: seal.links });
   }
   if (pierce) fixPierce(world, world.move, pierce);
+  if (cuts?.length) world.move.cuts = [...cuts];
   // «Смена цвета»: the links that free the colour, as drawn (absent while the rule is off or the chain has none).
   const shifts = colorShiftIds(world, links);
   if (shifts.length) world.move.shifts = shifts;
@@ -1582,6 +1602,8 @@ function finishMove(world: World): void {
   if (trailAt(world, hero)) hero.flames = Math.max(0.05, world.params.trailInterval);
   // Casino «Ставка клятвы»: a short chain to a button the dash did not press breaks «Цепи 3+».
   if (move.kind === 'dash' && world.oath) oathDashEnd(world);
+  // Task 38: the dash cuts the tethers its release fixed (the bodies freed act once no move runs).
+  if (move.kind === 'dash' && move.cuts && world.status === 'playing') cutTethers(world, move.cuts);
   if (move.kind === 'dash') {
     // Crystals of this chain are worth its final length (main game: crystalChain).
     for (const id of move.dropped) { const c = findObject(world, id); if (c) c.value = move.kills; }

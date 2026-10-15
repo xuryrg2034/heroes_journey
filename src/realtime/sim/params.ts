@@ -886,6 +886,27 @@ export interface Params {
    * the key: off.
    */
   holdNearest: boolean;
+  // ---- Task 38 «Гарнизон, шаг 1» (sim/tethers.ts, sim/enemies/garrison.ts; docs/realtime-elite-behaviors.md, «Гарнизон»). ----
+  /**
+   * The law of tethers (design 15.10.2026): a tether is a line between two bodies (the dog handler's leash, the Castellan's
+   * leashes) — not a link. A segment of the dash (the hero → link 1 → link 2 …, up to the link the dash stops on) that crosses
+   * its inner part (without `TETHER_END_GAP` at each end) cuts it after the dash; the highlight (`ChainPlan.cuts`) lists the same
+   * tethers, the release fixes them (`HeroMove.cuts`). The jump, the walk, the spin, consumables, the return run, the pierce and
+   * hammers never cut. A tether is gone when either end dies. Off by default; journals without the key: off (no tether is made,
+   * no `World.tethers`). The run turns it on (`RT_RUN_FORCED`).
+   */
+  tethers: boolean;
+  /** Task 38: the leash's length — a leashed hound stays within it of its holder (units; journals without the key: 3). */
+  leashLength: number;
+  /** Task 38: game seconds of a loosed hound's frenzy (journals without the key: 6). */
+  houndFrenzy: number;
+  /** Task 38: a frenzied hound's bite on an enemy (`damageEnemy`; an armoured elite loses a plate). Journals without the key: 1. */
+  houndFrenzyDamage: number;
+  /**
+   * Task 38: the guards walk in a line across their way to the hero, 0.9 apart (enemies/garrison.ts). Off by default; journals
+   * without the key: off (a guard walks as a plain slow enemy). The run turns it on (`RT_RUN_FORCED`).
+   */
+  guardFormation: boolean;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -1277,6 +1298,12 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   shiftAtPointer: true,
   // Task 39 (chain.ts `pickAt`): the held pointer takes a body only when it is nearer than every link of the chain.
   holdNearest: true,
+  // Task 38 «Гарнизон» (tethers.ts, enemies/garrison.ts): off by default; the run turns `tethers` and `guardFormation` on.
+  tethers: false,
+  leashLength: 3,
+  houndFrenzy: 6,
+  houndFrenzyDamage: 1,
+  guardFormation: false,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -1706,6 +1733,14 @@ export const PARAM_DEFS: readonly ParamDef[] = [
     hint: 'С «Близнецами» в сборке смена цвета не наступает, даже если «Смена цвета: после … звеньев» больше 0. В походе выключено.' },
   n('forkBranches', 'Талисманы', '«Развилка»: развилок за цепь', 0, 4, 1, 5, '', 'Сколько звеньев цепь может взять не от последнего звена (и не от героя с «Якорем»). Потом якорь — снова только последнее звено. 0 — без предела. В походе — 0.'),
   n('jailerHp', 'Босс', 'Тюремщик: HP ядра', 2, 10, 1, 5, '', 'HP ядра при появлении (новый бой). Арена «Тюремщик» ставит 5, если на панели значение по умолчанию (2).'),
+  // Task 38 «Гарнизон, шаг 1» (tethers.ts, enemies/garrison.ts, docs/realtime-elite-behaviors.md).
+  { kind: 'bool', key: 'tethers', group: 'Гарнизон', label: 'Закон связи', stage: 5,
+    hint: 'Поводок — линия между псарём (или Кастеляном) и псом, не звено. Отрезок прохода цепи, пересекающий поводок, рубит его после прохода; подсветка показывает те же поводки. Прыжок, ходьба, круговой удар и расходники не рубят. Сорвавшийся пёс в ярости кусает всех. В походе включено.' },
+  n('leashLength', 'Гарнизон', 'Длина поводка', 1, 6, 0.25, 5, 'ед.'),
+  n('houndFrenzy', 'Гарнизон', 'Ярость пса', 0, 15, 0.5, 5, 'с', 'Сорвавшийся пёс бежит к ближайшему телу и кусает всех; потом — обычный пёс.'),
+  n('houndFrenzyDamage', 'Гарнизон', 'Укус пса в ярости', 0, 4, 1, 5, '', 'Урон укуса врагу (элите — пластина). Убийства яростью игроку не засчитываются.'),
+  { kind: 'bool', key: 'guardFormation', group: 'Гарнизон', label: 'Строй стражников', stage: 5,
+    hint: 'Стражники идут строем по 3 в линию поперёк пути к герою, шаг 0,9. Без строя — обычные медленные враги. В походе включено.' },
 ];
 
 const MAX_PHASES = 8;

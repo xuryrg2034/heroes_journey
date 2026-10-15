@@ -48,6 +48,11 @@ import { bodyRadiusOf, registerBehavior, registerEnemyKind } from './kinds';
 /** The kinds of the Jailer: its core and its part. */
 export const JAILER = 'jailer';
 export const JAILER_WEIGHT = 'jailer-weight';
+/**
+ * Task 38 «Гарнизон»: the boss cores of the frame — the Jailer and the Castellan (enemies/garrison.ts, the same frame): both are
+ * colourless with `jailerColorless` and both end the fight with `bossClears`.
+ */
+export const BOSS_CORES: readonly string[] = [JAILER, 'castellan'];
 export type JailerMoveId = 'flail' | 'throw' | 'whistle';
 /** Every move of the Jailer (telegraphWindow.spec.ts checks each has a window record). */
 export const JAILER_MOVES: readonly JailerMoveId[] = ['flail', 'throw', 'whistle'];
@@ -138,7 +143,7 @@ export function jailerShieldUp(world: World, e: Enemy): boolean {
 /** HP of the core at its spawn: `Params.jailerHp` (a journal without the key — `JAILER_HP`), at least 1. */
 export const jailerHpOf = (params: Params): number => Math.max(1, Math.round(params.jailerHp ?? JAILER_HP));
 /** Task 32: `e` is a colourless core in this world (the frame and `Params.jailerColorless` on). Its parts keep their colours. */
-export const colorlessCore = (world: World, e: Pick<Enemy, 'kind'>): boolean => e.kind === JAILER && frameOn(world) && !!world.params.jailerColorless;
+export const colorlessCore = (world: World, e: Pick<Enemy, 'kind'>): boolean => BOSS_CORES.includes(e.kind) && frameOn(world) && !!world.params.jailerColorless;
 
 // ---- Task 28 «Тюремщик в походе»: the boss's death ends the fight (`Params.bossClears`) ----
 
@@ -147,14 +152,14 @@ export const BOSS_CLEAR = 'boss-clear';
 /** Task 28: the boss's death ends the fight in this world (the frame and `bossClears` on). */
 export const bossClearsOn = (world: World): boolean => frameOn(world) && !!world.params.bossClears;
 /** Task 28: `e` is a boss core whose death ends the fight (the highlight stops the chain after it, chain.ts `planChain`). */
-export const endsFight = (world: World, e: Pick<Enemy, 'kind'>): boolean => e.kind === JAILER && bossClearsOn(world);
+export const endsFight = (world: World, e: Pick<Enemy, 'kind'>): boolean => BOSS_CORES.includes(e.kind) && bossClearsOn(world);
 
 /**
  * Task 28: the core `core` has just died (it is off the arena) — the fight ends: a dash running is over on the core (its links
  * after it are dropped, a pierce not started yet is cancelled), the markers and the queue are dropped, every enemy left dies
  * (`kill` of the source `boss-clear`, not credited), nothing spawns any more (`World.bossCleared`), the door opens.
  */
-function bossClear(world: World): void {
+export function bossClear(world: World): void {
   world.bossCleared = true;
   const move = world.move;
   if (move?.kind === 'dash') {

@@ -384,6 +384,8 @@ export class RealtimeRenderer {
    * the drawn chain (`severLit` — in its lit phase); the hit flashes, the cut chains and the «−1 пластина» words since the start.
    */
   readonly bossShown = { flail: 0, throw: 0, whistle: 0, chains: 0, severPips: 0, severLit: 0, hits: 0, breaks: 0, plates: 0, clears: 0, waves: 0, colorless: 0, coreRing: 0 };
+  /** Task 38: the tethers drawn in the last frame (the placeholder lines) and how many of them red (the drawn chain's cuts). */
+  readonly tetherShown = { lines: 0, cut: 0 };
   /** Task 28: the core's last point (arena units) — the centre of the crowd's death wave; the waves on screen. */
   private bossCoreAt: { x: number; y: number } | null = null;
   private readonly clearWaves: { g: Graphics; x: number; y: number; t: number; reach: number }[] = [];
@@ -1262,6 +1264,20 @@ export class RealtimeRenderer {
     for (const b of world.blasts) {
       if (b.bust) bustCircle(b.x, b.y, b.radius, b.timeLeft, b.total);
       else fuse(b.x, b.y, b.timeLeft, b.total);
+    }
+    // Task 38 «Гарнизон» (a placeholder until the ui session's leash): every tether a line; red while the drawn chain's dash would
+    // cut it (the plan's `cuts` — the same list the release fixes).
+    this.tetherShown.lines = 0; this.tetherShown.cut = 0;
+    if (world.tethers?.length) {
+      const cuts = world.chain.length && !world.move ? planChain(world).cuts ?? [] : [];
+      for (const t of world.tethers) {
+        const a = world.enemies.find(e => e.id === t.holder), b = world.enemies.find(e => e.id === t.held);
+        if (!a || !b) continue;
+        const cut = cuts.includes(t.held);
+        this.tetherShown.lines++;
+        if (cut) this.tetherShown.cut++;
+        g.moveTo(a.x * UNIT, a.y * UNIT).lineTo(b.x * UNIT, b.y * UNIT).stroke({ color: cut ? 0xff3b30 : 0x8a6a3a, width: cut ? 4 : 2.5, alpha: 0.9, cap: 'round' });
+      }
     }
     const marks = new Map<number, { x: number; y: number; r: number; progress: number }>();
     for (const e of world.enemies) {

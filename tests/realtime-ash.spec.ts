@@ -25,7 +25,7 @@ function collectErrors(page: Page): string[] {
 
 /** A run (seed k, level `ash`) walked by its own commands, every fight won, until `stop` says so. */
 function walk(k: number, ash: RtAshLevel, stop: (run: RtRunState) => boolean): RtRunState {
-  let run = takeGift(createRtRun(seedOf(k), { gift: 'mini', ash }));
+  let run = takeGift(createRtRun(seedOf(k), { gift: 'mini', ash, garrison: false }));
   for (let step = 0; step < 600 && !run.result; step++) {
     if (stop(run)) return run;
     if (run.pending?.kind === 'battle') { run = ok(resolveArena(run, { nodeId: run.pending.nodeId, won: true, hp: run.hp, kills: 20, damage: 0, time: 40, kinds: ['basic', 'wolf'] }), 'win'); continue; }
@@ -50,7 +50,7 @@ test('task 18: no choice before a won run; the final won in the page opens «И�
   test.setTimeout(90_000);
   const errors = collectErrors(page);
   // A lost run's end: the profile has not won — no choice, only «Новый поход».
-  let lost = takeGift(createRtRun(seedOf(5), { gift: 'mini' }));
+  let lost = takeGift(createRtRun(seedOf(5), { gift: 'mini', garrison: false }));
   lost = ok(rtEnterNode(lost, rtAvailableNodes(lost).find(isArenaNode)!.id), 'enter');
   lost = ok(resolveArena(lost, { nodeId: (lost.pending as { nodeId: string }).nodeId, won: false, hp: 0, kills: 3, damage: 15, time: 20, kinds: ['basic'] }), 'lose');
   await open(page, lost, null);

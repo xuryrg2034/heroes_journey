@@ -258,7 +258,7 @@ await check('telemetry: the run record gets the camp\'s flags, the map chosen, t
   earn(store, 8, 400);
   store.buyHearth('owl', 1);
   const options = campRun(store, 2, {}, { map: 1 }), start = store.hearthStart(seedOf(2));
-  const run = createRtRun(options.seed, options.create);
+  const run = createRtRun(options.seed, { garrison: false, ...options.create });
   rec.runStarted(null, run); rec.hearthMap(run, 1);
   const ended = walkRun(options).run, end = store.endRunMeta(ended)!;
   rec.runMetaEnd(ended, end); rec.hearthBuy(ended, 'owl', 2, 8); rec.hearthClick(ended, 'owl'); rec.hearthClick(ended, 'owl'); rec.hearthClick(ended, 'herb');

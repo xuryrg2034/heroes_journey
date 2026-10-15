@@ -27,7 +27,7 @@ import saveBefore from '../../../tests/fixtures/rt-run-save-before-record.json';
 let checks = 0;
 function check(name: string, run: () => void): void { run(); checks++; console.log(`ok - ${name}`); }
 
-const newRun = (k: number): RtRunState => toBattle(takeGift(createRtRun(seedOf(k), { gift: 'mini' })));
+const newRun = (k: number): RtRunState => toBattle(takeGift(createRtRun(seedOf(k), { gift: 'mini', garrison: false })));
 const rowOf = (run: RtRunState): number => { const p = run.pending; assert(p?.kind === 'battle', 'an open battle'); return runRow(rtNode(run, p.nodeId)!.row); };
 const lines = (run: RtRunState): string[] => rtRunEndLines(run).map(line => line.text);
 /** The open battle won by the run's command with a plain outcome (no chain recorded). */

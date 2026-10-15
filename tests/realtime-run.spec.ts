@@ -1,7 +1,8 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
 import { untilFrame } from './realtimeFrames';
-import { createRtRun, serializeRtRun } from '../src/realtime/run/rtRun';
+import { createRtRun, serializeRtRun, type RtRunState } from '../src/realtime/run/rtRun';
+import { walkRun } from '../src/realtime/run/metaWalk.testkit';
 import { RT_RUN_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
 import { SCHEDULE_PRACTICE, SCHEDULE_RUN_ARENAS } from '../src/realtime/run/schedule';
 import { JAILER_RUN_ARENAS } from '../src/realtime/sim/arenasBoss';
@@ -218,10 +219,15 @@ test('run: two runs walk to the final arena — a new run by the schedule (its a
   const met: { run: number; row: number; arena: string; type: string; scheduled: boolean }[] = [];
   // Two runs (seeds spread apart) to the end: battles are won by the test hook, other nodes take their first button.
   for (const [n, seed] of [Math.imul(1, 2654435761) >>> 0, Math.imul(2, 2654435761) >>> 0].entries()) {
-    if (n === 0) await page.evaluate(s => (window as any).__realtime.run.newRun(s), seed);
-    else {
+    // Task 38: both runs end at the forest final — saves without the garrison (a run with it goes on: the test «task 38» below).
+    if (n === 0) {
+      // A new viewer's run (the schedule of an empty history, the Jailer), saved without the garrison.
+      await page.evaluate(([key, value]) => localStorage.setItem(key, value), [RT_RUN_STORAGE_KEY, serializeRtRun(createRtRun(seed, { gift: 'full', seeded: true, schedule: [], garrison: false }))] as const);
+      await page.reload();
+      await expect(page.getByTestId('run')).toBeVisible();
+    } else {
       // A save without the schedule and the Jailer (a save before tasks 26 and 28; the full gift, as `?seed=` makes it).
-      await page.evaluate(([key, value]) => localStorage.setItem(key, value), [RT_RUN_STORAGE_KEY, serializeRtRun(createRtRun(seed, { gift: 'full', seeded: true, jailer: false }))] as const);
+      await page.evaluate(([key, value]) => localStorage.setItem(key, value), [RT_RUN_STORAGE_KEY, serializeRtRun(createRtRun(seed, { gift: 'full', seeded: true, jailer: false, garrison: false }))] as const);
       await page.reload();
       await expect(page.getByTestId('run')).toBeVisible();
     }
@@ -867,5 +873,29 @@ test('run: in an iframe (the published artifact) «Песочница» and «�
   await frame.getByTestId('menu-run').click();
   await expect(frame.getByTestId('run-map')).toBeVisible();
   expect(await app().evaluate(() => (window as any).__realtime.run.state())).toEqual(before);
+  expect(errors).toEqual([]);
+});
+
+test('task 38: a run walked in Node to «Предместье» (the forest final won, its relic taken): HP full, «В гарнизон» opens the garrison\'s map headed «Гарнизон»', async ({ page }) => {
+  const errors: string[] = [];
+  await openRun(page, errors);
+  // The run's own commands in Node: every fight won, every screen chosen (metaWalk.testkit.ts); stop at «Предместье».
+  let outskirts: RtRunState | null = null;
+  walkRun({ k: 3, create: { gift: 'full', seeded: true, garrison: true }, each: state => { if (!outskirts && state.pending?.kind === 'outskirts') outskirts = state; } });
+  expect(outskirts, 'the walk reached «Предместье»').not.toBeNull();
+  await page.evaluate(([key, value]) => localStorage.setItem(key, value), [RT_RUN_STORAGE_KEY, serializeRtRun(outskirts!)] as const);
+  await page.reload();
+  await expect(page.getByTestId('run-outskirts')).toBeVisible();
+  const state = await runState(page);
+  expect(state.hp).toBe(state.maxHp);
+  await expect(page.getByTestId('outskirts-hp')).toHaveText(`HP ${state.maxHp} / ${state.maxHp}`);
+  await expect(page.getByTestId('run-title')).toHaveText('Поход');
+  await page.screenshot({ path: 'artifacts/realtime-garrison-outskirts.png' });
+  await page.getByTestId('run-garrison').click();
+  await expect(page.getByTestId('run-outskirts')).toBeHidden();
+  await expect(page.getByTestId('run-title')).toHaveText('Гарнизон');
+  const after = await page.evaluate(() => (window as any).__realtime.run.state()) as RtRunState;
+  expect(after.garrisonLevel).toBeDefined();
+  await page.screenshot({ path: 'artifacts/realtime-garrison-map.png' });
   expect(errors).toEqual([]);
 });

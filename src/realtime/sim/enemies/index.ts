@@ -18,6 +18,8 @@ import './lynx';
 import './shaman';
 // Task 27 «Каркас босса»: the Jailer's core and its weight (sandbox only, `Params.bossFrame`).
 import './jailer';
+// Task 38 «Гарнизон, шаг 1»: the guard, the dog handler and its hound, the Castellan v0.
+import './garrison';
 
 export { BOAR_ART_SCALE, type BoarState } from './boar';
 export { packmates, wolfHowl, wolfRushLine, wolfState, WOLF_RUSH } from './wolf';
@@ -28,4 +30,5 @@ export { quillsUp, quillsWarning } from './porcupine';
 export { LYNX_LEAP, LYNX_STUN, LYNX_WINDUP, lynxLine, lynxStunned } from './lynx';
 export { shamanBeam } from './shaman';
 export { JAILER, JAILER_MOVES, JAILER_WEIGHT, inJailerShield, jailerCore, jailerMove, jailerShieldUp, type JailerMoveId } from './jailer';
+export { CASTELLAN, GUARD, HANDLER, HOUND, castellanMove, houndFrenzied } from './garrison';
 export * from './kinds';

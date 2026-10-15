@@ -46,7 +46,7 @@ function stepOf(run: RtRunState, stop: (run: RtRunState) => boolean, circle: boo
 /** The first seed whose walk reaches `stop`; its save. */
 function walkTo(stop: (run: RtRunState) => boolean, circle: boolean): string {
   for (let k = 1; k < 400; k++) {
-    let run: RtRunState | null = createRtRun(seedOf(k), { gift: 'mini' }), last = run;
+    let run: RtRunState | null = createRtRun(seedOf(k), { gift: 'mini', garrison: false }), last = run;
     for (let n = 0; n < 200 && run && !run.result; n++) { last = run; run = stepOf(run, stop, circle, n); }
     if (!run && stop(last)) return serializeRtRun(last);
   }

@@ -136,7 +136,7 @@ function toBattle(run: RtRunState, wanted: (type: string) => boolean = () => tru
   }
   throw new Error('no such battle');
 }
-const startRun = (seed: number): RtRunState => toBattle(takeGift(createRtRun(seed, { gift: 'mini' })));
+const startRun = (seed: number): RtRunState => toBattle(takeGift(createRtRun(seed, { gift: 'mini', garrison: false })));
 /** A run seed whose first die (draw 0) is low (1–3) or high (4–6). */
 function seedWith(high: boolean, from = 1): number {
   for (let k = from; k < from + 200; k++) if ((rtDieFace(seedOf(k), 0) > 3) === high) return seedOf(k);
@@ -313,7 +313,7 @@ await check('after the die the node\'s victory goes on: a hard battle\'s talisma
   for (let k = 1; k <= 6 && (!hard || !boss); k++) {
     for (const type of ['hard', 'boss']) {
       let run: RtRunState;
-      try { run = toBattle(takeGift(createRtRun(seedOf(k + 60), { gift: 'mini' })), t => t === type, k); } catch { continue; }
+      try { run = toBattle(takeGift(createRtRun(seedOf(k + 60), { gift: 'mini', garrison: false })), t => t === type, k); } catch { continue; }
       const { outcome } = fight(run, 100, { k });
       const plain = ok(resolveArena(run, { ...outcome, doorDie: false }), 'without the die');
       const at = ok(resolveArena(run, outcome), 'with the die');
@@ -395,7 +395,7 @@ function fakeLocal(): KeyValueStore {
 await check('the logs: the run choice `door-die`, the run record\'s `dice` (shown, rolled or taken, the face, the multiplier, the resources) and the report\'s section', async () => {
   const local = fakeLocal(), session: SessionStore = (() => { const m = new Map<string, string>(); return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v); } }; })();
   const rec = new RtRecorder({ sandbox: false, paramsStorage: 'p', params: rtRunParams(defaultParams()), observer: createFightObserver, local, sessionStore: session, channel: null, sinkPollMs: 0, buffer: { storage: local, journals: memoryJournalStore() } });
-  let run = createRtRun(seedOf(101), { gift: 'mini' });
+  let run = createRtRun(seedOf(101), { gift: 'mini', garrison: false });
   rec.runStarted(null, run);
   const apply = (step: RtRunStep): RtRunStep => { assert(step.ok, 'step'); rec.runStep(run, step); run = step.run; return step; };
   apply(rtChooseGift(run, rtGiftView(run)!.options.find(e => e.available)!.index));

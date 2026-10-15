@@ -23,6 +23,8 @@ import './arenasCamera';
 import './arenasPrologue';
 // Task 27: the boss arena «Тюремщик» (sandbox only) registers on import too.
 import './arenasBoss';
+// Task 38: the arenas of the garrison register on import too.
+import './arenasGarrison';
 import { withRoster, withoutKinds, type RosterArena } from './rosters';
 import { stepHero, tickScale } from './chain';
 import { applyCommand, type Command, type CommandResult } from './commands';

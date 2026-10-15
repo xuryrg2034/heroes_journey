@@ -39,6 +39,8 @@ export interface SpawnMarker {
    * it waits `eliteMarkerDelay` (the view draws it larger, with a lemon rim). Absent otherwise.
    */
   elite?: true;
+  /** Task 38: the formation of a guard (`QueuedSpawn.formation`; the enemy keeps it in `vars.fm`). Absent otherwise. */
+  formation?: number;
 }
 
 export interface QueuedSpawn {
@@ -55,6 +57,11 @@ export interface QueuedSpawn {
    * as before).
    */
   held?: number;
+  /**
+   * Task 38 «Гарнизон»: the members of one formation (a newcomer of a kind the arena brings in a group, `NewcomerShare.group`:
+   * the guards' line of 3 of one colour) share this number (a fresh id). Absent on every other newcomer (worlds hash as before).
+   */
+  formation?: number;
 }
 
 /** `spawnGroupHold` (design 12.10.2026): a member waits at its group's anchor this long (game seconds), then the group moves. */
@@ -304,8 +311,23 @@ function rollGroup(world: World, forceSingle = false): void {
     if (world.queue.length >= enemyLimit(p, world.arena)) break;
     const sameColor = pack ? p.wolfPackMono || p.groupColor === 'mono' : p.groupColor === 'mono';
     const color = sameColor ? monoColor : rollColor(world);
-    world.queue.push(pack ? { kind: 'wolf', color, hp: rollHp(world), anchor } : rollSingle(world, color, anchor));
+    const q: QueuedSpawn = pack ? { kind: 'wolf', color, hp: rollHp(world), anchor } : rollSingle(world, color, anchor);
+    world.queue.push(q);
+    // Task 38: a newcomer of a kind that comes in a formation (the guards' line) brings the rest of it — its places in the group.
+    if (!pack) i += pushFormation(world, q);
   }
+}
+
+/**
+ * Task 38 «Гарнизон» (`NewcomerShare.group`): a newcomer of a formation kind — `q` and `group − 1` copies of it (the same kind,
+ * colour, HP and anchor) share a fresh formation number; the members added (0 for every other kind: no draw, no change).
+ */
+function pushFormation(world: World, q: QueuedSpawn): number {
+  const size = world.arena.newcomers?.find(entry => entry.kind === q.kind)?.group ?? 1;
+  if (size < 2) return 0;
+  q.formation = world.nextId++;
+  for (let k = 1; k < size; k++) world.queue.push({ ...q });
+  return size - 1;
 }
 
 /**
@@ -374,7 +396,7 @@ function pushMarker(world: World, q: QueuedSpawn, p: Vec, delay: number): void {
   // `elite` stream draws in another order than without armour (at the marker, not at the step-out) — only with armour.
   const elite = !q.plain && !!world.params.eliteArmor && eliteRoll(world, q.kind);
   const wait = elite ? Math.max(delay, world.params.eliteMarkerDelay ?? delay) : delay;
-  world.markers.push({ id: world.nextId++, kind: q.kind, x: p.x, y: p.y, color: q.color, hp: q.hp, timeLeft: wait, total: wait, ...q.plain ? { plain: true as const } : {}, ...elite ? { elite: true as const } : {} });
+  world.markers.push({ id: world.nextId++, kind: q.kind, x: p.x, y: p.y, color: q.color, hp: q.hp, timeLeft: wait, total: wait, ...q.plain ? { plain: true as const } : {}, ...elite ? { elite: true as const } : {}, ...q.formation !== undefined ? { formation: q.formation } : {} });
 }
 
 /** The hero stands near a marker: the marker moves and its countdown restarts. */
@@ -424,6 +446,8 @@ export function updateSpawning(world: World, dt: number): void {
     if (m.timeLeft > 0) continue;
     world.markers.splice(i, 1);
     const e = spawnEnemy(world, m, m.color, m.hp, m.kind);
+    // Task 38: a guard of a formation keeps its number (enemies/garrison.ts reads it).
+    if (m.formation !== undefined) e.vars.fm = m.formation;
     // Stage 2, step 3: a newcomer may be a random elite (a run from its row 3, or the sandbox toggle) — not an extra
     // enemy of «злость». The package (armour on): its marker already decided it.
     if (world.params.eliteArmor) { if (m.elite) { makeElite(world, e, true); world.events.push({ type: 'elite', enemyId: e.id }); } }

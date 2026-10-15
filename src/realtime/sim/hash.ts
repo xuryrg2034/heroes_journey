@@ -82,6 +82,8 @@ export function worldState(world: World): unknown {
     ...world.shieldGoal ? { shieldGoal: world.shieldGoal } : {},
     // Task 28 «Тюремщик в походе» (`Params.bossClears`): the boss died, the fight is over (absent until then — worlds hash as before).
     ...world.bossCleared ? { bossCleared: true } : {},
+    // Task 38 «Гарнизон» (`Params.tethers`, tethers.ts): the tethers on the arena (absent while none — worlds hash as before).
+    ...world.tethers?.length ? { tethers: world.tethers } : {},
   };
 }
 

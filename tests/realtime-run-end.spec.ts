@@ -119,7 +119,7 @@ function ok(step: RtRunStep): RtRunState { if (!step.ok) throw new Error(step.re
 /** A run walked by its own commands to the open final arena: fights won (the first records a chain of 7, the rest 2). */
 function finalSave(): string {
   for (let k = 1; k < 50; k++) {
-    let run: RtRunState = createRtRun(seedOf(k), { gift: 'mini' }), fights = 0;
+    let run: RtRunState = createRtRun(seedOf(k), { gift: 'mini', garrison: false }), fights = 0;
     for (let n = 0; n < 200 && !run.result; n++) {
       const p = run.pending;
       if (p?.kind === 'battle') {

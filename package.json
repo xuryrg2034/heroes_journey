@@ -85,6 +85,8 @@
     "test:realtime-guard": "tsx src/realtime/sim/guard.spec.ts",
     "test:realtime-telegraph-window": "tsx src/realtime/sim/telegraphWindow.spec.ts",
     "test:realtime-jailer": "tsx src/realtime/sim/jailer.spec.ts",
+    "test:realtime-garrison": "tsx src/realtime/sim/garrison.spec.ts",
+    "test:realtime-garrison-run": "tsx src/realtime/run/garrisonRun.spec.ts",
     "test:realtime-boss-clears": "tsx src/realtime/sim/bossClears.spec.ts",
     "test:realtime-jailer-run": "tsx src/realtime/run/jailerRun.spec.ts",
     "test:realtime-meta": "tsx src/realtime/run/meta.spec.ts",

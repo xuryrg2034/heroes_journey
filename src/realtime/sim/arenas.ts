@@ -57,6 +57,11 @@ export interface StartEnemy {
    * on such an enemy (other worlds hash as before).
    */
   shieldless?: boolean;
+  /**
+   * Task 38 «Гарнизон»: the start guards of one formation share this number (1, 2, …; the enemy keeps −n in `vars.fm`, apart from
+   * the newcomers' fresh ids). Omitted — none.
+   */
+  formation?: number;
 }
 
 /**
@@ -81,6 +86,11 @@ export interface NewcomerShare {
   share: number;
   /** HP of such a newcomer; omitted — the tough roll of the phase, as for a basic enemy. */
   hp?: number;
+  /**
+   * Task 38 «Гарнизон»: such a newcomer comes in a formation of this many of one colour (the guards' line of 3; spawn.ts
+   * `pushFormation`). Omitted — one.
+   */
+  group?: number;
 }
 
 /** Base pace before the goals: the fields of a phase without its duration. */
@@ -197,6 +207,12 @@ export interface ArenaTemplate extends ArenaShape {
   jailerHp?: number;
   /** Task 27: the gates of a boss arena — where the Jailer's «Свисток» calls its adds (enemies/jailer.ts). Omitted — none. */
   gates?: Vec[];
+  /**
+   * Task 38 «Гарнизон» (sim/arenasGarrison.ts): an arena of the garrison plays its laws whatever the given values hold — the world
+   * gets a copy with `Params.tethers` and `Params.guardFormation` on (world.ts `createWorld`; the journal keeps that copy), so the
+   * sandbox shows them as the run does. Omitted — the values as given.
+   */
+  garrison?: boolean;
 }
 
 /**

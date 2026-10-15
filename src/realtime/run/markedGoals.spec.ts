@@ -77,7 +77,7 @@ function goalShape(w: World, row: number): { horde: boolean; marked: number; lea
 interface Fight { row: number; arena: string; roster?: string; run: RtRunState }
 /** A run walked by its own steps (fights won at once): every battle it opens. `markedGoals` — the run's flag. */
 function walk(seed: number, k: number, markedGoals?: boolean): Fight[] {
-  let run = createRtRun(seed, { gift: 'mini', ...markedGoals !== undefined ? { markedGoals } : {} });
+  let run = createRtRun(seed, { gift: 'mini', garrison: false, ...markedGoals !== undefined ? { markedGoals } : {} });
   const fights: Fight[] = [];
   for (let step = 0; step < 200 && !run.result; step++) {
     const pending = run.pending;

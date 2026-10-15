@@ -26,6 +26,8 @@ import { enemyLimit, scaledFloor } from '../sim/spawn';
 import { BEHAVIOR_ARENAS } from '../sim/arenasStage3';
 import { CAMERA_ARENAS } from '../sim/arenasCamera';
 import { BOSS_ARENAS } from '../sim/arenasBoss';
+// Task 38: the garrison's arenas at the end of the sandbox menu (`?arena=20…24`).
+import { GARRISON_ARENAS } from '../sim/arenasGarrison';
 import { canSpin } from '../sim/abilities';
 import { ITEM_REFUSAL_TEXT, itemRefusal } from '../sim/items';
 import { SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
@@ -100,7 +102,7 @@ const NOTE_FLASH_MS = 1000;
  * new enemies («Рысье логово», «Круг шамана»), keys ⇧6–⇧7; then the camera sample «Большая поляна» 24×15 (key ⇧8,
  * docs/realtime-stage3.md, section 11); then the boss arena «Тюремщик» (task 27, key ⇧9, `?arena=19`). `?arena=1…19` opens one at once.
  */
-const SANDBOX_ARENAS: readonly ArenaTemplate[] = [...ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS, ...BEHAVIOR_ARENAS, ...CAMERA_ARENAS, ...BOSS_ARENAS];
+const SANDBOX_ARENAS: readonly ArenaTemplate[] = [...ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS, ...BEHAVIOR_ARENAS, ...CAMERA_ARENAS, ...BOSS_ARENAS, ...GARRISON_ARENAS];
 /** Arenas on the plain digit keys (1–9, 0); the rest are on Shift + digit (stage 3a). */
 const DIGIT_ARENAS = ARENAS.length + SLICE_ARENAS.length;
 /** What an arena forces over the panel's phase table (stage 2): «стай волков и кабанов нет (доли 0)» and the like. */
@@ -111,7 +113,8 @@ function phaseOverrideText(override: NonNullable<ArenaTemplate['phaseOverride']>
   return 'с поправками арены';
 }
 /** The menu key of sandbox arena `i` (from 0): 1–9, then 0 for the tenth; the arenas of stage 3a — ⇧1…⇧7. */
-const arenaKey = (i: number): string => (i < DIGIT_ARENAS ? String((i + 1) % 10) : `⇧${i - DIGIT_ARENAS + 1}`);
+// Task 38: past ⇧9 (the garrison's arenas) — no key: the number of `?arena=N`.
+const arenaKey = (i: number): string => (i < DIGIT_ARENAS ? String((i + 1) % 10) : i - DIGIT_ARENAS < 9 ? `⇧${i - DIGIT_ARENAS + 1}` : `№${i + 1}`);
 /** The sandbox arena of a digit key (Shift — the terrain samples); −1 — none. */
 function arenaOfKey(code: string, shift: boolean): number {
   const m = /^(?:Digit|Numpad)(\d)$/.exec(code);
@@ -308,7 +311,7 @@ async function boot(): Promise<void> {
   menuCard.append(...menuRunButton ? [menuRunButton] : [], el('h2', '', 'Выбери арену'));
   const arenaList = el('div', 'rt-arenas');
   // The camera sample's button has its own test id: the menu counts of the older tests (`arena-*`) stay as they were.
-  const camera0 = DIGIT_ARENAS + TERRAIN_ARENAS.length + BEHAVIOR_ARENAS.length, boss0 = camera0 + CAMERA_ARENAS.length;
+  const camera0 = DIGIT_ARENAS + TERRAIN_ARENAS.length + BEHAVIOR_ARENAS.length, boss0 = camera0 + CAMERA_ARENAS.length, garrison0 = boss0 + BOSS_ARENAS.length;
   SANDBOX_ARENAS.forEach((arena, i) => {
     // Stage 3a: the terrain samples under their own heading (sandbox only, not in the run).
     if (i === DIGIT_ARENAS) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Местность этапа 3а — образцы (только песочница)'));
@@ -316,7 +319,9 @@ async function boot(): Promise<void> {
     if (i === DIGIT_ARENAS + TERRAIN_ARENAS.length + BEHAVIOR_ARENAS.length) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Камера — арена больше экрана (только песочница)'));
     // Task 27: the boss arenas (the frame and the Jailer) under their own heading, test ids `boss-arena-N`.
     if (i === boss0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Босс — каркас и Тюремщик (только песочница)'));
-    const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span data-summary="${i}">${markedGoalArena(arena, params.markedGoals).summary}</span>`, i >= boss0 ? `boss-arena-${i - boss0 + 1}` : i >= camera0 ? `camera-arena-${i - camera0 + 1}` : `arena-${i + 1}`);
+    // Task 38: the garrison's arenas under their own heading, test ids `garrison-arena-N`.
+    if (i === garrison0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Гарнизон — строй, поводки, Кастелян'));
+    const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span data-summary="${i}">${markedGoalArena(arena, params.markedGoals).summary}</span>`, i >= garrison0 ? `garrison-arena-${i - garrison0 + 1}` : i >= boss0 ? `boss-arena-${i - boss0 + 1}` : i >= camera0 ? `camera-arena-${i - camera0 + 1}` : `arena-${i + 1}`);
     b.addEventListener('click', () => start(i));
     arenaList.appendChild(b);
   });
@@ -1657,6 +1662,8 @@ async function boot(): Promise<void> {
         guard: { sparks: renderer.blocksShown, wards: renderer.wardsShown, fails: renderer.shieldFailShown },
         /** Task 27 «Тюремщик»: the boss's view — move signs and chains of the frame, the «отрубит» pip, hits, cut chains, «−1 пластина». */
         boss: { ...renderer.bossShown },
+        /** Task 38: the sim's tethers and what the view drew of them in the last frame (lines, red ones). */
+        tethers: { list: (w.tethers ?? []).map(t => ({ ...t })), ...renderer.tetherShown },
         /** Task 28: the boss bar of the HUD (`BossBar.shown`) and the names of the boss's moves on screen now. */
         bossBar: bossBar.shown(),
         bossNames: bossLabels.map(l => l.spec.text),

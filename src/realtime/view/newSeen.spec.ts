@@ -89,7 +89,7 @@ check('arena kinds: a roster brings its kinds; a pool roster drops the template 
 const ok = (step: RtRunStep): RtRunState => { if (!step.ok) throw new Error(step.reason); return step.run; };
 /** The mini-gift walk of rosters.spec.ts: first button of every screen, `k + step` on the map, every arena a won fight; `visit` sees each map screen. */
 function walk(seed: number, k: number, visit: (run: RtRunState) => void): void {
-  let run = createRtRun(seed, { gift: 'mini', rosterMix: true });
+  let run = createRtRun(seed, { gift: 'mini', rosterMix: true, garrison: false });
   for (let step = 0; step < 200 && !run.result; step++) {
     const pending = run.pending;
     if (pending?.kind === 'gift') {
