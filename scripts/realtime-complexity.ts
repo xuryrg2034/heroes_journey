@@ -24,7 +24,7 @@ import {
 } from '../src/realtime/run/rtRun';
 import { runRow } from '../src/realtime/run/arenaPools';
 import { arenaKinds } from '../src/realtime/run/arenaKinds';
-import { arenaElements, SCHEDULE_KINDS } from '../src/realtime/run/schedule';
+import { arenaElements, SCHEDULE_ELEMENTS, SCHEDULE_KINDS } from '../src/realtime/run/schedule';
 import { arenaTemplate, markedGoalArena } from '../src/realtime/sim/arenas';
 import type { Loadout } from '../src/realtime/sim/kit';
 
@@ -33,8 +33,8 @@ const option = (name: string, fallback: string): string => { const at = args.ind
 const VIEWERS = Number(option('--viewers', '300')), RUNS = Number(option('--runs', '3')), POLICY = option('--policy', 'random');
 const seedOf = (k: number): number => Math.imul(k, 2654435761) >>> 0;
 const hash = (a: number, b: number): number => { let x = Math.imul(a ^ 0x9e3779b9, 0x85ebca6b) ^ Math.imul(b + 0x632be5ab, 0xc2b2ae35); x ^= x >>> 15; x = Math.imul(x, 0x27d4eb2f); return (x ^ (x >>> 13)) >>> 0; };
-/** The 20 living elements (proposal); the affix types are not counted apart. */
-const ALL = [...SCHEDULE_KINDS, 'elite', 'affix', 'brazier', 'cliff', 'water', 'thorns', 'chest', 'buttons', 'leader', 'horde', 'bust', 'bag'];
+/** The living elements of the schedule (proposal: 20; task 28 adds `part`, the Jailer's weight); the affix types are not counted apart. */
+const ALL = [...SCHEDULE_ELEMENTS];
 
 interface Fight { run: number; row: number; fight: number; arena: string; roster?: string; atoms: string[]; fresh: string[]; kinds: number; flags: string[]; newFlags: string[]; randomElite: boolean; final: boolean }
 
