@@ -92,6 +92,9 @@ export const ARENA_TITLES: Readonly<Record<string, string>> = {
   ford: 'Брод', outpost: 'Застава', 'last-stand': 'Последний рубеж', 'lynx-den': 'Рысье логово', 'shaman-circle': 'Круг шамана',
   // Task 26 «Расписание леса»: the schedule's arenas (sim/arenas.ts, level-designer's names of 15.10.2026; design accepts them).
   'p-yard': 'Прогалина', 'p-braziers': 'Жаровни', 'p-cliff': 'Овраг', 'p-river': 'Излучина', 'p-thicket': 'Тёрн', 'p-gorge': 'Засека', 'p-archer-yard': 'Стрельбище',
+  // Task 28 «Тюремщик в походе»: the Jailer's fight on the run's row 5 — one name for the full arena and the yard without the ravine
+  // (design 15.10.2026: the name on screen is the same).
+  jailer: 'Тюремщик', 'jailer-yard': 'Тюремщик',
 };
 export const arenaTitle = (arena: string): string => ARENA_TITLES[arena] ?? arena;
 /** Every arena a run may play (a save naming another one is malformed). */
