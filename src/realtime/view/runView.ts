@@ -96,6 +96,11 @@ export interface RunHost {
    */
   hints?: { store: HintStore; on(): boolean; set(on: boolean): void; startPrologue(): void };
   /**
+   * Task 26 «Расписание леса»: the viewer's older memory the schedule's history starts from when the profile has none yet
+   * (design 15.10.2026: the kinds and affixes of «Новое на карте», `elite`, `goblin-bust`, `bag` of the first meetings). Absent — empty.
+   */
+  scheduleSeed?(): string[];
+  /**
    * The run's sound (design 14.10.2026; view/paramStorage.ts `loadSound`): the switch «Звук» and the slider «Громкость» on the
    * gear; `preview` sounds one hit at the volume let go. Absent (the sandbox: its panel has the sound) — none.
    */
@@ -316,7 +321,8 @@ export class RunView {
     const previous = this.run;
     // Task 16 «Подвиги»: feats from the run after the first Jailer (the profile's `jailer`); the viewer's run number for telemetry.
     // Task 18 «Испытание I–V»: the level chosen on «Новый поход» (the profile's last choice; 0 while the choice is closed).
-    this.run = createRtRun(value, { gift: this.profile.giftKind(seeded), seeded, feats: this.profile.featsOn(), ash: this.profile.ashChoice() });
+    // Task 26 «Расписание леса»: the viewer's history goes into the run as a snapshot (the run ignores it from «Испытание II»).
+    this.run = createRtRun(value, { gift: this.profile.giftKind(seeded), seeded, feats: this.profile.featsOn(), ash: this.profile.ashChoice(), schedule: this.profile.scheduleHistory(() => this.host.scheduleSeed?.() ?? []) });
     const viewerRun = this.profile.startRun();
     this.host.session?.clock.runStarted();
     this.store.save(this.run);
@@ -350,7 +356,8 @@ export class RunView {
     const seen = this.host.newSeen;
     if (!seen || !seen.on() || !isArenaNode(node) || !rtAvailableNodes(run).some(entry => entry.id === node.id)) return false;
     const arena = arenaPreview(run, node);
-    return !!arena && newKindsOfArena(arena.arena, arena.roster, seen.store).length > 0;
+    // The kinds the fight takes out (`cardRules` — the fight's own `withoutKinds`) are not promised (review of task 26, 15.10.2026).
+    return !!arena && newKindsOfArena(arena.arena, arena.roster, seen.store, cardRules(run, node).withoutKinds).length > 0;
   }
 
   /** Enter a node; an oath node — under `oath` (casino stage 1, item 2; null — «Без клятвы»). */
@@ -375,7 +382,11 @@ export class RunView {
   recordArena(outcome: Omit<RtArenaOutcome, 'nodeId'>): string {
     const pending = this.run?.pending;
     if (!this.run || pending?.kind !== 'battle') return 'Нет открытого боя.';
-    return this.apply(resolveArena(this.run, { ...outcome, nodeId: pending.nodeId }));
+    const notice = this.apply(resolveArena(this.run, { ...outcome, nodeId: pending.nodeId }));
+    // Task 26: what a scheduled fight showed joins the viewer's history (a lost fight's too).
+    const seen = this.run?.schedule ? this.run.battles.at(-1)?.seen : undefined;
+    if (seen?.length && this.run) this.profile.meetSchedule(seen, this.run.seed);
+    return notice;
   }
   /** From the arena's result screen to the run screen: the map, or the end of the run. */
   leaveArena(): void { if (this.inArena) this.open(); }
@@ -441,7 +452,8 @@ export class RunView {
     if (action === 'sound-toggle' && this.host.sound) { this.host.sound.set({ ...this.host.sound.get(), on: (target as HTMLInputElement).checked }); this.draw(); return; }
     if (action === 'sound-volume') return;
     // «Обучение»: the labels' memory starts over and the prologue plays again; the run (map, save) stays as it is.
-    if (action === 'prologue') { this.host.hints?.store.reset(); this.settingsOpen = false; this.host.hints?.startPrologue(); return; }
+    // Task 26 (design 15.10.2026): «Обучение» also empties the schedule's history — the run open now stays, the next new run goes the newcomer's path.
+    if (action === 'prologue') { this.host.hints?.store.reset(); this.profile.resetSchedule(this.run?.seed); this.settingsOpen = false; this.host.hints?.startPrologue(); return; }
     // П5: the summary of «Удача похода» opens and closes the block (the redraw keeps it as it is).
     if (action === 'luck') { event.preventDefault(); this.luckOpen = !this.luckOpen; this.draw(); return; }
     if (action === 'view-toggle') {
@@ -788,7 +800,7 @@ export class RunView {
     const available = rtAvailableNodes(run);
     const status = rtNodeStatus(run, node, available), info = RT_NODE_TYPES[node.type];
     const arena = isArenaNode(node) ? arenaPreview(run, node) : null;
-    const fresh = arena && status === 'available' && this.hasNewSign(run, node) && this.host.newSeen ? newKindsOfArena(arena.arena, arena.roster, this.host.newSeen.store) : [];
+    const fresh = arena && status === 'available' && this.hasNewSign(run, node) && this.host.newSeen ? newKindsOfArena(arena.arena, arena.roster, this.host.newSeen.store, cardRules(run, node).withoutKinds) : [];
     const body = `<h2>${info.icon} ${escapeHtml(rtNodeTitle(run, node))}</h2>`
       + `<p class="rt-run-meta">${info.label} · ряд похода ${runRow(node.row)} · ${STATUS_LABEL[status]}</p>`
       + (arena ? this.arenaHead(arena.arena, arena.roster) + this.dangersHtml(run, node, arena.arena, arena.roster, fresh)

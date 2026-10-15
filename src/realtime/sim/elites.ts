@@ -71,7 +71,12 @@ const LOOT_TRIES = 40;
  */
 export interface EliteArmor { plates: number; max: number; open?: number; clean?: number; regrow?: number; hit?: string;
   /** Casino «Котёл»: plates stripped so far by any source (counted only while the cauldron is on): the first `max` pay embers. */
-  stripped?: number }
+  stripped?: number;
+  /**
+   * Task 27 «Каркас босса» (enemies/jailer.ts): the plates of a boss's core or part — no window at 0 (it stays a link), no
+   * regrowth, no elite touch or knockback (world.ts `elitePlated`). Absent on an elite's armour.
+   */
+  boss?: true }
 
 /** Баланс (4.3): plates a hit of this source takes (any other — 1). */
 export const PLATES_BY_SOURCE: Readonly<Record<string, number>> = { bomb: 2 };
@@ -125,6 +130,8 @@ export function stripPlates(world: World, e: Enemy, cause: { source: string; fir
   // Casino «Котёл»: the count of stripped plates (only the elite's first `max` pay embers; absent while the cauldron is off).
   if (world.params.purse) a.stripped = (a.stripped ?? 0) + removed;
   world.events.push({ type: 'elitePlates', enemyId: e.id, action: 'strip', plates: a.plates, removed, source: cause.source, x: e.x, y: e.y });
+  // Task 27: a boss's last plate opens no window — the core and its parts stay links of the chain.
+  if (a.boss) return removed;
   if (a.plates <= 0) {
     a.plates = 0;
     delete a.regrow;
@@ -200,11 +207,15 @@ export function affixCountOf(world: World): number {
   return Number.isFinite(n) ? Math.max(0, Math.min(MAX_AFFIXES, Math.floor(n))) : 0;
 }
 
-/** Draws `count` affixes for `e` from the arena's `affix` stream (one draw per affix, among those still possible). */
+/**
+ * Draws `count` affixes for `e` from the arena's `affix` stream (one draw per affix, among those still possible). Task 26: with
+ * `Params.affixMetKinds` and the kit's `affixKinds` only those types are possible (the run's schedule: met ones and at most one more).
+ */
 export function rollAffixes(world: World, e: Enemy, count: number): AffixId[] {
   const chosen: AffixId[] = [];
+  const only = world.params.affixMetKinds && world.kit?.affixKinds ? world.kit.affixKinds : null;
   for (let i = 0; i < count; i++) {
-    const pool = AFFIX_IDS.filter(id => !chosen.includes(id) && affixAllowed(e.kind, id) && compatible(id, chosen));
+    const pool = AFFIX_IDS.filter(id => !chosen.includes(id) && affixAllowed(e.kind, id) && compatible(id, chosen) && (!only || only.includes(id)));
     if (!pool.length) break;
     chosen.push(pool[Math.floor(world.rng.stream('affix').next() * pool.length)]);
   }

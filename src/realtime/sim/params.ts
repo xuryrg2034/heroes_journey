@@ -564,6 +564,12 @@ export interface Params {
    * the sandbox kit never has the list, so the toggle changes nothing there.
    */
   eliteMetKinds: boolean;
+  /**
+   * Task 26 «Расписание леса» (design 15.10.2026): an elite's affixes are drawn only among the types of `Kit.affixKinds` — the
+   * run gives the types the viewer met and at most one more (run/schedule.ts `allowedAffixes`). Off by default; journals without
+   * the value: off (every type as before). A run turns it on (`RT_RUN_FORCED`); the sandbox kit never has the list.
+   */
+  affixMetKinds: boolean;
   /** Touch of an armoured elite (instead of the base touch; no `eliteDamageBonus` on top) and the knock of the hero, units. */
   eliteTouchDamage: number;
   eliteKnockback: number;
@@ -769,6 +775,15 @@ export interface Params {
    * get a feat and the reward are the run's (a run with its flag `feats`). The sandbox has no node feat.
    */
   feats: boolean;
+  // ---- Task 27 «Каркас босса и Тюремщик в песочнице» (sim/enemies/jailer.ts, docs/realtime-elite-behaviors.md, «Каркас босса»). ----
+  /**
+   * The boss frame: a boss is a core and its parts — enemies of the common body (the Jailer: the core `jailer` and its part, the
+   * weight `jailer-weight`); the conductor picks the moves (weights, `eventMax`, `missedMax`, the stream `behavior:jailer`); a
+   * severed part takes one plate off the core after the dash; the boss's state (the core's plates, the phase, the despair)
+   * changes only when no dash runs. Off by default; journals without the key: off (the kinds walk as plain enemies, no new
+   * fields). The sandbox arena «Тюремщик» turns it on for itself (`ArenaTemplate.bossFrame`, world.ts `createWorld`); a run never.
+   */
+  bossFrame: boolean;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -1060,6 +1075,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   elitePlateRegrow: 4,
   eliteLootOpens: false,
   eliteMetKinds: false,
+  affixMetKinds: false,
   eliteTouchDamage: 2,
   eliteKnockback: 1,
   eliteArmorCap: 1,
@@ -1135,6 +1151,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   bagReward3: 3,
   // Task 16 «Подвиги» (feat.ts): off by default.
   feats: false,
+  // Task 27 «Каркас босса» (enemies/jailer.ts): off by default; the sandbox arena «Тюремщик» turns it on for itself.
+  bossFrame: false,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -1444,6 +1462,8 @@ export const PARAM_DEFS: readonly ParamDef[] = [
     hint: 'Пока в походе не открыт ни один расходник, добыча элиты с бронёй открывает один (вид — по потоку добычи) и роняет его вместо ресурсов. Дальше — как раньше. В походе включено всегда.' },
   { kind: 'bool', key: 'eliteMetKinds', group: 'Броня элит', label: 'Элита только из встреченных видов (поход)', stage: 5,
     hint: 'Новичок становится элитой, только если его вид в списке снаряжения боя. Список даёт поход: первый ряд элит — виды, встреченные раньше и с поведением элиты. В песочнице списка нет — ничего не меняет.' },
+  { kind: 'bool', key: 'affixMetKinds', group: 'Броня элит', label: 'Свойства элит только из встреченных (поход)', stage: 5,
+    hint: 'Свойства элиты выпадают только из типов в списке снаряжения боя. Список даёт поход с расписанием: встреченные типы и не больше одного нового. В песочнице списка нет — ничего не меняет.' },
   n('eliteTouchDamage', 'Броня элит', 'Касание элиты', 0, 6, 1, 5, '', 'Вместо обычного касания; прибавка урона элиты к касанию не добавляется.'),
   n('eliteKnockback', 'Броня элит', 'Касание элиты отбрасывает героя', 0, 4, 0.25, 5, 'ед.'),
   n('eliteArmorCap', 'Броня элит', 'Не больше элит до целей (броня)', 0, 10, 1, 5),
@@ -1530,6 +1550,9 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   // Task 16 «Подвиги» (feat.ts, docs/realtime-slice.md).
   { kind: 'bool', key: 'feats', group: 'Подвиги', label: 'Подвиги (поход)', stage: 5,
     hint: 'Только поход: бой узла может нести подвиг — «Набери N очков», «Продержись N с после целей», «Продержись N с на арене»; награда — у двери. Подвиги приходят со второго похода (после первого Тюремщика). В песочнице подвига узла нет — переключатель ничего не меняет.' },
+  // Task 27 «Каркас босса» (enemies/jailer.ts, docs/realtime-elite-behaviors.md).
+  { kind: 'bool', key: 'bossFrame', group: 'Босс', label: 'Каркас босса (Тюремщик)', stage: 5,
+    hint: 'Ядро и части — враги обычного тела. Отрубленная часть снимает пластину ядра после прохода; фаза, пластины и отчаяние меняются только после прохода. Арена «Тюремщик» включает каркас сама. Без каркаса Тюремщик и гиря — обычные враги. В походе нет.' },
 ];
 
 const MAX_PHASES = 8;

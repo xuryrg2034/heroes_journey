@@ -107,7 +107,15 @@ export function dashFactor(world: World, enemy: Enemy): number {
   return world.move?.brittle?.includes(enemy.id) ? Math.max(1, world.params.frostFactor) : 1;
 }
 
-export interface LinkPlan { link: ChainLink; outcome: StrikeOutcome | null }
+export interface LinkPlan {
+  link: ChainLink;
+  outcome: StrikeOutcome | null;
+  /**
+   * Task 27 «Каркас босса»: the link is a part of a boss (`Enemy.partOf`) and this strike kills it — the dash severs it (the same
+   * `strike`; the core loses its plate after the dash). Absent otherwise.
+   */
+  severs?: true;
+}
 
 export interface ChainPlan {
   links: LinkPlan[];
@@ -201,7 +209,8 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
     if (outcome.killed) kills++;
     // The package: a plate hit is no survivor — the chain goes on through the armoured elite.
     else if (!outcome.plate) endsOnSurvivor = true;
-    out.push({ link, outcome });
+    // Task 27: a part this strike kills, with no survivor before it (the dash reaches it), is severed.
+    out.push({ link, outcome, ...outcome.killed && !endsOnSurvivor && enemy.partOf !== undefined ? { severs: true as const } : {} });
   }
   const last = links[links.length - 1];
   const endsOnObject = !!last && last.kind === 'object' && !passObject(world, last);

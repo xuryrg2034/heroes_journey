@@ -7,6 +7,7 @@
 /** The part of the Web Storage API the stores use (tests pass a plain object). */
 export interface RunStorage { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void }
 import { isRtAshLevel, parseRtRun, serializeRtRun, type RtAshLevel, type RtRunState } from './rtRun';
+import { isScheduleElement } from './schedule';
 
 /**
  * Casino stage 1, item 2: `-v7` (save version 7, the oath stake: the oath stream's counter, the open battle's offer and oath).
@@ -69,9 +70,15 @@ export function createRtRunStore(storage: RunStorage | null = browserStorage()):
  * - `won` — the viewer won a run without a given seed (`endRun` with `won`); it stays once set and opens the choice of
  *   «Испытание» on «Новый поход» (`ashOpen`).
  * - `ash` — the level chosen last (1–5; absent — 0), the choice's default (`ashChoice`, `chooseAsh`).
+ * Task 26 «Расписание леса» (design 15.10.2026; the same version 1, an optional field):
+ * - `seen` — the living elements the viewer has met (run/schedule.ts), sorted; a new run takes a snapshot (`createRtRun(seed,
+ *   { schedule })`). Absent — the schedule never ran here: the first read takes the view's older memory (`scheduleHistory(seed)`).
+ *   The gear's «Обучение» empties it (`resetSchedule`): the next new run goes the newcomer's path. `seenMute` — the seed of the run
+ *   open at that moment: its later fights do not feed the history (spec (8): that run goes on, the next new run is a first one);
+ *   a new run's snapshot removes it.
  * All are absent until set: a profile without them reads and saves as before.
  */
-export interface RtProfile { version: typeof RT_PROFILE_VERSION; giftFull: boolean; jailer?: true; runs?: number; runsApprox?: true; won?: true; ash?: Exclude<RtAshLevel, 0> }
+export interface RtProfile { version: typeof RT_PROFILE_VERSION; giftFull: boolean; jailer?: true; runs?: number; runsApprox?: true; won?: true; ash?: Exclude<RtAshLevel, 0>; seen?: string[]; seenMute?: number }
 export const emptyRtProfile = (): RtProfile => ({ version: RT_PROFILE_VERSION, giftFull: false });
 
 export function parseRtProfile(text: string | null): RtProfile {
@@ -81,7 +88,9 @@ export function parseRtProfile(text: string | null): RtProfile {
     if (!value || typeof value !== 'object' || value.version !== RT_PROFILE_VERSION) return emptyRtProfile();
     const runs = typeof value.runs === 'number' && Number.isInteger(value.runs) && value.runs >= 1 ? value.runs : undefined;
     const ash = isRtAshLevel(value.ash) && value.ash >= 1 ? value.ash as Exclude<RtAshLevel, 0> : undefined;
-    return { version: RT_PROFILE_VERSION, giftFull: value.giftFull === true, ...value.jailer === true || value.giftFull === true ? { jailer: true as const } : {}, ...runs !== undefined ? { runs } : {}, ...runs !== undefined && value.runsApprox === true ? { runsApprox: true as const } : {}, ...value.won === true ? { won: true as const } : {}, ...ash !== undefined ? { ash } : {} };
+    const seen = Array.isArray(value.seen) ? [...new Set(value.seen.filter(isScheduleElement))].sort() : undefined;
+    const mute = seen !== undefined && typeof value.seenMute === 'number' && Number.isInteger(value.seenMute) && value.seenMute >= 0 ? value.seenMute : undefined;
+    return { version: RT_PROFILE_VERSION, giftFull: value.giftFull === true, ...value.jailer === true || value.giftFull === true ? { jailer: true as const } : {}, ...runs !== undefined ? { runs } : {}, ...runs !== undefined && value.runsApprox === true ? { runsApprox: true as const } : {}, ...value.won === true ? { won: true as const } : {}, ...ash !== undefined ? { ash } : {}, ...seen !== undefined ? { seen } : {}, ...mute !== undefined ? { seenMute: mute } : {} };
   } catch { return emptyRtProfile(); }
 }
 
@@ -115,6 +124,21 @@ export interface RtProfileStore {
    * `approx` — the count began on a profile that showed earlier play (it starts at 2; `RunRecord.viewerRunApprox`).
    */
   startRun(): { run: number; approx?: true };
+  /**
+   * Task 26: the viewer's history for a new run's schedule. A profile without it starts from `seed()` (the view's older memory:
+   * schedule.ts `scheduleSeedHistory`) and keeps that; the result is what a new run snapshots.
+   */
+  scheduleHistory(seed: () => readonly string[]): string[];
+  /**
+   * Task 26: a scheduled fight of the run of seed `seed` was fed back — its elements join the viewer's history; not for the run
+   * that was open when «Обучение» emptied it (`seenMute`). False when not stored.
+   */
+  meetSchedule(ids: readonly string[], seed: number): boolean;
+  /**
+   * Task 26: «Обучение» on the gear — the history is emptied (kept as empty: the older memory is not read again); `seed` — the run
+   * open now: it goes on, its fights do not feed the history.
+   */
+  resetSchedule(seed?: number): boolean;
 }
 
 export function createRtProfileStore(storage: RunStorage | null = browserStorage()): RtProfileStore {
@@ -144,5 +168,20 @@ export function createRtProfileStore(storage: RunStorage | null = browserStorage
       write({ ...profile, runs, ...approx ? { runsApprox: true as const } : {} });
       return { run: runs, ...approx ? { approx: true as const } : {} };
     },
+    scheduleHistory: seed => {
+      const { seenMute: _mute, ...profile } = read();
+      // A new run takes its snapshot now: the run muted by «Обучение» is left behind.
+      if (profile.seen) { if (_mute !== undefined) write(profile); return [...profile.seen]; }
+      const seen = [...new Set(seed().filter(isScheduleElement))].sort();
+      write({ ...profile, seen });
+      return seen;
+    },
+    meetSchedule: (ids, runSeed) => {
+      const profile = read();
+      if (profile.seenMute === runSeed) return false;
+      const seen = [...new Set([...profile.seen ?? [], ...ids.filter(isScheduleElement)])].sort();
+      return JSON.stringify(seen) === JSON.stringify(profile.seen) || write({ ...profile, seen });
+    },
+    resetSchedule: runSeed => { const { seenMute: _mute, ...profile } = read(); return write({ ...profile, seen: [], ...runSeed !== undefined ? { seenMute: runSeed >>> 0 } : {} }); },
   };
 }

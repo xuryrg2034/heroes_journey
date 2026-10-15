@@ -19,7 +19,9 @@ import { bagPayout, bagProgress, bagTotal } from '../sim/bag';
 import { bagResultLine } from './bagView';
 import { featOf, featOutcome, featProgress, featResult } from '../sim/feat';
 import { featHudText, featHudTitle, featResultRow } from './featView';
-import { FirstMeetStore, type FirstMeetId } from './firstMeet';
+import { FIRST_MEET_IDS, FirstMeetStore, type FirstMeetId } from './firstMeet';
+import { SCHEDULE_KINDS, scheduleSeedHistory } from '../run/schedule';
+import { AFFIX_IDS } from '../sim/elites';
 import { enemyLimit, scaledFloor } from '../sim/spawn';
 import { BEHAVIOR_ARENAS } from '../sim/arenasStage3';
 import { CAMERA_ARENAS } from '../sim/arenasCamera';
@@ -669,6 +671,8 @@ async function boot(): Promise<void> {
     ],
     session: { clock: sessionClock, on: () => sessionClockOn },
     ...newSeen ? { newSeen: { store: newSeen, on: () => newOnMap } } : {},
+    // Task 26 «Расписание леса»: the history's start from the older memory (design 15.10.2026), read once per profile.
+    scheduleSeed: () => scheduleSeedHistory(SCHEDULE_KINDS.filter(kind => !!newSeen?.hasKind(kind)), AFFIX_IDS.filter(id => !!newSeen?.hasAffix(id)), FIRST_MEET_IDS.filter(id => !!firstMeets?.has(id))),
     // The run's sound on the gear (outside the sandbox): the switch, the volume, one hit when the slider is let go.
     ...runSound ? { sound: {
       get: () => ({ ...runSound! }),
@@ -696,7 +700,7 @@ async function boot(): Promise<void> {
     const runBefore = rtRunBestChain(runView.state), recordBefore = chainRecord.best();
     fightChainLine = chainLine(w.stats.bestChain, runBefore, recordBefore);
     chainRecord.submit(w.stats.bestChain);
-    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, bestChain: w.stats.bestChain, ...Object.keys(fightLuck).length ? { luck: fightLuck } : {}, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed, openItems: [...w.kit.openItems] } : {}, ...w.secondWind ? { secondWind: true } : {}, kinds: deathWatch.kinds(w), itemsUsed: arenaItemsUsed, itemHint: arenaHintShown, ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...w.params.doorDie ? { doorDie: true } : {}, ...w.curse ? { chest: true } : {},
+    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, bestChain: w.stats.bestChain, ...Object.keys(fightLuck).length ? { luck: fightLuck } : {}, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed, openItems: [...w.kit.openItems] } : {}, ...w.secondWind ? { secondWind: true } : {}, kinds: deathWatch.kinds(w), ...deathWatch.elite(w) ? { elite: true } : {}, ...deathWatch.affixes(w).length ? { affixes: deathWatch.affixes(w) } : {}, itemsUsed: arenaItemsUsed, itemHint: arenaHintShown, ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...w.params.doorDie ? { doorDie: true } : {}, ...w.curse ? { chest: true } : {},
       // Task 14 «Котомка у двери»: what the door paid for the bag's filled steps (the run adds it to its materials).
       ...bagPayout(w) ? { bag: bagPayout(w)! } : {},
       // Task 16 «Подвиги»: whether the fight did its feat (the run pays it on a victory; the record keeps it).

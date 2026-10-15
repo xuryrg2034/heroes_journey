@@ -21,6 +21,8 @@ import './arenasStage3';
 import './arenasCamera';
 // Task 6: the six rooms of the prologue «Опушка» register on import too.
 import './arenasPrologue';
+// Task 27: the boss arena «Тюремщик» (sandbox only) registers on import too.
+import './arenasBoss';
 import { withRoster, withoutKinds, type RosterArena } from './rosters';
 import { stepHero, tickScale } from './chain';
 import { applyCommand, type Command, type CommandResult } from './commands';
@@ -104,8 +106,9 @@ export class Simulation {
     this.seed = options.seed >>> 0;
     this.world = createWorld(arena, options.params, this.seed, options.hero, options.loadout);
     this.beforeTick = options.beforeTick;
+    // The values the world plays (task 27: a boss arena's copy with `bossFrame` on; every other arena — the given ones).
     this.journal = options.record
-      ? { version: JOURNAL_VERSION, seed: this.seed, arena: arena.id, params: copyParams(options.params), ticks: 0, commands: [], ...options.hero ? { hero: { ...options.hero } } : {}, ...options.loadout ? { loadout: JSON.parse(JSON.stringify(options.loadout)) as Loadout } : {}, ...roster !== undefined ? { roster } : {} }
+      ? { version: JOURNAL_VERSION, seed: this.seed, arena: arena.id, params: copyParams(this.world.params), ticks: 0, commands: [], ...options.hero ? { hero: { ...options.hero } } : {}, ...options.loadout ? { loadout: JSON.parse(JSON.stringify(options.loadout)) as Loadout } : {}, ...roster !== undefined ? { roster } : {} }
       : null;
   }
 

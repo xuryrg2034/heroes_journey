@@ -18,6 +18,7 @@ import { createFightObserver, median, DEATH_SERIES_WINDOW, WOLF_RUSH_SOURCE } fr
 import {
   checkRecord, emptyFightSummary, orderedParts, unpackJournal, withSummaryDefaults, OATH_STAKE_SOURCE, DIE_SOURCE, CASINO_SOURCE, RT_TELEMETRY_FORMAT, SANDBOX_RUN,
   type DeathGuard, type FightDeath, type FightRecord, type FightSummary, type JournalPart, type NoteRecord, type PrologueFrom, type PrologueRecord, type RtRecord, type RunRecord, type ThreatTally,
+  type RunNodeVisit,
 } from './schema';
 import { THREAT_KINDS, ThreatTracker, type ThreatWarning } from './threats';
 import { RT_DEATH_ABILITY, RT_KIND_TITLES } from '../run/rtRunEnd';
@@ -1010,6 +1011,8 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## По рядам', '', ROW_LEGEND, '', rowStats(runs, runFights).length ? table(ROW_HEAD, rowRows(runs, runFights)) : '_боёв походов нет_', '',
     // Task 18 «Испытание I–V»: the runs by level.
     '## Испытание', '', ASH_LEGEND, '', ashStats(runs, runFights).length ? table(ASH_HEAD, ashRows(runs, runFights)) : '_походов нет_', '',
+    // Task 26 «Расписание леса»: new living elements a fight by the viewer's run number.
+    '## Расписание', '', SCHEDULE_LEGEND, '', table(SCHEDULE_HEAD, scheduleRows(runs)), '',
     '## Бои походов', '', table(FIGHT_HEAD, fightRows(runFights)), '',
     '## Арены', '', 'Бои походов и песочницы вместе. ' + LOOP_LEGEND, '', arenasSection(fights), '',
     '## Враги', '', damageSections(fights), '',
@@ -1296,6 +1299,47 @@ const ASH_LEGEND = 'Задача 18 «Испытание I–V» (с 14.10.2026)
 function ashRows(runs: readonly RunRecord[], runFights: readonly FightEntry[]): (string | number)[][] {
   return ashStats(runs, runFights).map(s => [ASH_MARKS[s.ash] ?? String(s.ash), s.runs, s.won, s.lost, s.farRow.length ? n1(median(s.farRow)) : '—',
     s.damage.length ? n1(median(s.damage)) : '—', `${s.finalDamage.length} (${s.finalWon})`, s.finalDamage.length ? n1(median(s.finalDamage)) : '—']);
+}
+
+/** Task 26 «Расписание леса»: the scheduled runs of one group (the viewer's run number) and what their fights brought. */
+export interface ScheduleStat {
+  group: string;
+  runs: number;
+  /** New living elements (the bag left out: outside the budget, variant E) of each fed-back fight. */
+  fresh: number[];
+  /** The most new elements in one fight, per run. */
+  peak: number[];
+  /** Fights with an arc and practice fights. */
+  arcs: number;
+  practice: number;
+  /** Living elements met by the end of each run (the snapshot and the run's new ones). */
+  metEnd: number[];
+}
+const SCHEDULE_GROUPS: readonly [string, (r: RunRecord) => boolean][] = [
+  ['поход 1', r => r.viewerRun === 1], ['поход 2', r => r.viewerRun === 2], ['поход 3', r => r.viewerRun === 3],
+  ['поход 4+', r => (r.viewerRun ?? 0) >= 4], ['номер не известен', r => r.viewerRun === undefined],
+];
+/** Task 26: the scheduled runs (`RunRecord.schedule`) by the viewer's run number; groups without runs are left out. */
+export function scheduleStats(runs: readonly RunRecord[]): ScheduleStat[] {
+  const own = runs.filter(r => r.schedule);
+  return SCHEDULE_GROUPS.map(([group, take]) => {
+    const list = own.filter(take), fights = list.flatMap(r => r.nodes.filter(n => n.fresh !== undefined));
+    const count = (n: RunNodeVisit): number => (n.fresh ?? []).filter(id => id !== 'bag' && !id.startsWith('affix:')).length;
+    return {
+      group, runs: list.length, fresh: fights.map(count), peak: list.map(r => Math.max(0, ...r.nodes.filter(n => n.fresh !== undefined).map(count))),
+      arcs: list.flatMap(r => r.nodes).filter(n => n.arc !== undefined && n.arc !== 'practice').length, practice: list.flatMap(r => r.nodes).filter(n => n.arc === 'practice').length,
+      metEnd: list.map(r => r.schedule!.start + new Set(r.nodes.flatMap(n => n.fresh ?? []).filter(id => !id.startsWith('affix:'))).size),
+    };
+  }).filter(s => s.runs > 0);
+}
+const SCHEDULE_HEAD = ['Группа', 'Походов', 'Боёв', 'Новых ЖЭ на бой', 'Боёв с ≥ 2 новыми', 'Пик за поход, среднее', 'Дуг / практики', 'Встречено к концу, среднее'];
+const SCHEDULE_LEGEND = 'Задача 26 «Расписание леса» (с 15.10.2026): походы с расписанием (`RunRecord.schedule`) по номеру похода зрителя (`viewerRun`). Новые ЖЭ — живые элементы, которых зритель не встречал до боя (`RunNodeVisit.fresh`; котомка не считается — вне бюджета; тип свойства элиты — не отдельный ЖЭ). Встречено — снимок истории и новые за поход (всего ЖЭ 20, типы свойств элит — отдельно). Походы без расписания и записи до 15.10.2026 — «—». Эвристика, не оценка баланса.';
+function scheduleRows(runs: readonly RunRecord[]): (string | number)[][] {
+  const mean = (list: readonly number[]): string => (list.length ? n1(list.reduce((a, b) => a + b, 0) / list.length) : '—');
+  const rows: (string | number)[][] = scheduleStats(runs).map(s => [s.group, s.runs, s.fresh.length, mean(s.fresh), pct(s.fresh.filter(n => n >= 2).length, s.fresh.length), mean(s.peak), `${s.arcs} / ${s.practice}`, mean(s.metEnd)]);
+  const without = runs.filter(r => !r.schedule).length;
+  if (without) rows.push(['без расписания', without, '—', '—', '—', '—', '—', '—']);
+  return rows.length ? rows : [['_походов нет_', '', '', '', '', '', '', '']];
 }
 
 /** Totals of the threats of a list of fights by kind (the test reads them). */

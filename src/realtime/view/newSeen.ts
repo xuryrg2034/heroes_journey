@@ -10,10 +10,11 @@
  * - **Sign** — the arena line of an AVAILABLE node card: the arena's template or roster has a captioned kind not met yet.
  *   Affixes are unknown before the fight: no sign for them.
  */
-import { DEFAULT_PARAMS, DEFAULT_PHASES } from '../sim/params';
-import { arenaTemplate, type ArenaTemplate } from '../sim/arenas';
-import { rosterDef, rosterKinds } from '../sim/rosters';
+import { arenaKinds } from '../run/arenaKinds';
 import type { AffixId } from '../sim/elites';
+
+// Task 26: the kinds of an arena moved to run/arenaKinds.ts (the schedule reads them too); the view keeps its names.
+export { arenaKinds, templateKinds } from '../run/arenaKinds';
 
 export const NEW_SEEN_KEY = 'ashen-oath-realtime-new-seen';
 const NEW_SEEN_VERSION = 1;
@@ -73,34 +74,11 @@ export class NewSeenStore {
   }
 }
 
-/** The kinds an arena template brings: its start enemies and newcomers; wolves and boars when a phase gives them a share. */
-export function templateKinds(template: ArenaTemplate): Set<string> {
-  const kinds = new Set<string>();
-  for (const e of template.enemies) kinds.add(e.kind ?? 'basic');
-  for (const n of template.newcomers ?? []) if (n.share > 0) kinds.add(n.kind);
-  const base = { wolfShare: template.pace?.wolfShare ?? DEFAULT_PARAMS.baseWolfShare, boarShare: template.pace?.boarShare ?? DEFAULT_PARAMS.baseBoarShare, ...template.phaseOverride };
-  const phases = [base, ...(template.phases?.length ? template.phases : DEFAULT_PHASES).map(p => ({ ...p, ...template.phaseOverride }))];
-  if (phases.some(p => (p.wolfShare ?? 0) > 0)) kinds.add('wolf');
-  if (phases.some(p => (p.boarShare ?? 0) > 0)) kinds.add('boar');
-  return kinds;
-}
-
 /**
- * The kinds an arena brings as a run plays it (`roster` — the node's roster over the template, rosters.ts `withRoster`): a
- * pool roster replaces the newcomers and both shares (the start enemies stay), a role adds its kinds.
+ * The captioned kinds of an arena (as a run plays it) that `store` has not met yet, in the order of `KIND_CAPTIONS`. `without` — the
+ * kinds the fight takes out (`Loadout.withoutKinds`: the schedule, task 26; a gentle final, task 17): never promised (review 15.10.2026).
  */
-export function arenaKinds(arena: string, roster?: string): Set<string> {
-  try {
-    const template = arenaTemplate(arena), def = roster !== undefined ? rosterDef(roster) : undefined;
-    if (!def) return templateKinds(template);
-    const kinds = def.mode === 'replace' ? new Set(template.enemies.map(e => e.kind ?? 'basic')) : templateKinds(template);
-    for (const kind of rosterKinds(def)) kinds.add(kind);
-    return kinds;
-  } catch { return new Set(); }
-}
-
-/** The captioned kinds of an arena (as a run plays it) that `store` has not met yet, in the order of `KIND_CAPTIONS`. */
-export function newKindsOfArena(arena: string, roster: string | undefined, store: NewSeenStore): string[] {
+export function newKindsOfArena(arena: string, roster: string | undefined, store: NewSeenStore, without: readonly string[] = []): string[] {
   const kinds = arenaKinds(arena, roster);
-  return Object.keys(KIND_CAPTIONS).filter(kind => kinds.has(kind) && !store.hasKind(kind));
+  return Object.keys(KIND_CAPTIONS).filter(kind => kinds.has(kind) && !without.includes(kind) && !store.hasKind(kind));
 }

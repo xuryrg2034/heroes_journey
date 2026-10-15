@@ -126,6 +126,18 @@ export class RtDeathWatch {
     return [...kinds].sort();
   }
 
+  /** Task 26: an elite stood on the arena in this fight (seen before a tick, or on it now). The run keeps it as met (`RtArenaOutcome.elite`). */
+  elite(world?: World): boolean {
+    return [...this.enemies.values(), ...world?.enemies ?? []].some(e => !!e.elite);
+  }
+
+  /** Task 26: the affix types on the elites that stood on the arena in this fight, sorted (`RtArenaOutcome.affixes`). */
+  affixes(world?: World): string[] {
+    const ids = new Set<string>();
+    for (const e of [...this.enemies.values(), ...world?.enemies ?? []]) if (e.elite) for (const id of e.affixes ?? []) ids.add(id);
+    return [...ids].sort();
+  }
+
   read(world: World, events: readonly WorldEvent[]): void {
     let hit: Extract<WorldEvent, { type: 'hit' }> | null = null;
     for (const ev of events) {

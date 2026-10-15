@@ -148,6 +148,13 @@ export interface RunNodeVisit {
   fight?: string;
   /** An event node: the event, the option taken and its outcome. */
   event?: { id: string; option?: string; outcome?: number };
+  /**
+   * Task 26 «Расписание леса» (from 15.10.2026; a run with a schedule): the fight's arc — the new living element it brings
+   * (run/schedule.ts), `practice` — a practice fight. Absent — not a scheduled fight (older records too).
+   */
+  arc?: string;
+  /** Task 26: the living elements new to the viewer in this fight (its record's `seen` less those met before), sorted; absent — not fed back. */
+  fresh?: string[];
 }
 
 /** Casino «Ставка клятвы»: the source of the node card's oath choice in `RunRecord.choices` (not the Jailer's `oath`). */
@@ -340,6 +347,8 @@ export interface RunRecord extends RtHeader {
    * earlier play (it started at 2). The report counts such a run as a repeat. Absent — exact (or not known).
    */
   viewerRunApprox?: true;
+  /** Task 26 «Расписание леса» (from 15.10.2026): the run had a schedule — `start`, the living elements of the viewer's snapshot. Absent — none (older records too). */
+  schedule?: { start: number };
   /** Task 16 telemetry: the viewer's first meetings in this run, in order; absent — none reported (older records too). */
   firsts?: RunFirst[];
   /** Task 20 (from 14.10.2026): the run's resources — start, gained by source, spent by sink, end; absent — older records. */
@@ -360,6 +369,8 @@ export interface FightRecord extends RtHeader {
   arena: string;
   roster?: string;
   row?: number;
+  /** Task 26 (from 15.10.2026): the scheduled fight's arc (`RunNode.arc`; `practice`); absent — not a scheduled fight (older records too). */
+  arc?: string;
   seed: number;
   outcome: FightOutcome;
   /** Ticks run and game seconds (`world.time`). */
@@ -549,6 +560,9 @@ export function checkRecord(value: unknown): string | null {
       }))) return 'run feats';
       if (r.viewerRun !== undefined && !(Number.isInteger(r.viewerRun) && (r.viewerRun as number) >= 1)) return 'run viewerRun';
       if (r.viewerRunApprox !== undefined && !(r.viewerRunApprox === true && r.viewerRun !== undefined)) return 'run viewerRunApprox';
+      // Task 26 (15.10.2026): optional — the schedule's start and the nodes' arcs and new elements.
+      if (r.schedule !== undefined && !(!!r.schedule && typeof r.schedule === 'object' && Number.isInteger((r.schedule as Record<string, unknown>).start) && ((r.schedule as Record<string, unknown>).start as number) >= 0)) return 'run schedule';
+      if (!(r.nodes as unknown[]).every(n => { const o = n as Record<string, unknown> | null; return !!o && (o.arc === undefined || (typeof o.arc === 'string' && o.arc.length > 0)) && (o.fresh === undefined || (Array.isArray(o.fresh) && o.fresh.every(id => typeof id === 'string'))); })) return 'run node arc';
       if (r.firsts !== undefined && !(Array.isArray(r.firsts) && r.firsts.every(f => {
         const o = f as Record<string, unknown> | null;
         return !!o && typeof o === 'object' && typeof o.id === 'string' && o.id.length > 0 && (o.fight === null || typeof o.fight === 'string') && Number.isInteger(o.row);
@@ -560,6 +574,7 @@ export function checkRecord(value: unknown): string | null {
     case 'fight': {
       if (r.fight !== parsed.fight || typeof r.arena !== 'string' || !num('seed') || !num('ticks') || !num('time') || !num('hpIn') || !num('hpOut') || typeof r.endHash !== 'string' || !r.summary) return 'fight fields';
       if (!['victory', 'defeat', 'restart', 'menu', 'unload'].includes(r.outcome as string)) return `fight outcome ${String(r.outcome)}`;
+      if (r.arc !== undefined && !(typeof r.arc === 'string' && r.arc.length > 0)) return 'fight arc';
       const j = r.journal as Record<string, unknown> | undefined;
       if (!j || typeof j.parts !== 'number' || typeof j.chars !== 'number' || typeof j.digest !== 'string' || typeof j.encoding !== 'string') return 'fight journal meta';
       return null;

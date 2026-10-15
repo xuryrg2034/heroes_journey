@@ -98,6 +98,11 @@ export interface Loadout {
    */
   eliteKinds?: string[];
   /**
+   * Task 26 «Расписание леса»: the affix types an elite may draw (acts only with `Params.affixMetKinds`; elites.ts `rollAffixes`).
+   * The run with a schedule gives it. Absent — every type, as before.
+   */
+  affixKinds?: string[];
+  /**
    * Task 17 (design 13.10.2026): kinds taken out of this arena (sim/rosters.ts `withoutKinds`: their newcomers' share goes to
    * the other kinds of the mix, a start enemy of such a kind stands as a basic one). The run gives `['porcupine']` to the final
    * of a gentle run that has not met the porcupine. Absent — the arena as it is.
@@ -178,6 +183,8 @@ export interface Kit {
   lootOpens?: true;
   /** Task 17 Е2: the kinds an elite may be here (absent — every kind: kits before hash as before). */
   eliteKinds?: string[];
+  /** Task 26: the affix types an elite may draw here (absent — every type: kits before hash as before). */
+  affixKinds?: string[];
   /** Task 17: the kinds taken out of this arena (absent — none: kits before hash as before). */
   withoutKinds?: string[];
   /** Task 16 «Подвиги»: the fight's feat (absent — none: kits before hash as before). */
@@ -245,6 +252,8 @@ export function kitOf(loadout: Loadout): Kit {
     ...loadout.secondWind ? { secondWind: true as const } : {},
     ...loadout.lootOpens ? { lootOpens: true as const } : {},
     ...Array.isArray(loadout.eliteKinds) && loadout.eliteKinds.length ? { eliteKinds: [...new Set(loadout.eliteKinds.filter(kind => typeof kind === 'string'))] } : {},
+    // Task 26 «Расписание леса»: absent unless the run gives them (kits before hash as before).
+    ...Array.isArray(loadout.affixKinds) && loadout.affixKinds.length ? { affixKinds: [...new Set(loadout.affixKinds.filter(id => typeof id === 'string'))] } : {},
     ...Array.isArray(loadout.withoutKinds) && loadout.withoutKinds.length ? { withoutKinds: [...new Set(loadout.withoutKinds.filter(kind => typeof kind === 'string'))] } : {},
     // Task 16 «Подвиги»: absent unless the run gives a valid one (kits before hash as before).
     ...featGoalOf(loadout.feat) ? { feat: featGoalOf(loadout.feat)! } : {},

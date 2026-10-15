@@ -35,6 +35,7 @@ import { isRtOath, isRtTalisman, RELICS, RT_DEW_FLASK_HEAL, RT_TOUGH_HIDE_HP, rt
 import { emptyStreams, parseStreams, streamValue, type RunStream, type RunStreams } from '../forest/runStreams';
 import { arenaTitle, FINAL_ARENA, GENTLE_FIRST_MEETING_LAST_ROW, HARD_ARENA, ordinaryArenaChoices, pickArena, pickRoster, ROSTER_SALT, RUN_ARENAS, runArenaPools, runRow } from './arenaPools';
 import { isRoster } from '../sim/rosters';
+import { allowedAffixes, fightElements, isScheduleElement, SCHEDULE_RUN_ARENAS, SCHEDULE_HARD_FLOOR, SCHEDULE_KINDS, SCHEDULE_NUMBERS_ROWS, schedulePlan, unmetKinds, type ScheduleNode } from './schedule';
 import { rtHp, RT_ITEM_HEAL, RT_RUN_HP } from './hpScale';
 import { defaultParams, runParams, type Params } from '../sim/params';
 import { doorPayout, GREED_MULTS, PAYOUT_CAP_MAX, type PurseDoor } from '../sim/purse';
@@ -159,7 +160,7 @@ export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal
   // Calibration 12.10.2026: no cliff of the elite loot — while none is open, the first loot opens a consumable.
   eliteLootOpens: true,
   // Task 17 Е2 (design 13.10.2026): the first elite row of a gentle run gives the kinds an elite may be (`Loadout.eliteKinds`).
-  eliteMetKinds: true,
+  eliteMetKinds: true, affixMetKinds: true,
   // B7 К9 «Игорный круг гоблинов» (design 12.10.2026): a run-layer key, read by `rtEnterNode` through the run view.
   goblinCircle: true,
   // Design 12.10.2026: a queued spawn group stays together (spawn.ts `placeQueued`).
@@ -417,14 +418,23 @@ export interface RtBattleRecord {
    * too: the result screen's grey line). Absent — the fight had no feat (a run without `feats`, a node without one).
    */
   feat?: RtFeatRecord;
+  /**
+   * Task 26 «Расписание леса»: the living elements this fight showed (schedule.ts `fightElements`), sorted — only in a run with a
+   * schedule; the next fights' arcs and the viewer's history read them.
+   */
+  seen?: string[];
 }
 /**
  * The arena (or event) a node got when entered. `roster` (phase A, Т2): the arena's roster (sim/rosters.ts); absent — the
  * template's own composition.
  */
-export interface RtRunPick { nodeId: string; arena?: string; roster?: string; eventId?: string; find?: true }
+export interface RtRunPick {
+  nodeId: string; arena?: string; roster?: string; eventId?: string; find?: true;
+  /** Task 26: the fight's arc — the new living element it brings (schedule.ts); absent — a practice fight or a run without a schedule. */
+  arc?: string;
+}
 /** The arena a battle node plays and its roster (absent — the template's own composition). */
-export interface RtArenaPick { arena: string; roster?: string }
+export interface RtArenaPick { arena: string; roster?: string; arc?: string }
 export interface RtEventChoice { nodeId: string; option: string; outcome: number; attempts?: number[] }
 
 export interface RtRunState {
@@ -492,6 +502,13 @@ export interface RtRunState {
    * final); absent — none yet, or a run without the flag (its save stays byte for byte as before).
    */
   metKinds?: string[];
+  /**
+   * Task 26 «Расписание леса» (design 15.10.2026; run/schedule.ts): the run's fights follow the schedule — `seen`, the living
+   * elements the VIEWER had met when the run was created (a snapshot: a reload never changes the arenas; sorted, may be empty).
+   * What this run meets is on its records (`RtBattleRecord.seen`). Set by `createRtRun(seed, { schedule })` below «Испытание II»;
+   * absent — a run saved before it (or created without it): the pools of before, to its end.
+   */
+  schedule?: { seen: string[] };
   /** The map, kept whole: a later tuning of the generator never changes a run in progress. */
   map: GeneratedForestMap;
   /** Draws made by each long stream of the run (runStreams.ts): arenas (`pool`), events, merchant, gift. */
@@ -667,6 +684,10 @@ export interface RtArenaOutcome {
   secondWind?: boolean;
   /** Task 17: the kinds of every enemy that stood on the arena in this fight (`RtDeathWatch.kinds`); absent — not read. */
   kinds?: string[];
+  /** Task 26: an elite stood on the arena in this fight (`RtDeathWatch.elite`); absent — none, or not read. */
+  elite?: boolean;
+  /** Task 26: the affix types seen on the elites of this fight (`RtDeathWatch.affixes`); absent — none, or not read. */
+  affixes?: string[];
   /** Iteration 2.1 (interface): consumables used on this arena, and whether its start showed the item hint. */
   itemsUsed?: number;
   itemHint?: boolean;
@@ -689,7 +710,7 @@ export interface RtArenaOutcome {
  * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
  * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
  */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean } = {}): RtRunState {
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[] } = {}): RtRunState {
   const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
   // Task 12 (13.10.2026): the goal layouts of the `marked` arenas, as the mix — on as `RT_RUN_FORCED` says unless the option says.
   const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
@@ -704,8 +725,11 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   const healMap = options.healMap ?? RT_HEAL_MAP_ON;
   // Task 19 «Короткий запал» (14.10.2026): its own flag, on unless the option says (false — the fuse of a save before it).
   const shortFuse = options.shortFuse ?? RT_SHORT_FUSE_ON;
+  // Task 26 «Расписание леса» (design 15.10.2026): the viewer's history (the view's profile) turns the schedule on — below
+  // «Испытание II» only (II and up play the pools of before). Absent — the pools of before (tests, the bot, old measures).
+  const schedule = options.schedule && ash < RT_ASH_TABLES ? [...new Set(options.schedule.filter(isScheduleElement))].sort() : undefined;
   const run: RtRunState = {
-    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
@@ -817,7 +841,7 @@ export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}):
   const gentle = rtGentle(run), row = node ? runRow(node.row) : 0, ash = rtAsh(run);
   const affixes = node ? rtEliteAffixes(row, gentle, ash) : 0;
   // Phase B, 5а (decision 10.10.2026): oaths add no energy at the start of an arena any more — the banked energy, up to 7.
-  return {
+  const kit: Loadout = {
     items: { ...run.items }, energy: Math.min(ENERGY_MAX, run.energy), openItems: [...run.openItems],
     randomElites: !!node && rtRandomElites(row, gentle),
     ...affixes > 0 ? { eliteAffixes: affixes } : {},
@@ -856,6 +880,12 @@ export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}):
     // Task 18, «Испытание V»: the denser floor of every fight, the final's faster phases (absent below V: loadouts as before).
     ...node && pending?.kind === 'battle' ? rtAshPressure(ash, pending.battle) : {},
   };
+  // Task 26 «Расписание леса»: a scheduled run's fight takes the schedule's elite and enemy rules (it replaces Е2 and the final's rule).
+  if (run.schedule && node && pending?.kind === 'battle') {
+    const pick = run.picks.find(entry => entry.nodeId === node.id);
+    scheduleKit(kit, run, node, pending.battle, { arena: pending.arena, ...pending.roster !== undefined ? { roster: pending.roster } : {}, ...pick?.arc !== undefined ? { arc: pick.arc } : {} }, rtScheduleMet(run), pending.seed);
+  }
+  return kit;
 }
 
 /**
@@ -1255,6 +1285,8 @@ const battleKindOf = (node: Pick<ForestMapNode, 'type'>): RtBattleKind => node.t
  */
 function arenaPick(run: RtRunState, node: ForestMapNode, advance: boolean): RtArenaPick {
   const history = run.picks.flatMap(pick => pick.arena ? [pick.arena] : []);
+  // Task 26: a run with a schedule spends the pool draw as before (the stream counters stay) but reads the node's own roll.
+  if (run.schedule) { draw(run, 'pool', advance); return schedulePick(run, node, history, rtScheduleMet(run)); }
   const roll = draw(run, 'pool', advance), arena = chooseArena(node, history, roll, !!run.rosterMix, rtGentle(run));
   const roster = chooseRoster(run, node, arena, history, run.picks.flatMap(pick => pick.roster !== undefined ? [pick.roster] : []));
   return { arena, ...roster !== undefined ? { roster } : {} };
@@ -1262,6 +1294,62 @@ function arenaPick(run: RtRunState, node: ForestMapNode, advance: boolean): RtAr
 
 /** The arena seed of a node: the run seed and the node id, as the battles of the turn-based run (forestNodeSeed). */
 export const arenaSeed = (run: Pick<RtRunState, 'seed'>, nodeId: string): number => forestNodeSeed(run.seed, nodeId);
+
+// ---------- Task 26 «Расписание леса» (design 15.10.2026; run/schedule.ts, docs/realtime-slice.md) ----------
+
+/** The node as the schedule sees it (an event node plays its reward battle as an ordinary one). */
+const scheduleNode = (node: Pick<ForestMapNode, 'type'>): ScheduleNode =>
+  node.type === 'hard' || node.type === 'boss' || node.type === 'checkpoint' || node.type === 'breakthrough' ? node.type : 'battle';
+/**
+ * Task 26: the living elements met before the next fight — the viewer's snapshot (`schedule.seen`) and every element the run's
+ * fights showed (`RtBattleRecord.seen`). Empty for a run without a schedule.
+ */
+export function rtScheduleMet(run: Pick<RtRunState, 'schedule' | 'battles'>): Set<string> {
+  return new Set([...run.schedule?.seen ?? [], ...run.schedule ? run.battles.flatMap(record => record.seen ?? []) : []]);
+}
+/** Task 26: the arena, roster and arc of a node of a scheduled run after the arenas `history`, with `met` met. */
+function schedulePick(run: RtRunState, node: Pick<ForestMapNode, 'id' | 'type' | 'row'>, history: readonly string[], met: ReadonlySet<string>): RtArenaPick {
+  const plan = schedulePlan({ seed: arenaSeed(run, node.id), node: scheduleNode(node), row: runRow(node.row), fight: history.length + 1, met, recent: history });
+  return { arena: plan.arena, ...plan.roster !== undefined ? { roster: plan.roster } : {}, ...plan.arc !== null ? { arc: plan.arc } : {} };
+}
+/** Task 26: the arc of the open fight of a scheduled run (null — a practice fight, or no schedule). */
+export function rtFightArc(run: RtRunState): string | null {
+  const pending = run.pending;
+  if (!run.schedule || pending?.kind !== 'battle') return null;
+  return run.picks.find(pick => pick.nodeId === pending.nodeId)?.arc ?? null;
+}
+/**
+ * Task 26: the elite and enemy rules of a scheduled fight over the loadout of the row tables (`kit` — changed in place):
+ * - the elite arc: one guaranteed elite of a met kind with an elite behaviour (`RT_FIRST_ELITE_KINDS`, none — basic), 2 plates,
+ *   no affix, no random elites;
+ * - the elite not met: no guaranteed and no random elites; met: the tables, every elite of a met kind (`eliteKinds`), and the
+ *   hard node's stand-in arena has one guaranteed elite;
+ * - the affixes: none before the affix arc (it gives 1); after it the tables, drawn among the met types and at most one more;
+ * - rows 6–8: plates and tough HP +1 (design answer 5); the hard node: the floor ×1,25; every unmet kind is taken out.
+ */
+export function scheduleKit(kit: Loadout, run: RtRunState, node: Pick<ForestMapNode, 'type' | 'row'>, battle: RtBattleKind, fight: RtArenaPick, met: ReadonlySet<string>, seed: number): void {
+  const row = runRow(node.row), gentle = rtGentle(run), arc = fight.arc ?? null;
+  const numbers = row >= SCHEDULE_NUMBERS_ROWS[0] && row <= SCHEDULE_NUMBERS_ROWS[1] ? 1 : 0;
+  delete kit.guaranteedElite; delete kit.eliteAffixes; delete kit.eliteKinds; delete kit.affixKinds; delete kit.withoutKinds;
+  if (arc === 'elite') {
+    const kinds = RT_FIRST_ELITE_KINDS.filter(kind => kind === 'basic' || met.has(kind));
+    Object.assign(kit, { guaranteedElite: true, randomElites: false, elitePlates: 2, eliteKinds: kinds.length ? kinds : ['basic'] });
+  } else if (!met.has('elite')) {
+    kit.randomElites = false;
+  } else {
+    kit.randomElites = rtRandomElites(row, gentle);
+    if ((battle === 'battle' || battle === 'event') && rtGuaranteedElite(node, battle, gentle) || battle === 'hard' && fight.arena !== HARD_ARENA) kit.guaranteedElite = true;
+    kit.eliteKinds = ['basic', ...SCHEDULE_KINDS.filter(kind => met.has(kind))];
+    kit.elitePlates = rtElitePlates(row, gentle) + numbers;
+    const affixes = arc === 'affix' ? 1 : met.has('affix') ? rtEliteAffixes(row, gentle, rtAsh(run)) : 0;
+    if (affixes > 0) { kit.eliteAffixes = affixes; kit.affixKinds = allowedAffixes(met, seed, kit.eliteKinds); }
+  }
+  const tough = rtToughHp(row, gentle) + numbers;
+  if (tough > 2) kit.toughHp = tough; else delete kit.toughHp;
+  const gone = unmetKinds(fight.arena, fight.roster, met, arc);
+  if (gone.length) kit.withoutKinds = gone;
+  if (battle === 'hard') kit.floorScale = SCHEDULE_HARD_FLOOR;
+}
 
 /**
  * Phase A (Т2): the roster of `arena` on `node` after the arenas `history` and the rosters `rosters` of the run — by the
@@ -1274,8 +1362,9 @@ function chooseRoster(run: Pick<RtRunState, 'seed' | 'rosterMix'>, node: Pick<Fo
 
 function startArena(run: RtRunState, node: ForestMapNode, battle: RtBattleKind, events: RtRunEvent[]) {
   const pick = arenaPick(run, node, true), roster = pick.roster !== undefined ? { roster: pick.roster } : {};
+  const arc = pick.arc !== undefined ? { arc: pick.arc } : {};
   const entry = run.picks.find(p => p.nodeId === node.id);
-  if (entry) Object.assign(entry, { arena: pick.arena }, roster); else run.picks.push({ nodeId: node.id, arena: pick.arena, ...roster });
+  if (entry) Object.assign(entry, { arena: pick.arena }, roster, arc); else run.picks.push({ nodeId: node.id, arena: pick.arena, ...roster, ...arc });
   // Task 16 «Подвиги»: the node's feat is fixed now (its talisman reward checked against the pool as it is).
   const feat = rtFeatOf(run, node);
   run.pending = { kind: 'battle', nodeId: node.id, arena: pick.arena, seed: arenaSeed(run, node.id), battle, ...roster, ...feat ? { feat } : {} };
@@ -1406,7 +1495,9 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
     // П6: the killing blow of a lost fight (a malformed one is not kept).
     ...!outcome.won && validDeath(outcome.death) ? { death: structuredClone(outcome.death) } : {},
     // Task 16 «Подвиги»: the open battle's feat and whether the fight did it (a lost fight's too).
-    ...pending.feat ? { feat: { ...structuredClone(pending.feat), done: outcome.feat?.done === true } } : {} });
+    ...pending.feat ? { feat: { ...structuredClone(pending.feat), done: outcome.feat?.done === true } } : {},
+    // Task 26: what the fight showed (a lost fight's too) — the next arcs and the viewer's history read it.
+    ...current.schedule ? { seen: fightElements({ arena: pending.arena, markedGoals: !!current.markedGoals, arc: rtFightArc(current), kinds: outcome.kinds, elite: outcome.elite === true, affixes: outcome.affixes, bag: !rtArenaLoadout(current).noBag }) } : {} });
   // П5: the fight's chance joins the run's tally (a lost fight's too).
   const luck = addLuck(run.luck, outcome.luck, RT_FIGHT_LUCK_KEYS);
   if (luck) run.luck = luck;
@@ -2363,6 +2454,10 @@ function checkRun(value: unknown): RtRunState | null {
   if (value.gentleEntry !== undefined && value.gentleEntry !== true) return null;
   if (value.startPotion !== undefined && value.startPotion !== true) return null;
   if (value.secondWind !== undefined && value.secondWind !== true) return null;
+  // Task 26: the viewer's snapshot — sorted known elements, no repeats (may be empty); only below «Испытание II».
+  if (value.schedule !== undefined && !(isRecord(value.schedule) && Object.keys(value.schedule).length === 1 && Array.isArray(value.schedule.seen)
+    && value.schedule.seen.every(isScheduleElement) && JSON.stringify([...new Set(value.schedule.seen)].sort()) === JSON.stringify(value.schedule.seen)
+    && !(isRtAshLevel(value.ash) && value.ash >= RT_ASH_TABLES))) return null;
   if (value.metKinds !== undefined && !(value.gentleEntry === true && Array.isArray(value.metKinds) && value.metKinds.length && value.metKinds.every(kind => typeof kind === 'string' && kind.length > 0) && new Set(value.metKinds).size === value.metKinds.length)) return null;
   // Task 15 (14.10.2026): a flag; absent — a save before it, which has no map heal. `healBought` (1 or more) needs the flag.
   if (value.healMap !== undefined && value.healMap !== true) return null;
@@ -2418,7 +2513,8 @@ function checkRun(value: unknown): RtRunState | null {
   if (!Array.isArray(run.picks) || !Array.isArray(run.eventChoices) || !Array.isArray(run.battles)) return null;
   for (const pick of run.picks) {
     if (!isRecord(pick) || !known(pick.nodeId) || run.picks.filter(other => other.nodeId === pick.nodeId).length > 1) return null;
-    if (pick.arena !== undefined && !RUN_ARENAS.includes(pick.arena)) return null;
+    if (pick.arena !== undefined && !RUN_ARENAS.includes(pick.arena) && !(run.schedule && SCHEDULE_RUN_ARENAS.includes(pick.arena))) return null;
+    if (pick.arc !== undefined && !(run.schedule && pick.arena !== undefined && typeof pick.arc === 'string')) return null;
     if (pick.roster !== undefined && (!isRoster(pick.roster) || pick.arena === undefined)) return null;
     if (pick.eventId !== undefined && !forestEvent(pick.eventId)) return null;
     if (pick.find !== undefined && pick.find !== true) return null;
@@ -2429,10 +2525,19 @@ function checkRun(value: unknown): RtRunState | null {
   // and rosters before it (absent where the arena keeps its own composition). The roster mix (11.10.2026): by the rule of
   // the run's flag `rosterMix` (absent — the pools and rosters before it).
   const history: string[] = [], rosters: string[] = [];
+  // Task 26: a scheduled run's picks are planned again with what was met before each (the snapshot, then each fight's record).
+  const met = new Set(run.schedule?.seen ?? []);
   for (const pick of run.picks) {
     if (pick.arena === undefined) continue;
     const node = map.node(pick.nodeId)!;
     if (!isArenaNode(node) && !(node.type === 'event' && pick.eventId && battleOption(forestEvent(pick.eventId)!))) return null;
+    if (run.schedule) {
+      const planned = schedulePick(run, node.type === 'event' ? { ...node, type: 'battle' } : node, history, met);
+      if (pick.arena !== planned.arena || pick.roster !== planned.roster || pick.arc !== planned.arc) return null;
+      history.push(pick.arena);
+      for (const id of (run.battles as unknown[]).flatMap(record => isRecord(record) && record.nodeId === pick.nodeId && Array.isArray(record.seen) ? record.seen : [])) met.add(id as string);
+      continue;
+    }
     if (pick.arena !== chooseArena(node.type === 'event' ? { ...node, type: 'battle' } : node, history, streamValue(run.seed, 'pool', history.length), !!run.rosterMix, rtGentle(run))) return null;
     if (pick.roster !== chooseRoster(run, node, pick.arena, history, rosters)) return null;
     history.push(pick.arena);
@@ -2448,6 +2553,8 @@ function checkRun(value: unknown): RtRunState | null {
     if (!isRecord(record) || !known(record.nodeId) || typeof record.arena !== 'string' || record.arena !== run.picks.find(pick => pick.nodeId === record.nodeId)?.arena || typeof record.won !== 'boolean'
       || !isCount(record.kills) || !isCount(record.damage) || typeof record.time !== 'number' || !Number.isFinite(record.time) || record.time < 0
       || (record.bestChain !== undefined && !isCount(record.bestChain))) return null;
+    // Task 26: what a fight showed — only in a scheduled run, known elements, sorted, no repeats.
+    if (record.seen !== undefined && !(run.schedule && Array.isArray(record.seen) && record.seen.every(isScheduleElement) && JSON.stringify([...new Set(record.seen)].sort()) === JSON.stringify(record.seen))) return null;
     // B6 К7: only «Застава» has the chest.
     if (record.chest !== undefined && (record.chest !== true || record.arena !== HARD_ARENA)) return null;
     // П6: the killing blow only on the run's lost record.
@@ -2477,7 +2584,7 @@ function checkRun(value: unknown): RtRunState | null {
   const node = map.node(pending.nodeId)!, pick = run.picks.find(entry => entry.nodeId === pending.nodeId);
   switch (pending.kind) {
     case 'battle': {
-      if (typeof pending.arena !== 'string' || !RUN_ARENAS.includes(pending.arena) || pick?.arena !== pending.arena) return null;
+      if (typeof pending.arena !== 'string' || !(RUN_ARENAS.includes(pending.arena) || (run.schedule && SCHEDULE_RUN_ARENAS.includes(pending.arena))) || pick?.arena !== pending.arena) return null;
       // Phase A (Т2): the roster of the open arena is its pick's, chosen again above.
       if (pending.roster !== pick.roster) return null;
       if (!isSeed(pending.seed) || pending.seed !== arenaSeed(run, pending.nodeId)) return null;

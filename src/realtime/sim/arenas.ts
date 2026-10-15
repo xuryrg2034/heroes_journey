@@ -171,6 +171,13 @@ export interface ArenaTemplate extends ArenaShape {
    * and whenever the layout is not in play. The seam for the view's mark of the horde as one group (the ui session).
    */
   horde?: { x: number; y: number; r: number };
+  /**
+   * Task 27 «Каркас босса» (sim/arenasBoss.ts; sandbox only): the arena plays the boss frame whatever the given values hold — the
+   * world gets a copy of them with `Params.bossFrame` on (world.ts `createWorld`; the journal keeps that copy). Omitted — the values as given.
+   */
+  bossFrame?: boolean;
+  /** Task 27: the gates of a boss arena — where the Jailer's «Свисток» calls its adds (enemies/jailer.ts). Omitted — none. */
+  gates?: Vec[];
 }
 
 /**
@@ -759,3 +766,60 @@ export const GORGE_ARENA: ArenaTemplate = registerArena({
 
 /** The terrain samples on the sandbox menu (keys ⇧1–⇧5), after arenas 1–10. Not in the run. */
 export const TERRAIN_ARENAS: readonly ArenaTemplate[] = [RIVER_ARENA, CLIFF_ARENA, THICKET_ARENA, BRAZIER_ARENA, GORGE_ARENA];
+
+// ---- Arenas of the forest schedule, task 26 (7) (design 15.10.2026; docs/realtime-slice.md, section 5) ----
+// Data only: copies of the sandbox templates with the player's card text and the run's «one kind» composition (no wolf packs,
+// no boars unless a roster brings them). The schedule of the run (run/) puts them into fights; they are on no sandbox menu and in
+// no row pool (run/arenaPools.ts). The geometry (obstacles, terrain, braziers, door, hero start) is the source's own objects:
+// a copy plays the same field. The names are proposals of the level designer; the design accepts them.
+
+/**
+ * A copy of `base`: its field and goal, the run's composition of one kind (`ONE_KIND` over the source's `phaseOverride`, last),
+ * the new id, name and card line, and the fields of `extra` (kill goal, newcomers). The source template is not changed.
+ */
+function scheduleCopy(base: ArenaTemplate, extra: Pick<ArenaTemplate, 'id' | 'name' | 'summary'> & Partial<ArenaTemplate>): ArenaTemplate {
+  return registerArena({ ...base, ...extra, phaseOverride: { ...base.phaseOverride, ...ONE_KIND } });
+}
+
+/** `p-yard`: the field of arena 1 «Убить 30» (the field of «Поляна»), kill 25, only basic enemies. A practice fight. */
+export const SCHEDULE_YARD_ARENA: ArenaTemplate = scheduleCopy(KILL_ARENA, {
+  id: 'p-yard', name: 'Прогалина', killGoal: 25,
+  summary: 'Убей цепью 25 врагов. Потом откроется дверь сверху.',
+});
+/** `p-braziers`: М4 «Жаровни» (three braziers), kill 25 as the source. The arc «жаровня». */
+export const SCHEDULE_BRAZIER_ARENA: ArenaTemplate = scheduleCopy(BRAZIER_ARENA, {
+  id: 'p-braziers', name: 'Жаровни',
+  summary: 'Убей цепью 25 врагов. Жаровня — звено любого цвета, цвет цепи не меняет; после неё цепь получает +2 к силе. Пройденная жаровня гаснет на 6 с. Дверь сверху.',
+});
+/** `p-cliff`: М2 «Обрыв» (a ravine from the top edge), kill 25. The arc «обрыв». */
+export const SCHEDULE_CLIFF_ARENA: ArenaTemplate = scheduleCopy(CLIFF_ARENA, {
+  id: 'p-cliff', name: 'Овраг', killGoal: 25,
+  summary: 'Убей цепью 25 врагов. По обрыву не пройти, но цепь и прыжок его перелетают. Враг, столкнутый в обрыв, гибнет. Дверь справа.',
+});
+/** `p-river`: М1 «Река» (a river band across the arena), kill 25. The arc «вода». */
+export const SCHEDULE_RIVER_ARENA: ArenaTemplate = scheduleCopy(RIVER_ARENA, {
+  id: 'p-river', name: 'Излучина', killGoal: 25,
+  summary: 'Убей цепью 25 врагов. В реке ходьба вдвое медленнее, а цепь и прыжок — как на суше. Дверь справа.',
+});
+/** `p-thicket`: М3 «Терновник» (a thicket in the middle, two bushes), kill 20 as the source. The arc «терновник». */
+export const SCHEDULE_THICKET_ARENA: ArenaTemplate = scheduleCopy(THICKET_ARENA, {
+  id: 'p-thicket', name: 'Тёрн',
+  summary: 'Убей цепью 20 врагов. Терновник колет героя на ногах: 1 HP при входе и раз в секунду. Цепь и прыжок проходят без урона, враги в нём медленнее. Дверь справа.',
+});
+/** `p-gorge`: М5 «Теснина» (two ridges of walls with narrow gaps), kill 25. A practice fight. */
+export const SCHEDULE_GORGE_ARENA: ArenaTemplate = scheduleCopy(GORGE_ARENA, {
+  id: 'p-gorge', name: 'Засека', killGoal: 25,
+  summary: 'Убей цепью 25 врагов. Два ряда стен с узкими проходами: в проходе враги идут друг за другом. Дверь справа.',
+});
+/** `p-archer-yard`: the field of arena 1 «Убить 30», kill 25, 15% of newcomers are archers (as «Стрелковая гряда»). The arc «лучник». */
+export const SCHEDULE_ARCHER_YARD_ARENA: ArenaTemplate = scheduleCopy(KILL_ARENA, {
+  id: 'p-archer-yard', name: 'Стрельбище', killGoal: 25,
+  summary: 'Убей цепью 25 врагов, среди них лучники. Лучник стреляет в точку: сойди с круга за 1 с. Дверь сверху.',
+  newcomers: [{ kind: 'archer', share: 0.15 }],
+});
+
+/** The seven arenas of the forest schedule (task 26). Not on the sandbox menu, not in the row pools. */
+export const SCHEDULE_ARENAS: readonly ArenaTemplate[] = [
+  SCHEDULE_YARD_ARENA, SCHEDULE_BRAZIER_ARENA, SCHEDULE_CLIFF_ARENA, SCHEDULE_RIVER_ARENA, SCHEDULE_THICKET_ARENA, SCHEDULE_GORGE_ARENA,
+  SCHEDULE_ARCHER_YARD_ARENA,
+];
