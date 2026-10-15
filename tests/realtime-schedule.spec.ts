@@ -1,9 +1,11 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
 import { untilFrame } from './realtimeFrames';
-import { rtAvailableNodes, type RtRunState } from '../src/realtime/run/rtRun';
-import { RT_PROFILE_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
+import { arenaPreview, createRtRun, isArenaNode, resolveArena, rtAvailableNodes, rtEnterNode, rtNode, serializeRtRun, type RtRunState } from '../src/realtime/run/rtRun';
+import { RT_PROFILE_STORAGE_KEY, RT_RUN_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
 import { SCHEDULE_ELEMENTS } from '../src/realtime/run/schedule';
+import { closeNode, ok, seedOf, takeGift } from '../src/realtime/run/runFight.testkit';
+import { cardRules, nodeDangers } from '../src/realtime/view/nodeCard';
 
 /**
  * Task 26 «Расписание леса» (design 15.10.2026; docs/realtime-slice.md, «Расписание леса») at 1280×720 by real input: a viewer
@@ -11,6 +13,8 @@ import { SCHEDULE_ELEMENTS } from '../src/realtime/run/schedule';
  * starts a new run (the gear's «Новый поход») — the new run goes the newcomer's path: its snapshot is empty and its first fight
  * is «Поляна» with only basic enemies (no wolf, no boar) for 20 s of game time. The order of the arcs, the loadout rules and the
  * saves: Node (`npm run test:realtime-schedule`).
+ * The cards of the schedule's seven arenas on the map (a saved scheduled run whose available node plays the arena): the lines equal
+ * `nodeDangers` with the fight's rules (`cardRules`); snapshots `artifacts/realtime-schedule-card-<arena>.png`.
  */
 const PROLOGUE_KEY = 'ashen-oath-realtime-prologue-done';
 const snap = (page: Page): Promise<any> => page.evaluate(() => (window as any).__realtime.snapshot());
@@ -60,5 +64,50 @@ test('task 26: «Обучение» empties the viewer\'s history — the next n
   expect(kinds.length).toBeGreaterThan(0);
   expect(kinds.filter(kind => kind !== 'basic')).toEqual([]);
   await page.screenshot({ path: 'artifacts/realtime-schedule-first-fight.png' });
+  expect(errors).toEqual([]);
+});
+
+/** The history that makes the next arc's arena, or a veteran's practice (p-yard, p-gorge). */
+const ARC_HISTORY: Readonly<Record<string, readonly string[]>> = {
+  'p-braziers': ['bust', 'wolf', 'elite'], 'p-cliff': ['bust', 'wolf', 'elite', 'brazier'], 'p-river': ['bust', 'wolf', 'elite', 'brazier', 'cliff', 'boar'],
+  'p-archer-yard': ['bust', 'wolf', 'elite', 'brazier', 'cliff', 'boar', 'water', 'shield', 'buttons'],
+  'p-thicket': ['bust', 'wolf', 'elite', 'brazier', 'cliff', 'boar', 'water', 'shield', 'buttons', 'archer', 'sapper', 'leader', 'lynx', 'affix'],
+  'p-yard': [...SCHEDULE_ELEMENTS], 'p-gorge': [...SCHEDULE_ELEMENTS],
+};
+/** A scheduled run (gift taken) walked to a map whose available arena node plays `arena`; its node. */
+function runOffering(arena: string): { run: RtRunState; nodeId: string } {
+  for (let k = 1; k <= 60; k++) {
+    let run = takeGift(createRtRun(seedOf(k + 900), { gift: 'mini', schedule: [...ARC_HISTORY[arena]] }));
+    for (let step = 0; step < 300 && !run.result; step++) {
+      if (run.pending?.kind === 'battle') { run = ok(resolveArena(run, { nodeId: run.pending.nodeId, won: true, hp: run.hp, kills: 20, damage: 0, time: 40, kinds: [] }), 'win'); continue; }
+      if (run.pending) { run = closeNode(run); continue; }
+      const nodes = rtAvailableNodes(run), hit = nodes.find(node => isArenaNode(node) && arenaPreview(run, node)?.arena === arena);
+      if (hit) return { run, nodeId: hit.id };
+      run = ok(rtEnterNode(run, nodes[(k + step) % nodes.length].id), 'enter');
+    }
+  }
+  throw new Error(`no map offers ${arena}`);
+}
+
+test('task 26: the cards of the seven schedule arenas on the map say what their fights play (1280×720 snapshots)', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+  for (const arena of Object.keys(ARC_HISTORY)) {
+    const { run, nodeId } = runOffering(arena);
+    await page.goto('/');
+    await page.evaluate(([prologue, key, value]) => { localStorage.clear(); localStorage.setItem(prologue, '1'); localStorage.setItem(key, value); }, [PROLOGUE_KEY, RT_RUN_STORAGE_KEY, serializeRtRun(run)] as const);
+    await page.reload();
+    await expect(page.getByTestId('run-map')).toBeVisible();
+    await page.getByTestId(`node-${nodeId}`).click();
+    await expect(page.getByTestId('run-dangers')).toBeVisible();
+    const node = rtNode(run, nodeId)!, pick = arenaPreview(run, node)!;
+    const want = nodeDangers({ arena: pick.arena, roster: pick.roster, ...cardRules(run, node) }).map(line => `${line.label}: ${line.text}`);
+    const shown = await page.getByTestId('run-dangers').locator('li').allTextContents();
+    expect(shown.length, arena).toBe(want.length);
+    want.forEach((line, i) => expect(shown[i].startsWith(line), `${arena}: «${shown[i]}» / «${line}»`).toBe(true));
+    await page.screenshot({ path: `artifacts/realtime-schedule-card-${arena}.png` });
+  }
   expect(errors).toEqual([]);
 });

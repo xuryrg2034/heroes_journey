@@ -77,7 +77,7 @@ export const SCHEDULE_PRACTICE: readonly { arena: string; own: readonly string[]
   { arena: 'ford', own: ['archer', 'wolf', 'leader', 'water'], minRow: 6 },
 ];
 /** Every arena the schedule may put in a fight (the run's saves name only these and the pools' ones). */
-export const SCHEDULE_ARENAS: readonly string[] = [...new Set([...SCHEDULE_PRACTICE.map(p => p.arena), ...Object.values(SCHEDULE_TEACH).map(t => t.arena), HARD_ARENA, FINAL_ARENA])];
+export const SCHEDULE_RUN_ARENAS: readonly string[] = [...new Set([...SCHEDULE_PRACTICE.map(p => p.arena), ...Object.values(SCHEDULE_TEACH).map(t => t.arena), HARD_ARENA, FINAL_ARENA])];
 /** The window of repeats of the practice fights: not one of the last 2 arenas, while another fits. */
 export const SCHEDULE_REPEAT_WINDOW = 2;
 /** В-1: special kinds on a fight at most — run rows 1–5: 2, rows 6–9: 3 (the partner role is added only below it). */

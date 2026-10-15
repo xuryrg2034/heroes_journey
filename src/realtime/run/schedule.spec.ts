@@ -57,8 +57,8 @@ function enterNext(run: RtRunState, k: number, step: number): RtRunState {
   const next = rtAvailableNodes(run), battle = next.find(node => node.type === 'battle');
   return ok(rtEnterNode(run, (step % 3 && battle ? battle : next[(k + step) % next.length]).id), 'enter');
 }
-/** A fight as the test saw it: its arc, what it showed new to the viewer (the bag apart), the elites. */
-interface Seen { run: number; row: number; arena: string; arc: string | null; fresh: string[]; elites: { kind: string; plates: number; affixes: string[] }[]; metBefore: Set<string>; allowed?: string[] }
+/** A fight as the test saw it: its arc, the living elements new to the viewer (the bag apart; an affix type is not one — `types`), the elites. */
+interface Seen { run: number; row: number; arena: string; arc: string | null; fresh: string[]; types: string[]; elites: { kind: string; plates: number; affixes: string[] }[]; metBefore: Set<string>; allowed?: string[] }
 
 /** A viewer's `runs` runs from `history`, every fight a short real fight; the history after each run is the profile's (`rtScheduleMet`). */
 function viewer(k: number, runs: number, seconds: number, history: string[] = []): Seen[] {
@@ -73,7 +73,7 @@ function viewer(k: number, runs: number, seconds: number, history: string[] = []
         assert(replay(JSON.parse(JSON.stringify(fight.sim.exportJournal()!))).hash() === fight.sim.hash(), `viewer ${k} run ${r}: the fight replays`);
         run = ok(resolveArena(run, fight.outcome), 'resolve');
         const seen = run.battles.at(-1)!.seen ?? [];
-        out.push({ run: r, row: runRow(node.row), arena: pending.arena, arc, fresh: seen.filter(id => !metBefore.has(id) && id !== 'bag'), elites: [...fight.elites.values()], metBefore, ...kit.affixKinds ? { allowed: kit.affixKinds } : {} });
+        out.push({ run: r, row: runRow(node.row), arena: pending.arena, arc, fresh: seen.filter(id => !metBefore.has(id) && id !== 'bag' && !id.startsWith('affix:')), types: seen.filter(id => !metBefore.has(id) && id.startsWith('affix:')), elites: [...fight.elites.values()], metBefore, ...kit.affixKinds ? { allowed: kit.affixKinds } : {} });
       } else if (pending) run = closeNode(run);
       else run = enterNext(run, k, step);
     }
@@ -92,7 +92,8 @@ check('a new viewer (empty history), 3 runs each, real short fights (4 viewers):
       fights++;
       const where = `viewer ${k} run ${f.run} row ${f.row} ${f.arena} (arc ${f.arc}): new ${f.fresh}`;
       assert(f.fresh.length <= 1, where);
-      if (f.arc) { arcs++; assert(f.fresh.length === 0 || f.fresh.every(id => id === f.arc || (f.arc === 'affix' && id.startsWith('affix'))) || f.arc === BUST_ARC, `${where}: not the arc's own`); }
+      assert(f.types.length <= 1, `${where}: new affix types ${f.types}`);
+      if (f.arc) { arcs++; assert(f.fresh.length === 0 || f.fresh.every(id => id === f.arc) || f.arc === BUST_ARC, `${where}: not the arc's own`); }
       if (!eliteMet) assert(f.elites.length === 0 || f.arc === 'elite', `${where}: an elite before the elite arc ${JSON.stringify(f.elites)}`);
       if (f.arc === 'elite' && f.elites.length) {
         firstElites++;
@@ -213,18 +214,19 @@ check('the loadout of a scheduled fight: a veteran — rows 6–8 plates 4 and t
     }
     assert(found >= 1, `rows ${rows}: no battle`);
   }
-  const hard = openOn(5, VETERAN, r => (r.pending as Battle).battle === 'hard') ?? openOn(6, VETERAN, r => (r.pending as Battle).battle === 'hard');
-  assert(hard && rtArenaLoadout(hard).floorScale === SCHEDULE_HARD_FLOOR, 'the hard node of a veteran: ×1,25');
-  const stand = openOn(5, ['wolf'], r => (r.pending as Battle).battle === 'hard') ?? openOn(6, ['wolf'], r => (r.pending as Battle).battle === 'hard');
-  if (stand) assert((stand.pending as Battle).arena !== 'outpost' && rtArenaLoadout(stand).floorScale === SCHEDULE_HARD_FLOOR, `a stand-in for «Застава»: ${(stand.pending as Battle).arena}`);
+  const hardOf = (seen: readonly string[]): RtRunState | null => { for (let k = 1; k <= 40; k++) { const run = openOn(k, seen, r => (r.pending as Battle).battle === 'hard'); if (run) return run; } return null; };
+  const hard = hardOf(VETERAN);
+  assert(hard && (hard.pending as Battle).arena === 'outpost' && rtArenaLoadout(hard).floorScale === SCHEDULE_HARD_FLOOR, `the hard node of a veteran: ${hard && (hard.pending as Battle).arena} ×${hard && rtArenaLoadout(hard).floorScale}`);
+  const stand = hardOf(['wolf']);
+  assert(stand && (stand.pending as Battle).arena !== 'outpost' && rtArenaLoadout(stand).floorScale === SCHEDULE_HARD_FLOOR, `a stand-in for «Застава»: ${stand && (stand.pending as Battle).arena}`);
   const fresh = openOn(9, [], () => true)!, kit = rtArenaLoadout(fresh);
   assert(!kit.guaranteedElite && !kit.randomElites && !kit.eliteAffixes, `a new viewer's first fight: ${JSON.stringify({ g: kit.guaranteedElite, r: kit.randomElites, a: kit.eliteAffixes })}`);
-  assert((fresh.pending as Battle).arena === 'glade' && same(kit.withoutKinds, ['wolf', 'boar'].filter(kind => arenaKinds('glade').has(kind)).sort((a, b) => SCHEDULE_KINDS.indexOf(a) - SCHEDULE_KINDS.indexOf(b))), `the first fight: ${(fresh.pending as Battle).arena}, without ${kit.withoutKinds}`);
+  assert((fresh.pending as Battle).arena === 'glade' && same(kit.withoutKinds ?? [], ['wolf', 'boar'].filter(kind => arenaKinds('glade').has(kind)).sort((a, b) => SCHEDULE_KINDS.indexOf(a) - SCHEDULE_KINDS.indexOf(b))), `the first fight: ${(fresh.pending as Battle).arena}, without ${kit.withoutKinds}`);
 });
 
-check('the simulation: with `affixMetKinds` an elite draws only the kit\'s affix types; without the key — any type (as before); `withoutKinds` with the wolf and the boar — no wolf and no boar on «Поляна» in 60 s (with them: some)', () => {
-  const kinds = (loadout: object, seconds: number, params: Partial<Params> = {}): { kinds: Set<string>; affixes: Set<string> } => {
-    const sim = new Simulation({ arena: 'glade', params: { ...rtRunParams(harmless()), ...params }, seed: seedOf(3), loadout: { items: { frost: 0, bomb: 0, healing: 0, fire: 0 }, energy: 0, openItems: [], ...loadout } });
+check('the simulation: with `affixMetKinds` an elite draws only the kit\'s affix types; without the key — any type (as before); `withoutKinds` with the wolf and the boar — no wolf on «Поляна» with the roster «Волки» and no boar with «Натиск» in 60 s (without the list: some)', () => {
+  const kinds = (loadout: object, seconds: number, params: Partial<Params> = {}, roster?: string): { kinds: Set<string>; affixes: Set<string> } => {
+    const sim = new Simulation({ arena: 'glade', ...roster ? { roster } : {}, params: { ...rtRunParams(harmless()), ...params }, seed: seedOf(3), loadout: { items: { frost: 0, bomb: 0, healing: 0, fire: 0 }, energy: 0, openItems: [], ...loadout } });
     const out = { kinds: new Set<string>(), affixes: new Set<string>() };
     for (let t = 0; t < TICKS(seconds); t++) { sim.tick(); for (const e of sim.world.enemies) { out.kinds.add(e.kind); for (const a of e.affixes ?? []) out.affixes.add(a); } sim.world.events.length = 0; }
     return out;
@@ -233,9 +235,11 @@ check('the simulation: with `affixMetKinds` an elite draws only the kit\'s affix
   assert(only.affixes.size > 0 && [...only.affixes].every(a => a === 'fat'), `with the key: ${[...only.affixes]}`);
   const any = kinds({ randomElites: true, guaranteedElite: true, eliteAffixes: 2, affixKinds: ['fat'] }, 60, { affixMetKinds: false });
   assert([...any.affixes].some(a => a !== 'fat'), `without the key: ${[...any.affixes]}`);
-  const plain = kinds({}, 60), gone = kinds({ withoutKinds: ['wolf', 'boar'] }, 60);
-  assert(plain.kinds.has('wolf') || plain.kinds.has('boar'), `«Поляна» brings wolves or boars: ${[...plain.kinds]}`);
-  assert(!gone.kinds.has('wolf') && !gone.kinds.has('boar'), `without them: ${[...gone.kinds]}`);
+  for (const [roster, kind] of [['wolves', 'wolf'], ['onslaught', 'boar']] as const) {
+    const plain = kinds({}, 60, {}, roster), gone = kinds({ withoutKinds: ['wolf', 'boar'] }, 60, {}, roster);
+    assert(plain.kinds.has(kind), `«Поляна» with «${roster}» brings the ${kind}: ${[...plain.kinds]}`);
+    assert(!gone.kinds.has('wolf') && !gone.kinds.has('boar'), `«${roster}» without them: ${[...gone.kinds]}`);
+  }
 });
 
 check('the viewer\'s history (profile): the first read starts from the older memory and keeps it; a fight adds; «Обучение» empties it and the older memory is not read again; the history of the view\'s stores', () => {

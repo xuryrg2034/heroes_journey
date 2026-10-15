@@ -1324,7 +1324,7 @@ export function scheduleStats(runs: readonly RunRecord[]): ScheduleStat[] {
   const own = runs.filter(r => r.schedule);
   return SCHEDULE_GROUPS.map(([group, take]) => {
     const list = own.filter(take), fights = list.flatMap(r => r.nodes.filter(n => n.fresh !== undefined));
-    const count = (n: RunNodeVisit): number => (n.fresh ?? []).filter(id => id !== 'bag').length;
+    const count = (n: RunNodeVisit): number => (n.fresh ?? []).filter(id => id !== 'bag' && !id.startsWith('affix:')).length;
     return {
       group, runs: list.length, fresh: fights.map(count), peak: list.map(r => Math.max(0, ...r.nodes.filter(n => n.fresh !== undefined).map(count))),
       arcs: list.flatMap(r => r.nodes).filter(n => n.arc !== undefined && n.arc !== 'practice').length, practice: list.flatMap(r => r.nodes).filter(n => n.arc === 'practice').length,
@@ -1333,7 +1333,7 @@ export function scheduleStats(runs: readonly RunRecord[]): ScheduleStat[] {
   }).filter(s => s.runs > 0);
 }
 const SCHEDULE_HEAD = ['Группа', 'Походов', 'Боёв', 'Новых ЖЭ на бой', 'Боёв с ≥ 2 новыми', 'Пик за поход, среднее', 'Дуг / практики', 'Встречено к концу, среднее'];
-const SCHEDULE_LEGEND = 'Задача 26 «Расписание леса» (с 15.10.2026): походы с расписанием (`RunRecord.schedule`) по номеру похода зрителя (`viewerRun`). Новые ЖЭ — живые элементы, которых зритель не встречал до боя (`RunNode.fresh`; котомка не считается — вне бюджета). Встречено — снимок истории и новые за поход (всего ЖЭ 20, типы свойств элит — отдельно). Походы без расписания и записи до 15.10.2026 — «—». Эвристика, не оценка баланса.';
+const SCHEDULE_LEGEND = 'Задача 26 «Расписание леса» (с 15.10.2026): походы с расписанием (`RunRecord.schedule`) по номеру похода зрителя (`viewerRun`). Новые ЖЭ — живые элементы, которых зритель не встречал до боя (`RunNodeVisit.fresh`; котомка не считается — вне бюджета; тип свойства элиты — не отдельный ЖЭ). Встречено — снимок истории и новые за поход (всего ЖЭ 20, типы свойств элит — отдельно). Походы без расписания и записи до 15.10.2026 — «—». Эвристика, не оценка баланса.';
 function scheduleRows(runs: readonly RunRecord[]): (string | number)[][] {
   const mean = (list: readonly number[]): string => (list.length ? n1(list.reduce((a, b) => a + b, 0) / list.length) : '—');
   const rows: (string | number)[][] = scheduleStats(runs).map(s => [s.group, s.runs, s.fresh.length, mean(s.fresh), pct(s.fresh.filter(n => n >= 2).length, s.fresh.length), mean(s.peak), `${s.arcs} / ${s.practice}`, mean(s.metEnd)]);
