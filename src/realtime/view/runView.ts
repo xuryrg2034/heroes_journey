@@ -360,10 +360,22 @@ export class RunView {
     if (!seen || !seen.on() || !isArenaNode(node) || !rtAvailableNodes(run).some(entry => entry.id === node.id)) return false;
     const arena = arenaPreview(run, node);
     if (!arena) return false;
-    // The kinds the fight takes out (`cardRules` — the fight's own `withoutKinds`) are not promised (review of task 26, 15.10.2026).
-    if (newKindsOfArena(arena.arena, arena.roster, seen.store, cardRules(run, node).withoutKinds).length > 0) return true;
+    if (this.freshKinds(run, node, arena).length > 0) return true;
     const met = this.terrainMet(run, node);
     return !!met && nodeDangers({ arena: arena.arena, roster: arena.roster, met, ...cardRules(run, node) }).some(line => line.newTerrain?.length);
+  }
+
+  /**
+   * The kinds of the node's arena the viewer has not met — the enemies line's «✦» and the node's sign. One sign, one source
+   * (design 15.10.2026): a run with a schedule reads its history (`rtScheduleMet`, as the terrain line: «Обучение» empties both);
+   * a run without one — the view's memory (`NewSeenStore`, which keeps being written). The kinds the fight takes out (`cardRules` —
+   * the fight's own `withoutKinds`) are not promised (review of task 26, 15.10.2026).
+   */
+  private freshKinds(run: RtRunState, node: ForestMapNode, arena: { arena: string; roster?: string }): string[] {
+    const seen = this.host.newSeen;
+    if (!seen) return [];
+    const met = run.schedule ? rtScheduleMet(run) : null;
+    return newKindsOfArena(arena.arena, arena.roster, met ? { hasKind: kind => met.has(kind) } : seen.store, cardRules(run, node).withoutKinds);
   }
 
   /**
@@ -816,7 +828,7 @@ export class RunView {
     const available = rtAvailableNodes(run);
     const status = rtNodeStatus(run, node, available), info = RT_NODE_TYPES[node.type];
     const arena = isArenaNode(node) ? arenaPreview(run, node) : null;
-    const fresh = arena && status === 'available' && this.hasNewSign(run, node) && this.host.newSeen ? newKindsOfArena(arena.arena, arena.roster, this.host.newSeen.store, cardRules(run, node).withoutKinds) : [];
+    const fresh = arena && status === 'available' && this.hasNewSign(run, node) ? this.freshKinds(run, node, arena) : [];
     const body = `<h2>${info.icon} ${escapeHtml(rtNodeTitle(run, node))}</h2>`
       + `<p class="rt-run-meta">${info.label} · ряд похода ${runRow(node.row)} · ${STATUS_LABEL[status]}</p>`
       + (arena ? this.arenaHead(arena.arena, arena.roster) + this.dangersHtml(run, node, arena.arena, arena.roster, fresh, status === 'available' ? this.terrainMet(run, node) : undefined)

@@ -6,6 +6,7 @@ import { RT_PROFILE_STORAGE_KEY, RT_RUN_STORAGE_KEY } from '../src/realtime/run/
 import { SCHEDULE_ELEMENTS } from '../src/realtime/run/schedule';
 import { closeNode, ok, seedOf, takeGift } from '../src/realtime/run/runFight.testkit';
 import { cardRules, nodeDangers } from '../src/realtime/view/nodeCard';
+import { newKindsOfArena } from '../src/realtime/view/newSeen';
 
 /**
  * Task 26 «Расписание леса» (design 15.10.2026; docs/realtime-slice.md, «Расписание леса») at 1280×720 by real input: a viewer
@@ -112,6 +113,12 @@ test('task 26: the cards of the seven schedule arenas on the map say what their 
     const terrain = nodeDangers({ arena: pick.arena, roster: pick.roster, met: rtScheduleMet(run), ...cardRules(run, node) }).find(line => line.id === 'terrain');
     if (['p-cliff', 'p-river', 'p-thicket'].includes(arena)) expect(terrain?.newTerrain?.length, `${arena}: a terrain arc`).toBe(1);
     if (terrain) await expect(page.getByTestId('run-danger-terrain').getByTestId('run-new-sign'), arena).toHaveCount(terrain.newTerrain?.length ? 1 : 0);
+    // One sign, one source (design 15.10.2026): the enemies line of a scheduled run reads the same history, not the view's memory.
+    // Here the two differ — the memory is empty (storage cleared), the history has met the wolf: «Овраг» with wolves gets no «✦»
+    // at its enemies (the view's memory would have given one).
+    const met = rtScheduleMet(run), kindsNew = newKindsOfArena(pick.arena, pick.roster, { hasKind: kind => met.has(kind) }, cardRules(run, node).withoutKinds);
+    if (arena === 'p-cliff') expect(kindsNew, 'the wolves of «Овраг» are met by the history').toEqual([]);
+    await expect(page.getByTestId('run-danger-enemies').getByTestId('run-new-sign'), arena).toHaveCount(kindsNew.length ? 1 : 0);
     await page.screenshot({ path: `artifacts/realtime-schedule-card-${arena}.png` });
   }
   expect(errors).toEqual([]);
