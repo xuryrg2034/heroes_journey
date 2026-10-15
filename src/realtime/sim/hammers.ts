@@ -41,10 +41,11 @@
 import { buildStateOf, chainEnemyLinks, registerBuildModule, setBuildState } from './build';
 import { BUILD_SOURCES, HAMMERS } from './buildIds';
 import { buildHit, buildHitAll, enemiesInCircle, enemiesNearPath } from './buildHits';
-import { fireMinLinks, returnFixedOn, returnStrike, startReturnRun } from './chain';
+import { fireMinLinks, fireOn, planChain, returnFixedOn, returnStrike, startReturnRun } from './chain';
 import { eliteAffixes } from './elites';
 import { kindOf } from './enemies/kinds';
 import { dist, inWater, overCliff, type Vec } from './geometry';
+import { frostPassPath } from './frostPass';
 import type { Params } from './params';
 import { RETURN_RADIUS, returnPowerOf, returnRoute, returnTargets, returnWaypoints, traceTo, type ReturnFixed } from './returnRun';
 import type { Enemy, HeroMove, World } from './world';
@@ -123,9 +124,13 @@ export function hammerFirePoints(world: World): readonly FirePoint[] {
 
 // ---- «Огненный проход» ----
 
+/** A fire point can lie at `p` (`layFire`, the highlight `firePassPreview`): not in water, not over a cliff. Pure. */
+export function fireLaysAt(world: World, p: Vec): boolean {
+  return !inWater(p, world.arena) && !(world.arena.terrain && overCliff(p, world.arena));
+}
+
 function layFire(world: World, state: FireState, p: Vec): void {
-  if (inWater(p, world.arena)) return;
-  if (world.arena.terrain && overCliff(p, world.arena)) return;
+  if (!fireLaysAt(world, p)) return;
   // Task 31: before the threshold the point waits (the same place the old path lays it).
   (state.wait ?? state.points).push({ x: p.x, y: p.y, life: FIRE_LIFE });
 }
@@ -146,6 +151,33 @@ function fireAlong(world: World, state: FireState, path: readonly Vec[]): void {
     next -= len - at;
   }
   state.next = next;
+}
+
+/**
+ * Task 31 (design 15.10.2026, the highlight = the dash): the fire points the drawn chain's dash would lay now — the dash's path
+ * (frostPass.ts `frostPassPath`, as chain.ts `advanceMove` runs it), sampled as `fireAlong` (the first point at the start, then every `FIRE_STEP`),
+ * without the points in water or over a cliff (`fireLaysAt`). Empty without the hammer «Огненный проход», when the plan does not
+ * reach the threshold (`planChain(...).fire.lit`), with no chain or while a dash runs. The view draws the fire edge by these. Pure.
+ */
+export function firePassPreview(world: World): Vec[] {
+  const out: Vec[] = [];
+  if (!fireOn(world) || !planChain(world).fire?.lit) return out;
+  // The release sets `next` 0: the first point lies at the start of the dash, then every `FIRE_STEP`.
+  const path = frostPassPath(world);
+  let next = 0;
+  for (let i = 1; i < path.length; i++) {
+    const a = path[i - 1], b = path[i], len = dist(a, b);
+    if (len <= EPS) continue;
+    let at = 0;
+    while (len - at >= next - EPS) {
+      at += next;
+      const k = Math.min(1, at / len), p = { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k };
+      if (fireLaysAt(world, p)) out.push(p);
+      next = FIRE_STEP;
+    }
+    next -= len - at;
+  }
+  return out;
 }
 
 const fiery = (e: Enemy): boolean => eliteAffixes(e).includes('fiery');

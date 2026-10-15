@@ -24,7 +24,7 @@ import { BUILD_SOURCES, HAMMERS, type HammerId } from './buildIds';
 import { chainScore, planChain } from './chain';
 import { bodyRadiusOf } from './enemies/kinds';
 import { dist, inWater, pond } from './geometry';
-import { BLAST_RADIUS, CUT_RADIUS, END_BLAST_LEGACY_MIN_LINKS, FIRE_LEGACY_MIN_LINKS, FIRE_LIFE, FIRE_PAUSE, FIRE_RADIUS, RETURN_RADIUS, hammerFirePoints, type FirePoint } from './hammers';
+import { BLAST_RADIUS, CUT_RADIUS, END_BLAST_LEGACY_MIN_LINKS, FIRE_LEGACY_MIN_LINKS, FIRE_LIFE, FIRE_PAUSE, FIRE_RADIUS, RETURN_RADIUS, firePassPreview, hammerFirePoints, type FirePoint } from './hammers';
 import { worldState } from './hash';
 import { defaultParams, runParams, type Params } from './params';
 import { SIM_DT, Simulation, replay, type Journal } from './simulation';
@@ -193,6 +193,35 @@ check('fire: no point falls in water — a dash across the pond leaves fire on b
   const events = ticks(sim, 30);
   assert(inWater(wading, w.arena) && hitsOf(events, wading).length === 0, 'an enemy in the water on the path does not burn');
   assert(replays(sim), 'replay');
+});
+
+check('fire (task 31, design 15.10.2026): the highlight\'s fire points (`firePassPreview`) before the release are the points the dash lays — none in the pond; a chain short of the threshold and a kit without the hammer show none', () => {
+  for (const n of [2, 4, 13]) {
+    const sim = fight(HAMMERS.fire, quiet(), 21, 'hammer-pond'), w = sim.world;
+    sim.command({ t: 'teleport', x: 1.5, y: 6 });
+    const links: Enemy[] = [];
+    for (let i = 0; i < n; i++) links.push(place(sim, 2.7 + 1.2 * i, 6, 0));
+    sim.command({ t: 'begin', x: links[0].x, y: links[0].y });
+    for (const e of links.slice(1)) sim.command({ t: 'drag', x: e.x, y: e.y, mode: 'full' });
+    const before = sim.hash(), shown = firePassPreview(w);
+    assert(sim.hash() === before, `${n} links: the preview does not change the world`);
+    sim.command({ t: 'release' });
+    const all: FirePoint[] = [];
+    for (let i = 0; i < 900 && (w.move || i === 0); i++) {
+      sim.tick(); w.events.length = 0;
+      for (const p of hammerFirePoints(w)) if (!all.includes(p)) all.push(p);
+    }
+    if (n < 3) { assert(shown.length === 0 && all.length === 0, `${n} links: no fire shown (${shown.length}), none laid (${all.length})`); continue; }
+    assert(shown.length === all.length && shown.every(p => all.some(q => Math.abs(p.x - q.x) < 1e-6 && Math.abs(p.y - q.y) < 1e-6)),
+      `${n} links: shown ${shown.length} ${shown.map(p => p.x.toFixed(2)).join(' ')}, laid ${all.length} ${all.map(p => p.x.toFixed(2)).join(' ')}`);
+    if (n === 13) assert(shown.every(p => !inWater(p, w.arena)) && shown.some(p => p.x > 16.5), `${n} links: across the pond, both banks, none in the water`);
+    assert(replays(sim), `${n} links: replay`);
+  }
+  const none = fight(null, quiet(), 21, 'hammer-pond');
+  const links = row(none, [0, 0, 0]);
+  none.command({ t: 'begin', x: links[0].x, y: links[0].y });
+  for (const e of links.slice(1)) none.command({ t: 'drag', x: e.x, y: e.y, mode: 'full' });
+  assert(firePassPreview(none.world).length === 0, 'no hammer: no fire shown');
 });
 
 // ---- «Взрыв на конце» ----
