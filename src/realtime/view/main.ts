@@ -56,7 +56,7 @@ import { rtFeatKinds, rtNode, rtRunBestChain } from '../run/rtRun';
 import { NewSeenStore } from './newSeen';
 import { HintStore, purseResultLine } from './hints';
 import { ITEM_PULSE_ID, setPulse } from './pulse';
-import { detectLabels, labelActions, LEVER_OVER_LINE, WorldLabelLayer, type LabelSpec } from './worldLabels';
+import { bossMoveLabels, BOSS_LABEL_LIFE, detectLabels, labelActions, LEVER_OVER_LINE, WorldLabelLayer, type LabelSpec } from './worldLabels';
 import { prologueHandSpot, prologueJumpAim, prologueLoadout, prologueParams, prologueRoom, prologueRoute, prologueShieldLinks, prologueSpinReady } from '../run/prologue';
 import { RT_RUN_HP } from '../run/hpScale';
 import { HAND_IDLE, HandGuide, PROLOGUE_ROOM_COUNT, SHIELD_HAND_IDLE, PrologueStore, TITLE_SECONDS, prologueCarry, prologueEntryRoom, prologueGoalLine, prologueLabel, prologueSeed, roomTitle, type PrologueHooks, type PrologueLabelMemo, type RoomOutcome } from './prologueFlow';
@@ -73,6 +73,7 @@ import { RtRecorder, type FightContext } from '../telemetry/recorder';
 import type { PrologueTally } from '../telemetry/prologue';
 import { devSource } from '../telemetry/sinks';
 import { LogsPanel } from './logsPanel';
+import { BossBar, bossBarState, BOSS_BAR_H } from './bossBar';
 
 /**
  * Telemetry (docs/realtime-telemetry.md, track ТA): the fight observer that fills the summary of each fight record — the
@@ -375,7 +376,9 @@ async function boot(): Promise<void> {
   const noteFlash = el('div', 'rt-note-flash', 'отмечено');
   noteFlash.setAttribute('data-testid', 'note-flash');
   noteFlash.hidden = true;
-  host.append(stage, hud, buildColumn.el, buildColumn.tip, actionBar.el, help, pausedBadge, hint, purseHint, shiftHint, result, noteFlash);
+  // Task 28 (design 15.10.2026, decision 6): the boss bar — only in a fight with a boss, 480 × 14 px at the top centre under the HUD plate.
+  const bossBar = new BossBar();
+  host.append(stage, hud, bossBar.el, buildColumn.el, buildColumn.tip, actionBar.el, help, pausedBadge, hint, purseHint, shiftHint, result, noteFlash);
   if (sandbox) host.append(openButton, menuButton, ...runButton ? [runButton] : [], menu);
   if (logsPanel) host.append(logsPanel.el);
 
@@ -447,6 +450,15 @@ async function boot(): Promise<void> {
   let hintsOn = loadHintsOn();
   const labelLayer = new WorldLabelLayer(host);
   const hints = { store: hintStore, log: [] as { id: string; t: number }[] };
+  /**
+   * Task 28: the names of the boss's moves (worldLabels.ts `bossMoveLabels`) — the moves named in this fight and the names on
+   * screen with their real seconds left. The run and the sandbox; not tied to «Подсказки» (a name of an attack, no memory).
+   */
+  const bossNamed = new Set<string>();
+  let bossLabels: { spec: LabelSpec; life: number }[] = [];
+  /** Task 28: the fight has a boss — the arena's band under the HUD keeps room for the boss bar (`relayout`). */
+  let bossBand = false;
+  const BOSS_BAND = BOSS_BAR_H + 8;
   /**
    * The prologue «Опушка» (view/prologueFlow.ts, view/prologueView.ts, run/prologue.ts; task 6, step 4): six rooms before the run's
    * first start, for a viewer without the key «пролог пройден». The sandbox has none. `prologueDue` — the page starts with it.
@@ -530,6 +542,9 @@ async function boot(): Promise<void> {
     const kit = world().kit;
     pendingArrivals = sandbox && kit ? [...kit.talismans.filter(id => !!FORM_FIELD[id]), ...kit.hammer ? [kit.hammer] : []] : [];
     labelLayer.hideAll();
+    bossNamed.clear(); bossLabels = [];
+    bossBar.reset();
+    bossBand = !!bossBarState(world());
     if (!simParams) recorder?.beginFight(sim, fightContext());
     SLOT_ITEMS.forEach((kind, i) => { slotBlink[i] = notice?.blink.includes(kind) ? ITEM_BLINK : 0; });
     lastSlotCounts = null;
@@ -802,7 +817,7 @@ async function boot(): Promise<void> {
     const bottomOf = (node: HTMLElement): number => (node.hidden ? 0 : node.getBoundingClientRect().bottom);
     const topOf = (node: HTMLElement): number => (node.hidden ? window.innerHeight : node.getBoundingClientRect().top);
     const gap = 8;
-    const top = Math.max(bottomOf(hud), sandbox ? Math.max(bottomOf(openButton), bottomOf(menuButton)) : 0) + gap;
+    const top = Math.max(bottomOf(hud), bottomOf(bossBar.el), sandbox ? Math.max(bottomOf(openButton), bottomOf(menuButton)) : 0) + gap;
     const bottom = window.innerHeight - Math.min(topOf(actionBar.el), topOf(help)) + gap;
     // Phase B (Д5): the build column on the left — the pointers keep clear of it (its right edge + 8).
     // Round 2: the column never reaches the action bar (compact rows, then «+N»).
@@ -815,7 +830,7 @@ async function boot(): Promise<void> {
     openButton.hidden = panel.open;
     // The band of the one-row HUD plate (its CSS min-height, not its live height: a wrapped chain row must not rescale the arena).
     const hudStyle = getComputedStyle(hud);
-    renderer.layout(window.innerWidth - panelWidth, window.innerHeight, (parseFloat(hudStyle.top) || 0) + (parseFloat(hudStyle.minHeight) || 0) + 4);
+    renderer.layout(window.innerWidth - panelWidth, window.innerHeight, (parseFloat(hudStyle.top) || 0) + (parseFloat(hudStyle.minHeight) || 0) + 4 + (bossBand ? BOSS_BAND : 0));
     measureEdgeInset();
   };
   window.addEventListener('resize', relayout);
@@ -1234,9 +1249,12 @@ async function boot(): Promise<void> {
     // World labels (view/worldLabels.ts): the run only. With the toggle on, an action done in this frame marks its label for this
     // viewer (off: nothing is marked, as the screen lines count nothing), and the labels whose object stands (and were not done
     // before) hang at the object. A fight that is playing, no screen over it.
-    if (!sandbox) {
+    // Task 28: a boss move started for the first time in the fight — its name at its sign for a second (both modes).
+    for (const spec of bossMoveLabels(w, bossNamed)) bossLabels.push({ spec, life: BOSS_LABEL_LIFE });
+    if (bossLabels.length) bossLabels = bossLabels.filter(l => (l.life -= live ? realDt : 0) > 0 && w.status === 'playing');
+    {
       // The action of the frame marks its label whatever the fight's status now (a chain that took the chest or a plate and entered the door).
-      const runLabelling = hintsOn && !!runView?.arenaOpen && !runScreenOpen && !runArenaRecorded;
+      const runLabelling = !sandbox && hintsOn && !!runView?.arenaOpen && !runScreenOpen && !runArenaRecorded;
       if (runLabelling) for (const id of labelActions(w)) if (hints.store.count(id) === 0) hints.store.bump(id);
       let specs: LabelSpec[] = [];
       if (runLabelling && w.status === 'playing') specs = detectLabels(w, p => renderer.sees(p)).filter(spec => hints.store.count(spec.id) === 0);
@@ -1244,20 +1262,22 @@ async function boot(): Promise<void> {
       // the same side — the label over, the line under it (the label goes with the first pull, the line stays).
       const oddsSide = renderer.slotView.shown.oddsSide;
       if (oddsSide) specs = specs.map(spec => spec.id === 'b9' ? { ...spec, at: { x: spec.at.x, y: spec.at.y - LEVER_OVER_LINE }, away: { x: spec.at.x + (oddsSide === 'left' ? 1 : -1), y: spec.at.y } } : spec);
-      else if (prologue && !runScreenOpen) {
+      else if (!sandbox && prologue && !runScreenOpen) {
         // The prologue's labels (one at a time, until the action; docs/realtime-onboarding.md): not tied to the toggle «Подсказки».
         // While the arrow and the circle show (no chain from the hero's place) the label waits: it comes back with the hand.
         const spec = prologue.guide?.circle ? null : prologueLabel(w, prologue.n, prologue.label);
         if (spec && renderer.sees(spec.at)) specs = [spec];
       }
+      if (!runScreenOpen && !menuOpen) for (const l of bossLabels) if (renderer.sees(l.spec.at)) specs.push(l.spec);
       if (specs.length) {
         const stageBox = stage.getBoundingClientRect();
-        const barTop = actionBar.el.hidden ? stageBox.bottom : actionBar.el.getBoundingClientRect().top, top = Math.max(0, hud.getBoundingClientRect().bottom - stageBox.top), bottom = Math.min(stageBox.height, barTop - stageBox.top);
+        const barTop = actionBar.el.hidden ? stageBox.bottom : actionBar.el.getBoundingClientRect().top, top = Math.max(0, Math.max(hud.getBoundingClientRect().bottom, bossBar.el.hidden ? 0 : bossBar.el.getBoundingClientRect().bottom) - stageBox.top), bottom = Math.min(stageBox.height, barTop - stageBox.top);
         const k = renderer.toScreen(1, 0).x - renderer.toScreen(0, 0).x;
         // The bodies of the enemies in view (the label's own object excepted): a label keeps off them (`placeLabel`, `bodies`).
         const half = 0.42 * k, bodies = w.enemies.filter(e => renderer.sees(e) && !specs.some(sp => Math.hypot(sp.at.x - e.x, sp.at.y - e.y) < 0.3)).map(e => { const c = renderer.toScreen(e.x, e.y); return { left: c.x - half, top: c.y - half, right: c.x + half, bottom: c.y + half }; });
         for (const id of labelLayer.update(specs, (x, y) => renderer.toScreen(x, y), k, { left: 0, top, right: stageBox.width, bottom }, renderer.plateRects(), bodies)) {
           hints.log.push({ id, t: now });
+          if (id.startsWith('boss-')) continue;
           if (runView && runLabelling) recorder?.hintShown(runView.state, id);
         }
       } else labelLayer.hideAll();
@@ -1289,6 +1309,16 @@ async function boot(): Promise<void> {
     // Phase B (Д5): the build column follows the kit; hidden under the run screen and the menus.
     const columnWasHidden = buildColumn.el.hidden;
     buildColumn.update(w, live ? realDt : 0, runScreenOpen || menuOpen);
+    // Task 28: the boss bar under the HUD plate (the sandbox plate may wrap to a second row), centred on the stage.
+    {
+      const wasHidden = bossBar.el.hidden;
+      if (bossBar.update(w, live ? realDt : 0, runScreenOpen || menuOpen)) {
+        const top = `${Math.round(hud.getBoundingClientRect().bottom + 6)}px`, left = `${Math.round((window.innerWidth - (panel.open ? panel.el.getBoundingClientRect().width : 0)) / 2)}px`;
+        if (bossBar.el.style.top !== top) bossBar.el.style.top = top;
+        if (bossBar.el.style.left !== left) bossBar.el.style.left = left;
+      }
+      if (bossBar.el.hidden !== wasHidden) measureEdgeInset();
+    }
     if (buildColumn.el.hidden !== columnWasHidden) measureEdgeInset();
     if (pendingArrivals.length && !buildColumn.el.hidden && w.status === 'playing') {
       const at = renderer.toScreen(w.hero.x, w.hero.y);
@@ -1414,6 +1444,7 @@ async function boot(): Promise<void> {
     motion.clear();
     renderer.resetEffects();
     sim = replayed;
+    bossNamed.clear(); bossLabels = []; bossBar.reset(); bossBand = !!bossBarState(world());
     renderer.buildArena(world().arena);
     paused = true;
     menuOpen = false; menu.hidden = true;
@@ -1568,6 +1599,9 @@ async function boot(): Promise<void> {
         guard: { sparks: renderer.blocksShown, wards: renderer.wardsShown, fails: renderer.shieldFailShown },
         /** Task 27 «Тюремщик»: the boss's view — move signs and chains of the frame, the «отрубит» pip, hits, cut chains, «−1 пластина». */
         boss: { ...renderer.bossShown },
+        /** Task 28: the boss bar of the HUD (`BossBar.shown`) and the names of the boss's moves on screen now. */
+        bossBar: bossBar.shown(),
+        bossNames: bossLabels.map(l => l.spec.text),
         /** Task 29 «Формы»: the forms' highlight of the frame (`formsShown`) and the icons' flights to the column (started; flying now). */
         forms: { ...renderer.formsShown, arrivals: buildColumn.arrivals, flying: [...buildColumn.flying] },
         /** The prologue's sleep: «z» marks drawn this frame (the sim's rule: a calm arena or `asleep`). */

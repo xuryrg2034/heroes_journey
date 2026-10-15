@@ -81,6 +81,33 @@ export function detectLabels(w: World, onScreen: (p: Vec) => boolean): LabelSpec
 /** The lever's red knob (arena units): slotView.ts `drawIdol` draws it 1.07 object radii right of the idol's point, a little up. */
 export function leverKnob(lever: Vec): Vec { return { x: lever.x + OBJECT_RADIUS * 1.07, y: lever.y - 0.1 }; }
 
+/**
+ * Task 28 «Тюремщик в походе» (design 15.10.2026, docs/design-notes/tasks-26-28.md; boss report 5.7, item 1): the name of a boss
+ * move at its sign for `BOSS_LABEL_LIFE` real seconds, the first time the move starts in the fight (event `bossMove`, stage
+ * 'start'). The Jailer's fight in a run is one (row 5; a death ends the run), so «first in the fight» is «first in the run» — no
+ * field in the save. Unlike the labels above, it goes on a timer and marks no viewer memory. «Свисток» has no name label.
+ */
+export const BOSS_MOVE_TEXT = { flail: 'Кистень', throw: 'Бросок гири' } as const;
+/** Real seconds a boss move's name stays. */
+export const BOSS_LABEL_LIFE = 1;
+/** Arena units: how high over the core the flail's name hangs, and over the throw's circle (its radius is 1). */
+const FLAIL_LABEL_LIFT = 1.1, THROW_LABEL_LIFT = 1.15;
+
+/** The names of the moves that start in this frame for the first time (`named` — the moves named in this fight; this adds to it). */
+export function bossMoveLabels(w: World, named: Set<string>): LabelSpec[] {
+  const out: LabelSpec[] = [];
+  for (const ev of w.events) {
+    if (ev.type !== 'bossMove' || ev.stage !== 'start' || named.has(ev.move) || !(ev.move in BOSS_MOVE_TEXT)) continue;
+    const core = w.enemies.find(e => e.id === ev.id);
+    if (!core) continue;
+    named.add(ev.move);
+    const text = BOSS_MOVE_TEXT[ev.move as keyof typeof BOSS_MOVE_TEXT];
+    if (ev.move === 'throw' && core.vars.ax !== undefined) out.push({ id: `boss-${ev.move}`, text, at: { x: core.vars.ax, y: core.vars.ay }, place: 'above', lift: THROW_LABEL_LIFT });
+    else out.push({ id: `boss-${ev.move}`, text, at: { x: core.x, y: core.y }, place: 'above', lift: FLAIL_LABEL_LIFT });
+  }
+  return out;
+}
+
 /** Which side of the label the tail sits on to point at `p` (stage px), or none when `p` is inside it. */
 export function tailSide(rect: Rect, p: Vec): 'left' | 'right' | 'up' | 'down' | null {
   if (p.x < rect.left) return 'left';

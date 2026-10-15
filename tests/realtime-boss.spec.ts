@@ -186,3 +186,38 @@ test('task 27 snapshots at 1280×720: the flail windup and the weight throw (the
   await page.screenshot({ path: `artifacts/realtime-boss-${other}.png` });
   expect(errors).toEqual([]);
 });
+
+test('task 28: the boss bar — only in a boss fight, 480 × 14 px at the top centre under the HUD plate, a cell per HP and plate, the phase line; the first flail or throw of the fight names itself at its sign for a second', async ({ page }) => {
+  const errors: string[] = [];
+  await openJailer(page, errors);
+  const bar = page.getByTestId('boss-bar');
+  await expect(bar).toBeVisible();
+  const box = (await bar.boundingBox())!, hud = (await page.getByTestId('hud').boundingBox())!, goal = (await page.getByTestId('goal').boundingBox())!;
+  expect([Math.round(box.width), Math.round(box.height)]).toEqual([480, 14]);
+  expect(Math.abs(box.x + box.width / 2 - 640)).toBeLessThanOrEqual(1);
+  // Under the HUD plate: the goal and the rest of the plate stay clear.
+  expect(box.y).toBeGreaterThanOrEqual(hud.y + hud.height);
+  expect(box.y).toBeGreaterThanOrEqual(goal.y + goal.height);
+  let s: any = await snap(page);
+  const core = s.enemies.find((e: any) => e.kind === 'jailer');
+  expect(s.bossBar).toMatchObject({ visible: true, cells: 2 + core.armor.max, filled: core.hp + core.armor.plates, phaseAt: 2 + 1, phase2: false });
+  await page.screenshot({ path: 'artifacts/realtime-boss-bar.png' });
+
+  // The first move of the fight: its name at its sign; it goes after a second.
+  await quiet(page);
+  await page.evaluate(() => { const rt = (window as any).__realtime; const c = rt.snapshot().enemies.find((e: any) => e.kind === 'jailer'); rt.teleport(c.x + 2.2, c.y); });
+  await expect.poll(async () => ((await snap(page)) as any).bossNames.length, { timeout: 15_000, intervals: [30] }).toBe(1);
+  const name = ((await snap(page)) as any).bossNames[0];
+  expect(['Кистень', 'Бросок гири']).toContain(name);
+  await expect(page.getByTestId('world-label').filter({ hasText: name })).toBeVisible();
+  await page.screenshot({ path: 'artifacts/realtime-boss-name.png' });
+  await expect(page.getByTestId('world-label').filter({ hasText: name })).toBeHidden({ timeout: 3_000 });
+  expect(((await snap(page)) as any).bossNames).toEqual([]);
+
+  // Another arena: no bar.
+  await page.goto('/?sandbox=1&arena=1');
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
+  await expect(bar).toBeHidden();
+  expect(((await snap(page)) as any).bossBar.visible).toBe(false);
+  expect(errors).toEqual([]);
+});

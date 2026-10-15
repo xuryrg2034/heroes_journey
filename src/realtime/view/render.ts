@@ -301,7 +301,19 @@ interface EnemyView {
 }
 
 /** A killed enemy: spins and shrinks for `deathDuration` (design answer 22); one that fell into a cliff also darkens. */
-interface DyingView { root: Container; life: number; total: number; spin: number; scale: number }
+/** `delay` — real seconds the body waits before it dies (task 28: the wave of a boss's death through the crowd). */
+interface DyingView { root: Container; life: number; total: number; spin: number; scale: number; delay?: number }
+
+/**
+ * Task 28 «Тюремщик в походе» (design 15.10.2026, `Params.bossClears`): the boss's death ends the fight, the crowd dies with it
+ * (sim: a `kill` of `source: 'boss-clear'` per enemy, in the core's tick). The view runs the deaths as a wave from the core: each
+ * body waits `distance × CLEAR_WAVE_STEP` (at most `CLEAR_WAVE_MAX`) real seconds, then dies by the common animation; a ring
+ * widens from the core at the same pace. No text.
+ */
+export const CLEAR_WAVE_STEP = 0.06;
+export const CLEAR_WAVE_MAX = 0.6;
+/** The ring outlives the last death by this much (real seconds), fading. */
+const CLEAR_WAVE_TAIL = 0.25;
 
 interface FloatingText { text: Text; life: number; vy: number }
 
@@ -357,7 +369,10 @@ export class RealtimeRenderer {
    * Task 27: what the Jailer's view drew (tests read it): the move signs and the chains of the last frame, the «отрубит» pip of
    * the drawn chain (`severLit` — in its lit phase); the hit flashes, the cut chains and the «−1 пластина» words since the start.
    */
-  readonly bossShown = { flail: 0, throw: 0, whistle: 0, chains: 0, severPips: 0, severLit: 0, hits: 0, breaks: 0, plates: 0 };
+  readonly bossShown = { flail: 0, throw: 0, whistle: 0, chains: 0, severPips: 0, severLit: 0, hits: 0, breaks: 0, plates: 0, clears: 0, waves: 0 };
+  /** Task 28: the core's last point (arena units) — the centre of the crowd's death wave; the waves on screen. */
+  private bossCoreAt: { x: number; y: number } | null = null;
+  private readonly clearWaves: { g: Graphics; x: number; y: number; t: number; reach: number }[] = [];
   /** Task 27: the move signs of the last frame (core id →), so a `bossMove` hit flashes where its sign stood. */
   private bossMovesSeen = new Map<number, { move: JailerMoveId; x: number; y: number; r: number; dir: number }>();
   /** Task 27: the chains of the last frame (weight id → its ends and sag), so a severed weight's chain falls where it hung. */
@@ -1424,6 +1439,7 @@ export class RealtimeRenderer {
       const x = e.x * UNIT, y = e.y * UNIT, armor = eliteArmorView(e);
       let below = false;
       if (e.kind === JAILER) {
+        this.bossCoreAt = { x: e.x, y: e.y };
         const weight = world.enemies.find(p => p.partOf === e.id), dy = weight ? weight.y - e.y : 1;
         below = dy < -BOSS_PIP_FLIP ? true : dy > BOSS_PIP_FLIP ? false : this.bossPipsBelow.get(e.id) ?? false;
         this.bossPipsBelow.set(e.id, below);
@@ -2344,7 +2360,22 @@ export class RealtimeRenderer {
         const total = Math.max(0.01, world.params.deathDuration);
         // Stage 3a (М2): a fall into a cliff — the body darkens as it spins down.
         if (ev.fall) { view.root.tint = 0x3a3a3a; this.fallsShown++; }
-        this.dying.push({ root: view.root, life: total, total, spin: Math.random() < 0.5 ? -1 : 1, scale: view.root.scale.x });
+        // Task 28: the crowd dies with the boss — a wave from the core (its last point; the core's own kill comes in the same tick).
+        let delay = 0;
+        if (ev.source === 'boss-clear') {
+          const o = this.bossCoreAt ?? { x: ev.x, y: ev.y }, d = Math.hypot(ev.x - o.x, ev.y - o.y);
+          delay = Math.min(CLEAR_WAVE_MAX, d * CLEAR_WAVE_STEP);
+          this.bossShown.clears++;
+          const wave = this.clearWaves.find(wv => wv.t === 0 && wv.x === o.x && wv.y === o.y);
+          if (wave) wave.reach = Math.max(wave.reach, delay);
+          else {
+            const g = new Graphics();
+            this.fxLayer.addChild(g);
+            this.clearWaves.push({ g, x: o.x, y: o.y, t: 0, reach: delay });
+            this.bossShown.waves++;
+          }
+        }
+        this.dying.push({ root: view.root, life: total, total, spin: Math.random() < 0.5 ? -1 : 1, scale: view.root.scale.x, ...delay > 0 ? { delay } : {} });
         continue;
       }
       if (ev.type === 'crystal') { this.floatText('◆ кристалл', ev.x * UNIT, ev.y * UNIT - 36, 0xf4efe0); continue; }
@@ -2453,10 +2484,24 @@ export class RealtimeRenderer {
     }
   }
 
+  /** Task 28: the rings of the crowd's death waves — the radius reaches each body as it dies, then the ring fades. */
+  private updateClearWaves(dt: number): void {
+    for (let i = this.clearWaves.length - 1; i >= 0; i--) {
+      const wv = this.clearWaves[i];
+      wv.t += dt;
+      const end = wv.reach + CLEAR_WAVE_TAIL;
+      if (wv.t >= end) { wv.g.destroy(); this.clearWaves.splice(i, 1); continue; }
+      const r = Math.max(0.2, Math.min(wv.t, wv.reach) / CLEAR_WAVE_STEP + Math.max(0, wv.t - wv.reach) * 4) * UNIT;
+      const a = wv.t <= wv.reach ? 1 : 1 - (wv.t - wv.reach) / CLEAR_WAVE_TAIL;
+      wv.g.clear().circle(wv.x * UNIT, wv.y * UNIT, r).stroke({ color: 0x18232d, width: 9, alpha: 0.55 * a }).circle(wv.x * UNIT, wv.y * UNIT, r).stroke({ color: ELITE_LEMON, width: 4, alpha: 0.9 * a });
+    }
+  }
+
   /** Death of an enemy: a full turn and a shrink to nothing. */
   private updateDying(dt: number): void {
     for (let i = this.dying.length - 1; i >= 0; i--) {
       const d = this.dying[i];
+      if (d.delay !== undefined && d.delay > 0) { d.delay -= dt; continue; }
       d.life -= dt;
       if (d.life <= 0) { d.root.destroy({ children: true }); this.dying.splice(i, 1); continue; }
       const k = d.life / d.total;
@@ -2966,6 +3011,7 @@ export class RealtimeRenderer {
     this.updateBursts(realDt);
     this.updateSparks(realDt);
     this.updateDying(realDt);
+    this.updateClearWaves(realDt);
     this.drawObjects(world);
     this.drawMarkers(world);
     this.drawTrails(world);
@@ -3051,6 +3097,9 @@ export class RealtimeRenderer {
     this.enemyViews.clear();
     for (const d of this.dying) d.root.destroy({ children: true });
     this.dying.length = 0;
+    for (const wv of this.clearWaves) wv.g.destroy();
+    this.clearWaves.length = 0;
+    this.bossCoreAt = null;
     this.plaqued.clear();
     for (const pl of this.plaques.values()) pl.box.destroy({ children: true });
     this.plaques.clear();
