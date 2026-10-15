@@ -31,7 +31,9 @@ import { behaviorOf, enemyArtRadius, kindOf } from './enemies/kinds';
 import { adoptChainColor, chameleonOpen, eliteDeath, pickLoot, platesOf, stripPlates, trailAt } from './elites';
 import { curseKill, takeChest } from './chest';
 import { hasTalisman } from './kit';
-import { afterLinkPowerOf, buildActive, chainShieldOf, colorShiftOf, crystalEveryOf, focusMaxOf, hasHook, jumpCostOf, linkGainOf, linkPowerOf, linkRadiusOf, nextChainNo, runHook, type ChainEnd, type LinkContext } from './build';
+import { afterLinkPowerOf, anchorsOf, buildActive, chainShieldOf, colorRuleOf, colorShiftOf, crystalEveryOf, focusMaxOf, hasHook, jumpCostOf, linkGainOf, linkPowerOf, linkRadiusOf, nextChainNo, runHook, type ChainAnchor, type ChainEnd, type LinkContext } from './build';
+import { FORMS, HAMMERS } from './buildIds';
+import { returnPowerOf, returnRoute, returnTargets, traceTo } from './returnRun';
 import { blockedAt, cliffAt, dist, inThorns, lineOfSight, overCliff, pushOutOfObstacles, type Vec } from './geometry';
 import { heroRadius, type Params } from './params';
 import { closingEdgeCrosses, enemiesInside, loopMinOf, sealDamage, sealHoldOf, strikeSeal } from './seal';
@@ -44,6 +46,7 @@ import { bagKill } from './bag';
 import { NO_COLOR, OBJECT_RADIUS, checkGoals, damageEnemy, doorOf, doorOpen, enemyFrozen, findObject, nextFiring, startShieldWindow, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
 
 export { OBJECT_RADIUS };
+export type { ChainAnchor };
 // Phase B: these two moved to build.ts (the build may change them); the view and the tests import them from here as before.
 export { colorShiftOf, crystalEveryOf, jumpCostOf };
 
@@ -141,6 +144,25 @@ export interface ChainPlan {
    * a closed loop, not the drawn chain).
    */
   pierce?: PiercePreview;
+  /**
+   * Task 29, item 5 (the hammer «Возврат»): the way back after this chain and the hits of the second pass — on the world as the
+   * first pass leaves it (its links, the pierce's bodies, the seal's strike), with the run's own functions (returnRun.ts) and
+   * `returnStrike`. `hits` empty — the first pass killed everyone near the way (the run is still made). Absent without the
+   * hammer, without a way back (the chain ends in the open door, or the hero ends where he started), not the drawn chain.
+   */
+  back?: ReturnPreview;
+}
+
+/**
+ * Task 29, item 5: the return run of the drawn chain as it would be released now. `route` — the way back, the point where the
+ * dash ends first, then the corners to the chain's start; `power` — the run's power (⌊P ÷ 2⌋, at least 1); `hits` — the bodies
+ * it strikes in order, `at` — where along `route` it reaches each (segment index + share), and the outcome of the hit.
+ */
+export interface ReturnPreview {
+  route: Vec[];
+  power: number;
+  hits: { id: number; at: number; outcome: StrikeOutcome }[];
+  kills: number;
 }
 
 /**
@@ -153,10 +175,13 @@ export interface PiercePreview {
   kills: number;
 }
 
-/** What `planChain` computes besides the links: `pierce: false` — no pierce (the rule checks of the drawing, П1's search). */
-export interface PlanOptions { pierce?: boolean }
-/** The plan of the rule checks: the pierce never decides whether a link may join (design 12.10.2026, point 12). */
-export const NO_PIERCE: Readonly<PlanOptions> = Object.freeze({ pierce: false });
+/**
+ * What `planChain` computes besides the links: `pierce: false` — no pierce, `back: false` — no return run (the rule checks of
+ * the drawing, П1's search).
+ */
+export interface PlanOptions { pierce?: boolean; back?: boolean }
+/** The plan of the rule checks: the pierce and the return run never decide whether a link may join (design 12.10.2026, point 12). */
+export const NO_PIERCE: Readonly<PlanOptions> = Object.freeze({ pierce: false, back: false });
 
 /** Loop research, step 2: a closed chain's ring now and who is inside it (`sealPreview`). */
 export interface SealPreview { kind: LoopKind; ring: Vec[]; inside: number[]; links: number; damage: number; hold: number }
@@ -188,6 +213,8 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   // Phase B: the build layer numbers the enemy links only while a build module acts (otherwise the old plan, exactly).
   const build = buildActive(world), chain = build ? nextChainNo(world) : 0, gain = linkGainOf(world);
   let index = 0, elites = 0;
+  // Task 29 («Возврат»): the power the dash ends with when it stops on a survivor (the links after it are not struck).
+  let stopPower = 0;
   // Casino «Котёл»: the struck enemy links and the crystal links of the plan, for its cheque (only while the cauldron is on).
   const purse = purseOn(world) ? { struck: [] as { enemy: Enemy; outcome: StrikeOutcome }[], crystals: 0 } : null;
   for (const link of links) {
@@ -208,7 +235,7 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
     if (!endsOnSurvivor) purse?.struck.push({ enemy, outcome });
     if (outcome.killed) kills++;
     // The package: a plate hit is no survivor — the chain goes on through the armoured elite.
-    else if (!outcome.plate) endsOnSurvivor = true;
+    else if (!outcome.plate) { if (!endsOnSurvivor) stopPower = power; endsOnSurvivor = true; }
     // Task 27: a part this strike kills, with no survivor before it (the dash reaches it), is severed.
     out.push({ link, outcome, ...outcome.killed && !endsOnSurvivor && enemy.partOf !== undefined ? { severs: true as const } : {} });
   }
@@ -224,7 +251,81 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   // «Прямая» (design point 9): the pierced bodies' embers go into the cheque as links' do; heat, «Добивание» and П4 unchanged.
   const pierceEmbers = purse && pierce ? pierce.bodies.reduce((sum, b) => sum + linkEmbers(findEnemy(world, b.id)!, b.outcome), 0) : 0;
   const cheque = purse ? planCheque(purse.struck, purse.crystals, seal ? seal.inside.length : null, door, pierceEmbers) : null;
-  return { links: out, endsOnSurvivor, endsOnObject, power, kills, ...seal ? { seal } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {} };
+  // Task 29, item 5: the return run of the drawn chain (the hammer «Возврат»).
+  const back = options.back !== false && links === world.chain && returnOn(world)
+    ? planReturn(world, out, endsOnSurvivor ? stopPower : power, pierce, seal) : null;
+  return { links: out, endsOnSurvivor, endsOnObject, power, kills, ...seal ? { seal } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {} };
+}
+
+// ---- Task 29, item 5: the return run of «Возврат» in the highlight (returnRun.ts; the run — hammers.ts) ----
+
+/** The hammer «Возврат» acts in this world. */
+export const returnOn = (world: World): boolean => world.kit?.hammer === HAMMERS.return;
+
+/** `Params.returnFixed` with «Возврат» in the kit: the release fixes the run's way and bodies (absent key — the old path). */
+export const returnFixedOn = (world: World): boolean => !!world.params.returnFixed && returnOn(world);
+
+/** A hit of the return run on `e` with `power` (hammers.ts): `strike` without +1 and without the cold's ×2, plates as a chain hit's. */
+export function returnStrike(power: number, e: Enemy): StrikeOutcome { return strike(power, e.hp, 1, 0, platesOf(e)); }
+
+/**
+ * The return run of the plan `out` (pure): the dash's path as the trace the run would record (the hero takes a killed link's
+ * spot and an object's; a plate or a survivor is struck from the touch distance; a survivor sends him back to the last spot;
+ * the pierce runs on to its end), the way back from where he ends (pushed out of obstacles, as `finishMove`), and the hits on
+ * the world after the first pass. Null — no run: the chain ends in the open door, or the way back is empty.
+ */
+function planReturn(world: World, out: readonly LinkPlan[], endPower: number, pierce: PiercePreview | null, seal: SealPreview | null): ReturnPreview | null {
+  let at: Vec = { x: world.hero.x, y: world.hero.y }, stop = at;
+  const trace: Vec[] = [{ ...at }], struck = new Map<number, StrikeOutcome>();
+  for (const { link, outcome } of out) {
+    if (link.kind === 'object') {
+      const o = findObject(world, link.id);
+      if (!o) continue;
+      at = stop = { x: o.x, y: o.y };
+      traceTo(trace, at);
+      if (passObject(world, link)) continue;
+      // A button, the lever or the door ends the dash; the open door wins the arena — no end, no run.
+      if (o.kind === 'door' && doorOpen(world)) return null;
+      break;
+    }
+    const e = findEnemy(world, link.id);
+    if (!e || !outcome) continue;
+    struck.set(e.id, outcome);
+    if (outcome.killed) { at = stop = { x: e.x, y: e.y }; traceTo(trace, at); continue; }
+    const d = dist(at, e), reach = touchDistanceOf(world.params, e);
+    if (d > reach) { at = { x: at.x + (e.x - at.x) / d * (d - reach), y: at.y + (e.y - at.y) / d * (d - reach) }; traceTo(trace, at); }
+    if (!outcome.plate) break;
+  }
+  if (pierce) { at = stop = { x: pierce.to.x, y: pierce.to.y }; traceTo(trace, at); }
+  else if (at !== stop) { at = stop; traceTo(trace, at); }
+  const end = { x: stop.x, y: stop.y };
+  pushOutOfObstacles(end, heroRadius(world.params), world.arena);
+  const route = returnRoute(trace, end);
+  if (!route.length) return null;
+  // The world after the first pass: the links struck, the pierce's bodies, the seal's strike on those inside.
+  const pierced = new Map((pierce?.bodies ?? []).map(b => [b.id, b.outcome] as const));
+  const enemies: Enemy[] = [];
+  for (const e of world.enemies) {
+    const o = struck.get(e.id) ?? pierced.get(e.id);
+    if (o?.killed) continue;
+    let hp = o ? o.hpAfter : e.hp, plates = o?.plate ? o.platesAfter ?? 0 : platesOf(e);
+    if (seal && seal.damage > 0 && seal.inside.includes(e.id)) {
+      if (plates > 0) plates--;
+      else if (seal.damage >= hp) continue;
+      else hp -= seal.damage;
+    }
+    enemies.push(hp === e.hp && plates === platesOf(e) ? e : { ...e, hp, ...e.armor ? { armor: { ...e.armor, plates } } : {} });
+  }
+  const path = [end, ...route], shadow: World = { ...world, enemies }, power = returnPowerOf(endPower);
+  const hits: ReturnPreview['hits'] = [];
+  let left = power;
+  for (const { e, at: touch } of returnTargets(shadow, path, [])) {
+    if (left <= 0) break;
+    const outcome = returnStrike(left, e);
+    left = outcome.powerAfter;
+    hits.push({ id: e.id, at: touch, outcome });
+  }
+  return { route: path, power, hits, kills: hits.filter(h => h.outcome.killed).length };
 }
 
 /**
@@ -277,7 +378,7 @@ export function sealPreview(world: World, kind: LoopKind): SealPreview | null {
  */
 export function loopKindAt(world: World, p: Vec): LoopKind | null {
   const params = world.params;
-  if (!params.loopEnabled || !world.chain.length || world.move) return null;
+  if (!loopOn(world) || !world.chain.length || world.move) return null;
   const n = chainEnemyCount(world), first = world.chain[0];
   // The same nearest pick as the drag (links of the chain and new candidates): a new link next to the first one is taken
   // as a link, not read as the closing (review 11.10.2026).
@@ -315,7 +416,7 @@ export function loopRefusal(world: World, kind: LoopKind): Refusal | null {
 /** The closings the drawn chain could make now (the view's «замкни» ring and dashed line): kinds with no refusal. */
 export function loopCandidates(world: World): LoopKind[] {
   const p = world.params;
-  if (!p.loopEnabled || world.chainClosed || !world.chain.length || world.move) return [];
+  if (!loopOn(world) || world.chainClosed || !world.chain.length || world.move) return [];
   const n = chainEnemyCount(world), out: LoopKind[] = [];
   if (world.chain.length >= 3 && n >= loopMinOf(p, 'first') && !loopRefusal(world, 'first')) out.push('first');
   if (p.loopHeroCloses && n >= loopMinOf(p, 'hero') && !loopRefusal(world, 'hero')) out.push('hero');
@@ -346,7 +447,22 @@ function loopGesture(world: World, p: Vec): boolean {
 }
 
 /** The drawn chain is closed and the loop is on (a `param` command may turn it off while closed). */
-export function loopClosed(world: World): boolean { return !!world.chainClosed && world.params.loopEnabled; }
+export function loopClosed(world: World): boolean { return !!world.chainClosed && loopOn(world); }
+
+/**
+ * Task 29: the loop («Печать») is on — the sandbox toggle `loopEnabled` or «Печать» as a form in the kit — and «Развилка» is
+ * not (with any link an anchor, «the first link closes» is ambiguous: no loop, design 15.10.2026). Every rule of the loop reads
+ * this one function; a kit without the forms — the old path.
+ */
+export function loopOn(world: World): boolean {
+  return (world.params.loopEnabled || hasTalisman(world, FORMS.seal)) && !hasTalisman(world, FORMS.fork);
+}
+
+/**
+ * Task 29, the rank of the field «Конец» (buildIds.ts `END_RANK`): it decides between the forms and the end blast only while the
+ * kit holds «Печать» or «Прямая» as a form (the sandbox toggles alone keep the old path: both act).
+ */
+export function endRankOn(world: World): boolean { return hasTalisman(world, FORMS.seal) || hasTalisman(world, FORMS.pierce); }
 
 /**
  * Keeps a closed chain true to the closing rules every tick (review 11.10.2026): it opens when the loop is off, the chain
@@ -357,7 +473,7 @@ function syncLoop(world: World, drawn: number): void {
   const kind = world.chainClosed;
   if (!kind) return;
   let reason: Refusal | 'off' | 'changed' | null = null;
-  if (!world.params.loopEnabled) reason = 'off';
+  if (!loopOn(world)) reason = 'off';
   else if (!world.chain.length || world.chain.length !== drawn) reason = 'changed';
   else reason = loopRefusal(world, kind);
   if (!reason) return;
@@ -408,19 +524,24 @@ export const brazierPowerOf = (world: World): number => Math.max(0, world.params
  * shifts fall on every multiple of `every` within the segment (6, 12, 18…) — for a one-colour chain the links of the old
  * path. Without the key the free link opens a new segment whatever its colour (the old path).
  */
-function colorSegments(world: World, links: readonly ChainLink[], every: number): { color: number | null; count: number; shifts: number[] } {
+function colorSegments(world: World, links: readonly ChainLink[], every: number): { color: number | null; count: number; shifts: number[]; foreign: number[] } {
   let color: number | null = null, count = 0;
-  const shifts: number[] = [], keep = !!world.params.colorShiftKeep;
+  const shifts: number[] = [], foreign: number[] = [], keep = !!world.params.colorShiftKeep;
+  // Task 29, field «Звено»: the one colour rule (`colorRuleOf`): «Близнецы» — a pair counts as one colour; «Чужак» — links of
+  // another colour the chain may take (the first such links of the chain, whatever the segment; the colour stays).
+  const rule = colorRuleOf(world), key = rule?.key, foreignMax = rule?.foreign ?? 0;
+  const same = (a: number, b: number): boolean => (key ? key(a) === key(b) : a === b);
   for (const link of links) {
     if (isCrystal(world, link)) { color = null; count = 0; continue; }
     if (link.kind !== 'enemy') continue;
     const e = findEnemy(world, link.id);
     if (!e) continue;
-    if (color === null || (every > 0 && count >= every && !(keep && e.color === color))) { color = e.color; count = 0; }
+    if (color === null || (every > 0 && count >= every && !(keep && same(e.color, color)))) { color = e.color; count = 0; }
+    else if (foreign.length < foreignMax && !same(e.color, color)) foreign.push(e.id);
     count++;
     if (every > 0 && (keep ? count % every === 0 : count === every)) shifts.push(e.id);
   }
-  return { color, count, shifts };
+  return { color, count, shifts, foreign };
 }
 
 /**
@@ -457,6 +578,57 @@ export function colorShiftIds(world: World, links: readonly ChainLink[] = world.
   return every > 0 ? colorSegments(world, links, every).shifts : [];
 }
 
+/**
+ * Task 29, field «Звено»: the two colours count as one for the chain — the colour rule's key («Близнецы»: the pair; without a
+ * rule — equal). The view reads it to light the pair.
+ */
+export function sameColor(world: World, a: number, b: number): boolean {
+  const key = colorRuleOf(world)?.key;
+  return key ? key(a) === key(b) : a === b;
+}
+
+/**
+ * Task 29 «Близнецы»: the colour pairs of this arena's palette (indices; a single colour of a row of 2–3 colours is a group of
+ * one) — null without the rule. The view's two-coloured chain line.
+ */
+export function colorGroups(world: World): number[][] | null {
+  const key = colorRuleOf(world)?.key;
+  if (!key) return null;
+  const groups = new Map<number, number[]>();
+  for (let c = 0; c < paletteSize(world); c++) { const k = key(c); groups.set(k, [...groups.get(k) ?? [], c]); }
+  return [...groups.values()];
+}
+
+/** Colours of the arena's palette (the kit's row colours, else the panel's `colorCount`). */
+function paletteSize(world: World): number { return world.kit?.colors ?? world.params.colorCount; }
+
+/**
+ * Task 29 «Чужак»: links of another colour the drawn chain may still take (0 — spent this chain); null — no such rule. The
+ * view's «не потрачен».
+ */
+export function foreignLeft(world: World, links: readonly ChainLink[] = world.chain): number | null {
+  const max = colorRuleOf(world)?.foreign ?? 0;
+  if (max <= 0) return null;
+  return Math.max(0, max - colorSegments(world, links, colorShiftOf(world)).foreign.length);
+}
+
+/** Task 29 «Чужак»: the links of `links` taken as links of another colour (empty without the rule). */
+export function foreignLinkIds(world: World, links: readonly ChainLink[] = world.chain): number[] {
+  return (colorRuleOf(world)?.foreign ?? 0) > 0 ? colorSegments(world, links, colorShiftOf(world)).foreign : [];
+}
+
+/**
+ * How `enemy` may join the drawn chain by colour (task 29: the one rule of colour for the refusal, the drawing and the view):
+ * `chain` — its colour is the chain's (or none is set; «Близнецы»: the pair), `chameleon` — «Хамелеон» in its window (it takes
+ * the chain's colour), `foreign` — «Чужак» not spent this chain; null — refused, «не тот цвет».
+ */
+export type ColorJoin = 'chain' | 'chameleon' | 'foreign';
+export function colorJoin(world: World, enemy: Enemy, color: number | null = chainColor(world)): ColorJoin | null {
+  if (color === null || sameColor(world, enemy.color, color)) return 'chain';
+  if (chameleonOpen(world, enemy)) return 'chameleon';
+  return (foreignLeft(world) ?? 0) > 0 ? 'foreign' : null;
+}
+
 /** Score of a finished chain with `kills` kills: per kill × K × (1 + bonus × K), or flat per kill with the toggle off. */
 export function chainScore(params: World['params'], kills: number): number {
   if (kills <= 0) return 0;
@@ -477,11 +649,24 @@ export function chainAnchor(world: World): Vec {
  * Stage G (user 07.10.2026): every point the next link may be taken from. The first link — the hero; then the last
  * link, and with «Якорь у героя» also the hero (second anchor). The dash still runs along the links in order.
  */
-export function chainAnchors(world: World): Vec[] {
+export function chainAnchors(world: World): ChainAnchor[] {
   const hero = { x: world.hero.x, y: world.hero.y };
   if (!world.chain.length) return [hero];
-  const last = chainAnchor(world);
-  return heroAnchorOn(world) ? [last, hero] : [last];
+  const last = lastAnchor(world);
+  // Task 29, field «Звено» («Развилка»): the build's `anchors` hook — every link of the chain (and the hero with «Якорь»).
+  return [...anchorsOf(world, heroAnchorOn(world) ? [last, hero] : [last], () => world.chain.flatMap(link => {
+    const p = linkPoint(world, link);
+    return p ? [{ x: p.x, y: p.y, link }] : [];
+  }))];
+}
+
+/** The last link still on the arena as an anchor (with its link), or the hero (none). */
+function lastAnchor(world: World): ChainAnchor {
+  for (let i = world.chain.length - 1; i >= 0; i--) {
+    const link = world.chain[i], p = linkPoint(world, link);
+    if (p) return { x: p.x, y: p.y, link };
+  }
+  return { x: world.hero.x, y: world.hero.y };
 }
 
 /** The hero is a second anchor: the panel toggle (the sandbox) or the talisman «Якорь у героя» (stage 2, step 3). */
@@ -534,15 +719,34 @@ export function reachOf(world: World, edge: number): number {
  * or a wall corner still sees. Null — reachable; `far` — no anchor is close enough; `sight` — close, but blocked.
  */
 function reachRefusal(world: World, target: Vec, edge: number): Refusal | null {
-  const p = world.params, reach = reachOf(world, edge);
+  const reach = reachOf(world, edge);
   let near = false;
   for (const anchor of chainAnchors(world)) {
-    if (dist(anchor, target) > reach) continue;
-    near = true;
-    if (!p.lineOfSight || lineOfSight(anchor, target, world.arena, -p.sightSlack)) return null;
+    const refusal = anchorRefusal(world, anchor, target, reach);
+    if (!refusal) return null;
+    if (refusal === 'sight') near = true;
   }
   return near ? 'sight' : 'far';
 }
+
+/** One anchor's say on `target` at `reach`: null — within reach and in sight; `far`; `sight`. */
+function anchorRefusal(world: World, anchor: Vec, target: Vec, reach: number): 'far' | 'sight' | null {
+  if (dist(anchor, target) > reach) return 'far';
+  const p = world.params;
+  return !p.lineOfSight || lineOfSight(anchor, target, world.arena, -p.sightSlack) ? null : 'sight';
+}
+
+/**
+ * Task 29 «Развилка» (the view's rings at each link): the anchors `target` (drawn radius `edge`) is within reach and sight of —
+ * the links (`link`) and the hero (no `link`) it may join from, in the order of `chainAnchors`. The refusal reads the same rule.
+ */
+export function reachingAnchors(world: World, target: Vec, edge: number): ChainAnchor[] {
+  const reach = reachOf(world, edge);
+  return chainAnchors(world).filter(anchor => !anchorRefusal(world, anchor, target, reach));
+}
+
+/** `reachingAnchors` of an enemy (its drawn radius). */
+export function enemyAnchors(world: World, enemy: Enemy): ChainAnchor[] { return reachingAnchors(world, enemy, enemyArtRadius(world.params, enemy)); }
 
 /**
  * Why `enemy` cannot be the next link: same color, within R of an anchor (the hero for the first link — so a chain
@@ -556,9 +760,9 @@ export function enemyRefusal(world: World, enemy: Enemy, plan: ChainPlan = planC
   if (loopClosed(world)) return 'sealed';
   if (plan.endsOnSurvivor) return 'afterSurvivor';
   if (plan.endsOnObject) return 'afterObject';
-  const color = chainColor(world);
-  // Phase A, T4: «Хамелеон» in its window is taken by a chain of any colour (it takes the chain's colour, `adoptChainColor`).
-  if (color !== null && enemy.color !== color && !chameleonOpen(world, enemy)) return 'color';
+  // Phase A, T4: «Хамелеон» in its window is taken by a chain of any colour (it takes the chain's colour, `adoptChainColor`);
+  // task 29: the colour rule of the forms («Близнецы», «Чужак») — `colorJoin`.
+  if (!colorJoin(world, enemy)) return 'color';
   const reach = reachRefusal(world, enemy, enemyArtRadius(world.params, enemy));
   if (reach) return reach;
   // Stage 2 of the transition (design answer 08.10.2026): the kind's say about the direction of the strike — always from
@@ -667,7 +871,7 @@ export type DragMode = 'full' | 'sweep' | 'append';
 export function dragChain(world: World, p: Vec, mode: DragMode = 'full'): void {
   if (world.status !== 'playing' || world.move) return;
   // Loop research, step 2: the loop gesture comes first (only the pointer event itself, never a sweep or the held pointer).
-  if (mode === 'full' && world.params.loopEnabled && world.chain.length && loopGesture(world, p)) return;
+  if (mode === 'full' && loopOn(world) && world.chain.length && loopGesture(world, p)) return;
   // Stage H (user 08.10.2026): the hero is link zero of the step back — with one link the pointer on the hero takes it off
   // (the chain is cancelled); with two or more it does nothing. Its own toggle «отмена наведением на героя» (off) cancels
   // any chain there; the right button and Esc always cancel.
@@ -692,9 +896,10 @@ export function dragChain(world: World, p: Vec, mode: DragMode = 'full'): void {
   // A chain begun by dragging from an empty spot is a new chain: its links refresh focus anew (as `beginChain`).
   if (!world.chain.length) world.focusRefreshed = new Set();
   const color = chainColor(world);
+  const joined = target.kind === 'enemy' ? findEnemy(world, target.id) : undefined, join = joined ? colorJoin(world, joined, color) : null;
   world.chain.push(target);
   // Phase A, T4: a chameleon taken in its window by a chain of another colour takes the chain's colour.
-  if (target.kind === 'enemy') { const e = findEnemy(world, target.id); if (e) adoptChainColor(world, e, color); }
+  if (joined && join === 'chameleon') adoptChainColor(world, joined, color);
   refreshFocus(world, target);
 }
 
@@ -747,7 +952,10 @@ export function releaseChain(world: World): boolean {
   // Loop research, step 2: a closed chain fixes its seal now — the ring and who is inside, as the player saw it last.
   const seal = loopClosed(world) && world.status === 'playing' && !world.move ? sealPreview(world, world.chainClosed!) : null;
   // Loop research, step 3 («Прямая»): the pierce the player saw last — its end and its bodies are fixed now (as the seal's).
-  const pierce = pierceOn(world) && world.status === 'playing' && !world.move ? planChain(world).pierce : undefined;
+  // Task 29 (`returnFixed`): the return run the player saw last, fixed now by «Возврат» (`onRelease`).
+  const live = world.status === 'playing' && !world.move, backFixed = live && returnFixedOn(world);
+  const full = live && (pierceOn(world) || backFixed) ? planChain(world) : null;
+  const pierce = pierceOn(world) ? full?.pierce : undefined, back = backFixed ? full?.back : undefined;
   const links = world.chain.filter(l => linkPoint(world, l));
   world.chain = [];
   delete world.chainClosed;
@@ -782,7 +990,7 @@ export function releaseChain(world: World): boolean {
   if (buildActive(world)) {
     const kit = world.kit!, chain = kit.chains = (kit.chains ?? 0) + 1, start = { x: world.hero.x, y: world.hero.y };
     world.move.build = { chain, links: 0, elites: 0, start: { ...start } };
-    runHook(world, 'onRelease', m => m.onRelease!(world, { chain, links, start }));
+    runHook(world, 'onRelease', m => m.onRelease!(world, { chain, links, start, ...back ? { back } : {} }));
   }
   return true;
 }
@@ -848,6 +1056,8 @@ function endPierce(world: World, move: HeroMove): void {
   const pierce = move.pierce!;
   landAt(move, pierce.to);
   delete move.pierce;
+  // Task 29, the rank of the field «Конец»: the pierce ran — the dash's end (this tick) gives the end blast no turn.
+  if (endRankOn(world)) move.pierced = true;
   world.events.push({ type: 'pierce', phase: 'end', hits: pierce.hits, kills: pierce.kills, x: pierce.to.x, y: pierce.to.y });
 }
 
@@ -1223,6 +1433,8 @@ function finishMove(world: World): void {
     const p = world.params, b = move.build;
     const end: ChainEnd | null = b ? { chain: b.chain, kills: move.kills, hits: move.hits, links: b.links, elites: b.elites, last: b.last ? { ...b.last } : null,
       power: move.power, start: { ...b.start }, end: { x: hero.x, y: hero.y } } : null;
+    // Task 29, the rank of the field «Конец» (buildIds.ts `END_RANK`): the seal or the pierce that acted on this chain.
+    if (end && endRankOn(world) && (move.seal || move.pierced)) end.endForm = move.seal ? 'seal' : 'pierce';
     const shield = chainShieldOf(world, end);
     if (shield > 0 && move.kills >= Math.max(1, p.chainShieldMinKills)) {
       hero.chainShield = shield;

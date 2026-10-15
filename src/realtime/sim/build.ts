@@ -19,9 +19,9 @@
  * - **Order.** Modules run in the order they registered (sim/buildModules.ts: talismans, hammers, relics; then tests).
  * - No transcendental `Math.*` (detMath.ts); no new random streams.
  */
-import type { StrikeOutcome } from './chain';
+import type { ReturnPreview, StrikeOutcome } from './chain';
 import type { Vec } from './geometry';
-import { COUNTER_TALISMANS, HAMMER_IDS, OATH_HUNGER, RELIC_IDS } from './buildIds';
+import { COLOR_RULE_RANK, COUNTER_TALISMANS, HAMMER_IDS, OATH_HUNGER, RELIC_IDS } from './buildIds';
 import { MILLSTONE_STEP, NIMBLE_PAWS_DISCOUNT, hasTalisman } from './kit';
 import type { ChainLink, Enemy, HeroMove, World } from './world';
 
@@ -75,6 +75,11 @@ export interface ChainEnd {
   start: Vec;
   /** Where the hero stands after the dash. */
   end: Vec;
+  /**
+   * Task 29, the rank of the field «Конец» (buildIds.ts `END_RANK`): the form of a higher rank that acted on this chain — its
+   * seal struck, or its pierce ran. Present only while the kit holds «Печать» or «Прямая» as a form (chain.ts `endRankOn`).
+   */
+  endForm?: 'seal' | 'pierce';
 }
 
 /** A kill of the chain (`onChainKill`): an enemy struck dead by the dash, or a fallen credited link it passed. */
@@ -130,7 +135,7 @@ export interface BuildModule {
   /** The arena started (end of `createWorld`: the kit, the start enemies are there). */
   onArenaStart?(world: World): void;
   /** A chain was released (the dash starts); `chain` — its number on the arena; cancelled chains are not counted. */
-  onRelease?(world: World, release: { chain: number; links: readonly ChainLink[]; start: Vec }): void;
+  onRelease?(world: World, release: { chain: number; links: readonly ChainLink[]; start: Vec; back?: ReturnPreview }): void;
   /** The dash struck an enemy link (after the hit: HP, power, kill applied; `outcome` null — a fallen link passed). */
   onLink?(world: World, link: LinkContext, outcome: StrikeOutcome | null): void;
   /** The chain killed (after `onLink` of that link). */
@@ -155,6 +160,14 @@ export interface BuildModule {
   onUpdate?(world: World, dt: number): void;
   /** A move other than a dash or a jump ended (a return run, `startReturnRun`). */
   onMoveEnd?(world: World, move: HeroMove): void;
+  /**
+   * Task 29, field «Звено» — pure: the points the next link may be taken from (`anchorsOf`). `value` — the anchors so far (the
+   * default: the last link, and the hero with «Якорь у героя»), `chain` — every link of the drawn chain still on the arena, in
+   * order. Never asked before the first link (the hero alone).
+   */
+  anchors?(world: World, value: readonly ChainAnchor[], chain: readonly ChainAnchor[]): ChainAnchor[];
+  /** Task 29, field «Звено» — pure: the colour rule of the chain; one rule acts (`colorRuleOf`, `COLOR_RULE_RANK`). */
+  color?: ChainColorRule;
 }
 
 const MODULES: BuildModule[] = [];
@@ -339,3 +352,34 @@ export function setBuildState(world: World, id: string, state: unknown): void {
 
 /** The view's signal that an item triggered (a flash of its icon, a short text at the hero; track Д5). */
 export function talismanFired(world: World, id: string): void { world.events.push({ type: 'talismanFired', id }); }
+
+// ---- Task 29, field «Звено»: anchors and colour (pure hooks; without a form — the old rule, nothing computed) ----
+
+/** A point the next link may be taken from: a link of the drawn chain (`link`) or the hero (no `link`). */
+export interface ChainAnchor { x: number; y: number; link?: ChainLink }
+
+/** The colour rule of a chain (chain.ts `colorSegments`, `colorJoin`). Absent members — the old rule. */
+export interface ChainColorRule {
+  /** Colours with the same key count as one colour («Близнецы»: the pair); default — the colour itself. */
+  key?(color: number): number;
+  /** Enemy links of another colour one chain may take («Чужак»: 1); default 0. */
+  foreign?: number;
+}
+
+/** The anchors the modules make of `value` (chain.ts `chainAnchors`); `chain` is asked only when a module has the hook. */
+export function anchorsOf(world: World, value: readonly ChainAnchor[], chain: () => readonly ChainAnchor[]): readonly ChainAnchor[] {
+  const modules = withHook(world, 'anchors');
+  if (!modules.length) return value;
+  const links = chain();
+  let out = value;
+  for (const m of modules) out = m.anchors!(world, out, links);
+  return out;
+}
+
+/** The one colour rule acting in this world: the active module of the best `COLOR_RULE_RANK` (null — the old rule). */
+export function colorRuleOf(world: World): ChainColorRule | null {
+  const modules = withHook(world, 'color');
+  if (!modules.length) return null;
+  const rank = (id: string): number => { const i = COLOR_RULE_RANK.indexOf(id); return i < 0 ? COLOR_RULE_RANK.length : i; };
+  return modules.reduce((best, m) => (rank(m.id) < rank(best.id) ? m : best)).color!;
+}

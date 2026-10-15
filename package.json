@@ -44,6 +44,7 @@
     "test:realtime-loop-access": "tsx src/realtime/sim/loopAccess.spec.ts",
     "test:realtime-loop": "tsx src/realtime/sim/loop.spec.ts",
     "test:realtime-pierce": "tsx src/realtime/sim/pierce.spec.ts",
+    "test:realtime-forms": "tsx src/realtime/sim/forms.spec.ts",
     "test:realtime-spawn-hold": "tsx src/realtime/sim/spawnHold.spec.ts",
     "test:realtime-session": "tsx src/realtime/view/session.spec.ts",
     "test:realtime-sound": "tsx src/realtime/view/sound.spec.ts",

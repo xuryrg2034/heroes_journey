@@ -25,20 +25,27 @@
  *   `return`: untouchable). Power ⌊power left at the end of the dash / 2⌋, at least 1; every enemy whose body comes within
  *   `RETURN_RADIUS` of the way back is hit once, in the order the run reaches them: the hit is the power now, it kills when
  *   not less than the HP, and spends the HP removed (a weak one — nothing); a survivor takes the rest and the power is 0
- *   (no more hits). No +1 per enemy: those are not links.
+ *   (no more hits). No +1 per enemy: those are not links. The highlight shows the way back and the hits before the release
+ *   (chain.ts `planChain(...).back`, the same functions: returnRun.ts, `returnStrike`). With `Params.returnFixed` (task 29;
+ *   the sandbox, not a run until task 30) the release fixes the planned route and bodies, as the pierce's: the run goes from
+ *   where the dash ended along the fixed route and strikes each fixed body when it passes the body's point, if it is still on
+ *   the arena. Without the key the bodies are those near the path the hero really runs (moving enemies may differ from the
+ *   highlight: a known defect of a run until task 30).
  *
  * A dash that ends in the door (victory) has no end: no blast, no return (build.ts: `onChainEnd` is not called).
  */
 import { buildStateOf, chainEnemyLinks, registerBuildModule, setBuildState } from './build';
 import { BUILD_SOURCES, HAMMERS } from './buildIds';
-import { buildHit, buildHitAll, enemiesInCircle, enemiesNearPath, segmentDistance } from './buildHits';
-import { startReturnRun } from './chain';
-import { dhypot } from './detMath';
-import { eliteAffixes, platesOf } from './elites';
-import { bodyRadiusOf, kindOf } from './enemies/kinds';
+import { buildHit, buildHitAll, enemiesInCircle, enemiesNearPath } from './buildHits';
+import { returnFixedOn, returnStrike, startReturnRun } from './chain';
+import { eliteAffixes } from './elites';
+import { kindOf } from './enemies/kinds';
 import { dist, inWater, overCliff, type Vec } from './geometry';
 import type { Params } from './params';
+import { RETURN_RADIUS, returnPowerOf, returnRoute, returnTargets, returnWaypoints, traceTo, type ReturnFixed } from './returnRun';
 import type { Enemy, HeroMove, World } from './world';
+
+export { RETURN_RADIUS };
 
 // ---- Numbers (design 10.10.2026; start values, balance after the playtest) ----
 
@@ -58,9 +65,6 @@ export const BLAST_DAMAGE = 1;
 /** «Режущий проход»: reach from the path line (plus the body radius) and damage. */
 export const CUT_RADIUS = 0.5;
 export const CUT_DAMAGE = 1;
-/** «Возврат»: reach from the way back (plus the body radius). */
-export const RETURN_RADIUS = 0.5;
-
 const EPS = 1e-9;
 
 // ---- State on the arena (`World.build[hammer id]`, hashed; absent while empty) ----
@@ -80,8 +84,25 @@ export interface FireState {
 /** `World.build['cutting-pass']` during a dash: the chain's enemy links (never cut) and the enemies cut already. */
 interface CutState { links: number[]; cut: number[] }
 
-/** `World.build['return-pass']`: the dash's path (corners, from the start) during the dash; the enemies hit during the return run. */
-interface ReturnState { trace?: Vec[]; hit?: number[] }
+/**
+ * `World.build['return-pass']`. Old path: the dash's path (corners, from the start) during the dash; the enemies hit during the
+ * return run. `returnFixed`: the plan fixed at the release during the dash (`fixed`); the run's route, waypoint count and the
+ * bodies still to strike with their waypoints during the run (`run`).
+ */
+interface ReturnState { trace?: Vec[]; hit?: number[]; fixed?: ReturnFixed; run?: ReturnRunState }
+interface ReturnRunState { route: Vec[]; total: number; bodies: { id: number; wp: number }[] }
+
+/**
+ * `returnFixed` (the view, «бег по зафиксированному маршруту»): the fixed way back and the bodies it will strike — during the
+ * dash the planned route (the dash's planned end first), during the run the route from where the dash ended and the bodies not
+ * struck yet. Null — no fixed return now (the old path: the highlight `planChain(...).back` shows it before the release).
+ */
+export function returnRunOf(world: World): { route: readonly Vec[]; bodies: number[] } | null {
+  const state = buildStateOf<ReturnState>(world, HAMMERS.return);
+  if (state?.run) return { route: state.run.route, bodies: state.run.bodies.map(b => b.id) };
+  if (state?.fixed) return { route: state.fixed.route, bodies: state.fixed.bodies.map(b => b.id) };
+  return null;
+}
 
 /** The fire points on the arena now (the view: circles of `FIRE_RADIUS`, fading by `life / FIRE_LIFE`). */
 export function hammerFirePoints(world: World): readonly FirePoint[] {
@@ -188,6 +209,8 @@ registerBuildModule({
   onChainEnd: (world, end) => {
     const last = end.last;
     if (!last || end.links < endBlastMinLinks(world.params)) return;
+    // Task 29, the rank of the field «Конец»: a chain whose seal struck or whose pierce ran (forms in the kit) has no blast.
+    if (end.endForm) return;
     // Decision 17: a surviving last link — around the survivor where it stands now.
     const survivor = last.killed ? undefined : world.enemies.find(e => e.id === last.id);
     const at = survivor ? { x: survivor.x, y: survivor.y } : { x: last.x, y: last.y };
@@ -228,49 +251,33 @@ registerBuildModule({
 // ---- «Возврат» ----
 
 /**
- * Adds a point of the dash's path to the trace, keeping corners only: a point on the line of the last segment moves its end
- * (on, or back along it — the way back from a survivor folds the spike away).
+ * One hit of the return run (decision 15, «как strike»): chain.ts `returnStrike` — the power now; kills at HP ≤ power, spends
+ * the HP removed; an armoured elite with plates takes a plate and 1 power (the package «Урон имеет значение»).
  */
-function traceTo(trace: Vec[], p: Vec): void {
-  const last = trace[trace.length - 1];
-  if (dist(last, p) <= EPS) return;
-  if (trace.length >= 2) {
-    const a = trace[trace.length - 2];
-    const ux = last.x - a.x, uy = last.y - a.y, vx = p.x - last.x, vy = p.y - last.y;
-    if (Math.abs(ux * vy - uy * vx) <= 1e-9 * dhypot(ux, uy) * dhypot(vx, vy)) {
-      trace[trace.length - 1] = { x: p.x, y: p.y };
-      if (dist(a, p) <= EPS) trace.pop();
-      return;
-    }
-  }
-  trace.push({ x: p.x, y: p.y });
-}
-
-/** Where along the path (segment index + share of it) the body of `e` first comes within `reach` + its radius. */
-function firstTouch(world: World, path: readonly Vec[], e: Enemy, reach: number): number {
-  const r = reach + bodyRadiusOf(world.params, e);
-  if (path.length === 1) return dist(e, path[0]) <= r ? 0 : Infinity;
-  for (let i = 1; i < path.length; i++) {
-    const a = path[i - 1], b = path[i];
-    if (segmentDistance(a, b, e) > r) continue;
-    const vx = b.x - a.x, vy = b.y - a.y, len2 = vx * vx + vy * vy;
-    const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((e.x - a.x) * vx + (e.y - a.y) * vy) / len2));
-    return i - 1 + t;
-  }
-  return Infinity;
-}
-
-/** One hit of the return run (decision 15, «как strike»): the power now; kills at HP ≤ power, spends the HP removed. */
 function returnHit(world: World, move: HeroMove, e: Enemy): void {
-  const power = move.power, hp = e.hp;
-  // The package «Урон имеет значение»: an armoured elite with plates takes a plate and 1 power (as a chain hit on it).
-  move.power = platesOf(e) > 0 ? power - Math.min(power, 1) : power >= hp ? power - hp : 0;
+  const power = move.power;
+  move.power = returnStrike(power, e).powerAfter;
   buildHit(world, e, power, BUILD_SOURCES.hammerReturn);
+}
+
+/** `returnFixed`: strikes the fixed bodies whose waypoint the run has passed (`passed` waypoints reached), in order. */
+function strikeFixed(world: World, move: HeroMove, run: ReturnRunState, passed: number): void {
+  while (run.bodies.length && run.bodies[0].wp < passed) {
+    if (world.status !== 'playing' || move.power <= 0) return;
+    const e = world.enemies.find(x => x.id === run.bodies[0].id);
+    run.bodies.shift();
+    if (e) returnHit(world, move, e);
+  }
 }
 
 registerBuildModule({
   id: HAMMERS.return,
-  onRelease: (world, release) => setBuildState(world, HAMMERS.return, { trace: [{ x: release.start.x, y: release.start.y }] } satisfies ReturnState),
+  onRelease: (world, release) => {
+    if (!returnFixedOn(world)) { setBuildState(world, HAMMERS.return, { trace: [{ x: release.start.x, y: release.start.y }] } satisfies ReturnState); return; }
+    // `returnFixed`: the highlight's way back and bodies, fixed now (none in the plan — no run).
+    const back = release.back;
+    setBuildState(world, HAMMERS.return, back ? { fixed: { route: back.route.map(p => ({ x: p.x, y: p.y })), bodies: back.hits.map(h => ({ id: h.id, at: h.at })) } } satisfies ReturnState : undefined);
+  },
   onDashStep: (world, step) => {
     const state = buildStateOf<ReturnState>(world, HAMMERS.return);
     if (!state) return;
@@ -278,13 +285,15 @@ registerBuildModule({
       if (state.trace) for (const p of step.path) traceTo(state.trace, p);
       return;
     }
-    if (step.kind !== 'return' || !state.hit) return;
-    const hit = state.hit, move = step.move;
-    const targets = enemiesNearPath(world, step.path, RETURN_RADIUS)
-      .filter(e => !hit.includes(e.id))
-      .map(e => ({ e, at: firstTouch(world, step.path, e, RETURN_RADIUS) }))
-      .sort((a, b) => a.at - b.at);
-    for (const { e } of targets) {
+    if (step.kind !== 'return') return;
+    const move = step.move;
+    if (state.run) {
+      strikeFixed(world, move, state.run, state.run.total - (move.point ? 1 : 0) - (move.route?.length ?? 0));
+      return;
+    }
+    if (!state.hit) return;
+    const hit = state.hit;
+    for (const { e } of returnTargets(world, step.path, hit)) {
       if (world.status !== 'playing' || move.power <= 0) return;
       if (!world.enemies.includes(e)) continue;
       hit.push(e.id);
@@ -292,16 +301,30 @@ registerBuildModule({
     }
   },
   onChainEnd: (world, end) => {
-    const trace = buildStateOf<ReturnState>(world, HAMMERS.return)?.trace;
+    const state = buildStateOf<ReturnState>(world, HAMMERS.return), trace = state?.trace, hero = world.hero;
     setBuildState(world, HAMMERS.return, undefined);
+    if (state?.fixed) {
+      // `returnFixed`: from where the hero stands along the fixed route; the fixed bodies at their waypoints.
+      const { points, bodies } = returnWaypoints(state.fixed, hero);
+      const route = [{ x: hero.x, y: hero.y }, ...state.fixed.route.slice(1).map(p => ({ x: p.x, y: p.y }))];
+      if (!startReturnRun(world, points, returnPowerOf(end.power))) return;
+      setBuildState(world, HAMMERS.return, { run: { route, total: points.length, bodies } } satisfies ReturnState);
+      world.events.push({ type: 'hammer', kind: 'return', x: hero.x, y: hero.y, r: RETURN_RADIUS });
+      return;
+    }
     if (!trace) return;
     // The way back: the dash's corners in reverse, from where the hero stands to the start of the chain.
-    const hero = world.hero, route = [...trace].reverse();
-    while (route.length && dist(route[0], hero) <= EPS) route.shift();
+    const route = returnRoute(trace, hero);
     if (!route.length) return;
-    if (!startReturnRun(world, route, Math.max(1, Math.floor(end.power / 2)))) return;
+    if (!startReturnRun(world, route, returnPowerOf(end.power))) return;
     setBuildState(world, HAMMERS.return, { hit: [] } satisfies ReturnState);
     world.events.push({ type: 'hammer', kind: 'return', x: hero.x, y: hero.y, r: RETURN_RADIUS });
   },
-  onMoveEnd: (world, move) => { if (move.kind === 'return') setBuildState(world, HAMMERS.return, undefined); },
+  onMoveEnd: (world, move) => {
+    if (move.kind !== 'return') return;
+    // `returnFixed`: bodies at the last waypoints (a run that never moved this tick) are struck as it ends.
+    const run = buildStateOf<ReturnState>(world, HAMMERS.return)?.run;
+    if (run) strikeFixed(world, move, run, Infinity);
+    setBuildState(world, HAMMERS.return, undefined);
+  },
 });

@@ -80,3 +80,51 @@ export type BuildSource = typeof BUILD_SOURCES[keyof typeof BUILD_SOURCES];
 
 /** What a `hammer` event shows (view): fire laid, the end blast, a cut, the return run started. */
 export type HammerEventKind = 'fire' | 'blast' | 'cut' | 'return';
+
+/**
+ * Task 29 «Формы в песочнице» (docs/realtime-prototype.md, section 9ф): the forms — items that change the shape of the chain
+ * rather than its numbers. Kept in `Loadout.talismans` / `Kit.talismans` (the sandbox gives them); not in the run's catalogue
+ * (`RT_TALISMANS`, task 30). A form acts while the kit holds its id; a journal without the id plays the old path.
+ */
+export const FORMS = {
+  /** «Печать»: the loop (chain.ts `loopOn`), as the sandbox toggle `loopEnabled`. */
+  seal: 'form-seal',
+  /** «Прямая»: the pierce (pierce.ts `pierceOn`), as the sandbox toggle `pierceEnabled`. */
+  pierce: 'form-pierce',
+  /** «Развилка»: the next link is taken within R of any link of the chain (forms.ts, the hook `anchors`). */
+  fork: 'form-fork',
+  /** «Чужак»: once a chain, one link may be an enemy of another colour (forms.ts, the hook `color`). */
+  alien: 'form-alien',
+  /** «Близнецы»: the palette's colours 1 + 3 and 2 + 4 count as one colour (forms.ts, the hook `color`). */
+  twins: 'form-twins',
+} as const;
+export type FormId = typeof FORMS[keyof typeof FORMS];
+export const FORM_IDS: readonly FormId[] = Object.values(FORMS);
+
+/** The field a form bends (report «Талисманы меняющие стиль игры», «Поля действия»): what joins, the run, after the last link. */
+export type FormField = 'link' | 'path' | 'end';
+/** Player-facing names of the fields. */
+export const FORM_FIELD_TITLES: Readonly<Record<FormField, string>> = { link: 'Звено', path: 'Путь', end: 'Конец' };
+
+/**
+ * The field of every form by id: the forms of task 29 and the hammers («Огненный», «Режущий», «Возврат» — «Путь»; «Взрыв на
+ * конце» — «Конец»); «Якорь у героя» (`hero-anchor`) is a «Звено» form too.
+ */
+export const FORM_FIELD: Readonly<Record<string, FormField>> = {
+  [FORMS.seal]: 'end', [FORMS.pierce]: 'end', [HAMMERS.blast]: 'end',
+  [FORMS.fork]: 'link', [FORMS.alien]: 'link', [FORMS.twins]: 'link', 'hero-anchor': 'link',
+  [HAMMERS.fire]: 'path', [HAMMERS.cut]: 'path', [HAMMERS.return]: 'path',
+};
+
+/**
+ * Rank inside the field «Конец» (task 29, item 6), per chain: of the forms whose rule holds on the chain only the first acts —
+ * a closed loop strikes its seal (no pierce, no end blast), a pierce that ran leaves no end blast. The end blast yields only
+ * while the kit holds «Печать» or «Прямая» as a form (chain.ts `endRankOn`): the sandbox toggles alone keep the old path.
+ */
+export const END_RANK: readonly string[] = [FORMS.seal, FORMS.pierce, HAMMERS.blast];
+
+/**
+ * Rank of the colour rules of the field «Звено» (task 29, item 6): one colour rule acts — the first of this list in the kit.
+ * «Близнецы» before «Чужак» (the report's order; «Близнецы» bends every link, «Чужак» one).
+ */
+export const COLOR_RULE_RANK: readonly string[] = [FORMS.twins, FORMS.alien];

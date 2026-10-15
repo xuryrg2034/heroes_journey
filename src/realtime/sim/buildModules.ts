@@ -6,3 +6,5 @@
 import './talismansRt';
 import './hammers';
 import './relics';
+// Task 29: the forms of the field «Звено» (pure hooks only).
+import './forms';
