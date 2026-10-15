@@ -40,7 +40,7 @@ import { LOOP_TEST_ARENA, playLoopFight } from '../src/realtime/telemetry/loopFi
 import { ELITE_TEST_ARENA, playEliteFight } from '../src/realtime/telemetry/eliteFight.testkit';
 import { CHEST_TEST_ARENA, playChestFight } from '../src/realtime/telemetry/chestFight.testkit';
 import { DEATH_TEST_ARENA, playDeathFight } from '../src/realtime/telemetry/deathFight.testkit';
-import type { Simulation } from '../src/realtime/sim/simulation';
+import { Simulation } from '../src/realtime/sim/simulation';
 import { defaultParams } from '../src/realtime/sim/params';
 import {
   canonicalJson, checkRecord, emptyFightSummary, fightKey, fightRecordId, journalPartId, packJournal, paramsHash, prologueRecordId, runRecordId, withSummaryDefaults, RT_TELEMETRY_SCHEMA, SANDBOX_RUN,
@@ -180,6 +180,23 @@ async function main(): Promise<void> {
     const arenas = md.slice(md.indexOf('## Арены'), md.indexOf('## Враги'));
     const rows = arenas.split('\n').filter(l => l.startsWith('| ') && !l.startsWith('| Арена') && !l.startsWith('| ---'));
     assert(arenas.includes('Печати (пустых) / попыток') && rows.length > 0 && rows.every(l => / \| — \| — \| \d+ \(0(, 0%)?\) \|$/.test(l)), `the loop columns are there, empty for old fights: ${rows.join(' / ')}`);
+  });
+
+  await check('a sandbox «restart» left by «Сбросить по умолчанию» before the fix (sandbox f06, 15.10.2026): «сброс панели», not a determinism error; a spoiled hash stays an error', async () => {
+    const sim = new Simulation({ arena: 'kills', params: { ...defaultParams(), heroHp: 40, slot: true }, seed: 778, record: true });
+    for (let i = 0; i < 90; i++) sim.tick();
+    // The browser before the fix: the panel's object (the world's) reset, then the record hashed.
+    Object.assign(sim.world.params, defaultParams());
+    const resetSet = collectRecords([{ name: 'reset.json', text: JSON.stringify(await sandboxRecords(sim, emptyFightSummary(), 'kills', 'sreset', 'restart')) }]);
+    const reset = await analyzeRecords(resetSet), entry = reset.fights[0];
+    assert(entry && entry.hashOk === false && entry.panelReset === true, `marked as a panel reset (${entry?.hashOk}, ${entry?.panelReset}, ${entry?.error})`);
+    const md2 = reportMarkdown(resetSet, reset, { now: new Date('2026-10-15T12:00:00Z'), source: 'reset' });
+    assert(md2.includes('### Сброс панели') && md2.includes('ещё 1 — сброс панели') && !md2.includes('Повтор журнала дал другой хэш'), 'its own section, not in the determinism errors');
+    assert(md2.includes('| сброс панели |'), 'the fight row says «сброс панели»');
+    const spoiled = await sandboxRecords(sim, emptyFightSummary(), 'kills', 'sspoil', 'restart');
+    (spoiled[0] as FightRecord).endHash = '0123456789abcdef';
+    const bad = await analyzeRecords(collectRecords([{ name: 'spoiled.json', text: JSON.stringify(spoiled) }]));
+    assert(bad.fights[0].hashOk === false && !bad.fights[0].panelReset, 'a spoiled hash is still an error');
   });
 
   await check('a sandbox fight with the loop: the report shows seals (empty share), close attempts, unseals, inside median / total, step backs with re-adds, seal kills; the browser summary agrees', async () => {

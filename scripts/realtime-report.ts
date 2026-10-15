@@ -96,8 +96,8 @@ async function main(): Promise<void> {
   const source = args.sources.join(' ');
   writeFileSync(join(outDir, 'report.md'), reportMarkdown(set, analysis, { now, source }));
   const fights = analysis.fights;
-  const bad = fights.filter(f => f.hashOk === false).length, broken = fights.filter(f => f.error).length;
-  console.log(`записей ${set.records.length} (дублей ${set.duplicates}), боёв ${fights.length}; хэш не совпал: ${bad}; не собрано или не повторено: ${broken}`);
+  const bad = fights.filter(f => f.hashOk === false && !f.panelReset).length, reset = fights.filter(f => f.panelReset).length, broken = fights.filter(f => f.error).length;
+  console.log(`записей ${set.records.length} (дублей ${set.duplicates}), боёв ${fights.length}; хэш не совпал: ${bad}${reset ? ` (ещё сброс панели: ${reset})` : ''}; не собрано или не повторено: ${broken}`);
   console.log(`отчёт: ${relative(process.cwd(), join(outDir, 'report.md'))}`);
   if (!args.at) return;
   const entry = findFight(fights, args.at.fight);

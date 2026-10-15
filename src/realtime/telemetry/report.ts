@@ -8,8 +8,8 @@
  * of `src/` and the test (`npm run test:realtime-report`) calls it directly.
  */
 import { arenaTemplate } from '../sim/arenas';
-import { worldState } from '../sim/hash';
-import { copyParams, type Params } from '../sim/params';
+import { hashWorld, worldState } from '../sim/hash';
+import { copyParams, defaultParams, type Params } from '../sim/params';
 import { Simulation, type Journal } from '../sim/simulation';
 import { ITEM_TITLES, SLOT_ITEMS, type Loadout } from '../sim/kit';
 import { RESOURCE_KINDS, RESOURCES } from '../forest/resources';
@@ -142,6 +142,11 @@ export interface FightEntry {
   hashOk: boolean | null;
   /** Fields of the browser's summary that differ from the replay's (empty — they agree, or the browser had none). */
   summaryDiff: string[];
+  /**
+   * A sandbox «restart» whose `endHash` is the replayed world with the panel's default values: «Сбросить по умолчанию» in the
+   * fight before the fix of 15.10.2026 (the record hashed the reset values; docs/realtime-telemetry.md). Not a determinism defect.
+   */
+  panelReset?: boolean;
 }
 
 const fightPath = (r: { session: string; run: string; fight: string }): string => `${r.session}/${r.run}/${r.fight}`;
@@ -215,11 +220,19 @@ export async function analyzeRecords(set: RecordSet): Promise<Analysis> {
     try {
       entry.analysis = analyzeJournal(entry.journal);
       entry.hashOk = entry.analysis.hash === record.endHash;
+      if (!entry.hashOk && record.run === SANDBOX_RUN && record.outcome === 'restart' && panelResetHash(entry.analysis.world) === record.endHash) entry.panelReset = true;
       entry.summaryDiff = summaryDiff(record.summary, entry.analysis.summary);
     } catch (e) { entry.error = `повтор не удался: ${(e as Error).message}`; }
   }
   const orphanNotes = [...notes.entries()].filter(([path]) => !fights.some(f => fightPath(f) === path)).flatMap(([, list]) => list);
   return { fights: out, orphanNotes };
+}
+
+/** The hash of `world` with every value its journal holds put back to the panel's default (the world is left as it was). */
+function panelResetHash(world: World): string {
+  const saved = world.params, defaults = defaultParams() as unknown as Record<string, unknown>;
+  world.params = Object.fromEntries(Object.entries(saved).map(([key, value]) => [key, key in defaults ? defaults[key] : value])) as unknown as Params;
+  try { return hashWorld(world); } finally { world.params = saved; }
 }
 
 /** Finds a fight by its key (`f03-n5a-a1`), its path (`S/R/f03-n5a-a1`) or its record id. */
@@ -305,7 +318,7 @@ function fightRows(entries: readonly FightEntry[]): (string | number)[][] {
       `\`${r.fight}\``, r.nodeId ?? '—', r.row ?? '—', arenaTitle(r.arena), r.roster ?? '—', OUTCOME_TITLES[r.outcome] ?? r.outcome, n1(r.time),
       `${r.hpIn} → ${r.hpOut}`, s ? s.damage.total : '—', s ? s.chain.count : '—', s ? `${n1(s.chain.lengthMedian)} / ${s.chain.lengthMax}` : '—', s ? s.kills.chain : '—',
       ...chainShareCells(s ? [s] : []), ...loopCells(s ? [s] : []),
-      e.error ? `ошибка: ${e.error}` : e.hashOk ? 'совпал' : 'НЕ совпал',
+      e.error ? `ошибка: ${e.error}` : e.hashOk ? 'совпал' : e.panelReset ? 'сброс панели' : 'НЕ совпал',
     ];
   });
 }
@@ -989,7 +1002,7 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
   const runs = latestRuns(set.records).sort((a, b) => a.id.localeCompare(b.id));
   const runFights = fights.filter(e => e.record.run !== SANDBOX_RUN), sandbox = fights.filter(e => e.record.run === SANDBOX_RUN);
   const notes = fights.reduce((s, e) => s + e.notes.length, 0) + analysis.orphanNotes.length;
-  const bad = fights.filter(e => e.hashOk === false), broken = fights.filter(e => e.error), partial = fights.filter(e => e.record.outcome === 'unload');
+  const bad = fights.filter(e => e.hashOk === false && !e.panelReset), reset = fights.filter(e => e.panelReset), broken = fights.filter(e => e.error), partial = fights.filter(e => e.record.outcome === 'unload');
   const diffs = fights.filter(e => e.summaryDiff.length);
   const out: string[] = [
     '# Отчёт плейтеста реального времени', '',
@@ -997,12 +1010,14 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     'Метрики посчитаны повтором журналов в Node (`src/realtime/telemetry/observe.ts`, `threats.ts`); определения — docs/realtime-telemetry.md, разделы 3, 7 и 8 («ТB»).', '',
     '## Ошибки детерминизма', '',
   ];
-  if (!bad.length && !broken.length) out.push(`Нет: все ${fights.length} журналов повторились с тем же хэшем.`);
+  if (!bad.length && !broken.length) out.push(`Нет: все ${fights.length - reset.length} журналов повторились с тем же хэшем${reset.length ? `; ещё ${reset.length} — сброс панели (ниже)` : ''}.`);
   else {
     if (bad.length) out.push('Повтор журнала дал другой хэш, чем записан в бою, — найденная ошибка детерминизма (или журнал испорчен).', '',
       table(['Бой', 'Поход', 'Арена', 'Тактов', 'endHash', 'Хэш повтора'], bad.map(e => [`\`${e.record.fight}\``, e.record.run, arenaTitle(e.record.arena), e.analysis!.ticks, `\`${e.record.endHash}\``, `\`${e.analysis!.hash}\``])), '');
     if (broken.length) out.push('Журналы, которые не удалось собрать или повторить:', '', ...broken.map(e => `- \`${fightPath(e.record)}\`: ${e.error}`), '');
   }
+  if (reset.length) out.push('', '### Сброс панели (не ошибка детерминизма)', '', 'Бой песочницы оставлен кнопкой «Сбросить по умолчанию» до правки 15.10.2026 (v56): `endHash` снят со значениями после сброса. Повтор журнала со значениями по умолчанию даёт записанный хэш.', '',
+    ...reset.map(e => `- \`${fightPath(e.record)}\`: ${arenaTitle(e.record.arena)}, ${e.record.ticks} тактов, сборка ${e.record.build}`));
   if (set.problems.length) out.push('', '### Записи, которые не прочитаны', '', ...set.problems.map(p => `- ${p}`));
   if (partial.length) out.push('', '### Неполные журналы', '', 'Страница закрылась посреди боя (`outcome: unload`): журнал повторён до своих тактов, метрики — за это время.', '',
     ...partial.map(e => `- \`${fightPath(e.record)}\`: ${e.record.ticks} тактов, ${arenaTitle(e.record.arena)}`));
