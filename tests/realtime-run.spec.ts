@@ -4,6 +4,7 @@ import { untilFrame } from './realtimeFrames';
 import { createRtRun, serializeRtRun } from '../src/realtime/run/rtRun';
 import { RT_RUN_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
 import { SCHEDULE_PRACTICE, SCHEDULE_RUN_ARENAS } from '../src/realtime/run/schedule';
+import { JAILER_RUN_ARENAS } from '../src/realtime/sim/arenasBoss';
 
 /**
  * The run of the real-time game in the browser (stage 2, step 1; docs/realtime-slice.md). Runs through
@@ -210,7 +211,7 @@ const OWN_ARENA: Record<string, string> = { shield: 'shields', archer: 'archers'
  * viewer's history, not from the row pools). The first — a new run of the page (a new viewer: the schedule); the second — a saved
  * run without the schedule (a save before task 26; «Испытание» II and up plays the same pools): the pool rules are checked on it.
  */
-test('run: two runs walk to the final arena — a new run by the schedule (its arenas, hard → «Застава» or a practice stand-in, boss → «Последний рубеж»), a saved run without it from the pools or the own arena of a kind not met yet (hard → «Застава»); no «временно»; the final victory ends the run, a reload keeps the end', async ({ page }) => {
+test('run: two runs walk to the final arena — a new run by the schedule (its arenas, the Jailer on row 5, hard → «Застава» or a practice stand-in, boss → «Последний рубеж»), a saved run without the schedule and the Jailer from the pools or the own arena of a kind not met yet (hard → «Застава»); no «временно»; the final victory ends the run, a reload keeps the end', async ({ page }) => {
   test.setTimeout(300_000);
   const errors: string[] = [];
   await openRun(page, errors);
@@ -219,8 +220,8 @@ test('run: two runs walk to the final arena — a new run by the schedule (its a
   for (const [n, seed] of [Math.imul(1, 2654435761) >>> 0, Math.imul(2, 2654435761) >>> 0].entries()) {
     if (n === 0) await page.evaluate(s => (window as any).__realtime.run.newRun(s), seed);
     else {
-      // A save without the schedule (as `?seed=` makes it: the full gift).
-      await page.evaluate(([key, value]) => localStorage.setItem(key, value), [RT_RUN_STORAGE_KEY, serializeRtRun(createRtRun(seed, { gift: 'full', seeded: true }))] as const);
+      // A save without the schedule and the Jailer (a save before tasks 26 and 28; the full gift, as `?seed=` makes it).
+      await page.evaluate(([key, value]) => localStorage.setItem(key, value), [RT_RUN_STORAGE_KEY, serializeRtRun(createRtRun(seed, { gift: 'full', seeded: true, jailer: false }))] as const);
       await page.reload();
       await expect(page.getByTestId('run')).toBeVisible();
     }
@@ -271,8 +272,10 @@ test('run: two runs walk to the final arena — a new run by the schedule (its a
   for (const [i, { run, row, arena, type, scheduled }] of met.entries()) {
     if (scheduled) {
       // The schedule (docs/realtime-slice.md, section 7): the final — «Последний рубеж»; the hard node — «Застава» once the cliff and the
-      // elite are met, else a practice stand-in; every other fight — an arena of the schedule.
+      // elite are met, else a practice stand-in; the Jailer's node (row 5, task 28) — the Jailer's fight; every other fight — an arena
+      // of the schedule.
       if (type === 'final') expect(arena, `row ${row}: final`).toBe('last-stand');
+      else if (row === 5) expect(JAILER_RUN_ARENAS.includes(arena), `row ${row}: the Jailer ${arena}`).toBe(true);
       else if (type === 'hard') expect(arena === 'outpost' || SCHEDULE_PRACTICE.some(p => p.arena === arena), `row ${row}: hard ${arena}`).toBe(true);
       else expect(SCHEDULE_RUN_ARENAS.includes(arena), `row ${row}: ${arena}`).toBe(true);
       continue;
