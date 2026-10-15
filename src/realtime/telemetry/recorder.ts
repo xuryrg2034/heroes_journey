@@ -20,6 +20,7 @@ import type { Journal, Simulation } from '../sim/simulation';
 import type { World } from '../sim/world';
 import { rtTalisman } from '../run/rtTalismans';
 import { runRow } from '../run/arenaPools';
+import { rtGarrisonNodeId } from '../run/garrison';
 import { rtEventView, rtFightArc, rtGiftView, rtNode, rtRestView, rtScheduleMet, rtShopView, type RtRunState, type RtRunStep } from '../run/rtRun';
 import type { GiftOption } from '../forest/runGift';
 import { ITEM_KINDS } from '../forest/items';
@@ -544,7 +545,7 @@ export class RtRecorder {
     if (!journal || (journal.ticks === 0 && outcome !== 'victory' && outcome !== 'defeat')) return null;
     const body: FightBody = {
       fight: f.key, ...f.ctx.nodeId !== undefined ? { nodeId: f.ctx.nodeId } : {}, arena: world.arena.id, ...f.ctx.roster !== undefined ? { roster: f.ctx.roster } : {},
-      ...f.ctx.row !== undefined ? { row: f.ctx.row } : {}, ...f.arc ? { arc: f.arc } : {}, seed: f.sim.seed, outcome, ticks: journal.ticks, time: world.time, hpIn: f.hpIn, hpOut: world.hero.hp, endHash,
+      ...f.ctx.row !== undefined ? { row: f.ctx.row } : {}, ...f.ctx.nodeId !== undefined && rtGarrisonNodeId(f.ctx.nodeId) ? { level: 2 as const } : {}, ...f.arc ? { arc: f.arc } : {}, seed: f.sim.seed, outcome, ticks: journal.ticks, time: world.time, hpIn: f.hpIn, hpOut: world.hero.hp, endHash,
       ...view ? { view } : {}, summary: f.tap.summary(world),
     };
     // Task 16 telemetry: the view's count of first meetings in the fight; the feat's summary for the run step that feeds it back.

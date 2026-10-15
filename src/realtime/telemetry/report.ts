@@ -1135,15 +1135,19 @@ function deathRow(d: DeathEntry): (string | number)[] {
   ];
 }
 const DEATH_HEAD = ['Бой', 'Поход', 'Ряд', 'Арена', 'Сразил', 'Удар, HP', `Серия за ${DEATH_SERIES_WINDOW} с`, 'Главный источник', 'Защита при ударе', 'Защита в окне, с', 'Посадка, тактов'];
-const DEATH_LEGEND = `Задача 25 (с 15.10.2026; поле сводки \`death\`, повтор журнала считает его заново): каждая смерть героя в бою — бои походов и песочницы. Ряд — ряд похода (в песочнице «—»). «Сразил» — смертельный удар (последний \`hit\` перед \`defeat\`): вид врага, источник, элита, аффиксы, как в «Причине смерти» похода (\`RtDeath\`). Серия — удары по герою за последние ${DEATH_SERIES_WINDOW} с игрового времени до смерти, включая смертельный, по источнику: «касание ×6 за 4 с» — шесть касаний, первое за 4 с до смерти; главный источник — снявший больше HP в серии. Защита при ударе — щит цепи (\`chainShield\` после такта), «Щит фокуса» и неуязвимость (на взгляде перед тактом; неуязвимость — за вычетом такта): сквозь них бьют только иглы дикобраза и взрыв гоблина. Защита в окне — игровые секунды каждой защиты в окне серии (на конец каждого такта); неуязвимость даёт и каждый удар серии. Посадка — тактов (1/60 с игрового времени) от конца последнего прохода, прыжка или возврата молота (\`world.move\` кончился) до смертельного удара; «—» — движения в бою до удара не было; «на проходе» — удар пришёл в проходе (иглы). Старые записи без поля и без повтора — «—». Наблюдение на малом числе смертей, не оценка баланса.`;
+const DEATH_LEGEND = `Задача 25 (с 15.10.2026; поле сводки \`death\`, повтор журнала считает его заново): каждая смерть героя в бою — бои походов и песочницы. Ряд — ряд похода (в песочнице «—»); бой гарнизона (задача 38) — «г N», ряд гарнизона, после рядов леса. «Сразил» — смертельный удар (последний \`hit\` перед \`defeat\`): вид врага, источник, элита, аффиксы, как в «Причине смерти» похода (\`RtDeath\`). Серия — удары по герою за последние ${DEATH_SERIES_WINDOW} с игрового времени до смерти, включая смертельный, по источнику: «касание ×6 за 4 с» — шесть касаний, первое за 4 с до смерти; главный источник — снявший больше HP в серии. Защита при ударе — щит цепи (\`chainShield\` после такта), «Щит фокуса» и неуязвимость (на взгляде перед тактом; неуязвимость — за вычетом такта): сквозь них бьют только иглы дикобраза и взрыв гоблина. Защита в окне — игровые секунды каждой защиты в окне серии (на конец каждого такта); неуязвимость даёт и каждый удар серии. Посадка — тактов (1/60 с игрового времени) от конца последнего прохода, прыжка или возврата молота (\`world.move\` кончился) до смертельного удара; «—» — движения в бою до удара не было; «на проходе» — удар пришёл в проходе (иглы). Старые записи без поля и без повтора — «—». Наблюдение на малом числе смертей, не оценка баланса.`;
 
-/** The section «От чего умирают»: each death, then the deaths by run row and by arena with the killing blow. */
-function deathSection(fights: readonly FightEntry[]): string {
+/** Task 38: the level of a fight record — 2 the garrison (`FightRecord.level`, or a node of the garrison, `g:…`), else 1. */
+export const fightLevel = (record: { level?: number; nodeId?: string }): 1 | 2 => (record.level === 2 || record.nodeId?.startsWith('g:') ? 2 : 1);
+/** The section «От чего умирают»: each death, then the deaths by run row (task 38: and level) and by arena with the killing blow. */
+export function deathSection(fights: readonly FightEntry[]): string {
   const deaths = deathEntries(fights);
   if (!deaths.length) return `${DEATH_LEGEND}\n\nСмертей нет: боёв ${fights.length}, поражений 0.`;
   const main = (d: DeathEntry): string => (d.death?.series[0] ? deathSourceTitle(d.death.series[0].source) : 'нет данных');
-  const rowKey = (d: DeathEntry): string => (d.row === null ? '—' : String(d.row));
-  const rowKeys = [...new Set(deaths.map(rowKey))].sort((a, b) => (a === '—' ? 1 : b === '—' ? -1 : Number(a) - Number(b)));
+  // Task 38: a garrison fight's row is «г N» (the level first, then the row: the forest's rows, then the garrison's).
+  const rowKey = (d: DeathEntry): string => (d.row === null ? '—' : fightLevel(d.entry.record) === 2 ? `г ${d.row}` : String(d.row));
+  const rowRank = (k: string): number => (k === '—' ? 1e6 : k.startsWith('г ') ? 1000 + Number(k.slice(2)) : Number(k));
+  const rowKeys = [...new Set(deaths.map(rowKey))].sort((a, b) => rowRank(a) - rowRank(b));
   const byRow = rowKeys.map(k => {
     const list = deaths.filter(d => rowKey(d) === k);
     return [k, list.length, counts(list.map(d => killerKey(d.death))), counts(list.map(main))];

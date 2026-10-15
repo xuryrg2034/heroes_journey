@@ -407,6 +407,8 @@ export interface FightRecord extends RtHeader {
   arena: string;
   roster?: string;
   row?: number;
+  /** Task 38 (from 16.10.2026): 2 — a fight of the garrison (`row` is the garrison's); absent — the forest, the sandbox (older records too). */
+  level?: 2;
   /** Task 26 (from 15.10.2026): the scheduled fight's arc (`RunNode.arc`; `practice`); absent — not a scheduled fight (older records too). */
   arc?: string;
   seed: number;
@@ -641,6 +643,8 @@ export function checkRecord(value: unknown): string | null {
       if (r.fight !== parsed.fight || typeof r.arena !== 'string' || !num('seed') || !num('ticks') || !num('time') || !num('hpIn') || !num('hpOut') || typeof r.endHash !== 'string' || !r.summary) return 'fight fields';
       if (!['victory', 'defeat', 'restart', 'menu', 'unload'].includes(r.outcome as string)) return `fight outcome ${String(r.outcome)}`;
       if (r.arc !== undefined && !(typeof r.arc === 'string' && r.arc.length > 0)) return 'fight arc';
+      // Task 38: the garrison's fights only (a node of the garrison).
+      if (r.level !== undefined && !(r.level === 2 && typeof r.nodeId === 'string' && r.nodeId.startsWith('g:'))) return 'fight level';
       const j = r.journal as Record<string, unknown> | undefined;
       if (!j || typeof j.parts !== 'number' || typeof j.chars !== 'number' || typeof j.digest !== 'string' || typeof j.encoding !== 'string') return 'fight journal meta';
       return null;
@@ -808,6 +812,13 @@ export interface FightSummary {
      * a drawn chain) — the accidental colour changes the rule took off. 0 while the rule is off.
      */
     shiftSkips: number;
+    /**
+     * Task 38 «Гарнизон» (from 16.10.2026, `Params.tethers`; absent in older records — `withSummaryDefaults`): tethers the dashes cut
+     * (`tether` events `cut`) and enemies the loosed hounds' frenzy killed (`kill` of the source `hound`; not the player's). 0 while
+     * the law is off.
+     */
+    cuts: number;
+    frenzyKills: number;
   };
   /** Package «Урон имеет значение» (from 11.10.2026): the elites of the fight (`elite` set; armoured or not). */
   elites: EliteSummary;
@@ -1137,7 +1148,7 @@ export function emptyFightSummary(): FightSummary {
     chain: {
       count: 0, lengthMedian: 0, lengthMax: 0, cancels: 0, backsteps: 0, crystals: 0, colorChanges: 0, focusSpent: 0, focusEmpty: 0, survivorEnds: 0,
       closeAttempts: 0, seals: 0, sealsEmpty: 0, sealInside: [], unseals: 0, loopBreaks: {}, backstepReadds: 0, toughNotFirst: 0, drawTime: [],
-      pierces: 0, pierceHits: [], colorShifts: 0, shiftSkips: 0,
+      pierces: 0, pierceHits: [], colorShifts: 0, shiftSkips: 0, cuts: 0, frenzyKills: 0,
     },
     elites: {
       count: 0, lifetime: [], chainsPer: [], aliveAtEnd: 0, beforeGoals: 0, downs: 0, cleanKills: 0, lateWindowKills: 0, windows: 0, windowsClosed: 0,

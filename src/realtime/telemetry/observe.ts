@@ -288,6 +288,8 @@ export function createFightObserver(start: World): FightObserver {
             if (!goalsDone) s.elites.beforeGoals++;
           }
           if (ev.source === 'slot') s.slot.kills++;
+          // Task 38: a kill of a loosed hound's frenzy (not the player's).
+          if (ev.source === 'hound') s.chain.frenzyKills++;
           else if (ev.source === 'slot-bust') s.slot.bustKills++;
           // Task 14 «Котомка у двери»: the player's kills after the bag appeared.
           if (bagOpen && ev.credited) s.bag.killsAfterGoals++;
@@ -327,6 +329,8 @@ export function createFightObserver(start: World): FightObserver {
         case 'crystal': s.chain.crystals++; return;
         // «Смена цвета»: the dash reached the link that freed the colour (a shift by length, not through a crystal).
         case 'colorShift': s.chain.colorShifts++; return;
+        // Task 38: a tether the dash cut at its end.
+        case 'tether': if (ev.action === 'cut') s.chain.cuts++; return;
         // Task 34: a body of another colour passed by on a free chain — once per body and chain length within the drawn chain (the
         // held pointer repeats it every frame; the view journals only the first, `skipKey`).
         case 'shiftSkip': { const key = skipKey(ev.enemyId, ev.links); if (!skips.has(key)) { skips.add(key); s.chain.shiftSkips++; } return; }

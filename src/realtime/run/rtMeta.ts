@@ -11,7 +11,8 @@ import { mixSeed, ITEM_KINDS } from '../forest/items';
 import type { ItemKind } from '../forest/types';
 import { stockTotal } from '../forest/merchant';
 import { runRow } from './arenaPools';
-import { rtNode, rtReachedRow, type RtHearthFlags, type RtRunState } from './rtRun';
+import { rtForestCleared, rtLevel, rtNode, type RtHearthFlags, type RtRunState } from './rtRun';
+import { rtGarrisonNodeId } from './garrison';
 import { SCHEDULE_KINDS } from './schedule';
 import {
   HEARTH_HERB_SALT, HEARTH_MAPS_SALT, HEARTH_QUEST_SALT, isRtHearthNpc, isRtQuest, RT_HEARTH_MAX_LEVEL, RT_HEARTH_NPCS, RT_HEARTH_PRICES, RT_HERO_ID, RT_META_PACKS,
@@ -38,9 +39,14 @@ export const RT_QUEST_STOCK = 3;
 /** Баланс (task 37): the carry — a defeat or an abandoned run carries this share (rounded down) but not below min(resources, floor). */
 export const RT_CARRY_LOSS_SHARE = 0.5;
 export const RT_CARRY_FLOOR = 6;
-/** Баланс: the carry's cap per level reached (v1 has only the forest: 20). */
+/** Баланс: the carry's cap per level reached (the forest 20; task 38: the garrison reached — 40). */
 export const RT_CARRY_CAP_PER_LEVEL = 20;
-export const RT_LEVELS_REACHED = 1;
+/**
+ * Баланс, task 38 (design decision 2, 15–16.10.2026): a won fight of the garrison gives its forest XP × this (an ordinary 10, «Застава»
+ * and the breakthrough 20); its checkpoint «Караульня» — `RT_XP_GUARDROOM`; its boss, the Castellan, — a final (`RT_XP_FINAL`).
+ */
+export const RT_XP_GARRISON_FACTOR = 2;
+export const RT_XP_GUARDROOM = 40;
 /** Баланс: an NPC not met comes by itself after this many finished runs since the first camp (or the last arrival). */
 export const RT_HEARTH_FALLBACK_RUNS = 3;
 /** Баланс: the run row of the forest's final (the owl's quest at this record is «Пройди лес»). */
@@ -53,7 +59,14 @@ export const RT_NPC_EVENTS: Readonly<Record<'herb' | 'smith', { event: string; o
 
 // ---------- What the profile keeps (`RtProfile.meta`) ----------
 
-export interface RtDepthRecord { row: number; won: boolean; xp: number }
+/**
+ * The depth record: the farthest run row (of its level), the victory, the best XP of a run. Task 38: `level` — 2 when the farthest
+ * row is the garrison's; absent — the forest (every record before it).
+ */
+export interface RtDepthRecord { row: number; won: boolean; xp: number; level?: 2 }
+/** Task 38: the depth `a` (level, row) is farther than `b` — the level first, then the row. */
+export const rtDepthBeyond = (a: { level?: number; row: number }, b: { level?: number; row: number }): boolean =>
+  (a.level ?? 1) !== (b.level ?? 1) ? (a.level ?? 1) > (b.level ?? 1) : a.row > b.row;
 export interface RtHeroMeta { xp: number; packs: string[]; record?: RtDepthRecord }
 /** The death cause the camp's lines read (design lines v1): the Jailer's fight, the final, the fire trail, a touch, an arrow, a blast. */
 export type RtDeathCause = 'crowd' | 'archer' | 'sapper' | 'jailer' | 'final' | 'fire' | 'other';
@@ -93,7 +106,8 @@ export interface RtMetaEnd {
   thresholds: number[];
   pack: RtMetaPackView | null;
   nextPack: { id: string; title: string; at: number; size: number } | null;
-  record: { before: { row: number; won: boolean } | null; after: { row: number; won: boolean }; beaten: boolean };
+  /** Task 38: `level` (2 — the garrison) on `before` and `after` only when that record is the garrison's; absent — the forest. */
+  record: { before: { row: number; won: boolean; level?: 2 } | null; after: { row: number; won: boolean; level?: 2 }; beaten: boolean };
   carry: { n: number; share: 1 | 0.5; cap: number; resources: number };
   stock: { before: number; after: number };
   quest?: { npc: RtHearthNpc; id: RtQuestId; done: boolean; xp: number; stock: number };
@@ -101,25 +115,39 @@ export interface RtMetaEnd {
 
 /** The key of a run's end (a second call for it returns the applied result). */
 export const rtRunKey = (run: RtRunState): string => `${run.seed}:${run.result?.outcome ?? 'open'}:${run.result?.nodeId ?? ''}:${run.battles.length}:${run.visited.length}`;
-/** The run row the run reached (0 — none). */
-export const rtRunDepth = (run: RtRunState): number => Math.max(0, runRow(rtReachedRow(run)));
+/**
+ * The run row the run reached on the level it is on (0 — none). Task 38: in the garrison — the garrison's row (its nodes only), the
+ * level `rtRunLevel` 2; elsewhere the forest's, as before.
+ */
+export function rtRunDepth(run: RtRunState): number {
+  const garrison = rtLevel(run) === 2;
+  const ids = [...run.visited, ...run.pending && 'nodeId' in run.pending && run.pending.nodeId ? [run.pending.nodeId] : [], ...run.result ? [run.result.nodeId] : []]
+    .filter(id => rtGarrisonNodeId(id) === garrison);
+  return Math.max(0, runRow(Math.max(0, ...ids.map(id => rtNode(run, id)?.row ?? 0))));
+}
+/** Task 38: the level the run reached — 1 the forest, 2 the garrison. */
+export const rtRunLevel = (run: RtRunState): 1 | 2 => rtLevel(run);
 const won = (run: RtRunState): boolean => run.result?.outcome === 'victory';
+/** Task 38: the run's depth as the record keeps it: its row and, in the garrison, `level` 2. */
+const runDepthOf = (run: RtRunState): { row: number; level?: 2 } => ({ row: rtRunDepth(run), ...rtRunLevel(run) === 2 ? { level: 2 as const } : {} });
 
 /** The run's XP before its quest: the parts and the base (before «Испытание»). */
 export function rtRunXp(run: RtRunState): { parts: RtXpPart[]; total: number } {
-  const count = { battles: 0, elite: 0, jailer: 0, final: 0, feats: 0 };
+  const count = { battles: 0, elite: 0, jailer: 0, final: 0, feats: 0 }, xp = { battles: 0, elite: 0, jailer: 0, final: 0 };
   for (const record of run.battles) {
     if (!record.won) continue;
     const type = rtNode(run, record.nodeId)?.type;
-    if (type === 'hard' || type === 'breakthrough') count.elite++;
-    else if (type === 'checkpoint') count.jailer++;
-    else if (type === 'boss') count.final++;
-    else count.battles++;
+    // Task 38: a garrison fight ×2, its «Караульня» 40, its Castellan a final (+50).
+    const garrison = rtGarrisonNodeId(record.nodeId), factor = garrison ? RT_XP_GARRISON_FACTOR : 1;
+    if (type === 'hard' || type === 'breakthrough') { count.elite++; xp.elite += RT_XP_ELITE * factor; }
+    else if (type === 'checkpoint') { count.jailer++; xp.jailer += garrison ? RT_XP_GUARDROOM : RT_XP_JAILER; }
+    else if (type === 'boss') { count.final++; xp.final += RT_XP_FINAL; }
+    else { count.battles++; xp.battles += RT_XP_BATTLE * factor; }
     if (record.feat?.done) count.feats++;
   }
   const parts: RtXpPart[] = [
-    { id: 'battles', xp: count.battles * RT_XP_BATTLE, n: count.battles }, { id: 'elite', xp: count.elite * RT_XP_ELITE, n: count.elite },
-    { id: 'jailer', xp: count.jailer * RT_XP_JAILER, n: count.jailer }, { id: 'final', xp: count.final * RT_XP_FINAL, n: count.final },
+    { id: 'battles', xp: xp.battles, n: count.battles }, { id: 'elite', xp: xp.elite, n: count.elite },
+    { id: 'jailer', xp: xp.jailer, n: count.jailer }, { id: 'final', xp: xp.final, n: count.final },
     { id: 'feats', xp: count.feats * RT_XP_FEAT, n: count.feats }, { id: 'victory', xp: won(run) ? RT_XP_VICTORY : 0 },
   ];
   const base = parts.reduce((sum, part) => sum + part.xp, 0), level = run.ash ?? 0;
@@ -131,7 +159,8 @@ export function rtRunXp(run: RtRunState): { parts: RtXpPart[]; total: number } {
 
 /** The carry to the camp: a victory 100 %, a defeat or an abandoned run 50 % (down) but not below min(resources, 6); the cap 20 a level. */
 export function rtCarry(run: RtRunState): RtMetaEnd['carry'] {
-  const resources = stockTotal(run.materials), cap = RT_CARRY_CAP_PER_LEVEL * RT_LEVELS_REACHED;
+  // Task 38: the cap is 20 a level reached (the garrison — 40).
+  const resources = stockTotal(run.materials), cap = RT_CARRY_CAP_PER_LEVEL * rtRunLevel(run);
   if (won(run)) return { n: Math.min(cap, resources), share: 1, cap, resources };
   return { n: Math.min(cap, Math.max(Math.floor(resources * RT_CARRY_LOSS_SHARE), Math.min(resources, RT_CARRY_FLOOR))), share: 0.5, cap, resources };
 }
@@ -139,8 +168,9 @@ export function rtCarry(run: RtRunState): RtMetaEnd['carry'] {
 /** The quest of the run done (checked after the run by its state; `record` — the depth record before it). */
 export function rtQuestDone(quest: RtQuest, run: RtRunState, record: RtDepthRecord | undefined): boolean {
   switch (quest.id) {
-    case 'owl-farther': return rtRunDepth(run) > (record?.row ?? 0);
-    case 'owl-forest': return won(run);
+    case 'owl-farther': return rtDepthBeyond(runDepthOf(run), record ?? { row: 0 });
+    // Task 38: the forest passed — its final won (a run that went on into the garrison too).
+    case 'owl-forest': return won(run) || rtForestCleared(run);
     case 'herb-flasks': return ITEM_KINDS.reduce((sum, kind) => sum + run.items[kind], 0) >= 2;
     case 'smith-sever': return run.battles.some(entry => entry.severed === true);
   }
@@ -168,7 +198,8 @@ const presentNpcs = (hearth: RtHearthMeta): RtHearthNpc[] => RT_HEARTH_NPCS.filt
 /** The quest the next run gets: one NPC present by the stream `hearth-quest` of the ended run's seed; the owl's by the record. */
 export function rtNextQuest(seed: number, hearth: RtHearthMeta, record: RtDepthRecord | undefined): RtQuest {
   const npcs = presentNpcs(hearth), npc = npcs[mixSeed(mixSeed(seed >>> 0, HEARTH_QUEST_SALT), 0) % npcs.length];
-  const id: RtQuestId = npc === 'herb' ? 'herb-flasks' : npc === 'smith' ? 'smith-sever' : (record?.row ?? 0) >= RT_FOREST_LAST_ROW ? 'owl-forest' : 'owl-farther';
+  // Task 38: a record of the garrison has passed the forest — «Дальше».
+  const id: RtQuestId = npc === 'herb' ? 'herb-flasks' : npc === 'smith' ? 'smith-sever' : !record?.level && (record?.row ?? 0) >= RT_FOREST_LAST_ROW ? 'owl-forest' : 'owl-farther';
   return { npc, id };
 }
 
@@ -198,9 +229,11 @@ export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState): { me
   hero.xp = after;
   const next = RT_META_PACKS[hero.packs.length];
   // The depth record (run rows; the victory; the best XP of a run).
-  const row = rtRunDepth(run), win = won(run), old = hero.record;
-  const record = { row: Math.max(old?.row ?? 0, row), won: (old?.won ?? false) || win, xp: Math.max(old?.xp ?? 0, gained) };
-  const beaten = old ? row > old.row || (win && !old.won) : row > 0;
+  // Task 38: the depth is (level, row) — the level first, then the row.
+  const depth = runDepthOf(run), row = depth.row, win = won(run), old = hero.record, farther = rtDepthBeyond(depth, old ?? { row: 0 });
+  const best: { row: number; level?: 2 } = !old || farther ? depth : { row: old.row, ...old.level ? { level: old.level } : {} };
+  const record: RtDepthRecord = { row: best.row, won: (old?.won ?? false) || win, xp: Math.max(old?.xp ?? 0, gained), ...best.level ? { level: best.level } : {} };
+  const beaten = old ? farther || (win && !old.won) : farther;
   hero.record = record;
   meta.heroes[heroId] = hero;
   // The carry and the quest's stock (outside the cap).
@@ -220,7 +253,7 @@ export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState): { me
   const end: RtMetaEnd = {
     hero: heroId, xp: { gained, parts, before, after }, thresholds: [...RT_META_THRESHOLDS], pack,
     nextPack: next ? { id: next.id, title: next.title, at: next.at, size: next.items.length } : null,
-    record: { before: old ? { row: old.row, won: old.won } : null, after: { row: record.row, won: record.won }, beaten },
+    record: { before: old ? { row: old.row, won: old.won, ...old.level ? { level: old.level } : {} } : null, after: { row: record.row, won: record.won, ...record.level ? { level: record.level } : {} }, beaten },
     carry, stock: { before: stockBefore, after: hearth.stock },
     ...quest ? { quest: { npc: quest.npc, id: quest.id, done: questDone, xp: questDone ? RT_QUEST_XP : 0, stock: questDone ? RT_QUEST_STOCK : 0 } } : {},
   };
@@ -319,7 +352,7 @@ export function parseRtMeta(value: unknown): RtMeta | undefined {
   if (isPlain(cat)) {
     const packs = Array.isArray(cat.packs) ? RT_META_PACKS.map(pack => pack.id).filter((id, i) => i < (cat.packs as unknown[]).length && (cat.packs as unknown[])[i] === id) : [];
     const r = cat.record;
-    heroes[RT_HERO_ID] = { xp: isCount(cat.xp) ? cat.xp : 0, packs, ...isPlain(r) && isCount(r.row) && isCount(r.xp) && typeof r.won === 'boolean' ? { record: { row: r.row, won: r.won, xp: r.xp } } : {} };
+    heroes[RT_HERO_ID] = { xp: isCount(cat.xp) ? cat.xp : 0, packs, ...isPlain(r) && isCount(r.row) && isCount(r.xp) && typeof r.won === 'boolean' ? { record: { row: r.row, won: r.won, xp: r.xp, ...r.level === 2 ? { level: 2 as const } : {} } } : {} };
   }
   const h = value.hearth;
   const hearth: RtHearthMeta | undefined = isPlain(h) ? {

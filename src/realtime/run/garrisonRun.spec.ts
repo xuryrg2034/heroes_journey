@@ -19,10 +19,14 @@ import { forestNodeSeed } from '../forest/nodeRolls';
 import { GARRISON_FINAL_ARENA, GARRISON_HARD_ARENA, GARRISON_RUN_ARENAS, garrisonSeed, rtGarrisonNodeId } from './garrison';
 import { ok, seedOf, walkRun, type WalkOptions } from './metaWalk.testkit';
 import { arenaSeed, createRtRun, parseRtRun, resolveArena, rtArenaLoadout, rtArenaParams, rtArenaRules, rtChooseTalisman, rtEnterGarrison, rtEnterNode, rtAvailableNodes, rtLevel,
-  rtMapNodes, rtNode, rtRunParams, rtRunWon, serializeRtRun, type RtRunState } from './rtRun';
+  rtIsLocked, rtMapNodes, rtNode, rtRunParams, rtRunWon, serializeRtRun, type RtRunState } from './rtRun';
 import { RT_TALISMANS, rtTalisman, rtTalismanEligible } from './rtTalismans';
 import { runRow } from './arenaPools';
+import { RT_META_LOCKABLE } from './metaCatalog';
+import { rtApplyMeta, rtRunDepth, rtRunXp } from './rtMeta';
 import { defaultParams } from '../sim/params';
+import { deathSection, fightLevel, type FightEntry } from '../telemetry/report';
+import { checkRecord } from '../telemetry/schema';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -168,6 +172,64 @@ check('a malformed transition reads as no run: the garrison level without the fl
   // Entering a garrison node straight after the relic (no «Предместье») is refused.
   const step = rtEnterNode(atOffer, rtAvailableNodes(inGarrison)[0].id);
   assert(!step.ok, 'no garrison node before «В гарнизон»');
+});
+
+check('a meta run\'s locked relics never come at the forest final (fewer offered when the lock leaves fewer); the save reads back', () => {
+  let offers = 0;
+  for (const k of [1, 2, 3, 4, 5, 6]) {
+    walkRun({ k, create: { gift: 'mini', garrison: true, locked: [...RT_META_LOCKABLE] }, each: state => {
+      const p = state.pending;
+      if (p?.kind !== 'talisman' || p.source !== 'level') return;
+      offers++;
+      const left = RT_TALISMANS.filter(entry => entry.rarity === 'relic' && !RT_META_LOCKABLE.includes(entry.id) && rtTalismanEligible(entry.id, { taken: state.talismans, gone: state.talismansGone })).length;
+      assert(p.options.every(id => !rtIsLocked(state, id)) && p.options.length === Math.min(3, left), `seed ${k}: ${p.options} (of ${left} unlocked)`);
+      assert(serializeRtRun(parseRtRun(serializeRtRun(state))!) === serializeRtRun(state), `seed ${k}: the save reads back`);
+    } });
+  }
+  assert(offers === 6, `every walk reached the forest final's relic (${offers})`);
+});
+
+check('the meta of a garrison run: its fights ×2 (Караульня 40), the Castellan +50, the victory +25 only at the garrison\'s end; the record keeps the level; the carry cap 40', () => {
+  for (const k of [1, 2, 3]) {
+    const won = walk(k, true).run, lost = walk(k, true, { loseAt: run => rtLevel(run) === 2 && run.picks.filter(pick => rtGarrisonNodeId(pick.nodeId)).length >= 3 }).run;
+    for (const run of [won, lost]) {
+      const xp = rtRunXp(run), part = (id: string) => xp.parts.find(p => p.id === id)?.xp ?? 0;
+      let want = { battles: 0, elite: 0, jailer: 0, final: 0 };
+      for (const record of run.battles.filter(b => b.won)) {
+        const type = rtNode(run, record.nodeId)!.type, g = rtGarrisonNodeId(record.nodeId) ? 2 : 1;
+        if (type === 'hard' || type === 'breakthrough') want.elite += 10 * g;
+        else if (type === 'checkpoint') want.jailer += g === 2 ? 40 : 30;
+        else if (type === 'boss') want.final += 50;
+        else want.battles += 5 * g;
+      }
+      want = { ...want };
+      assert(part('battles') === want.battles && part('elite') === want.elite && part('jailer') === want.jailer && part('final') === want.final, `seed ${k}: ${JSON.stringify(xp.parts)} / ${JSON.stringify(want)}`);
+      const end = rtApplyMeta({ heroes: { cat: { xp: 0, packs: [], record: { row: 10, won: true, xp: 100 } } } }, run).end;
+      assert(end.record.after.level === 2 && end.record.beaten && end.record.before?.level === undefined, `seed ${k}: the garrison's record beats the forest's (${JSON.stringify(end.record)})`);
+      assert(end.carry.cap === 40, `seed ${k}: the cap 40 (${end.carry.cap})`);
+    }
+    assert(won.result?.outcome === 'victory' && rtRunXp(won).parts.some(p => p.id === 'victory' && p.xp === 25) && rtRunXp(won).parts.find(p => p.id === 'final')?.xp === 100, `seed ${k}: the forest final and the Castellan +50 each, the victory +25`);
+    assert(lost.result?.outcome === 'defeat' && !rtRunXp(lost).parts.some(p => p.id === 'victory'), `seed ${k}: no victory bonus for a run lost in the garrison`);
+    // A garrison record row 2 is beyond a forest record row 10; a later garrison row 1 is not.
+    const again = rtApplyMeta({ heroes: { cat: { xp: 0, packs: [], record: { row: 9, won: true, xp: 100, level: 2 } } } }, lost).end;
+    assert(again.record.beaten === (rtRunDepth(lost) > 9) && again.record.after.level === 2, `seed ${k}: same level — by the row (${JSON.stringify(again.record)})`);
+  }
+  // A forest run: the record and the cap as before (no level).
+  const forest = walk(4, false).run, end = rtApplyMeta(undefined, forest).end;
+  assert(end.record.after.level === undefined && end.carry.cap === 20, 'a forest run keeps the old record and cap');
+});
+
+check('telemetry: a garrison fight\'s record keeps its level; the report\'s deaths by row tell the garrison\'s rows («г N») after the forest\'s', () => {
+  const entry = (nodeId: string, row: number, level?: 2): FightEntry => ({
+    record: { kind: 'fight', run: 'R1', fight: `f-${nodeId}`, nodeId, arena: 'g-yard', row, ...level ? { level } : {}, outcome: 'defeat', summary: {} },
+    run: null, notes: [], journal: null, error: null, analysis: null, summaryDiff: [],
+  } as unknown as FightEntry);
+  const text = deathSection([entry('r7c1', 3), entry('g:r7c1', 3, 2), entry('g:r8c0', 4)]);
+  const rows = text.split('### Смерти по рядам')[1].split('### Смерти по аренам')[0];
+  assert(/\| 3 \| 1 \|/.test(rows) && /\| г 3 \| 1 \|/.test(rows) && /\| г 4 \| 1 \|/.test(rows), rows);
+  assert(rows.indexOf('| 3 |') < rows.indexOf('| г 3 |') && rows.indexOf('| г 3 |') < rows.indexOf('| г 4 |'), 'the forest first, then the garrison');
+  assert(fightLevel({ nodeId: 'g:r5c0' }) === 2 && fightLevel({ nodeId: 'r5c0' }) === 1 && fightLevel({ level: 2 }) === 2, 'the level');
+  assert(checkRecord({ kind: 'fight', level: 2, nodeId: 'r5c0' }) !== null, 'a forest node never carries level 2');
 });
 
 console.log(`garrison run: ${checks} checks passed`);

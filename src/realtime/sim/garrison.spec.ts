@@ -18,6 +18,10 @@
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import { registerArena } from './arenas';
+import type { Command } from './commands';
+import { createFightObserver } from '../telemetry/observe';
+import { analyzeJournal } from '../telemetry/report';
+import { withSummaryDefaults, type FightSummary } from '../telemetry/schema';
 import { nextCandidates, planChain } from './chain';
 import { CASTELLAN, CASTELLAN_PHASE2_TIME, FIRST_WINDUP_FACTOR, GUARD, GUARD_STEP, HANDLER, HOUND, LUNGE_WINDUP } from './enemies/garrison';
 import type { Vec } from './geometry';
@@ -223,32 +227,53 @@ check('the handler\'s death frees every hound (as a cut): after the dash both ru
 });
 
 /** A greedy bot on «Псарня»: chains of up to 4 of the nearest candidates; every release compares the highlight's cuts with the dash's. */
-function kennelBot(k: number): { cuts: number; chains: number; sim: Simulation; checkpoints: string[] } {
+function kennelBot(k: number): { cuts: number; chains: number; frenzyKills: number; sim: Simulation; checkpoints: string[]; summary: FightSummary } {
   const p = defaultParams(); p.heroHp = 999; p.contactDamage = 0;
   const sim = new Simulation({ arena: 'g-kennel', params: p, seed: seedOf(k), record: true }), w = sim.world, checkpoints: string[] = [];
+  // The live observer, as the browser feeds it (telemetry): every command after it is applied, every tick before the events go.
+  const observer = createFightObserver(w), all: WorldEvent[] = [];
+  const command = (cmd: Command): void => { sim.command(cmd); observer.command(cmd, w); };
+  const tick = (): void => { sim.tick(); observer.tick(w); all.push(...w.events); w.events.length = 0; if (w.tick % 300 === 0) checkpoints.push(sim.hash()); };
   let cuts = 0, chains = 0;
   for (let s = 0; s < 60 && w.status === 'playing'; s++) {
-    for (let i = 0; i < 20; i++) { sim.tick(); w.events.length = 0; if (sim.world.tick % 300 === 0) checkpoints.push(sim.hash()); }
+    for (let i = 0; i < 20 && w.status === 'playing'; i++) tick();
     if (w.move) continue;
     const first = nextCandidates(w).sort((a, b) => dist(a, w.hero) - dist(b, w.hero))[0];
     if (!first) continue;
-    sim.command({ t: 'begin', x: first.x, y: first.y });
+    command({ t: 'begin', x: first.x, y: first.y });
     for (let n = 1; n < 4; n++) {
       const last = w.enemies.find(e => e.id === w.chain[w.chain.length - 1]?.id);
       const next = nextCandidates(w).sort((a, b) => dist(a, last ?? w.hero) - dist(b, last ?? w.hero))[0];
       if (!next) break;
-      sim.command({ t: 'drag', x: next.x, y: next.y, mode: 'full' });
+      command({ t: 'drag', x: next.x, y: next.y, mode: 'full' });
     }
     if (!w.chain.length) continue;
     const planned = sorted(planChain(w).cuts);
-    sim.command({ t: 'release' });
-    const events = settle(sim);
+    command({ t: 'release' });
+    const from = all.length;
+    for (let i = 0; i < 900 && (w.move || i === 0) && w.status === 'playing'; i++) tick();
+    const events = all.slice(from);
     chains++;
     cuts += cutsOf(events).length;
     assert(JSON.stringify(cutsOf(events)) === JSON.stringify(planned), `seed ${k}, chain ${chains}: the dash cut ${cutsOf(events)}, the highlight ${planned}`);
   }
-  return { cuts, chains, sim, checkpoints };
+  const frenzyKills = of(all, 'kill').filter(e => e.source === 'hound').length;
+  return { cuts: cutsOf(all).length, chains, frenzyKills, sim, checkpoints, summary: observer.summary() };
 }
+
+check('telemetry: the fight summary counts the cuts and the frenzy\'s kills (`chain.cuts`, `chain.frenzyKills`); the live summary equals the replay\'s; an old summary reads 0', () => {
+  let cuts = 0, frenzy = 0;
+  for (const k of [1, 2, 3, 4, 5, 6, 7, 8]) {
+    const run = kennelBot(k), replayed = analyzeJournal(JSON.parse(JSON.stringify(run.sim.exportJournal()!)) as Journal).summary;
+    assert(run.summary.chain.cuts === run.cuts && run.summary.chain.frenzyKills === run.frenzyKills, `seed ${k}: ${run.summary.chain.cuts}/${run.cuts}, ${run.summary.chain.frenzyKills}/${run.frenzyKills}`);
+    assert(replayed.chain.cuts === run.summary.chain.cuts && replayed.chain.frenzyKills === run.summary.chain.frenzyKills, `seed ${k}: the replay counts the same`);
+    assert(JSON.stringify({ ...run.summary, threats: {} }) === JSON.stringify({ ...replayed, threats: {} }), `seed ${k}: the live summary is the replay's`);
+    cuts += run.cuts; frenzy += run.frenzyKills;
+  }
+  assert(cuts > 0, `cuts counted (${cuts}, frenzy kills ${frenzy})`);
+  const old = withSummaryDefaults({ chain: { count: 3 } });
+  assert(old.chain.cuts === 0 && old.chain.frenzyKills === 0 && old.chain.count === 3, 'an old record reads 0 cuts');
+});
 
 check('«Псарня», a real fight on 6 seeds: every chain\'s highlighted cuts are the dash\'s (bodies moving); some chains cut; the fight replays to its hash', () => {
   let cuts = 0;
