@@ -35,6 +35,7 @@
     "test:realtime-detmath": "tsx src/realtime/sim/detMath.spec.ts",
     "test:realtime-camera": "tsx src/realtime/view/camera.spec.ts",
     "test:realtime-big-arenas": "tsx src/realtime/sim/bigArenas.spec.ts",
+    "test:realtime-schedule-arenas": "tsx src/realtime/sim/scheduleArenas.spec.ts",
     "test:realtime-affixes": "tsx src/realtime/sim/affixes.spec.ts",
     "test:realtime-build": "tsx src/realtime/sim/build.spec.ts",
     "test:realtime-talismans": "tsx src/realtime/sim/talismansRt.spec.ts",
