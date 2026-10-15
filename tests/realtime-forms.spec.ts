@@ -144,12 +144,17 @@ test('task 29: without «Наледь» no cold is promised; with it — faint r
   expect((await snap(page)).forms.frostPreview).toBe(0);
   await page.mouse.up();
   await withBuild(page, { talismans: ['frost-pass'] });
-  await place(page, 9.5, 5.5, 0, 0); await place(page, 11, 5.5, 0, 0); await place(page, 11, 4, 0, 0);
+  const links = [await place(page, 9.5, 5.5, 0, 0), await place(page, 11, 5.5, 0, 0), await place(page, 11, 4, 0, 0)];
+  // A tough enemy of another colour stands on the path (not a link): the trail freezes it.
+  const bystander = await place(page, 10.25, 5.5, 1, 3);
   await drag(page, [[9.5, 5.5], [11, 5.5], [11, 4]]);
   await expect.poll(async () => (await snap(page)).forms.frostPreview).toBeGreaterThan(0);
   await page.screenshot({ path: 'artifacts/realtime-forms-frost-plan.png' });
   await page.mouse.up();
-  await expect.poll(async () => (await snap(page)).forms.frostPoints, { timeout: 4_000 }).toBeGreaterThan(0);
+  // After the dash: the links are dead, the trail lies along the whole path, the bystander is frozen in it.
+  await expect.poll(async () => { const s = await snap(page); return !s.moving && links.every(id => !s.enemies.some((e: any) => e.id === id)); }, { timeout: 5_000, intervals: [30] }).toBe(true);
+  await expect.poll(async () => (await snap(page)).enemies.find((e: any) => e.id === bystander)?.chill ?? 0, { timeout: 3_000, intervals: [30] }).toBeGreaterThan(0);
+  expect((await snap(page)).forms.frostPoints).toBeGreaterThanOrEqual(6);
   await page.screenshot({ path: 'artifacts/realtime-forms-frost.png' });
   expect(errors).toEqual([]);
 });
@@ -159,14 +164,15 @@ test('task 29: «Возврат» — the way back in the chain\'s colour with a
   await openSandbox(page);
   await withBuild(page, { hammer: 'return-pass' });
   // Three weak links, and a tough enemy of another colour on the way back (the run strikes it).
-  await place(page, 9.5, 5.5, 0, 0); await place(page, 11, 5.5, 0, 0); await place(page, 11, 4, 0, 0);
+  const links = [await place(page, 9.5, 5.5, 0, 0), await place(page, 11, 5.5, 0, 0), await place(page, 11, 4, 0, 0)];
   await place(page, 10.25, 5.5, 1, 3);
   await drag(page, [[9.5, 5.5], [11, 5.5], [11, 4]]);
   await expect.poll(async () => (await snap(page)).forms.returnArrows).toBeGreaterThan(0);
   expect((await snap(page)).forms.returnHits).toBeGreaterThan(0);
   await page.screenshot({ path: 'artifacts/realtime-forms-return-plan.png' });
   await page.mouse.up();
-  await expect.poll(async () => (await snap(page)).forms.returnRun, { timeout: 4_000, intervals: [30] }).toBe(1);
+  // The run back: the first pass is over (its links are dead), the hero runs along the fixed way.
+  await expect.poll(async () => { const s = await snap(page); return s.forms.returnRun === 1 && links.every(id => !s.enemies.some((e: any) => e.id === id)); }, { timeout: 4_000, intervals: [30] }).toBe(true);
   await page.screenshot({ path: 'artifacts/realtime-forms-return-run.png' });
   expect(errors).toEqual([]);
 });

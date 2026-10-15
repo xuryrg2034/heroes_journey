@@ -349,6 +349,8 @@ export class RealtimeRenderer {
    * trail it left; the arrows and hit marks of «Возврат» before the release, and its run after it.
    */
   readonly formsShown = { forkRings: 0, forkMarks: 0, alienRings: 0, twinLine: 0, frostPreview: 0, frostPoints: 0, returnArrows: 0, returnHits: 0, returnRun: 0 };
+  /** Task 29: when the word «Наледь» last rose over the hero (real clock) — at most one a second. */
+  private frostWordAt: number | null = null;
   /** Task 29: the colour of the last chain whose plan had a run back — the run after the release keeps it (the chain is gone). */
   private backInk = 0xffffff;
   /**
@@ -2175,6 +2177,8 @@ export class RealtimeRenderer {
       if (ev.type === 'cheque') { if (ev.door) this.finalFlash(ev.x, ev.y); this.showCheque(world, ev); continue; }
       // Phase B (Д5): the build. An item fired — a short text at the hero (its icon flashes in the column, main.ts).
       if (ev.type === 'talismanFired') {
+        // Task 29 «Наледь»: the trail fires once per enemy it freezes, several in a dash — one word a second over the hero.
+        if (ev.id === FROST_PASS) { if (this.clock - (this.frostWordAt ?? -9) < 1) continue; this.frostWordAt = this.clock; }
         this.floatText(fireTextOf(ev.id, !!world.params.counterWindow), world.hero.x * UNIT, world.hero.y * UNIT - 150, PLAYER_FX);
         this.talismanTexts++;
         continue;
@@ -2544,7 +2548,9 @@ export class RealtimeRenderer {
     if (plan.back) {
       this.backInk = ink;
       fs.returnArrows = drawReturnRoute(g, plan.back.route.map(v => ({ x: v.x * UNIT, y: v.y * UNIT })), ink, 1.1 * UNIT);
-      // The bodies the run back strikes: the link marks (killed — the white badge with the cross; wounded — the orange ring).
+      // The bodies the run back strikes: the links' outcome marks (design 15.10.2026: one meaning, one sign) — killed: the white
+      // badge with the cross; survives («не хватит»): the orange ring and the «!» badge; at the upper RIGHT (the first pass's marks
+      // stand at the upper left).
       const rr = enemyDrawRadius(p) * UNIT;
       for (const hit of plan.back.hits) {
         const e = world.enemies.find(x => x.id === hit.id);
@@ -2553,7 +2559,11 @@ export class RealtimeRenderer {
         if (hit.outcome.killed) {
           g.circle(cx, cy, rr * 0.3).fill(0xf4efe0).stroke({ color: ink, width: 2.5 });
           g.moveTo(cx - s, cy - s).lineTo(cx + s, cy + s).moveTo(cx + s, cy - s).lineTo(cx - s, cy + s).stroke({ color: 0xa8322a, width: 3, cap: 'round' });
-        } else g.circle(x, y, rr + 8).stroke({ color: 0xffa040, width: 3, alpha: 0.9 });
+        } else {
+          g.circle(x, y, rr + 4).stroke({ color: 0xffa040, width: 4 });
+          g.circle(cx, cy, rr * 0.32).fill(0xffa040).stroke({ color: NAVY, width: 2 });
+          g.rect(cx - 2, cy - rr * 0.18, 4, rr * 0.22).rect(cx - 2, cy + rr * 0.1, 4, 4).fill(NAVY);
+        }
         fs.returnHits++;
       }
     }
