@@ -19,7 +19,7 @@ import {
   rtChooseTalisman, rtRerollTalismans, rtRerollView, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtFoughtJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
   rtOathPreview, rtOathStakeOn, rtArenaRules, RT_SECOND_WIND_LAST_ROW, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
   rtCasinoView, rtCasinoPlay, rtCasinoLeave, rtCasinoNode, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE,
-  healOffer, healOnMap, healVisible, rtResourceTotal, rtNodeFeat, RT_HEAL_MAP_GAIN, rtAsh, rtAshOptions, rtAshTitle, rtRunWon, isRtAshLevel,
+  healOffer, healOnMap, healVisible, rtResourceTotal, rtNodeFeat, RT_HEAL_MAP_GAIN, rtAsh, rtAshOptions, rtAshTitle, rtRunWon, isRtAshLevel, rtScheduleMet,
   type RtArenaOutcome, type RtArenaRules, type RtCasinoTable, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
@@ -351,13 +351,29 @@ export class RunView {
     return '';
   }
 
-  /** П8: the toggle is on and the available arena node `node` brings a kind the viewer has not met (affixes: unknown before the fight). */
+  /**
+   * П8: the toggle is on and the available arena node `node` brings a kind the viewer has not met (affixes: unknown before the
+   * fight) — or (design 15.10.2026, after task 26) a terrain the schedule's history has not met (`terrainMet`).
+   */
   private hasNewSign(run: RtRunState, node: ForestMapNode): boolean {
     const seen = this.host.newSeen;
     if (!seen || !seen.on() || !isArenaNode(node) || !rtAvailableNodes(run).some(entry => entry.id === node.id)) return false;
     const arena = arenaPreview(run, node);
+    if (!arena) return false;
     // The kinds the fight takes out (`cardRules` — the fight's own `withoutKinds`) are not promised (review of task 26, 15.10.2026).
-    return !!arena && newKindsOfArena(arena.arena, arena.roster, seen.store, cardRules(run, node).withoutKinds).length > 0;
+    if (newKindsOfArena(arena.arena, arena.roster, seen.store, cardRules(run, node).withoutKinds).length > 0) return true;
+    const met = this.terrainMet(run, node);
+    return !!met && nodeDangers({ arena: arena.arena, roster: arena.roster, met, ...cardRules(run, node) }).some(line => line.newTerrain?.length);
+  }
+
+  /**
+   * Design 15.10.2026 (after task 26): what the terrain line's «✦» reads — the living elements met (`rtScheduleMet`: the schedule's
+   * snapshot and this run's fights). Only a run with a schedule, the toggle «Новое на карте» on, an available node; otherwise none.
+   */
+  private terrainMet(run: RtRunState, node: ForestMapNode): ReadonlySet<string> | undefined {
+    const seen = this.host.newSeen;
+    if (!run.schedule || !seen || !seen.on() || !rtAvailableNodes(run).some(entry => entry.id === node.id)) return undefined;
+    return rtScheduleMet(run);
   }
 
   /** Enter a node; an oath node — under `oath` (casino stage 1, item 2; null — «Без клятвы»). */
@@ -776,12 +792,12 @@ export class RunView {
    * Task 8c: the dangers of a battle node, one line each (goal, enemies, elites, terrain; view/nodeCard.ts) — the card of the
    * chosen node and the window «Бой» after a reload.
    */
-  private dangersHtml(run: RtRunState, node: ForestMapNode | undefined, arena: string, roster: string | undefined, newKinds: readonly string[] = []): string {
+  private dangersHtml(run: RtRunState, node: ForestMapNode | undefined, arena: string, roster: string | undefined, newKinds: readonly string[] = [], met?: ReadonlySet<string>): string {
     // Task 17: the rules the fight of this node will play (`cardRules` — the conditions of `rtArenaLoadout`): the card equals the fight.
-    const lines = nodeDangers({ arena, roster, newKinds, ...cardRules(run, node) });
+    const lines = nodeDangers({ arena, roster, newKinds, ...met ? { met } : {}, ...cardRules(run, node) });
     if (!lines.length) return '';
     const items = lines.map(line => {
-      const sign = line.newKinds?.length ? ` <span class="rt-new-sign" data-testid="run-new-sign">${NEW_SIGN}</span>` : '';
+      const sign = line.newKinds?.length || line.newTerrain?.length ? ` <span class="rt-new-sign" data-testid="run-new-sign">${NEW_SIGN}</span>` : '';
       return `<li data-testid="run-danger-${line.id}"><b>${line.label}:</b> ${escapeHtml(line.text)}${sign}</li>`;
     }).join('');
     return `<ul class="rt-run-dangers" data-testid="run-dangers">${items}</ul>`;
@@ -803,7 +819,7 @@ export class RunView {
     const fresh = arena && status === 'available' && this.hasNewSign(run, node) && this.host.newSeen ? newKindsOfArena(arena.arena, arena.roster, this.host.newSeen.store, cardRules(run, node).withoutKinds) : [];
     const body = `<h2>${info.icon} ${escapeHtml(rtNodeTitle(run, node))}</h2>`
       + `<p class="rt-run-meta">${info.label} · ряд похода ${runRow(node.row)} · ${STATUS_LABEL[status]}</p>`
-      + (arena ? this.arenaHead(arena.arena, arena.roster) + this.dangersHtml(run, node, arena.arena, arena.roster, fresh)
+      + (arena ? this.arenaHead(arena.arena, arena.roster) + this.dangersHtml(run, node, arena.arena, arena.roster, fresh, status === 'available' ? this.terrainMet(run, node) : undefined)
         : isArenaNode(node) && status === 'locked' ? '<p class="rt-run-note">Арена станет известна, когда узел откроется.</p>' : '')
       + (status === 'available' ? this.featHtml(run, node) : '')
       + (nodeHint(node) ? `<p class="rt-run-hint">${escapeHtml(nodeHint(node)!)}</p>` : '')

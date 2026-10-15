@@ -13,6 +13,7 @@ import type { Loadout } from '../sim/kit';
 import { runRow } from '../run/arenaPools';
 import type { ForestMapNode } from '../forest/forestMap';
 import { arenaKinds } from './newSeen';
+import { arenaElements } from '../run/schedule';
 
 /** The battle a node's card speaks of (the Jailer's «Застава» is `hard`, the final `final`, an event's reward battle `event`). */
 export const cardBattle = (node: Pick<ForestMapNode, 'type'> | undefined): RtBattleKind =>
@@ -56,6 +57,8 @@ export const KIND_PLURAL: Readonly<Record<string, string>> = {
 /** The terrain words, in this order: the zones of the template (river, cliff, thorns), then the pond among the obstacles. */
 const TERRAIN_WORD: Readonly<Record<TerrainKind | 'pond', string>> = { river: 'река', cliff: 'обрыв', thorns: 'терновник', pond: 'пруд' };
 const TERRAIN_ORDER: readonly (TerrainKind | 'pond')[] = ['river', 'cliff', 'thorns', 'pond'];
+/** The schedule's terrain elements (run/schedule.ts `arenaElements`: a river or a pond of r ≥ 2 — water). */
+const TERRAIN_ELEMENTS: readonly string[] = ['water', 'cliff', 'thorns'];
 
 export interface NodeDangerInput {
   arena: string;
@@ -88,9 +91,23 @@ export interface NodeDangerInput {
   randomElites?: boolean;
   elitePlates?: number;
   eliteAffixes?: number;
+  /**
+   * Design 15.10.2026 (after task 26): the living elements the viewer has met (`rtScheduleMet`: the schedule's snapshot and this
+   * run's fights) — the terrain line gets «✦» when the arena's terrain is not among them. Absent — no sign (a run without a
+   * schedule, the toggle «Новое на карте» off, a node not available).
+   */
+  met?: ReadonlySet<string>;
 }
 
-export interface NodeDangerLine { id: 'goal' | 'enemies' | 'elites' | 'terrain'; label: string; text: string; newKinds?: string[] }
+export interface NodeDangerLine {
+  id: 'goal' | 'enemies' | 'elites' | 'terrain';
+  label: string;
+  text: string;
+  /** The enemies' line: kinds the viewer has not met. */
+  newKinds?: string[];
+  /** The terrain line: the terrain elements the viewer has not met (`water`, `cliff`, `thorns`). */
+  newTerrain?: string[];
+}
 
 const few = (n: number): boolean => n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 12 || n % 100 > 14);
 
@@ -129,6 +146,10 @@ export function nodeDangers(input: NodeDangerInput): NodeDangerLine[] {
   if (elites) lines.push({ id: 'elites', label: 'Элиты', text: elites });
   const present = new Set<TerrainKind | 'pond'>([...(template.terrain ?? []).map(z => z.kind), ...template.obstacles.flatMap(o => o.kind === 'pond' ? ['pond' as const] : [])]);
   const terrain = TERRAIN_ORDER.filter(kind => present.has(kind)).map(kind => TERRAIN_WORD[kind]);
-  if (terrain.length) lines.push({ id: 'terrain', label: 'Местность', text: terrain.join(', ') });
+  if (terrain.length) {
+    // A small pond (r < 2) is not the schedule's water: it never gets the sign (it would stay «new» for ever).
+    const fresh = input.met ? arenaElements(input.arena, !!input.markedGoals).filter(id => TERRAIN_ELEMENTS.includes(id) && !input.met!.has(id)) : [];
+    lines.push({ id: 'terrain', label: 'Местность', text: terrain.join(', '), ...fresh.length ? { newTerrain: fresh } : {} });
+  }
   return lines;
 }
