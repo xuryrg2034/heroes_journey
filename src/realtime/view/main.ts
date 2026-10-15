@@ -605,6 +605,9 @@ async function boot(): Promise<void> {
     },
     onRestart: () => restart(),
     onReset() {
+      // The world plays the panel's object (createWorld keeps it) and the reset is not a journalled command: the sandbox fight is
+      // left first, so its end hash is the journal's (telemetry 15.10.2026, sandbox f06: the record hashed the reset values).
+      if (sandbox) recorder?.leaveFight('restart');
       Object.assign(params, defaultParams());
       saveParams(params);
       panel.refresh();

@@ -170,6 +170,25 @@ test('recording off (?telemetry=0): nothing is recorded and the journal replays 
   expect(errors).toEqual([]);
 });
 
+test('«Сбросить по умолчанию» in a fight leaves it as a «restart» whose journal replays to its endHash (the reset is not journalled; telemetry 15.10.2026, sandbox f06)', async ({ page }) => {
+  const errors: string[] = [];
+  await openSandbox(page, errors, '&seed=778');
+  await page.keyboard.press('1');
+  await expect(page.getByTestId('menu')).toBeHidden();
+  // playSome puts heroHp 40 (journalled) — the reset brings the panel's 15 back.
+  await playSome(page);
+  await page.keyboard.press('Backquote');
+  await expect(page.getByTestId('debug-panel')).toBeVisible();
+  await page.getByTestId('reset-params').click();
+  await expect(page.locator('[data-param="heroHp"] output')).toHaveText('15');
+  const all = await records(page);
+  const fights = all.filter((r): r is FightRecord => r.kind === 'fight'), fight = fights[0];
+  expect(fights.length, 'one record of the fight left').toBe(1);
+  expect(fight.outcome).toBe('restart');
+  expect(replay(await journalOf(all, fight)).hash()).toBe(fight.endHash);
+  expect(errors).toEqual([]);
+});
+
 test('N on an open arena writes a note (tick, arena, hero) and flashes «отмечено» for a second; it sends no command', async ({ page }) => {
   const errors: string[] = [];
   await openSandbox(page, errors);
