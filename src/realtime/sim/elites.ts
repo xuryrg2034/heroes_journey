@@ -200,11 +200,15 @@ export function affixCountOf(world: World): number {
   return Number.isFinite(n) ? Math.max(0, Math.min(MAX_AFFIXES, Math.floor(n))) : 0;
 }
 
-/** Draws `count` affixes for `e` from the arena's `affix` stream (one draw per affix, among those still possible). */
+/**
+ * Draws `count` affixes for `e` from the arena's `affix` stream (one draw per affix, among those still possible). Task 26: with
+ * `Params.affixMetKinds` and the kit's `affixKinds` only those types are possible (the run's schedule: met ones and at most one more).
+ */
 export function rollAffixes(world: World, e: Enemy, count: number): AffixId[] {
   const chosen: AffixId[] = [];
+  const only = world.params.affixMetKinds && world.kit?.affixKinds ? world.kit.affixKinds : null;
   for (let i = 0; i < count; i++) {
-    const pool = AFFIX_IDS.filter(id => !chosen.includes(id) && affixAllowed(e.kind, id) && compatible(id, chosen));
+    const pool = AFFIX_IDS.filter(id => !chosen.includes(id) && affixAllowed(e.kind, id) && compatible(id, chosen) && (!only || only.includes(id)));
     if (!pool.length) break;
     chosen.push(pool[Math.floor(world.rng.stream('affix').next() * pool.length)]);
   }

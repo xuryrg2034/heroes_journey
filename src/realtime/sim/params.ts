@@ -564,6 +564,12 @@ export interface Params {
    * the sandbox kit never has the list, so the toggle changes nothing there.
    */
   eliteMetKinds: boolean;
+  /**
+   * Task 26 «Расписание леса» (design 15.10.2026): an elite's affixes are drawn only among the types of `Kit.affixKinds` — the
+   * run gives the types the viewer met and at most one more (run/schedule.ts `allowedAffixes`). Off by default; journals without
+   * the value: off (every type as before). A run turns it on (`RT_RUN_FORCED`); the sandbox kit never has the list.
+   */
+  affixMetKinds: boolean;
   /** Touch of an armoured elite (instead of the base touch; no `eliteDamageBonus` on top) and the knock of the hero, units. */
   eliteTouchDamage: number;
   eliteKnockback: number;
@@ -1060,6 +1066,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   elitePlateRegrow: 4,
   eliteLootOpens: false,
   eliteMetKinds: false,
+  affixMetKinds: false,
   eliteTouchDamage: 2,
   eliteKnockback: 1,
   eliteArmorCap: 1,
@@ -1444,6 +1451,8 @@ export const PARAM_DEFS: readonly ParamDef[] = [
     hint: 'Пока в походе не открыт ни один расходник, добыча элиты с бронёй открывает один (вид — по потоку добычи) и роняет его вместо ресурсов. Дальше — как раньше. В походе включено всегда.' },
   { kind: 'bool', key: 'eliteMetKinds', group: 'Броня элит', label: 'Элита только из встреченных видов (поход)', stage: 5,
     hint: 'Новичок становится элитой, только если его вид в списке снаряжения боя. Список даёт поход: первый ряд элит — виды, встреченные раньше и с поведением элиты. В песочнице списка нет — ничего не меняет.' },
+  { kind: 'bool', key: 'affixMetKinds', group: 'Броня элит', label: 'Свойства элит только из встреченных (поход)', stage: 5,
+    hint: 'Свойства элиты выпадают только из типов в списке снаряжения боя. Список даёт поход с расписанием: встреченные типы и не больше одного нового. В песочнице списка нет — ничего не меняет.' },
   n('eliteTouchDamage', 'Броня элит', 'Касание элиты', 0, 6, 1, 5, '', 'Вместо обычного касания; прибавка урона элиты к касанию не добавляется.'),
   n('eliteKnockback', 'Броня элит', 'Касание элиты отбрасывает героя', 0, 4, 0.25, 5, 'ед.'),
   n('eliteArmorCap', 'Броня элит', 'Не больше элит до целей (броня)', 0, 10, 1, 5),

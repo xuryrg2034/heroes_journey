@@ -175,6 +175,8 @@ function ofAllShares(newcomers: readonly NewcomerShare[]): { kind: string; ofAll
  * own mix in equal parts (the total share of the mix stays; none left — to basic enemies); a start enemy of such a kind stands
  * as a basic enemy (its place, colour, elite and HP kept). The arena id stays (the journal names the kit's list,
  * `Loadout.withoutKinds`, and a replay applies it again).
+ * Task 26 «Расписание леса»: the wolf and the boar come by the pace's shares — with them in `kinds` the shares are 0 before the
+ * goals and in every phase (`phaseOverride`). Kits before task 26 never named them (only the porcupine): they hash as before.
  */
 export function withoutKinds<T extends ArenaTemplate>(template: T, kinds: readonly string[]): T {
   if (!kinds.length) return template;
@@ -182,7 +184,8 @@ export function withoutKinds<T extends ArenaTemplate>(template: T, kinds: readon
   const extra = gone.reduce((sum, entry) => sum + entry.ofAll, 0) / Math.max(1, kept.length);
   const newcomers = kept.length ? rollShares(kept.map(entry => ({ ...entry, ofAll: entry.ofAll + extra }))) : [];
   const enemies = template.enemies.map(e => kinds.includes(e.kind ?? 'basic') ? { ...e, kind: 'basic' as const } : e);
-  return { ...template, newcomers, enemies };
+  const shares = { ...kinds.includes('wolf') ? { wolfShare: 0 } : {}, ...kinds.includes('boar') ? { boarShare: 0 } : {} };
+  return { ...template, newcomers, enemies, ...Object.keys(shares).length ? { phaseOverride: { ...template.phaseOverride, ...shares } } : {} };
 }
 
 /** A template with a roster applied: the layout as it is, `roster` names what was applied (the journal keeps it). */

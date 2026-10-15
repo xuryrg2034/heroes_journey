@@ -8,7 +8,8 @@
  */
 import { arenaTemplate, markedGoalArena } from '../sim/arenas';
 import type { TerrainKind } from '../sim/geometry';
-import { RT_GENTLE_ELITE_ROW, rtAsh, rtEliteAffixes, rtEliteKinds, rtElitePlates, rtGentle, rtGuaranteedElite, rtMetKinds, rtRandomElites, type RtAshLevel, type RtBattleKind, type RtRunState } from '../run/rtRun';
+import { arenaPreview, arenaSeed, RT_GENTLE_ELITE_ROW, rtAsh, rtEliteAffixes, rtEliteKinds, rtElitePlates, rtGentle, rtGuaranteedElite, rtMetKinds, rtRandomElites, rtScheduleMet, scheduleKit, type RtAshLevel, type RtBattleKind, type RtRunState } from '../run/rtRun';
+import type { Loadout } from '../sim/kit';
 import { runRow } from '../run/arenaPools';
 import type { ForestMapNode } from '../forest/forestMap';
 import { arenaKinds } from './newSeen';
@@ -23,8 +24,11 @@ export const cardBattle = (node: Pick<ForestMapNode, 'type'> | undefined): RtBat
  * final without the porcupine not met; task 18 — the run's level of «Испытание» (IV: 2 traits from row 6). A card that reads anything
  * else promises what the fight does not play (review 14.10.2026).
  */
-export function cardRules(run: RtRunState, node: Pick<ForestMapNode, 'type' | 'row'> | undefined): Pick<NodeDangerInput, 'row' | 'guaranteedElite' | 'startElite' | 'markedGoals' | 'gentle' | 'eliteKinds' | 'withoutKinds' | 'ash'> {
+export function cardRules(run: RtRunState, node: Pick<ForestMapNode, 'type' | 'row'> | ForestMapNode | undefined): Pick<NodeDangerInput, 'row' | 'guaranteedElite' | 'startElite' | 'markedGoals' | 'gentle' | 'eliteKinds' | 'withoutKinds' | 'ash' | 'randomElites' | 'elitePlates' | 'eliteAffixes'> {
   const row = node ? runRow(node.row) : 1, battle = cardBattle(node), gentle = rtGentle(run), ash = rtAsh(run);
+  // Task 26 «Расписание леса»: a scheduled run's card reads the schedule's rules of the fight (`scheduleKit`, as `rtArenaLoadout`).
+  const schedule = run.schedule && node && 'id' in node ? cardSchedule(run, node, battle) : null;
+  if (schedule) return { row, startElite: !!run.modifiers?.includes('start-elite'), markedGoals: !!run.markedGoals, ...gentle ? { gentle: true } : {}, ...schedule };
   return {
     row, guaranteedElite: !!node && rtGuaranteedElite(node, battle, gentle), startElite: !!run.modifiers?.includes('start-elite'), markedGoals: !!run.markedGoals,
     ...gentle ? { gentle: true } : {},
@@ -32,6 +36,16 @@ export function cardRules(run: RtRunState, node: Pick<ForestMapNode, 'type' | 'r
     ...gentle && node && row === RT_GENTLE_ELITE_ROW ? { eliteKinds: rtEliteKinds(run) } : {},
     ...gentle && battle === 'final' && !rtMetKinds(run).has('porcupine') ? { withoutKinds: ['porcupine'] } : {},
   };
+}
+
+/** Task 26: the elite and enemy rules of a scheduled node's fight — the node's pick (entered) or its preview; null — no arena known. */
+function cardSchedule(run: RtRunState, node: ForestMapNode, battle: RtBattleKind): Pick<NodeDangerInput, 'guaranteedElite' | 'eliteKinds' | 'withoutKinds' | 'randomElites' | 'elitePlates' | 'eliteAffixes'> | null {
+  const entered = run.picks.find(pick => pick.nodeId === node.id && pick.arena !== undefined), pick = entered?.arena ? { arena: entered.arena, roster: entered.roster, arc: entered.arc } : arenaPreview(run, node);
+  if (!pick) return null;
+  const kit = { elitePlates: rtElitePlates(runRow(node.row), rtGentle(run)) } as Loadout;
+  scheduleKit(kit, run, node, battle, { arena: pick.arena, ...pick.roster !== undefined ? { roster: pick.roster } : {}, ...pick.arc !== undefined ? { arc: pick.arc } : {} }, rtScheduleMet(run), arenaSeed(run, node.id));
+  return { guaranteedElite: !!kit.guaranteedElite, randomElites: !!kit.randomElites, elitePlates: kit.elitePlates ?? 2, eliteAffixes: kit.eliteAffixes ?? 0,
+    ...kit.eliteKinds ? { eliteKinds: kit.eliteKinds } : {}, ...kit.withoutKinds ? { withoutKinds: kit.withoutKinds } : {} };
 }
 
 /** The kinds in the plural, the card's enemy line («Враги: обычные, волки»); a kind without a row is left out. */
@@ -70,6 +84,10 @@ export interface NodeDangerInput {
   withoutKinds?: readonly string[];
   /** Task 18: the run's level of «Испытание» (`rtAsh`; IV — 2 traits from row 6, `rtEliteAffixes`). Absent — 0. */
   ash?: RtAshLevel;
+  /** Task 26: a scheduled fight's own numbers (`scheduleKit`): random elites, plates, traits. Absent — the row tables. */
+  randomElites?: boolean;
+  elitePlates?: number;
+  eliteAffixes?: number;
 }
 
 export interface NodeDangerLine { id: 'goal' | 'enemies' | 'elites' | 'terrain'; label: string; text: string; newKinds?: string[] }
@@ -107,7 +125,7 @@ export function nodeDangers(input: NodeDangerInput): NodeDangerLine[] {
   // Task 17 Е2: the guaranteed, the start and the random elites come from a newcomer of an allowed kind (the template's own stay).
   const allowed = !input.eliteKinds || input.eliteKinds.some(kind => kinds.includes(kind));
   const sure = template.enemies.filter(e => e.elite).length + (allowed && input.guaranteedElite ? 1 : 0) + (allowed && input.startElite ? 1 : 0);
-  const elites = eliteText(sure, allowed && rtRandomElites(input.row, input.gentle), rtElitePlates(input.row, input.gentle), rtEliteAffixes(input.row, input.gentle, input.ash ?? 0));
+  const elites = eliteText(sure, allowed && (input.randomElites ?? rtRandomElites(input.row, input.gentle)), input.elitePlates ?? rtElitePlates(input.row, input.gentle), input.eliteAffixes ?? rtEliteAffixes(input.row, input.gentle, input.ash ?? 0));
   if (elites) lines.push({ id: 'elites', label: 'Элиты', text: elites });
   const present = new Set<TerrainKind | 'pond'>([...(template.terrain ?? []).map(z => z.kind), ...template.obstacles.flatMap(o => o.kind === 'pond' ? ['pond' as const] : [])]);
   const terrain = TERRAIN_ORDER.filter(kind => present.has(kind)).map(kind => TERRAIN_WORD[kind]);

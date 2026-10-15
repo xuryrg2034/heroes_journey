@@ -20,7 +20,7 @@ import type { Journal, Simulation } from '../sim/simulation';
 import type { World } from '../sim/world';
 import { rtTalisman } from '../run/rtTalismans';
 import { runRow } from '../run/arenaPools';
-import { rtEventView, rtGiftView, rtNode, rtRestView, rtShopView, type RtRunState, type RtRunStep } from '../run/rtRun';
+import { rtEventView, rtFightArc, rtGiftView, rtNode, rtRestView, rtScheduleMet, rtShopView, type RtRunState, type RtRunStep } from '../run/rtRun';
 import type { GiftOption } from '../forest/runGift';
 import { ITEM_KINDS } from '../forest/items';
 import { RESOURCE_KINDS } from '../forest/resources';
@@ -319,6 +319,8 @@ interface OpenFight {
   key: string;
   run: string;
   ctx: FightContext;
+  /** Task 26: the scheduled fight's arc (`FightRecord.arc`). */
+  arc?: string;
   hpIn: number;
   /** The consumables in hand when the run fight began (the run's own count). */
   itemsIn?: Record<string, number>;
@@ -490,7 +492,9 @@ export class RtRecorder {
         key = fightKey(meta.fightCount, ctx.nodeId, meta.attempts[ctx.nodeId]);
         this.saveMeta();
       }
-      this.fight = { sim, tap: new FightTap(this.observer(world), world), key, run, ctx, hpIn: world.hero.hp, ...ctx.runState ? { itemsIn: { ...ctx.runState.items } } : {}, done: false };
+      // Task 26: the scheduled fight's arc (`practice` — a practice fight).
+      const arc = ctx.runState?.schedule && ctx.runState.pending?.kind === 'battle' ? rtFightArc(ctx.runState) ?? 'practice' : undefined;
+      this.fight = { sim, tap: new FightTap(this.observer(world), world), key, run, ctx, ...arc ? { arc } : {}, hpIn: world.hero.hp, ...ctx.runState ? { itemsIn: { ...ctx.runState.items } } : {}, done: false };
     });
   }
 
@@ -530,7 +534,7 @@ export class RtRecorder {
     if (!journal || (journal.ticks === 0 && outcome !== 'victory' && outcome !== 'defeat')) return null;
     const body: FightBody = {
       fight: f.key, ...f.ctx.nodeId !== undefined ? { nodeId: f.ctx.nodeId } : {}, arena: world.arena.id, ...f.ctx.roster !== undefined ? { roster: f.ctx.roster } : {},
-      ...f.ctx.row !== undefined ? { row: f.ctx.row } : {}, seed: f.sim.seed, outcome, ticks: journal.ticks, time: world.time, hpIn: f.hpIn, hpOut: world.hero.hp, endHash,
+      ...f.ctx.row !== undefined ? { row: f.ctx.row } : {}, ...f.arc ? { arc: f.arc } : {}, seed: f.sim.seed, outcome, ticks: journal.ticks, time: world.time, hpIn: f.hpIn, hpOut: world.hero.hp, endHash,
       ...view ? { view } : {}, summary: f.tap.summary(world),
     };
     // Task 16 telemetry: the view's count of first meetings in the fight; the feat's summary for the run step that feeds it back.
@@ -671,7 +675,7 @@ export class RtRecorder {
     const meta = this.metaFor(run), runParams = JSON.parse(JSON.stringify(this.options.params)) as Params;
     const record: RunRecord = {
       ...this.header(runRecordId(this.session, meta.key), 'run', meta.key, paramsHash(runParams)),
-      seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, ...meta.hints?.length ? { hints: meta.hints } : {}, ...meta.items ? { items: meta.items } : {}, ...meta.gentle ? { gentle: true as const } : {}, ...meta.startPotion ? { startPotion: true as const } : {}, ...meta.secondWindOn ? { secondWindOn: true as const } : {}, ...meta.startItems ? { startItems: meta.startItems } : {}, ...meta.secondWind ? { secondWind: meta.secondWind } : {}, ...meta.mapHeals?.length ? { mapHeals: meta.mapHeals } : {}, /* task 18: the run's own level */ ...run.ash ? { ash: run.ash } : {},
+      seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, ...meta.hints?.length ? { hints: meta.hints } : {}, ...meta.items ? { items: meta.items } : {}, ...meta.gentle ? { gentle: true as const } : {}, ...meta.startPotion ? { startPotion: true as const } : {}, ...meta.secondWindOn ? { secondWindOn: true as const } : {}, ...meta.startItems ? { startItems: meta.startItems } : {}, ...meta.secondWind ? { secondWind: meta.secondWind } : {}, ...meta.mapHeals?.length ? { mapHeals: meta.mapHeals } : {}, /* task 18: the run's own level */ ...run.ash ? { ash: run.ash } : {}, /* task 26: living elements of the snapshot (affix types apart) */ ...run.schedule ? { schedule: { start: run.schedule.seen.filter(id => !id.startsWith('affix:')).length } } : {},
       ...meta.featsOn ? { featsOn: true as const } : {}, ...meta.feats?.length ? { feats: meta.feats } : {}, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun, ...meta.viewerRunApprox ? { viewerRunApprox: true as const } : {} } : {}, ...meta.firsts?.length ? { firsts: meta.firsts } : {}, ...meta.resources ? { resources: meta.resources } : {}, runParams,
     };
     void this.put([JSON.parse(JSON.stringify(record)) as RunRecord]);
@@ -760,6 +764,11 @@ export class RtRecorder {
       // Task 16 «Подвиги»: a fed-back fight with a feat (the fight's own summary gives when and how much was missing).
       if (before && after.battles.length > before.battles.length) {
         const record = after.battles[after.battles.length - 1], node = rtNode(after, record.nodeId);
+        // Task 26: the elements new to the viewer in a scheduled fight (its record against what was met before it).
+        if (after.schedule && record.seen) {
+          const met = rtScheduleMet(before), visit = [...meta.nodes].reverse().find(v => v.nodeId === record.nodeId);
+          if (visit) visit.fresh = record.seen.filter(id => !met.has(id));
+        }
         if (record.feat) {
           const f = this.fight, own = f && f.done && f.run === meta.key && f.ctx.nodeId === record.nodeId ? f : null, summary = own?.feat ?? null;
           const visit = [...meta.nodes].reverse().find(v => v.nodeId === record.nodeId);
@@ -783,7 +792,7 @@ export class RtRecorder {
           meta.farRow = Math.max(meta.farRow, row);
         } else if (ev.type === 'battle-ready') {
           const visit = meta.nodes[meta.nodes.length - 1], pending = after.pending;
-          if (visit) { visit.arena = ev.arena; if (pending?.kind === 'battle' && pending.roster !== undefined) visit.roster = pending.roster; }
+          if (visit) { visit.arena = ev.arena; if (pending?.kind === 'battle' && pending.roster !== undefined) visit.roster = pending.roster; if (after.schedule) visit.arc = rtFightArc(after) ?? 'practice'; }
         } else if (ev.type === 'event-resolved') {
           const visit = [...meta.nodes].reverse().find(v => v.nodeId === ev.nodeId), id = before ? rtEventView(before)?.event.id : undefined;
           if (visit) visit.event = { id: id ?? 'unknown', option: ev.option, outcome: ev.outcome };

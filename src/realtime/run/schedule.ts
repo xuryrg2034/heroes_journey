@@ -1,0 +1,230 @@
+/**
+ * Task 26 «Расписание леса» (design 15.10.2026, variant E of docs/design-notes/research_notes/Комплексити как ручка баланса/
+ * proposal_sim.md, section 1; docs/realtime-slice.md, «Расписание леса»): the arena of a run fight by what the VIEWER has met
+ * (the history snapshot the run took when created, plus what this run met) and the fight's number in the run — not by the run
+ * row. A fight brings at most one new living element (ЖЭ) — its arc — next to a known one; with no arc ready it is a practice
+ * fight of known elements. Pure data and rules: the run (rtRun.ts) asks, the view never decides.
+ *
+ * The roll is the node's own (the arena seed and the salt «rt-schedule», as `ROSTER_SALT`): the run's `pool` stream is spent
+ * as before but not read, so the stream counters and the forest's outputs stay those of a run without the schedule.
+ */
+import { mixSeed } from '../forest/items';
+import { arenaTemplate, markedGoalArena } from '../sim/arenas';
+import { AFFIX_IDS } from '../sim/elites';
+import { FIXED_ROSTER_ARENAS, KIND_ROLE, POOL_ROSTERS } from '../sim/rosters';
+import { arenaKinds } from './arenaKinds';
+import { FINAL_ARENA, HARD_ARENA } from './arenaPools';
+
+/** The special kinds (ЖЭ each); the basic enemy is not one. */
+export const SCHEDULE_KINDS: readonly string[] = ['wolf', 'boar', 'lynx', 'shield', 'archer', 'sapper', 'porcupine', 'shaman'];
+/**
+ * The ids of the living elements (proposal: 20): the special kinds, `elite`, `affix` (any affix type met) with the types
+ * `affix:<id>`, `brazier`, `cliff`, `water` (a river, a big pond), `thorns`, `chest`, `buttons`, `leader` (атаман), `horde`,
+ * `bust` (the goblin's bust), `bag` (котомка; outside the budget, variant E).
+ */
+export const SCHEDULE_ELEMENTS: readonly string[] = [...SCHEDULE_KINDS, 'elite', 'affix', 'brazier', 'cliff', 'water', 'thorns', 'chest', 'buttons', 'leader', 'horde', 'bust', 'bag'];
+export const affixElement = (id: string): string => `affix:${id}`;
+/** A valid id of the history (an element or an affix type). */
+export const isScheduleElement = (id: unknown): id is string =>
+  typeof id === 'string' && (SCHEDULE_ELEMENTS.includes(id) || (id.startsWith('affix:') && (AFFIX_IDS as readonly string[]).includes(id.slice(6))));
+
+/** The salt of the node's roll (a constant: changing it changes every scheduled run). */
+export const SCHEDULE_SALT = [...'rt-schedule'].reduce((hash, ch) => Math.imul(hash ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5);
+
+/** An arc: its new element, what must be met first, the first run row and fight number it may come on. */
+interface Arc { id: string; needs?: readonly string[]; minRow?: number; minFight?: number }
+/**
+ * The order of the arcs, variant E (proposal, table «Расписание», steps 3–19; the bust is fight 1, the bag takes no step, the
+ * chest is the hard node's). Each fight takes the FIRST arc in this order that is ready (not met, its needs met, its row and
+ * fight reached): the elite waits for fight 3 and row 4, the braziers come before it when it is not ready.
+ */
+export const SCHEDULE_ARCS: readonly Arc[] = [
+  { id: 'wolf' }, { id: 'elite', minRow: 4, minFight: 3 }, { id: 'brazier' }, { id: 'cliff' }, { id: 'boar' }, { id: 'water' },
+  { id: 'shield', needs: ['brazier'] }, { id: 'buttons' }, { id: 'archer' }, { id: 'sapper', needs: ['cliff'] }, { id: 'leader', needs: ['archer'] },
+  { id: 'lynx' }, { id: 'affix', needs: ['elite'], minRow: 6 },
+  { id: 'thorns' }, { id: 'porcupine', needs: ['thorns', 'buttons'] }, { id: 'shaman', needs: ['brazier', 'leader'] }, { id: 'horde' },
+];
+/** The first arc: the first fight of the run on run row 1 — «Поляна» with only basic enemies (the goblin's bust, its lesson in the prologue's room 8). */
+export const BUST_ARC = 'bust';
+/** The hard node's own arc: «Застава» (its chest). */
+export const CHEST_ARC = 'chest';
+/** The arcs taught on a known fight with the elite rules (no arena of their own). */
+const ELITE_ARCS: readonly string[] = ['elite', 'affix'];
+
+/**
+ * The teaching arena of an arc (its own element with known ones): `roster` — fixed; `partner` — a role of a known kind is added
+ * (`partnerRoster`).
+ */
+export const SCHEDULE_TEACH: Readonly<Record<string, { arena: string; roster?: string; partner: boolean }>> = {
+  wolf: { arena: 'glade', roster: 'wolves', partner: false }, boar: { arena: 'glade', roster: 'onslaught', partner: false },
+  brazier: { arena: 'p-braziers', partner: true }, cliff: { arena: 'p-cliff', partner: true }, shield: { arena: 'shields', partner: true },
+  buttons: { arena: 'buttons', partner: true }, archer: { arena: 'p-archer-yard', partner: true }, sapper: { arena: 'powder', partner: true },
+  leader: { arena: 'archers', partner: false }, water: { arena: 'p-river', partner: true }, lynx: { arena: 'lynx-den', partner: true },
+  thorns: { arena: 'p-thicket', partner: true }, porcupine: { arena: 'thorns', partner: false }, shaman: { arena: 'shaman-circle', partner: false },
+  horde: { arena: 'marked', partner: true },
+};
+/**
+ * The practice arenas: a fight of known elements only — an arena is open when all its `own` elements are met (its other kinds
+ * are taken out by `withoutKinds`), `minRow` — from that run row (proposal, «Бои без дуги»).
+ */
+export const SCHEDULE_PRACTICE: readonly { arena: string; own: readonly string[]; minRow?: number }[] = [
+  { arena: 'glade', own: [] }, { arena: 'p-yard', own: [] }, { arena: 'p-gorge', own: [] },
+  { arena: 'p-braziers', own: ['brazier'] }, { arena: 'p-cliff', own: ['cliff'] }, { arena: 'shields', own: ['shield', 'brazier'] },
+  { arena: 'buttons', own: ['buttons'] }, { arena: 'p-archer-yard', own: ['archer'] }, { arena: 'powder', own: ['sapper', 'cliff'] },
+  { arena: 'archers', own: ['archer', 'leader'] }, { arena: 'p-river', own: ['water'] }, { arena: 'lynx-den', own: ['lynx'] },
+  { arena: 'p-thicket', own: ['thorns'] }, { arena: 'thorns', own: ['porcupine', 'thorns', 'buttons'], minRow: 6 },
+  { arena: 'shaman-circle', own: ['shaman', 'leader', 'brazier'], minRow: 6 }, { arena: 'marked', own: ['horde'], minRow: 6 },
+  { arena: 'ford', own: ['archer', 'wolf', 'leader', 'water'], minRow: 6 },
+];
+/** Every arena the schedule may put in a fight (the run's saves name only these and the pools' ones). */
+export const SCHEDULE_ARENAS: readonly string[] = [...new Set([...SCHEDULE_PRACTICE.map(p => p.arena), ...Object.values(SCHEDULE_TEACH).map(t => t.arena), HARD_ARENA, FINAL_ARENA])];
+/** The window of repeats of the practice fights: not one of the last 2 arenas, while another fits. */
+export const SCHEDULE_REPEAT_WINDOW = 2;
+/** В-1: special kinds on a fight at most — run rows 1–5: 2, rows 6–9: 3 (the partner role is added only below it). */
+export const scheduleKindCap = (row: number): number => (row <= 5 ? 2 : 3);
+/** The hard node: more bodies, one number (design 15.10.2026: bodies are no dial — 1,25 for «Застава» and its stand-in alike). */
+export const SCHEDULE_HARD_FLOOR = 1.25;
+/** Design answer 5 (15.10.2026): rows 6–8 of a scheduled run — elite plates +1 and tough HP +1 over the gentle tables (4 and 4). */
+export const SCHEDULE_NUMBERS_ROWS: readonly [number, number] = [6, 8];
+
+/** The node types whose fight takes an arc: an ordinary battle, an event's reward battle, the breakthrough, the Jailer's. */
+export type ScheduleNode = 'battle' | 'event' | 'breakthrough' | 'checkpoint' | 'hard' | 'boss';
+/** The plan of a fight: its arena, roster (absent — the template's own) and arc (null — a practice fight). */
+export interface SchedulePlan { arena: string; roster?: string; arc: string | null }
+export interface ScheduleContext {
+  /** The arena seed of the node (rtRun.ts `arenaSeed`). */
+  seed: number;
+  node: ScheduleNode;
+  row: number;
+  /** 1-based: the arena fights of this run so far, this one included. */
+  fight: number;
+  /** The elements met: the history snapshot and this run's fights before this one. */
+  met: ReadonlySet<string>;
+  /** The arenas of the run's fights so far, in order. */
+  recent: readonly string[];
+}
+
+/** The elite arcs need a guaranteed elite: not on the Jailer's node (it has none). Task 28 gives the Jailer's node its own arc. */
+const takesEliteArc = (node: ScheduleNode): boolean => node === 'battle' || node === 'event' || node === 'breakthrough' || node === 'hard';
+/** The first arc ready for this fight (null — none: a practice fight). */
+export function readyArc(ctx: Pick<ScheduleContext, 'node' | 'row' | 'fight' | 'met'>): string | null {
+  // Task 28 will give the Jailer's node (checkpoint) its own arc «часть» here.
+  const arc = SCHEDULE_ARCS.find(a => !ctx.met.has(a.id) && (a.needs ?? []).every(n => ctx.met.has(n)) && ctx.row >= (a.minRow ?? 0) && ctx.fight >= (a.minFight ?? 0)
+    && (!ELITE_ARCS.includes(a.id) || takesEliteArc(ctx.node)));
+  return arc?.id ?? null;
+}
+
+/** The plan of a fight (see the module's comment). */
+export function schedulePlan(ctx: ScheduleContext): SchedulePlan {
+  const roll = mixSeed(ctx.seed, SCHEDULE_SALT);
+  if (ctx.node === 'boss') return { arena: FINAL_ARENA, arc: null };
+  if (ctx.node === 'hard') {
+    // «Застава» once the cliff and the elite are met (its chest is the arc); else a practice stand-in — or the elite's arc.
+    if (ctx.met.has('cliff') && ctx.met.has('elite')) return { arena: HARD_ARENA, arc: ctx.met.has(CHEST_ARC) ? null : CHEST_ARC };
+    const arc = readyArc(ctx);
+    return practice(ctx, roll, arc === 'elite' ? arc : null);
+  }
+  if (ctx.fight === 1 && ctx.row === 1 && !ctx.met.has(BUST_ARC)) return { arena: 'glade', arc: BUST_ARC };
+  const arc = readyArc(ctx);
+  const teach = arc ? SCHEDULE_TEACH[arc] : undefined;
+  if (arc && teach) {
+    const roster = teach.roster ?? (teach.partner && !FIXED_ROSTER_ARENAS.includes(teach.arena) ? partnerRoster(teach.arena, ctx.met, ctx.row, roll) : undefined);
+    return { arena: teach.arena, ...roster !== undefined ? { roster } : {}, arc };
+  }
+  return practice(ctx, roll, arc);
+}
+
+/** A practice fight (`arc` — an elite arc taught on it, or null): an open arena, not one of the last two while another fits. */
+function practice(ctx: ScheduleContext, roll: number, arc: string | null): SchedulePlan {
+  const fit = SCHEDULE_PRACTICE.filter(p => p.own.every(o => ctx.met.has(o)) && ctx.row >= (p.minRow ?? 0));
+  const recent = ctx.recent.slice(-SCHEDULE_REPEAT_WINDOW);
+  const fresh = fit.filter(p => !recent.includes(p.arena)), list = fresh.length ? fresh : fit;
+  const arena = list[mixSeed(roll, 1) % list.length].arena;
+  const roster = FIXED_ROSTER_ARENAS.includes(arena) ? undefined : partnerRoster(arena, ctx.met, ctx.row, mixSeed(roll, 2));
+  return { arena, ...roster !== undefined ? { roster } : {}, arc };
+}
+
+/** The special kinds an arena is about: its start enemies' and newcomers' kinds (not the wolf and boar shares of its pace). */
+function ownKinds(arena: string): string[] {
+  const t = arenaTemplate(arena);
+  return SCHEDULE_KINDS.filter(kind => t.enemies.some(e => (e.kind ?? 'basic') === kind) || (t.newcomers ?? []).some(n => n.kind === kind && n.share > 0));
+}
+/**
+ * A known partner (proposal: «новинка рядом со знакомым»): a met special kind of another role than the arena's own kinds, by
+ * the roll — as a pool roster on the pool-roster arenas when one brings just that kind (wolves, onslaught), else its role
+ * `+<kind>`. None below the row's cap of kinds or with no such kind met.
+ */
+export function partnerRoster(arena: string, met: ReadonlySet<string>, row: number, roll: number): string | undefined {
+  const own = ownKinds(arena);
+  if (own.length >= scheduleKindCap(row)) return undefined;
+  const roles = new Set(own.map(kind => KIND_ROLE[kind]));
+  const candidates = SCHEDULE_KINDS.filter(kind => met.has(kind) && !own.includes(kind) && !roles.has(KIND_ROLE[kind]));
+  if (!candidates.length) return undefined;
+  const kind = candidates[roll % candidates.length];
+  if (['buttons', 'marked', 'glade'].includes(arena)) {
+    const pool = POOL_ROSTERS.find(def => def.kinds.length === 0 && ((kind === 'wolf' && (def.wolfShare ?? 0) > 0 && !def.boarShare) || (kind === 'boar' && (def.boarShare ?? 0) > 0 && !def.wolfShare)));
+    if (pool) return pool.id;
+  }
+  return `+${kind}`;
+}
+
+/**
+ * The elements a fight shows by its arena alone (from the first frame): the buttons, the leader or the horde of a `marked` goal
+ * (the run's goal layouts), the terrain (cliff, river → water, thorns), a big pond (r ≥ 2) → water, the braziers, the chest.
+ * The kinds, the elite and the affixes are read from the fight itself (`RtArenaOutcome`).
+ */
+export function arenaElements(arena: string, markedGoals: boolean): string[] {
+  const t = markedGoalArena(arenaTemplate(arena), markedGoals), out = new Set<string>();
+  if (t.goal === 'buttons') out.add('buttons');
+  if (t.goal === 'marked') { if (t.horde) out.add('horde'); else if (t.enemies.some(e => e.leader)) out.add('leader'); }
+  for (const zone of t.terrain ?? []) out.add(zone.kind === 'river' ? 'water' : zone.kind);
+  for (const o of t.obstacles) if (o.kind === 'pond' && 'r' in o && o.r >= 2) out.add('water');
+  if (t.braziers?.length) out.add('brazier');
+  if (t.chest) out.add('chest');
+  return SCHEDULE_ELEMENTS.filter(id => out.has(id));
+}
+
+/**
+ * The elements met in a played fight (the run keeps them on its record, `RtBattleRecord.seen`): the arena's own, the special
+ * kinds that stood on it, `elite` when an elite stood on it, `affix` and `affix:<id>` for the affixes seen on elites, the bust
+ * when it was the fight of the bust arc (design 15.10.2026: counted when that fight is played) and the bag when the fight had one.
+ */
+export function fightElements(fight: { arena: string; markedGoals: boolean; arc: string | null; kinds?: readonly string[]; elite?: boolean; affixes?: readonly string[]; bag: boolean }): string[] {
+  const out = new Set(arenaElements(fight.arena, fight.markedGoals));
+  for (const kind of fight.kinds ?? []) if (SCHEDULE_KINDS.includes(kind)) out.add(kind);
+  if (fight.elite) out.add('elite');
+  for (const id of fight.affixes ?? []) if ((AFFIX_IDS as readonly string[]).includes(id)) { out.add('affix'); out.add(affixElement(id)); }
+  if (fight.arc === BUST_ARC) out.add(BUST_ARC);
+  if (fight.bag) out.add('bag');
+  return [...out].sort();
+}
+
+/**
+ * The special kinds a fight's arena may bring that are not met — the run takes them out (`Loadout.withoutKinds`); the arc's own
+ * kind stays. Sorted.
+ */
+export function unmetKinds(arena: string, roster: string | undefined, met: ReadonlySet<string>, arc: string | null): string[] {
+  const kinds = arenaKinds(arena, roster);
+  return SCHEDULE_KINDS.filter(kind => kinds.has(kind) && !met.has(kind) && kind !== arc);
+}
+
+/** The affix types an elite of the fight may take: those met, and at most one more (by the node's roll). Sorted as `AFFIX_IDS`. */
+export function allowedAffixes(met: ReadonlySet<string>, seed: number): string[] {
+  const known = AFFIX_IDS.filter(id => met.has(affixElement(id))), unknown = AFFIX_IDS.filter(id => !met.has(affixElement(id)));
+  const extra = unknown.length ? unknown[mixSeed(mixSeed(seed, SCHEDULE_SALT), 3) % unknown.length] : undefined;
+  return AFFIX_IDS.filter(id => known.includes(id) || id === extra);
+}
+
+/**
+ * The history a viewer starts with before the schedule kept one (design answer 2, 15.10.2026): the kinds and affixes of the view's
+ * «Новое на карте» memory and `elite`, `goblin-bust` → `bust`, `bag` of its first meetings. No terrain: arcs bring it one a fight.
+ */
+export function scheduleSeedHistory(kinds: readonly string[], affixes: readonly string[], firsts: readonly string[]): string[] {
+  const out = new Set<string>();
+  for (const kind of kinds) if (SCHEDULE_KINDS.includes(kind)) out.add(kind);
+  for (const id of affixes) if ((AFFIX_IDS as readonly string[]).includes(id)) { out.add('affix'); out.add(affixElement(id)); }
+  if (firsts.includes('elite')) out.add('elite');
+  if (firsts.includes('goblin-bust')) out.add(BUST_ARC);
+  if (firsts.includes('bag')) out.add('bag');
+  return [...out].sort();
+}

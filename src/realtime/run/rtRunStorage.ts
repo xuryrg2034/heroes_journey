@@ -7,6 +7,7 @@
 /** The part of the Web Storage API the stores use (tests pass a plain object). */
 export interface RunStorage { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void }
 import { isRtAshLevel, parseRtRun, serializeRtRun, type RtAshLevel, type RtRunState } from './rtRun';
+import { isScheduleElement } from './schedule';
 
 /**
  * Casino stage 1, item 2: `-v7` (save version 7, the oath stake: the oath stream's counter, the open battle's offer and oath).
@@ -69,9 +70,13 @@ export function createRtRunStore(storage: RunStorage | null = browserStorage()):
  * - `won` — the viewer won a run without a given seed (`endRun` with `won`); it stays once set and opens the choice of
  *   «Испытание» on «Новый поход» (`ashOpen`).
  * - `ash` — the level chosen last (1–5; absent — 0), the choice's default (`ashChoice`, `chooseAsh`).
+ * Task 26 «Расписание леса» (design 15.10.2026; the same version 1, an optional field):
+ * - `seen` — the living elements the viewer has met (run/schedule.ts), sorted; a new run takes a snapshot (`createRtRun(seed,
+ *   { schedule })`). Absent — the schedule never ran here: the first read takes the view's older memory (`scheduleHistory(seed)`).
+ *   The gear's «Обучение» empties it (`resetSchedule`): the next new run goes the newcomer's path.
  * All are absent until set: a profile without them reads and saves as before.
  */
-export interface RtProfile { version: typeof RT_PROFILE_VERSION; giftFull: boolean; jailer?: true; runs?: number; runsApprox?: true; won?: true; ash?: Exclude<RtAshLevel, 0> }
+export interface RtProfile { version: typeof RT_PROFILE_VERSION; giftFull: boolean; jailer?: true; runs?: number; runsApprox?: true; won?: true; ash?: Exclude<RtAshLevel, 0>; seen?: string[] }
 export const emptyRtProfile = (): RtProfile => ({ version: RT_PROFILE_VERSION, giftFull: false });
 
 export function parseRtProfile(text: string | null): RtProfile {
@@ -81,7 +86,8 @@ export function parseRtProfile(text: string | null): RtProfile {
     if (!value || typeof value !== 'object' || value.version !== RT_PROFILE_VERSION) return emptyRtProfile();
     const runs = typeof value.runs === 'number' && Number.isInteger(value.runs) && value.runs >= 1 ? value.runs : undefined;
     const ash = isRtAshLevel(value.ash) && value.ash >= 1 ? value.ash as Exclude<RtAshLevel, 0> : undefined;
-    return { version: RT_PROFILE_VERSION, giftFull: value.giftFull === true, ...value.jailer === true || value.giftFull === true ? { jailer: true as const } : {}, ...runs !== undefined ? { runs } : {}, ...runs !== undefined && value.runsApprox === true ? { runsApprox: true as const } : {}, ...value.won === true ? { won: true as const } : {}, ...ash !== undefined ? { ash } : {} };
+    const seen = Array.isArray(value.seen) ? [...new Set(value.seen.filter(isScheduleElement))].sort() : undefined;
+    return { version: RT_PROFILE_VERSION, giftFull: value.giftFull === true, ...value.jailer === true || value.giftFull === true ? { jailer: true as const } : {}, ...runs !== undefined ? { runs } : {}, ...runs !== undefined && value.runsApprox === true ? { runsApprox: true as const } : {}, ...value.won === true ? { won: true as const } : {}, ...ash !== undefined ? { ash } : {}, ...seen !== undefined ? { seen } : {} };
   } catch { return emptyRtProfile(); }
 }
 
@@ -115,6 +121,15 @@ export interface RtProfileStore {
    * `approx` — the count began on a profile that showed earlier play (it starts at 2; `RunRecord.viewerRunApprox`).
    */
   startRun(): { run: number; approx?: true };
+  /**
+   * Task 26: the viewer's history for a new run's schedule. A profile without it starts from `seed()` (the view's older memory:
+   * schedule.ts `scheduleSeedHistory`) and keeps that; the result is what a new run snapshots.
+   */
+  scheduleHistory(seed: () => readonly string[]): string[];
+  /** Task 26: a scheduled fight was fed back — its elements join the viewer's history. False when not stored. */
+  meetSchedule(ids: readonly string[]): boolean;
+  /** Task 26: «Обучение» on the gear — the history is emptied (kept as empty: the older memory is not read again). */
+  resetSchedule(): boolean;
 }
 
 export function createRtProfileStore(storage: RunStorage | null = browserStorage()): RtProfileStore {
@@ -144,5 +159,17 @@ export function createRtProfileStore(storage: RunStorage | null = browserStorage
       write({ ...profile, runs, ...approx ? { runsApprox: true as const } : {} });
       return { run: runs, ...approx ? { approx: true as const } : {} };
     },
+    scheduleHistory: seed => {
+      const profile = read();
+      if (profile.seen) return [...profile.seen];
+      const seen = [...new Set(seed().filter(isScheduleElement))].sort();
+      write({ ...profile, seen });
+      return seen;
+    },
+    meetSchedule: ids => {
+      const profile = read(), seen = [...new Set([...profile.seen ?? [], ...ids.filter(isScheduleElement)])].sort();
+      return JSON.stringify(seen) === JSON.stringify(profile.seen) || write({ ...profile, seen });
+    },
+    resetSchedule: () => write({ ...read(), seen: [] }),
   };
 }
