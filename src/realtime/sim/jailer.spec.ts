@@ -22,8 +22,9 @@
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import { registerArena } from './arenas';
-import { enemyRefusal, nextCandidates, planChain, type StrikeOutcome } from './chain';
-import { FIRST_WINDUP_FACTOR, FLAIL_LIE, FLAIL_PUSH, FLAIL_RADIUS, JAILER, JAILER_HP, JAILER_WEIGHT, JAILER_WINDUP, PHASE2_TIME, THROW_LIE,
+import { chainColor, colorShiftIds, colorShiftLeft, enemyRefusal, foreignLeft, foreignLinkIds, nextCandidates, planChain, type StrikeOutcome } from './chain';
+import { FORMS } from './buildIds';
+import { FIRST_WINDUP_FACTOR, FLAIL_LIE, FLAIL_PUSH, FLAIL_RADIUS, JAILER, JAILER_ARENA_HP, JAILER_HP, JAILER_WEIGHT, JAILER_WINDUP, PHASE2_TIME, THROW_LIE,
   WEIGHT_HOLD, WEIGHT_HP, WHISTLE_ADDS, WHISTLE_PERIOD, WHISTLE_RADIUS, DESPAIR_SPEED, jailerMove, inJailerShield } from './enemies/jailer';
 import { polygon, zone, type Vec } from './geometry';
 import { worldState } from './hash';
@@ -324,7 +325,8 @@ check('the picks: never three of one move in a row, both moves on every seed, th
 check('the core\'s death kills the weight after the dash (not the player\'s kill, no sever); the marked core opens the door («Тюремщик», the cold for a quiet core; a journal before task 28 — no `bossClears`)', () => {
   // Task 28: the arena turns `bossClears` on when the values have it off; a journal recorded before the key has none — the old path.
   const old = quiet();
-  delete (old as Partial<Params>).bossClears;
+  // (nor the keys of task 32: the old core, HP 2, a colour)
+  for (const key of ['bossClears', 'jailerColorless', 'jailerHp'] as const) delete (old as Partial<Params>)[key];
   const sim = new Simulation({ arena: 'jailer', params: old, seed: seedOf(1), record: true }), w = sim.world;
   assert(w.params.bossClears === undefined, 'the old journal\'s values: no key');
   const core = w.enemies.find(e => e.kind === JAILER)!, weight = w.enemies.find(e => e.kind === JAILER_WEIGHT)!;
@@ -414,6 +416,94 @@ check('«Тюремщик» on several seeds: the bot\'s fight replays from its 
     moves.push(`${m}|${sim.hash()}`);
   }
   assert(new Set(moves).size === 3, 'the seeds differ');
+});
+
+// ---- Task 32 «Бесцветный Тюремщик, больше HP» (`Params.jailerColorless`, `Params.jailerHp`) ----
+
+/** A field of the frame without the core's shield (the colour rule alone), R 3: the hero at (6, 6), the core (colour 1) at (10, 6). */
+function colorless(extra: Partial<Params> = {}, talismans: string[] = []): { sim: Simulation; core: Enemy } {
+  const sim = new Simulation({ arena: 'jailer-field', params: quiet({ shieldArc: 0, linkRadius: 3, jailerColorless: true, ...extra }), seed: seedOf(3), record: true, loadout: { talismans } });
+  sim.command({ t: 'clear', keepMarked: false });
+  const { core } = boss(sim, { x: 6, y: 6 }, { x: 10, y: 6 });
+  return { sim, core };
+}
+const chainIds = (w: World): number[] => w.chain.map(l => l.id);
+
+check('task 32: a chain of one colour takes the colourless core in the middle and goes on by its colour; another colour after the core is refused; the dash strikes as the highlight showed', () => {
+  const { sim, core } = colorless(), w = sim.world;
+  const a = place(sim, { x: 8.5, y: 7 }, 0, 'basic', 2), b = place(sim, { x: 11.5, y: 7 }, 0, 'basic', 2), c = place(sim, { x: 13, y: 7 }, 0, 'basic', 3);
+  draw(sim, [a]);
+  assert(nextCandidates(w).some(e => e.id === core.id), `the core is a candidate of a chain of colour 2 (${enemyRefusal(w, core)}, chain ${chainIds(w)}, a ${a.id})`);
+  assert(enemyRefusal(w, core) === null, `the core joins a chain of colour 2: ${enemyRefusal(w, core)}`);
+  sim.command({ t: 'drag', x: core.x, y: core.y, mode: 'full' });
+  assert(chainColor(w) === 2, `the core keeps the chain's colour 2 (${chainColor(w)})`);
+  assert(enemyRefusal(w, c) === 'color', `colour 3 after the core is refused: ${enemyRefusal(w, c)}`);
+  sim.command({ t: 'drag', x: b.x, y: b.y, mode: 'full' });
+  sim.command({ t: 'drag', x: c.x, y: c.y, mode: 'full' });
+  assert(JSON.stringify(chainIds(w)) === JSON.stringify([a.id, core.id, b.id]), `the chain a, core, b: ${chainIds(w)}`);
+  const { planned } = releaseAsPlanned(sim);
+  assert(planned.length === 3 && planned[1].id === core.id, 'the dash struck the core in the middle as planned');
+  assert(replays(sim), 'replay');
+});
+
+check('task 32: a chain begun at the colourless core takes the colour of the next enemy; the weight keeps its colour', () => {
+  const { sim, core } = colorless(), w = sim.world;
+  const weight = w.enemies.find(e => e.kind === JAILER_WEIGHT)!;
+  const b = place(sim, { x: 11.5, y: 7 }, 0, 'basic', 3), c = place(sim, { x: 13, y: 7 }, 0, 'basic', 2), d = place(sim, { x: 13, y: 8.5 }, 0, 'basic', 3);
+  sim.command({ t: 'teleport', x: 8, y: 7 });
+  draw(sim, [core]);
+  assert(JSON.stringify(chainIds(w)) === JSON.stringify([core.id]) && chainColor(w) === null, `the core first, no colour yet (${chainIds(w)}, ${chainColor(w)})`);
+  assert(enemyRefusal(w, b) === null && enemyRefusal(w, c) === null, 'any colour may follow the core');
+  sim.command({ t: 'drag', x: b.x, y: b.y, mode: 'full' });
+  assert(chainColor(w) === 3, `the next enemy sets colour 3 (${chainColor(w)})`);
+  assert(enemyRefusal(w, c) === 'color' && enemyRefusal(w, weight) === 'color', `colour 2 and the weight (colour 0) refused: ${enemyRefusal(w, c)}, ${enemyRefusal(w, weight)}`);
+  sim.command({ t: 'drag', x: d.x, y: d.y, mode: 'full' });
+  assert(chainIds(w).length === 3, 'the chain goes on by colour 3');
+  releaseAsPlanned(sim);
+  assert(replays(sim), 'replay');
+});
+
+check('task 32: the colourless core does not move the «Смена цвета» count and is not «Чужак»', () => {
+  const shift = colorless({ colorShiftLinks: 2 }), w = shift.sim.world;
+  const a = place(shift.sim, { x: 8.5, y: 7 }, 0, 'basic', 2), b = place(shift.sim, { x: 11.5, y: 7 }, 0, 'basic', 2);
+  draw(shift.sim, [a]);
+  assert(colorShiftLeft(w) === 1, `one link more before the shift (${colorShiftLeft(w)})`);
+  shift.sim.command({ t: 'drag', x: shift.core.x, y: shift.core.y, mode: 'full' });
+  assert(colorShiftLeft(w) === 1 && chainColor(w) === 2, `the core does not count (${colorShiftLeft(w)}, colour ${chainColor(w)})`);
+  shift.sim.command({ t: 'drag', x: b.x, y: b.y, mode: 'full' });
+  assert(colorShiftLeft(w) === 0 && JSON.stringify(colorShiftIds(w)) === JSON.stringify([b.id]), `b frees the colour (${colorShiftLeft(w)}, ${colorShiftIds(w)})`);
+
+  const alien = colorless({}, [FORMS.alien]), v = alien.sim.world;
+  const p = place(alien.sim, { x: 8.5, y: 7 }, 0, 'basic', 2), q = place(alien.sim, { x: 11.5, y: 7 }, 0, 'basic', 3);
+  draw(alien.sim, [p]);
+  alien.sim.command({ t: 'drag', x: alien.core.x, y: alien.core.y, mode: 'full' });
+  assert(foreignLeft(v) === 1 && foreignLinkIds(v).length === 0, `the core is not foreign (${foreignLeft(v)})`);
+  alien.sim.command({ t: 'drag', x: q.x, y: q.y, mode: 'full' });
+  assert(JSON.stringify(foreignLinkIds(v)) === JSON.stringify([q.id]) && chainIds(v).length === 3, `colour 3 is the one foreign link (${foreignLinkIds(v)})`);
+  releaseAsPlanned(alien.sim);
+});
+
+check('task 32: without the key the core keeps its colour — a chain of another colour is refused at it (the old path)', () => {
+  const { sim, core } = colorless({ jailerColorless: false }), w = sim.world;
+  const a = place(sim, { x: 8.5, y: 7 }, 0, 'basic', 2);
+  draw(sim, [a]);
+  assert(enemyRefusal(w, core) === 'color' && !nextCandidates(w).some(e => e.id === core.id), `refused: ${enemyRefusal(w, core)}`);
+});
+
+check('task 32: the arena «Тюремщик» plays the colourless core with 5 HP; the panel\'s HP goes through; a journal without the keys replays the old core (HP 2, a colour)', () => {
+  const sim = new Simulation({ arena: 'jailer', params: defaultParams(), seed: seedOf(4), record: true }), w = sim.world;
+  const core = () => sim.world.enemies.find(e => e.kind === JAILER)!;
+  assert(w.params.jailerColorless === true && w.params.jailerHp === JAILER_ARENA_HP && core().hp === JAILER_ARENA_HP, `colourless, HP ${core().hp}`);
+  const panel = new Simulation({ arena: 'jailer', params: { ...defaultParams(), jailerHp: 7 }, seed: seedOf(4) });
+  assert(panel.world.enemies.find(e => e.kind === JAILER)!.hp === 7, 'the panel\'s 7');
+  assert(defaultParams().jailerHp === JAILER_HP && !defaultParams().jailerColorless, 'the defaults are the old core');
+  ticks(sim, 120);
+  const journal = JSON.parse(JSON.stringify(sim.exportJournal()!)) as Journal;
+  delete (journal.params as Partial<Params>).jailerColorless;
+  delete (journal.params as Partial<Params>).jailerHp;
+  const old = replay(journal), oc = old.world.enemies.find(e => e.kind === JAILER)!;
+  assert(oc.hp === JAILER_HP && !('jailerColorless' in old.world.params) && !('jailerHp' in old.world.params), `the old core: HP ${oc.hp}`);
+  assert(replay(JSON.parse(JSON.stringify(journal))).hash() === old.hash() && replays(sim), 'both replay');
 });
 
 console.log(`jailer: ${checks} checks passed`);

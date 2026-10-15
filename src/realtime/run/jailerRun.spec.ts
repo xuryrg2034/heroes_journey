@@ -151,10 +151,10 @@ function sever(sim: Simulation, weight: Enemy, seen: (w: World) => void): void {
     ticks(sim, 900, seen, w => !w.move);
   }
 }
-/** The core's plates taken by one-link chains on it (frozen: no moves, no shield), then a chain [b, core] kills it. */
+/** The core's plates (and, task 32, its HP down to 1) taken by one-link chains on it (frozen: no moves, no shield), then a chain [b, core] kills it. */
 function killCore(sim: Simulation, core: Enemy, seen: (w: World) => void): void {
   const w = sim.world;
-  for (let i = 0; i < 6 && (core.armor?.plates ?? 0) > 0; i++) {
+  for (let i = 0; i < 16 && ((core.armor?.plates ?? 0) > 0 || core.hp > 1); i++) {
     sim.command({ t: 'teleport', x: core.x + 1.2, y: core.y });
     sim.command({ t: 'begin', x: core.x, y: core.y });
     sim.command({ t: 'release' });

@@ -16,7 +16,7 @@
  * Seeds `Math.imul(k, 2654435761) >>> 0`. No claim on winning or losing a fight.
  */
 import { chainScore, enemyRefusal, planChain } from './chain';
-import { BOSS_CLEAR, JAILER, JAILER_WEIGHT } from './enemies/jailer';
+import { BOSS_CLEAR, JAILER, JAILER_HP, JAILER_WEIGHT } from './enemies/jailer';
 import { worldState } from './hash';
 import { defaultParams, type Params } from './params';
 import { Simulation, SIM_DT, replay, type Journal } from './simulation';
@@ -73,20 +73,20 @@ function settle(sim: Simulation, each?: (w: World, events: WorldEvent[]) => void
 }
 
 /**
- * The core frozen (its moves and shield stop), its three plates taken by three one-link chains; then `wait` seconds for the
- * newcomers; the hero at (9, 6.5) and a chain [b1, core, b2, b3] drawn (colour 1; the weight stays in the crowd).
+ * The core frozen (its moves and shield stop), its three plates taken by three one-link chains and (task 32: the arena's core has
+ * `JAILER_ARENA_HP`) its HP brought down to the old core's `JAILER_HP` by more of them; then `wait` seconds for the newcomers; the hero at (9, 6.5) and a chain [b1, core, b2, b3] drawn (colour 1; the weight stays in the crowd).
  */
 function readyToKill(sim: Simulation, wait = 6): { b: Enemy[] } {
   const w = sim.world, c = core(w);
   sim.command({ t: 'chill', id: c.id, seconds: 120 });
   sim.command({ t: 'teleport', x: 9, y: 6.5 });
-  for (let i = 0; i < 3; i++) {
+  for (let i = 0; i < 12 && ((c.armor?.plates ?? 0) > 0 || c.hp > JAILER_HP); i++) {
     draw(sim, [c]);
     assert(w.chain.length === 1, `plate chain ${i}: the core is a link`);
     sim.command({ t: 'release' });
     for (let t = 0; t < 900 && (w.move || t === 0); t++) { sim.tick(); w.events.length = 0; }
   }
-  assert((c.armor?.plates ?? -1) === 0 && w.enemies.includes(c), 'three chains took the three plates');
+  assert((c.armor?.plates ?? -1) === 0 && c.hp === JAILER_HP && w.enemies.includes(c), `one-link chains took the three plates and HP to ${JAILER_HP} (${c.hp})`);
   ticks(sim, ticksOf(wait));
   sim.command({ t: 'teleport', x: 9, y: 6.5 });
   const b = [place(sim, { x: 9, y: 5.5 }, 0, 1), place(sim, { x: 7.5, y: 5.2 }, 0, 1), place(sim, { x: 6.5, y: 4.4 }, 0, 1)];
