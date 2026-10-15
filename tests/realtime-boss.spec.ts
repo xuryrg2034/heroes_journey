@@ -263,7 +263,11 @@ test('task 28: the Jailer in a run — the bar only in its fight; bombs sever th
     }
     const node = page.locator('[data-status="available"]').first();
     await node.click();
-    if (/r9c/.test((await node.getAttribute('data-node'))!)) await page.screenshot({ path: 'artifacts/realtime-boss-run-card.png' });
+    if (/r9c/.test((await node.getAttribute('data-node'))!)) {
+      // The card of the Jailer's node: the arena's name, not its id.
+      await expect(page.getByText('Арена «Тюремщик»')).toBeVisible();
+      await page.screenshot({ path: 'artifacts/realtime-boss-run-card.png' });
+    }
     await page.getByTestId('run-enter').click();
   }
   expect(jailer).toBe(true);
@@ -328,6 +332,11 @@ test('task 28: the Jailer in a run — the bar only in its fight; bombs sever th
   // The door is open: in, then the Jailer's screen — 4 cards after a severed weight.
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
+  // The result names the fight once: «Тюремщик» (the node and its arena have one name).
+  await expect(page.getByTestId('result')).toContainText('Тюремщик');
+  await expect(page.getByTestId('result')).not.toContainText('Тюремщик · Тюремщик');
+  await expect(page.getByTestId('result')).not.toContainText('jailer');
+  await page.screenshot({ path: 'artifacts/realtime-boss-run-result.png' });
   await page.getByTestId('result-map').click();
   for (let i = 0; i < 4 && (await state()).pending?.source !== 'oath'; i++) {
     if ((await state()).pending?.kind === 'hammer') await page.getByTestId('hammer-refuse').click();

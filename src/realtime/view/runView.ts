@@ -435,7 +435,8 @@ export class RunView {
     this.inArena = true;
     this.el.hidden = true;
     this.host.onScreenChange(false);
-    const label = `${rtNodeTitle(this.run, node)} · ${arenaTitle(pending.arena)}`;
+    // Task 28: the Jailer's node plays the arena «Тюремщик» — one name, not «Тюремщик · Тюремщик».
+    const title = rtNodeTitle(this.run, node), arenaName = arenaTitle(pending.arena), label = title === arenaName ? title : `${title} · ${arenaName}`;
     this.host.startArena(pending.arena, pending.seed, { hp: this.run.hp, maxHp: this.run.maxHp }, label, rtArenaLoadout(this.run, this.host.loadoutOptions), { blink: arenaBlink(this.run), hint: rtItemHintDue(this.run) }, pending.roster, rtArenaRules(this.run));
   }
 
