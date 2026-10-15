@@ -9,7 +9,7 @@
  * arc of the shieldbearer, the archer's line, the sapper's fuse and blast ring (`drawSignals`); the porcupine's quills (its
  * drawing) and the «−1 HP» badge on a porcupine link of the drawn chain (`drawChain`).
  */
-import { Application, Container, Graphics, GraphicsContext, Sprite, Text, type Texture } from 'pixi.js';
+import { Application, Container, Graphics, GraphicsContext, Particle, ParticleContainer, Sprite, Text, type Texture } from 'pixi.js';
 import { COLORS, PALE, drawTerrain, makePlayer } from '../art/art';
 import { characterSprite } from '../art/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
@@ -33,7 +33,7 @@ import { shieldFails } from '../sim/guard';
 import { NO_COLOR, SECOND_WIND_HP, doorOpen, focusGuarded, touchDistance, type ChainLink, type Enemy, type EnemyKind, type World, type WorldEvent } from '../sim/world';
 import { itemHealOf, linkRadiusOf } from '../sim/build';
 import { FIRE_LIFE, FIRE_RADIUS, FIRE_STEP, firePassPreview, hammerFirePoints, returnRunOf } from '../sim/hammers';
-import { FROST_PASS, HAMMERS } from '../sim/buildIds';
+import { COUNTER_TALISMANS, FROST_PASS, HAMMERS, RELICS } from '../sim/buildIds';
 import { fireTextOf } from './buildColumn';
 import { findLoopHint, type LoopHintFigure } from './loopHint';
 // Casino stage 1: «Однорукий гоблин» (the idol, the reels, the odds line; the arrow marks are drawn in `drawSignals`).
@@ -47,6 +47,8 @@ import { SLOT_BUST_SOURCE, goblinOf } from '../sim/slot';
 import { bustBlink } from './bustBlink';
 import { dashCheque } from '../sim/purse';
 import { chainFeel, DashLinks, QUIET_LINKS } from './chainFeel';
+import { FX_DEFAULT, FlashGate, HEAVY_LINE, fifthLinkAt, shardCount, shardLife, type FxLevel } from './juice';
+import { EDGE_LINK, FIFTH_LINK_EVERY, counterWindowOn } from '../sim/talismansRt';
 import { LINK_DEPTH_SHOWN, linkDepths, type LinkDepth } from '../sim/linkDepth';
 import { CHEST_CURSE_KILLS, cursed } from '../sim/chest';
 import { FLAIL_RADIUS, JAILER, JAILER_WEIGHT, jailerCore, jailerMove, jailerShieldUp, type JailerMoveId } from '../sim/enemies/jailer';
@@ -136,6 +138,11 @@ const BOAR_SCALE = BOAR_ART_SCALE;
 const BONE = 0xeadbb9;
 /** Task 32: the colourless link (the Jailer's core, `colorlessLink`) — a neutral stone grey outside the chain palette, no sigil. */
 const COLORLESS = 0x8f8a80;
+/** Task 35, С4: the steel core of «Тяжёлый клинок» on the chain line; the gold notch of «Пятое звено». */
+const HEAVY_CORE = 0x3e4a56;
+const NOTCH_GOLD = 0xffd36b;
+/** Task 35, С2: shards in the pool — 60 enemies dying at once at 8 shards each. */
+const SHARD_POOL = 480;
 /**
  * Target reticle of marked enemies, the rim of elites, the goal arrows, the button rings, the loot halo: lemon, outside the
  * chain sigils (phase B, Т5: was the gold `ffd36b`, close to the yellow chain under deuteranopia; `FLAME` keeps that gold).
@@ -574,6 +581,25 @@ export class RealtimeRenderer {
   readonly feelShown = { popups: 0, quiet: 0, outlines: 0, finals: 0 };
   /** П2: real seconds left of the hero's outline flash. */
   private outlineLeft = 0;
+  /**
+   * Task 35, С1 «Тряска и вспышки» (view/juice.ts): the viewer's level, per cent — a factor on the camera shake and on the
+   * full-screen flash (the finisher's); at 0 no full-screen flash at all. The gate keeps the flashes to three a second at any level.
+   */
+  fxLevel: FxLevel = FX_DEFAULT;
+  private readonly flashGate = new FlashGate();
+  /**
+   * Task 35 (tests read it): С1 — full-screen flashes started and held back (the level 0 or the cap), frames with a shake offset
+   * and the largest offset, px; С2 — shards thrown so far, the count of the last kill's burst, shards flying now.
+   */
+  readonly juiceShown = { flashes: 0, flashesHeld: 0, shakeFrames: 0, shakeMax: 0, shards: 0, lastBurst: 0, shardsLive: 0, heavyLine: 0, notches: [] as number[] };
+  /** Task 35, С2: the shards of dead enemies — one pool of particles on one texture, tinted by the enemy's colour. */
+  private readonly shardLayer = new ParticleContainer({ dynamicProperties: { position: true, rotation: true, vertex: true, color: true } });
+  private readonly shards: { p: Particle; vx: number; vy: number; spin: number; life: number; total: number; delay: number; s: number }[] = [];
+  private shardNext = 0;
+  /** Some shard flies or waits (the frame updates the layer); false — nothing to do. */
+  private shardsAwake = false;
+  /** Task 35 (test hook, for the acceptance shots): shards stop at this age, real seconds (null — they fly as usual). */
+  shardFreeze: number | null = null;
   /** Phase B: the cut trail and the fire of the hammer drawn per frame (the fire under the crowd, the trail over it). */
   private readonly playerFxLayer = new Graphics();
   /** The hero's path in the current or last dash / return run (view memory, age in real seconds) for the cut trail. */
@@ -592,8 +618,9 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.reachLayer, this.reachMask, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.heroLayer, this.overlay, this.prologueLayer, this.fxLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.reachLayer, this.reachMask, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.heroLayer, this.overlay, this.prologueLayer, this.fxLayer, this.shardLayer, this.flash);
     this.app.stage.addChild(this.root, this.edgeLayer);
+    this.initShards();
     this.heroArt = makePlayer();
     this.heroLayer.addChild(this.heroRing, this.heroArt);
     this.comboText = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 46, fontWeight: 'bold', fill: 0xfff2c4, stroke: { color: 0x200c08, width: 7 } } });
@@ -630,7 +657,8 @@ export class RealtimeRenderer {
     if (this.flashLeft > 0) {
       this.flashLeft = Math.max(0, this.flashLeft - dt);
       const a = this.flashTotal > 0 ? this.flashLeft / this.flashTotal : 0;
-      g.rect(0, 0, world.arena.width * UNIT, world.arena.height * UNIT).fill({ color: 0xffffff, alpha: 0.45 * a });
+      // С1: the level scales the flash (a flash never starts at 0: `handleEvents`).
+      g.rect(0, 0, world.arena.width * UNIT, world.arena.height * UNIT).fill({ color: 0xffffff, alpha: 0.45 * a * this.fxLevel / 100 });
     }
   }
 
@@ -2402,6 +2430,12 @@ export class RealtimeRenderer {
       }
       if (ev.type === 'kill') {
         const view = this.enemyViews.get(ev.enemyId);
+        // Task 35, С2: shards of the enemy's colour; more for a later link of the dash (its `chainHit` in this tick), always — the
+        // level of «Тряска и вспышки» does not touch them. The crowd dying with the boss throws them as its wave reaches it.
+        const hit = world.events.find((h): h is Extract<WorldEvent, { type: 'chainHit' }> => h.type === 'chainHit' && h.enemyId === ev.enemyId && h.killed);
+        const ink = ev.color === NO_COLOR ? REAPER_FILL : view?.colorless ? COLORLESS : chainInk(ev.color);
+        const wave = ev.source === 'boss-clear' && this.bossCoreAt ? Math.min(CLEAR_WAVE_MAX, Math.hypot(ev.x - this.bossCoreAt.x, ev.y - this.bossCoreAt.y) * CLEAR_WAVE_STEP) : 0;
+        this.throwShards(ev.x, ev.y, ink, hit?.combo ?? 0, wave);
         if (!view) continue;
         this.enemyViews.delete(ev.enemyId);
         view.root.alpha = 1; view.root.tint = 0xffffff;
@@ -2435,7 +2469,11 @@ export class RealtimeRenderer {
         continue;
       }
       if (ev.type === 'finisher') {
-        if (world.params.finisher) { this.flashLeft = this.flashTotal = Math.max(0.15, world.params.finisherTime); }
+        // С1: no full-screen flash at the level 0; at any level at most three start in a second (WCAG 2.3.1).
+        if (world.params.finisher) {
+          if (this.fxLevel > 0 && this.flashGate.allow(this.clock)) { this.flashLeft = this.flashTotal = Math.max(0.15, world.params.finisherTime); this.juiceShown.flashes++; }
+          else this.juiceShown.flashesHeld++;
+        }
         continue;
       }
       if (ev.type === 'chainEnd') {
@@ -2658,18 +2696,46 @@ export class RealtimeRenderer {
     // link it reaches (the order reads A-A-Б-A), and the tail to the pointer, the reach ring and a bead at the last link in the
     // colour the next link must be (`twinsNextColor`). Before that — the dashes of both (any colour of the pair joins).
     const twinNext = twins ? twinsNextColor(world) : null;
+    // Task 35, С4 «Тяжёлый клинок» (design 15.10.2026): the line 40 % wider with a dark steel core along it.
+    const heavy = !!world.kit?.talismans.includes(RELICS.heavyBlade), lw = heavy ? HEAVY_LINE : 1;
     if (twins && twinNext !== null) {
       const inks = [ink, ...world.chain.filter(l => linkPoint(world, l)).map(l => this.linkInk(world, l, ink))];
       g.moveTo(pts[0].x * UNIT, pts[0].y * UNIT);
       for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x * UNIT, pts[i].y * UNIT);
-      g.stroke({ color: NAVY, width: 9, alpha: 0.95, cap: 'round', join: 'round' });
-      for (let i = 1; i < pts.length; i++) g.moveTo(pts[i - 1].x * UNIT, pts[i - 1].y * UNIT).lineTo(pts[i].x * UNIT, pts[i].y * UNIT).stroke({ color: inks[i], width: 4.5, alpha: 0.95, cap: 'round' });
+      g.stroke({ color: NAVY, width: 9 * lw, alpha: 0.95, cap: 'round', join: 'round' });
+      for (let i = 1; i < pts.length; i++) g.moveTo(pts[i - 1].x * UNIT, pts[i - 1].y * UNIT).lineTo(pts[i].x * UNIT, pts[i].y * UNIT).stroke({ color: inks[i], width: 4.5 * lw, alpha: 0.95, cap: 'round' });
       fs.twinLine = 1; fs.twinNext = twinNext;
-    } else if (twins) { drawTwinLine(g, pts.map(v => ({ x: v.x * UNIT, y: v.y * UNIT })), chainInk(twins[0]), chainInk(twins[1])); fs.twinLine = 1; }
+    } else if (twins) { drawTwinLine(g, pts.map(v => ({ x: v.x * UNIT, y: v.y * UNIT })), chainInk(twins[0]), chainInk(twins[1]), lw); fs.twinLine = 1; }
     else for (const [w, c] of [[9, NAVY], [4.5, ink]] as const) {
       g.moveTo(pts[0].x * UNIT, pts[0].y * UNIT);
       for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x * UNIT, pts[i].y * UNIT);
-      g.stroke({ color: c, width: w, alpha: 0.95, cap: 'round', join: 'round' });
+      g.stroke({ color: c, width: w * lw, alpha: 0.95, cap: 'round', join: 'round' });
+    }
+    this.juiceShown.heavyLine = heavy && pts.length > 1 ? 1 : 0;
+    if (heavy && pts.length > 1) {
+      g.moveTo(pts[0].x * UNIT, pts[0].y * UNIT);
+      for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x * UNIT, pts[i].y * UNIT);
+      g.stroke({ color: HEAVY_CORE, width: 1.6, alpha: 0.85, cap: 'round', join: 'round' });
+    }
+    // Task 35, С4 «Пятое звено» (design 15.10.2026): a gold notch across the line just before each enemy link of the drawn chain
+    // (planChain) where the talisman fires — only once the chain has reached that link, never an empty place ahead.
+    this.juiceShown.notches = [];
+    if (world.kit?.talismans.includes(COUNTER_TALISMANS.fifthLink)) {
+      const edge = counterWindowOn(world) ? EDGE_LINK : null;
+      let index = 0, prev: Vec = { x: hero.x, y: hero.y };
+      for (const lp of plan.links) {
+        const at = linkPoint(world, lp.link);
+        if (!at) continue;
+        if (lp.link.kind === 'enemy' && fifthLinkAt(++index, FIFTH_LINK_EVERY, edge)) {
+          const dx = at.x - prev.x, dy = at.y - prev.y, len = Math.hypot(dx, dy);
+          if (len > 1e-6) {
+            const ux = dx / len, uy = dy / len, back = Math.min(len * 0.45, 0.75), cx = (at.x - ux * back) * UNIT, cy = (at.y - uy * back) * UNIT, h = 13 * lw;
+            for (const [w, c] of [[9, NAVY], [5, NOTCH_GOLD]] as const) g.moveTo(cx - uy * h, cy + ux * h).lineTo(cx + uy * h, cy - ux * h).stroke({ color: c, width: w, cap: 'round' });
+            this.juiceShown.notches.push(index);
+          }
+        }
+        prev = at;
+      }
     }
     // Task 33 «Развилка» (design 15.10.2026): the dash runs the links in order, so the line does not show where a fork link was
     // taken from — a thin pale dashed stroke from that older link (the sim's `forkAnchorOf`, fixed when the link was taken).
@@ -3096,6 +3162,70 @@ export class RealtimeRenderer {
     }
   }
 
+  /**
+   * Task 35, С2: the pool of shards — a small navy-edged splinter, white (the tint gives it the enemy's colour). Only the shards
+   * in flight are the layer's particles (`updateShards`): an idle frame draws none.
+   */
+  private initShards(): void {
+    const g = new Graphics().poly([0, -11, 8, 4, -1, 11, -8, 2]).fill(0xffffff).stroke({ color: NAVY, width: 2.5, join: 'round' });
+    const texture = this.app.renderer.generateTexture(g);
+    g.destroy();
+    this.shardLayer.texture = texture;
+    this.shardLayer.visible = false;
+    for (let i = 0; i < SHARD_POOL; i++) this.shards.push({ p: new Particle({ texture, anchorX: 0.5, anchorY: 0.5, alpha: 0 }), vx: 0, vy: 0, spin: 0, life: 0, total: 1, delay: 0, s: 1 });
+  }
+
+  /**
+   * Task 35, С2: a kill's shards at an arena point — `shardCount(link)` splinters of `ink` fly apart, slow down and fade in
+   * `shardLife(link)` s; `delay` — real seconds before they fly. The pool is reused in a ring: the oldest shard gives way.
+   */
+  private throwShards(x: number, y: number, ink: number, link: number, delay = 0): void {
+    const n = shardCount(link), life = shardLife(link), big = link >= 6 ? 1.2 : 1;
+    for (let i = 0; i < n; i++) {
+      const s = this.shards[this.shardNext];
+      if (!s) return;
+      this.shardNext = (this.shardNext + 1) % this.shards.length;
+      const angle = (i + Math.random() * 0.7) / n * Math.PI * 2, speed = (7 + Math.random() * 3) * UNIT * big;
+      s.vx = Math.cos(angle) * speed; s.vy = Math.sin(angle) * speed - 0.6 * UNIT;
+      s.spin = (Math.random() * 2 - 1) * 14;
+      s.life = s.total = life; s.delay = delay;
+      s.s = (0.85 + Math.random() * 0.35) * big;
+      s.p.x = x * UNIT; s.p.y = y * UNIT; s.p.rotation = angle;
+      s.p.scaleX = s.p.scaleY = s.s;
+      s.p.tint = ink; s.p.alpha = delay > 0 ? 0 : 1;
+    }
+    this.juiceShown.shards += n;
+    this.juiceShown.lastBurst = n;
+    this.shardsAwake = true;
+  }
+
+  private updateShards(dt: number): void {
+    if (!this.shardsAwake) return;
+    const flying = this.shardLayer.particleChildren;
+    let live = 0;
+    const drag = Math.exp(-9 * dt);
+    for (const s of this.shards) {
+      if (s.life <= 0) continue;
+      live++;
+      if (s.delay > 0) { s.delay = Math.max(0, s.delay - dt); if (s.delay === 0) s.p.alpha = 1; continue; }
+      if (this.shardFreeze !== null && s.total - s.life >= this.shardFreeze) continue;
+      s.life -= dt;
+      if (s.life <= 0) { s.p.alpha = 0; live--; continue; }
+      const p = s.p, k = s.life / s.total;
+      p.x += s.vx * dt; p.y += s.vy * dt;
+      s.vx *= drag; s.vy = s.vy * drag + 9 * UNIT * dt;
+      p.rotation += s.spin * dt;
+      p.alpha = Math.min(1, k * 1.8);
+      p.scaleX = p.scaleY = s.s * (0.55 + 0.45 * k);
+    }
+    this.juiceShown.shardsLive = live;
+    // The layer holds the shards in flight only (the pool's order); none — the layer is hidden.
+    flying.length = 0;
+    for (const s of this.shards) if (s.life > 0) flying.push(s.p);
+    this.shardLayer.update();
+    this.shardLayer.visible = this.shardsAwake = live > 0;
+  }
+
   private updateFloating(dt: number): void {
     for (let i = this.floating.length - 1; i >= 0; i--) {
       const f = this.floating[i];
@@ -3112,6 +3242,7 @@ export class RealtimeRenderer {
     this.handleEvents(world);
     this.updateFloating(realDt);
     this.updateBursts(realDt);
+    this.updateShards(realDt);
     this.updateSparks(realDt);
     this.updateDying(realDt);
     this.updateClearWaves(realDt);
@@ -3172,7 +3303,10 @@ export class RealtimeRenderer {
     if (this.shakeLeft > 0) {
       this.shakeLeft = Math.max(0, this.shakeLeft - dt);
       const a = this.shakeAmp * (this.shakeTotal > 0 ? this.shakeLeft / this.shakeTotal : 0);
-      ox = (Math.random() * 2 - 1) * a; oy = (Math.random() * 2 - 1) * a;
+      // С1: the level scales every shake (the hits, the blasts, the dash); at 0 the arena stands still.
+      const k = this.fxLevel / 100;
+      ox = (Math.random() * 2 - 1) * a * k; oy = (Math.random() * 2 - 1) * a * k;
+      if (ox !== 0 || oy !== 0) { this.juiceShown.shakeFrames++; this.juiceShown.shakeMax = Math.max(this.juiceShown.shakeMax, Math.hypot(ox, oy)); }
     }
     this.root.position.set(this.base.x + ox, this.base.y + oy);
   }
@@ -3180,6 +3314,10 @@ export class RealtimeRenderer {
   resetEffects(): void {
     this.shakeLeft = 0;
     this.flashLeft = 0;
+    this.flashGate.reset();
+    for (const s of this.shards) { s.life = 0; s.delay = 0; s.p.alpha = 0; }
+    this.shardLayer.particleChildren.length = 0; this.shardLayer.update(); this.shardLayer.visible = this.shardsAwake = false;
+    this.juiceShown.shardsLive = 0;
     this.outlineLeft = 0;
     this.shieldFull = 0; this.shieldLast = 0;
     this.comboLife = 0;

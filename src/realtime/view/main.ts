@@ -39,8 +39,9 @@ import { focusGuarded, goalLamps, goalProgress, heroInCrowd, type EnemyKind, typ
 import { linkPoint } from '../sim/chain';
 import { ChainAudio } from './audio';
 import { chainFeel, QUIET_GAIN } from './chainFeel';
+import { FX_LEVELS, HEAVY_SEMIS, fxLevelOf, type FxLevel } from './juice';
 import { DebugPanel, formatTime } from './debugPanel';
-import { loadHintsOn, loadLinkDepth, loadParams, loadRoleBadges, loadSandboxBuild, loadNewOnMap, loadSessionClock, loadSound, PARAMS_STORAGE_KEY, saveHintsOn, saveLinkDepth, saveNewOnMap, saveParams, saveRoleBadges, saveSandboxBuild, saveSessionClock, saveSound, type SoundSetting } from './paramStorage';
+import { loadFx, loadHintsOn, loadLinkDepth, loadParams, loadRoleBadges, loadSandboxBuild, loadNewOnMap, loadSessionClock, loadSound, PARAMS_STORAGE_KEY, saveFx, saveHintsOn, saveLinkDepth, saveNewOnMap, saveParams, saveRoleBadges, saveSandboxBuild, saveSessionClock, saveSound, type SoundSetting } from './paramStorage';
 import { SessionClock } from './session';
 import { CHAIN_COLORS, FINAL_FLASH, PLAYER_FX, TARGET, RealtimeRenderer, type RenderUi } from './render';
 import { focusMaxOf } from '../sim/build';
@@ -390,6 +391,8 @@ async function boot(): Promise<void> {
   let runSound: SoundSetting | null = sandbox ? null : loadSound();
   const soundOn = (): boolean => (runSound ? runSound.on : params.sound);
   const soundVolume = (): number => (runSound ? runSound.volume : params.soundVolume);
+  /** Task 35, С4: the build's sounds asked for so far — «Тяжёлый клинок» thuds, «Пятое звено» bells (tests read them). */
+  const itemSounds = { thuds: 0, bells: 0 };
   /** Markers of elites already announced by sound, for the world they belong to (each arena counts ids anew). */
   const eliteMarkersHeard = new Set<number>();
   let eliteMarkersWorld: unknown = null;
@@ -636,6 +639,11 @@ async function boot(): Promise<void> {
   // П1 «Глубина звена»: the numbers next to the next-link candidates — a view setting with its own storage key; the sandbox
   // switches it here, the run on the gear of its map (RunView).
   renderer.showLinkDepth = loadLinkDepth();
+  // Task 35, С1 «Тряска и вспышки»: the viewer's level (view/juice.ts) — the gear of the run map and the sandbox panel's «Вид».
+  renderer.fxLevel = loadFx();
+  const setFx = (level: FxLevel): void => { renderer.fxLevel = level; saveFx(level); };
+  panel.addViewChoice('Тряска и вспышки', 'fx-level', FX_LEVELS.map(l => ({ value: String(l), label: `${l} %` })), String(renderer.fxLevel), value => setFx(fxLevelOf(value)),
+    'Тряска камеры и вспышки на весь экран. При 0 % их нет. Вспышек не больше трёх в секунду.');
   const setLinkDepth = (on: boolean): void => { renderer.showLinkDepth = on; saveLinkDepth(on); };
   panel.addViewCheck('Глубина звена', 'link-depth', renderer.showLinkDepth, setLinkDepth,
     'Число у кольца следующего звена: сколько звеньев цепь ещё может взять от него. Только от 2.');
@@ -732,6 +740,7 @@ async function boot(): Promise<void> {
     ...newSeen ? { newSeen: { store: newSeen, on: () => newOnMap } } : {},
     // Task 26 «Расписание леса»: the history's start from the older memory (design 15.10.2026), read once per profile.
     scheduleSeed: () => scheduleSeedHistory(SCHEDULE_KINDS.filter(kind => !!newSeen?.hasKind(kind)), AFFIX_IDS.filter(id => !!newSeen?.hasAffix(id)), FIRST_MEET_IDS.filter(id => !!firstMeets?.has(id))),
+    fx: { get: () => renderer.fxLevel, set: setFx },
     // The run's sound on the gear (outside the sandbox): the switch, the volume, one hit when the slider is let go.
     ...runSound ? { sound: {
       get: () => ({ ...runSound! }),
@@ -1212,7 +1221,14 @@ async function boot(): Promise<void> {
       // П2 «Тихая мелочь, громкая цепь»: 1–2 enemy links at the release sound −6 dB; 6+ end with a chord.
       const feel = chainFeel(renderer.dashLinks.of(w)), hitVolume = soundVolume() * (feel === 'quiet' ? QUIET_GAIN : 1);
       for (const ev of w.events) {
-        if (ev.type === 'chainHit') { if (ev.plates !== undefined) audio.plate(hitVolume); else audio.hit(ev.combo, ev.killed, hitVolume, ev.damage); }
+        // Task 35, С4 «Тяжёлый клинок»: the hit 5 semitones lower with a dull thud under it.
+        if (ev.type === 'chainHit') {
+          const heavy = !!w.kit?.talismans.includes(RELICS.heavyBlade);
+          if (ev.plates !== undefined) audio.plate(hitVolume); else audio.hit(ev.combo, ev.killed, hitVolume, ev.damage, heavy ? HEAVY_SEMIS : 0);
+          if (heavy) { audio.thud(hitVolume); itemSounds.thuds++; }
+        }
+        // Task 35, С4 «Пятое звено»: the talisman fired on a link the dash struck (the sim's `talismanFired`) — a small bell.
+        else if (ev.type === 'talismanFired' && ev.id === COUNTER_TALISMANS.fifthLink) { audio.bell(soundVolume()); itemSounds.bells++; }
         else if (ev.type === 'chainEnd') { if (feel === 'chord' || feel === 'finale') audio.chord(soundVolume()); }
         else if (ev.type === 'crystalBreak') audio.crystal(ev.combo, soundVolume());
         else if (ev.type === 'finisher') audio.finisher(soundVolume());
@@ -1589,6 +1605,8 @@ async function boot(): Promise<void> {
         /** «Сила видна при рывке»: the power number (largest shown, growths, visible now), strike flashes and closing flashes drawn so far. */
         /** П2 «Тихая мелочь, громкая цепь» (chainFeel.ts): pop-ups over the hero, quiet dash ends, outline flashes; П3 final flashes. */
         feel: { ...renderer.feelShown },
+        /** Task 35 (view/juice.ts): С1 — the level, full-screen flashes started and held, shake frames and the largest offset; С2 — shards. */
+        juice: { level: renderer.fxLevel, ...renderer.juiceShown, sounds: { ...itemSounds } },
         powerView: { shown: renderer.powerShown, growths: renderer.powerGrowths, visible: renderer.powerVisible, now: renderer.powerNow, strikeFlashes: renderer.strikeFlashes, finisherFlashes: renderer.finisherFlashes },
         heroInCrowd: heroInCrowd(w),
         reachCircles: renderer.visibleReachCircles,
@@ -1725,6 +1743,8 @@ async function boot(): Promise<void> {
     journal: () => sim.exportJournal(),
     /** Hash of the current world (sim/hash.ts). */
     hash: () => sim.hash(),
+    /** Task 35 (acceptance shots): the shards stop at this age, real seconds; null — they fly as usual. */
+    freezeShards: (age: number | null) => { renderer.shardFreeze = age; },
     toScreen: (x: number, y: number) => renderer.toScreen(x, y),
     /** Camera (docs/realtime-stage3.md, section 11): stage pixels → arena point; the camera's centre and the view in units. */
     toWorld: (sx: number, sy: number) => renderer.toArena(sx, sy),
@@ -1747,6 +1767,8 @@ async function boot(): Promise<void> {
       newRun: (seed?: number) => { runView.newRun(seed); },
       enter: (nodeId: string) => runView.enter(nodeId),
       arenaOpen: () => runView.arenaOpen,
+      /** Task 35, С3: the header's resource flights — started, tokens thrown, from → to, the number now, counting. */
+      resFly: () => ({ ...runView.resFly }),
       winArena: async () => {
         const w = world();
         if (!runView.arenaOpen || w.status !== 'playing') return false;

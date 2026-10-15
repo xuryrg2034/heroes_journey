@@ -27,10 +27,11 @@ export class ChainAudio {
    * One hit of the chain: `combo` — its number in the dash (1, 2, …); a kill sounds brighter than a wound. The pitch climbs a
    * semitone per hit for `HIT_STEPS` steps (П2), then stays. A quiet dash (1–2 links) passes a lower `volume` (view/chainFeel.ts).
    */
-  hit(combo: number, killed: boolean, volume: number, power = 0): void {
-    // View-only: a hit carrying more power is louder and a bit longer (up to power 8).
+  hit(combo: number, killed: boolean, volume: number, power = 0, semis = 0): void {
+    // View-only: a hit carrying more power is louder and a bit longer (up to power 8). Task 35, С4: `semis` shifts the ladder
+    // («Тяжёлый клинок» −5).
     const k = Math.min(1, power / 8);
-    this.tone(330 * Math.pow(2, Math.min(HIT_STEPS - 1, Math.max(0, combo - 1)) / 12), killed ? 'triangle' : 'square', 0.09 + 0.06 * k, volume * (killed ? 1 : 0.6) * (0.75 + 0.25 * k));
+    this.tone(330 * Math.pow(2, (Math.min(HIT_STEPS - 1, Math.max(0, combo - 1)) + semis) / 12), killed ? 'triangle' : 'square', 0.09 + 0.06 * k, volume * (killed ? 1 : 0.6) * (0.75 + 0.25 * k));
   }
 
   /** Package «Урон имеет значение»: a marker announces an elite — a low horn. */
@@ -56,6 +57,17 @@ export class ChainAudio {
   /** П2: the end of a long dash (6+ enemy links) — a short major chord. */
   chord(volume: number): void {
     for (const [i, semis] of [0, 4, 7, 12].entries()) this.tone(392 * Math.pow(2, semis / 12), 'triangle', 0.4, volume * 0.45, i * 0.03);
+  }
+
+  /** Task 35, С4 «Тяжёлый клинок»: a dull thud under each hit of the dash (lower and shorter than the finisher's thump). */
+  thud(volume: number): void {
+    this.tone(72, 'sine', 0.12, volume * 0.8);
+  }
+
+  /** Task 35, С4 «Пятое звено»: the talisman fired on a link the dash struck — a small bell (a high tone and its overtone). */
+  bell(volume: number): void {
+    this.tone(1568, 'sine', 0.5, volume * 0.55);
+    this.tone(1568 * 2.76, 'sine', 0.25, volume * 0.18);
   }
 
   /** The finisher: a low thump under the last hit. */
