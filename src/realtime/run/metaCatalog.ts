@@ -26,7 +26,7 @@ export const RT_PACK3_FORM: RtMetaItem = { id: CT.shockwave, kind: 'talisman' };
 export const RT_META_THRESHOLDS: readonly number[] = [60, 180, 360, 600, 900];
 /** The five packs in order; pack 5 holds 2 until the first new form after task 30. */
 export const RT_META_PACKS: readonly RtMetaPack[] = [
-  { id: 'hunter', title: 'Охотник', at: 60, items: [{ id: CT.eliteHunter, kind: 'talisman' }, { id: CT.finisher, kind: 'talisman' }, { id: 'bone-wheel', kind: 'event' }] },
+  { id: 'hunter', title: 'Охотник', at: 60, items: [{ id: CT.eliteHunter, kind: 'talisman' }, { id: CT.finisher, kind: 'talisman' }, { id: 'shaman-idol', kind: 'event' }] },
   { id: 'return', title: 'Возврат', at: 180, items: [{ id: HAMMERS.return, kind: 'hammer' }, { id: RL.swiftFeet, kind: 'relic' }, { id: 'porcupine-nest', kind: 'event' }] },
   { id: 'twins', title: 'Близнецы', at: 360, items: [RT_PACK3_FORM, { id: CT.prism, kind: 'talisman' }, { id: 'old-trap', kind: 'event' }] },
   { id: 'long-chains', title: 'Длинные цепи', at: 600, items: [{ id: CT.longArm, kind: 'talisman' }, { id: CT.thirdChain, kind: 'talisman' }, { id: RL.wideCircle, kind: 'relic' }] },

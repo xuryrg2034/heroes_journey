@@ -194,7 +194,7 @@ check('«✦ новое»: an opened item until it is offered; a locked or a bas
   for (let k = 1; !store.load().meta?.heroes.cat?.packs.length && k < 10; k++) store.endRunMeta(walkRun(meta(k, {}, { ash: 5 })).run);
   const profile = store.load();
   assert(profile.meta?.heroes.cat?.packs[0] === 'hunter', 'pack 1 opened');
-  assert(rtIsNewOffer(profile, 'elite-hunter') && store.isNewOffer('bone-wheel'), 'opened items are new');
+  assert(rtIsNewOffer(profile, 'elite-hunter') && store.isNewOffer('shaman-idol'), 'opened items are new');
   assert(!rtIsNewOffer(profile, 'prism') && !rtIsNewOffer(profile, 'whetstone'), 'a locked or a base item is not');
   assert(store.markOffered(['elite-hunter', 'whetstone']) && !store.isNewOffer('elite-hunter') && store.isNewOffer('finishing-blow'), 'marked once');
   assert(!store.markOffered('elite-hunter'), 'nothing more to mark');
