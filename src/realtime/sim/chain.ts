@@ -772,7 +772,8 @@ export function chainAnchors(world: World): ChainAnchor[] {
 
 /**
  * Task 33 «Развилка» (`Params.forkBranches` > 0): `target` as the next link of the drawn chain — marked `fork` when the plain
- * anchors (the last link, the hero with «Якорь») do not reach it, so the chain took it from an older link. The drawing
+ * anchors (the last link, the hero with «Якорь») do not reach it, so the chain took it from an older link: the latest link of
+ * the chain that reaches it (`anchorRefusal`, the order of `chainAnchors`), noted in `fork`. The drawing
  * (`dragChain`) and П1 (linkDepth.ts) append through it; without the limit the link as it is.
  */
 export function nextLink(world: World, target: ChainLink): ChainLink {
@@ -782,7 +783,15 @@ export function nextLink(world: World, target: ChainLink): ChainLink {
   if (!point) return plain;
   const reach = reachOf(world, enemy ? enemyArtRadius(world.params, enemy) : OBJECT_RADIUS);
   const anchors = heroAnchorOn(world) ? [lastAnchor(world), { x: world.hero.x, y: world.hero.y }] : [lastAnchor(world)];
-  return anchors.some(anchor => !anchorRefusal(world, anchor, point, reach)) ? plain : { ...plain, fork: true };
+  if (anchors.some(anchor => !anchorRefusal(world, anchor, point, reach))) return plain;
+  const from = chainAnchors(world).filter(a => a.link && !anchorRefusal(world, a, point, reach)).at(-1)?.link;
+  return from ? { ...plain, fork: { kind: from.kind, id: from.id } } : plain;
+}
+
+/** Task 33 «Развилка»: the older link the link `index` of the drawn chain was taken from (its `fork`, fixed when taken); null — not a fork. */
+export function forkAnchorOf(world: World, index: number): ChainLink | null {
+  const fork = world.chain[index]?.fork;
+  return fork ? { kind: fork.kind, id: fork.id } as ChainLink : null;
 }
 
 /** The last link still on the arena as an anchor (with its link), or the hero (none). */

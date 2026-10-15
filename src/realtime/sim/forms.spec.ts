@@ -25,7 +25,7 @@ import browserJournal from '../../../tests/fixtures/realtime-browser-journal.jso
 import legacyJournals from '../../../tests/fixtures/realtime-legacy-build-journals.json';
 import { registerArena } from './arenas';
 import { BUILD_SOURCES, COUNTER_TALISMANS, FORMS, FORM_FIELD, HAMMERS } from './buildIds';
-import { chainColor, colorGroups, colorJoin, colorShiftIds, colorShiftLeft, enemyAnchors, enemyRefusal, foreignLeft, hoverRefusal, loopCandidates, nextCandidates, planChain, twinsNextColor, type ChainPlan, type StrikeOutcome } from './chain';
+import { chainColor, colorGroups, colorJoin, colorShiftIds, colorShiftLeft, enemyAnchors, forkAnchorOf, enemyRefusal, foreignLeft, hoverRefusal, loopCandidates, nextCandidates, planChain, twinsNextColor, type ChainPlan, type StrikeOutcome } from './chain';
 import { platesOf } from './elites';
 import { bodyRadiusOf } from './enemies/kinds';
 import { returnRunOf } from './hammers';
@@ -365,6 +365,7 @@ check('task 33 «Развилка» once a chain: the first fork joins (`ChainLi
   };
   const one = scene({});
   assert(ids(one.sim).join() === [one.a, one.b, one.c].join() && one.sim.world.chain.map(l => !!l.fork).join() === 'false,false,true', `the fork from a (${JSON.stringify(one.sim.world.chain)})`);
+  assert(forkAnchorOf(one.sim.world, 2)?.id === one.a && forkAnchorOf(one.sim.world, 1) === null, `the fork's anchor is a (${JSON.stringify(forkAnchorOf(one.sim.world, 2))})`);
   const d = enemy(one.sim, one.d)!;
   assert(enemyRefusal(one.sim.world, d) === 'far' && !nextCandidates(one.sim.world).some(e => e.id === d.id), 'a second fork (from b) is refused');
   assert(enemyAnchors(one.sim.world, d).length === 0, 'no anchor rings for it');
