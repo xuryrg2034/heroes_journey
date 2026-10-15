@@ -171,6 +171,12 @@ export interface ReturnPreview {
   power: number;
   hits: { id: number; at: number; outcome: StrikeOutcome }[];
   kills: number;
+  /**
+   * With `Params.returnShadowEnd`: the bodies the build modules' end of the dash strikes in the shadow, by module id («Ударная
+   * волна»: who stands in its circle around the planned end; an empty list — it goes off and strikes nobody). With
+   * `Params.returnWaveFixed` the release fixes them (talismansRt.ts). Absent — no module acts at this end.
+   */
+  ends?: Record<string, number[]>;
 }
 
 /**
@@ -357,7 +363,8 @@ function planReturn(world: World, out: readonly LinkPlan[], endPower: number, pi
   }
   // `returnShadowEnd`: the build modules' end of the same dash, in the order of `onChainEnd` (a wave kills and wounds before the
   // run). A journal without the key — the old shadow.
-  const after = world.params.returnShadowEnd ? endShadowOf(world, { links: struck.size, at: end }, enemies) : enemies;
+  const ended = world.params.returnShadowEnd ? endShadowOf(world, { links: struck.size, at: end }, enemies) : null;
+  const after = ended ? ended.enemies : enemies, ends = ended && Object.keys(ended.struck).length ? ended.struck : null;
   const path = [end, ...route], shadow: World = { ...world, enemies: after }, power = returnPowerOf(endPower);
   const hits: ReturnPreview['hits'] = [];
   let left = power;
@@ -367,7 +374,7 @@ function planReturn(world: World, out: readonly LinkPlan[], endPower: number, pi
     left = outcome.powerAfter;
     hits.push({ id: e.id, at: touch, outcome });
   }
-  return { route: path, power, hits, kills: hits.filter(h => h.outcome.killed).length };
+  return { route: path, power, hits, kills: hits.filter(h => h.outcome.killed).length, ...ends ? { ends } : {} };
 }
 
 /**

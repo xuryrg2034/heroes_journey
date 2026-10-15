@@ -13,7 +13,9 @@
  * - «Возврат»: the way back and the second pass in `planChain` before the release equal the run — without `returnFixed` on a
  *   scene where nobody walks, with it also while the enemies walk; the first pass killed everyone near the way — an empty run;
  *   «Ударная волна» of the same chain kills and wounds before the run — the plan's marks are struck after it (`returnShadowEnd`,
- *   a journal without the key — the old shadow); a closed door is no link (a goal met mid-dash opens it, the fight and the run go
+ *   a journal without the key — the old shadow); with `returnFixed` the release fixes the wave's bodies too (`returnWaveFixed`:
+ *   a body that walks out of the circle during the dash is struck, one that walks in is not; without «Возврат» or a key — the
+ *   old wave; a journal without the key — the old wave); a closed door is no link (a goal met mid-dash opens it, the fight and the run go
  *   on); a chain into the open door wins — no run in the plan, none made;
  * - the highlight is the dash on random fights of several seeds with the forms (links, pierce, return); every fight replays to
  *   the same hash (checkpoints every 300 ticks); journals without the new ids and without `returnFixed` play the old world.
@@ -25,6 +27,7 @@ import { registerArena } from './arenas';
 import { BUILD_SOURCES, COUNTER_TALISMANS, FORMS, FORM_FIELD, HAMMERS } from './buildIds';
 import { chainColor, colorGroups, colorJoin, enemyAnchors, enemyRefusal, foreignLeft, hoverRefusal, loopCandidates, nextCandidates, planChain, type ChainPlan, type StrikeOutcome } from './chain';
 import { platesOf } from './elites';
+import { bodyRadiusOf } from './enemies/kinds';
 import { returnRunOf } from './hammers';
 import { worldState } from './hash';
 import { linkDepths } from './linkDepth';
@@ -112,6 +115,8 @@ check('journals recorded before task 29 replay to their recorded hash (the forms
   for (const f of all) assert(replay(f.journal).hash() === f.hash, `${f.name}: recorded ${f.hash}, now ${replay(f.journal).hash()}`);
   assert(runParams(defaultParams()).returnFixed === false && defaultParams().returnFixed === true, 'returnFixed: on in the sandbox, off in a run');
   assert(defaultParams().returnShadowEnd === true && runParams(defaultParams()).returnShadowEnd === true, 'returnShadowEnd: on in the sandbox and in a run');
+  // A run keeps `returnFixed` off (task 30): the wave there strikes who stands in the circle, as before (checked below).
+  assert(defaultParams().returnWaveFixed === true && runParams(defaultParams()).returnWaveFixed === true, 'returnWaveFixed: on in the sandbox and in a run');
   assert(FORM_FIELD[FORMS.seal] === 'end' && FORM_FIELD[FORMS.pierce] === 'end' && FORM_FIELD[HAMMERS.blast] === 'end'
     && FORM_FIELD[FORMS.fork] === 'link' && FORM_FIELD[FORMS.alien] === 'link' && FORM_FIELD[FORMS.twins] === 'link'
     && FORM_FIELD[HAMMERS.return] === 'path' && FORM_FIELD[HAMMERS.fire] === 'path' && FORM_FIELD[HAMMERS.cut] === 'path', 'the fields');
@@ -453,6 +458,92 @@ check('a journal without `returnShadowEnd` plays the old shadow: the same world 
   delete (stripped.params as Partial<Params>).returnShadowEnd;
   assert(play(worlds[0]) === play(stripped), 'without the key — the world of the key off');
   assert(play(worlds[0]) !== play(worlds[1]), 'with `returnFixed` the key changes the run (the wounded body is struck too)');
+});
+
+/**
+ * Walking bodies and the wave (`returnWaveFixed`, design 15.10.2026): the five links of `waveScene` frozen (the dash ends at
+ * (10, 6) as planned), the others walk at 2 u/s. `out` (HP 2) stands in the wave by the way back at the release and walks out
+ * of it during the dash; `after` (HP 1) further back on the way; `into` (HP 2) stands out of the wave at the release and walks
+ * into it. The run's power 2.
+ */
+function walkScene(params: Partial<Params>, hammer = true) {
+  const sim = fight([COUNTER_TALISMANS.shockwave], { killGoal: 999, returnFixed: true, counterWindow: true, shockwaveLinks: 4, enemySpeed: 2, ...params }, hammer ? { hammer: HAMMERS.return } : {});
+  sim.command({ t: 'teleport', x: 4, y: 6 });
+  const links = [1, 2, 3, 4, 5].map(i => ({ x: 4 + 1.2 * i, y: 6 }));
+  for (const p of links) sim.command({ t: 'chill', id: place(sim, p), seconds: 5 });
+  const out = place(sim, { x: 8, y: 6.7 }, { color: 1, hp: 2 });
+  const after = place(sim, { x: 5.6, y: 6.7 }, { color: 2, hp: 1 });
+  const into = place(sim, { x: 12.9, y: 6.3 }, { color: 3, hp: 2 });
+  draw(sim, links);
+  return { sim, out, after, into };
+}
+/** Whether `id`'s body touches the wave's circle (radius 2) around `at`. */
+const inWave = (sim: Simulation, id: number, at: Vec): boolean => {
+  const e = enemy(sim, id);
+  return !!e && Math.hypot(e.x - at.x, e.y - at.y) <= 2 + bodyRadiusOf(sim.world.params, e);
+};
+/** Releases, ticks to the end of the run; where the wave went off and which bodies stood in it at that moment. */
+function releaseWalk(sim: Simulation, watch: readonly number[]): { events: WorldEvent[]; wave?: Vec; inside: number[] } {
+  sim.command({ t: 'release' });
+  const events: WorldEvent[] = [];
+  let wave: Vec | undefined, inside: number[] = [];
+  for (let i = 0; i < 1200 && (sim.world.move || i === 0); i++) {
+    const before = watch.map(id => ({ id, e: enemy(sim, id) }));
+    sim.tick();
+    const w = sim.world.events.find(e => e.type === 'wave');
+    if (w && w.type === 'wave') {
+      wave = { x: w.x, y: w.y };
+      // Where the bodies stood in the tick of the wave (a body the wave killed is gone after it: its place before the tick).
+      inside = before.filter(({ e }) => e && Math.hypot(e.x - w.x, e.y - w.y) <= 2 + bodyRadiusOf(sim.world.params, e)).map(b => b.id);
+    }
+    events.push(...sim.world.events);
+    sim.world.events.length = 0;
+  }
+  return { events, wave, inside };
+}
+const wavedIds = (events: readonly WorldEvent[]): number[] =>
+  [...new Set(events.flatMap(e => (e.type === 'enemyHit' || e.type === 'kill') && e.source === BUILD_SOURCES.wave ? [e.enemyId] : []))];
+
+check('«Возврат» + «Ударная волна», walking bodies, `returnFixed`: the release fixes the wave\'s bodies — one that walked out of the circle is still struck, one that walked in is not; the run strikes the marks with the planned outcomes', () => {
+  const { sim, out, after, into } = walkScene({});
+  const plan = planChain(sim.world);
+  assert(inWave(sim, out, { x: 10, y: 6 }) && !inWave(sim, into, { x: 10, y: 6 }), 'at the release: `out` in the wave of the planned end, `into` out of it');
+  assert(plan.back && plan.back.hits.map(h => h.id).join() === [out, after].join(), `the plan marks ${out} (wounded by the wave first) and ${after}: ${plan.back?.hits.map(h => h.id).join()}`);
+  const { events, wave, inside } = releaseWalk(sim, [out, after, into]);
+  // The scene does what it says: the bodies walked across the circle's edge during the dash.
+  assert(wave && Math.hypot(wave.x - 10, wave.y - 6) < 1e-6 && !inside.includes(out) && inside.includes(into), `at the wave: \`out\` left the circle, \`into\` walked in (in it: ${inside.join()})`);
+  assert(wavedIds(events).join() === String(out), `the wave struck the bodies fixed at the release: ${wavedIds(events).join()}, fixed ${out}`);
+  assert(struckBack(events).join() === plan.back.hits.map(h => h.id).join(), `the run struck ${struckBack(events).join()}, the plan marked ${plan.back.hits.map(h => h.id).join()}`);
+  for (const h of plan.back.hits) {
+    const e = enemy(sim, h.id);
+    assert(h.outcome.killed ? !e : e && e.hp === h.outcome.hpAfter, `${h.id} planned ${h.outcome.killed ? 'killed' : `HP ${h.outcome.hpAfter}`}, got ${e ? `HP ${e.hp}` : 'dead'}`);
+  }
+  assert(enemy(sim, into)?.hp === 2, '`into` untouched');
+  assert(replays(sim), 'replays');
+});
+
+check('the wave without the fixation: without «Возврат», with `returnFixed`, `returnWaveFixed` or `returnShadowEnd` off — the wave strikes who stands in the circle at the end of the dash; a journal without the key plays the old wave', () => {
+  const cases: { label: string; params: Partial<Params>; hammer: boolean }[] = [
+    { label: 'no «Возврат»', params: {}, hammer: false },
+    { label: 'returnFixed off', params: { returnFixed: false }, hammer: true },
+    { label: 'returnWaveFixed off', params: { returnWaveFixed: false }, hammer: true },
+    { label: 'returnShadowEnd off', params: { returnShadowEnd: false }, hammer: true },
+  ];
+  for (const c of cases) {
+    const { sim, out, into } = walkScene(c.params, c.hammer);
+    const { events, inside } = releaseWalk(sim, [out, into]);
+    assert(!inside.includes(out) && inside.includes(into) && wavedIds(events).join() === String(into), `${c.label}: the wave struck ${wavedIds(events).join()}, in the circle ${inside.join()}`);
+  }
+  const play = (journal: Journal) => { const { params: _, ...rest } = worldState(replay(journal).world) as Record<string, unknown>; return JSON.stringify(rest); };
+  const journals = [false, true].map(on => {
+    const { sim, out, into } = walkScene({ returnWaveFixed: on });
+    releaseWalk(sim, [out, into]);
+    return JSON.parse(JSON.stringify(sim.exportJournal())) as Journal;
+  });
+  const stripped = JSON.parse(JSON.stringify(journals[1])) as Journal;
+  delete (stripped.params as Partial<Params>).returnWaveFixed;
+  assert(play(journals[0]) === play(stripped), 'without the key — the world of the key off');
+  assert(play(journals[0]) !== play(journals[1]), 'the key changes the wave');
 });
 
 registerArena({ goal: 'kills', width: 20, height: 12, heroStart: { x: 4, y: 6 }, buttons: [], enemies: [], killGoal: 1, id: 'forms-door', name: 'Дверь форм', summary: 'Тест «Возврата» у двери', obstacles: [], door: { x: 7.6, y: 6 } });

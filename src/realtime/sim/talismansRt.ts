@@ -176,18 +176,38 @@ registerBuildModule({
 // ---- «Ударная волна»: a dash of 8+ enemy links — a wave of 2 around the hero at its end, 1 to every enemy, credited ----
 // With the chain window — from `shockwaveLinks` (4) enemy links.
 
+/**
+ * `World.build['shockwave']` (`Params.returnWaveFixed`, design 15.10.2026): the bodies of the wave the release fixed from the
+ * shadow of «Возврат» (`ReturnPreview.ends`) — set at the release, removed at the chain's end. Absent otherwise.
+ */
+interface WaveState { fixed: number[] }
+
 registerBuildModule({
   id: COUNTER_TALISMANS.shockwave,
   // Task 29: the shadow of «Возврат» sees the wave (the same threshold, circle and hit, on the planned end).
-  endShadow: (w, end, enemies) => end.links < shockwaveLinksOf(w.params) ? [...enemies]
-    : shadowHitAll(enemies, enemiesInCircle({ ...w, enemies: [...enemies] }, end.at, SHOCKWAVE_RADIUS), SHOCKWAVE_DAMAGE, BUILD_SOURCES.wave),
+  endShadow: (w, end, enemies) => {
+    if (end.links < shockwaveLinksOf(w.params)) return null;
+    const targets = enemiesInCircle({ ...w, enemies: [...enemies] }, end.at, SHOCKWAVE_RADIUS);
+    return { enemies: shadowHitAll(enemies, targets, SHOCKWAVE_DAMAGE, BUILD_SOURCES.wave), struck: targets.map(e => e.id) };
+  },
+  // `returnWaveFixed`: the release fixes the wave's bodies of the highlight. `release.back` is there only with «Возврат» and
+  // `returnFixed` (chain.ts `releaseChain`), its `ends` only with `returnShadowEnd` and a wave in the plan; no plan — the old wave.
+  onRelease: (w, release) => {
+    if (!w.params.returnWaveFixed) return;
+    const fixed = release.back?.ends?.[COUNTER_TALISMANS.shockwave];
+    setBuildState(w, COUNTER_TALISMANS.shockwave, fixed ? { fixed: [...fixed] } satisfies WaveState : undefined);
+  },
   onChainEnd: (w, end) => {
+    const state = buildStateOf<WaveState>(w, COUNTER_TALISMANS.shockwave);
+    if (state) setBuildState(w, COUNTER_TALISMANS.shockwave, undefined);
     if (end.links < shockwaveLinksOf(w.params)) return;
     const at = { x: w.hero.x, y: w.hero.y };
     w.events.push({ type: 'wave', x: at.x, y: at.y, r: SHOCKWAVE_RADIUS });
     talismanFired(w, COUNTER_TALISMANS.shockwave);
-    // Touching the body, not the reaper, no ×2 on a frozen one (buildHits.ts); every kill is the player's (`wave`).
-    buildHitAll(w, enemiesInCircle(w, at, SHOCKWAVE_RADIUS), SHOCKWAVE_DAMAGE, BUILD_SOURCES.wave);
+    // Touching the body, not the reaper, no ×2 on a frozen one (buildHits.ts); every kill is the player's (`wave`). Fixed at
+    // the release: those bodies still on the arena, wherever they stand now (one that walked in is not struck).
+    const targets = state ? state.fixed.flatMap(id => w.enemies.filter(e => e.id === id)) : enemiesInCircle(w, at, SHOCKWAVE_RADIUS);
+    buildHitAll(w, targets, SHOCKWAVE_DAMAGE, BUILD_SOURCES.wave);
   },
   progress: w => {
     const links = chainLinks(w), max = shockwaveLinksOf(w.params);

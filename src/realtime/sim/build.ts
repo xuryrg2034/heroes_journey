@@ -90,6 +90,12 @@ export interface ChainEnd {
 /** The end of a planned dash (`endShadow`): the enemy links it reaches (`ChainEnd.links`) and where the hero stands after it. */
 export interface ChainEndShadow { links: number; at: Vec }
 
+/**
+ * What one module's `endShadow` does: the shadow list after it and the bodies it strikes (`struck`, in the order of its hits;
+ * empty — it goes off and strikes nobody).
+ */
+export interface EndShadowHit { enemies: Enemy[]; struck: number[] }
+
 /** A kill of the chain (`onChainKill`): an enemy struck dead by the dash, or a fallen credited link it passed. */
 export interface ChainKill { id: number; x: number; y: number; elite: boolean; fallen: boolean; /** Kills of this chain so far. */ kills: number }
 
@@ -165,9 +171,10 @@ export interface BuildModule {
   /**
    * Task 29 — pure: what this module's `onChainEnd` does to the enemies, played on a shadow list (`enemies`, the world as the
    * planned dash leaves it) — the shadow of «Возврат» (chain.ts `planReturn`, `Params.returnShadowEnd`) reads it, so the run's
-   * marks see a wave of the same chain. Returns the list after it; the world is not touched, no random draws.
+   * marks see a wave of the same chain. Returns the list after it and the bodies it strikes; null — it does nothing at this end
+   * (the release fixes the bodies with `Params.returnWaveFixed`, `ReturnPreview.ends`). The world is not touched, no random draws.
    */
-  endShadow?(world: World, end: ChainEndShadow, enemies: readonly Enemy[]): Enemy[];
+  endShadow?(world: World, end: ChainEndShadow, enemies: readonly Enemy[]): EndShadowHit | null;
   /** A jump started; `cost` — the energy it took. */
   onJump?(world: World, cost: number): void;
   /** Every game tick of the world step (after burning, before thorns; not during the hit-stop). */
@@ -238,11 +245,20 @@ export function runHook(world: World, key: keyof BuildModule, call: (module: Bui
   for (const m of withHook(world, key)) call(m);
 }
 
-/** The active modules' `endShadow` on `enemies`, in the order their `onChainEnd` runs (pure). */
-export function endShadowOf(world: World, end: ChainEndShadow, enemies: readonly Enemy[]): Enemy[] {
+/**
+ * The active modules' `endShadow` on `enemies`, in the order their `onChainEnd` runs (pure): the list after them and, by module
+ * id, the bodies each strikes (only the modules that act at this end).
+ */
+export function endShadowOf(world: World, end: ChainEndShadow, enemies: readonly Enemy[]): { enemies: Enemy[]; struck: Record<string, number[]> } {
   let out: Enemy[] = [...enemies];
-  for (const m of withHook(world, 'endShadow')) out = m.endShadow!(world, end, out);
-  return out;
+  const struck: Record<string, number[]> = {};
+  for (const m of withHook(world, 'endShadow')) {
+    const hit = m.endShadow!(world, end, out);
+    if (!hit) continue;
+    out = hit.enemies;
+    struck[m.id] = hit.struck;
+  }
+  return { enemies: out, struck };
 }
 
 /** Some active module has the hook (skip work the hook would need: e.g. collecting the dash path). */

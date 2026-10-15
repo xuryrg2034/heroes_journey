@@ -174,11 +174,11 @@ check('the same pairs with walking enemies: with `returnFixed` the plan is the d
 // Task 29, the shadow of «Возврат» (`returnShadowEnd`, closed 15.10.2026): «Возврат» with «Ударная волна» of the chain window
 // (the pair a run will hold, task 30): the wave at the end of the dash kills and wounds before the run — the plan's run marks
 // see it. Bodies the wave hits and the run strikes stay compared; the wave's own hits elsewhere are left out (not in the plan).
-check('«Возврат» + «Ударная волна» (window — one chain, from 3 links), `returnFixed`: the run strikes the marked bodies with the planned outcomes after the wave (still enemies); the outcomes hold while they walk', () => {
+check('«Возврат» + «Ударная волна» (window — one chain, from 3 links), `returnFixed`: the run strikes the marked bodies with the planned outcomes after the wave, still and walking enemies (the release fixes the wave\'s bodies, `returnWaveFixed`)', () => {
   const back = FORMS_ALL.find(f => f.hammer === HAMMERS.return)!;
   const wave: FightExtra = { talismans: [COUNTER_TALISMANS.shockwave], params: { counterWindow: true, shockwaveLinks: 3 }, shadowed: [BUILD_SOURCES.wave] };
   const runs: { moving: boolean; fixed: boolean; ks: number[] }[] = [
-    { moving: false, fixed: true, ks: [1, 2, 3, 4, 5, 6, 7, 8] }, { moving: true, fixed: true, ks: [5, 6, 7, 8] }, { moving: false, fixed: false, ks: [1, 2, 3, 4, 5, 6, 7, 8] },
+    { moving: false, fixed: true, ks: [1, 2, 3, 4, 5, 6, 7, 8] }, { moving: true, fixed: true, ks: [1, 2, 3, 4, 5, 6, 7, 8] }, { moving: false, fixed: false, ks: [1, 2, 3, 4, 5, 6, 7, 8] },
   ];
   for (const r of runs) {
     const tally: PairTally = { chains: 0, compared: 0, side: 0, diverged: [] };
@@ -190,9 +190,9 @@ check('«Возврат» + «Ударная волна» (window — one chain,
     // defect: bodies the overlap pushes apart during the dash; one lone surviving first link the old path still ran from).
     if (!r.fixed) continue;
     assert(!tally.diverged.length, `the plan differs from the dash:\n${tally.diverged.slice(0, 12).join('\n')}`);
-    // The wave strikes where the bodies stand at the end of the dash: one that walked into it (or out of it) during the dash is
-    // not foreseen — the marks are asserted on a still scene and counted while the enemies walk (a known limit).
-    if (!r.moving) assert(!marks.length, `the run struck other bodies than the marks:\n${marks.join('\n')}`);
+    // `returnWaveFixed` (design 15.10.2026): the release fixes the wave's bodies too — one that walks out of the circle during
+    // the dash is still struck, one that walks in is not; the marks hold while the enemies walk.
+    assert(!marks.length, `the run struck other bodies than the marks:\n${marks.join('\n')}`);
   }
 });
 
