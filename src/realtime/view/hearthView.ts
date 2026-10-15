@@ -15,7 +15,7 @@ import { createRtRun, rtMapNodes } from '../run/rtRun';
 import { ITEM_TITLES, type ItemKind } from '../sim/kit';
 import { KIND_CAPTIONS } from './newSeen';
 import { RT_NODE_TYPES } from './nodeTypes';
-import { HEARTH_LEVEL_LOCKED, HEARTH_PLACES, HEARTH_PRICES, NPCS, metaItemCard, xpBar, type HearthState, type MetaSource, type NpcId } from './metaModel';
+import { HEARTH_LEVEL_LOCKED, HEARTH_PLACES, HEARTH_PRICES, NPCS, metaItemCard, xpBar, type HearthStart, type HearthState, type MetaSource, type NpcId } from './metaModel';
 import { NPC_LINES, pickLine, questLine, type DeathCause } from './npcLines';
 import { rowWord } from './metaEnd';
 
@@ -50,7 +50,10 @@ export interface HearthHost {
   /** A run is open on the map: the button returns to it instead of starting a new one. */
   runActive(): boolean;
   /** Start a new run with `seed` (null — the default seed) and the chosen start consumable. */
-  start(seed: number | null, item: ItemKind | null): void;
+  start(seed: number, item: ItemKind | null, plan: HearthStart, map: number | null): void;
+  /** Telemetry: a click on an NPC; a purchase. */
+  click?(npc: NpcId): void;
+  bought?(npc: NpcId, level: number, price: number): void;
   /** Back to the open run's map. */
   back(): void;
   sound?(kind: 'buy' | 'open'): void;
@@ -66,7 +69,8 @@ export class HearthView {
   private bubble: NpcId | null = null;
   private bestiary = false;
   private step: 'camp' | 'maps' | 'items' = 'camp';
-  private start: { maps?: number[]; items?: ItemKind[]; seed: number | null } | null = null;
+  /** The start being chosen: the core's plan for the base seed, the map chosen (its index) and its seed. */
+  private start: { plan: HearthStart; base: number; seed: number; map: number | null } | null = null;
   /** The occasion line was said in this visit (then idle lines). */
   private said = new Set<NpcId>();
   private boughtNow: { npc: NpcId; level: 1 | 2 } | null = null;
@@ -137,7 +141,7 @@ export class HearthView {
       else action = `<button class="rt-hearth-buy" data-action="buy" data-npc="${npc}" data-level="${lv}" data-testid="up-${npc}-${lv}">${ICON}${price}</button>`;
       return `<li class="${level >= lv ? 'rt-done' : lv >= HEARTH_LEVEL_LOCKED ? 'rt-locked' : ''}"><div><b>${esc(name)}</b><small>${esc(NPCS[npc].rules[k])}</small></div>${action}</li>`;
     }).join('');
-    const quest = h.quest?.npc === npc ? `<p class="rt-hearth-quest" data-testid="hearth-quest">${esc(questLine(npc, (h.record?.row ?? 0) >= 10 && !h.record?.won, h.lines))} <small>+10 опыта, +3 запаса</small></p>` : '';
+    const quest = h.quest?.npc === npc ? `<p class="rt-hearth-quest" data-testid="hearth-quest">${esc(questLine(npc, h.quest.id === 'owl-forest', h.lines))} <small>+10 опыта, +3 запаса</small></p>` : '';
     const book = npc === 'owl' ? '<button class="rt-other rt-hearth-book" data-action="bestiary" data-testid="hearth-bestiary">Бестиарий</button>' : '';
     // The bubble stands low at the right edge (over the empty front right rug; no NPC stands there, the fire and the centre stay clear).
     void i; void at; void right;
@@ -155,7 +159,7 @@ export class HearthView {
 
   /** The start of a run: the maps to choose from, then the consumable's kind. */
   private startHtml(): string {
-    const s = this.start;
+    const s = this.start?.plan;
     if (!s) return '';
     if (this.step === 'maps' && s.maps) {
       this.shown.maps = s.maps.length;
@@ -164,7 +168,7 @@ export class HearthView {
       const cards = s.maps.map((seed, i) => {
         const line = MAP_KINDS.map(k => { const n = counts[i][k.id] ?? 0, differs = counts.some((c, j) => j !== i && (c[k.id] ?? 0) !== n);
           return `<span class="${differs ? 'rt-mp-diff' : ''}" title="${esc(k.label)}">${k.icon} ${n}</span>`; }).join('');
-        return `<button class="rt-hearth-map" data-action="map" data-seed="${seed}" data-testid="hearth-map-${i}">${mapPreview(seed)}<span class="rt-mp-counts">${line}</span><b>Путь ${i + 1}</b></button>`;
+        return `<button class="rt-hearth-map" data-action="map" data-seed="${seed}" data-index="${i}" data-testid="hearth-map-${i}">${mapPreview(seed)}<span class="rt-mp-counts">${line}</span><b>Путь ${i + 1}</b></button>`;
       }).join('');
       return `<div class="rt-overlay rt-hearth-modal" data-testid="hearth-maps"><div class="rt-card"><h2>${s.maps.length === 3 ? 'Три пути' : 'Два пути'}</h2><div class="rt-hearth-maps">${cards}</div></div></div>`;
     }
@@ -194,34 +198,36 @@ export class HearthView {
     const target = (event.target as HTMLElement).closest<HTMLElement>('[data-action]');
     if (!target) { if (this.bubble && !(event.target as HTMLElement).closest('.rt-hearth-bubble')) { this.bubble = null; this.draw(); } return; }
     const action = target.dataset.action, h = this.host.meta.hearth();
-    if (action === 'npc') { const npc = target.dataset.npc as NpcId; this.bubble = this.bubble === npc ? null : npc; if (this.bubble) this.say(npc, h); this.draw(); return; }
+    if (action === 'npc') { const npc = target.dataset.npc as NpcId; this.bubble = this.bubble === npc ? null : npc; if (this.bubble) { this.say(npc, h); this.host.click?.(npc); } this.draw(); return; }
     if (action === 'buy') {
       const npc = target.dataset.npc as NpcId, level = Number(target.dataset.level);
       const result = this.host.meta.buy(npc, level);
-      if (result.ok) { this.shown.bought++; this.boughtNow = { npc, level: level === 2 ? 2 : 1 }; this.host.sound?.('buy'); this.say(npc, this.host.meta.hearth()); }
+      if (result.ok) { this.shown.bought++; this.boughtNow = { npc, level: level === 2 ? 2 : 1 }; this.host.sound?.('buy'); this.host.bought?.(npc, level, HEARTH_PRICES[level - 1]); this.say(npc, this.host.meta.hearth()); }
       this.draw(); return;
     }
     if (action === 'bestiary') { this.bestiary = true; this.draw(); return; }
     if (action === 'close') { if (event.target === target || target.tagName === 'BUTTON') { this.bestiary = false; this.draw(); } return; }
     if (action === 'back') { this.close(); this.host.back(); return; }
     if (action === 'go') {
-      const seed = (Date.now() >>> 0) ^ 0x5bd1e995, plan = this.host.meta.start(seed);
-      this.start = { ...plan, seed: null };
+      // The base seed of the new run (as «Новый поход» draws it); core's plan for it — the maps (the base first), Марфа's kinds, the flags.
+      const base = Math.floor(Math.random() * 0x100000000) >>> 0, plan = this.host.meta.start(base);
+      this.start = { plan, base, seed: base, map: null };
       if (plan.maps && plan.maps.length > 1) { this.step = 'maps'; this.draw(); return; }
       if (plan.items && plan.items.length > 1) { this.step = 'items'; this.draw(); return; }
-      this.go(null, plan.items?.[0] ?? null); return;
+      this.go(plan.items?.[0] ?? null); return;
     }
     if (action === 'map' && this.start) {
-      this.start.seed = Number(target.dataset.seed);
-      if (this.start.items && this.start.items.length > 1) { this.step = 'items'; this.draw(); return; }
-      this.go(this.start.seed, this.start.items?.[0] ?? null); return;
+      this.start.seed = Number(target.dataset.seed) >>> 0; this.start.map = Number(target.dataset.index);
+      if (this.start.plan.items && this.start.plan.items.length > 1) { this.step = 'items'; this.draw(); return; }
+      this.go(this.start.plan.items?.[0] ?? null); return;
     }
-    if (action === 'item' && this.start) { this.go(this.start.seed, target.dataset.item as ItemKind); return; }
+    if (action === 'item' && this.start) { this.go(target.dataset.item as ItemKind); return; }
   }
 
-  private go(seed: number | null, item: ItemKind | null): void {
+  private go(item: ItemKind | null): void {
+    const s = this.start!;
     this.close();
-    this.host.start(seed, item);
+    this.host.start(s.seed, item, s.plan, s.map);
   }
 }
 

@@ -5,9 +5,9 @@ import { test, expect } from './realtimeTest';
  * Tasks 36–37 «Мета v1» (design 15.10.2026, docs/design-notes/tasks-36-37-meta.md): the run-end screen — the experience, the
  * hero's bar, the pack's cards turning over, the record, «В лагерь: +N»; the camp «Очаг» — the fire, the stock, the NPC, a line, a
  * purchase, «Два пути» and the choice of maps. Real clicks through a real run (no given seed: the meta counts only such runs).
- * Until core's profile lands the meta is the view's stand-in (view/metaStub.ts, key `ashen-oath-rt-meta-stub`).
+ * The meta is core's profile (`ashen-oath-rt-profile-v1`, field `meta`; run/rtMeta.ts): a test may start from a profile with one.
  */
-const STUB = 'ashen-oath-rt-meta-stub';
+const PROFILE = 'ashen-oath-rt-profile-v1';
 
 function collectErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -16,9 +16,9 @@ function collectErrors(page: Page): string[] {
   return errors;
 }
 
-async function openRun(page: Page, stub?: object): Promise<void> {
+async function openRun(page: Page, meta?: object): Promise<void> {
   await page.goto('/');
-  await page.evaluate(([key, s]) => { localStorage.clear(); localStorage.setItem('ashen-oath-realtime-prologue-done', '1'); if (s) localStorage.setItem(key as string, JSON.stringify(s)); }, [STUB, stub ?? null] as const);
+  await page.evaluate(([key, m]) => { localStorage.clear(); localStorage.setItem('ashen-oath-realtime-prologue-done', '1'); if (m) localStorage.setItem(key as string, JSON.stringify({ version: 1, giftFull: false, runs: 3, meta: m })); }, [PROFILE, meta ?? null] as const);
   await page.reload();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
   await expect(page.getByTestId('run')).toBeVisible();
@@ -34,19 +34,22 @@ async function newRun(page: Page): Promise<void> {
 const BATTLE = ['battle', 'hard', 'checkpoint', 'breakthrough', 'boss'];
 
 /** A screen over the map (a reward, a rest, a find, an event, a shop): its first choice, until the map shows its nodes. */
-async function passScreens(page: Page): Promise<void> {
-  for (let k = 0; k < 6; k++) {
-    if (await page.locator('[data-status="available"]').first().isVisible().catch(() => false)) return;
-    const choice = page.locator('.rt-run-modal button.rt-run-choice:not([disabled]), .rt-run-modal .rt-again, .rt-run-modal .rt-other').first();
-    await choice.waitFor({ state: 'visible', timeout: 5_000 });
-    await choice.click();
+async function passScreens(page: Page): Promise<'map' | 'battle'> {
+  for (let k = 0; k < 8; k++) {
+    if (await page.getByTestId('run').isHidden()) return 'battle';
+    if (await page.locator('[data-status="available"]').first().isVisible().catch(() => false)) return 'map';
+    const choice = page.locator('.rt-run-modal button.rt-run-choice:not([disabled]), .rt-run-modal .rt-again, .rt-run-modal .rt-other:not([disabled])').first();
+    if (await choice.isVisible().catch(() => false)) await choice.click();
+    else await page.waitForTimeout(300);
   }
+  throw new Error('a run screen without a way on');
 }
 
 /** Walks the map until a battle starts: battle nodes first; any other node's screen is passed by its first choice. */
 async function toBattle(page: Page): Promise<void> {
   for (let step = 0; step < 8; step++) {
-    await passScreens(page);
+    // An event may start a fight (its battle option): the arena is open.
+    if (await passScreens(page) === 'battle') return;
     const nodes = page.locator('[data-status="available"]');
     await expect(nodes.first()).toBeVisible();
     const types = await nodes.evaluateAll(els => els.map(e => e.getAttribute('data-type')));
@@ -103,7 +106,9 @@ test('tasks 36–37: the first run ends — the experience counts up, the bar an
   await page.getByTestId('run-to-hearth').click();
   await expect(page.getByTestId('hearth')).toBeVisible();
   await expect(page.getByTestId('hearth-npc-owl')).toBeVisible();
-  await expect(page.locator('.rt-hearth-empty')).toHaveCount(5);
+  // Марфа or Ерофей come too when the walk took their event's choice («Перевязать», «Заточка»): the places add up to six.
+  const npcs = await page.locator('.rt-hearth-npc').count();
+  await expect(page.locator('.rt-hearth-empty')).toHaveCount(6 - npcs);
   await page.screenshot({ path: 'artifacts/realtime-hearth-first.png' });
   await page.getByTestId('hearth-npc-owl').click();
   await expect(page.getByTestId('hearth-line')).toHaveText('Ещё один кот с топором. Садись, запишу тебя — пока есть что записывать.');
@@ -122,7 +127,7 @@ test('tasks 36–37: a run that crosses 60 opens «Охотник» — three ca
   test.setTimeout(150_000);
   const errors = collectErrors(page);
   // The profile as after a few runs: 58 experience, 9 in stock, Марфа and Ерофей came.
-  await openRun(page, { xp: 58, packs: [], record: { row: 6, won: false }, stock: 9, levels: { owl: 0, herb: 0, smith: 0 }, met: { owl: true, herb: true, smith: true }, runs: 3, lines: { 'owl:first': 2, 'herb:first': 2, 'smith:first': 2 }, ends: {} });
+  await openRun(page, { heroes: { cat: { xp: 58, packs: [], record: { row: 6, won: false, xp: 40 } } }, hearth: { stock: 9, levels: { owl: 0, herb: 0, smith: 0 }, met: { herb: true, smith: true }, lines: { 'owl:first': 2, 'herb:first': 2, 'smith:first': 2 }, quiet: 0 } });
   await expect(page.getByTestId('run-hearth')).toBeVisible();
   await winThenDie(page);
   await expect(page.getByTestId('meta-pack')).toHaveAttribute('data-pack', 'hunter');
@@ -162,5 +167,11 @@ test('tasks 36–37: a run that crosses 60 opens «Охотник» — three ca
   await page.screenshot({ path: 'artifacts/realtime-hearth-maps.png' });
   await page.getByTestId('hearth-map-1').click();
   await expect(page.getByTestId('run-gift')).toBeVisible();
+  // The run from the camp carries core's flags: the 2 maps offered, the quest; the locked list without «Охотник» (opened).
+  const run = await page.evaluate(() => (window as any).__realtime.run.state());
+  expect(run.hearth?.maps).toBe(2);
+  expect(run.locked).toBeDefined();
+  expect(run.locked).not.toContain('elite-hunter');
+  expect(run.locked).toContain('return-pass');
   expect(errors).toEqual([]);
 });

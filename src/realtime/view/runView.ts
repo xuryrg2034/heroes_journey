@@ -16,7 +16,7 @@ import { rosterTitle } from '../sim/rosters';
 import { rtHp } from '../run/hpScale';
 import {
   arenaPreview, createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtEnterNode,
-  rtChooseTalisman, rtRerollTalismans, rtRerollView, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtFoughtJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
+  rtChooseTalisman, rtRerollTalismans, rtRerollView, rtHammerRerollView, rtRerollHammers, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtFoughtJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
   rtOathPreview, rtOathStakeOn, rtArenaRules, RT_SECOND_WIND_LAST_ROW, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
   rtCasinoView, rtCasinoPlay, rtCasinoLeave, rtCasinoNode, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE,
   healOffer, healOnMap, healVisible, rtResourceTotal, rtNodeFeat, RT_HEAL_MAP_GAIN, rtAsh, rtAshOptions, rtAshTitle, rtRunWon, isRtAshLevel, rtScheduleMet, RT_JAILER_SEVERED_SLOTS,
@@ -43,7 +43,9 @@ import { featCardLine } from './featView';
 import type { FirstMeetId } from './firstMeet';
 import { MetaEndView, type MetaSound } from './metaEnd';
 import { HearthView } from './hearthView';
-import { MetaStub } from './metaStub';
+import { ProfileMeta } from './metaSource';
+import { rtHearthFlagsWith, rtRunKey, type RtHearthStart, type RtMetaEnd } from '../run/rtMeta';
+import type { HearthStart } from './metaModel';
 import { KIND_CAPTIONS } from './newSeen';
 import type { ItemKind as KitItem } from '../sim/kit';
 
@@ -127,7 +129,14 @@ export interface RunHost {
    * Tasks 36–37 «Мета v1»: the hero's experience, the packs, the record and the camp «Очаг» — only outside the sandbox (absent —
    * none). `sound` plays the meta's sounds by the run's sound setting.
    */
-  meta?: { sound(kind: MetaSound | 'buy' | 'open'): void };
+  meta?: {
+    sound(kind: MetaSound | 'buy' | 'open'): void;
+    /** Telemetry (core's recorder): the meta of an ended or abandoned run — before the next run starts; the camp's map, purchases, clicks. */
+    end?(run: RtRunState, end: RtMetaEnd): void;
+    map?(run: RtRunState, chosen: number): void;
+    buy?(run: RtRunState | null, npc: string, level: number, price: number): void;
+    click?(run: RtRunState | null, npc: string): void;
+  };
   /** Telemetry (П8): a map choice made while a sign was shown on an available node card. Absent — nothing recorded. */
   mapChoice?(run: RtRunState, choice: MapSignChoice): void;
 }
@@ -201,6 +210,9 @@ export function resourcesWord(n: number): string {
 const RESOURCE_ICON = '<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">'
   + '<path d="M10 2 L17 7 L14.5 17 L5.5 17 L3 7 Z" fill="#e3b45a" stroke="#1a2330" stroke-width="1.6" stroke-linejoin="round"/>'
   + '<path d="M3 7 L10 9 L17 7 M10 9 L10 17" fill="none" stroke="#1a2330" stroke-width="1.2" stroke-linejoin="round"/></svg>';
+/** Tasks 36–37 «✦ новое» (as on the map): an opened item offered for the first time. */
+const newSign = (fresh: ReadonlySet<string>, id: string): string => fresh.has(id) ? ' <span class="rt-new-sign" data-testid="offer-new">✦ новое</span>' : '';
+
 /** The kinds in hand, those above zero: «Роса 2, Смола 1» (empty — none). */
 export function resourceKindsText(materials: Readonly<Record<ResourceKind, number>>): string {
   return RESOURCE_KINDS.filter(kind => materials[kind] > 0).map(kind => `${RESOURCES[kind].label} ${materials[kind]}`).join(', ');
@@ -306,7 +318,9 @@ export class RunView {
   private resCount: { from: number; to: number; start: number; total: number; frame: number } | null = null;
   private pressAt: { x: number; y: number } | null = null;
   /** Tasks 36–37: the meta (core's profile; a stand-in until it lands), the run-end block of the ended run, the camp. */
-  private readonly meta: MetaStub | null;
+  private readonly meta: ProfileMeta | null;
+  /** Tasks 36–37 «✦ новое»: the opened items first offered on the screen now (kept for the screen's life; the profile marks them at once). */
+  private offerNew: { key: string; ids: Set<string> } | null = null;
   private metaEnd: MetaEndView | null = null;
   readonly hearth: HearthView | null;
   /** Task 35, С3 (tests read it): flights started, tokens thrown, the number now and whether it is counting. */
@@ -336,12 +350,14 @@ export class RunView {
     });
     this.run = this.store.load();
     this.lines = host.hints ? new ScreenLines(host.hints.store, host.hints.on) : null;
-    this.meta = host.meta ? new MetaStub() : null;
+    this.meta = host.meta ? new ProfileMeta(this.profile) : null;
     const meta = this.meta;
     this.hearth = meta ? new HearthView({
       meta,
       runActive: () => !!this.run && !this.run.result,
-      start: (seed, item) => this.newRun(undefined, { seed, item }),
+      start: (seed, item, plan, map) => this.newRun(undefined, { seed, item, plan, map }),
+      click: npc => this.host.meta?.click?.(this.run, npc),
+      bought: (npc, level, price) => this.host.meta?.buy?.(this.run, npc, level, price),
       back: () => this.open(),
       sound: kind => this.host.meta?.sound(kind),
       beasts: () => { const seen = this.host.newSeen?.store; return seen ? Object.keys(KIND_CAPTIONS).filter(k => seen.hasKind(k)) : []; },
@@ -359,10 +375,11 @@ export class RunView {
   /** Tasks 36–37: the meta block of the ended run (created once per run; a reload shows its end state at once). */
   private metaEndOf(run: RtRunState, play: boolean): MetaEndView | null {
     if (!this.meta || !run.result) return null;
-    const key = `${run.seed}:${run.result.nodeId}`;
+    const key = rtRunKey(run);
     if (this.metaEnd?.key === key) return this.metaEnd;
     this.metaEnd?.stop();
-    const end = this.meta.endRun(run, []);
+    // Core: the first call for a run applies it (experience, pack, record, carry), a repeated one returns the same.
+    const end = this.profile.endRunMeta(run);
     this.metaEnd = end ? new MetaEndView(end, key, s => this.host.meta?.sound(s)) : null;
     if (this.metaEnd && !play) this.metaEnd.finish();
     return this.metaEnd;
@@ -382,18 +399,24 @@ export class RunView {
   }
 
   /** A new run (a given seed — `?seed=` — makes it a seeded run). */
-  newRun(seed?: number, camp?: { seed: number | null; item: KitItem | null }): RtRunState {
+  newRun(seed?: number, camp?: { seed: number; item: KitItem | null; plan: HearthStart; map: number | null }): RtRunState {
     const seeded = seed !== undefined || this.fixedSeed !== null;
     const value = (seed ?? this.fixedSeed ?? camp?.seed ?? Math.floor(Math.random() * 0x100000000)) >>> 0;
     this.hearth?.close();
     this.metaEnd?.stop(); this.metaEnd = null;
     const previous = this.run;
+    // Tasks 36–37 (core): an abandoned run («Новый поход» over an open one) counts before the new one starts — its carry is 50 %.
+    if (this.meta && previous && !previous.result && !previous.seeded) { const end = this.profile.endRunMeta(previous); if (end) this.host.meta?.end?.(previous, end); }
+    // The camp's flags (core `hearthStart`): from the camp — its plan with the map and the consumable chosen; «Новый поход» — the plan
+    // of this seed without a map choice (none was shown) and Марфа's first kind. Only a meta run (not `?seed=`, not the sandbox).
+    const plan = this.meta && !seeded ? (camp?.plan as RtHearthStart | undefined) ?? this.profile.hearthStart(value) : null;
+    const flags = plan ? rtHearthFlagsWith(camp ? plan : { ...plan, flags: { ...plan.flags, maps: undefined } }, camp?.item ?? plan.items?.[0]) : null;
+    const metaRun = this.meta && !seeded ? { locked: this.profile.locked(), ...flags && Object.values(flags).some(v => v !== undefined) ? { hearth: flags } : {} } : {};
     // Task 16 «Подвиги»: feats from the run after the first Jailer (the profile's `jailer`); the viewer's run number for telemetry.
     // Task 18 «Испытание I–V»: the level chosen on «Новый поход» (the profile's last choice; 0 while the choice is closed).
     // Task 26 «Расписание леса»: the viewer's history goes into the run as a snapshot (the run ignores it from «Испытание II»).
-    this.run = createRtRun(value, { gift: this.profile.giftKind(seeded), seeded, feats: this.profile.featsOn(), ash: this.profile.ashChoice(), schedule: this.profile.scheduleHistory(() => this.host.scheduleSeed?.() ?? []) });
-    // Task 37: Марфа's consumable comes with core's `hearth` flag of the run (createRtRun); the view never changes the run (design 15.10.2026).
-    void camp?.item;
+    this.run = createRtRun(value, { gift: this.profile.giftKind(seeded), seeded, feats: this.profile.featsOn(), ash: this.profile.ashChoice(), schedule: this.profile.scheduleHistory(() => this.host.scheduleSeed?.() ?? []), ...metaRun });
+    if (camp?.map !== null && camp?.map !== undefined) this.host.meta?.map?.(this.run, camp.map);
     const viewerRun = this.profile.startRun();
     this.host.session?.clock.runStarted();
     this.store.save(this.run);
@@ -410,7 +433,11 @@ export class RunView {
     this.run = step.run;
     this.store.save(this.run);
     this.notice = this.describe(step.events);
-    if (this.run.result && !before?.result) { this.profile.endRun({ reachedJailer: rtReachedJailer(this.run), seeded: !!this.run.seeded, won: rtRunWon(this.run) }); this.metaEndOf(this.run, true); }
+    if (this.run.result && !before?.result) {
+      this.profile.endRun({ reachedJailer: rtReachedJailer(this.run), seeded: !!this.run.seeded, won: rtRunWon(this.run) });
+      const meta = this.metaEndOf(this.run, true);
+      if (meta) this.host.meta?.end?.(this.run, meta.meta as RtMetaEnd);
+    }
     // Task 16: the Jailer fought (won or lost) — the profile's sticky mark, also for a run abandoned later (not a seeded run).
     if (!this.run.seeded && rtFoughtJailer(before, this.run)) this.profile.markJailer();
     // Task 16 telemetry: the real seconds the screen of this step's choice was open (since it opened or the last step on it).
@@ -584,6 +611,7 @@ export class RunView {
     if (action === 'talisman') { this.apply(rtChooseTalisman(run, target.dataset.option || null)); return; }
     // B5 К10 «Переброс»: a new offer for resources (no animation, П11).
     if (action === 'talisman-reroll') { this.apply(rtRerollTalismans(run)); return; }
+    if (action === 'hammer-reroll') { this.apply(rtRerollHammers(run)); return; }
     if (action === 'hammer') { this.apply(rtChooseHammer(run, (target.dataset.option || null) as Parameters<typeof rtChooseHammer>[1])); return; }
     if (action === 'shop-leave') { this.apply(rtShopLeave(run)); return; }
     if (action === 'shop-buy') { this.apply(rtShopBuy(run, target.dataset.good!)); return; }
@@ -1097,26 +1125,33 @@ export class RunView {
     }
     if (pending.kind === 'hammer') {
       // Phase B (Т2): the Jailer's first screen — a hammer 3 of 4; one hammer a run, it acts on every later arena.
-      const options = pending.options.map(id => `<button class="rt-run-choice" data-action="hammer" data-option="${id}" data-testid="hammer-${id}"><b>⚒ ${escapeHtml(rtHammer(id)?.name ?? id)}</b>`
+      const fresh = this.newOffers(`hammer:${pending.nodeId}:${pending.options.join(',')}`, pending.options);
+      const options = pending.options.map(id => `<button class="rt-run-choice" data-action="hammer" data-option="${id}" data-testid="hammer-${id}"><b>⚒ ${escapeHtml(rtHammer(id)?.name ?? id)}${newSign(fresh, id)}</b>`
         + `<small>${escapeHtml(rtHammer(id)?.effect ?? '')}</small></button>`).join('');
+      // Task 37 «Правка» (Ерофей): one free reroll for both of the Jailer's screens.
+      const hr = rtHammerRerollView(run);
+      const hammerReroll = hr ? `<button class="rt-other" data-action="hammer-reroll" data-testid="hammer-reroll" ${hr.available ? '' : 'disabled'}>Перебросить — бесплатно</button>`
+        + `<p class="rt-run-note${hr.available ? '' : ' rt-run-reason'}" data-testid="hammer-reroll-note">${hr.available ? 'Правка Ерофея.' : escapeHtml(hr.reason)}</p>` : '';
       return card(`<h2>Молот на выбор</h2><p>Молот меняет проход героя по цепи на всех следующих аренах. Один молот за поход. Затем — клятва или реликвия.</p>`
-        + `<div class="rt-run-choices">${options}</div><button class="rt-other" data-action="hammer" data-option="" data-testid="hammer-refuse">Отказаться</button>`, 'run-hammer');
+        + `<div class="rt-run-choices">${options}</div>${hammerReroll}<button class="rt-other" data-action="hammer" data-option="" data-testid="hammer-refuse">Отказаться</button>`, 'run-hammer');
     }
     if (pending.kind === 'talisman') {
       // B6 К7 «Проклятый сундук»: the chest's own screen after the «Застава» talismans (its card `run-chest`).
       const chest = pending.source === 'chest', feat = pending.source === 'feat';
       // Task 16: the feat's talisman choice, the last screen of the won fight (its card `run-feat-talisman`).
       const title = pending.source === 'oath' ? 'Клятва или реликвия на выбор' : chest ? 'Проклятый сундук' : feat ? 'Подвиг: талисман на выбор' : 'Талисман на выбор';
-      const options = pending.options.map(option => `<button class="rt-run-choice" data-action="talisman" data-option="${option}" data-testid="talisman-${option}"><b>${rtTalisman(option)?.rarity === 'relic' ? '◆ ' : ''}${escapeHtml(talismanName(option))}</b>${talismanCardLines(option)}</button>`).join('');
+      const fresh = this.newOffers(`talisman:${pending.nodeId}:${pending.source ?? ''}:${pending.options.join(',')}`, pending.options);
+      const options = pending.options.map(option => `<button class="rt-run-choice" data-action="talisman" data-option="${option}" data-testid="talisman-${option}"><b>${rtTalisman(option)?.rarity === 'relic' ? '◆ ' : ''}${escapeHtml(talismanName(option))}${newSign(fresh, option)}</b>${talismanCardLines(option)}</button>`).join('');
       // Task 28: a severed weight gave the Jailer's screen a fourth card (`rtOathSlots`) — the note says why.
       const note = pending.source === 'oath' ? `${pending.options.length >= RT_JAILER_SEVERED_SLOTS ? 'Гиря отрублена — на выбор четыре. ' : ''}У клятвы и реликвии есть цена. Не взятые уходят из пула до конца похода.`
         : chest ? 'Награда за сундук: талисман на выбор. Не взятые уходят из пула до конца похода.'
         : feat ? 'Награда за подвиг: талисман на выбор. Не взятые уходят из пула до конца похода.' : 'Не взятые уходят из пула до конца похода.';
       // B5 К10 «Переброс»: «Застава», an event's reward and the chest (not the Jailer); the price grows on the screen, off with its reason.
       const reroll = rtRerollView(run);
-      const rerollHtml = reroll ? `<button class="rt-other" data-action="talisman-reroll" data-testid="talisman-reroll" ${reroll.available ? '' : 'disabled'}>Перебросить — ${resourcesWord(reroll.price)}</button>`
+      // Task 37 «Правка» (Ерофей): the Jailer's screen rerolls free while the camp's rerolls last.
+      const rerollHtml = reroll ? `<button class="rt-other" data-action="talisman-reroll" data-testid="talisman-reroll" ${reroll.available ? '' : 'disabled'}>Перебросить — ${reroll.free ? 'бесплатно' : resourcesWord(reroll.price)}</button>`
         + `<p class="rt-run-note rt-run-reroll-note${reroll.available ? '' : ' rt-run-reason'}" data-testid="talisman-reroll-note">${reroll.available
-          ? `Ресурсов: ${reroll.total}. Показанные вернутся в пул, но на этом экране не выпадут.` : escapeHtml(reroll.reason)}</p>` : '';
+          ? reroll.free ? 'Правка Ерофея. Показанные вернутся в пул, но на этом экране не выпадут.' : `Ресурсов: ${reroll.total}. Показанные вернутся в пул, но на этом экране не выпадут.` : escapeHtml(reroll.reason)}</p>` : '';
       return card(`<h2>${title}</h2><p>${pending.options.length ? note : 'Талисманов не осталось.'}</p><div class="rt-run-choices">${options}</div>`
         + rerollHtml + `<button class="rt-other" data-action="talisman" data-option="" data-testid="talisman-refuse">Отказаться</button>`, chest ? 'run-chest' : feat ? 'run-feat-talisman' : 'run-talisman');
     }
@@ -1141,6 +1176,20 @@ export class RunView {
       + option.outcomes.map(outcome => `<small>${escapeHtml(outcome.odds)}: ${escapeHtml(outcome.text)}</small>`).join('')
       + (option.reason ? `<small class="rt-run-reason">${escapeHtml(option.reason)}</small>` : '') + `</button>`).join('');
     const attempts = view.attempts.length ? `<p class="rt-run-note">Попытки: ${view.attempts.map(escapeHtml).join('; ')}</p>` : '';
-    return card(`<h2>${escapeHtml(view.event.title)}</h2><p>${escapeHtml(view.event.scene)}</p>${attempts}<div class="rt-run-choices">${options}</div>`, 'run-event');
+    const freshEvent = this.newOffers(`event:${pending.nodeId}:${view.event.id}`, [view.event.id]);
+    return card(`<h2>${escapeHtml(view.event.title)}${newSign(freshEvent, view.event.id)}</h2><p>${escapeHtml(view.event.scene)}</p>${attempts}<div class="rt-run-choices">${options}</div>`, 'run-event');
+  }
+
+  /**
+   * Tasks 36–37 «✦ новое»: of `ids` on the screen `key`, the opened items offered for the first time (core `isNewOffer`). The profile
+   * marks them at once (`markOffered`); the sign stays for this screen's life (redraws keep it), the next screen has none.
+   */
+  private newOffers(key: string, ids: readonly string[]): Set<string> {
+    if (!this.meta || this.run?.seeded) return new Set();
+    if (this.offerNew?.key === key) return this.offerNew.ids;
+    const fresh = new Set(ids.filter(id => this.profile.isNewOffer(id)));
+    if (fresh.size) this.profile.markOffered([...fresh]);
+    this.offerNew = { key, ids: fresh };
+    return fresh;
   }
 }

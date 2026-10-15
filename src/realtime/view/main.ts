@@ -735,7 +735,14 @@ async function boot(): Promise<void> {
     openSandbox: () => { location.hash = '#sandbox'; },
     firstMeet: meetFirst,
     // Tasks 36–37: the meta outside the sandbox; its sounds follow the run's sound setting.
-    ...sandbox ? {} : { meta: { sound: (kind: MetaSoundKind) => { if (runSound?.on) audio.meta(kind, runSound.volume); } } },
+    ...sandbox ? {} : { meta: {
+      sound: (kind: MetaSoundKind) => { if (runSound?.on) audio.meta(kind, runSound.volume); },
+      // Telemetry (core's recorder): the run's meta (before the next run starts), the camp's map, purchases and NPC clicks.
+      end: (run, end) => recorder?.runMetaEnd(run, end),
+      map: (run, chosen) => recorder?.hearthMap(run, chosen),
+      buy: (run, npc, level, price) => { if (run) recorder?.hearthBuy(run, npc, level, price); },
+      click: (run, npc) => { if (run) recorder?.hearthClick(run, npc); },
+    } },
     // П1, П7: the view settings on the gear of the run map (the fight HUD has none).
     viewToggles: [
       { id: 'link-depth', label: 'Глубина звена', hint: 'Число у кольца следующего звена: сколько звеньев цепь ещё может взять от него.', get: () => renderer.showLinkDepth, set: setLinkDepth },
