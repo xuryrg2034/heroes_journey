@@ -40,6 +40,9 @@ test('the end screen says the time in the game and the runs of the session; a re
   // Abandon this run for a new one: the session now has two runs.
   await page.getByTestId('run-reset').click();
   await page.getByTestId('run-reset-confirm').click();
+  // Smoke v62 (view): the abandoned run's end screen first; its «Новый поход» starts the new run.
+  await expect(page.getByTestId('run-result-abandoned')).toBeVisible();
+  await page.getByTestId('run-new').click();
   await page.getByTestId('gift-1').click();
   await expect(page.getByTestId('run-gift')).toBeHidden();
   await touchMap(page);

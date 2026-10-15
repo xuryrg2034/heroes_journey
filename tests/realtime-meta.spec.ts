@@ -178,6 +178,9 @@ test('tasks 36–37: a run that crosses 60 opens «Охотник» — three ca
   await expect(page.getByTestId('run-gift')).toBeHidden();
   await page.getByTestId('run-reset').click();
   await page.getByTestId('run-reset-confirm').click();
+  // Smoke v62: the abandoned run's end screen first; its «Новый поход» is the one start.
+  await expect(page.getByTestId('run-result-abandoned')).toBeVisible();
+  await page.getByTestId('run-new').click();
   await expect(page.getByTestId('hearth-maps')).toBeVisible();
   await expect(page.getByTestId('hearth')).toBeHidden();
   await page.getByTestId('hearth-map-0').click();
@@ -193,10 +196,39 @@ test('tasks 36–37 (design smoke v62): an abandoned run is settled before the n
   // The first run is abandoned: «Новый поход» in the header, «Да, новый».
   await page.getByTestId('run-reset').click();
   await page.getByTestId('run-reset-confirm').click();
+  // Smoke v62 (view): the abandoned run's end screen first; «Новый поход» there is the one start.
+  await expect(page.getByTestId('run-result-abandoned')).toBeVisible();
+  await page.getByTestId('run-new').click();
   await expect(page.getByTestId('run-gift')).toBeVisible();
   const quest = await page.evaluate(() => JSON.parse(localStorage.getItem('ashen-oath-rt-profile-v1')!).meta?.hearth?.quest ?? null);
   expect(quest, 'the abandoned run picked a quest').not.toBeNull();
   const run = await page.evaluate(() => (window as any).__realtime.run.state());
   expect(run.hearth?.quest).toEqual(quest);
+  expect(errors).toEqual([]);
+});
+
+test('smoke v62: «Новый поход» over an open run — «Поход брошен» with its experience and carry, then «Новый поход» starts a run; the record line hides at row 0', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = collectErrors(page);
+  await openRun(page);
+  await newRun(page);
+  await toBattle(page);
+  expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
+  await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
+  await page.getByTestId('result-map').click();
+  await expect(page.getByTestId('run')).toBeVisible();
+  await passScreens(page);
+  await page.getByTestId('run-reset').click();
+  await page.getByTestId('run-reset-confirm').click();
+  await expect(page.getByTestId('run-result-abandoned')).toBeVisible();
+  await expect(page.getByTestId('run-result-abandoned')).toContainText('Поход брошен');
+  await expect(page.getByTestId('meta-xp-gain')).toHaveText('+5 опыта', { timeout: 5_000 });
+  await expect(page.getByTestId('meta-carry')).toBeVisible();
+  await page.waitForTimeout(1200);
+  await page.screenshot({ path: 'artifacts/realtime-meta-abandoned.png' });
+  // The abandoned run is out of the save: a reload shows the start, not the old map.
+  expect(await page.evaluate(() => (window as any).__realtime.run.state())).toBeNull();
+  await page.getByTestId('run-new').click();
+  await expect(page.getByTestId('run-gift')).toBeVisible();
   expect(errors).toEqual([]);
 });

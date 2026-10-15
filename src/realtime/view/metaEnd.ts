@@ -30,8 +30,9 @@ function blockHtml(m: MetaEnd): string {
   const bar = xpBar(m.xp.before, m.thresholds);
   const rec = m.record.after, before = m.record.before;
   const record = m.record.beaten
-    ? `<p class="rt-meta-record rt-meta-beaten" data-testid="meta-record" data-beaten="true"><b>${esc(rowWord(rec.row, rec.won)[0].toUpperCase() + rowWord(rec.row, rec.won).slice(1))} — новый рекорд</b>${before ? `<small>прежний: ${esc(rowWord(before.row, before.won))}</small>` : ''}</p>`
-    : `<p class="rt-meta-record" data-testid="meta-record" data-beaten="false"><small>Рекорд: ${esc(rowWord(rec.row, rec.won))}</small></p>`;
+    ? `<p class="rt-meta-record rt-meta-beaten" data-testid="meta-record" data-beaten="true"><b>${esc(rowWord(rec.row, rec.won)[0].toUpperCase() + rowWord(rec.row, rec.won).slice(1))} — новый рекорд</b>${before && (before.row > 0 || before.won) ? `<small>прежний: ${esc(rowWord(before.row, before.won))}</small>` : ''}</p>`
+    // Smoke v62: no record yet (row 0) — no line.
+    : rec.row > 0 || rec.won ? `<p class="rt-meta-record" data-testid="meta-record" data-beaten="false"><small>Рекорд: ${esc(rowWord(rec.row, rec.won))}</small></p>` : '';
   const quest = m.quest ? `<p class="rt-meta-quest${m.quest.done ? ' rt-done' : ''}" data-testid="meta-quest">Задание: ${m.quest.done ? `выполнено <b>+${m.quest.xp} опыта, +${m.quest.stock} запаса</b>` : 'не выполнено'}</p>` : '';
   const cards = m.pack ? `<div class="rt-pack" data-testid="meta-pack" data-pack="${esc(m.pack.id)}"><p class="rt-pack-title">${esc(m.pack.title)}</p><div class="rt-pack-cards">${m.pack.items.map((item, i) => {
     const c = metaItemCard(item);

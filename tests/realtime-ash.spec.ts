@@ -111,6 +111,9 @@ test('task 18: no choice before a won run; the final won in the page opens «И�
   // Back to 0: the header has no mark.
   await page.getByTestId('run-reset').click();
   await page.getByTestId('run-reset-confirm').click();
+  // Smoke v62 (view): the abandoned run's end screen first; its «Новый поход» starts the new run.
+  await expect(page.getByTestId('run-result-abandoned')).toBeVisible();
+  await page.getByTestId('run-new').click();
   await expect(page.getByTestId('run-gift')).toBeVisible();
   expect((await runState(page)).ash).toBe(3);
   await page.evaluate(([key]) => { const p = JSON.parse(localStorage.getItem(key)!); delete p.ash; localStorage.setItem(key, JSON.stringify(p)); }, [RT_PROFILE_STORAGE_KEY] as const);

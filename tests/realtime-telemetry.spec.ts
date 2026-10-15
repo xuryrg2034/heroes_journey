@@ -480,6 +480,10 @@ test('the run is recorded: nodes, the gift choice, the fight of a node; a reload
   // A new run: the old one is recorded as abandoned (the same id, the last copy wins), the new one opens.
   await page.getByTestId('run-reset').click();
   await page.getByTestId('run-reset-confirm').click();
+  // Smoke v62 (view): the abandoned run's end screen first; its «Новый поход» starts the new run.
+  await expect(page.getByTestId('run-result-abandoned')).toBeVisible();
+  await page.getByTestId('run-new').click();
+  await expect(page.getByTestId('run-gift')).toBeVisible();
   all = await records(page);
   const after = all.filter((r): r is RunRecord => r.kind === 'run');
   expect(after).toHaveLength(2);

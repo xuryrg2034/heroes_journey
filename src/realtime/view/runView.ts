@@ -332,6 +332,11 @@ export class RunView {
   private readonly meta: ProfileMeta | null;
   /** Tasks 36–37 «✦ новое»: the opened items first offered on the screen now (kept for the screen's life; the profile marks them at once). */
   private offerNew: { key: string; ids: Set<string> } | null = null;
+  /**
+   * Smoke v62 (design 16.10.2026): a run abandoned by «Новый поход» → «Да, новый» — its end screen («Поход брошен»: the experience, the
+   * carry, «В лагерь» / «Новый поход»); the run is out of the save already (its meta is counted: it cannot be played on).
+   */
+  private abandoned: RtRunState | null = null;
   private metaEnd: MetaEndView | null = null;
   readonly hearth: HearthView | null;
   /** Tasks 36–37: the one start of a new run with the camp's choices (the camp's «В поход» and «Новый поход»). */
@@ -446,7 +451,9 @@ export class RunView {
     const value = (seed ?? this.fixedSeed ?? camp?.seed ?? Math.floor(Math.random() * 0x100000000)) >>> 0;
     this.hearth?.close();
     this.metaEnd?.stop(); this.metaEnd = null;
-    const previous = this.run;
+    // Smoke v62: the run abandoned on its end screen is the previous one (settled already, `abandon`).
+    const previous = this.run ?? this.abandoned;
+    this.abandoned = null;
     // Tasks 36–37 (core): an abandoned run («Новый поход» over an open one) counts before the new one starts — its carry is 50 %.
     this.settleAbandoned();
     // The camp's flags (core `hearthStart`): the start's plan with the map and the consumable chosen (`beginRun`); a run started
@@ -613,6 +620,8 @@ export class RunView {
     if (action === 'new-run') {
       if (run && !run.result && !this.confirmReset) { this.confirmReset = true; this.draw(); return; }
       this.confirmReset = false;
+      // Smoke v62: an open meta run abandoned — its end screen first, then the one start.
+      if (run && !run.result && this.meta && !run.seeded) { this.abandon(run); return; }
       this.beginRun(); return;
     }
     if (action === 'cancel-reset') { this.confirmReset = false; this.draw(); return; }
@@ -811,7 +820,12 @@ export class RunView {
 
   draw(): void {
     const run = this.run;
-    if (!run) { this.el.innerHTML = this.startHtml(); return; }
+    if (!run) {
+      this.el.innerHTML = this.abandoned ? this.abandonedHtml() : this.startHtml();
+      const slot = this.el.querySelector('[data-meta-slot]');
+      if (slot && this.metaEnd) { slot.replaceWith(this.metaEnd.el); if (!this.el.hidden) this.metaEnd.play(this.pressAt); }
+      return;
+    }
     // П7: on the map (not in a fight, not at the end) a due nudge is taken once and stays until the map is left.
     const session = this.host.session;
     if (session?.on() && !run.result && !this.inArena && this.sessionNudge === null) this.sessionNudge = session.clock.takeNudge();
@@ -879,6 +893,29 @@ export class RunView {
     };
     this.resCount = { from, to: total, start, total: time, frame: requestAnimationFrame(tick) };
     this.resFly.counting = true; this.resFly.shown = from;
+  }
+
+  /**
+   * Smoke v62: «Новый поход» → «Да, новый» over an open meta run — core counts it as abandoned (`endRunMeta`: the experience, the
+   * carry at 50 %), the save is cleared, and its end screen shows; «Новый поход» there is the one start.
+   */
+  private abandon(run: RtRunState): void {
+    // Settled here once (`settleAbandoned` sees the same key and does nothing later).
+    this.settled = rtRunKey(run);
+    const end = this.profile.endRunMeta(run);
+    if (end) this.host.meta?.end?.(run, end);
+    this.metaEnd?.stop();
+    this.metaEnd = end ? new MetaEndView(end, rtRunKey(run), s => this.host.meta?.sound(s)) : null;
+    this.abandoned = run; this.run = null; this.store.clear();
+    this.selected = null; this.notice = '';
+    this.draw();
+  }
+
+  /** Smoke v62: the end screen of an abandoned run (no facts: it did not end; the meta block, «В лагерь», «Новый поход»). */
+  private abandonedHtml(): string {
+    return `<div class="rt-overlay rt-run-modal" data-testid="run-result-abandoned"><div class="rt-card"><h2>Поход брошен</h2>${this.metaEnd ? '<div data-meta-slot></div>' : ''}`
+      + `<button class="rt-again" data-action="hearth" data-testid="run-to-hearth">В лагерь</button>`
+      + `<button class="rt-other" data-action="new-run" data-testid="run-new">Новый поход</button></div></div>`;
   }
 
   private startHtml(): string {
