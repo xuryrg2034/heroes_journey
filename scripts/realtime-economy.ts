@@ -4,7 +4,7 @@
  * real fight of the Simulation with the run's params (`rtRunParams`: cauldron, oath stake, door die, П4, П3, slot, cursed chest)
  * played by a greedy bot through journal commands (chains through `planChain`, walking along a flow field, consumables).
  *
- * Usage: npm run realtime:economy -- [--runs N] [--from K] [--oath smart|never|always|all] [--max-links N] [--exit-at-goals] [--gentle on|off] [--workers W] [--json FILE]
+ * Usage: npm run realtime:economy -- [--runs N] [--from K] [--oath smart|never|always|all] [--max-links N] [--exit-at-goals] [--gentle on|off] [--schedule off|new] [--workers W] [--json FILE]
  *   seeds `Math.imul(k, 2654435761) >>> 0`, k = from … from + runs − 1 (default 1 … 300); `--oath all` walks the same seeds
  *   under the three oath policies. Deterministic for a given seed range and policy (workers only split the range).
  *
@@ -60,6 +60,8 @@ const MAX_LINKS = Number(option('--max-links') ?? 99);
 const EXIT_AT_GOALS = args.includes('--exit-at-goals');
 /** Task 17: walk runs with the gentle entry (default) or without it. */
 const GENTLE = (option('--gentle') ?? 'on') !== 'off';
+/** Task 26 «Расписание леса»: `--schedule new` — every run is a new viewer's first (an empty history); `off` (default) — no schedule. */
+const SCHEDULE = (option('--schedule') ?? 'off') === 'new';
 type OathPolicy = 'smart' | 'never' | 'always';
 
 const seedOf = (k: number): number => Math.imul(k, 2654435761) >>> 0;
@@ -187,6 +189,9 @@ function bestChain(sim: Simulation, ctx: FightContext): { start: Vec; plan: Chai
 
 interface FightResult { outcome: RtArenaOutcome; record: Omit<FightRecord, 'row' | 'battle' | 'oath' | 'die' | 'face' | 'dieMult' | 'base' | 'dGreed' | 'dOath' | 'dDie' | 'dFinale' | 'paid' | 'cap' | 'capHit' | 'overCap' | 'capHitTake'>; door: PurseDoor | null }
 
+/** The bot did not finish a fight in its time: the run is left out (`result: 'stuck'`). */
+class StuckFight extends Error {}
+
 function playFight(run: RtRunState): FightResult {
   const pending = run.pending;
   if (pending?.kind !== 'battle') throw new Error('no battle');
@@ -201,6 +206,11 @@ function playFight(run: RtRunState): FightResult {
   let heals = 0, healLoot = 0;
   // Task 17: the kinds that stood on the arena (the run keeps them as met, as the view's `RtDeathWatch.kinds`).
   const kinds = new Set<string>(w.enemies.map(e => e.kind));
+  // Task 26: an elite and the affix types that stood on the arena (the view's `RtDeathWatch.elite` / `affixes`; the schedule reads them).
+  let eliteSeen = false;
+  const affixSeen = new Set<string>();
+  const seeElites = (): void => { for (const e of w.enemies) if (e.elite) { eliteSeen = true; for (const a of e.affixes ?? []) affixSeen.add(a); } };
+  seeElites();
   let minHp = realHp(w), lastItem = -10, leaveAt = 0, fbGoals = false, fbDoor = false, greedStart: number | null = null;
   const oathId = pending.oath ?? null;
   const slotRight = !!sim.world.kit && !!rtArenaLoadout(run).slot, chestPolicy = run.hp >= 8;
@@ -314,8 +324,12 @@ function playFight(run: RtRunState): FightResult {
     }
     w.events.length = 0;
     for (const e of w.enemies) kinds.add(e.kind);
+    seeElites();
     minHp = Math.min(minHp, realHp(w));
   }
+  // The bot is stuck (the fight runs out of time): the run is left out of the tables and counted (task 26, 15.10.2026; the proposal
+  // left such runs out too).
+  if (w.status === 'playing') throw new StuckFight(`fight ${pending.arena} seed ${pending.seed}: playing at ${w.time.toFixed(1)} s`);
   if (w.status !== 'victory') throw new Error(`fight ${pending.arena} seed ${pending.seed}: ${w.status} at ${w.time.toFixed(1)} s`);
   const real = realHp(w);
   const door = w.purse?.door ? structuredClone(w.purse.door) : null;
@@ -324,7 +338,7 @@ function playFight(run: RtRunState): FightResult {
     damage: w.stats.damageTaken, time: w.endTime ?? w.time,
     ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed, openItems: [...w.kit.openItems] } : {},
     ...door ? { purse: door } : {}, ...w.params.doorDie ? { doorDie: true } : {}, ...w.curse ? { chest: true } : {},
-    kinds: [...kinds].sort(),
+    kinds: [...kinds].sort(), ...eliteSeen ? { elite: true } : {}, ...affixSeen.size ? { affixes: [...affixSeen].sort() } : {},
   };
   return {
     outcome, door,
@@ -337,7 +351,7 @@ function playFight(run: RtRunState): FightResult {
 
 function walkRun(k: number, policy: OathPolicy): RunRecord {
   const seed = seedOf(k);
-  let run = createRtRun(seed, { gift: 'full', ...GENTLE ? {} : RT_TASK17_OFF });
+  let run = createRtRun(seed, { gift: 'full', ...GENTLE ? {} : RT_TASK17_OFF, ...SCHEDULE ? { schedule: [] } : {} });
   const rec: RunRecord = { k, seed, policy, result: 'none', lastRow: 0, gain: {}, spend: {}, rowStart: {}, fights: [], circle: false, circleGames: 0, circleWins: 0, firstDeathRow: null, porcupineRow: null, rerollBy: {}, shopBy: {}, endTotal: 0 };
   /** Signed per-kind change from `before` to `after`: gains to `gainKey`, losses to `spendKey`. */
   const account = (before: Record<ResourceKind, number>, after: RtRunState, gainKey: string, spendKey: string): void => {
@@ -391,7 +405,8 @@ function walkRun(k: number, policy: OathPolicy): RunRecord {
       }
       case 'battle': {
         const node = rtNode(run, pending.nodeId)!, row = runRow(node.row);
-        const fought = playFight(run);
+        let fought: FightResult;
+        try { fought = playFight(run); } catch (error) { if (error instanceof StuckFight) { rec.result = 'stuck'; return rec; } throw error; }
         const fight: FightRecord = { ...fought.record, row, battle: pending.battle, oath: pending.oath ?? null, die: 'none', face: 0, dieMult: 1, base: 0, dGreed: 0, dOath: 0, dDie: 0, dFinale: 0, paid: 0, cap: 0, capHit: false, overCap: false, capHitTake: false };
         if (fight.wouldDie && rec.firstDeathRow === null) rec.firstDeathRow = row;
         rec.fights.push(fight);
@@ -490,7 +505,7 @@ async function collect(policy: OathPolicy): Promise<RunRecord[]> {
     const from = FROM + w * per, count = Math.min(per, FROM + RUNS - from);
     if (count <= 0) break;
     jobs.push(new Promise((resolve, reject) => {
-      const child = spawn(process.execPath, [...process.execArgv, script, '--child', '--from', String(from), '--runs', String(count), '--oath', policy, '--max-links', String(MAX_LINKS), '--gentle', GENTLE ? 'on' : 'off', ...EXIT_AT_GOALS ? ['--exit-at-goals'] : []], { stdio: ['ignore', 'pipe', 'inherit'] });
+      const child = spawn(process.execPath, [...process.execArgv, script, '--child', '--from', String(from), '--runs', String(count), '--oath', policy, '--max-links', String(MAX_LINKS), '--gentle', GENTLE ? 'on' : 'off', '--schedule', SCHEDULE ? 'new' : 'off', ...EXIT_AT_GOALS ? ['--exit-at-goals'] : []], { stdio: ['ignore', 'pipe', 'inherit'] });
       let out = '';
       child.stdout.on('data', chunk => { out += chunk; });
       child.on('close', code => code === 0 ? resolve(JSON.parse(out) as RunRecord[]) : reject(new Error(`worker ${w} exited ${code}`)));
@@ -617,9 +632,12 @@ async function main(): Promise<void> {
   if (CHILD) { process.stdout.write(JSON.stringify(Array.from({ length: RUNS }, (_, i) => walkRun(FROM + i, OATH_MODE as OathPolicy)))); return; }
   const policies: OathPolicy[] = OATH_MODE === 'all' ? ['smart', 'never', 'always'] : [OATH_MODE];
   const t0 = Date.now(), all: Record<string, RunRecord[]> = {};
-  console.log(`Аудит экономики похода (эвристика бота): seed k = ${FROM}…${FROM + RUNS - 1}, политики клятвы: ${policies.join(', ')}, звеньев в цепи не больше ${MAX_LINKS >= 99 ? '— (жадный)' : MAX_LINKS}${EXIT_AT_GOALS ? ', к двери сразу после целей' : ''}, вход ${GENTLE ? 'пологий (задача 17)' : 'прежний'}, воркеров ${WORKERS}`);
+  console.log(`Аудит экономики похода (эвристика бота): seed k = ${FROM}…${FROM + RUNS - 1}, политики клятвы: ${policies.join(', ')}, звеньев в цепи не больше ${MAX_LINKS >= 99 ? '— (жадный)' : MAX_LINKS}${EXIT_AT_GOALS ? ', к двери сразу после целей' : ''}, вход ${GENTLE ? 'пологий (задача 17)' : 'прежний'}${SCHEDULE ? ', расписание леса: новый зритель (задача 26)' : ''}, воркеров ${WORKERS}`);
   for (const policy of policies) {
-    all[policy] = await collect(policy);
+    const collected = await collect(policy), stuck = collected.filter(r => r.result === 'stuck');
+    if (stuck.length) console.log(`
+Бот застрял в бою (время вышло) в ${stuck.length} походах — они не в таблицах: k = ${stuck.map(r => r.k).join(', ')}`);
+    all[policy] = collected.filter(r => r.result !== 'stuck');
     report(all[policy], `Клятва: ${policy}`);
   }
   if (policies.length > 1) {

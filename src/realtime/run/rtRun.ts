@@ -1331,13 +1331,17 @@ export function scheduleKit(kit: Loadout, run: RtRunState, node: Pick<ForestMapN
   const row = runRow(node.row), gentle = rtGentle(run), arc = fight.arc ?? null;
   const numbers = row >= SCHEDULE_NUMBERS_ROWS[0] && row <= SCHEDULE_NUMBERS_ROWS[1] ? 1 : 0;
   delete kit.guaranteedElite; delete kit.eliteAffixes; delete kit.eliteKinds; delete kit.affixKinds; delete kit.withoutKinds;
+  const first = (): string[] => { const kinds = RT_FIRST_ELITE_KINDS.filter(kind => kind === 'basic' || met.has(kind)); return kinds.length ? kinds : ['basic']; };
   if (arc === 'elite') {
-    const kinds = RT_FIRST_ELITE_KINDS.filter(kind => kind === 'basic' || met.has(kind));
-    Object.assign(kit, { guaranteedElite: true, randomElites: false, elitePlates: 2, eliteKinds: kinds.length ? kinds : ['basic'] });
+    Object.assign(kit, { guaranteedElite: true, randomElites: false, elitePlates: 2, eliteKinds: first() });
   } else if (!met.has('elite')) {
     kit.randomElites = false;
+    // Design 15.10.2026 (answer 2): an event's «разбудил» (`start-elite`) before the elite is met puts the first elite — a met kind
+    // with an elite behaviour, 2 plates, no affix; it is seen, so the elite counts as met.
+    if (run.modifiers?.includes('start-elite')) Object.assign(kit, { elitePlates: 2, eliteKinds: first() });
   } else {
-    kit.randomElites = rtRandomElites(row, gentle);
+    // Design 15.10.2026 (answer 3, Б2 «бой первой встречи — без роста давления»): no random elites in a fight with an arc; the row's guaranteed one stays.
+    kit.randomElites = arc === null && rtRandomElites(row, gentle);
     if ((battle === 'battle' || battle === 'event') && rtGuaranteedElite(node, battle, gentle) || battle === 'hard' && fight.arena !== HARD_ARENA) kit.guaranteedElite = true;
     kit.eliteKinds = ['basic', ...SCHEDULE_KINDS.filter(kind => met.has(kind))];
     kit.elitePlates = rtElitePlates(row, gentle) + numbers;

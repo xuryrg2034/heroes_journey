@@ -203,7 +203,7 @@ function openOn(k: number, seen: readonly string[], test: (run: RtRunState) => b
 }
 const rowOf = (run: RtRunState): number => runRow(rtNode(run, (run.pending as Battle).nodeId)!.row);
 
-check('the loadout of a scheduled fight: a veteran — rows 6–8 plates 4 and tough HP 4, row 9 — 4 and 4, elites of every met kind, the affixes among the met types; the hard node — floor ×1,25 (and a guaranteed elite on its stand-in); a new viewer — no elite, no affix, unmet kinds taken out', () => {
+check('the loadout of a scheduled fight: a veteran — rows 6–8 plates 4 and tough HP 4, row 9 — 4 and 4, elites of every met kind, the affixes among the met types; the hard node — floor ×1,25 (and a guaranteed elite on its stand-in); a new viewer — no elite, no affix, unmet kinds taken out; «разбудил» before the elite — the first elite (basic, 2 plates, no affix) in a real fight', () => {
   for (const [rows, plates, tough] of [[[6, 7, 8], 4, 4], [[9], 4, 4]] as const) {
     let found = 0;
     for (let k = 1; k <= 30 && found < 3; k++) {
@@ -223,6 +223,13 @@ check('the loadout of a scheduled fight: a veteran — rows 6–8 plates 4 and t
   const stand = hardOf(['wolf']);
   assert(stand && (stand.pending as Battle).arena !== 'outpost' && rtArenaLoadout(stand).floorScale === SCHEDULE_HARD_FLOOR, `a stand-in for «Застава»: ${stand && (stand.pending as Battle).arena}`);
   const fresh = openOn(9, [], () => true)!, kit = rtArenaLoadout(fresh);
+  // Design 15.10.2026 (answer 2): «разбудил» (`start-elite`) before the elite is met — the first elite's rules; a real fight shows it.
+  const woken = structuredClone(fresh);
+  woken.modifiers = ['start-elite'];
+  const wk = rtArenaLoadout(woken);
+  assert(wk.startElite && wk.elitePlates === 2 && same(wk.eliteKinds, ['basic']) && !wk.eliteAffixes, `«разбудил» before the elite: ${JSON.stringify({ s: wk.startElite, p: wk.elitePlates, k: wk.eliteKinds, a: wk.eliteAffixes })}`);
+  const elites = [...shortFight(woken, 8).elites.values()];
+  assert(elites.length >= 1 && elites[0].kind === 'basic' && elites[0].plates === 2 && elites[0].affixes.length === 0, `the woken elite: ${JSON.stringify(elites)}`);
   assert(!kit.guaranteedElite && !kit.randomElites && !kit.eliteAffixes, `a new viewer's first fight: ${JSON.stringify({ g: kit.guaranteedElite, r: kit.randomElites, a: kit.eliteAffixes })}`);
   assert((fresh.pending as Battle).arena === 'glade' && same(kit.withoutKinds ?? [], ['wolf', 'boar'].filter(kind => arenaKinds('glade').has(kind)).sort((a, b) => SCHEDULE_KINDS.indexOf(a) - SCHEDULE_KINDS.indexOf(b))), `the first fight: ${(fresh.pending as Battle).arena}, without ${kit.withoutKinds}`);
 });
@@ -238,6 +245,8 @@ check('card = fight and В-1 (new viewers and veterans, 60 runs, the run\'s own 
         const got = { guaranteedElite: rules.guaranteedElite, randomElites: rules.randomElites, elitePlates: rules.elitePlates, eliteAffixes: rules.eliteAffixes, eliteKinds: rules.eliteKinds, withoutKinds: rules.withoutKinds };
         assert(same(want, got), `seed ${k} ${pending.arena}: fight ${JSON.stringify(want)} / card ${JSON.stringify(got)}`);
         cards++;
+        // Design 15.10.2026 (answer 3): a fight with an arc has no random elites (the row's guaranteed one stays).
+        if (rtFightArc(run) !== null) assert(!kit.randomElites, `seed ${k} ${pending.arena}: random elites in the arc ${rtFightArc(run)}`);
         if (pending.battle === 'battle' || pending.battle === 'event') {
           const standing = [...arenaKinds(pending.arena, pending.roster)].filter(kind => SCHEDULE_KINDS.includes(kind) && !(kit.withoutKinds ?? []).includes(kind));
           assert(standing.length <= scheduleKindCap(rowOf(run)), `seed ${k} row ${rowOf(run)} ${pending.arena}[${pending.roster}]: ${standing}`);
