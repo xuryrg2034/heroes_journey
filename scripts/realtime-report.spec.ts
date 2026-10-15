@@ -35,7 +35,7 @@
  */
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { analyzeRecords, collectRecords, findFight, ashStats, hintStats, latestRuns, mapSignStats, newRunGroups, prologueStats, rowStats, runItemStats, runResourceStats, reportMarkdown, snapshotAt, summaryDiff, type ReportInput } from '../src/realtime/telemetry/report';
+import { analyzeRecords, collectRecords, findFight, fxStats, ashStats, hintStats, latestRuns, mapSignStats, newRunGroups, prologueStats, rowStats, runItemStats, runResourceStats, reportMarkdown, snapshotAt, summaryDiff, type ReportInput } from '../src/realtime/telemetry/report';
 import { LOOP_TEST_ARENA, playLoopFight } from '../src/realtime/telemetry/loopFight.testkit';
 import { ELITE_TEST_ARENA, playEliteFight } from '../src/realtime/telemetry/eliteFight.testkit';
 import { CHEST_TEST_ARENA, playChestFight } from '../src/realtime/telemetry/chestFight.testkit';
@@ -369,6 +369,25 @@ async function main(): Promise<void> {
     assert(section.includes('| 2 | 4 | 2 (50%) | 2 |') && section.includes('55–75'), section);
     const none = md.slice(md.indexOf('## Новое на карте'), md.indexOf('## Угрозы'));
     assert(none.includes('_нет данных_'), 'the fixtures have no signs');
+  });
+
+  await check('task 35 С1 the report: «Тряска и вспышки» — runs by the level at the end, changed in the run, started below 100; no data — an empty table', () => {
+    const runs = [
+      runOf('s1', 'a', 'victory', { fx: { start: 100, end: 0, changes: 1 } }),
+      runOf('s1', 'b', 'defeat', { fx: { start: 0, end: 0, changes: 0 } }),
+      runOf('s1', 'c', 'open', { fx: { start: 100, end: 100, changes: 0 } }),
+      runOf('s1', 'd', 'open', { fx: { start: 50, end: 100, changes: 2 } }),
+      runOf('s1', 'e', 'open'),
+    ];
+    const stats = fxStats(runs);
+    assert(JSON.stringify(stats) === JSON.stringify({ runs: 4, end: { 0: 2, 50: 0, 100: 2 }, changed: 2, startedLow: 2 }), JSON.stringify(stats));
+    for (const r of runs) assert(checkRecord(r) === null, `valid: ${checkRecord(r)}`);
+    assert(checkRecord(runOf('s1', 'x', 'open', { fx: { start: 30, end: 0, changes: 0 } })) === 'run fx', 'a level outside 100 / 50 / 0 is refused');
+    const text = reportMarkdown(collectRecords([{ name: 'fx.json', text: JSON.stringify(runs) }]), { fights: [], orphanNotes: [] }, { now: new Date('2026-10-15T14:00:00Z'), source: 'fx' });
+    const section = text.slice(text.indexOf('## Тряска и вспышки'), text.indexOf('## Бои походов'));
+    assert(section.includes('| 4 | 2 (50%) | 0 (0%) | 2 (50%) | 2 (50%) | 2 (50%) |'), section);
+    const none = md.slice(md.indexOf('## Тряска и вспышки'), md.indexOf('## Бои походов'));
+    assert(none.includes('_нет данных_'), `the fixtures have no level: ${none}`);
   });
 
   await check('«Обучение v1» the report: the section «Подсказки» counts the runs that showed each hint; no data — an empty table', () => {

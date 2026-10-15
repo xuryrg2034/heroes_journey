@@ -680,3 +680,32 @@ test('task 34: a red that comes under the still held pointer on a free chain is 
   expect(fight.summary.chain.shiftSkips).toBe(1);
   expect(errors).toEqual([]);
 });
+
+test('task 35 С1: the run record keeps the level of «Тряска и вспышки» — 100 at the start, 0 after the gear, one change; it outlives a reload', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/?seed=35');
+  await page.evaluate(async () => {
+    localStorage.clear(); sessionStorage.clear();
+    await new Promise<void>(resolve => { const r = indexedDB.deleteDatabase('ashen-oath-rt-tlm-v1'); r.onsuccess = r.onerror = r.onblocked = () => resolve(); });
+  });
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
+  await page.getByTestId('run-new').click();
+  const fxOf = async (): Promise<unknown> => {
+    const runs = (await records(page)).filter((r): r is RunRecord => r.kind === 'run');
+    return runs[runs.length - 1]?.fx;
+  };
+  await expect.poll(fxOf).toEqual({ start: 100, end: 100, changes: 0 });
+  await page.getByTestId('gift-1').click();
+  await expect(page.getByTestId('run-gift')).toBeHidden();
+  await page.getByTestId('run-settings').click();
+  await page.getByTestId('view-fx').selectOption('0');
+  await expect.poll(fxOf).toEqual({ start: 100, end: 0, changes: 1 });
+  // A reload keeps the run and its level: nothing more is counted.
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => (window as any).__realtime?.snapshot?.().juice.level)).toBe(0);
+  await expect.poll(fxOf).toEqual({ start: 100, end: 0, changes: 1 });
+  for (const r of await records(page)) expect(checkRecord(r)).toBeNull();
+  expect(errors).toEqual([]);
+});

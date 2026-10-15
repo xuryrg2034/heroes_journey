@@ -243,6 +243,14 @@ export interface RunSecondWind { nodeId: string; row: number; fight: string | nu
  * none yet), the price in resources, HP before and after.
  */
 export interface RunMapHeal { row: number; price: number; hpBefore: number; hpAfter: number }
+/**
+ * Task 35, С1 «Тряска и вспышки» (from 15.10.2026): the viewer's level of the camera shake and the full-screen flash in this run,
+ * per cent (100 / 50 / 0; view/juice.ts, localStorage `ashen-oath-realtime-fx`) — at the run's start, at its last write, and how
+ * many times it was changed during the run (the gear of the map).
+ */
+export interface RunFx { start: number; end: number; changes: number }
+/** С1: the levels a record may hold. */
+export const RUN_FX_LEVELS: readonly number[] = [100, 50, 0];
 
 /**
  * Task 16 «Подвиги» (from 14.10.2026): the feat of one run fight (`RunRecord.feats`). `reward` — as offered (`resources` with
@@ -353,6 +361,8 @@ export interface RunRecord extends RtHeader {
   firsts?: RunFirst[];
   /** Task 20 (from 14.10.2026): the run's resources — start, gained by source, spent by sink, end; absent — older records. */
   resources?: RunResources;
+  /** Task 35, С1 (from 15.10.2026): the level of «Тряска и вспышки» in the run; absent — older records (or not reported). */
+  fx?: RunFx;
   /** The Params of the run, once per run (decision 3): the journals name them by `params.hash`. Named `runParams` because `params` is the header's `{storage, hash}`. */
   runParams: Params;
 }
@@ -550,6 +560,11 @@ export function checkRecord(value: unknown): string | null {
         const o = h as Record<string, unknown> | null;
         return !!o && typeof o === 'object' && ['row', 'price', 'hpBefore', 'hpAfter'].every(k => Number.isInteger(o[k])) && (o.price as number) >= 1 && (o.hpAfter as number) > (o.hpBefore as number);
       }))) return 'run mapHeals';
+      // Task 35, С1 (15.10.2026): optional — the level of «Тряска и вспышки».
+      if (r.fx !== undefined) {
+        const o = r.fx as Record<string, unknown> | null;
+        if (!o || typeof o !== 'object' || !RUN_FX_LEVELS.includes(o.start as number) || !RUN_FX_LEVELS.includes(o.end as number) || !(Number.isInteger(o.changes) && (o.changes as number) >= 0)) return 'run fx';
+      }
       // Task 16 (14.10.2026): optional — the feats flag and list, the viewer's run number, the first meetings, the choice times.
       if (r.featsOn !== undefined && r.featsOn !== true) return 'run featsOn';
       if (r.feats !== undefined && !(Array.isArray(r.feats) && r.feats.every(f => {

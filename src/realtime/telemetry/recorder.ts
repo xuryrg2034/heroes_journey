@@ -32,7 +32,7 @@ import {
   encodeJournal, fightKey, fightRecordId, gzipBase64, isIdSegment, journalPartId, makeExport, noteRecordId, nullObserver, packJournal, paramsHash, runKey, runRecordId, SANDBOX_RUN,
   sessionKey, splitParts, prologueKey, prologueRecordId, RT_TELEMETRY_SCHEMA,
   type FightObserver, type FightObserverFactory, type FightOutcome, type FightRecord, type FightSummary, type JournalMeta, type JournalPart, type NoteRecord, type RtHeader, type RtRecord,
-  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, CASINO_SOURCE, FEAT_SOURCE, type FeatSummary, type RunResources, type RunResourceSink, type RunResourceSource, type RunFeat, type RunFirst, type RunDie, type RunItems, type RunMapHeal, type RunMapSign, type RunSecondWind, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord, type PrologueFrom, type PrologueRecord,
+  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, CASINO_SOURCE, FEAT_SOURCE, type FeatSummary, type RunResources, type RunResourceSink, type RunResourceSource, type RunFeat, type RunFirst, type RunDie, type RunItems, type RunMapHeal, type RunMapSign, type RunFx, RUN_FX_LEVELS, type RunSecondWind, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord, type PrologueFrom, type PrologueRecord,
 } from './schema';
 import { PrologueTally } from './prologue';
 
@@ -299,6 +299,8 @@ interface RunMeta {
   firsts?: RunFirst[];
   /** Task 20: the run's resources (absent — a run whose start the recorder did not see, until its first step). */
   resources?: RunResources;
+  /** Task 35, С1: the level of «Тряска и вспышки» in the run (absent — not reported). */
+  fx?: RunFx;
 }
 
 /**
@@ -379,6 +381,8 @@ export class RtRecorder {
   private poll: ReturnType<typeof setInterval> | null = null;
   private fight: OpenFight | null = null;
   private meta: RunMeta | null = null;
+  /** Task 35, С1: the viewer's level of «Тряска и вспышки» now (null — not reported yet). */
+  private fx: number | null = null;
   /** The last sandbox arena and how many times in a row it started (its fight key's attempt). */
   private sandboxLast: { arena: string; attempt: number } | null = null;
   /** Writes in flight (tests and the export wait for them). */
@@ -676,7 +680,7 @@ export class RtRecorder {
     const record: RunRecord = {
       ...this.header(runRecordId(this.session, meta.key), 'run', meta.key, paramsHash(runParams)),
       seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, ...meta.hints?.length ? { hints: meta.hints } : {}, ...meta.items ? { items: meta.items } : {}, ...meta.gentle ? { gentle: true as const } : {}, ...meta.startPotion ? { startPotion: true as const } : {}, ...meta.secondWindOn ? { secondWindOn: true as const } : {}, ...meta.startItems ? { startItems: meta.startItems } : {}, ...meta.secondWind ? { secondWind: meta.secondWind } : {}, ...meta.mapHeals?.length ? { mapHeals: meta.mapHeals } : {}, /* task 18: the run's own level */ ...run.ash ? { ash: run.ash } : {}, /* task 26: living elements of the snapshot (affix types apart) */ ...run.schedule ? { schedule: { start: run.schedule.seen.filter(id => !id.startsWith('affix:')).length } } : {},
-      ...meta.featsOn ? { featsOn: true as const } : {}, ...meta.feats?.length ? { feats: meta.feats } : {}, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun, ...meta.viewerRunApprox ? { viewerRunApprox: true as const } : {} } : {}, ...meta.firsts?.length ? { firsts: meta.firsts } : {}, ...meta.resources ? { resources: meta.resources } : {}, runParams,
+      ...meta.featsOn ? { featsOn: true as const } : {}, ...meta.feats?.length ? { feats: meta.feats } : {}, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun, ...meta.viewerRunApprox ? { viewerRunApprox: true as const } : {} } : {}, ...meta.firsts?.length ? { firsts: meta.firsts } : {}, ...meta.resources ? { resources: meta.resources } : {}, ...meta.fx ? { fx: meta.fx } : {}, runParams,
     };
     void this.put([JSON.parse(JSON.stringify(record)) as RunRecord]);
   }
@@ -705,6 +709,27 @@ export class RtRecorder {
       if (viewerRun !== undefined && Number.isInteger(viewerRun) && viewerRun >= 1) { this.meta.viewerRun = viewerRun; if (viewerRunApprox) this.meta.viewerRunApprox = true; }
       // Task 20: the run's resources at its start.
       this.meta.resources = { start: { ...run.materials }, gained: {}, spent: {}, end: { ...run.materials } };
+      // Task 35, С1: the level the run starts with.
+      if (this.fx !== null) this.meta.fx = { start: this.fx, end: this.fx, changes: 0 };
+      this.saveMeta();
+      this.writeRun(run);
+    });
+  }
+
+  /**
+   * Task 35, С1 «Тряска и вспышки»: the viewer's level now (100 / 50 / 0) — at the page's start and on every change (the gear of the
+   * map, the sandbox panel). An open run (`run` without a result) keeps it in its record: the level at its start, now, and the
+   * changes; `run` null — only remembered (the next run starts with it).
+   */
+  fxLevel(run: RtRunState | null, level: number): void {
+    if (!RUN_FX_LEVELS.includes(level)) return;
+    this.fx = level;
+    if (!run || run.result) return;
+    safe(undefined, () => {
+      const meta = this.metaFor(run);
+      if (!meta.fx) meta.fx = { start: level, end: level, changes: 0 };
+      else if (meta.fx.end !== level) { meta.fx.end = level; meta.fx.changes++; }
+      else return;
       this.saveMeta();
       this.writeRun(run);
     });

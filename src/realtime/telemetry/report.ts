@@ -712,6 +712,24 @@ function hintRows(runs: readonly RunRecord[]): (string | number)[][] {
 
 // ---- end П6 / П8 ----
 
+// ---- Task 35, С1 «Тряска и вспышки» (RunRecord.fx) ----
+
+/** С1: runs with the level recorded; by the level at the end (100 / 50 / 0), changed during the run, started below 100. */
+export interface FxStats { runs: number; end: Record<'100' | '50' | '0', number>; changed: number; startedLow: number }
+export function fxStats(runs: readonly RunRecord[]): FxStats {
+  const withFx = runs.filter(r => r.fx);
+  return {
+    runs: withFx.length, end: { 100: withFx.filter(r => r.fx!.end === 100).length, 50: withFx.filter(r => r.fx!.end === 50).length, 0: withFx.filter(r => r.fx!.end === 0).length },
+    changed: withFx.filter(r => r.fx!.changes > 0).length, startedLow: withFx.filter(r => r.fx!.start < 100).length,
+  };
+}
+const FX_HEAD = ['Походов с данными', 'В конце 100 %', 'В конце 50 %', 'В конце 0 % (выключили)', 'Меняли в походе', 'Начали ниже 100 %'];
+const FX_LEGEND = 'Задача 35, С1 (с 15.10.2026): уровень «Тряска и вспышки» зрителя в походе (`RunRecord.fx`: в начале похода, в последней записи, сколько раз меняли на шестерёнке карты; настройка вида, не Params). Доли — от походов с данными; «выключили» — уровень 0 % в конце. Записи до 15.10.2026 поля не имеют.';
+function fxRows(runs: readonly RunRecord[]): (string | number)[][] {
+  const s = fxStats(runs), cell = (n: number) => `${n} (${pct(n, s.runs)})`;
+  return s.runs ? [[s.runs, cell(s.end[100]), cell(s.end[50]), cell(s.end[0]), cell(s.changed), cell(s.startedLow)]] : [];
+}
+
 // ---- The prologue «Опушка» (PrologueRecord, from 13.10.2026) ----
 
 /** One room of the prologue over some playthroughs. Times — medians over the playthroughs that passed the room. */
@@ -1031,6 +1049,8 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Испытание', '', ASH_LEGEND, '', ashStats(runs, runFights).length ? table(ASH_HEAD, ashRows(runs, runFights)) : '_походов нет_', '',
     // Task 26 «Расписание леса»: new living elements a fight by the viewer's run number.
     '## Расписание', '', SCHEDULE_LEGEND, '', table(SCHEDULE_HEAD, scheduleRows(runs)), '',
+    // Task 35, С1: the level of «Тряска и вспышки».
+    '## Тряска и вспышки', '', FX_LEGEND, '', table(FX_HEAD, fxRows(runs)), '',
     '## Бои походов', '', table(FIGHT_HEAD, fightRows(runFights)), '',
     '## Арены', '', 'Бои походов и песочницы вместе. ' + LOOP_LEGEND, '', arenasSection(fights), '',
     '## Враги', '', damageSections(fights), '',

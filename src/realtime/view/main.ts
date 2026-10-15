@@ -641,7 +641,9 @@ async function boot(): Promise<void> {
   renderer.showLinkDepth = loadLinkDepth();
   // Task 35, С1 «Тряска и вспышки»: the viewer's level (view/juice.ts) — the gear of the run map and the sandbox panel's «Вид».
   renderer.fxLevel = loadFx();
-  const setFx = (level: FxLevel): void => { renderer.fxLevel = level; saveFx(level); };
+  recorder?.fxLevel(null, renderer.fxLevel);
+  // The telemetry keeps the level in the open run's record (С1).
+  const setFx = (level: FxLevel): void => { renderer.fxLevel = level; saveFx(level); recorder?.fxLevel(runView?.state ?? null, level); };
   panel.addViewChoice('Тряска и вспышки', 'fx-level', FX_LEVELS.map(l => ({ value: String(l), label: `${l} %` })), String(renderer.fxLevel), value => setFx(fxLevelOf(value)),
     'Тряска камеры и вспышки на весь экран. При 0 % их нет. Вспышек не больше трёх в секунду.');
   const setLinkDepth = (on: boolean): void => { renderer.showLinkDepth = on; saveLinkDepth(on); };
@@ -750,6 +752,8 @@ async function boot(): Promise<void> {
     // «Обучение»: the toggle «Подсказки» and the button «Обучение» (the prologue again) on the gear; the screen lines read the same memory.
     ...sandbox ? {} : { hints: { store: hints.store, on: () => hintsOn, set(on: boolean) { hintsOn = on; saveHintsOn(on); if (!on) labelLayer.hideAll(); }, startPrologue: () => startPrologue('gear') } },
   }, fixedSeed);
+  // Task 35, С1: a run resumed from the save keeps the level in its record too.
+  recorder?.fxLevel(runView?.state ?? null, renderer.fxLevel);
   if (newSeen && runView) renderer.newSeen = { store: newSeen, live: () => runView.arenaOpen, on: () => newOnMap, meet: id => recorder?.firstMeet(runView.state, id) };
   /**
    * The finished run arena goes into the run in the frame it ended (HP, kills, damage, time) and is saved at once: a

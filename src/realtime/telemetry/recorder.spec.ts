@@ -458,6 +458,30 @@ async function main(): Promise<void> {
     rec.dispose();
   });
 
+  await check('task 35 С1: the level of «Тряска и вспышки» in the run record — at the start, changes on the gear, nothing after the end, junk ignored', async () => {
+    const local = fake(), params = rtRunParams(quiet());
+    const rec = new RtRecorder({ sandbox: false, paramsStorage: 'p', params, observer: createFightObserver, local, sessionStore: sessionFake(), channel: null, sinkPollMs: 0, buffer: { storage: local, journals: memoryJournalStore() } });
+    const latest = async (): Promise<RunRecord> => { await new Promise(r => setTimeout(r, 10)); return (await rec.buffer.all()).filter((r): r is RunRecord => r.kind === 'run' && r.seed === 7035).pop()!; };
+    // The page starts at 50 % (no run yet): only remembered.
+    rec.fxLevel(null, 50);
+    assert((await rec.buffer.all()).length === 0, 'no record before a run');
+    const run = createRtRun(7035, { gift: 'mini', ...RT_TASK17_OFF });
+    rec.runStarted(null, run);
+    assert(JSON.stringify((await latest()).fx) === JSON.stringify({ start: 50, end: 50, changes: 0 }), `at the start: ${JSON.stringify((await latest()).fx)}`);
+    rec.fxLevel(run, 0); rec.fxLevel(run, 0); rec.fxLevel(run, 37);
+    const off = await latest();
+    assert(JSON.stringify(off.fx) === JSON.stringify({ start: 50, end: 0, changes: 1 }) && checkRecord(off) === null, `turned off once (a repeat and junk ignored): ${JSON.stringify(off.fx)}`);
+    rec.fxLevel({ ...run, result: { outcome: 'victory', nodeId: 'x' } } as RtRunState, 100);
+    assert(JSON.stringify((await latest()).fx) === JSON.stringify({ start: 50, end: 0, changes: 1 }), 'an ended run keeps its level');
+    // The next run starts with the level last reported.
+    const next = createRtRun(7036, { gift: 'mini', ...RT_TASK17_OFF });
+    rec.runStarted(run, next);
+    await new Promise(r => setTimeout(r, 10));
+    const second = (await rec.buffer.all()).filter((r): r is RunRecord => r.kind === 'run' && r.seed === 7036).pop()!;
+    assert(JSON.stringify(second.fx) === JSON.stringify({ start: 100, end: 100, changes: 0 }), `the next run: ${JSON.stringify(second.fx)}`);
+    rec.dispose();
+  });
+
   await check('run consumables: gained / used / left from a gift step, a won fight with a pickup and a lost fight', async () => {
     const local = fake(), params = rtRunParams(quiet());
     const rec = new RtRecorder({ sandbox: false, paramsStorage: 'p', params, observer: createFightObserver, local, sessionStore: sessionFake(), channel: null, sinkPollMs: 0, buffer: { storage: local, journals: memoryJournalStore() } });

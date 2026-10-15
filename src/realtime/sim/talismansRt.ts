@@ -130,7 +130,9 @@ function chainCycle(world: World, every: number, armed = false): BuildProgress {
 
 // With the chain window — «Острие»: the 3rd enemy link of the chain +2 power before its hit (only the 3rd).
 
-const fifthLinkFires = (w: World, link: LinkContext): boolean => (counterWindowOn(w) ? link.index === EDGE_LINK : nth(link.index, FIFTH_LINK_EVERY));
+/** «Пятое звено» fires on the `index`-th enemy link of the dash (1, 2, …) — the view's highlight reads the same rule (task 35, С4). */
+export const fifthLinkFiresAt = (w: World, index: number): boolean => (counterWindowOn(w) ? index === EDGE_LINK : nth(index, FIFTH_LINK_EVERY));
+const fifthLinkFires = (w: World, link: LinkContext): boolean => fifthLinkFiresAt(w, link.index);
 
 registerBuildModule({
   id: COUNTER_TALISMANS.fifthLink,
