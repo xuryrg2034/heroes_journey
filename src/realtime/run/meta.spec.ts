@@ -14,7 +14,7 @@
  */
 import { META_REFERENCE } from './meta.reference';
 import { REFERENCE_WALKS, seedOf, walkRun, type WalkOptions } from './metaWalk.testkit';
-import { createRtRun, parseRtRun, rtNode, rtOathSlots, serializeRtRun, type RtRunState } from './rtRun';
+import { createRtRun, parseRtRun, rtNode, rtFormPool, rtFormSlotField, rtOathSlots, serializeRtRun, type RtRunState } from './rtRun';
 import { createRtProfileStore, rtIsNewOffer, type RunStorage } from './rtRunStorage';
 import { RT_META_LOCKABLE, RT_META_PACKS, RT_META_THRESHOLDS } from './metaCatalog';
 import { rtRunDepth, RT_XP_BATTLE, RT_XP_ELITE, RT_XP_FEAT, RT_XP_FINAL, RT_XP_JAILER, RT_XP_VICTORY } from './rtMeta';
@@ -142,7 +142,11 @@ check('locked items never appear in any pool of a meta run (40 seeds, every sour
         if (p?.kind === 'shop') hit('shop');
         if (p?.kind === 'event') hit('event');
         if (p?.kind === 'casino') hit('circle');
-        if (p?.kind === 'talisman' && p.source === 'hard') assert(rtTalisman(p.options[0])?.rarity === 'rare', `seed ${k}: the hard offer's rare place (${p.options})`);
+        // Task 30: a run with forms puts a form of the other field in the rare place while one is open (`rtFormSlotField`).
+        // Task 30: … unless no form of that field is left outside those rerolled away here (a first run has one simple form a field).
+        const field = rtFormSlotField(run), formLeft = !!field && p?.kind === 'talisman' && rtFormPool(run, field).some(id => !(p.rerolled ?? []).includes(id));
+        if (p?.kind === 'talisman' && p.source === 'hard') assert(rtTalisman(p.options[0])?.rarity === (formLeft ? 'form' : 'rare'), `seed ${k}: the hard offer's rare place (${p.options})`);
+        if (p?.kind === 'talisman' && p.source === 'form') assert(p.options.length >= 1 && p.options.length <= 4, `seed ${k}: the form screen (${p.options})`);
         if (p?.kind === 'talisman' && p.source === 'oath' && !p.rerolls) {
           // The oath and relic screen shows as many as are left (3 at the start), never a locked one, never fewer than it can.
           const pool = { taken: run.talismans, gone: [...run.talismansGone, ...ALL] }, left = RT_TALISMANS.filter(def => (def.rarity === 'oath' || def.rarity === 'relic') && rtTalismanEligible(def.id, pool)).length;
@@ -150,13 +154,13 @@ check('locked items never appear in any pool of a meta run (40 seeds, every sour
         }
         assert(parseRtRun(serializeRtRun(run)) !== null, `seed ${k}: the meta run's save reads back`);
       },
-    }, { schedule: k % 4 === 0 ? [] : undefined });
+    }, { schedule: k % 4 === 0 ? [] : undefined, ...k % 2 ? { forms: false } : {} }); // task 30: forms on even seeds (the form screen, «Близнецы»), the hammer screen on odd
     const walk = walkRun(options);
     const leak = [...walk.offered].filter(id => ALL.includes(id));
     assert(!leak.length, `seed ${k}: locked offered — ${leak.join(', ')}`);
     for (const id of walkRun({ ...options, create: { ...options.create, locked: undefined }, each: undefined }).offered) if (ALL.includes(id)) unlockedOffers.add(id);
   }
-  for (const source of ['talisman:hard', 'talisman:chest', 'talisman:feat', 'talisman:event', 'talisman:oath', 'hammer', 'gift', 'shop', 'event', 'circle']) assert((sources.get(source) ?? 0) > 0, `the walk saw the source ${source}`);
+  for (const source of ['talisman:hard', 'talisman:chest', 'talisman:feat', 'talisman:event', 'talisman:oath', 'talisman:form', 'hammer', 'gift', 'shop', 'event', 'circle']) assert((sources.get(source) ?? 0) > 0, `the walk saw the source ${source}`);
   assert(unlockedOffers.size >= 8, `without the flag the same walks offer locked items (${[...unlockedOffers].join(', ')})`);
   console.log(`  sources seen: ${[...sources].map(([name, n]) => `${name} ${n}`).join(', ')}; without the flag offered ${unlockedOffers.size} of ${ALL.length} lockable`);
 });

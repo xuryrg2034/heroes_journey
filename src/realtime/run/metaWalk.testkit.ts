@@ -32,8 +32,11 @@ export interface WalkOptions {
   sever?: boolean;
   /** The goblins' circle may stand (`goblinCircle`; default: k % 3 === 1). */
   circle?: boolean;
-  /** The free reroll of the Jailer's screens (task 37 «Правка») is used on this screen when offered; absent — not used. */
-  jailerReroll?: 'hammer' | 'oath';
+  /**
+   * The free reroll of the Jailer's screens (task 37 «Правка») is used on this screen when offered; absent — not used. Task 30: `form`
+   * — the form screen of a run with forms (its first Jailer's screen instead of the hammer screen).
+   */
+  jailerReroll?: 'hammer' | 'oath' | 'form';
   /** Resources of each won fight (the loot fed back); absent — 1–3 of one kind by the step. */
   loot?: number;
   /** The option taken at an event (`null` — the walk's own pick). */
@@ -98,7 +101,7 @@ export function walkRun(options: WalkOptions): Walk {
       }
       case 'talisman': {
         const reroll = rtRerollView(run);
-        if (reroll?.available && (reroll.free ? options.jailerReroll === 'oath' : step % 3 === 0)) { run = seen(ok(rtRerollTalismans(run), 'reroll')); break; }
+        if (reroll?.available && (reroll.free ? options.jailerReroll === (pending.source === 'form' ? 'form' : 'oath') : step % 3 === 0)) { run = seen(ok(rtRerollTalismans(run), 'reroll')); break; }
         const options2 = (run.pending as typeof pending).options, at = step % (options2.length + 1);
         run = seen(ok(rtChooseTalisman(run, at < options2.length ? options2[at] : null), 'talisman'));
         break;
@@ -145,5 +148,6 @@ export function walkRun(options: WalkOptions): Walk {
 /** The walks of the byte-for-byte reference (meta.reference.ts): 24 seeds, both gifts, feats on every third, the circle on some. */
 export const REFERENCE_WALKS = (): WalkOptions[] => Array.from({ length: 24 }, (_, i) => {
   const k = i + 1;
-  return { k, create: { gift: k % 2 ? 'full' : 'mini', ...k % 3 === 0 ? { feats: true } : {}, ...k % 4 === 0 ? { schedule: [] } : {} }, ...k % 5 === 0 ? { loseAt: (_run: RtRunState, type: string) => type === 'checkpoint' } : {} };
+  // Task 30: the reference predates the forms — its runs are created without them (`forms: false`, as a save before it).
+  return { k, create: { gift: k % 2 ? 'full' : 'mini', ...k % 3 === 0 ? { feats: true } : {}, ...k % 4 === 0 ? { schedule: [] } : {}, forms: false }, ...k % 5 === 0 ? { loseAt: (_run: RtRunState, type: string) => type === 'checkpoint' } : {} };
 });

@@ -27,7 +27,7 @@ import {
 } from './rtRun';
 import { runRow } from './arenaPools';
 import { stockTotal } from '../forest/merchant';
-import { RT_TALISMANS } from './rtTalismans';
+import { RT_TALISMANS, rtTalismanCatalog } from './rtTalismans';
 import { createRtProfileStore, RT_PROFILE_STORAGE_KEY, type RunStorage } from './rtRunStorage';
 import { defaultParams } from '../sim/params';
 import { featProgress, FEAT_KINDS, type FeatKind } from '../sim/feat';
@@ -352,7 +352,8 @@ await check('a talisman reward with too few talismans: resources by the row inst
   const { run } = findBattle(feat => !!feat && 'talisman' in feat.reward);
   const node = openNode(run)!, row = runRow(node.row);
   // By hand: every talisman but one out of the pool (the real walk does not empty it).
-  const short = (r: RtRunState): RtRunState => ({ ...r, talismansGone: RT_TALISMANS.map(t => t.id).filter(id => id !== RT_TALISMANS[0].id && !r.talismans.includes(id)) });
+  // Task 30: the run's catalogue (with forms — «Близнецы» too).
+  const short = (r: RtRunState): RtRunState => ({ ...r, talismansGone: rtTalismanCatalog({ taken: [], gone: [], forms: !!r.forms }).map(t => t.id).filter(id => id !== RT_TALISMANS[0].id && !r.talismans.includes(id)) });
   assert(same(rtFeatOf(short(run), node)!.reward, { resources: rtFeatResources(row) }), 'the card shows resources when the pool is short');
   const done = winDone(short(run)), before = materials(short(run));
   const step = done.step;

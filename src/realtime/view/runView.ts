@@ -19,12 +19,13 @@ import {
   rtChooseTalisman, rtRerollTalismans, rtRerollView, rtHammerRerollView, rtRerollHammers, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtFoughtJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
   rtOathPreview, rtOathStakeOn, rtArenaRules, RT_SECOND_WIND_LAST_ROW, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
   rtCasinoView, rtCasinoPlay, rtCasinoLeave, rtCasinoNode, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE,
-  healOffer, healOnMap, healVisible, rtResourceTotal, rtNodeFeat, RT_HEAL_MAP_GAIN, rtAsh, rtAshOptions, rtAshTitle, rtRunWon, isRtAshLevel, rtScheduleMet, RT_JAILER_SEVERED_SLOTS,
+  healOffer, healOnMap, healVisible, rtResourceTotal, rtNodeFeat, RT_HEAL_MAP_GAIN, rtAsh, rtAshOptions, rtAshTitle, rtRunWon, isRtAshLevel, rtScheduleMet, RT_JAILER_SEVERED_SLOTS, rtFormReplaces, rtFormSlotField,
   type RtArenaOutcome, type RtArenaRules, type RtCasinoTable, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
 import { GIFT_HP_PRICE, GIFT_MAX_HP_PRICE } from '../forest/runGift';
-import { RT_RARITY_NAME, rtHammer, rtTalisman, rtTalismanText } from '../run/rtTalismans';
+import { RT_RARITY_NAME, rtHammer, rtTalisman, rtTalismanShown, rtTalismanText } from '../run/rtTalismans';
+import { FORM_FIELD_TITLES } from '../sim/buildIds';
 import { createRtProfileStore, createRtRunStore } from '../run/rtRunStorage';
 import { rtRunEndLines } from '../run/rtRunEnd';
 import type { HeroStart } from '../sim/world';
@@ -233,31 +234,40 @@ const STATUS_LABEL = { visited: 'Пройден', current: 'Текущий', ope
  * What the node card says about the node (the rules of this run). An ordinary battle and the breakthrough say nothing here (design
  * 13.10.2026): the card's head already says «Бой · ряд похода N» and its lines the arena.
  */
-const nodeHint = (node: ForestMapNode, run: Pick<RtRunState, 'jailer'>): string | undefined => {
+const nodeHint = (node: ForestMapNode, run: Pick<RtRunState, 'jailer' | 'forms' | 'talismans'>): string | undefined => {
+  // Task 30: a run with forms — the form of the other field in the rare place of «Застава» (`rtFormSlotField`).
+  const formField = rtFormSlotField(run);
   switch (node.type) {
     case 'find': return 'Находка: один из трёх расходников.';
     case 'rest': return `Лечение +${rtHp(FOREST_REST_HEAL)} HP или крафт: 2 ресурса одного вида — расходник.`;
     case 'shop': return `Расходники, лечение и «Закалка» за ресурсы крафта.`;
-    case 'hard': return `Трудный бой: арена «Застава». Победа: +${rtHp(FOREST_HARD_HEAL)} HP и талисман на выбор из трёх (один всегда редкий).`;
+    case 'hard': return formField ? `Трудный бой: арена «Застава». Победа: +${rtHp(FOREST_HARD_HEAL)} HP и на выбор из трёх: форма поля «${FORM_FIELD_TITLES[formField]}» и талисманы.`
+      : `Трудный бой: арена «Застава». Победа: +${rtHp(FOREST_HARD_HEAL)} HP и талисман на выбор из трёх (один всегда редкий).`;
+    // Task 30: a run with forms offers a form on the Jailer's first screen (the severed weight — 1 of 4 there).
+    case 'checkpoint': if (run.forms) return 'Тюремщик: бой с боссом. Победа: форма на выбор (гиря отрублена — 1 из 4), затем клятва или реликвия.';
     // Task 28: a run with the Jailer's fight (`RtRunState.jailer`); a run saved before it plays an ordinary arena of the row there.
-    case 'checkpoint': return run.jailer ? 'Тюремщик: бой с боссом. Победа: молот на выбор, затем клятва или реликвия (гиря отрублена — 1 из 4).'
+      return run.jailer ? 'Тюремщик: бой с боссом. Победа: молот на выбор, затем клятва или реликвия (гиря отрублена — 1 из 4).'
       : 'Тюремщик: обычная арена своего ряда. Победа: молот на выбор, затем клятва или реликвия.';
     case 'boss': return 'Последний рубеж: финальная арена. Победа завершает поход.';
     default: return undefined;
   }
 };
 
-const talismanName = (id: string): string => rtTalisman(id)?.name ?? id;
+/** Task 30: `run` with forms names the counters by their chain window («Острие», «Улов»; `rtTalismanShown`). */
+const talismanName = (id: string, run?: Pick<RtRunState, 'forms'> | null): string => rtTalismanShown(id, !!run?.forms)?.name ?? id;
 /**
  * Phase B: the lines of a talisman's card — a relic its plus and its price, each on a line of its own and as plain
- * (section 5: «цена видна так же явно, как плюс»); a talisman of a rarity — the rarity and the rule.
+ * (section 5: «цена видна так же явно, как плюс»); a talisman of a rarity — the rarity and the rule. Task 30: a form — its field;
+ * with `run` (forms) the counters' chain window and the form the option replaces («заменит …», `rtFormReplaces`).
  */
-function talismanCardLines(id: string): string {
-  const def = rtTalisman(id);
+function talismanCardLines(id: string, run?: Pick<RtRunState, 'forms' | 'talismans'> | null): string {
+  const def = rtTalismanShown(id, !!run?.forms);
   if (!def) return '';
   if (def.price) return `<small>Плюс: ${escapeHtml(def.effect)}</small><small class="rt-run-reason rt-run-price" data-testid="price-${id}">Цена: ${escapeHtml(def.price)}</small>`;
-  const rarity = def.rarity === 'common' || def.rarity === 'uncommon' || def.rarity === 'rare' ? `${RT_RARITY_NAME[def.rarity]} · ` : '';
-  return `<small>${escapeHtml(rarity + def.effect)}</small>`;
+  const rarity = def.rarity === 'common' || def.rarity === 'uncommon' || def.rarity === 'rare' ? `${RT_RARITY_NAME[def.rarity]} · `
+    : def.rarity === 'form' && def.field ? `форма · ${FORM_FIELD_TITLES[def.field].toLowerCase()} · ` : '';
+  const replaces = run ? rtFormReplaces(run, id) : null;
+  return `<small>${escapeHtml(rarity + def.effect)}</small>${replaces ? `<small class="rt-run-reason" data-testid="replaces-${id}">Заменит «${escapeHtml(talismanName(replaces, run))}»</small>` : ''}`;
 }
 
 function giftText(option: GiftOption): string {
@@ -270,7 +280,7 @@ function giftText(option: GiftOption): string {
     case 'calm': return `Тихий лес: ${option.battles} боя без злости до целей`;
     case 'deal': {
       const price = option.price === 'hp' ? `−${rtHp(GIFT_HP_PRICE)} HP сейчас` : option.price === 'max-hp' ? `−${rtHp(GIFT_MAX_HP_PRICE)} к максимуму HP` : 'следующий привал не лечит';
-      const reward = option.reward.kind === 'pick-talisman' ? `талисман на выбор: ${option.reward.talismans.map(talismanName).join(' или ')}` : `талисман «${option.reward.talisman ? talismanName(option.reward.talisman) : '—'}»`;
+      const reward = option.reward.kind === 'pick-talisman' ? `талисман на выбор: ${option.reward.talismans.map(id => talismanName(id)).join(' или ')}` : `талисман «${option.reward.talisman ? talismanName(option.reward.talisman) : '—'}»`;
       return `${reward}; цена: ${price}`;
     }
     case 'oath': return `Клятва: «${option.oath ? talismanName(option.oath) : '—'}» — ${option.oath ? rtTalisman(option.oath)?.effect ?? '' : 'клятв не осталось'}`;
@@ -555,7 +565,9 @@ export class RunView {
       if (event.type === 'event-resolved' || event.type === 'event-attempt') parts.push(event.text);
       if (event.type === 'shop-bought' && event.purchase.good === 'heal') parts.push(`Лечение +${rtHp(1)} HP`);
       if (event.type === 'shop-bought' && event.purchase.good === 'harden') parts.push(`Закалка: +${rtHp(1)} к максимуму HP`);
-      if (event.type === 'talisman-taken') parts.push(`${rtTalisman(event.id)?.rarity === 'relic' ? 'Реликвия' : rtTalisman(event.id)?.rarity === 'oath' ? 'Клятва' : 'Талисман'} «${talismanName(event.id)}»`);
+      if (event.type === 'talisman-taken') parts.push(`${rtTalisman(event.id)?.rarity === 'relic' ? 'Реликвия' : rtTalisman(event.id)?.rarity === 'oath' ? 'Клятва' : rtTalisman(event.id)?.rarity === 'form' ? 'Форма' : 'Талисман'} «${talismanName(event.id, this.run)}»`);
+      // Task 30 «одна форма на поле»: the form of the same field left.
+      if (event.type === 'form-replaced') parts.push(`«${talismanName(event.id, this.run)}» заменена`);
       if (event.type === 'hammer-taken') parts.push(`Молот «${rtHammer(event.id)?.name ?? event.id}»`);
       if (event.type === 'ward-crumbled') parts.push('Пепельный оберег рассыпался');
       if (event.type === 'casino-played') parts.push(event.text);
@@ -881,7 +893,7 @@ export class RunView {
     const hammer = run.hammer ? rtHammer(run.hammer) : undefined;
     const talismans = [
       ...hammer ? [`<span data-testid="run-hammer-slot" title="Молот: ${escapeHtml(hammer.effect)}">⚒ ${escapeHtml(hammer.name)}</span>`] : [],
-      ...run.talismans.map(id => `<span title="${escapeHtml(rtTalismanText(id))}"${rtTalisman(id)?.rarity === 'relic' ? ` data-testid="run-relic-${id}"` : ''}>${rtTalisman(id)?.rarity === 'relic' ? '◆ ' : ''}${escapeHtml(talismanName(id))}${id === 'ash-ward' && run.wardSpent ? ' (рассыпался)' : ''}</span>`),
+      ...run.talismans.map(id => `<span title="${escapeHtml(rtTalismanText(id, !!run.forms))}"${rtTalisman(id)?.rarity === 'relic' ? ` data-testid="run-relic-${id}"` : ''}>${rtTalisman(id)?.rarity === 'relic' ? '◆ ' : ''}${escapeHtml(talismanName(id, run))}${id === 'ash-ward' && run.wardSpent ? ' (рассыпался)' : ''}</span>`),
     ].join(', ');
     const reset = this.confirmReset
       ? `<span class="rt-run-confirm">Бросить поход? <button data-action="new-run" data-testid="run-reset-confirm">Да, новый</button><button data-action="cancel-reset">Нет</button></span>`
@@ -1154,11 +1166,14 @@ export class RunView {
       // B6 К7 «Проклятый сундук»: the chest's own screen after the «Застава» talismans (its card `run-chest`).
       const chest = pending.source === 'chest', feat = pending.source === 'feat';
       // Task 16: the feat's talisman choice, the last screen of the won fight (its card `run-feat-talisman`).
-      const title = pending.source === 'oath' ? 'Клятва или реликвия на выбор' : chest ? 'Проклятый сундук' : feat ? 'Подвиг: талисман на выбор' : 'Талисман на выбор';
+      // Task 30: the Jailer's form screen of a run with forms (its card `run-form`).
+      const formScreen = pending.source === 'form';
+      const title = pending.source === 'oath' ? 'Клятва или реликвия на выбор' : chest ? 'Проклятый сундук' : feat ? 'Подвиг: талисман на выбор' : formScreen ? 'Форма на выбор' : 'Талисман на выбор';
       const fresh = this.newOffers(`talisman:${pending.nodeId}:${pending.source ?? ''}:${pending.options.join(',')}`, pending.options);
-      const options = pending.options.map(option => `<button class="rt-run-choice" data-action="talisman" data-option="${option}" data-testid="talisman-${option}"><b>${rtTalisman(option)?.rarity === 'relic' ? '◆ ' : ''}${escapeHtml(talismanName(option))}${newSign(fresh, option)}</b>${talismanCardLines(option)}</button>`).join('');
+      const options = pending.options.map(option => `<button class="rt-run-choice" data-action="talisman" data-option="${option}" data-testid="talisman-${option}"><b>${rtTalisman(option)?.rarity === 'relic' ? '◆ ' : ''}${escapeHtml(talismanName(option, run))}${newSign(fresh, option)}</b>${talismanCardLines(option, run)}</button>`).join('');
       // Task 28: a severed weight gave the Jailer's screen a fourth card (`rtOathSlots`) — the note says why.
-      const note = pending.source === 'oath' ? `${pending.options.length >= RT_JAILER_SEVERED_SLOTS ? 'Гиря отрублена — на выбор четыре. ' : ''}У клятвы и реликвии есть цена. Не взятые уходят из пула до конца похода.`
+      const note = formScreen ? `${pending.options.length >= RT_JAILER_SEVERED_SLOTS ? 'Гиря отрублена — на выбор четыре. ' : ''}Форма меняет цепь на всех следующих аренах. Одна форма на поле. Затем — клятва или реликвия.`
+        : pending.source === 'oath' ? `${pending.options.length >= RT_JAILER_SEVERED_SLOTS ? 'Гиря отрублена — на выбор четыре. ' : ''}У клятвы и реликвии есть цена. Не взятые уходят из пула до конца похода.`
         : chest ? 'Награда за сундук: талисман на выбор. Не взятые уходят из пула до конца похода.'
         : feat ? 'Награда за подвиг: талисман на выбор. Не взятые уходят из пула до конца похода.' : 'Не взятые уходят из пула до конца похода.';
       // B5 К10 «Переброс»: «Застава», an event's reward and the chest (not the Jailer); the price grows on the screen, off with its reason.
@@ -1168,7 +1183,7 @@ export class RunView {
         + `<p class="rt-run-note rt-run-reroll-note${reroll.available ? '' : ' rt-run-reason'}" data-testid="talisman-reroll-note">${reroll.available
           ? reroll.free ? 'Правка Ерофея. Показанные вернутся в пул, но на этом экране не выпадут.' : `Ресурсов: ${reroll.total}. Показанные вернутся в пул, но на этом экране не выпадут.` : escapeHtml(reroll.reason)}</p>` : '';
       return card(`<h2>${title}</h2><p>${pending.options.length ? note : 'Талисманов не осталось.'}</p><div class="rt-run-choices">${options}</div>`
-        + rerollHtml + `<button class="rt-other" data-action="talisman" data-option="" data-testid="talisman-refuse">Отказаться</button>`, chest ? 'run-chest' : feat ? 'run-feat-talisman' : 'run-talisman');
+        + rerollHtml + `<button class="rt-other" data-action="talisman" data-option="" data-testid="talisman-refuse">Отказаться</button>`, chest ? 'run-chest' : feat ? 'run-feat-talisman' : formScreen ? 'run-form' : 'run-talisman');
     }
     if (pending.kind === 'find') {
       const options = pending.options.map(item => `<button class="rt-run-choice" data-action="find" data-item="${item}" data-testid="find-${item}"><b>${escapeHtml(ITEM_TITLES[item])}</b>`
@@ -1178,7 +1193,9 @@ export class RunView {
     if (pending.kind === 'shop') {
       const view = rtShopView(run)!;
       const goods = view.goods.map(good => `<button class="rt-run-choice" data-action="shop-buy" data-good="${good.id}" data-testid="shop-${good.id}" ${good.available ? '' : 'disabled'}>`
-        + `<b>${good.label} — ${good.price === 0 ? 'даром' : `${good.price} рес.`}</b><small>${escapeHtml(good.text)}${good.reason ? ` · ${escapeHtml(good.reason)}` : ''}</small></button>`).join('');
+        + `<b>${good.label} — ${good.price === 0 ? 'даром' : `${good.price} рес.`}</b><small>${escapeHtml(good.text)}${good.reason ? ` · ${escapeHtml(good.reason)}` : ''}</small>`
+        // Task 30 «одна форма на поле»: the form of the same field the purchase replaces.
+        + `${good.replaces ? `<small class="rt-run-reason" data-testid="replaces-${good.replaces}">Заменит «${escapeHtml(talismanName(good.replaces, run))}»</small>` : ''}</button>`).join('');
       // Task 15: the header has one number; the merchant names the kinds (he takes from the most numerous).
       const kinds = resourceKindsText(run.materials);
       return card(`<h2>Торговец</h2><p data-testid="shop-resources">Ресурсов: ${view.total}${kinds ? ` (${kinds})` : ''}.</p><div class="rt-run-choices">${goods}</div>`

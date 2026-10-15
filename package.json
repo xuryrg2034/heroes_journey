@@ -89,6 +89,7 @@
     "test:realtime-jailer-run": "tsx src/realtime/run/jailerRun.spec.ts",
     "test:realtime-meta": "tsx src/realtime/run/meta.spec.ts",
     "test:realtime-hearth": "tsx src/realtime/run/hearth.spec.ts",
+    "test:realtime-forms-run": "tsx src/realtime/run/formsRun.spec.ts",
     "test:realtime-prologue-bust": "tsx src/realtime/telemetry/prologueBust.spec.ts",
     "test:realtime-schedule": "tsx src/realtime/run/schedule.spec.ts",
     "test:realtime-feats": "tsx src/realtime/run/feats.spec.ts",

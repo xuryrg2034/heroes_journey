@@ -266,8 +266,8 @@ await check('open on the map and on every battle card before «В бой» (batt
       }
       if (p.kind === 'battle') {
         run = ok(resolveArena(run, playFight(run, { chains: [6, 6, 6, 6], k }).outcome), 'fight');
-        // The screens after a fight (talismans, the hammer, the chest…): closed.
-        if (run.pending && run.pending.kind !== 'battle' && !run.result) { closedAt(run); closed.add(`after:${run.pending.kind}`); }
+        // The screens after a fight (talismans, the chest…; task 30: the Jailer's form screen of a new run — `after:form`): closed.
+        if (run.pending && run.pending.kind !== 'battle' && !run.result) { closedAt(run); closed.add(`after:${run.pending.kind === 'talisman' && run.pending.source === 'form' ? 'form' : run.pending.kind}`); }
         continue;
       }
       if (p.kind !== 'event' || !closed.has('event')) { closedAt(run); closed.add(p.kind); }
@@ -277,7 +277,7 @@ await check('open on the map and on every battle card before «В бой» (batt
     if (run.result) { closedAt(run); closed.add(`over:${run.result.outcome}`); }
   }
   for (const t of ['battle', 'hard', 'breakthrough', 'checkpoint', 'boss', 'event-battle']) assert(open.has(t), `a ${t} card was met (${[...open]})`);
-  for (const t of ['gift', 'event', 'shop', 'rest', 'find', 'after:talisman', 'after:hammer', 'over:victory']) assert(closed.has(t), `${t} was met closed (${[...closed]})`);
+  for (const t of ['gift', 'event', 'shop', 'rest', 'find', 'after:talisman', 'after:form', 'over:victory']) assert(closed.has(t), `${t} was met closed (${[...closed]})`);
   console.log(`   cards open: ${[...open].join(', ')}; closed: ${[...closed].join(', ')}`);
 });
 

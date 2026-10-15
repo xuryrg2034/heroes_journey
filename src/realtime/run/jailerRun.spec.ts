@@ -194,7 +194,8 @@ function jailerFight(run: RtRunState, k: number, severed: boolean): { sim: Simul
 
 check('a real Jailer fight of a new run (3 seeds): the rules on; the weight severed by a chain drops loot; the chain that kills the core leaves no enemy, the door opens; the won fight with the weight severed offers 1 of 4 (the 1 of 3 of a fight without it, and one more); the save reads back, a record without its sever does not match the screen; the fight replays to its hash', () => {
   for (const k of [1, 2, 3]) {
-    const run = toJailer(createRtRun(seedOf(k), { gift: 'mini' }), k).run;
+    // Task 30: the hammer screen and the oath screen's 1 of 4 — a run without forms (forms.spec.ts: the form screen's 1 of 4).
+    const run = toJailer(createRtRun(seedOf(k), { gift: 'mini', forms: false }), k).run;
     const cut = jailerFight(run, k, true), whole = jailerFight(run, k, false);
     const w = cut.sim.world;
     assert(w.params.bossFrame && w.params.bossClears && w.params.bossPartLoot, `seed ${k}: the rules of the run's Jailer fight`);

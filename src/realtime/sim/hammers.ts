@@ -31,10 +31,10 @@
  *   (no more hits). No +1 per enemy: those are not links. The highlight shows the way back and the hits before the release
  *   (chain.ts `planChain(...).back`, the same functions: returnRun.ts, `returnStrike`; with `Params.returnShadowEnd` the plan
  *   sees the end of the same dash first — «Ударная волна» kills and wounds before the run). With `Params.returnFixed` (task 29;
- *   the sandbox, not a run until task 30) the release fixes the planned route and bodies, as the pierce's: the run goes from
+ *   the sandbox; task 30: a run with the flag `forms`, run/rtRun.ts `RT_FORMS_PARAMS`) the release fixes the planned route and bodies, as the pierce's: the run goes from
  *   where the dash ended along the fixed route and strikes each fixed body when it passes the body's point, if it is still on
  *   the arena. Without the key the bodies are those near the path the hero really runs (moving enemies may differ from the
- *   highlight: a known defect of a run until task 30).
+ *   highlight: a known defect of a run without the flag `forms`).
  *
  * A dash that ends in the door (victory) has no end: no blast, no return (build.ts: `onChainEnd` is not called).
  */

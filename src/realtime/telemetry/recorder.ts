@@ -190,7 +190,8 @@ export function stepChoices(before: RtRunState | null, step: Extract<RtRunStep, 
       const taken = events.flatMap(e => (e.type === 'talisman-taken' ? [e.id as string] : []));
       // B6 К7: the chest's screen is a choice of its own on the same node (not merged with the «Застава» talismans).
       // Task 16: the feat's screen too (`feat`).
-      choice(pending.nodeId, pending.source === 'oath' ? 'oath' : pending.source === 'chest' ? CHEST_SOURCE : pending.source === 'feat' ? FEAT_SOURCE : 'talisman', pending.options.map(String), taken);
+      // Task 30: the Jailer's form screen (`form`) is a choice of its own, as the hammer screen was.
+      choice(pending.nodeId, pending.source === 'oath' ? 'oath' : pending.source === 'chest' ? CHEST_SOURCE : pending.source === 'feat' ? FEAT_SOURCE : pending.source === 'form' ? 'form' : 'talisman', pending.options.map(String), taken);
       break;
     }
     case 'die': {

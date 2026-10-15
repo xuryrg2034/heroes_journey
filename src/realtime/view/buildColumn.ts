@@ -101,7 +101,7 @@ export const FIRE_TEXT: Readonly<Record<string, string>> = {
 };
 
 /**
- * Task 29: the forms' rules (the hover card; sandbox only — the run's catalogue gets them in task 30). After the report
+ * Task 29: the forms' rules (the hover card; the sandbox, and since task 30 a run with forms). After the report
  * «Талисманы меняющие стиль игры» and the sim's modules (sim/forms.ts, frostPass.ts, chain.ts `loopOn`, pierce.ts `pierceOn`).
  */
 const FORM_RULES: Readonly<Record<string, string>> = {

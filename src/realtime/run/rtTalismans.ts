@@ -16,7 +16,7 @@
  * source, as before: the streams do not move.
  */
 import { mixSeed } from '../forest/items';
-import { COUNTER_TALISMANS as CT, HAMMER_IDS as HAMMER_LIST, RELICS as RL, type HammerId as Hammer } from '../sim/buildIds';
+import { COUNTER_TALISMANS as CT, FORM_FIELD, FORMS as FM, FROST_PASS, HAMMERS as HM, HAMMER_IDS as HAMMER_LIST, RELICS as RL, type FormField, type HammerId as Hammer } from '../sim/buildIds';
 import { rarityOfRoll, type TalismanPool } from '../forest/talismanOffers';
 import { isTalismanId, TALISMANS, type TalismanId, type TalismanRarity } from '../forest/talismans';
 import { rtHp } from './hpScale';
@@ -27,9 +27,15 @@ export type RtTalismanId = string;
  * Rarity of a real-time talisman: the turn-based ones and (phase B, Т3) `relic` — a relic with a price, offered with the
  * oaths by the Jailer's row; not an oath (`isRtOath`: no +2 energy at the start of an arena).
  */
-export type RtRarity = TalismanRarity | 'relic';
+export type RtRarity = TalismanRarity | 'relic' | 'form';
 /** `effect` — the rule (a relic: its plus); `price` — the price of a relic, shown as plainly as the plus (section 5). */
-export interface RtTalismanDef { id: RtTalismanId; name: string; rarity: RtRarity; effect: string; price?: string; excludes?: readonly string[] }
+export interface RtTalismanDef {
+  id: RtTalismanId; name: string; rarity: RtRarity; effect: string; price?: string; excludes?: readonly string[];
+  /** Task 30: the field a form bends (sim/buildIds.ts `FORM_FIELD`); absent — not a form. */
+  field?: FormField;
+  /** Task 30: a simple form — the only ones a first run offers (design decision 6). */
+  simple?: true;
+}
 /**
  * Phase B ids (docs/realtime-phase-b.md; sim/buildIds.ts — one place for the simulation and the run): counter talismans
  * (Т1), hammers (Т2, `Loadout.hammer`), relics (Т3, rarity `relic`). Their definitions and offers come with track Д4.
@@ -94,15 +100,74 @@ export const RT_RELICS: readonly RtTalismanDef[] = [
 /** Every talisman of the real-time run: the slice's, the counter talismans (Т1), the relics (Т3). */
 export const RT_TALISMANS: readonly RtTalismanDef[] = [...RT_SLICE_TALISMANS, ...RT_COUNTER_TALISMANS, ...RT_RELICS];
 
-const BY_ID = new Map(RT_TALISMANS.map(entry => [entry.id, entry]));
+/**
+ * Task 30 «Формы в походе» (docs/realtime-slice.md, section 8, «Формы в походе»): the run's forms of the fields «Путь» and
+ * «Конец» (rarity `form`) — the four hammers, «Наледь», «Прямая» and «Печать». A run with the flag `forms` offers them on the
+ * Jailer's screen (by the node's roll, `rtFormOffer`) and in the rare place of «Застава» (a form of the other field); the
+ * rarity draws never take them. `simple` — the forms of a first run (design decision 6). «Возврат» never with «Взрыв на конце»
+ * (`excludes`): the return run's shadow does not see the end blast (sim/build.ts `endShadow` — only «Ударная волна»), and the
+ * sandbox never had two hammers at once (one hammer slot).
+ */
+const form = (id: string, name: string, effect: string, extra: Partial<RtTalismanDef> = {}): RtTalismanDef =>
+  ({ id, name, rarity: 'form', effect, field: FORM_FIELD[id], ...extra });
+export const RT_FORMS: readonly RtTalismanDef[] = [
+  form(HM.fire, 'Огненный проход', 'Цепь из 3+ звеньев: путь прохода горит 2 с, огонь бьёт врагов на 1 при входе'),
+  form(HM.cut, 'Режущий проход', 'Проход бьёт на 1 врагов любого цвета в 0,5 от пути (кроме звеньев)'),
+  form(HM.return, 'Возврат', 'После прохода герой бежит к началу цепи вторым проходом с половиной силы; неуязвим на бегу', { excludes: [HM.blast] }),
+  form(FROST_PASS, 'Наледь', 'Путь прохода 2 с морозит врагов, которые в него входят', { simple: true }),
+  form(HM.blast, 'Взрыв на конце', 'Цепь из 3+ звеньев: в конце прохода — взрыв радиусом 1,5 вокруг последнего звена, удар 1 по всем врагам', { simple: true, excludes: [HM.return] }),
+  form(FM.pierce, 'Прямая', 'Прямой хвост цепи: проход идёт дальше по прямой и бьёт всех на пути', { simple: true }),
+  form(FM.seal, 'Печать', 'Замкни цепь в кольцо — удар по всем врагам внутри'),
+];
+/**
+ * Task 30 (design decision 5; user 15.10.2026): the openers in the run's common pool — only «Близнецы» (rarity uncommon, field
+ * «Звено»), with their price (`Params.twinsAlternate`, `twinsNoShift` in a run with the flag). «Чужак» and «Развилка» are not
+ * in the pool. Drawn only by a run with the flag `forms` (`rtTalismanCatalog`).
+ */
+export const RT_OPENERS: readonly RtTalismanDef[] = [
+  { id: FM.twins, name: 'Близнецы', rarity: 'uncommon', field: FORM_FIELD[FM.twins],
+    effect: 'Цвета разбиты на пары, пара — один цвет: 1 и 3, 2 и 4. Взяв второй цвет пары, цепь чередует цвета пары; «Смена цвета» не действует' },
+];
+/** A form of the run (`RT_FORMS`, rarity `form`). */
+export const isRtForm = (id: RtTalismanId): boolean => RT_FORMS.some(entry => entry.id === id);
+/**
+ * Task 30: the field of a run item in the sense «одна форма на поле» (sim/buildIds.ts `FORM_FIELD`: the forms, «Близнецы» and
+ * «Якорь у героя» of the field «Звено»); null — not a form.
+ */
+export const rtFormField = (id: RtTalismanId): FormField | null => FORM_FIELD[id] ?? null;
+
+/**
+ * Task 30: the counters' chain window (`Params.counterWindow`, on in a run with the flag `forms`): two new names and every rule
+ * new (task 29; the arena column shows the same rules, view/buildColumn.ts). A run without the flag — the catalogue's own.
+ */
+export const RT_COUNTER_WINDOW: Readonly<Record<string, { name?: string; effect: string }>> = {
+  [CT.fifthLink]: { name: 'Острие', effect: '3-е звено цепи получает +2 силы перед ударом' },
+  [CT.thirdChain]: { name: 'Улов', effect: 'Цепь, убившая 3+ врагов: следующий прыжок за 5 с бесплатен' },
+  [CT.prism]: { effect: 'Звенья после кристалла или смены цвета в цепи получают +1 силы' },
+  [CT.shockwave]: { effect: 'Цепь из 4+ звеньев: в конце прохода волна радиусом 2 вокруг героя бьёт на 1 всех врагов' },
+  [CT.finisher]: { effect: 'Последнее звено — самое крепкое в цепи и погибло: неуязвимость после цепи вдвое дольше' },
+  [CT.eliteHunter]: { effect: 'После элиты или крепкого звенья цепи получают +3 силы' },
+  [CT.longArm]: { effect: 'С 3-го звена цепи радиус звена R ×1,5' },
+  [CT.frostEdge]: { effect: 'Цепь из 3+ звеньев кончилась на выжившем: он замерзает на 2 с' },
+};
+
+const BY_ID = new Map([...RT_TALISMANS, ...RT_FORMS, ...RT_OPENERS].map(entry => [entry.id, entry]));
 export const rtTalisman = (id: RtTalismanId): RtTalismanDef | undefined => BY_ID.get(id);
 export const isRtTalisman = (value: unknown): value is RtTalismanId => typeof value === 'string' && BY_ID.has(value);
 export const isRtOath = (id: RtTalismanId): boolean => rtTalisman(id)?.rarity === 'oath';
 export const isRtRelic = (id: RtTalismanId): boolean => rtTalisman(id)?.rarity === 'relic';
 /** The rule of a talisman in one line; a relic — its plus and its price («цена: …»). */
-export const rtTalismanText = (id: RtTalismanId): string => { const def = rtTalisman(id); return def ? `${def.effect}${def.price ? `; цена: ${def.price}` : ''}` : ''; };
+export const rtTalismanText = (id: RtTalismanId, window = false): string => { const def = rtTalismanShown(id, window); return def ? `${def.effect}${def.price ? `; цена: ${def.price}` : ''}` : ''; };
 /** Names of the rarities (offer cards). */
-export const RT_RARITY_NAME: Readonly<Record<RtRarity, string>> = { common: 'обычный', uncommon: 'необычный', rare: 'редкий', oath: 'клятва', relic: 'реликвия' };
+export const RT_RARITY_NAME: Readonly<Record<RtRarity, string>> = { common: 'обычный', uncommon: 'необычный', rare: 'редкий', oath: 'клятва', relic: 'реликвия', form: 'форма' };
+/**
+ * Task 30: a talisman as a run shows it — with the counters' chain window (`window`: a run with the flag `forms`) a counter has
+ * its new name and rule (`RT_COUNTER_WINDOW`); otherwise the catalogue's definition.
+ */
+export function rtTalismanShown(id: RtTalismanId, window: boolean): RtTalismanDef | undefined {
+  const def = rtTalisman(id), own = window ? RT_COUNTER_WINDOW[id] : undefined;
+  return def && own ? { ...def, name: own.name ?? def.name, effect: own.effect } : def;
+}
 
 /** Т2. Hammers (section 4): one per run (`Loadout.hammer`); the Jailer's row offers 3 of 4. */
 export interface RtHammerDef { id: Hammer; name: string; effect: string }
@@ -124,11 +189,34 @@ export function rtHammerOffer(roll: number): Hammer[] {
   for (let n = 0; n < RT_HAMMER_OFFER_SIZE && left.length; n++) options.push(left.splice(mixSeed(roll >>> 0, n) % left.length, 1)[0]);
   return options;
 }
+/** Task 30: the salt of a node's form roll (`mixSeed(arenaSeed, «rt-form»)`, no stream spent; not the hammer's salt). */
+export const FORM_SALT = [...'rt-form'].reduce((hash, ch) => Math.imul(hash ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5);
+/**
+ * Task 30: `count` different forms of `candidates` (in their order) by a node's roll (`mixSeed(arenaSeed, FORM_SALT)`), as the
+ * hammers are drawn: the first `n` of a longer offer are the offer of `n`.
+ */
+export function rtFormOffer(roll: number, candidates: readonly RtTalismanId[], count: number): RtTalismanId[] {
+  const left = [...candidates], options: RtTalismanId[] = [];
+  for (let n = 0; n < count && left.length; n++) options.push(left.splice(mixSeed(roll >>> 0, n) % left.length, 1)[0]);
+  return options;
+}
 /** An offer option: a talisman (design answer 10 to step 3: no «пустышка» in the slice — an empty pool offers nothing). */
 export type RtTalismanOption = RtTalismanId;
 
 /** What the run took and what left the pool (shown and refused). */
-export interface RtTalismanPool { taken: readonly RtTalismanId[]; gone: readonly RtTalismanId[] }
+export interface RtTalismanPool {
+  taken: readonly RtTalismanId[]; gone: readonly RtTalismanId[];
+  /** Task 30: a run with the flag `forms` — its catalogue holds the openers (`rtTalismanCatalog`). Absent — the old catalogue. */
+  forms?: boolean;
+}
+/**
+ * The talismans the rarity draws of a run pick from — one place for every draw (`rtTalismanOffer`, `rtShopTalisman`,
+ * `rtTalismanDraw`, `rtTalismanLeft`): the run's catalogue `RT_TALISMANS`; task 30 — with the flag `forms` the openers too
+ * (`RT_OPENERS`, after the catalogue).
+ */
+export function rtTalismanCatalog(pool: RtTalismanPool): readonly RtTalismanDef[] {
+  return pool.forms ? [...RT_TALISMANS, ...RT_OPENERS] : RT_TALISMANS;
+}
 /**
  * The pool for the turn-based rolls the run still calls (the gift's buttons `rollGift`, the merchant's stock `shopStock`;
  * their talismans are drawn again by the real-time draws, phase B): the turn-based ids only, both abilities open
@@ -150,7 +238,7 @@ const RARITIES = ['common', 'uncommon', 'rare'] as const;
 const OFFER_SALT = 0x51ab_7c03, RARITY_SALT = 0x2c9e_4f11, PICK_SALT = 0x6e07_d2a9, SHOP_SALT = 0x3f5b_91c7;
 const unit = (value: number) => value / 0x100000000;
 const eligibleOf = (rarity: RtRarity, pool: RtTalismanPool, offered: readonly RtTalismanOption[]) =>
-  RT_TALISMANS.filter(entry => entry.rarity === rarity && rtTalismanEligible(entry.id, pool, offered)).map(entry => entry.id);
+  rtTalismanCatalog(pool).filter(entry => entry.rarity === rarity && rtTalismanEligible(entry.id, pool, offered)).map(entry => entry.id);
 
 /** Баланс (design answer 4): the place of a hard-battle offer that is always rare (the first one). */
 export const RT_RARE_SLOT = 0;

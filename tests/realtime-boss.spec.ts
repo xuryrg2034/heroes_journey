@@ -434,7 +434,12 @@ test('task 28: the Jailer in a run — the bar only in its fight; bombs sever th
   await page.getByTestId('result-map').click();
   for (let i = 0; i < 4 && (await state()).pending?.source !== 'oath'; i++) {
     if ((await state()).pending?.kind === 'hammer') await page.getByTestId('hammer-refuse').click();
-    else break;
+    // Task 30: a new run's Jailer offers forms first — a first run (a new viewer) its three simple ones, so the severed weight's
+    // 1 of 4 stays on the oath screen.
+    else if ((await state()).pending?.source === 'form') {
+      await expect(page.locator('[data-testid="run-form"] [data-action="talisman"]:not([data-option=""])')).toHaveCount(3);
+      await page.getByTestId('talisman-refuse').click();
+    } else break;
   }
   const run = await state();
   expect(run.pending?.source).toBe('oath');

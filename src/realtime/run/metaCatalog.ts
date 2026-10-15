@@ -4,7 +4,7 @@
  * quests. A leaf module (no run imports): the run (rtRun.ts) checks a save's `locked` against it, the meta (rtMeta.ts) and the
  * profile (rtRunStorage.ts) read it.
  */
-import { COUNTER_TALISMANS as CT, HAMMERS, RELICS as RL } from '../sim/buildIds';
+import { COUNTER_TALISMANS as CT, FORMS, HAMMERS, RELICS as RL } from '../sim/buildIds';
 
 /** The hero of v1 (кот-варвар); a run without `heroId` is his. */
 export const RT_HERO_ID = 'cat';
@@ -16,11 +16,10 @@ export interface RtMetaItem { id: string; kind: RtMetaItemKind }
 export interface RtMetaPack { id: string; title: string; /** The hero's total XP that opens it (cumulative). */ at: number; items: readonly RtMetaItem[] }
 
 /**
- * Pack 3 «Близнецы»: the form `form-twins` once task 30's forms are offered in the run; until then «Ударная волна» (the spec).
- * The main session switches this one constant (`{ id: 'form-twins', kind: 'form' }`) when the forms' pool filters `locked`
- * (rtRun.ts `rtIsLocked`).
+ * Pack 3 «Близнецы»: the form `form-twins` (task 30: the opener in a run's common pool; a meta run keeps it locked until the pack
+ * opens — every pool reads `locked`, rtRun.ts `rtIsLocked`). Before task 30 it was «Ударная волна» (the spec's stand-in).
  */
-export const RT_PACK3_FORM: RtMetaItem = { id: CT.shockwave, kind: 'talisman' };
+export const RT_PACK3_FORM: RtMetaItem = { id: FORMS.twins, kind: 'form' };
 
 /** Баланс (design 15.10.2026, the StS `UnlockTracker` rule): the cumulative thresholds — steps 60, 120, 180, 240, 300. */
 export const RT_META_THRESHOLDS: readonly number[] = [60, 180, 360, 600, 900];
@@ -34,7 +33,12 @@ export const RT_META_PACKS: readonly RtMetaPack[] = [
 ];
 /** Every id a pack may lock, sorted (a save's `locked` is a subset of it). */
 export const RT_META_LOCKABLE: readonly string[] = RT_META_PACKS.flatMap(pack => pack.items.map(item => item.id)).sort();
-export const isRtLockable = (id: unknown): id is string => typeof id === 'string' && RT_META_LOCKABLE.includes(id);
+/**
+ * Task 30: the ids a pack locked before — pack 3 held «Ударная волна» until the forms came into the run (16.10.2026). A meta run
+ * saved with it keeps it locked to its end (its save reads); a new run never snapshots it (`rtLockedAfter`).
+ */
+export const RT_META_LOCKABLE_BEFORE: readonly string[] = [CT.shockwave];
+export const isRtLockable = (id: unknown): id is string => typeof id === 'string' && (RT_META_LOCKABLE.includes(id) || RT_META_LOCKABLE_BEFORE.includes(id));
 /** The ids still locked after the packs `opened` (sorted): what a new meta run snapshots (`createRtRun(seed, { locked })`). */
 export const rtLockedAfter = (opened: readonly string[]): string[] =>
   RT_META_PACKS.filter(pack => !opened.includes(pack.id)).flatMap(pack => pack.items.map(item => item.id)).sort();

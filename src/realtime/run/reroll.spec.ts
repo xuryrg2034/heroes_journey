@@ -21,10 +21,10 @@
  */
 import { RT_TASK17_OFF,
   createRtRun, parseRtRun, resolveArena, rtAvailableNodes, rtChooseEventOption, rtChooseTalisman, rtEnterNode, rtEventView, rtLuckReport, rtRerollTalismans, rtRerollView,
-  serializeRtRun, RT_REROLL_PRICE, type RtRunState,
+  serializeRtRun, RT_REROLL_PRICE, rtFormPool, rtFormSlotField, type RtRunState,
 } from './rtRun';
 import { createRtRunStore, RT_RUN_STORAGE_KEY, type RunStorage } from './rtRunStorage';
-import { rtTalisman, rtTalismanEligible, RT_TALISMANS } from './rtTalismans';
+import { rtTalisman, rtTalismanCatalog, rtTalismanEligible, RT_TALISMANS } from './rtTalismans';
 import { shopPayment, stockTotal } from '../forest/merchant';
 import { stepChoices } from '../telemetry/recorder';
 import { assert, closeNode, ok, playFight, same, seedOf, takeGift } from './runFight.testkit';
@@ -50,7 +50,7 @@ function walkSaves(k: number): string[] {
   // here play the test field, not the marked arenas) — the walk keeps a run without it, so the bytes compare as before.
   // Task 15 (14.10.2026): the same for the flag `healMap` (one more field; the walk buys no map heal).
   // Task 28 (15.10.2026): the same for the flag `jailer` (one more field, and the Jailer's node plays its pool as the fixture's).
-  let run: RtRunState = takeGift(createRtRun(seedOf(k), { gift: 'mini', markedGoals: false, ...RT_TASK17_OFF, healMap: false, shortFuse: false, jailer: false }));
+  let run: RtRunState = takeGift(createRtRun(seedOf(k), { gift: 'mini', markedGoals: false, ...RT_TASK17_OFF, healMap: false, shortFuse: false, jailer: false, forms: false }));
   const saves = [serializeRtRun(run)];
   for (let step = 0; step < 160 && !run.result; step++) {
     const p = run.pending;
@@ -210,8 +210,9 @@ check('with resources to spare the rerolls go on until nothing new is left; then
     assert(n >= 3 && spent - total(run) === n * (n + 1) / 2, `seed ${k}: ${n} rerolls paid 1 + 2 + … + ${n}`);
     assert(rtRerollView(run)!.reason === 'Других талисманов не осталось', rtRerollView(run)!.reason);
     // Everything the pool had for the offer was shown once on this screen.
-    const pool = { taken: at.talismans, gone: at.talismansGone };
-    const open = RT_TALISMANS.filter(def => ['common', 'uncommon', 'rare'].includes(def.rarity) && rtTalismanEligible(def.id, pool)).map(def => def.id);
+    // Task 30: a run with forms — its catalogue holds «Близнецы», and the rare place a form of the other field while one is open.
+    const pool = { taken: at.talismans, gone: at.talismansGone, forms: !!at.forms }, field = rtFormSlotField(at);
+    const open = [...rtTalismanCatalog(pool).filter(def => ['common', 'uncommon', 'rare'].includes(def.rarity) && rtTalismanEligible(def.id, pool)).map(def => def.id), ...field ? rtFormPool(at, field) : []];
     assert(same([...shown].sort(), [...open].sort()), `seed ${k}: shown ${shown.length}, the pool had ${open.length}`);
     assert(same(reload(run), run), 'it saves');
   }

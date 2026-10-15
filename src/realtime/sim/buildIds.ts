@@ -90,7 +90,8 @@ export type HammerEventKind = 'fire' | 'blast' | 'cut' | 'return';
 /**
  * Task 29 «Формы в песочнице» (docs/realtime-prototype.md, section 9ф): the forms — items that change the shape of the chain
  * rather than its numbers. Kept in `Loadout.talismans` / `Kit.talismans` (the sandbox gives them); not in the run's catalogue
- * (`RT_TALISMANS`, task 30). A form acts while the kit holds its id; a journal without the id plays the old path.
+ * (`RT_TALISMANS`); task 30: a run with the flag `forms` offers «Печать» and «Прямая» (run/rtTalismans.ts `RT_FORMS`) and «Близнецы»
+ * (`RT_OPENERS`). A form acts while the kit holds its id; a journal without the id plays the old path.
  */
 export const FORMS = {
   /** «Печать»: the loop (chain.ts `loopOn`), as the sandbox toggle `loopEnabled`. */

@@ -86,7 +86,7 @@
  * - the boss (task 28 «Тюремщик в походе»): a fight whose start has a Jailer (`jailer`) with the boss frame on — `boss`; `bossMove`
  *   `start` events by move; the first `partSevered` — `severedAt`; the core's `kill` — `diedAt` (game seconds of the fight).
  */
-import { COUNTER_TALISMANS, OATH_HUNGER, RELICS } from '../sim/buildIds';
+import { COUNTER_TALISMANS, HAMMERS, OATH_HUNGER, RELICS } from '../sim/buildIds';
 import { tickScale } from '../sim/chain';
 import { featResult } from '../sim/feat';
 import type { Command } from '../sim/commands';
@@ -353,7 +353,8 @@ export function createFightObserver(start: World): FightObserver {
           else if (ev.phase === 'end') s.chain.pierceHits.push(ev.hits);
           return;
         case 'talismanFired': bump(s.build.fired, ev.id); return;
-        case 'hammer': bump(s.build.fired, world.kit?.hammer ?? 'hammer'); return;
+        // Task 30: a run with forms may hold «Взрыв на конце» beside a hammer of «Путь» (from the kit's talismans): the blast is its own.
+        case 'hammer': bump(s.build.fired, ev.kind === 'blast' && world.kit?.hammer !== HAMMERS.blast && world.kit?.talismans.includes(HAMMERS.blast) ? HAMMERS.blast : world.kit?.hammer ?? 'hammer'); return;
         case 'ward': bump(s.build.fired, 'ash-ward'); return;
         // П9 «Второе дыхание» (sandbox): the lethal hit the hero stood up from — the tick, his HP before it, its source.
         case 'secondWind':

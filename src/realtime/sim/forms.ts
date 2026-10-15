@@ -12,7 +12,7 @@
  * - **«Близнецы»** (`form-twins`): the palette's colours 1 + 3 and 2 + 4 (indices 0 + 2, 1 + 3; design answer 1) count as one
  *   colour. A row of 2–3 colours has a pair and a single colour, or two singles.
  *
- * Task 33 «Цена „Близнецов“ и „Развилки“» (sandbox; the run keeps the old forms until task 30): «Близнецы» alternate the pair's
+ * Task 33 «Цена „Близнецов“ и „Развилки“» (the sandbox; task 30: a run with the flag `forms` too, run/rtRun.ts `RT_FORMS_PARAMS`): «Близнецы» alternate the pair's
  * colours once the chain took the second one (`Params.twinsAlternate`, chain.ts `colorSegments`) and turn «Смена цвета» off
  * (`Params.twinsNoShift`); «Развилка» takes `Params.forkBranches` links from an older link (`ChainLink.fork`, `forkSpent`).
  *

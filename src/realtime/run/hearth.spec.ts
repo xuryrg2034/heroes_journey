@@ -162,7 +162,9 @@ await check('the camp\'s flags on real runs: Марфа\'s start consumable (L1 
   // Ерофей L1: the hammer screen rerolls once free; the hammer not shown comes; the oath screen has no free reroll after it.
   for (let k = 1; k <= 6; k++) {
     let hammer: string[] | null = null, rerolled: string[] | null = null, oathFree = false;
-    const walk = walkRun({ ...campRun(store, k, {}, {}, []), jailerReroll: 'hammer', each: run => {
+    // Task 30: the hammer screen — a run without forms (`forms: false`); formsRun.spec.ts checks the form screen's free reroll.
+    const camp = campRun(store, k, {}, {}, []);
+    const walk = walkRun({ ...camp, create: { ...camp.create, forms: false }, jailerReroll: 'hammer', each: run => {
       if (run.pending?.kind === 'hammer' && !run.pending.rerolled) hammer = [...run.pending.options];
       if (run.pending?.kind === 'hammer' && run.pending.rerolled) rerolled = [...run.pending.options];
       if (run.pending?.kind === 'talisman' && run.pending.source === 'oath' && rtRerollView(run)) oathFree = true;
@@ -190,7 +192,8 @@ await check('the camp\'s flags on real runs: Марфа\'s start consumable (L1 
     assert(run.hearth?.startItems?.[0] === chosen && run.items[chosen] >= 1, `seed ${k}: the chosen consumable`);
     for (const [locked, size] of [[[], 4], [[...RT_META_LOCKABLE], 3]] as const) {
       let shown = 0;
-      walkRun({ ...campRun(store, k, {}, {}, [...locked]), each: run => { if (run.pending?.kind === 'hammer' && !run.pending.rerolled) shown = run.pending.options.length; } });
+      const camp = campRun(store, k, {}, {}, [...locked]);
+      walkRun({ ...camp, create: { ...camp.create, forms: false }, each: run => { if (run.pending?.kind === 'hammer' && !run.pending.rerolled) shown = run.pending.options.length; } });
       assert(shown === size, `seed ${k}: «Полный верстак» shows ${shown}, want ${size}`);
     }
   }

@@ -4,7 +4,7 @@
  * order, the power. The hit itself is chain.ts `returnStrike` (the same `strike` as the chain).
  *
  * Two ways to run (`Params.returnFixed`, chain.ts `returnFixedOn`):
- * - **old path** (no key — journals before task 29, and a run until task 30): the route is the trace of the real dash, the
+ * - **old path** (no key — journals before task 29, and a run without the flag `forms`): the route is the trace of the real dash, the
  *   bodies are those near the path the hero really runs, tick by tick (`returnTargets` on each tick's path). The highlight
  *   reads the same functions on the world now, so it equals the run while nobody moves.
  * - **fixed** (the key on and «Возврат» in the kit): the release fixes the planned route and bodies (`ReturnFixed`, from the

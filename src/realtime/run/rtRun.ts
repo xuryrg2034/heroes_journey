@@ -35,7 +35,7 @@ import { isRtOath, isRtTalisman, RELICS, RT_DEW_FLASK_HEAL, RT_TOUGH_HIDE_HP, rt
 import { emptyStreams, parseStreams, streamValue, type RunStream, type RunStreams } from '../forest/runStreams';
 import { arenaTitle, FINAL_ARENA, GENTLE_FIRST_MEETING_LAST_ROW, HARD_ARENA, ordinaryArenaChoices, pickArena, pickRoster, ROSTER_SALT, RUN_ARENAS, runArenaPools, runRow } from './arenaPools';
 import { isRoster } from '../sim/rosters';
-import { allowedAffixes, fightElements, isScheduleElement, jailerWithout, SCHEDULE_RUN_ARENAS, SCHEDULE_HARD_FLOOR, SCHEDULE_KINDS, SCHEDULE_NUMBERS_ROWS, schedulePlan, unmetKinds, type ScheduleNode } from './schedule';
+import { allowedAffixes, fightElements, isScheduleElement, jailerWithout, PART_ARC, SCHEDULE_RUN_ARENAS, SCHEDULE_HARD_FLOOR, SCHEDULE_KINDS, SCHEDULE_NUMBERS_ROWS, schedulePlan, unmetKinds, type ScheduleNode } from './schedule';
 import { JAILER_ARENA, JAILER_RUN_ARENAS } from '../sim/arenasBoss';
 import { rtHp, RT_ITEM_HEAL, RT_RUN_HP } from './hpScale';
 import { defaultParams, runParams, type Params } from '../sim/params';
@@ -48,6 +48,9 @@ import type { Loadout } from '../sim/kit';
 // Phase B, track Д4: the sources — the Jailer's hammer, the real-time draws of the gift and events.
 import { addLuck, countLuck, rtLuckLines, validLuckTally, RT_FIGHT_LUCK_KEYS, type RtEventLuck, type RtLuckLine, type RtLuckTally } from './rtLuck';
 import { HAMMER_SALT, isHammerId, rtEventTalismanOffer, rtHammerOffer, rtTalismanDraw, rtTalismanLeft, type HammerId } from './rtTalismans';
+// Task 30 «Формы в походе»: the run's forms, their node roll and the openers' pool.
+import { FORM_SALT, isRtForm, rtFormField, rtFormOffer, rtTalismanEligible, rtTalismanShown, RT_FORMS, RT_OPENERS, RT_RARE_SLOT, type RtTalismanDef, type RtTalismanPool } from './rtTalismans';
+import type { FormField } from '../sim/buildIds';
 // П6 «Незакрытое дело»: the lost fight's killing blow (rtRunEnd.ts).
 import { validDeath, type RtDeath } from './rtRunEnd';
 // Task 16 «Подвиги»: the feat kinds of the simulation (sim/feat.ts).
@@ -110,6 +113,9 @@ import { HAMMER_IDS, RT_HAMMER_OFFER_SIZE } from './rtTalismans';
  * Task 19 «Короткий запал» (the same version, user decision 14.10.2026 after playtest v44): the run's flag `shortFuse`, set at
  * its creation (`RT_SHORT_FUSE_ON`); its battles play the goblin's bust fuse `RT_RUN_BUST_FUSE` (0.6 s, `rtArenaParams`). A save
  * without it keeps the fuse of `RT_RUN_FORCED` (1.2 s) to its end and saves byte for byte as before.
+ * Task 30 «Формы в походе» (the same version, design 15.10.2026): the run's flag `forms`, set at its creation (`RT_FORMS_ON`); its
+ * forms are kept in `talismans`, the Jailer's form screen is a talisman offer of source `form`. A save without the flag has the
+ * hammer screen and the old pools to its end and saves byte for byte as before.
  */
 export const RT_RUN_VERSION = 7;
 /** The version the save of phase B had; it is migrated on reading (casino stage 1). */
@@ -209,6 +215,10 @@ export function rtArenaParams(run: RtArenaRules | RtRunState, params: Params): P
   const rules: RtArenaRules = 'map' in run ? rtArenaRules(run) : run, out = { ...params, markedGoals: !!rules.markedGoals };
   // Task 19 «Короткий запал»: a run with the flag plays the short fuse; without it — the fuse of the params as they come.
   if (rules.shortFuse) out.slotBustFuse = RT_RUN_BUST_FUSE;
+  // Task 30 «Формы в походе»: a run with the flag plays the counters' chain window («Острие», «Улов»), «Близнецы» with their price
+  // (task 33) and «Возврат» fixed at the release as its highlight shows it (task 29: the shadow is the run); without it — the
+  // values of `RUN_FORCED` (all off).
+  if (rules.forms) Object.assign(out, RT_FORMS_PARAMS);
   // Task 17 «Пологий вход»: the row's invulnerability after a hit and the tough touch from row 3 (`rtRowGrace`).
   if (rules.gentleRow !== undefined) {
     out.invulnerability = rtRowGrace(rules.gentleRow);
@@ -220,11 +230,18 @@ export function rtArenaParams(run: RtArenaRules | RtRunState, params: Params): P
  * Task 17: what of the run decides the params of its open battle (`rtArenaParams`): the flag `markedGoals` and, for a run
  * with `gentleEntry`, the run row of the open battle node (`gentleRow`; absent — an older run, or no battle open).
  */
-export interface RtArenaRules { markedGoals?: true; gentleRow?: number; shortFuse?: true }
+export interface RtArenaRules { markedGoals?: true; gentleRow?: number; shortFuse?: true; forms?: true }
 export function rtArenaRules(run: RtRunState): RtArenaRules {
   const pending = run.pending, node = pending?.kind === 'battle' ? rtNode(run, pending.nodeId) : undefined;
-  return { ...run.markedGoals ? { markedGoals: true as const } : {}, ...run.gentleEntry && node ? { gentleRow: runRow(node.row) } : {}, ...run.shortFuse ? { shortFuse: true as const } : {} };
+  return { ...run.markedGoals ? { markedGoals: true as const } : {}, ...run.gentleEntry && node ? { gentleRow: runRow(node.row) } : {}, ...run.shortFuse ? { shortFuse: true as const } : {}, ...run.forms ? { forms: true as const } : {} };
 }
+/**
+ * Task 30: the rules a fight of a run with the flag `forms` plays over `RUN_FORCED` (design 15.10.2026): the counters' window —
+ * one chain (`counterWindow`, «Острие», «Улов»), «Близнецы» with their price (`twinsAlternate`, `twinsNoShift`, task 33), the
+ * return run fixed at the release (`returnFixed`: «Возврат» and the counters stand together in a run — the shadow sees the wave).
+ * Existing hashed keys: a journal of such a fight keeps them; nothing new in `Params`.
+ */
+export const RT_FORMS_PARAMS: Readonly<Partial<Params>> = Object.freeze({ counterWindow: true, twinsAlternate: true, twinsNoShift: true, returnFixed: true });
 /**
  * Hygiene of task 17 (design answer 1, 13.10.2026): the values the page plays with — the sandbox its saved panel (`panel`),
  * the run (and its prologue) the defaults with the run's own numbers (`rtRunParams`). The sandbox panel changes only the
@@ -544,6 +561,15 @@ export interface RtRunState {
   hearth?: RtHearthFlags;
   /** Task 37 «Правка»: the free rerolls of the Jailer's screens spent (≤ `hearth.jailerRerolls`); absent until the first. */
   jailerRerolled?: number;
+  /**
+   * Task 30 «Формы в походе» (design 15.10.2026; docs/realtime-slice.md, section 8): the run's forms — the first Jailer's screen
+   * offers forms (`RT_FORMS`) instead of the hammers, «Застава» a form of the other field in its rare place, the common pool
+   * holds «Близнецы» (`RT_OPENERS`), one form per field (a new one replaces the old), the fights play the counters' chain window
+   * and the forms' price (`rtArenaParams`). The forms taken are kept in `talismans` (a hammer among them goes into the loadout's
+   * hammer, `rtArenaLoadout`). Set when the run is created (`RT_FORMS_ON`); absent — a run saved before it (or created without
+   * it): the hammer screen and the old pools, to its end.
+   */
+  forms?: true;
   /** The map, kept whole: a later tuning of the generator never changes a run in progress. */
   map: GeneratedForestMap;
   /** Draws made by each long stream of the run (runStreams.ts): arenas (`pool`), events, merchant, gift. */
@@ -636,6 +662,8 @@ export type RtRunEvent =
   | { type: 'rest-crafted'; nodeId: string; resource: ResourceKind; item: ItemKind }
   | { type: 'talisman-offered'; nodeId: string; options: RtTalismanOption[] }
   | { type: 'talisman-taken'; id: RtTalismanId }
+  /** Task 30 «одна форма на поле»: the form `id` of the same field as `by` (taken now) left the run (it is gone from the pool). */
+  | { type: 'form-replaced'; id: RtTalismanId; by: RtTalismanId }
   /** B5 К10: the talisman offer was rerolled for `price` resources (`paid` by kind); `options` — the new offer. */
   | { type: 'talisman-rerolled'; nodeId: string; price: number; paid: Record<ResourceKind, number>; options: RtTalismanOption[] }
   | { type: 'hammer-offered'; nodeId: string; options: HammerId[] }
@@ -752,7 +780,7 @@ export interface RtArenaOutcome {
  * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
  * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
  */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags } = {}): RtRunState {
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean } = {}): RtRunState {
   const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
   // Task 12 (13.10.2026): the goal layouts of the `marked` arenas, as the mix — on as `RT_RUN_FORCED` says unless the option says.
   const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
@@ -775,8 +803,10 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   // Tasks 36–37: a run of the meta (no given seed, the viewer's `locked` snapshot) — its locked items and the camp's flags.
   const locked = !options.seeded && options.locked ? [...new Set(options.locked.filter(isRtLockable))].sort() : undefined;
   const hearth = locked && options.hearth ? rtCleanHearth(options.hearth) : undefined;
+  // Task 30 «Формы в походе» (15.10.2026): its own flag, on unless the option says (false — the hammer screen and the old pools).
+  const forms = options.forms ?? RT_FORMS_ON;
   const run: RtRunState = {
-    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...locked ? { locked, heroId: RT_HERO_ID } : {}, ...hearth ? { hearth } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...locked ? { locked, heroId: RT_HERO_ID } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
@@ -913,15 +943,17 @@ export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}):
     ...node && pending?.kind === 'battle' && node.type !== 'checkpoint' && node.type !== 'boss' && runRow(node.row) >= RT_SLOT_ROW ? { slot: true } : {},
     // Task 14 «Котомка у двери»: no bag before run row `RT_BAG_ROW`, in the Jailer's fight and the final one (the other fights by `Params.doorBag`).
     ...node && (node.type === 'checkpoint' || node.type === 'boss' || runRow(node.row) < RT_BAG_ROW) ? { noBag: true } : {},
-    talismans: [...run.talismans], ward: run.talismans.includes('ash-ward') && !run.wardSpent,
+    // Task 30: a run with forms keeps its forms in `talismans`; a hammer among them is the loadout's hammer (`rtFormHammer`).
+    talismans: run.talismans.filter(id => id !== rtFormHammer(run)), ward: run.talismans.includes('ash-ward') && !run.wardSpent,
     // Step 3 (design answer 3): the modifiers events left for this arena.
     ...run.modifiers?.includes('first-chain-power') ? { firstPower: 1 } : {},
     ...run.modifiers?.includes('start-elite') ? { startElite: true } : {},
     ...run.modifiers?.includes('wrath') ? { extraStart: true } : {},
     ...run.modifiers?.includes('early-reinforcement') ? { earlyPace: true } : {},
 
-    // Phase B (Т2): the hammer of the Jailer's row acts on every later arena.
+    // Phase B (Т2): the hammer of the Jailer's row acts on every later arena. Task 30: a run with forms — its hammer form.
     ...run.hammer ? { hammer: run.hammer } : {},
+    ...rtFormHammer(run) ? { hammer: rtFormHammer(run) } : {},
     // Casino stage 1, item 2: the oath the node card took (the sim checks it, `Params.oathStake`).
     ...pending?.kind === 'battle' && pending.oath ? { oath: pending.oath } : {},
     // Task 16 «Подвиги»: the feat the open battle fixed (the simulation watches its kind and N; the reward stays the run's).
@@ -1115,8 +1147,99 @@ export const rtOathText = (id: OathId): string => `${oathDef(id).name} — ${oat
 
 // ---------- Talismans (step 3) ----------
 
-/** What the run took and what left the pool. */
-const talismanPool = (run: RtRunState) => ({ taken: run.talismans, gone: run.locked?.length ? [...run.talismansGone, ...run.locked] : run.talismansGone });
+/**
+ * What the run took and what left the pool (`gone` and `exclude` — the talismans shown and rerolled on an open screen); task 30:
+ * a run with the flag `forms` draws from the catalogue with the openers (`rtTalismanCatalog`). One place for every talisman
+ * draw of a run: the hard battle, the Jailer's oaths, events, the chest, the feat, the merchant; task 36 — the run's `locked`.
+ */
+const talismanPool = (run: Pick<RtRunState, 'talismans' | 'talismansGone' | 'forms' | 'locked'>, exclude: readonly RtTalismanId[] = []): RtTalismanPool => {
+  // Task 36: a meta run's locked items are out of every pool (`rtIsLocked`) — as if gone.
+  const gone = run.locked?.length || exclude.length ? [...run.talismansGone, ...run.locked ?? [], ...exclude] : run.talismansGone;
+  return { taken: run.talismans, gone, ...run.forms ? { forms: true } : {} };
+};
+
+// ---------- Task 30 «Формы в походе» (design 15.10.2026; docs/realtime-slice.md, section 8, «Формы в походе») ----------
+
+/**
+ * A first run in the sense of the forms (design decision 6): the viewer's history (task 26, `RtRunState.schedule.seen` — the
+ * snapshot taken when the run was created) has not met the Jailer's weight (`part`): the viewer has not fought the Jailer, the
+ * first form screen is ahead. Such a run offers only the simple forms («Прямая», «Наледь», «Взрыв на конце»). A run without a
+ * schedule (Испытание II and up, tests, bots) — not a first run.
+ */
+export const rtFormsFirst = (run: Pick<RtRunState, 'schedule'>): boolean => !!run.schedule && !run.schedule.seen.includes(PART_ARC);
+/**
+ * The forms a run may be offered now (one place, a later filter may wrap it): the run's forms (`RT_FORMS`) — a first run only the
+ * simple ones — not taken, not gone, not clashing with a form taken («Возврат» — «Взрыв на конце»); `field` — only that field.
+ * Empty without the flag `forms`.
+ */
+export function rtFormPool(run: Pick<RtRunState, 'forms' | 'schedule' | 'talismans' | 'talismansGone' | 'locked'>, field?: FormField): RtTalismanId[] {
+  const pool = talismanPool(run);
+  return rtFormCatalog(run).filter(def => (!field || def.field === field) && rtTalismanEligible(def.id, pool)).map(def => def.id);
+}
+/**
+ * The forms this run may ever be offered (`RT_FORMS`; a first run — the simple ones; task 36 — not a form the meta run keeps locked,
+ * `rtIsLocked`); empty without the flag `forms`. Fewer than a screen needs — the screen shows fewer (none — no form screen).
+ */
+export function rtFormCatalog(run: Pick<RtRunState, 'forms' | 'schedule' | 'locked'>): RtTalismanDef[] {
+  if (!run.forms) return [];
+  const first = rtFormsFirst(run);
+  return RT_FORMS.filter(def => (!first || def.simple) && !rtIsLocked(run, def.id));
+}
+/** Баланс (design 15.10.2026): the Jailer's form screen offers this many forms (1 of 3, as the hammers were). */
+export const RT_FORM_OFFER_SIZE = 3;
+/** The node's form roll (`mixSeed(arenaSeed, «rt-form»)`): no stream spent, a reload shows the same forms. */
+const formRoll = (run: Pick<RtRunState, 'seed'>, nodeId: string): number => mixSeed(arenaSeed(run, nodeId), FORM_SALT);
+/**
+ * The Jailer's form screen of `nodeId` (a run with `forms`): `rtFormSlots` forms of the pool by the node's roll — 4 after a
+ * severed weight (task 28: the reward moves to the form screen), else 3; the first three of 4 are those of 3. `shown` (task 37
+ * «Правка» on the form screen): the forms shown and rerolled away on this screen — the forms not shown yet first (by the reroll's
+ * own roll), the places left filled from those shown, as the hammer screen's reroll (`rtHammerOptions`).
+ */
+export function rtFormOptions(run: RtRunState, nodeId: string, shown: readonly RtTalismanId[] = []): RtTalismanId[] {
+  const roll = formRoll(run, nodeId), pool = rtFormPool(run), size = rtFormSlots(run, nodeId);
+  if (!shown.length) return rtFormOffer(roll, pool, size);
+  const again = mixSeed(roll, FORM_REROLL_SALT + shown.length), fresh = rtFormOffer(again, pool.filter(id => !shown.includes(id)), size);
+  return [...fresh, ...rtFormOffer(mixSeed(again, 1), pool.filter(id => shown.includes(id)), size - fresh.length)];
+}
+/** Task 30 with task 37: the salt of a form screen reroll's roll (mixed with the node's form roll and the count shown so far). */
+const FORM_REROLL_SALT = 0x7f4a7c15;
+/**
+ * Task 28 with task 30: the Jailer's form screen offers 1 of 4 after a severed weight, else 1 of 3. Task 37 «Полный верстак»
+ * (`hearth.hammerAll`: the hammer screen's 4 instead of 3) gives the form screen its fourth card too.
+ */
+export function rtFormSlots(run: Pick<RtRunState, 'battles' | 'hearth'>, nodeId: string): number {
+  const severed = run.battles.some(record => record.nodeId === nodeId && record.won && record.severed === true);
+  return severed || run.hearth?.hammerAll ? RT_JAILER_SEVERED_SLOTS : RT_FORM_OFFER_SIZE;
+}
+/**
+ * The field «Застава» offers a form of (design 15.10.2026: «вторая форма — редкое место „Заставы“, другого поля»): the run holds
+ * a form of one of the fields «Путь» and «Конец» and none of the other — that other one; null otherwise (no form yet, both held,
+ * a run without the flag).
+ */
+export function rtFormSlotField(run: Pick<RtRunState, 'forms' | 'talismans'>): FormField | null {
+  if (!run.forms) return null;
+  const held = new Set(run.talismans.filter(isRtForm).map(id => rtFormField(id)));
+  return held.has('path') === held.has('end') ? null : held.has('path') ? 'end' : 'path';
+}
+/**
+ * «Одна форма на поле» (design decision 1): the form the run holds that `id` replaces if taken — a form of the same field
+ * (`rtFormField`: «Путь», «Конец», «Звено» with «Близнецы» and «Якорь у героя»); null — none, or a run without the flag. The
+ * choice screens show it (`replaces`).
+ */
+export function rtFormReplaces(run: Pick<RtRunState, 'forms' | 'talismans'>, id: RtTalismanId): RtTalismanId | null {
+  const field = run.forms ? rtFormField(id) : null;
+  return field ? run.talismans.find(other => other !== id && rtFormField(other) === field) ?? null : null;
+}
+/**
+ * The hammer among a run's forms — the loadout's hammer (`Loadout.hammer`, one slot: sim/chain.ts `fireOn`, `returnOn` read it):
+ * the form of «Путь» if it is a hammer, else «Взрыв на конце»; the other forms (and a second hammer: «Взрыв на конце» beside a
+ * hammer of «Путь») act from the kit's talismans (sim/build.ts `moduleActive`). Undefined — none, or a run without the flag.
+ */
+export function rtFormHammer(run: Pick<RtRunState, 'forms' | 'talismans'>): HammerId | undefined {
+  if (!run.forms) return undefined;
+  const hammers = run.talismans.filter(isHammerId);
+  return hammers.find(id => rtFormField(id) === 'path') ?? hammers[0];
+}
 /**
  * Баланс (phase B, Т3): the price of the relic «Жернов» — the run's maximum HP this much lower when it is taken (real-time
  * HP; sim/relics.ts has its arena plus). The maximum stays at least 1; HP above the new maximum is cut to it.
@@ -1127,6 +1250,13 @@ export const RT_MILLSTONE_MAX_HP_PRICE = 3;
  * maximum HP (its price).
  */
 function takeTalisman(run: RtRunState, id: RtTalismanId, events: RtRunEvent[]): void {
+  // Task 30 «одна форма на поле»: the form of the same field leaves the run (and the pool).
+  const replaced = rtFormReplaces(run, id);
+  if (replaced) {
+    run.talismans.splice(run.talismans.indexOf(replaced), 1);
+    run.talismansGone.push(replaced);
+    events.push({ type: 'form-replaced', id: replaced, by: id });
+  }
   run.talismans.push(id);
   if (id === 'tough-hide') { run.maxHp += RT_TOUGH_HIDE_HP; run.hp += RT_TOUGH_HIDE_HP; }
   if (id === RELICS.millstone) { run.maxHp = Math.max(1, run.maxHp - RT_MILLSTONE_MAX_HP_PRICE); run.hp = Math.min(run.hp, run.maxHp); }
@@ -1138,9 +1268,10 @@ function offerTalismans(run: RtRunState, nodeId: string, source: RtTalismanSourc
 }
 /**
  * Where a talisman offer comes from: a won hard battle, the Jailer's row (oaths and relics), an event's reward battle, the
- * cursed chest of a won hard battle (B6 К7, after the hard battle's own offer).
+ * cursed chest of a won hard battle (B6 К7, after the hard battle's own offer), a feat's reward (task 16), the Jailer's form screen
+ * of a run with forms (`form`, task 30: by the node's form roll, before the oaths).
  */
-export type RtTalismanSource = 'hard' | 'oath' | 'event' | 'chest' | 'feat';
+export type RtTalismanSource = 'hard' | 'oath' | 'event' | 'chest' | 'feat' | 'form';
 /** Баланс (research К7, design 12.10.2026): the chest offers this many common talismans (an empty rarity gives way to uncommon). */
 export const RT_CHEST_TALISMANS = 2;
 /** B6 К7: the won fight of `nodeId` took the cursed chest — its talisman screen follows the hard battle's. */
@@ -1155,12 +1286,22 @@ export function rtChestOwed(run: Pick<RtRunState, 'battles'>, nodeId: string): b
  * with it. An empty `exclude` is the pool as it is: the offer the screen opened with.
  */
 function talismanOfferOf(run: RtRunState, nodeId: string, source: RtTalismanSource, base: number, exclude: readonly RtTalismanId[] = []): RtTalismanOption[] | null {
-  const pool = exclude.length ? { taken: run.talismans, gone: [...talismanPool(run).gone, ...exclude] } : talismanPool(run);
+  const pool = talismanPool(run, exclude);
+  // Task 30: the Jailer's form screen — by the node's form roll, not by `base` (no `talismans` draw).
+  if (source === 'form') return rtFormOptions(run, nodeId, exclude);
   // B6 К7: the chest's commons — the real-time draw of the gift and events (no rare ones).
   if (source === 'chest') return rtEventTalismanOffer(base, RT_CHEST_TALISMANS, pool);
   // Task 16 «Подвиги»: the feat's choice of two — drawn as the chest's.
   if (source === 'feat') return rtEventTalismanOffer(base, RT_FEAT_TALISMANS, pool);
   if (source === 'oath') return rtTalismanOffer(base, source, pool, rtOathSlots(run, nodeId));
+  if (source === 'hard') {
+    // Task 30: the rare place of «Застава» holds a form of the other field (`rtFormSlotField`) — by the node's form roll over the
+    // forms of that field not shown on this screen; the other places are the offer's own (the same `talismans` draw).
+    const options = rtTalismanOffer(base, source, pool), field = rtFormSlotField(run);
+    const formed = field ? rtFormOffer(formRoll(run, nodeId), rtFormPool(run, field).filter(id => !exclude.includes(id)), 1)[0] : undefined;
+    if (formed) options.splice(RT_RARE_SLOT, options.length > RT_RARE_SLOT ? 1 : 0, formed);
+    return options;
+  }
   if (source !== 'event') return rtTalismanOffer(base, source, pool);
   const pick = run.picks.find(entry => entry.nodeId === nodeId), battle = pick?.eventId ? battleOption(forestEvent(pick.eventId)!)?.battle : undefined;
   return battle ? rtEventTalismanOffer(base, battle.talismanChoice, pool) : null;
@@ -1187,11 +1328,14 @@ export interface RtRerollView { price: number; total: number; rerolls: number; a
 export function rtRerollView(run: RtRunState): RtRerollView | null {
   const pending = run.pending;
   // Task 37 «Правка»: the Jailer's oath and relic screen rerolls while the camp's free rerolls last (`rtJailerRerollsLeft`).
-  const free = pending?.kind === 'talisman' && pending.source === 'oath' && rtJailerRerollsLeft(run) > 0;
+  // Task 30: the Jailer's form screen (instead of the hammer screen) rerolls the same way.
+  const free = pending?.kind === 'talisman' && (pending.source === 'oath' || pending.source === 'form') && rtJailerRerollsLeft(run) > 0;
   if (pending?.kind !== 'talisman' || !(free || RT_REROLL_SOURCES.includes(pending.source))) return null;
   const rerolls = pending.rerolls ?? 0, price = free ? 0 : RT_REROLL_PRICE + rerolls, total = stockTotal(run.materials);
-  const left = (talismanOfferOf(run, pending.nodeId, pending.source, 0, [...pending.rerolled ?? [], ...pending.options]) ?? []).length > 0;
-  const reason = !left ? 'Других талисманов не осталось' : total < price ? `Нужно ресурсов: ${price}, есть ${total}` : '';
+  const shown = [...pending.rerolled ?? [], ...pending.options];
+  // Task 30: the form screen — some form of the pool not shown on it yet (its reroll fills the places left from those shown).
+  const left = pending.source === 'form' ? rtFormPool(run).some(id => !shown.includes(id)) : (talismanOfferOf(run, pending.nodeId, pending.source, 0, shown) ?? []).length > 0;
+  const reason = !left ? (pending.source === 'form' ? 'Других форм нет' : 'Других талисманов не осталось') : total < price ? `Нужно ресурсов: ${price}, есть ${total}` : '';
   return { price, total, rerolls, available: !reason, reason, ...free ? { free: true as const } : {} };
 }
 /**
@@ -1210,7 +1354,8 @@ export function rtRerollTalismans(current: RtRunState): RtRunStep {
   for (const kind of RESOURCE_KINDS) run.materials[kind] -= paid[kind];
   if (view.free) run.jailerRerolled = (run.jailerRerolled ?? 0) + 1;
   const rerolled = [...pending.rerolled ?? [], ...pending.options];
-  const options = talismanOfferOf(run, pending.nodeId, pending.source, draw(run, 'talismans', true), rerolled)!;
+  // Task 30: the form screen rerolls by the node's form roll — no `talismans` draw.
+  const options = talismanOfferOf(run, pending.nodeId, pending.source, pending.source === 'form' ? 0 : draw(run, 'talismans', true), rerolled)!;
   run.pending = { ...pending, options, rerolls: view.rerolls + 1, rerolled };
   return { ok: true, run, events: [{ type: 'talisman-rerolled', nodeId: pending.nodeId, price: view.price, paid, options: [...options] }] };
 }
@@ -1226,8 +1371,11 @@ export function rtChooseTalisman(current: RtRunState, chosen: RtTalismanOption |
   if (chosen !== null && !pending.options.includes(chosen)) return fail('Этого варианта нет среди предложенных.');
   const run = structuredClone(current), events: RtRunEvent[] = [];
   if (chosen) takeTalisman(run, chosen, events);
-  run.talismansGone.push(...pending.options.filter(option => option !== chosen));
+  // Task 30: a form not taken stays in the form pool (the Jailer's three and the «Застава» form; only a replaced form is gone).
+  run.talismansGone.push(...pending.options.filter(option => option !== chosen && !isRtForm(option)));
   const node = rtNode(run, pending.nodeId)!;
+  // Task 30: the Jailer's form screen — its oath and relic screen follows (as after the hammer screen).
+  if (pending.source === 'form') { offerOaths(run, node.id, events); return { ok: true, run, events }; }
   if (pending.source === 'event') {
     const pick = run.picks.find(entry => entry.nodeId === node.id), option = pick?.eventId ? battleOption(forestEvent(pick.eventId)!) : undefined;
     if (option) {
@@ -1281,8 +1429,12 @@ function offerOaths(run: RtRunState, nodeId: string, events: RtRunEvent[]): void
  * severed the weight (`RtBattleRecord.severed`), else 1 of 3 as before.
  */
 export const RT_JAILER_SEVERED_SLOTS = 4;
-export function rtOathSlots(run: Pick<RtRunState, 'battles'>, nodeId: string): number {
-  return run.battles.some(record => record.nodeId === nodeId && record.won && record.severed === true) ? RT_JAILER_SEVERED_SLOTS : 3;
+export function rtOathSlots(run: Pick<RtRunState, 'battles' | 'forms' | 'schedule'>, nodeId: string): number {
+  const severed = run.battles.some(record => record.nodeId === nodeId && record.won && record.severed === true);
+  // Task 30 (design 15.10.2026): a run with forms gives the severed weight's 1 of 4 on its form screen (`rtFormSlots`) — unless its
+  // forms are fewer than 4 (a first run has 3 simple ones): then, as before, here.
+  if (run.forms && rtFormCatalog(run).length >= RT_JAILER_SEVERED_SLOTS) return 3;
+  return severed ? RT_JAILER_SEVERED_SLOTS : 3;
 }
 /**
  * Take one of the offered hammers or refuse (`null`); the hammer goes into every later arena. The oath or relic choice of
@@ -1657,7 +1809,13 @@ function afterVictory(run: RtRunState, node: ForestMapNode, battle: RtBattleKind
   // Step 3: a won hard battle offers talismans, the Jailer's row oaths and relics (victoryChoice of the turn-based map); a won reward
   // battle of an event — common talismans to choose from (its reward). The next `talismans` draw decides them.
   const choice = battle === 'event' ? null : victoryChoice(node);
-  // Phase B (design answers 1–2): the first Jailer's row of the run offers a hammer first; its oath choice follows.
+  // Phase B (design answers 1–2): the first Jailer's row of the run offers a hammer first; its oath choice follows. Task 30: a
+  // run with forms offers forms there instead (by the node's form roll; nothing to offer — straight to the oaths).
+  if (choice === 'oath' && hammerDue(run, node) && run.forms) {
+    const options = rtFormOptions(run, node.id);
+    if (options.length) { offerTalismans(run, node.id, 'form', options, events); return { ok: true, run, events }; }
+    offerOaths(run, node.id, events); return { ok: true, run, events };
+  }
   if (choice === 'oath' && hammerDue(run, node)) {
     const options = rtHammerOptions(run, node.id);
     run.pending = { kind: 'hammer', nodeId: node.id, options };
@@ -2009,6 +2167,8 @@ export interface RtShopGood {
   /** A consumable not open in the run yet: buying it opens it. */
   opens?: boolean;
   sold?: boolean;
+  /** Task 30 «одна форма на поле»: the form of the same field the run holds that this talisman replaces when bought. */
+  replaces?: RtTalismanId;
 }
 export interface RtShopView { nodeId: string; goods: RtShopGood[]; total: number; materials: Record<ResourceKind, number>; healed: number; hardenings: number }
 /**
@@ -2025,10 +2185,12 @@ export function rtShopView(run: RtRunState): RtShopView | null {
     return { id: `item:${slot}`, good: 'item', item, label: ITEM_TITLES[item], text: `расходник «${ITEM_TITLES[item]}»${run.openItems.includes(item) ? '' : ' (откроется в походе)'}`,
       price, fullPrice: price, available: !reason, reason, sold, ...run.openItems.includes(item) ? {} : { opens: true } };
   });
-  const talisman = pending.stock.talisman ? rtTalisman(pending.stock.talisman) : undefined;
-  if (talisman && talisman.rarity !== 'oath' && talisman.rarity !== 'relic') {
+  // Task 30: a run with forms shows the counters by their chain window (`rtTalismanShown`) and what a form would replace.
+  const talisman = pending.stock.talisman ? rtTalismanShown(pending.stock.talisman, !!run.forms) : undefined;
+  if (talisman && talisman.rarity !== 'oath' && talisman.rarity !== 'relic' && talisman.rarity !== 'form') {
     const price = SHOP_TALISMAN_PRICE[talisman.rarity], sold = pending.bought.some(entry => entry.good === 'talisman'), reason = sold ? 'Куплено' : short(price);
-    goods.push({ id: 'talisman', good: 'talisman', talisman: talisman.id, label: talisman.name, text: talisman.effect, price, fullPrice: price, available: !reason, reason, sold });
+    const replaces = sold ? null : rtFormReplaces(run, talisman.id);
+    goods.push({ id: 'talisman', good: 'talisman', talisman: talisman.id, label: talisman.name, text: talisman.effect, price, fullPrice: price, available: !reason, reason, sold, ...replaces ? { replaces } : {} });
   }
   const healPrice = shopPrice('heal'), heal = Math.min(healPrice, total);
   const healReason = healed >= SHOP_HEAL_LIMIT ? `Не больше ${SHOP_HEAL_LIMIT} лечений за визит` : run.hp >= run.maxHp ? 'Здоровье полное' : '';
@@ -2077,6 +2239,13 @@ export const RT_HEAL_MAP_ON = true;
  * the Jailer's fight. Its own flag, independent of the others (`createRtRun`).
  */
 export const RT_JAILER_ON = true;
+/**
+ * Task 30 «Формы в походе» (design 15.10.2026; docs/realtime-slice.md, section 8, «Формы в походе»): a new run keeps the flag
+ * `forms` (`RtRunState.forms`) — the Jailer's screen offers forms, «Застава» a form of the other field in its rare place,
+ * «Близнецы» join the common pool, the run's fights play the counters' chain window and the forms' price (`rtArenaParams`). Its
+ * own flag, independent of the others (`createRtRun`); a save without it plays the old rules to its end.
+ */
+export const RT_FORMS_ON = true;
 /** Баланс (design 14.10.2026): one map heal gives this many HP (not above the maximum). */
 export const RT_HEAL_MAP_GAIN = 2;
 /** Баланс (design 14.10.2026): the first map heal of a run costs this many resources; each next one in the run 1 more (2, 3, 4…). */
@@ -2599,7 +2768,9 @@ function validCasino(run: RtRunState, map: ForestRunMap): boolean {
     if (game.table !== 'wheel' || Object.keys(game).some(key => !['table', 'outcome', 'gain', 'talisman'].includes(key))) return false;
     const { outcome, kinds } = rtCasinoWheel(value), effect = option.outcomes[outcome].effect;
     if (game.outcome !== outcome || !same(game.gain, kinds.slice(0, effect.resources ?? 0))) return false;
-    return game.talisman === undefined || (!!effect.talisman && isRtTalisman(game.talisman) && run.talismans.includes(game.talisman as RtTalismanId));
+    // Task 30: a form the wheel gave may have been replaced since by one of its field (gone then).
+    const won = (id: RtTalismanId) => run.talismans.includes(id) || (!!run.forms && !!rtFormField(id) && run.talismansGone.includes(id));
+    return game.talisman === undefined || (!!effect.talisman && isRtTalisman(game.talisman) && won(game.talisman as RtTalismanId));
   });
 }
 
@@ -2623,6 +2794,8 @@ function checkRun(value: unknown): RtRunState | null {
   if (value.heroId !== undefined && !(value.heroId === RT_HERO_ID && value.locked !== undefined)) return null;
   if (value.hearth !== undefined && !(value.locked !== undefined && JSON.stringify(rtCleanHearth(value.hearth)) === JSON.stringify(value.hearth))) return null;
   if (value.jailerRerolled !== undefined && !(isCount(value.jailerRerolled) && value.jailerRerolled >= 1 && isRecord(value.hearth) && value.jailerRerolled <= (value.hearth.jailerRerolls as number))) return null;
+  // Task 30 (15.10.2026): a flag; absent — a save before it, which has the hammer screen and the old pools.
+  if (value.forms !== undefined && value.forms !== true) return null;
   // Task 26: the viewer's snapshot — sorted known elements, no repeats (may be empty); only below «Испытание II».
   if (value.schedule !== undefined && !(isRecord(value.schedule) && Object.keys(value.schedule).length === 1 && Array.isArray(value.schedule.seen)
     && value.schedule.seen.every(isScheduleElement) && JSON.stringify([...new Set(value.schedule.seen)].sort()) === JSON.stringify(value.schedule.seen)
@@ -2658,6 +2831,13 @@ function checkRun(value: unknown): RtRunState | null {
   // Talismans: known ids of the slice, each once, taken and gone apart; the ward and the rest price — flags.
   if (!isTalismanList(run.talismans) || !isTalismanList(run.talismansGone) || run.talismans.some(id => run.talismansGone.includes(id))) return null;
   if ((run.wardSpent !== undefined && (run.wardSpent !== true || !run.talismans.includes('ash-ward'))) || (run.restNoHeal !== undefined && run.restNoHeal !== true)) return null;
+  // Task 30: the forms and the openers only in a run with the flag (no hammer of the hammer screen there); one form per field.
+  const formLike = (id: RtTalismanId) => isRtForm(id) || RT_OPENERS.some(def => def.id === id);
+  if (!run.forms && [...run.talismans, ...run.talismansGone].some(formLike)) return null;
+  if (run.forms) {
+    const fields = run.talismans.flatMap(id => rtFormField(id) ?? []);
+    if (run.hammer !== undefined || new Set(fields).size !== fields.length) return null;
+  }
   // Phase B (Т2): a hammer is one the run's first Jailer's row offered (by the node's roll), taken after its victory —
   // the row is passed, or its oath choice is open.
   if (run.hammer !== undefined) {
@@ -2799,9 +2979,22 @@ function checkRun(value: unknown): RtRunState | null {
         // B6 К7: the chest's offer — a hard node whose won fight took the chest (its own offer was chosen before).
         || source === 'chest' && node.type === 'hard' && rtChestOwed(run, node.id)
         // Task 16: the feat's choice — a won fight of the node that did its feat with a talisman reward.
-        || source === 'feat' && run.feats === true && rtFeatNode(node) && rtFeatTalismanOwed(run, node.id))) return null;
-      // Task 28: the Jailer's screen offers 4 after a severed weight (`rtOathSlots`).
-      if (!Array.isArray(options) || options.length > (source === 'oath' ? RT_JAILER_SEVERED_SLOTS : 3) || !options.every(option => isRtTalisman(option)) || new Set(options).size !== options.length) return null;
+        || source === 'feat' && run.feats === true && rtFeatNode(node) && rtFeatTalismanOwed(run, node.id)
+        // Task 30: the form screen — the run's first Jailer's row, won, in a run with forms.
+        || source === 'form' && run.forms === true && node.type === 'checkpoint' && hammerDue(run, node) && run.battles.some(record => record.nodeId === node.id && record.won))) return null;
+      // Task 28: the Jailer's screen offers 4 after a severed weight (`rtOathSlots`; task 30 — `rtFormSlots`).
+      if (!Array.isArray(options) || options.length > (source === 'oath' || source === 'form' ? RT_JAILER_SEVERED_SLOTS : 3) || !options.every(option => isRtTalisman(option)) || new Set(options).size !== options.length) return null;
+      // Task 30: the form screen is drawn again by the node's form roll (no `talismans` draw, no reroll).
+      if (source === 'form') {
+        // Task 37 «Правка»: the camp's free rerolls (counted in `jailerRerolled`); the shown forms — known forms, each once, not on
+        // the screen now. The offer is drawn again by the node's form roll with them.
+        const { rerolls, rerolled } = pending as { rerolls?: unknown; rerolled?: unknown };
+        if ((rerolls === undefined) !== (rerolled === undefined)) return null;
+        if (rerolls !== undefined && !(isCount(rerolls) && rerolls >= 1 && isCount(run.jailerRerolled) && rerolls <= run.jailerRerolled && isTalismanList(rerolled)
+          && rerolled.length >= rerolls && rerolled.every(id => isRtForm(id) && !options.includes(id)))) return null;
+        if (JSON.stringify(rtFormOptions(run, node.id, (rerolled as RtTalismanId[] | undefined) ?? [])) !== JSON.stringify(options)) return null;
+        break;
+      }
       // B5 К10 (the same version 7): the rerolls of this screen and the talismans they took away — both or neither; only an
       // offer that is rerolled; each reroll took at least one shown talisman and one `talismans` draw; the shown ones are
       // neither taken, gone nor offered now.
@@ -2827,7 +3020,8 @@ function checkRun(value: unknown): RtRunState | null {
     }
     case 'hammer': {
       // Phase B: the first Jailer's row of the run, won (its record), its hammers by the node's roll, no hammer taken yet.
-      if (node.type !== 'checkpoint' || !hammerDue(run, node) || run.hammer !== undefined) return null;
+      // Task 30: a run with forms has the form screen there instead.
+      if (node.type !== 'checkpoint' || !hammerDue(run, node) || run.hammer !== undefined || run.forms) return null;
       if (!run.battles.some(record => record.nodeId === node.id && record.won)) return null;
       // Task 37: a rerolled screen — the hammers shown before (known, each once) and the reroll's offer.
       const rerolled = (pending as { rerolled?: unknown }).rerolled;
@@ -2850,7 +3044,8 @@ function checkRun(value: unknown): RtRunState | null {
       // (a talisman bought at this visit was not taken yet then).
       if (!(streams.merchant >= 1)) return null;
       const boughtTalisman = pending.bought.some(entry => isRecord(entry) && entry.good === 'talisman');
-      const entering = { taken: run.talismans.filter(id => !(boughtTalisman && id === stock.talisman)), gone: talismanPool(run).gone };
+      // Task 30: a bought «Близнецы» may have replaced «Якорь у героя» — it was taken then, gone now: the same draw either way.
+      const entering = talismanPool({ ...run, talismans: run.talismans.filter(id => !(boughtTalisman && id === stock.talisman)) });
       if (rtShopTalisman(streamValue(run.seed, 'merchant', streams.merchant - 1), entering) !== stock.talisman) return null;
       const items = stock.items as ItemKind[];
       if (!pending.bought.every(entry => isRecord(entry) && isCount(entry.price) && isMaterials(entry.paid) && (entry.good === 'heal' || entry.good === 'harden'

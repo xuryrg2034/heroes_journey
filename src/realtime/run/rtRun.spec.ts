@@ -39,7 +39,7 @@ import { RT_TASK17_OFF,
 import type { ItemKind } from '../sim/kit';
 import { ITEM_KINDS } from '../forest/items';
 import type { GiftOption } from '../forest/runGift';
-import { RELICS, RT_TALISMANS, RT_TALISMANS_OFF, rtShopTalisman, rtTalisman, rtTalismanOffer, RT_COUNTER_TALISMANS, RT_RELICS, HAMMER_IDS, OATH_HUNGER, isHammerId, rtHammer } from './rtTalismans';
+import { RELICS, RT_TALISMANS, RT_TALISMANS_OFF, rtShopTalisman, rtTalisman, rtTalismanOffer, rtTalismanCatalog, RT_COUNTER_TALISMANS, RT_RELICS, HAMMER_IDS, OATH_HUNGER, isHammerId, rtHammer } from './rtTalismans';
 import { createRtProfileStore, createRtRunStore, RT_PROFILE_STORAGE_KEY, RT_RUN_STORAGE_KEY, type RunStorage } from './rtRunStorage';
 import { SLICE_EVENTS, SLICE_EVENTS_OFF } from './sliceEvents';
 
@@ -105,7 +105,8 @@ function takeGift(run: RtRunState, prefer?: (kind: string) => boolean): RtRunSta
 interface Walk { run: RtRunState; arenas: string[]; hards: string[]; finals: string[]; rowArenas: [number, string][]; outOfRow: [number, string][]; events: string[]; saves: number; replays: number; previews: number; finds: number; crafts: number; bought: number; offers: string[]; atFinal?: RtRunState; hammerShown?: boolean; hammers: number }
 
 function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = {}): Walk {
-  let run = createRtRun(seed, { gift: options.gift ?? 'mini' });
+  // Task 30: the walk checks the hammer screen and the old pools — a run without forms (`forms: false`, as a save before it).
+  let run = createRtRun(seed, { gift: options.gift ?? 'mini', forms: false });
   const walk: Walk = { run, arenas: [], hards: [], finals: [], rowArenas: [], outOfRow: [], events: [], saves: 0, replays: 0, previews: 0, finds: 0, crafts: 0, bought: 0, offers: [], hammers: 0 };
   const save = () => { const loaded = roundTrip(run); assert(loaded && same(loaded, run), `save of seed ${seed} does not load back`); walk.saves++; };
   for (let step = 0; step < 200 && !run.result; step++) {
@@ -437,10 +438,10 @@ interface PathArena { row: number; type: string; arena: string }
  * The arenas a run meets in order, its arena outcomes faked as victories (the run's commands only, no simulation): the
  * first button of every screen, the next node by `(k + step)`. For counting what a player meets first. `mix` — the run's
  * roster mix (11.10.2026; off — the choice of arenas before it, the measure of c8df2d4); `gentle` — the gentle entry (task 17;
- * off — the pools before it, the reference measures below). The Jailer's node plays its pool as before task 28 (`jailer: false`).
+ * off — the pools before it, the reference measures below). The Jailer's node plays its pool as before task 28 (`jailer: false`), its hammer screen as before task 30 (`forms: false`).
  */
 function arenaPath(seed: number, k: number, mix: boolean, gentle = false): { path: PathArena[]; previews: number } {
-  let run = createRtRun(seed, { gift: 'mini', rosterMix: mix, ...gentle ? {} : RT_TASK17_OFF, jailer: false });
+  let run = createRtRun(seed, { gift: 'mini', rosterMix: mix, ...gentle ? {} : RT_TASK17_OFF, jailer: false, forms: false });
   const path: PathArena[] = [];
   let previews = 0;
   for (let step = 0; step < 200 && !run.result; step++) {
@@ -1083,7 +1084,8 @@ check('talismans from the merchant (price by rarity; not bought — gone), from 
   const ground = ok(rtChooseEventOption(grinder, 'grind'), 'grind');
   assert(ground.talismans.length === 1 && rtTalisman(ground.talismans[0])!.rarity === 'common' && ground.materials.dew === 0, `a common talisman: ${ground.talismans}`);
   // A common one gone gives way to the next rarity (as the turn-based draw); with none left «Заточка» is closed.
-  const ofRarity = (...rarities: string[]) => RT_TALISMANS.filter(def => rarities.includes(def.rarity)).map(def => def.id);
+  // Task 30: the run's catalogue (with the flag `forms` — «Близнецы» among the uncommon ones).
+  const ofRarity = (...rarities: string[]) => rtTalismanCatalog({ taken: [], gone: [], forms: !!grinder.forms }).filter(def => rarities.includes(def.rarity)).map(def => def.id);
   const commons = ofRarity('common'), commonsGone = ok(rtChooseEventOption({ ...grinder, talismans: commons }, 'grind'), 'grind without commons');
   assert(rtTalisman(commonsGone.talismans[commons.length])!.rarity === 'uncommon', `gives way: ${commonsGone.talismans}`);
   // Phase B (design answer 5): the chain of an event stops at the uncommon ones — rare ones left do not keep «Заточка» open.
@@ -1414,7 +1416,8 @@ check('a run arena heals rtHp(3) = 9 with the healing consumable whatever the sa
  * choosing nodes of `type` when it can, until `stop` holds. Null — not reached.
  */
 function walkUntil(seed: number, prefer: string, stop: (run: RtRunState) => boolean, gift: 'mini' | 'full' = 'full'): RtRunState | null {
-  let run = createRtRun(seed, { gift });
+  // Task 30: phase B's sources — a run without forms (the hammer screen, the old pools).
+  let run = createRtRun(seed, { gift, forms: false });
   for (let step = 0; step < 120 && !run.result; step++) {
     if (stop(run)) return run;
     const pending = run.pending;
@@ -1523,7 +1526,7 @@ function measureSources(runs: number) {
     for (const id of new Set(ids)) if (id) at(id).offered++;
   };
   for (let k = 1; k <= runs; k++) {
-    let run = createRtRun(seedOf32(k), { gift: 'full' });
+    let run = createRtRun(seedOf32(k), { gift: 'full', forms: false }); // task 30: the measure of phase B — a run without forms
     for (let step = 0; step < 200 && !run.result; step++) {
       const pending = run.pending, pick = <T,>(list: readonly T[]) => list[(k + step) % list.length];
       if (pending?.kind === 'gift') {

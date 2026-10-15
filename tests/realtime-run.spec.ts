@@ -538,7 +538,10 @@ test('run (phase B, Д4): the Jailer\'s row offers a hammer 3 of 4, then an oath
   test.setTimeout(180_000);
   const errors: string[] = [];
   await openRun(page, errors);
-  await page.evaluate(s => (window as any).__realtime.run.newRun(s), Math.imul(3, 2654435761) >>> 0);
+  // Task 30: a new run has forms on the Jailer's screen (the next test) — the hammer screen is a save without the flag `forms`.
+  await page.evaluate(([key, value]) => localStorage.setItem(key, value), [RT_RUN_STORAGE_KEY, serializeRtRun(createRtRun(Math.imul(3, 2654435761) >>> 0, { gift: 'full', seeded: true, forms: false }))] as const);
+  await page.reload();
+  await expect(page.getByTestId('run')).toBeVisible();
   for (let step = 0; step < 60 && (await runState(page)).pending?.kind !== 'hammer'; step++) await walkStep(page, 'checkpoint');
   // Screen 1: three hammers and a refusal; a reload keeps the screen.
   await expect(page.getByTestId('run-hammer')).toBeVisible();
@@ -579,6 +582,46 @@ test('run (phase B, Д4): the Jailer\'s row offers a hammer 3 of 4, then an oath
   await expect(page.getByTestId(`build-${relicId}`)).toHaveAttribute('data-kind', 'relic');
   await expect(page.getByTestId(`build-${relicId}`).locator('.rt-build-price')).not.toBeEmpty();
   await page.screenshot({ path: 'artifacts/realtime-phaseB-run-column.png' });
+  expect(errors).toEqual([]);
+});
+
+test('run (task 30 «Формы в походе»): a new run\'s Jailer offers 3 forms — a first run (a new viewer) only «Прямая», «Наледь», «Взрыв на конце»; a reload keeps the screen; the form clicked joins the run, the oath screen follows; the next arena starts with it and the build column shows it', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors: string[] = [];
+  await openRun(page, errors);
+  await page.evaluate(s => (window as any).__realtime.run.newRun(s), Math.imul(3, 2654435761) >>> 0);
+  const formScreen = async () => { const s = await page.evaluate(() => (window as any).__realtime.run.state()) as { pending: { kind: string; source?: string } | null }; return s.pending?.kind === 'talisman' && s.pending.source === 'form'; };
+  for (let step = 0; step < 60 && !(await formScreen()); step++) await walkStep(page, 'checkpoint');
+  // The form screen: three forms of a first run and a refusal; a reload keeps it.
+  await expect(page.getByTestId('run-form')).toBeVisible();
+  await expect(page.getByTestId('run-form')).toContainText('Форма на выбор');
+  const cards = page.locator('[data-testid="run-form"] [data-action="talisman"]:not([data-option=""])');
+  await expect(cards).toHaveCount(3);
+  const ids = await cards.evaluateAll(buttons => buttons.map(button => (button as HTMLElement).dataset.option!));
+  expect([...ids].sort()).toEqual(['end-blast', 'form-pierce', 'frost-pass']);
+  await expect(page.getByTestId('talisman-refuse')).toBeVisible();
+  await page.reload();
+  await expect(page.getByTestId('run-form')).toBeVisible();
+  expect(await page.locator('[data-testid="run-form"] [data-action="talisman"]:not([data-option=""])').evaluateAll(buttons => buttons.map(button => (button as HTMLElement).dataset.option!))).toEqual(ids);
+  await page.screenshot({ path: 'artifacts/realtime-run-forms.png' });
+  const chosen = ids.find(id => id !== 'end-blast')!;
+  await page.getByTestId(`talisman-${chosen}`).click();
+  // The oath or relic screen follows; refused.
+  await expect(page.getByTestId('run-talisman')).toContainText('Клятва или реликвия на выбор');
+  await page.getByTestId('talisman-refuse').click();
+  const state = await page.evaluate(() => (window as any).__realtime.run.state() as { forms?: boolean; talismans: string[]; hammer?: string });
+  expect(state.forms).toBe(true);
+  expect(state.talismans).toContain(chosen);
+  expect(state.hammer).toBeUndefined();
+  // The next arena starts with the form (its journal keeps the loadout) and plays the counters' chain window; the column shows it.
+  for (let step = 0; step < 20 && (await runState(page)).pending?.kind !== 'battle'; step++) await walkStep(page, 'battle');
+  await expect(page.getByTestId('run')).toBeHidden();
+  const journal = await page.evaluate(() => (window as any).__realtime.journal() as { loadout?: { talismans?: string[] }; params: { counterWindow?: boolean; twinsAlternate?: boolean } });
+  expect(journal.loadout?.talismans).toContain(chosen);
+  expect(journal.params.counterWindow).toBe(true);
+  expect(journal.params.twinsAlternate).toBe(true);
+  await expect(page.getByTestId(`build-${chosen}`)).toBeVisible();
+  await page.screenshot({ path: 'artifacts/realtime-run-forms-column.png' });
   expect(errors).toEqual([]);
 });
 

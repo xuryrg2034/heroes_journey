@@ -362,7 +362,7 @@ export interface Params {
   /**
    * Task 29 (sim/hammers.ts «Возврат», sim/returnRun.ts): the release fixes the way back and the bodies of the return run as the
    * highlight shows them (as the pierce's); bodies that walked off the way are struck by the fixation. A journal without the
-   * value plays the old path (the bodies near the path the hero really runs). The sandbox: on; a run forces it off (task 30).
+   * value plays the old path (the bodies near the path the hero really runs). The sandbox: on; a run forces it off (`RUN_FORCED`) — task 30: a run with the flag `forms` turns it on (run/rtRun.ts `RT_FORMS_PARAMS`).
    */
   returnFixed: boolean;
   /**
@@ -376,7 +376,7 @@ export interface Params {
    * The wave's bodies fixed at the release (design 15.10.2026, before task 30): with «Возврат» in the kit, `returnFixed` and
    * `returnShadowEnd` the release fixes the bodies the shadow's «Ударная волна» strikes (`ReturnPreview.ends`), as the run's
    * bodies: at the end of the dash the wave strikes those still on the arena, even one that walked out of the circle; one that
-   * walked in is not struck. Otherwise (no «Возврат», `returnFixed` off — a run until task 30) the wave strikes who stands in
+   * walked in is not struck. Otherwise (no «Возврат», `returnFixed` off — a run without the flag `forms`) the wave strikes who stands in
    * the circle now. A journal without the key plays the old wave. The sandbox and a run: on (a run changes nothing while
    * `returnFixed` is off there).
    */
@@ -1269,7 +1269,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   // Task 32 (enemies/jailer.ts): the old core by default; the boss arenas turn both on for themselves.
   jailerColorless: false,
   jailerHp: 2,
-  // Task 33 (forms.ts): the sandbox's price of the forms; the run keeps the old forms (`RUN_FORCED`) until task 30.
+  // Task 33 (forms.ts): the sandbox's price of the forms; `RUN_FORCED` turns it off, a run with forms on (task 30, `RT_FORMS_PARAMS`).
   twinsAlternate: true,
   twinsNoShift: true,
   forkBranches: 1,
@@ -1752,7 +1752,8 @@ export function defaultParams(): Params { return sanitizeParams(null); }
  * archer's point shot is on. Loop research, step 1: the sandbox palette `colorCount` is 4 (the run's palette by its row comes
  * from `colorsByRow`, `Loadout.colors`). Step 2: the loop is a sandbox experiment — off in a run; step 3, «Прямая», too
  * (design 12.10.2026). П9 «Второе дыхание» (design decision 11.10.2026): a sandbox rule — off in a run, whatever the saved
- * panel holds. Task 29: the counters' chain window (`counterWindow`) — a sandbox rule until task 30, off in a run.
+ * panel holds. Task 29: the counters' chain window (`counterWindow`) — off here; task 30: a run with the flag `forms` turns it on with the
+ * forms' price and `returnFixed` (run/rtRun.ts `RT_FORMS_PARAMS`, `rtArenaParams`).
  */
 export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4, loopEnabled: false, loopHint: false, pierceEnabled: false, secondWind: false, endBlastMinLinks: 3, fireMinLinks: 3, returnFixed: false, counterWindow: false, twinsAlternate: false, twinsNoShift: false, forkBranches: 0, shiftAtPointer: true, holdNearest: true });
 /**
