@@ -51,6 +51,12 @@ export interface StartEnemy {
    * view (the ui session: the drawing ×1.25, the crown, the HP plate).
    */
   leader?: boolean;
+  /**
+   * Task 28 «Тюремщик в походе»: the boss core stands without its shield (the run takes the shieldbearer out of a fight whose
+   * viewer has not met it: rosters.ts `withoutKinds` with `shield` sets it on the Jailer's core). `Enemy.vars.bare` = 1 — only
+   * on such an enemy (other worlds hash as before).
+   */
+  shieldless?: boolean;
 }
 
 /**
@@ -176,6 +182,12 @@ export interface ArenaTemplate extends ArenaShape {
    * world gets a copy of them with `Params.bossFrame` on (world.ts `createWorld`; the journal keeps that copy). Omitted — the values as given.
    */
   bossFrame?: boolean;
+  /**
+   * Task 28 «Тюремщик в походе»: the boss's death ends the fight on this arena — the world plays `Params.bossClears` on when the
+   * given values have it off (`false`; world.ts `createWorld`, the journal keeps the copy). A journal recorded before the key
+   * (no `bossClears` at all) replays as it was. Omitted — the values as given.
+   */
+  bossClears?: boolean;
   /** Task 27: the gates of a boss arena — where the Jailer's «Свисток» calls its adds (enemies/jailer.ts). Omitted — none. */
   gates?: Vec[];
 }

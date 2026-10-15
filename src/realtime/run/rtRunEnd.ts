@@ -27,6 +27,8 @@ import type { RtBattleRecord, RtRunState } from './rtRun';
  */
 export const RT_KIND_TITLES: Readonly<Record<string, string>> = {
   basic: 'обычный', wolf: 'волк', boar: 'кабан', reaper: 'жнец', shield: 'щитоносец', archer: 'лучник', sapper: 'сапёр', porcupine: 'дикобраз', lynx: 'рысь', shaman: 'шаман',
+  // Task 28 «Тюремщик в походе»: the boss and its part (a touch of either may kill in the run's Jailer fight).
+  jailer: 'Тюремщик', 'jailer-weight': 'гиря Тюремщика',
 };
 
 /**
@@ -37,6 +39,8 @@ export const RT_KIND_TITLES: Readonly<Record<string, string>> = {
 export const RT_DEATH_ABILITY: Readonly<Record<string, string>> = {
   arrow: 'стрела лучника', blast: 'взрыв сапёра', quills: 'иглы дикобраза', lynx: 'прыжок рыси', boar: 'рывок кабана', 'fire-trail': 'огненный след',
   thorns: 'шипы', 'slot-rain': 'стрелы гоблина', 'slot-volley': 'стрелы гоблина', 'slot-bust': 'взрыв гоблина',
+  // Task 28: the Jailer's moves.
+  flail: 'кистень Тюремщика', throw: 'бросок гири',
 };
 /** The touch sources (each kind's `hitSource`): the line names the striker's kind, its elite mark, armour and affixes. */
 export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper'];

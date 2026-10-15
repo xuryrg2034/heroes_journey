@@ -24,6 +24,10 @@
  * - `sapper` — the fuse of a sapper lit by the hero's touch and its blast are one warning (the hero is always in the
  *   circle when it lights); the fuse of a killed sapper (`sapperFuse`) is a warning when the hero is in its circle.
  *   `sapper-instant` — a sapper blast with no fuse before it (delay 0): counted apart, «без предупреждения».
+ * - `flail`, `throw` (task 28 «Тюремщик в походе») — the Jailer's «Кистень» (its half disc from the core towards the hero at the
+ *   windup's start) and «Бросок гири» (the circle on the hero's centre then), from the windup (`bossMove` `start`) with the hero's
+ *   body in the zone. Strike — `bossMove` `hit`: a `flail` / `throw` hit — hit, else shielded (in the zone) or dodged; the core died
+ *   or the move was dropped (the weight severed) — interrupted.
  *
  * Outcomes: `hit` — a strike of this enemy by this source; `shielded` — the body in the zone on the strike tick but not
  * hurt (invulnerability, the chain's shield, a dash, a jump, the focus spare: decision 12); `dodged` — the body out of the
@@ -35,6 +39,7 @@
 import { archerLine, archerMark } from '../sim/enemies/archer';
 import { WOLF_HOWL, WOLF_RUSH, wolfRushLength } from '../sim/enemies/wolf';
 import { LYNX_LEAP, LYNX_STUN, LYNX_WINDUP } from '../sim/enemies/lynx';
+import { inFlail, jailerMove, JAILER } from '../sim/enemies/jailer';
 import { blockedAt, cliffAt, dist, type Vec } from '../sim/geometry';
 import { bodyRadiusOf } from '../sim/enemies/kinds';
 import { heroRadius } from '../sim/params';
@@ -43,8 +48,8 @@ import { CONTACT_SLACK, enemyFrozen, touchDistanceOf, type Enemy, type World } f
 import { EventCursor } from './observe';
 import type { ThreatTally } from './schema';
 
-export type ThreatKind = 'archer' | 'boar' | 'wolf' | 'lynx' | 'sapper' | 'sapper-instant';
-export const THREAT_KINDS: readonly ThreatKind[] = ['archer', 'boar', 'wolf', 'lynx', 'sapper', 'sapper-instant'];
+export type ThreatKind = 'archer' | 'boar' | 'wolf' | 'lynx' | 'sapper' | 'sapper-instant' | 'flail' | 'throw';
+export const THREAT_KINDS: readonly ThreatKind[] = ['archer', 'boar', 'wolf', 'lynx', 'sapper', 'sapper-instant', 'flail', 'throw'];
 export type ThreatOutcome = 'hit' | 'shielded' | 'dodged' | 'interrupted';
 export type CoverKind = 'wall' | 'cliff';
 
@@ -109,6 +114,9 @@ export class ThreatTracker {
   private hits: Hit[] = [];
   private kills = new Map<number, string>();
   private blasts: Vec[] = [];
+  /** Task 28: the Jailer's moves of this tick (`bossMove`): begun and struck, by the core's id. */
+  private bossStarts: { id: number; move: string }[] = [];
+  private bossHits: { id: number; move: string }[] = [];
   /** Hits already explained by a warning of this tick. */
   private used = new Set<Hit>();
 
@@ -120,9 +128,10 @@ export class ThreatTracker {
   /** After a tick; `realDt` — the real seconds it stood for (`Simulation.nextTickCost()` before it). */
   tick(world: World, realDt: number = SIM_DT): void {
     this.real += realDt;
-    this.hits = []; this.kills.clear(); this.blasts = []; this.used.clear();
+    this.hits = []; this.kills.clear(); this.blasts = []; this.used.clear(); this.bossStarts = []; this.bossHits = [];
     this.cursor.read(world, ev => {
       if (ev.type === 'hit') this.hits.push({ enemyId: ev.enemyId, source: ev.source });
+      else if (ev.type === 'bossMove') (ev.stage === 'start' ? this.bossStarts : this.bossHits).push({ id: ev.id, move: ev.move });
       else if (ev.type === 'kill') this.kills.set(ev.enemyId, ev.source ?? '');
       else if (ev.type === 'blast' && ev.source === 'blast') this.blasts.push({ x: ev.x, y: ev.y });
     });
@@ -138,6 +147,7 @@ export class ThreatTracker {
     this.resolveLynxes(world);
     this.resolveWolves(world);
     this.resolveSappers(world);
+    this.resolveBoss(world);
     if (world.status !== 'playing') for (const o of [...this.open]) this.close(o, world, 'interrupted', 'end');
     else this.openNew(world);
     this.wolfState = new Map(world.enemies.filter(e => e.kind === 'wolf').map(e => [e.id, e.vars.st ?? 0]));
@@ -421,6 +431,41 @@ export class ThreatTracker {
   private endSapper(o: Open, world: World, outcome: ThreatOutcome, reason?: string): void {
     this.close(o, world, outcome, reason);
     this.sapperOwner.delete(o);
+  }
+
+  // ---- Task 28: the Jailer's «Кистень» and «Бросок гири» ----
+
+  /** The zone of the move the core `core` winds up now (fixed at the windup's start), or null — none of the two. */
+  private bossZone(world: World, core: Enemy): Open['inZone'] | null {
+    const m = jailerMove(world, core);
+    if (!m || (m.move !== 'flail' && m.move !== 'throw')) return null;
+    const hr = heroRadius(world.params), at = { ...m.at }, r = m.r;
+    if (m.move === 'throw') return w => dist(w.hero, at) <= r + hr;
+    const dir = m.dir ?? 0;
+    return w => inFlail(at, dir, w.hero, hr);
+  }
+
+  private resolveBoss(world: World): void {
+    for (const kind of ['flail', 'throw'] as const) {
+      for (const o of this.kindOpen(kind)) {
+        const id = o.w.enemies[0], core = this.enemies.get(id);
+        if (this.hitBy([id], kind)) { this.close(o, world, 'hit'); continue; }
+        if (this.bossHits.some(h => h.id === id && h.move === kind)) { this.close(o, world, o.inZone(world) ? 'shielded' : 'dodged'); continue; }
+        if (!core) { this.close(o, world, 'interrupted', 'dead'); continue; }
+        if (world.status !== 'playing') { this.close(o, world, 'interrupted', 'end'); continue; }
+        // The move is still winding up; dropped (the weight severed) — interrupted.
+        if (jailerMove(world, core)?.move !== kind) this.close(o, world, 'interrupted', 'dropped');
+      }
+    }
+    // New windups with the hero's body in the zone.
+    if (world.status !== 'playing') return;
+    for (const start of this.bossStarts) {
+      if (start.move !== 'flail' && start.move !== 'throw') continue;
+      const core = this.enemies.get(start.id);
+      if (!core || core.kind !== JAILER) continue;
+      const zone = this.bossZone(world, core);
+      if (zone?.(world)) this.add(start.move, [core.id], world, zone);
+    }
   }
 
   // ---- New warnings ----

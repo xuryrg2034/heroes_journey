@@ -39,7 +39,8 @@ import { datan2, dcos, dhypot, dsin } from '../detMath';
 import { dist, lineOfSight, pushOutOfObstacles, type Vec } from '../geometry';
 import { heroRadius } from '../params';
 import type { SpawnMarker } from '../spawn';
-import { canBeHurt, damageEnemy, dropIntoCliffs, enemyFrozen, hurtHero, killEnemy, noteBlock, type Enemy, type World } from '../world';
+import { dropArmorLoot } from '../elites';
+import { canBeHurt, completeGoals, damageEnemy, dropIntoCliffs, enemyFrozen, hurtHero, killEnemy, noteBlock, type Enemy, type World } from '../world';
 import { bodyRadiusOf, registerBehavior, registerEnemyKind } from './kinds';
 
 /** The kinds of the Jailer: its core and its part. */
@@ -124,7 +125,35 @@ const inHand = (weight: Enemy | undefined): weight is Enemy => !!weight && weigh
 
 /** The core's shield is up: the frame on, a core, not frozen, the arc wider than nothing. */
 export function jailerShieldUp(world: World, e: Enemy): boolean {
-  return frameOn(world) && e.kind === JAILER && !enemyFrozen(e) && world.params.shieldArc > 0;
+  // Task 28: a core that stands without its shield (`StartEnemy.shieldless`: the run's viewer has not met the shieldbearer).
+  return frameOn(world) && e.kind === JAILER && !e.vars.bare && !enemyFrozen(e) && world.params.shieldArc > 0;
+}
+
+// ---- Task 28 «Тюремщик в походе»: the boss's death ends the fight (`Params.bossClears`) ----
+
+/** The source of the crowd's deaths when the boss dies (`kill` events; not the player's, not an enemy ability's). */
+export const BOSS_CLEAR = 'boss-clear';
+/** Task 28: the boss's death ends the fight in this world (the frame and `bossClears` on). */
+export const bossClearsOn = (world: World): boolean => frameOn(world) && !!world.params.bossClears;
+/** Task 28: `e` is a boss core whose death ends the fight (the highlight stops the chain after it, chain.ts `planChain`). */
+export const endsFight = (world: World, e: Pick<Enemy, 'kind'>): boolean => e.kind === JAILER && bossClearsOn(world);
+
+/**
+ * Task 28: the core `core` has just died (it is off the arena) — the fight ends: a dash running is over on the core (its links
+ * after it are dropped, a pierce not started yet is cancelled), the markers and the queue are dropped, every enemy left dies
+ * (`kill` of the source `boss-clear`, not credited), nothing spawns any more (`World.bossCleared`), the door opens.
+ */
+function bossClear(world: World): void {
+  world.bossCleared = true;
+  const move = world.move;
+  if (move?.kind === 'dash') {
+    move.links = [];
+    if (move.pierce && !move.pierce.start) { delete move.pierce; world.events.push({ type: 'pierce', phase: 'cancel' }); }
+  }
+  world.markers.length = 0;
+  world.queue.length = 0;
+  for (const e of [...world.enemies]) killEnemy(world, e, { source: BOSS_CLEAR, credited: false });
+  if (world.status === 'playing' && world.stage === 'goals') completeGoals(world);
 }
 
 /** The point stands in the core's shield arc (within half of `shieldArc` of its facing), as the shieldbearer's. */
@@ -134,7 +163,7 @@ export function inJailerShield(world: World, e: Enemy, p: Vec): boolean {
 }
 
 /** The point is in the flail's half disc of `core` towards `dir`, padded by `pad` (a body's radius). */
-function inFlail(core: Vec, dir: number, p: Vec, pad: number): boolean {
+export function inFlail(core: Vec, dir: number, p: Vec, pad: number): boolean {
   const dx = p.x - core.x, dy = p.y - core.y;
   return dhypot(dx, dy) <= FLAIL_RADIUS + pad && dx * dcos(dir) + dy * dsin(dir) >= -pad;
 }
@@ -365,12 +394,17 @@ registerBehavior({
     return true;
   },
   canBeLinkedFrom: (world, e, anchor) => !inJailerShield(world, e, anchor),
-  onDeath(world, e) {
-    if (!frameOn(world) || e.partOf === undefined) return;
+  onDeath(world, e, cause) {
+    if (!frameOn(world)) return;
+    // Task 28: the core's death ends the fight (`Params.bossClears`; without it the crowd lives on, as before).
+    if (e.kind === JAILER) { if (bossClearsOn(world) && !world.bossCleared) bossClear(world); return; }
+    if (e.partOf === undefined) return;
     const core = world.enemies.find(c => c.id === e.partOf);
     if (!core) return;
     core.vars.sever = (core.vars.sever ?? 0) + 1;
     world.events.push({ type: 'partSevered', id: e.id, x: e.x, y: e.y });
+    // Task 28 (`Params.bossPartLoot`, the run): a part the player severed drops its loot as an armoured elite does.
+    if (world.params.bossPartLoot && cause.credited) dropArmorLoot(world, e);
   },
   beforeStep(world, members, dt) {
     if (!frameOn(world)) return;

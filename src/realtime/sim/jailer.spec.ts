@@ -321,8 +321,12 @@ check('the picks: never three of one move in a row, both moves on every seed, th
   console.log(`   picks (f — кистень, t — бросок, w — свисток): ${seqs.join(' ')}`);
 });
 
-check('the core\'s death kills the weight after the dash (not the player\'s kill, no sever); the marked core opens the door («Тюремщик», the cold for a quiet core)', () => {
-  const sim = new Simulation({ arena: 'jailer', params: quiet(), seed: seedOf(1), record: true }), w = sim.world;
+check('the core\'s death kills the weight after the dash (not the player\'s kill, no sever); the marked core opens the door («Тюремщик», the cold for a quiet core; a journal before task 28 — no `bossClears`)', () => {
+  // Task 28: the arena turns `bossClears` on when the values have it off; a journal recorded before the key has none — the old path.
+  const old = quiet();
+  delete (old as Partial<Params>).bossClears;
+  const sim = new Simulation({ arena: 'jailer', params: old, seed: seedOf(1), record: true }), w = sim.world;
+  assert(w.params.bossClears === undefined, 'the old journal\'s values: no key');
   const core = w.enemies.find(e => e.kind === JAILER)!, weight = w.enemies.find(e => e.kind === JAILER_WEIGHT)!;
   assert(core.marked && weight.partOf === core.id && plates(core) === 3 && plates(weight) === 1, 'the arena: the marked core with 3 plates, its weight with 1');
   sim.command({ t: 'chill', id: core.id, seconds: 60 });

@@ -36,7 +36,8 @@
  *   between two ticks happen at the same real moment.
  * - kills: `kill` events: source `chain` — the chain (a survivor knocked over a cliff by the chain too); another credited
  *   source — a tool of the player (`bomb`, `spin`, `blast` of a sapper the player killed, `wave`, `hammer-*` …); not
- *   credited — enemy abilities.
+ *   credited — enemy abilities; source `boss-clear` (task 28, `Params.bossClears`) — the crowd that died with the boss: `kills.bossClear`
+ *   only (neither the chain, the tools nor the abilities).
  * - build: `talismanFired` by id; a `hammer` event counts for the run's hammer; the `ward` event for «Пепельный оберег»
  *   (`ash-ward`). `active` — talismans and relics of the kit that have no trigger of their own (constant modifiers:
  *   «Жернов», «Тяжёлый клинок», «Быстрые ноги», «Широкий круг», «Точильный камень», «Песочные часы» …).
@@ -82,12 +83,15 @@
  *   the tick (invulnerability run down by the tick's `SIM_DT`, as `update` does before the hits); the protections in the
  *   window — game seconds at the end of each tick (the lethal tick — as at the hit); the landing — ticks from the look where
  *   `world.move` ended (became null or another move) to the lethal hit.
+ * - the boss (task 28 «Тюремщик в походе»): a fight whose start has a Jailer (`jailer`) with the boss frame on — `boss`; `bossMove`
+ *   `start` events by move; the first `partSevered` — `severedAt`; the core's `kill` — `diedAt` (game seconds of the fight).
  */
 import { COUNTER_TALISMANS, OATH_HUNGER, RELICS } from '../sim/buildIds';
 import { tickScale } from '../sim/chain';
 import { featResult } from '../sim/feat';
 import type { Command } from '../sim/commands';
 import { WOLF_RUSH } from '../sim/enemies/wolf';
+import { BOSS_CLEAR, JAILER } from '../sim/enemies/jailer';
 import { kindOf } from '../sim/enemies/kinds';
 import { dist, inThorns, inWater } from '../sim/geometry';
 import { heroRadius } from '../sim/params';
@@ -213,6 +217,9 @@ export function createFightObserver(start: World): FightObserver {
   let guardFocus = focusGuarded(start), guardInvuln = start.hero.invulnerable, guardTime = start.time;
   let moveRef: HeroMove | null = start.move, moveEnd: number | null = null;
   let lethal: { source: string; damage: number; enemyId: number } | null = null;
+  // Task 28: the boss's core at the start (a fight with the boss frame on); its summary.
+  const bossCore = start.params.bossFrame ? start.enemies.find(e => e.kind === JAILER) : undefined;
+  if (bossCore) s.boss = { diedAt: null, severedAt: null, moves: {} };
   /** Task 20: the hero's body in a lit circle now (world.ts `bustHero`'s rule). */
   const inCircle = (b: Pick<BustWatch, 'x' | 'y' | 'edge'>): boolean => dist(world.hero, b) <= b.edge;
   /** Task 20: the hero's body against the open circles after a tick or a command — an exit (the last one counts) or a return. */
@@ -279,7 +286,10 @@ export function createFightObserver(start: World): FightObserver {
           else if (ev.source === 'slot-bust') s.slot.bustKills++;
           // Task 14 «Котомка у двери»: the player's kills after the bag appeared.
           if (bagOpen && ev.credited) s.bag.killsAfterGoals++;
-          if (ev.source === 'chain') s.kills.chain++;
+          // Task 28: the boss's core died; the crowd died with it (not the player's, not an ability's).
+          if (s.boss && bossCore && ev.enemyId === bossCore.id && s.boss.diedAt === null) s.boss.diedAt = round2(world.time);
+          if (ev.source === BOSS_CLEAR) s.kills.bossClear++;
+          else if (ev.source === 'chain') s.kills.chain++;
           else if (ev.credited) bump(s.kills.tools, ev.source ?? 'other');
           else s.kills.enemies++;
           return;
@@ -291,6 +301,9 @@ export function createFightObserver(start: World): FightObserver {
           return;
         }
         case 'goals': goalsDone = true; return;
+        // Task 28: the boss's moves begun, its weight severed.
+        case 'bossMove': if (s.boss && ev.stage === 'start') bump(s.boss.moves, ev.move); return;
+        case 'partSevered': if (s.boss && s.boss.severedAt === null) s.boss.severedAt = round2(world.time); return;
         // К7 «Проклятый сундук» (sim/chest.ts): the chest taken (the curse starts), the curse lifted by the dash's kills.
         case 'chest': if (s.chest.taken === null) { s.chest.taken = world.curse?.tick ?? world.tick; cursedNow = true; } return;
         case 'curseLifted': s.chest.liftedAt = world.curse?.lifted ?? world.tick; cursedNow = false; return;

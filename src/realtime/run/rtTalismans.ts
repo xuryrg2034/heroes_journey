@@ -161,9 +161,10 @@ export const RT_RARE_SLOT = 0;
  * RT_RARE_SLOT of a hard battle is always rare (design answer 4; no rare left — it gives way as any other); the Jailer's
  * offer draws among the oaths and the relics (design answer 2). `base` is one draw of the run's `talismans` stream.
  */
-export function rtTalismanOffer(base: number, source: 'hard' | 'oath', pool: RtTalismanPool): RtTalismanOption[] {
+export function rtTalismanOffer(base: number, source: 'hard' | 'oath', pool: RtTalismanPool, slots = 3): RtTalismanOption[] {
+  // Task 28 «Тюремщик в походе»: the Jailer's screen after a severed weight has 4 slots — the first three are those of 3 (rtRun.ts `rtOathSlots`).
   const seed = mixSeed(base >>> 0, OFFER_SALT), options: RtTalismanOption[] = [];
-  for (let slot = 0; slot < 3; slot++) {
+  for (let slot = 0; slot < slots; slot++) {
     let candidates: RtTalismanId[] = [];
     if (source === 'oath') candidates = [...eligibleOf('oath', pool, options), ...eligibleOf('relic', pool, options)];
     else {

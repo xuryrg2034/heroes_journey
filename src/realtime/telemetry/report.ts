@@ -238,9 +238,12 @@ const KIND_TITLES = RT_KIND_TITLES;
 const SOURCE_TITLES: Record<string, string> = {
   touch: 'касание', arrow: 'стрела', boar: 'рывок кабана', wolf: 'касание волка', [WOLF_RUSH_SOURCE]: 'бросок волка', lynx: 'прыжок рыси', blast: 'взрыв сапёра',
   quills: 'иглы', 'fire-trail': 'огонь элиты', thorns: 'терновник', reaper: 'жнец',
+  // Task 28: the Jailer's moves.
+  flail: 'кистень', throw: 'бросок гири',
 };
 const THREAT_TITLES: Record<string, string> = {
   archer: 'метка лучника', boar: 'полоса кабана', wolf: 'бросок стаи волков', lynx: 'прыжок рыси', sapper: 'фитиль и взрыв сапёра', 'sapper-instant': 'взрыв сапёра без предупреждения',
+  flail: 'кистень Тюремщика', throw: 'бросок гири Тюремщика',
 };
 const OUTCOME_TITLES: Record<string, string> = { victory: 'победа', defeat: 'поражение', abandoned: 'брошен', open: 'не закончен', restart: 'заново', menu: 'выход в меню', unload: 'страница закрыта' };
 
@@ -1018,6 +1021,8 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Враги', '', damageSections(fights), '',
     // Task 25 «От чего умирают».
     '## От чего умирают', '', deathSection(fights), '',
+    // Task 28 «Тюремщик в походе».
+    '## Босс', '', bossSection(fights), '',
     '## Элиты', '', ELITE_LEGEND, '', table(ELITE_HEAD, eliteRows(runFights, sandbox)), '',
     '## Однорукий гоблин', '', SLOT_LEGEND, '', table(SLOT_HEAD, [slotRow('походы', runFights), slotRow('песочница', sandbox)].filter((r): r is (string | number)[] => !!r)), '',
     // Task 20: how the hero left the lit idol's circle.
@@ -1120,6 +1125,62 @@ function deathSection(fights: readonly FightEntry[]): string {
   ].join('\n');
 }
 // ---- end «От чего умирают» ----
+
+// ---- Task 28 «Тюремщик в походе» (observe.ts `boss`; docs/realtime-telemetry.md, section 8) ----
+
+/** The Jailer's moves in the order of the report (`bossMove`), their names. */
+const BOSS_MOVES: readonly [string, string][] = [['flail', 'кистень'], ['throw', 'бросок гири'], ['whistle', 'свисток']];
+/** The damage sources of the boss's moves (`hit.source`). */
+const BOSS_HIT_SOURCES: readonly string[] = ['flail', 'throw'];
+
+/** One boss fight of the report: its entry and the boss summary (the replay's, else the browser's). */
+export interface BossEntry { entry: FightEntry; summary: FightSummary; row: number | null }
+/** The fights with a boss (the summary's `boss`; an older record without the field and without a replay — not one). */
+export function bossEntries(fights: readonly FightEntry[]): BossEntry[] {
+  return fights.flatMap(e => {
+    const summary = e.analysis ? e.analysis.summary : withSummaryDefaults(e.record.summary);
+    if (!summary.boss) return [];
+    return [{ entry: e, summary, row: e.record.run === SANDBOX_RUN ? null : e.record.row ?? null }];
+  });
+}
+
+/** The fights with a boss and the deaths in them by the killing blow's source — the numbers of the section. */
+export interface BossStats { fights: number; won: number; killed: number; severed: number; deathsBySource: Record<string, number> }
+export function bossStats(fights: readonly FightEntry[]): BossStats {
+  const list = bossEntries(fights), deathsBySource: Record<string, number> = {};
+  for (const b of list) { const d = b.summary.death; if (d) bump(deathsBySource, d.source); else if (b.entry.record.outcome === 'defeat') bump(deathsBySource, '—'); }
+  return {
+    fights: list.length, won: list.filter(b => b.entry.record.outcome === 'victory').length,
+    killed: list.filter(b => b.summary.boss!.diedAt !== null).length, severed: list.filter(b => b.summary.boss!.severedAt !== null).length, deathsBySource,
+  };
+}
+
+function bossRow(b: BossEntry): (string | number)[] {
+  const r = b.entry.record, boss = b.summary.boss!, s = b.summary;
+  const moves = BOSS_MOVES.filter(([id]) => boss.moves[id]).map(([id, title]) => `${title} ×${boss.moves[id]}`).join(', ') || '—';
+  const byMove = BOSS_HIT_SOURCES.map(src => `${sourceTitle(src)} ${s.damage.bySource[src] ?? 0}`).join(', ');
+  const other = s.damage.total - BOSS_HIT_SOURCES.reduce((sum, src) => sum + (s.damage.bySource[src] ?? 0), 0);
+  return [
+    `\`${r.fight}\``, r.run === SANDBOX_RUN ? 'песочница' : `\`${r.run}\``, b.row ?? '—', arenaTitle(r.arena), OUTCOME_TITLES[r.outcome] ?? r.outcome, n1(r.time),
+    boss.severedAt === null ? 'нет' : `да, ${n1(boss.severedAt)} с`, boss.diedAt === null ? 'нет' : `${n1(boss.diedAt)} с`, moves,
+    `${byMove}; прочее ${other}`, s.death ? deathSourceTitle(s.death.source) : '—', s.kills.bossClear ?? 0,
+  ];
+}
+const BOSS_HEAD = ['Бой', 'Поход', 'Ряд', 'Арена', 'Итог', 'Время боя, с', 'Гиря отрублена', 'Босс убит', 'Приёмы (начато)', 'Урон герою по приёмам, HP', 'Смерть от', 'Толпа с боссом'];
+const BOSS_LEGEND = 'Задача 28 (с 15.10.2026; поле сводки `boss`, повтор журнала считает его заново): бои с боссом — Тюремщик в походе (узел ряда 5) и на арене «Тюремщик» песочницы. Время боя — игровые секунды боя; гиря отрублена — на какой секунде боя (`partSevered`); босс убит — секунда смерти ядра. Приёмы — начатые замахи (`bossMove`). Урон герою по приёмам — HP от кистеня и броска гири (`damage.bySource`), прочее — остальной урон боя (касания, толпа). Смерть от — источник смертельного удара (`death`). Толпа с боссом — враги, погибшие со смертью ядра (`Params.bossClears`, источник `boss-clear`; не в зачёт игроку). Старые записи без поля и без повтора — не в таблице. Эвристика на малом числе боёв, не оценка баланса.';
+
+/** The section «Босс»: each boss fight, then the share killed, severed and the deaths by move. */
+function bossSection(fights: readonly FightEntry[]): string {
+  const list = bossEntries(fights);
+  if (!list.length) return `${BOSS_LEGEND}\n\n_боёв с боссом нет_`;
+  const st = bossStats(fights);
+  const deaths = Object.entries(st.deathsBySource).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([src, n]) => `${src === '—' ? 'нет данных' : deathSourceTitle(src)}: ${n}`).join(', ') || 'нет';
+  return [
+    BOSS_LEGEND, '', table(BOSS_HEAD, list.map(bossRow)), '',
+    `Боёв с боссом: ${st.fights}; побед: ${st.won} (${pct(st.won, st.fights)}); босс убит: ${st.killed} (${pct(st.killed, st.fights)}); гиря отрублена: ${st.severed} (${pct(st.severed, st.fights)}). Смерти по приёму: ${deaths}.`,
+  ].join('\n');
+}
+// ---- end «Босс» ----
 
 // ---- Task 16 «Подвиги» (sim/feat.ts, run/rtRun.ts; docs/realtime-slice.md, «Подвиги») ----
 

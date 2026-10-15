@@ -483,6 +483,11 @@ export function armorLoot(world: World, clean: boolean): (ItemKind | ResourceKin
   return out;
 }
 
+/** Task 28 (`Params.bossPartLoot`): a severed part of a boss drops the loot of an armoured elite (not a clean break). */
+export function dropArmorLoot(world: World, e: Enemy): void {
+  for (const loot of armorLoot(world, false)) dropLoot(world, e, loot);
+}
+
 function dropLoot(world: World, e: Enemy, loot: ItemKind | ResourceKind): void {
   const spot = lootSpot(world, e);
   const object: ArenaObject = { id: world.nextId++, kind: 'loot', x: spot.x, y: spot.y, pressed: false, loot, born: world.time };

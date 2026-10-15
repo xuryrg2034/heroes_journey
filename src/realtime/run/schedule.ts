@@ -13,16 +13,19 @@ import { arenaTemplate, markedGoalArena } from '../sim/arenas';
 import { AFFIX_IDS, affixAllowed } from '../sim/elites';
 import { FIXED_ROSTER_ARENAS, KIND_ROLE, POOL_ROSTERS } from '../sim/rosters';
 import { arenaKinds } from './arenaKinds';
+import { JAILER_ARENA, JAILER_YARD_ARENA } from '../sim/arenasBoss';
+import { JAILER_WEIGHT } from '../sim/enemies/jailer';
 import { FINAL_ARENA, HARD_ARENA } from './arenaPools';
 
 /** The special kinds (ЖЭ each); the basic enemy is not one. */
 export const SCHEDULE_KINDS: readonly string[] = ['wolf', 'boar', 'lynx', 'shield', 'archer', 'sapper', 'porcupine', 'shaman'];
 /**
- * The ids of the living elements (proposal: 20): the special kinds, `elite`, `affix` (any affix type met) with the types
- * `affix:<id>`, `brazier`, `cliff`, `water` (a river, a big pond), `thorns`, `chest`, `buttons`, `leader` (атаман), `horde`,
- * `bust` (the goblin's bust), `bag` (котомка; outside the budget, variant E).
+ * The ids of the living elements (proposal: 20; task 28 adds the 21st): the special kinds, `elite`, `affix` (any affix type met)
+ * with the types `affix:<id>`, `brazier`, `cliff`, `water` (a river, a big pond), `thorns`, `chest`, `buttons`, `leader` (атаман),
+ * `horde`, `bust` (the goblin's bust), `bag` (котомка; outside the budget, variant E), `part` (a part of a boss — the Jailer's
+ * weight, task 28).
  */
-export const SCHEDULE_ELEMENTS: readonly string[] = [...SCHEDULE_KINDS, 'elite', 'affix', 'brazier', 'cliff', 'water', 'thorns', 'chest', 'buttons', 'leader', 'horde', 'bust', 'bag'];
+export const SCHEDULE_ELEMENTS: readonly string[] = [...SCHEDULE_KINDS, 'elite', 'affix', 'brazier', 'cliff', 'water', 'thorns', 'chest', 'buttons', 'leader', 'horde', 'bust', 'bag', 'part'];
 export const affixElement = (id: string): string => `affix:${id}`;
 /** A valid id of the history (an element or an affix type). */
 export const isScheduleElement = (id: unknown): id is string =>
@@ -48,6 +51,8 @@ export const SCHEDULE_ARCS: readonly Arc[] = [
 export const BUST_ARC = 'bust';
 /** The hard node's own arc: «Застава» (its chest). */
 export const CHEST_ARC = 'chest';
+/** Task 28: the Jailer's node's own arc — the part of a boss (the weight a chain severs). */
+export const PART_ARC = 'part';
 /** The arcs taught on a known fight with the elite rules (no arena of their own). */
 const ELITE_ARCS: readonly string[] = ['elite', 'affix'];
 
@@ -102,13 +107,14 @@ export interface ScheduleContext {
   met: ReadonlySet<string>;
   /** The arenas of the run's fights so far, in order. */
   recent: readonly string[];
+  /** Task 28: the run plays the Jailer's fight on its Jailer node (`RtRunState.jailer`); absent — the pools' fight there, as before. */
+  jailer?: boolean;
 }
 
-/** The elite arcs need a guaranteed elite: not on the Jailer's node (it has none). Task 28 gives the Jailer's node its own arc. */
+/** The elite arcs need a guaranteed elite: not on the Jailer's node (it has none). Task 28 gives the Jailer's node its own arc (`jailerPlan`). */
 const takesEliteArc = (node: ScheduleNode): boolean => node === 'battle' || node === 'event' || node === 'breakthrough' || node === 'hard';
-/** The first arc ready for this fight (null — none: a practice fight). */
+/** The first arc ready for this fight (null — none: a practice fight). The Jailer's fight of task 28 has its own (`jailerPlan`). */
 export function readyArc(ctx: Pick<ScheduleContext, 'node' | 'row' | 'fight' | 'met'>): string | null {
-  // Task 28 will give the Jailer's node (checkpoint) its own arc «часть» here.
   const arc = SCHEDULE_ARCS.find(a => !ctx.met.has(a.id) && (a.needs ?? []).every(n => ctx.met.has(n)) && ctx.row >= (a.minRow ?? 0) && ctx.fight >= (a.minFight ?? 0)
     && (!ELITE_ARCS.includes(a.id) || takesEliteArc(ctx.node)));
   return arc?.id ?? null;
@@ -118,6 +124,7 @@ export function readyArc(ctx: Pick<ScheduleContext, 'node' | 'row' | 'fight' | '
 export function schedulePlan(ctx: ScheduleContext): SchedulePlan {
   const roll = mixSeed(ctx.seed, SCHEDULE_SALT);
   if (ctx.node === 'boss') return { arena: FINAL_ARENA, arc: null };
+  if (ctx.node === 'checkpoint' && ctx.jailer) return jailerPlan(ctx.met);
   if (ctx.node === 'hard') {
     // «Застава» once the cliff and the elite are met (its chest is the arc); else a practice stand-in — or the elite's arc.
     if (ctx.met.has('cliff') && ctx.met.has('elite')) return { arena: HARD_ARENA, arc: ctx.met.has(CHEST_ARC) ? null : CHEST_ARC };
@@ -133,6 +140,17 @@ export function schedulePlan(ctx: ScheduleContext): SchedulePlan {
   }
   return practice(ctx, roll, arc);
 }
+
+/**
+ * Task 28 «Тюремщик в походе»: the Jailer's fight of a scheduled run — its arc is the part (`PART_ARC`) until the part is met, and no
+ * other new element: the ravine stays out until the cliff is met (`JAILER_YARD_ARENA`); the run takes the core's shield away
+ * until the shieldbearer is met (`jailerWithout`).
+ */
+export function jailerPlan(met: ReadonlySet<string>): SchedulePlan {
+  return { arena: met.has('cliff') ? JAILER_ARENA.id : JAILER_YARD_ARENA.id, arc: met.has(PART_ARC) ? null : PART_ARC };
+}
+/** Task 28: what the run takes out of the Jailer's fight for a viewer (`Loadout.withoutKinds`): the shieldbearer not met — the core's shield. */
+export const jailerWithout = (met: ReadonlySet<string>): string[] => (met.has('shield') ? [] : ['shield']);
 
 /** A practice fight (`arc` — an elite arc taught on it, or null): an open arena, not one of the last two while another fits. */
 function practice(ctx: ScheduleContext, roll: number, arc: string | null): SchedulePlan {
@@ -178,6 +196,8 @@ export function arenaElements(arena: string, markedGoals: boolean): string[] {
   for (const o of t.obstacles) if (o.kind === 'pond' && 'r' in o && o.r >= 2) out.add('water');
   if (t.braziers?.length) out.add('brazier');
   if (t.chest) out.add('chest');
+  // Task 28: a boss with a part stands from the first frame (the Jailer's weight).
+  if (t.enemies.some(e => e.kind === JAILER_WEIGHT)) out.add(PART_ARC);
   return SCHEDULE_ELEMENTS.filter(id => out.has(id));
 }
 
