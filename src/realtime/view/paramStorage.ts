@@ -12,6 +12,7 @@
  * dropped so the new defaults apply.
  */
 import { defaultParams, sanitizeParams, type Params } from '../sim/params';
+import { FX_DEFAULT, fxLevelOf, type FxLevel } from './juice';
 
 /** The storage key of the panel's values (the telemetry header names it: `params.storage`). */
 export const PARAMS_STORAGE_KEY = 'ashen-oath-realtime-params-v17';
@@ -149,4 +150,19 @@ export function loadHintsOn(): boolean {
 
 export function saveHintsOn(on: boolean): void {
   try { localStorage.setItem(HINTS_ON_KEY, on ? '1' : '0'); } catch { /* storage may be unavailable */ }
+}
+
+/**
+ * Task 35, С1 «Тряска и вспышки» (view/juice.ts): the viewer's level 0 / 50 / 100 % of the camera shake and the full-screen flash —
+ * a local setting of the view, not a Param (the hash and the journal stay): the gear of the run map and the sandbox panel's «Вид»
+ * set it, the run, the prologue and the sandbox play by it. Its own key; storage may be unavailable or hold junk (then 100).
+ */
+const FX_KEY = 'ashen-oath-realtime-fx';
+
+export function loadFx(): FxLevel {
+  try { return fxLevelOf(localStorage.getItem(FX_KEY)); } catch { return FX_DEFAULT; }
+}
+
+export function saveFx(level: FxLevel): void {
+  try { localStorage.setItem(FX_KEY, String(level)); } catch { /* storage may be unavailable */ }
 }

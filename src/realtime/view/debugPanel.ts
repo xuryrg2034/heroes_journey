@@ -211,6 +211,28 @@ export class DebugPanel {
     return input;
   }
 
+  /** Task 35, С1: a list of a view setting (not a Param) in the «Вид» section: the caller keeps and stores the value. */
+  addViewChoice(label: string, testId: string, options: readonly { value: string; label: string }[], value: string, onChange: (value: string) => void, hint?: string): HTMLSelectElement {
+    const row = document.createElement('label');
+    row.className = 'rt-row';
+    if (hint) row.title = hint;
+    const name = document.createElement('span');
+    name.className = 'rt-name'; name.textContent = label;
+    const select = document.createElement('select');
+    select.setAttribute('data-testid', testId);
+    for (const o of options) {
+      const option = document.createElement('option');
+      option.value = o.value; option.textContent = o.label;
+      select.appendChild(option);
+    }
+    select.value = value;
+    select.addEventListener('change', () => { onChange(select.value); select.blur(); });
+    row.append(name, select);
+    this.viewSection.appendChild(row);
+    this.viewSection.hidden = false;
+    return select;
+  }
+
   /**
    * Phase B (track Д5): a choice of the sandbox build (a talisman, a relic, a hammer) — not a Param: the caller keeps and
    * stores the value and puts it into the sandbox loadout of the next arena (the loadout is journalled as it is).

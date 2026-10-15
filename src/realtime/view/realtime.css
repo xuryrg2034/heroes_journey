@@ -132,6 +132,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-run-hp { font: 17px Georgia, serif; color: #e5c8a8; }
 .rt-run-res { display: inline-flex; align-items: center; gap: 4px; color: #e5dcc0; cursor: default; }
 .rt-run-res b { font-family: system-ui, sans-serif; font-size: 15px; font-variant-numeric: tabular-nums; }
+/* Task 35, С3 «Добыча летит в счётчик» (runView.ts `flyResources`): a resource token flying to the header's number; the number glows while it counts up. */
+.rt-res-token { position: fixed; z-index: 60; width: 16px; height: 16px; pointer-events: none; filter: drop-shadow(0 0 4px #ffd88a); }
+.rt-res-token svg { display: block; }
+.rt-run-res.rt-res-tick b { color: #ffd88a; text-shadow: 0 0 10px #ffd88a; }
 /* Task 18: the choice of «Испытание» over «Новый поход»; the run's level by the map title. */
 .rt-ash { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 12px 0 0; }
 .rt-ash-head { color: var(--rt-muted); margin-right: 4px; }

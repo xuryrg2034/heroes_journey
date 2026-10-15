@@ -37,12 +37,12 @@ export function dashPolyline(g: Graphics, pts: readonly { x: number; y: number }
   return n;
 }
 
-/** «Близнецы»: the chain line — navy under, then dashes of `inkA` and `inkB` in turn (no gaps). */
-export function drawTwinLine(g: Graphics, pts: readonly { x: number; y: number }[], inkA: number, inkB: number): void {
+/** «Близнецы»: the chain line — navy under, then dashes of `inkA` and `inkB` in turn (no gaps); `scale` — its width (task 35). */
+export function drawTwinLine(g: Graphics, pts: readonly { x: number; y: number }[], inkA: number, inkB: number, scale = 1): void {
   g.moveTo(pts[0].x, pts[0].y);
   for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y);
-  g.stroke({ color: NAVY, width: 9, alpha: 0.95, cap: 'round', join: 'round' });
-  dashPolyline(g, pts, 16, 0.001, i => g.stroke({ color: i % 2 ? inkB : inkA, width: 4.5, alpha: 0.95, cap: 'butt' }));
+  g.stroke({ color: NAVY, width: 9 * scale, alpha: 0.95, cap: 'round', join: 'round' });
+  dashPolyline(g, pts, 16, 0.001, i => g.stroke({ color: i % 2 ? inkB : inkA, width: 4.5 * scale, alpha: 0.95, cap: 'butt' }));
 }
 
 /** «Чужак»: a dashed ring of radius `R` in the candidate's own colour, a navy under-ring. */

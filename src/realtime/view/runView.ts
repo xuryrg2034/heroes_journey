@@ -37,6 +37,7 @@ import { isOathId, oathDef, OATH_BROKEN_MULT, OATH_KEPT_MULT, type OathId } from
 import { multText } from '../sim/purse';
 import { eventOption, forestEvent } from '../forest/forestEvents';
 import type { SoundSetting } from './paramStorage';
+import { FX_LEVELS, countUpTime, countUpValue, fxLevelOf, type FxLevel } from './juice';
 import { SECOND_WIND_HP } from '../sim/world';
 import { featCardLine } from './featView';
 import type { FirstMeetId } from './firstMeet';
@@ -107,6 +108,11 @@ export interface RunHost {
    * gear; `preview` sounds one hit at the volume let go. Absent (the sandbox: its panel has the sound) — none.
    */
   sound?: { get(): SoundSetting; set(sound: SoundSetting): void; preview(): void };
+  /**
+   * Task 35, С1 «Тряска и вспышки» (view/juice.ts; paramStorage.ts `loadFx`): the level 100 / 50 / 0 % of the camera shake and the
+   * full-screen flash, a list on the gear. Absent — none.
+   */
+  fx?: { get(): FxLevel; set(level: FxLevel): void };
   /**
    * Task 16 telemetry «Новизна»: the run screen showed a concept the viewer may meet for the first time (`heal-button` — the map
    * heal's button, `circle` — the goblins' circle); the host decides «first» (view/firstMeet.ts) and reports it. Absent — nothing.
@@ -282,6 +288,15 @@ export class RunView {
   private chanceRoll: ChanceRoll | null = null;
   /** Task 16 telemetry: when the screen of the next choice opened (or the last step on it went through), `performance.now()`. */
   private screenSince = performance.now();
+  /**
+   * Task 35, С3 «Добыча летит в счётчик»: the header's resource number as shown (null — not yet: the first showing takes the total
+   * as it is) and the run it belongs to; a count-up running now; the last press (client px) — where the tokens fly from.
+   */
+  private resShown: { seed: number; value: number } | null = null;
+  private resCount: { from: number; to: number; start: number; total: number; frame: number } | null = null;
+  private pressAt: { x: number; y: number } | null = null;
+  /** Task 35, С3 (tests read it): flights started, tokens thrown, the number now and whether it is counting. */
+  readonly resFly = { flights: 0, tokens: 0, from: 0, to: 0, shown: 0, counting: false };
 
   constructor(private readonly host: RunHost, private readonly fixedSeed: number | null) {
     this.el = document.createElement('div');
@@ -294,8 +309,12 @@ export class RunView {
       if (target.dataset.action === 'sound-volume' && sound) sound.set({ ...sound.get(), volume: Number(target.value) });
     });
     this.el.addEventListener('change', event => {
-      if ((event.target as HTMLElement).dataset.action === 'sound-volume') this.host.sound?.preview();
+      const target = event.target as HTMLSelectElement;
+      if (target.dataset.action === 'fx-level') this.host.fx?.set(fxLevelOf(target.value));
+      if (target.dataset.action === 'sound-volume') this.host.sound?.preview();
     });
+    // Task 35, С3: the tokens of a gain fly from the last press (the button that took the reward, the fight's «Дальше»).
+    window.addEventListener('pointerdown', event => { this.pressAt = { x: event.clientX, y: event.clientY }; }, { capture: true });
     // Task 8c: Esc closes the node card (the map shows whole).
     window.addEventListener('keydown', event => {
       if (event.key !== 'Escape' || this.el.hidden || !this.selected || !this.el.querySelector('[data-testid="run-detail"]')) return;
@@ -484,7 +503,7 @@ export class RunView {
     if (action === 'settings') { this.settingsOpen = !this.settingsOpen; this.draw(); return; }
     if (action === 'hints-toggle') { this.host.hints?.set((target as HTMLInputElement).checked); this.draw(); return; }
     if (action === 'sound-toggle' && this.host.sound) { this.host.sound.set({ ...this.host.sound.get(), on: (target as HTMLInputElement).checked }); this.draw(); return; }
-    if (action === 'sound-volume') return;
+    if (action === 'sound-volume' || action === 'fx-level') return;
     // «Обучение»: the labels' memory starts over and the prologue plays again; the run (map, save) stays as it is.
     // Task 26 (design 15.10.2026): «Обучение» also empties the schedule's history — the run open now stays, the next new run goes the newcomer's path.
     if (action === 'prologue') { this.host.hints?.store.reset(); this.profile.resetSchedule(this.run?.seed); this.settingsOpen = false; this.host.hints?.startPrologue(); return; }
@@ -675,6 +694,66 @@ export class RunView {
     const session = this.host.session;
     if (session?.on() && !run.result && !this.inArena && this.sessionNudge === null) this.sessionNudge = session.clock.takeNudge();
     this.el.innerHTML = `${this.headerHtml(run)}${this.pickLineHtml(run)}<div class="rt-run-body">${this.mapHtml(run)}${run.pending || run.result ? '' : this.detailHtml(run)}</div>${this.modalHtml(run)}${this.dieRollHtml()}${this.chanceHtml()}`;
+    this.flyResources(run);
+  }
+
+  /**
+   * Task 35, С3 «Добыча летит в счётчик» (design 15.10.2026): resources gained since the number was last shown — the fight's
+   * reward and the sack («Котомка»), a feat, the die and the circle, an event — fly to the header's number as resource tokens (one
+   * per resource, at most six) and the number counts up 0.3–0.6 s (view/juice.ts `countUpTime`). A spending shows at once. A
+   * gain made while the screen is hidden (the fight's result) flies when the map shows. View only: the run is already paid.
+   */
+  private flyResources(run: RtRunState): void {
+    const num = this.el.querySelector<HTMLElement>('[data-testid="run-resources"] b');
+    const total = rtResourceTotal(run);
+    if (!num) return;
+    const count = this.resCount;
+    if (count) { num.textContent = String(countUpValue(count.from, count.to, (performance.now() - count.start) / 1000, count.total)); if (count.to === total) return; }
+    if (this.el.hidden) { if (this.resShown) num.textContent = String(this.resShown.value); return; }
+    const shown = this.resShown;
+    if (!shown || shown.seed !== run.seed || total <= shown.value) {
+      if (count) cancelAnimationFrame(count.frame);
+      this.resCount = null; this.resFly.counting = false;
+      this.resShown = { seed: run.seed, value: total }; this.resFly.shown = total;
+      num.textContent = String(total);
+      return;
+    }
+    // A gain: from the number shown (or counting now) to the new total.
+    const from = count ? Number(num.textContent) || shown.value : shown.value;
+    if (count) cancelAnimationFrame(count.frame);
+    num.textContent = String(from);
+    const target = num.getBoundingClientRect(), box = this.el.getBoundingClientRect();
+    const src = this.pressAt ?? { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+    const tokens = Math.min(6, total - from), flight = 420, stagger = 60;
+    for (let i = 0; i < tokens; i++) {
+      const token = document.createElement('span');
+      token.className = 'rt-res-token';
+      token.setAttribute('data-testid', 'res-token');
+      token.innerHTML = RESOURCE_ICON;
+      const sx = src.x + (i - (tokens - 1) / 2) * 10, sy = src.y;
+      token.style.left = `${sx - 8}px`; token.style.top = `${sy - 8}px`;
+      document.body.appendChild(token);
+      const dx = target.left + target.width / 2 - sx, dy = target.top + target.height / 2 - sy;
+      const fly = token.animate([
+        { transform: 'translate(0, 0) scale(1.3)', opacity: 1 },
+        { transform: `translate(${dx * 0.5}px, ${dy * 0.5 - 40}px) scale(1.1)`, opacity: 1, offset: 0.5 },
+        { transform: `translate(${dx}px, ${dy}px) scale(0.8)`, opacity: 0.9 },
+      ], { duration: flight, delay: i * stagger, easing: 'ease-in', fill: 'both' });
+      fly.onfinish = () => token.remove();
+    }
+    this.resFly.flights++; this.resFly.tokens += tokens; this.resFly.from = from; this.resFly.to = total;
+    this.resShown = { seed: run.seed, value: total };
+    const start = performance.now() + flight, time = countUpTime(total - from);
+    const tick = (): void => {
+      const now = performance.now(), el = this.el.querySelector<HTMLElement>('[data-testid="run-resources"] b');
+      const value = countUpValue(from, total, (now - start) / 1000, time);
+      if (el) { el.textContent = String(value); el.parentElement?.classList.toggle('rt-res-tick', now >= start && value < total); }
+      this.resFly.shown = value;
+      if (value >= total && now >= start) { this.resCount = null; this.resFly.counting = false; el?.parentElement?.classList.remove('rt-res-tick'); return; }
+      if (this.resCount) this.resCount.frame = requestAnimationFrame(tick);
+    };
+    this.resCount = { from, to: total, start, total: time, frame: requestAnimationFrame(tick) };
+    this.resFly.counting = true; this.resFly.shown = from;
   }
 
   private startHtml(): string {
@@ -762,15 +841,17 @@ export class RunView {
    * checkbox per `viewToggles` entry. Not in the fight HUD.
    */
   private settingsHtml(): string {
-    const toggles = this.host.viewToggles ?? [], hints = this.host.hints, sound = this.host.sound?.get();
-    if (!toggles.length && !hints && !sound) return '';
+    const toggles = this.host.viewToggles ?? [], hints = this.host.hints, sound = this.host.sound?.get(), fx = this.host.fx?.get();
+    if (!toggles.length && !hints && !sound && fx === undefined) return '';
     // «Подсказки» and «Обучение» (the memory of what was shown starts over and the prologue plays again).
     const hintRows = hints ? `<label class="rt-run-setting" title="Подписи у предметов в бою (раз на зрителя, уходят после действия) и строки на экранах похода."><input type="checkbox" data-action="hints-toggle" data-testid="view-hints"${hints.on() ? ' checked' : ''}> Подсказки</label>`
       + `<button class="rt-run-hints-reset" data-action="prologue" data-testid="prologue-start" title="Пройти пролог «Опушка» ещё раз и заново показать подписи у предметов в походе. Поход не меняется.">Обучение</button>` : '';
     // The run's sound: the switch, and the volume under it (greyed while the sound is off).
     const soundRows = sound ? `<label class="rt-run-setting" title="Звуки боя в походе и в прологе."><input type="checkbox" data-action="sound-toggle" data-testid="view-sound"${sound.on ? ' checked' : ''}> Звук</label>`
       + `<label class="rt-run-setting rt-run-volume${sound.on ? '' : ' rt-off'}">Громкость <input type="range" min="0" max="1" step="0.05" value="${sound.volume}" data-action="sound-volume" data-testid="view-sound-volume"${sound.on ? '' : ' disabled'}></label>` : '';
-    const rows = soundRows + hintRows + toggles.map(t => `<label class="rt-run-setting"${t.hint ? ` title="${escapeHtml(t.hint)}"` : ''}><input type="checkbox" data-action="view-toggle" data-toggle="${t.id}" data-testid="view-${t.id}"${t.get() ? ' checked' : ''}> ${escapeHtml(t.label)}</label>`).join('');
+    // Task 35, С1: «Тряска и вспышки» — 100 / 50 / 0 % (at 0 the arena stands still and no flash covers the screen).
+    const fxRow = fx !== undefined ? `<label class="rt-run-setting" title="Тряска камеры и вспышки на весь экран. При 0 % их нет. Вспышек не больше трёх в секунду.">Тряска и вспышки <select data-action="fx-level" data-testid="view-fx">${FX_LEVELS.map(l => `<option value="${l}"${l === fx ? ' selected' : ''}>${l} %</option>`).join('')}</select></label>` : '';
+    const rows = soundRows + fxRow + hintRows + toggles.map(t => `<label class="rt-run-setting"${t.hint ? ` title="${escapeHtml(t.hint)}"` : ''}><input type="checkbox" data-action="view-toggle" data-toggle="${t.id}" data-testid="view-${t.id}"${t.get() ? ' checked' : ''}> ${escapeHtml(t.label)}</label>`).join('');
     return `<span class="rt-run-gear-wrap"><button class="rt-run-gear" data-action="settings" data-testid="run-settings" title="Настройки" aria-expanded="${this.settingsOpen}">⚙</button>`
       + (this.settingsOpen ? `<span class="rt-run-settings" data-testid="run-settings-panel">${rows}</span>` : '') + '</span>';
   }
