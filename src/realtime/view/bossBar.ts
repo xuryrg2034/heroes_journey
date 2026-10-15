@@ -12,7 +12,7 @@
  * The pure part (`bossBarState`) is testable in Node; the DOM part (`BossBar`) follows it each frame.
  */
 import type { World } from '../sim/world';
-import { JAILER, JAILER_HP, PHASE2_PLATES } from '../sim/enemies/jailer';
+import { JAILER, PHASE2_PLATES, jailerHpOf } from '../sim/enemies/jailer';
 
 /** Real seconds the bar takes to fade after the core's death. */
 export const BOSS_BAR_FADE = 0.5;
@@ -39,8 +39,8 @@ export function bossBarState(w: World): BossBarState | null {
   const core = w.enemies.find(e => e.kind === JAILER && e.partOf === undefined);
   if (!core) return null;
   const platesMax = core.armor?.max ?? 0, plates = Math.max(0, core.armor?.plates ?? 0);
-  // An enemy keeps no max HP: the core's own number (a core with more — its HP now).
-  const hpMax = Math.max(1, JAILER_HP, core.hp), hp = Math.max(0, core.hp);
+  // An enemy keeps no max HP: the core's HP at its spawn (task 32: `Params.jailerHp`, the boss arenas 5; a core with more — its HP now).
+  const hpMax = Math.max(1, jailerHpOf(w.params), core.hp), hp = Math.max(0, core.hp);
   return { id: core.id, hpMax, hp, platesMax, plates, phaseAt: hpMax + Math.min(platesMax, PHASE2_PLATES), phase2: core.vars.phase === 2 };
 }
 
