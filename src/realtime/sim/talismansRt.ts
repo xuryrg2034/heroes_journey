@@ -17,7 +17,7 @@
  */
 import { addCounter, buildStateOf, chainEnemyLinks, colorShiftOf, counterOf, chainShieldOf, nextChainNo, registerBuildModule, setBuildState, setCounter, talismanFired, type BuildProgress, type LinkContext } from './build';
 import { BUILD_SOURCES, COUNTER_TALISMANS, RELICS } from './buildIds';
-import { buildHitAll, enemiesInCircle } from './buildHits';
+import { buildHitAll, enemiesInCircle, shadowHitAll } from './buildHits';
 import type { Params } from './params';
 import type { World } from './world';
 
@@ -178,6 +178,9 @@ registerBuildModule({
 
 registerBuildModule({
   id: COUNTER_TALISMANS.shockwave,
+  // Task 29: the shadow of «Возврат» sees the wave (the same threshold, circle and hit, on the planned end).
+  endShadow: (w, end, enemies) => end.links < shockwaveLinksOf(w.params) ? [...enemies]
+    : shadowHitAll(enemies, enemiesInCircle({ ...w, enemies: [...enemies] }, end.at, SHOCKWAVE_RADIUS), SHOCKWAVE_DAMAGE, BUILD_SOURCES.wave),
   onChainEnd: (w, end) => {
     if (end.links < shockwaveLinksOf(w.params)) return;
     const at = { x: w.hero.x, y: w.hero.y };

@@ -9,6 +9,7 @@
  * Kept out of build.ts: it imports world.ts at run time, build.ts must not (world.ts imports build.ts).
  */
 import { dhypot } from './detMath';
+import { PLATES_BY_SOURCE, platesOf } from './elites';
 import { bodyRadiusOf, kindOf } from './enemies/kinds';
 import { dist, type Vec } from './geometry';
 import { damageEnemy, type Enemy, type World } from './world';
@@ -43,6 +44,23 @@ export function enemiesNearPath(world: World, path: readonly Vec[], radius: numb
 /** A hit of the player's build on `e`: `damage`, credited, named `source`. */
 export function buildHit(world: World, e: Enemy, damage: number, source: BuildSource): void {
   damageEnemy(world, e, damage, { source, credited: true });
+}
+
+/**
+ * Task 29 (the shadow of «Возврат», chain.ts `planReturn`; `Params.returnShadowEnd`): `buildHitAll` of `damage` on `targets`
+ * played on a shadow list of enemies — pure, the world is not touched. As `damageEnemy`: the reaper is not hurt; an armoured
+ * elite with plates loses plates (`PLATES_BY_SOURCE`, 1 by default), not HP; otherwise the hit kills at HP ≤ damage (the body
+ * leaves the list) or takes the HP. Returns the list after the hits (unchanged bodies are the same objects).
+ */
+export function shadowHitAll(enemies: readonly Enemy[], targets: readonly Enemy[], damage: number, source: BuildSource): Enemy[] {
+  const hit = new Set(targets.map(e => e.id));
+  if (damage <= 0 || !hit.size) return [...enemies];
+  return enemies.flatMap(e => {
+    if (!hit.has(e.id) || kindOf(e).immune) return [e];
+    const plates = platesOf(e);
+    if (plates > 0) return [{ ...e, armor: { ...e.armor!, plates: plates - Math.min(plates, Math.max(1, PLATES_BY_SOURCE[source] ?? 1)) } }];
+    return damage >= e.hp ? [] : [{ ...e, hp: e.hp - damage }];
+  });
 }
 
 /** Hits every enemy of `targets` (collected first: a kill changes the list) that is still on the arena. */

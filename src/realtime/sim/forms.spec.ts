@@ -12,6 +12,9 @@
  * - «Близнецы»: colours 1 + 3 and 2 + 4 are one colour; an incomplete pair in a row of 3 colours; ranked above «Чужак»;
  * - «Возврат»: the way back and the second pass in `planChain` before the release equal the run — without `returnFixed` on a
  *   scene where nobody walks, with it also while the enemies walk; the first pass killed everyone near the way — an empty run;
+ *   «Ударная волна» of the same chain kills and wounds before the run — the plan's marks are struck after it (`returnShadowEnd`,
+ *   a journal without the key — the old shadow); a closed door is no link (a goal met mid-dash opens it, the fight and the run go
+ *   on); a chain into the open door wins — no run in the plan, none made;
  * - the highlight is the dash on random fights of several seeds with the forms (links, pierce, return); every fight replays to
  *   the same hash (checkpoints every 300 ticks); journals without the new ids and without `returnFixed` play the old world.
  * Seeds `Math.imul(k, 2654435761) >>> 0`. No bot win or loss is asserted.
@@ -19,7 +22,7 @@
 import browserJournal from '../../../tests/fixtures/realtime-browser-journal.json';
 import legacyJournals from '../../../tests/fixtures/realtime-legacy-build-journals.json';
 import { registerArena } from './arenas';
-import { FORMS, FORM_FIELD, HAMMERS } from './buildIds';
+import { BUILD_SOURCES, COUNTER_TALISMANS, FORMS, FORM_FIELD, HAMMERS } from './buildIds';
 import { chainColor, colorGroups, colorJoin, enemyAnchors, enemyRefusal, foreignLeft, hoverRefusal, loopCandidates, nextCandidates, planChain, type ChainPlan, type StrikeOutcome } from './chain';
 import { platesOf } from './elites';
 import { returnRunOf } from './hammers';
@@ -108,6 +111,7 @@ check('journals recorded before task 29 replay to their recorded hash (the forms
   const all = [{ name: 'browser', ...(browserJournal as unknown as { journal: Journal; hash: string }) }, ...legacy];
   for (const f of all) assert(replay(f.journal).hash() === f.hash, `${f.name}: recorded ${f.hash}, now ${replay(f.journal).hash()}`);
   assert(runParams(defaultParams()).returnFixed === false && defaultParams().returnFixed === true, 'returnFixed: on in the sandbox, off in a run');
+  assert(defaultParams().returnShadowEnd === true && runParams(defaultParams()).returnShadowEnd === true, 'returnShadowEnd: on in the sandbox and in a run');
   assert(FORM_FIELD[FORMS.seal] === 'end' && FORM_FIELD[FORMS.pierce] === 'end' && FORM_FIELD[HAMMERS.blast] === 'end'
     && FORM_FIELD[FORMS.fork] === 'link' && FORM_FIELD[FORMS.alien] === 'link' && FORM_FIELD[FORMS.twins] === 'link'
     && FORM_FIELD[HAMMERS.return] === 'path' && FORM_FIELD[HAMMERS.fire] === 'path' && FORM_FIELD[HAMMERS.cut] === 'path', 'the fields');
@@ -369,6 +373,116 @@ check('a journal without `returnFixed` plays the old path: the same world as the
   const stripped = JSON.parse(JSON.stringify(journal)) as Journal;
   delete (stripped.params as Partial<Params>).returnFixed;
   assert(play(journal) === play(stripped), 'the same world');
+});
+
+// ---- «Возврат» and the end of the same dash: «Ударная волна», the door ----
+
+/** The bodies the return run struck (a hit or a plate), in order. */
+const struckBack = (events: readonly WorldEvent[]): number[] =>
+  events.flatMap(e => ((e.type === 'enemyHit' || (e.type === 'elitePlates' && e.action === 'strip')) && e.source === BUILD_SOURCES.hammerReturn ? [e.enemyId] : []));
+
+/**
+ * Five weak links in a row from (4, 6) (the dash ends at (10, 6), the run's power 2) and «Ударная волна» of the chain window
+ * (from 4 links): `near` stands in the wave (radius 2 around the end) by the way back, `mid` and `far` stand by the way back out
+ * of the wave.
+ */
+function waveScene(returnFixed: boolean, nearHp: number, extra: Partial<Params> = {}) {
+  const sim = fight([COUNTER_TALISMANS.shockwave], { killGoal: 999, returnFixed, counterWindow: true, shockwaveLinks: 4, ...extra }, { hammer: HAMMERS.return });
+  sim.command({ t: 'teleport', x: 4, y: 6 });
+  const links = [1, 2, 3, 4, 5].map(i => ({ x: 4 + 1.2 * i, y: 6 }));
+  for (const p of links) place(sim, p);
+  const near = place(sim, { x: 9.4, y: 6.7 }, { color: 1, hp: nearHp });
+  const mid = place(sim, { x: 7.2, y: 6.7 }, { color: 2, hp: 2 });
+  const far = place(sim, { x: 5.6, y: 6.7 }, { color: 3, hp: 3 });
+  draw(sim, links);
+  return { sim, near, mid, far };
+}
+
+check('«Возврат» + «Ударная волна» of the same chain: the second pass in the plan is struck after the wave (killed or wounded by it), with and without `returnFixed`', () => {
+  for (const fixed of [false, true]) {
+    for (const nearHp of [1, 2]) {
+      const label = `returnFixed ${fixed}, near HP ${nearHp}`;
+      const { sim, near } = waveScene(fixed, nearHp);
+      const plan = planChain(sim.world), before = snapshot(sim);
+      assert(plan.back && plan.back.power === 2, `${label}: a run of power 2 in the plan`);
+      // The wave kills a 1-HP body before the run: the plan does not strike it.
+      if (nearHp === 1) assert(!plan.back.hits.some(h => h.id === near), `${label}: the plan strikes a body the wave kills first`);
+      sim.command({ t: 'release' });
+      const events = settle(sim);
+      assert(events.some(e => e.type === 'wave') && hammerKinds(events).includes('return'), `${label}: the wave and the run happened`);
+      // What the player saw before the release is what the run struck, in order, with the planned outcomes.
+      assert(struckBack(events).join() === plan.back.hits.map(h => h.id).join(), `${label}: the run struck ${struckBack(events).join()}, the plan showed ${plan.back.hits.map(h => h.id).join()}`);
+      for (const h of plan.back.hits) {
+        const e = enemy(sim, h.id);
+        assert(h.outcome.killed ? !e : e && e.hp === h.outcome.hpAfter, `${label}: ${h.id} planned ${h.outcome.killed ? 'killed' : `HP ${h.outcome.hpAfter}`}, got ${e ? `HP ${e.hp}` : 'dead'}`);
+      }
+      // Bodies neither the plan nor the wave touched stay as they were.
+      const waved = new Set(events.flatMap(e => (e.type === 'enemyHit' || e.type === 'kill') && e.source === BUILD_SOURCES.wave ? [e.enemyId] : []));
+      for (const s of before) {
+        if (waved.has(s.id) || plan.back.hits.some(h => h.id === s.id) || plan.links.some(l => l.link.id === s.id)) continue;
+        assert(enemy(sim, s.id)?.hp === s.hp, `${label}: ${s.id} untouched`);
+      }
+      assert(replays(sim), `${label}: replays`);
+    }
+  }
+});
+
+check('«Возврат» + «Ударная волна»: a chain shorter than the wave\'s threshold — the plan is the old one (no wave)', () => {
+  const sim = fight([COUNTER_TALISMANS.shockwave], { returnFixed: true, counterWindow: true, shockwaveLinks: 6 }, { hammer: HAMMERS.return });
+  sim.command({ t: 'teleport', x: 4, y: 6 });
+  const links = [1, 2, 3, 4, 5].map(i => ({ x: 4 + 1.2 * i, y: 6 }));
+  for (const p of links) place(sim, p);
+  const near = place(sim, { x: 9.4, y: 6.7 }, { color: 1, hp: 1 });
+  draw(sim, links);
+  const plan = planChain(sim.world);
+  assert(plan.back && plan.back.hits[0]?.id === near && plan.back.hits[0].outcome.killed, 'the run kills the near body itself');
+  sim.command({ t: 'release' });
+  const events = settle(sim);
+  assert(!events.some(e => e.type === 'wave') && struckBack(events).join() === plan.back.hits.map(h => h.id).join(), 'no wave; the run struck as planned');
+});
+
+check('a journal without `returnShadowEnd` plays the old shadow: the same world as the key off (with `returnFixed` the key changes the run)', () => {
+  const play = (journal: Journal) => { const { params: _, ...rest } = worldState(replay(journal).world) as Record<string, unknown>; return JSON.stringify(rest); };
+  const worlds = [false, true].map(on => {
+    const { sim } = waveScene(true, 2, { returnShadowEnd: on });
+    sim.command({ t: 'release' });
+    settle(sim);
+    return JSON.parse(JSON.stringify(sim.exportJournal())) as Journal;
+  });
+  const stripped = JSON.parse(JSON.stringify(worlds[0])) as Journal;
+  delete (stripped.params as Partial<Params>).returnShadowEnd;
+  assert(play(worlds[0]) === play(stripped), 'without the key — the world of the key off');
+  assert(play(worlds[0]) !== play(worlds[1]), 'with `returnFixed` the key changes the run (the wounded body is struck too)');
+});
+
+registerArena({ goal: 'kills', width: 20, height: 12, heroStart: { x: 4, y: 6 }, buttons: [], enemies: [], killGoal: 1, id: 'forms-door', name: 'Дверь форм', summary: 'Тест «Возврата» у двери', obstacles: [], door: { x: 7.6, y: 6 } });
+
+check('«Возврат» and the door: a door closed at the drawing is no link (the goal met mid-dash opens it, the fight goes on, the run is made as planned); a chain into the open door wins — no run in the plan and none made', () => {
+  for (const fixed of [false, true]) {
+    const sim = new Simulation({ arena: 'forms-door', params: quiet({ returnFixed: fixed }), seed: seedOf(3), record: true, loadout: { talismans: [], hammer: HAMMERS.return } });
+    sim.command({ t: 'clear', keepMarked: false });
+    sim.command({ t: 'teleport', x: 4, y: 6 });
+    const a = place(sim, { x: 5.2, y: 6 }), b = place(sim, { x: 6.4, y: 6 });
+    const off = place(sim, { x: 5.8, y: 6.7 }, { color: 1, hp: 2 });
+    draw(sim, [{ x: 5.2, y: 6 }, { x: 6.4, y: 6 }, { x: 7.6, y: 6 }]);
+    // chain.ts `objectRefusal`: the closed door is refused (`closed`, within R) — the chain cannot end in it before the goals.
+    assert(ids(sim).join() === [a, b].join() && sim.world.stage === 'goals' && hoverRefusal(sim.world, { x: 7.6, y: 6 }) === 'closed', `the closed door is no link (chain ${ids(sim).join()}, ${hoverRefusal(sim.world, { x: 7.6, y: 6 })})`);
+    const plan = planChain(sim.world);
+    assert(plan.back && plan.back.hits.map(h => h.id).join() === String(off), 'the plan shows the run');
+    sim.command({ t: 'release' });
+    const events = settle(sim);
+    assert(String(sim.world.stage) === 'greed' && sim.world.status === 'playing', 'the dash met the goal: the door is open, the fight goes on');
+    assert(hammerKinds(events).includes('return') && struckBack(events).join() === String(off) && enemy(sim, off)?.hp === plan.back.hits[0].outcome.hpAfter, 'the run is made as planned');
+    // The door is open now: a chain into it wins — the plan shows no run, and none is made.
+    sim.command({ t: 'teleport', x: 5.2, y: 6 });
+    const c = place(sim, { x: 6.4, y: 6 });
+    draw(sim, [{ x: 6.4, y: 6 }, { x: 7.6, y: 6 }]);
+    assert(ids(sim).length === 2 && ids(sim)[0] === c && !planChain(sim.world).back, 'a chain into the open door: no run in the plan');
+    sim.command({ t: 'release' });
+    const won = settle(sim);
+    assert(String(sim.world.status) === 'victory' && !hammerKinds(won).includes('return'), 'the dash wins in the door, no run');
+    assert(replays(sim), 'replays');
+  }
 });
 
 // ---- Random fights: the highlight is the dash ----

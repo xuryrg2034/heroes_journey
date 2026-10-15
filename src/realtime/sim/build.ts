@@ -87,6 +87,9 @@ export interface ChainEnd {
   endForm?: 'seal' | 'pierce';
 }
 
+/** The end of a planned dash (`endShadow`): the enemy links it reaches (`ChainEnd.links`) and where the hero stands after it. */
+export interface ChainEndShadow { links: number; at: Vec }
+
 /** A kill of the chain (`onChainKill`): an enemy struck dead by the dash, or a fallen credited link it passed. */
 export interface ChainKill { id: number; x: number; y: number; elite: boolean; fallen: boolean; /** Kills of this chain so far. */ kills: number }
 
@@ -159,6 +162,12 @@ export interface BuildModule {
   onDashStep?(world: World, step: DashStep): void;
   /** The dash ended (after the chain score, the `chainEnd` event and the after-chain invulnerability). */
   onChainEnd?(world: World, end: ChainEnd): void;
+  /**
+   * Task 29 — pure: what this module's `onChainEnd` does to the enemies, played on a shadow list (`enemies`, the world as the
+   * planned dash leaves it) — the shadow of «Возврат» (chain.ts `planReturn`, `Params.returnShadowEnd`) reads it, so the run's
+   * marks see a wave of the same chain. Returns the list after it; the world is not touched, no random draws.
+   */
+  endShadow?(world: World, end: ChainEndShadow, enemies: readonly Enemy[]): Enemy[];
   /** A jump started; `cost` — the energy it took. */
   onJump?(world: World, cost: number): void;
   /** Every game tick of the world step (after burning, before thorns; not during the hit-stop). */
@@ -227,6 +236,13 @@ function withHook<K extends keyof BuildModule>(world: World, key: K): BuildModul
  */
 export function runHook(world: World, key: keyof BuildModule, call: (module: BuildModule) => void): void {
   for (const m of withHook(world, key)) call(m);
+}
+
+/** The active modules' `endShadow` on `enemies`, in the order their `onChainEnd` runs (pure). */
+export function endShadowOf(world: World, end: ChainEndShadow, enemies: readonly Enemy[]): Enemy[] {
+  let out: Enemy[] = [...enemies];
+  for (const m of withHook(world, 'endShadow')) out = m.endShadow!(world, end, out);
+  return out;
 }
 
 /** Some active module has the hook (skip work the hook would need: e.g. collecting the dash path). */

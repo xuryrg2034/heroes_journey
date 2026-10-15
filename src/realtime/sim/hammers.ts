@@ -26,7 +26,8 @@
  *   `RETURN_RADIUS` of the way back is hit once, in the order the run reaches them: the hit is the power now, it kills when
  *   not less than the HP, and spends the HP removed (a weak one — nothing); a survivor takes the rest and the power is 0
  *   (no more hits). No +1 per enemy: those are not links. The highlight shows the way back and the hits before the release
- *   (chain.ts `planChain(...).back`, the same functions: returnRun.ts, `returnStrike`). With `Params.returnFixed` (task 29;
+ *   (chain.ts `planChain(...).back`, the same functions: returnRun.ts, `returnStrike`; with `Params.returnShadowEnd` the plan
+ *   sees the end of the same dash first — «Ударная волна» kills and wounds before the run). With `Params.returnFixed` (task 29;
  *   the sandbox, not a run until task 30) the release fixes the planned route and bodies, as the pierce's: the run goes from
  *   where the dash ended along the fixed route and strikes each fixed body when it passes the body's point, if it is still on
  *   the arena. Without the key the bodies are those near the path the hero really runs (moving enemies may differ from the

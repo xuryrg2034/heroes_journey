@@ -359,6 +359,13 @@ export interface Params {
    */
   returnFixed: boolean;
   /**
+   * The shadow of «Возврат» (chain.ts `planReturn`; the defect closed 15.10.2026, before task 30): the highlight's way back and
+   * second pass see the end of the same dash — the build modules' end (`endShadow`: «Ударная волна» kills and wounds before
+   * the run). With `returnFixed` the release fixes this plan, so the key changes the run; without `returnFixed` only the
+   * highlight. A journal without the key plays the old path (the shadow without the wave). The sandbox and a run: on.
+   */
+  returnShadowEnd: boolean;
+  /**
    * Task 29 (design 15.10.2026, «Переделка восьми счётчиков»): the eight counter talismans count within one chain
    * (sim/talismansRt.ts: «Острие», «Улов», «Призма» +1 power after a crystal or a colour shift, …). Off — the old windows
    * between chains. A journal without the key plays the old path. The sandbox's toggle; a run plays it off (`RUN_FORCED`).
@@ -988,6 +995,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   // Баланс: decision of the user 11.10.2026 (playtest v17) — a chain of 3+ links.
   endBlastMinLinks: 3,
   returnFixed: true,
+  returnShadowEnd: true,
   // Task 29: off — the old windows of the counters; the wave of the chain window from 4 links.
   counterWindow: false,
   shockwaveLinks: 4,
@@ -1362,6 +1370,8 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('endBlastMinLinks', 'Талисманы', '«Взрыв на конце»: звеньев от', 1, 6, 1, 5, '', 'Молот срабатывает, если проход дошёл до стольких вражеских звеньев (погибшие по пути и выживший на конце считаются). В походе — 3.'),
   { kind: 'bool', key: 'returnFixed', group: 'Талисманы', label: '«Возврат»: путь и тела при отпускании', stage: 5,
     hint: 'Задача 29. Отпускание фиксирует путь назад и тела второго прохода, как их показала подсветка; ушедшее с пути тело всё равно получает удар. В походе выключено (до задачи 30).' },
+  { kind: 'bool', key: 'returnShadowEnd', group: 'Талисманы', label: '«Возврат»: тень видит конец прохода', stage: 5,
+    hint: 'Подсветка бега «Возврата» учитывает «Ударную волну» той же цепи: тела, которые волна убьёт, бег не бьёт, раненые — с меньшим HP. С «путь и тела при отпускании» меняет и сам бег. Выкл. — прежняя тень.' },
   { kind: 'bool', key: 'counterWindow', group: 'Талисманы', label: 'Счётчики: окно — одна цепь', stage: 5,
     hint: 'Только песочница (со следующей арены). Восемь талисманов-счётчиков считают внутри одной цепи: «Острие» — 3-е вражеское звено +2 силы; «Улов» — цепь с 3+ убийствами даёт бесплатный прыжок на 5 с; «Призма» — звенья после кристалла или смены цвета +1 силы (без энергии); «Ударная волна» — цепь от N звеньев; «Добивание» — последнее звено самое крепкое и погибло; «Охотник на элит» — и после крепкого; «Длинная рука» — с 3-го звена R ×1,5; «Иней на клинке» — цепь 3+ на выжившем. Выкл. — прежние счётчики между цепями. В походе выключено.' },
   n('shockwaveLinks', 'Талисманы', '«Ударная волна» (окно — цепь): звеньев от', 2, 12, 1, 5, '', 'Только при «Счётчики: окно — одна цепь». Без него — 8.'),
