@@ -14,6 +14,7 @@
 import { createRtRun, rtMapNodes } from '../run/rtRun';
 import { ITEM_TITLES, type ItemKind } from '../sim/kit';
 import { KIND_CAPTIONS } from './newSeen';
+import { RT_NODE_TYPES } from './nodeTypes';
 import { HEARTH_LEVEL_LOCKED, HEARTH_PLACES, HEARTH_PRICES, NPCS, metaItemCard, xpBar, type HearthState, type MetaSource, type NpcId } from './metaModel';
 import { NPC_LINES, pickLine, questLine, type DeathCause } from './npcLines';
 import { rowWord } from './metaEnd';
@@ -24,11 +25,11 @@ const ICON = '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"
 /**
  * The six places round the fire, px of the 1280×720 screen — the stumps and rugs of the camp's background (design 15.10.2026,
  * public/art/camp/hearth.png): the order of `HEARTH_PLACES` — Неясыть on the back left stump, Марфа on the back right rug,
- * Ерофей on the front right rug (on the right stump he stood over Марфа); the empty ones — the left stump, the front left rug, the
- * right stump. `s` — the figure's scale (farther — smaller).
+ * Ерофей on the front left rug (design 15.10.2026: on the right he covered Марфа's name); the empty ones — the left stump, the
+ * right stump, the front right rug. No two names overlap in any company. `s` — the figure's scale (farther — smaller).
  */
 const PLACE_AT: readonly { x: number; y: number; s: number }[] = [
-  { x: 345, y: 352, s: 0.9 }, { x: 935, y: 356, s: 0.9 }, { x: 965, y: 520, s: 0.92 }, { x: 245, y: 422, s: 1 }, { x: 305, y: 516, s: 1.1 }, { x: 1045, y: 422, s: 1 },
+  { x: 345, y: 352, s: 0.9 }, { x: 935, y: 356, s: 0.9 }, { x: 305, y: 528, s: 0.95 }, { x: 245, y: 422, s: 1 }, { x: 1045, y: 422, s: 1 }, { x: 965, y: 516, s: 1.1 },
 ];
 /** The NPC's art (public/art/characters; design, Codex): a stand-in silhouette shows if the image does not load. */
 const NPC_ART: Readonly<Record<NpcId, string>> = { owl: 'npc-owl', herb: 'npc-herbalist', smith: 'npc-smith' };
@@ -130,16 +131,17 @@ export class HearthView {
       let action: string;
       if (lv >= HEARTH_LEVEL_LOCKED) action = `<span class="rt-hearth-lock" data-testid="up-${npc}-${lv}-lock" title="${esc(NPC_LINES[npc].locked3?.[0] ?? 'После гарнизона')}">🔒</span>`;
       else if (level >= lv) action = `<span class="rt-hearth-bought" data-testid="up-${npc}-${lv}-bought">✓ куплено</span>`;
-      else if (lv > level + 1) action = `<button class="rt-hearth-buy" disabled data-testid="up-${npc}-${lv}">${ICON}${price}</button>`;
+      // Level 2 only after level 1: a grey price, no reason text (design 15.10.2026).
+      else if (lv > level + 1) action = `<button class="rt-hearth-buy rt-hearth-later" disabled data-testid="up-${npc}-${lv}" data-later="true" title="Сначала — «${esc(NPCS[npc].upgrades[level])}»">${ICON}${price}</button>`;
       else if (h.stock < price) action = `<button class="rt-hearth-buy" disabled data-testid="up-${npc}-${lv}" data-lack="true">нужно ${price}, есть ${h.stock}</button>`;
       else action = `<button class="rt-hearth-buy" data-action="buy" data-npc="${npc}" data-level="${lv}" data-testid="up-${npc}-${lv}">${ICON}${price}</button>`;
       return `<li class="${level >= lv ? 'rt-done' : lv >= HEARTH_LEVEL_LOCKED ? 'rt-locked' : ''}"><div><b>${esc(name)}</b><small>${esc(NPCS[npc].rules[k])}</small></div>${action}</li>`;
     }).join('');
     const quest = h.quest?.npc === npc ? `<p class="rt-hearth-quest" data-testid="hearth-quest">${esc(questLine(npc, (h.record?.row ?? 0) >= 10 && !h.record?.won, h.lines))} <small>+10 опыта, +3 запаса</small></p>` : '';
     const book = npc === 'owl' ? '<button class="rt-other rt-hearth-book" data-action="bestiary" data-testid="hearth-bestiary">Бестиарий</button>' : '';
-    // The bubble stands low at the left edge (over the empty places; no NPC stands there, the fire and the centre stay clear).
+    // The bubble stands low at the right edge (over the empty front right rug; no NPC stands there, the fire and the centre stay clear).
     void i; void at; void right;
-    return `<div class="rt-hearth-bubble" style="left:16px;bottom:16px" data-testid="hearth-bubble" data-npc="${npc}">`
+    return `<div class="rt-hearth-bubble" style="right:16px;bottom:16px" data-testid="hearth-bubble" data-npc="${npc}">`
       + `<p class="rt-hearth-who"><b>${esc(NPCS[npc].name)}</b> · ${esc(NPCS[npc].who)}</p><p class="rt-hearth-line" data-testid="hearth-line">${esc(this.lastLine)}</p>${quest}<ul class="rt-hearth-ups">${rows}</ul>${book}</div>`;
   }
 
@@ -157,7 +159,13 @@ export class HearthView {
     if (!s) return '';
     if (this.step === 'maps' && s.maps) {
       this.shown.maps = s.maps.length;
-      const cards = s.maps.map((seed, i) => `<button class="rt-hearth-map" data-action="map" data-seed="${seed}" data-testid="hearth-map-${i}">${mapPreview(seed)}<b>Путь ${i + 1}</b></button>`).join('');
+      // Each map as the run map draws it (its node icons), and its nodes counted by kind — a count that differs from another map lit.
+      const counts = s.maps.map(mapCounts);
+      const cards = s.maps.map((seed, i) => {
+        const line = MAP_KINDS.map(k => { const n = counts[i][k.id] ?? 0, differs = counts.some((c, j) => j !== i && (c[k.id] ?? 0) !== n);
+          return `<span class="${differs ? 'rt-mp-diff' : ''}" title="${esc(k.label)}">${k.icon} ${n}</span>`; }).join('');
+        return `<button class="rt-hearth-map" data-action="map" data-seed="${seed}" data-testid="hearth-map-${i}">${mapPreview(seed)}<span class="rt-mp-counts">${line}</span><b>Путь ${i + 1}</b></button>`;
+      }).join('');
       return `<div class="rt-overlay rt-hearth-modal" data-testid="hearth-maps"><div class="rt-card"><h2>${s.maps.length === 3 ? 'Три пути' : 'Два пути'}</h2><div class="rt-hearth-maps">${cards}</div></div></div>`;
     }
     if (this.step === 'items' && s.items) {
@@ -217,14 +225,28 @@ export class HearthView {
   }
 }
 
-/** A small picture of a forest map by its seed: the nodes and edges of the run that seed makes (no stream is drawn for it). */
+/** The kinds of nodes the map choice counts (the run map's icons, view/nodeTypes.ts); «Застава» is the checkpoint. */
+const MAP_KINDS: readonly { id: string; icon: string; label: string }[] = [
+  { id: 'battle', icon: RT_NODE_TYPES.battle.icon, label: 'Бои' }, { id: 'hard', icon: RT_NODE_TYPES.hard.icon, label: 'Трудные бои' },
+  { id: 'event', icon: RT_NODE_TYPES.event.icon, label: 'События' }, { id: 'rest', icon: RT_NODE_TYPES.rest.icon, label: 'Привалы' },
+  { id: 'shop', icon: RT_NODE_TYPES.shop.icon, label: 'Торговцы' }, { id: 'checkpoint', icon: RT_NODE_TYPES.checkpoint.icon, label: 'Заставы' },
+];
+
+/** A map's nodes counted by kind (a find counts as an event, as the map shows it). */
+function mapCounts(seed: number): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const n of rtMapNodes(createRtRun(seed))) { const k = n.type === 'find' ? 'event' : n.type; out[k] = (out[k] ?? 0) + 1; }
+  return out;
+}
+
+/** A forest map by its seed as the run map draws it: the edges, the node circles with their icons (no stream is drawn for it). */
 export function mapPreview(seed: number): string {
   const run = createRtRun(seed), nodes = rtMapNodes(run);
-  const W = 300, H = 160, pad = 14, x = (row: number) => pad + (row - 5) * (W - 2 * pad) / 9, y = (slot: number) => pad + slot * (H - 2 * pad);
+  const W = 1000, H = 520, pad = 40, x = (row: number) => pad + (row - 5) * (W - 2 * pad) / 9, y = (slot: number) => pad + slot * (H - 2 * pad);
   const byId = new Map(nodes.map(n => [n.id, n]));
-  const edges = nodes.flatMap(n => n.next.map(id => { const m = byId.get(id); return m ? `<line x1="${x(n.row)}" y1="${y(n.slot ?? 0.5)}" x2="${x(m.row)}" y2="${y(m.slot ?? 0.5)}"/>` : ''; })).join('');
-  const dots = nodes.map(n => `<circle cx="${x(n.row)}" cy="${y(n.slot ?? 0.5)}" r="${n.type === 'boss' ? 7 : 5}" class="rt-mp-${n.type}"/>`).join('');
-  return `<svg class="rt-hearth-mapsvg" viewBox="0 0 ${W} ${H}" aria-hidden="true"><g class="rt-mp-edges">${edges}</g>${dots}</svg>`;
+  const edges = nodes.flatMap(n => n.next.map(id => { const m = byId.get(id); return m ? `<line x1="${x(n.row)}" y1="${y(n.slot ?? 0.5)}" x2="${x(m.row)}" y2="${y(m.slot ?? 0.5)}" class="rt-edge"/>` : ''; })).join('');
+  const dots = nodes.map(n => `<g class="rt-node rt-mp-node${n.row === 5 ? ' rt-available' : ''}" transform="translate(${x(n.row)},${y(n.slot ?? 0.5)})"><circle r="27"/><text dy="10">${RT_NODE_TYPES[n.type].icon}</text></g>`).join('');
+  return `<svg class="rt-run-map rt-hearth-mapsvg" viewBox="0 0 ${W} ${H}" aria-hidden="true">${edges}${dots}</svg>`;
 }
 
 /** For the end screen's pack names (re-export so the run screen reads one module). */

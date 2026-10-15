@@ -518,11 +518,10 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-hearth-maps { display: flex; gap: 16px; }
 .rt-hearth-map { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px; background: #1a1e16; border: 2px solid #444837; color: #e8d7ad; }
 .rt-hearth-map:hover { border-color: #c8a56b; }
-.rt-hearth-mapsvg { width: 300px; height: 160px; }
-.rt-mp-edges line { stroke: #5a5f48; stroke-width: 2; }
-.rt-hearth-mapsvg circle { fill: #8e947b; stroke: #18232d; stroke-width: 1.5; }
-.rt-hearth-mapsvg .rt-mp-boss { fill: #e0562f; }
-.rt-hearth-mapsvg .rt-mp-hard, .rt-hearth-mapsvg .rt-mp-checkpoint, .rt-hearth-mapsvg .rt-mp-breakthrough { fill: #c8a56b; }
-.rt-hearth-mapsvg .rt-mp-rest { fill: #8fd18a; }
-.rt-hearth-mapsvg .rt-mp-event, .rt-hearth-mapsvg .rt-mp-find { fill: #9fd8ff; }
-.rt-hearth-mapsvg .rt-mp-shop { fill: #ffd88a; }
+.rt-hearth-mapsvg { width: 440px; height: 229px; }
+.rt-hearth-maps:has(> :nth-child(3)) .rt-hearth-mapsvg { width: 360px; height: 187px; }
+.rt-hearth-mapsvg .rt-node { cursor: inherit; }
+.rt-hearth-mapsvg .rt-mp-node text { font-size: 30px; }
+.rt-mp-counts { display: flex; gap: 12px; font: 15px Georgia, serif; color: #8e947b; }
+.rt-mp-counts .rt-mp-diff { color: #ffd88a; font-weight: 700; }
+.rt-hearth-buy.rt-hearth-later { background: transparent; border-color: #c9b98a; color: #a99c7a; }
