@@ -149,6 +149,8 @@ const GARRISON_ART: Readonly<Record<string, { id: CharacterArtId; size: number }
   [GUARD]: { id: 'garrison-guard', size: 3.4 }, [HANDLER]: { id: 'garrison-houndmaster', size: 3.4 },
   [HOUND]: { id: 'garrison-hound', size: 2.9 }, [CASTELLAN]: { id: 'castellan', size: 4.2 },
 };
+/** Task 38: what stands in a tree's place in the garrison. */
+const GARRISON_PROPS = ['pillar', 'crate', 'barrel'] as const;
 /** Task 38: real seconds a cut tether's snap lasts. */
 const SNAP_LIFE = 0.4;
 /** Task 35, С2: shards in the pool — 60 enemies dying at once at 8 shards each. */
@@ -804,13 +806,18 @@ export class RealtimeRenderer {
     this.arena = arena;
     this.fitScale();
     const f = this.floor.clear(), w = arena.width * UNIT, h = arena.height * UNIT;
-    f.rect(0, 0, w, h).fill(0x1b2617);
-    for (let y = 0; y < arena.height; y++) for (let x = 0; x < arena.width; x++)
-      if ((x + y) % 2 === 0) f.rect(x * UNIT, y * UNIT, UNIT, UNIT).fill({ color: 0x223020, alpha: 0.7 });
-    for (let x = 1; x < arena.width; x++) f.moveTo(x * UNIT, 0).lineTo(x * UNIT, h);
-    for (let y = 1; y < arena.height; y++) f.moveTo(0, y * UNIT).lineTo(w, y * UNIT);
-    f.stroke({ color: 0x2e3d29, width: 1, alpha: 0.6 });
-    f.rect(-4, -4, w + 8, h + 8).stroke({ color: 0x5a5a40, width: 6 });
+    // Task 38 (design 16.10.2026): the garrison reads at once — a yard of cold grey flagstones (as its map), not the forest's grass.
+    const stone = !!arena.garrison;
+    if (stone) this.stoneFloor(f, arena.width, arena.height);
+    else {
+      f.rect(0, 0, w, h).fill(0x1b2617);
+      for (let y = 0; y < arena.height; y++) for (let x = 0; x < arena.width; x++)
+        if ((x + y) % 2 === 0) f.rect(x * UNIT, y * UNIT, UNIT, UNIT).fill({ color: 0x223020, alpha: 0.7 });
+      for (let x = 1; x < arena.width; x++) f.moveTo(x * UNIT, 0).lineTo(x * UNIT, h);
+      for (let y = 1; y < arena.height; y++) f.moveTo(0, y * UNIT).lineTo(w, y * UNIT);
+      f.stroke({ color: 0x2e3d29, width: 1, alpha: 0.6 });
+    }
+    f.rect(-4, -4, w + 8, h + 8).stroke({ color: stone ? 0x5b6b7a : 0x5a5a40, width: 6 });
     this.bustMask.clear().rect(0, 0, w, h).fill(0xffffff);
     this.bustLayer.mask = this.bustMask;
     this.reachMask.clear().rect(0, 0, w, h).fill(0xffffff);
@@ -820,7 +827,8 @@ export class RealtimeRenderer {
       if (o.shape === 'rect') {
         for (let y = 0; y < o.h; y++) for (let x = 0; x < o.w; x++) drawTerrain(t, 'wall', (o.x + x + 0.5) * UNIT, (o.y + y + 0.5) * UNIT);
       } else if (o.kind === 'tree') {
-        drawTerrain(t, 'tree', o.x * UNIT, o.y * UNIT);
+        // Task 38: in the garrison a tree's place holds a stone pillar, crates or barrels (the same body for the sim).
+        drawTerrain(t, stone ? GARRISON_PROPS[((Math.imul(Math.round(o.x * 10) + 7, 2654435761) ^ Math.imul(Math.round(o.y * 10) + 3, 40503)) >>> 0) % GARRISON_PROPS.length] : 'tree', o.x * UNIT, o.y * UNIT);
       } else {
         const cx = o.x * UNIT, cy = o.y * UNIT, r = o.r * UNIT;
         t.circle(cx, cy, r).fill(0x243c3d).stroke({ color: 0x73918a, width: 3, alpha: 0.6 });
@@ -3325,6 +3333,26 @@ export class RealtimeRenderer {
     for (const s of this.shards) if (s.life > 0) flying.push(s.p);
     this.shardLayer.update();
     this.shardLayer.visible = this.shardsAwake = live > 0;
+  }
+
+  /**
+   * Task 38: the garrison's yard — grey flagstones, two per cell in a running bond, each a little lighter or darker (a hash of its
+   * place, not `Math.random`: the same arena draws the same yard), dark joints and a cold rim.
+   */
+  private stoneFloor(f: Graphics, cols: number, rows: number): void {
+    f.rect(0, 0, cols * UNIT, rows * UNIT).fill(0x23292e);
+    const half = UNIT / 2;
+    for (let y = 0; y < rows * 2; y++) {
+      const shift = y % 2 ? half / 2 : 0;
+      for (let x = -1; x < cols * 2; x++) {
+        const h = (Math.imul(x + 31, 2654435761) ^ Math.imul(y + 17, 40503)) >>> 0, tone = [0x2c3338, 0x30373d, 0x2a3035, 0x333a40][h & 3];
+        const px = x * half + shift, py = y * half;
+        if (px >= cols * UNIT || px + half <= 0) continue;
+        const l = Math.max(0, px), r = Math.min(cols * UNIT, px + half);
+        f.rect(l + 1, py + 1, r - l - 2, half - 2).fill(tone);
+        if ((h >> 3) % 7 === 0) f.moveTo(l + 6, py + half * 0.3).lineTo(l + half * 0.45, py + half * 0.62).stroke({ color: 0x1a1f23, width: 1.5, alpha: 0.7 });
+      }
+    }
   }
 
   /** Task 38: the snaps of cut tethers fade over `SNAP_LIFE` s. */

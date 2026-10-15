@@ -7,7 +7,7 @@ import { Container, Graphics } from 'pixi.js';
 import { characterSprite } from './characterAssets';
 
 /** Terrain tiles the drawing knows (the arena view draws walls and trees). */
-export type TerrainKind = 'floor' | 'tree' | 'pond' | 'campfire' | 'puddle' | 'wall' | 'thorns';
+export type TerrainKind = 'floor' | 'tree' | 'pond' | 'campfire' | 'puddle' | 'wall' | 'thorns' | 'pillar' | 'crate' | 'barrel';
 /** Enemy colours 0–4: red, green, blue, ochre, amethyst. */
 export const COLORS = [0xca7970, 0x9fba7c, 0x79b0c4, 0xd8b66a, 0xb69ad2];
 export const PALE = 0xf2dfb4;
@@ -52,6 +52,30 @@ export function drawTerrain(g:Graphics,kind:TerrainKind,x:number,y:number) {
     g.poly([x-31,y+8,x-17,y-13,x-26,y-12,x,y-38,x+26,y-12,x+18,y-12,x+33,y+9,x+8,y+15,x,y+10,x-11,y+17]).fill(0x344d32).stroke({color:0x1a3023,width:2});
     g.poly([x-22,y-11,x,y-34,x+4,y-15,x+20,y-10,x+4,y-6,x+2,y+6,x-19,y+8,x-7,y-5]).fill({color:0x78935b,alpha:0.35});
     g.moveTo(x-3,y+19).lineTo(x-3,y+28).stroke({color:0x9b8050,width:2});
+  } else if(kind==='pillar') {
+    // Task 38: the garrison's stone pillar in a tree's place — a square base, a shaft of blocks, a capital.
+    g.ellipse(x,y+24,30,10).fill({color:0x0b0e11,alpha:0.6});
+    g.roundRect(x-22,y+10,44,16,3).fill(0x59636b).stroke({color:0x1c2228,width:2});
+    g.roundRect(x-15,y-26,30,38,3).fill(0x6c7780).stroke({color:0x1c2228,width:2});
+    for(const py of [-14,-2])g.moveTo(x-14,y+py).lineTo(x+14,y+py).stroke({color:0x3f4850,width:2});
+    g.roundRect(x-21,y-36,42,12,3).fill(0x7f8a92).stroke({color:0x1c2228,width:2});
+    g.moveTo(x-12,y-24).lineTo(x-12,y+8).stroke({color:0xa9b4bb,width:2,alpha:.45});
+  } else if(kind==='crate') {
+    // Task 38: a stack of supply crates — two boards, iron corners.
+    g.ellipse(x,y+24,30,9).fill({color:0x0b0e11,alpha:0.55});
+    for(const [ox,oy,s] of [[-12,8,24],[12,10,22],[0,-12,24]] as const){
+      g.rect(x+ox-s/2,y+oy-s/2,s,s).fill(0x7a5a36).stroke({color:0x2a1d10,width:2});
+      g.moveTo(x+ox-s/2,y+oy-s/2).lineTo(x+ox+s/2,y+oy+s/2).moveTo(x+ox+s/2,y+oy-s/2).lineTo(x+ox-s/2,y+oy+s/2).stroke({color:0x4d3820,width:2});
+      for(const [cx,cy] of [[-1,-1],[1,-1],[-1,1],[1,1]] as const)g.rect(x+ox+cx*s/2-(cx>0?4:0),y+oy+cy*s/2-(cy>0?4:0),4,4).fill(0x8f9aa2);
+    }
+  } else if(kind==='barrel') {
+    // Task 38: two barrels with iron hoops.
+    g.ellipse(x,y+24,30,9).fill({color:0x0b0e11,alpha:0.55});
+    for(const ox of [-11,11]){
+      g.roundRect(x+ox-12,y-22,24,44,9).fill(0x6e4a2a).stroke({color:0x2a1d10,width:2});
+      for(const py of [-13,0,13])g.moveTo(x+ox-12,y+py).lineTo(x+ox+12,y+py).stroke({color:0x8f9aa2,width:3});
+      g.ellipse(x+ox,y-21,11,4).fill(0x8b6440).stroke({color:0x2a1d10,width:1.5});
+    }
   } else if(kind==='pond'||kind==='puddle') {
     const deep=kind==='pond';g.ellipse(x,y+6,deep?32:31,deep?27:17).fill(deep?0x243c3d:0x344d45).stroke({color:0x73918a,width:deep?3:1,alpha:0.6});
     g.ellipse(x+3,y+4,deep?24:23,deep?18:10).fill({color:0x548b88,alpha:0.3});
