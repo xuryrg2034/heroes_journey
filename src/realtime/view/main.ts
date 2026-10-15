@@ -1612,7 +1612,7 @@ async function boot(): Promise<void> {
         bossBar: bossBar.shown(),
         bossNames: bossLabels.map(l => l.spec.text),
         /** Task 29 «Формы»: the forms' highlight of the frame (`formsShown`) and the icons' flights to the column (started; flying now). */
-        forms: { ...renderer.formsShown, arrivals: buildColumn.arrivals, flying: [...buildColumn.flying] },
+        forms: { ...renderer.formsShown, arrivals: buildColumn.arrivals, flying: [...buildColumn.flying], forks: w.chain.filter(l => l.fork).length },
         /** The prologue's sleep: «z» marks drawn this frame (the sim's rule: a calm arena or `asleep`). */
         sleepMarks: renderer.sleepShown,
         /** Task 14 «Котомка у двери»: the bag of the sim (null — none: before the goals, or the rule off) and what the view drew of it. */

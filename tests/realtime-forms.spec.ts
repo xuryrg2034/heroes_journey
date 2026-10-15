@@ -1,5 +1,6 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
+import { gameWait } from './realtimeFrames';
 
 /**
  * Task 29 «Формы в песочнице» (design 15.10.2026, docs/design-notes/tasks-29-30.md): the view of the forms in the sandbox — the
@@ -174,5 +175,67 @@ test('task 29: «Возврат» — the way back in the chain\'s colour with a
   // The run back: the first pass is over (its links are dead), the hero runs along the fixed way.
   await expect.poll(async () => { const s = await snap(page); return s.forms.returnRun === 1 && links.every(id => !s.enemies.some((e: any) => e.id === id)); }, { timeout: 4_000, intervals: [30] }).toBe(true);
   await page.screenshot({ path: 'artifacts/realtime-forms-return-run.png' });
+  expect(errors).toEqual([]);
+});
+
+/**
+ * Task 33 «Цена „Близнецов“ и „Развилки“» (design 15.10.2026, docs/design-notes/tasks-29-30.md, «ЗАДАЧА 33»; the sandbox keys
+ * `twinsAlternate`, `twinsNoShift`, `forkBranches` 1 on by default). Real input: the chain is drawn with the mouse.
+ */
+test('task 33: «Близнецы» alternate — after A-Б the line shows the next colour A; a second Б is refused, an A joins; no «Смена цвета» with the pair', async ({ page }) => {
+  const errors = collectErrors(page);
+  await openSandbox(page);
+  await withBuild(page, { talismans: ['form-twins'] });
+  await page.evaluate(() => (window as any).__realtime.setParam('colorShiftLinks', 6));
+  const a1 = await place(page, 9.5, 5.5, 0, 0), b1 = await place(page, 11, 5.5, 2, 0);
+  await place(page, 12.5, 5.5, 2, 0);
+  const a2 = await place(page, 11, 4, 0, 0);
+  // «Близнецы» turn the rainbow off: no «до смены N».
+  expect((await snap(page)).colorShift.every).toBe(0);
+  await drag(page, [[9.5, 5.5], [11, 5.5]]);
+  await expect.poll(async () => (await snap(page)).chain).toEqual([a1, b1]);
+  // Both colours taken: the next link must be A (colour 0) — the tail, the reach ring and the bead in it.
+  await expect.poll(async () => (await snap(page)).forms.twinNext).toBe(0);
+  expect((await snap(page)).forms.twinLine).toBe(1);
+  await page.screenshot({ path: 'artifacts/realtime-forms-twins-next.png' });
+  // A second Б: refused, the chain stays.
+  const b2at = await screen(page, 12.5, 5.5);
+  await page.mouse.move(b2at.x, b2at.y, { steps: 5 });
+  await gameWait(page, 0.2);
+  expect((await snap(page)).chain).toEqual([a1, b1]);
+  // An A: joins; the next colour is Б again.
+  const a2at = await screen(page, 11, 4);
+  await page.mouse.move(a2at.x, a2at.y, { steps: 8 });
+  await expect.poll(async () => (await snap(page)).chain).toEqual([a1, b1, a2]);
+  await expect.poll(async () => (await snap(page)).forms.twinNext).toBe(2);
+  await page.mouse.up();
+  expect(errors).toEqual([]);
+});
+
+test('task 33: «Развилка» — one fork a chain: before it the reach rings at the older links; after it they go, and a second fork is refused', async ({ page }) => {
+  const errors = collectErrors(page);
+  await openSandbox(page);
+  await withBuild(page, { talismans: ['form-fork'] });
+  // a3 — from a1 only (1.9 from it, 2.8 from a2); a4 — from a2 only (1.9 from it, 2.8 from a1, far from a3): a second fork.
+  const a1 = await place(page, 9.5, 5.5, 0, 0), a2 = await place(page, 11.3, 5.5, 0, 0), a3 = await place(page, 9.3, 3.6, 0, 0);
+  await place(page, 11.5, 7.4, 0, 0);
+  await drag(page, [[9.5, 5.5], [11.3, 5.5]]);
+  await expect.poll(async () => (await snap(page)).chain).toEqual([a1, a2]);
+  await expect.poll(async () => (await snap(page)).forms.forkRings).toBe(1);
+  expect((await snap(page)).forms.forkMarks).toBe(1);
+  await page.screenshot({ path: 'artifacts/realtime-forms-fork-before.png' });
+  // The fork: a3 from a1.
+  const a3at = await screen(page, 9.3, 3.6);
+  await page.mouse.move(a3at.x, a3at.y, { steps: 5 });
+  await expect.poll(async () => (await snap(page)).chain).toEqual([a1, a2, a3]);
+  expect((await snap(page)).forms.forks).toBe(1);
+  await expect.poll(async () => (await snap(page)).forms.forkRings).toBe(0);
+  expect((await snap(page)).forms.forkMarks).toBe(0);
+  await page.screenshot({ path: 'artifacts/realtime-forms-fork-after.png' });
+  // A second fork (a4 from a2): refused. The pointer goes round a2 (the link before the last: over it the chain steps back).
+  for (const [x, y] of [[12.8, 3.6], [12.8, 7.4], [11.5, 7.4]] as const) { const at = await screen(page, x, y); await page.mouse.move(at.x, at.y, { steps: 6 }); }
+  await gameWait(page, 0.2);
+  expect((await snap(page)).chain).toEqual([a1, a2, a3]);
+  await page.mouse.up();
   expect(errors).toEqual([]);
 });

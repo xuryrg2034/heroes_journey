@@ -13,7 +13,7 @@ import { Application, Container, Graphics, GraphicsContext, Sprite, Text, type T
 import { COLORS, PALE, drawTerrain, makePlayer } from '../art/art';
 import { characterSprite } from '../art/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
-import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainAnchors, chainColor, colorGroups, colorJoin, colorShiftIds, colorShiftLeft, colorlessLink, enemyAnchors, heroAnchorOn, jumpLanding, linkPoint, loopCandidates, loopOn, nextCandidates, nextObjectCandidates, planChain, sameColor, type ChainPlan } from '../sim/chain';
+import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainAnchors, chainColor, colorGroups, colorJoin, colorShiftIds, colorShiftLeft, colorlessLink, enemyAnchors, heroAnchorOn, jumpLanding, linkPoint, loopCandidates, loopOn, nextCandidates, nextObjectCandidates, planChain, sameColor, twinsNextColor, type ChainPlan } from '../sim/chain';
 import { FROST_PASS_LIFE, FROST_PASS_RADIUS, frostPassPoints, frostPassPreview } from '../sim/frostPass';
 import { drawAlienRing, drawForkMark, drawFrostPoint, drawFrostPreview, drawReturnRoute, drawTwinLine } from './formsView';
 import { enemyArtScale } from '../sim/enemies/kinds';
@@ -30,7 +30,7 @@ import { collectEdgeMarkers } from './edgeMarkers';
 import { drawRoleGlyph, roleOf, type EnemyRole } from './roles';
 import { DEFAULT_PARAMS, enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from '../sim/params';
 import { shieldFails } from '../sim/guard';
-import { NO_COLOR, SECOND_WIND_HP, doorOpen, focusGuarded, touchDistance, type Enemy, type EnemyKind, type World, type WorldEvent } from '../sim/world';
+import { NO_COLOR, SECOND_WIND_HP, doorOpen, focusGuarded, touchDistance, type ChainLink, type Enemy, type EnemyKind, type World, type WorldEvent } from '../sim/world';
 import { itemHealOf, linkRadiusOf } from '../sim/build';
 import { FIRE_LIFE, FIRE_RADIUS, FIRE_STEP, firePassPreview, hammerFirePoints, returnRunOf } from '../sim/hammers';
 import { FROST_PASS, HAMMERS } from '../sim/buildIds';
@@ -367,7 +367,7 @@ export class RealtimeRenderer {
    * that are not the last, its Y marks; the rings of «Чужак»; the twin line of «Близнецы»; the cold «Наледь» will leave and the
    * trail it left; the arrows and hit marks of «Возврат» before the release, and its run after it.
    */
-  readonly formsShown = { forkRings: 0, forkMarks: 0, alienRings: 0, twinLine: 0, frostPreview: 0, frostPoints: 0, returnArrows: 0, returnHits: 0, returnRun: 0 };
+  readonly formsShown = { forkRings: 0, forkMarks: 0, alienRings: 0, twinLine: 0, twinNext: -1, frostPreview: 0, frostPoints: 0, returnArrows: 0, returnHits: 0, returnRun: 0 };
   /** Task 29: when the word «Наледь» last rose over the hero (real clock) — at most one a second. */
   private frostWordAt: number | null = null;
   /** Task 29: the colour of the last chain whose plan had a run back — the run after the release keeps it (the chain is gone). */
@@ -1443,6 +1443,13 @@ export class RealtimeRenderer {
    * - the signs of the moves (`jailerMove`): «Кистень» — the hatched half disc filling with the windup; «Бросок гири» — the
    *   archer's mark; «Свисток» — the circle at the gate with the dots of the adds (the weight's colour); a hit flashes the sign.
    */
+  /** Task 33: the ink of a chain link's stretch — an enemy's colour (a colourless core: the neutral grey), an object: `other`. */
+  private linkInk(world: World, link: ChainLink, other: number): number {
+    if (link.kind !== 'enemy') return other;
+    const e = world.enemies.find(x => x.id === link.id);
+    return !e || e.color === NO_COLOR ? other : colorlessLink(world, e) ? COLORLESS : chainInk(e.color);
+  }
+
   private drawBoss(world: World, g: Graphics): void {
     const cg = this.bossLayer.clear(), shown = this.bossShown, p = world.params, r = enemyDrawRadius(p) * UNIT, px = 1 / Math.max(0.1, this.scale);
     shown.flail = 0; shown.throw = 0; shown.whistle = 0; shown.chains = 0;
@@ -2567,7 +2574,7 @@ export class RealtimeRenderer {
     this.bossShown.severPips = 0;
     this.bossShown.coreRing = 0;
     const fs = this.formsShown;
-    fs.forkRings = 0; fs.forkMarks = 0; fs.alienRings = 0; fs.twinLine = 0; fs.frostPreview = 0; fs.returnArrows = 0; fs.returnHits = 0; fs.returnRun = 0;
+    fs.forkRings = 0; fs.forkMarks = 0; fs.alienRings = 0; fs.twinLine = 0; fs.twinNext = -1; fs.frostPreview = 0; fs.returnArrows = 0; fs.returnHits = 0; fs.returnRun = 0;
     this.bossShown.severLit = 0;
     this.colorShiftShown = 0;
     this.colorShiftFreedBy = 0;
@@ -2647,7 +2654,18 @@ export class RealtimeRenderer {
       this.playerEffects.fireEdge = 1;
       this.playerEffects.fireEdgePoints = firePts.length;
     }
-    if (twins) { drawTwinLine(g, pts.map(v => ({ x: v.x * UNIT, y: v.y * UNIT })), chainInk(twins[0]), chainInk(twins[1])); fs.twinLine = 1; }
+    // Task 33 (`twinsAlternate`): once the chain took both colours of the pair, they alternate — each stretch in the colour of the
+    // link it reaches (the order reads A-A-Б-A), and the tail to the pointer, the reach ring and a bead at the last link in the
+    // colour the next link must be (`twinsNextColor`). Before that — the dashes of both (any colour of the pair joins).
+    const twinNext = twins ? twinsNextColor(world) : null;
+    if (twins && twinNext !== null) {
+      const inks = [ink, ...world.chain.filter(l => linkPoint(world, l)).map(l => this.linkInk(world, l, ink))];
+      g.moveTo(pts[0].x * UNIT, pts[0].y * UNIT);
+      for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x * UNIT, pts[i].y * UNIT);
+      g.stroke({ color: NAVY, width: 9, alpha: 0.95, cap: 'round', join: 'round' });
+      for (let i = 1; i < pts.length; i++) g.moveTo(pts[i - 1].x * UNIT, pts[i - 1].y * UNIT).lineTo(pts[i].x * UNIT, pts[i].y * UNIT).stroke({ color: inks[i], width: 4.5, alpha: 0.95, cap: 'round' });
+      fs.twinLine = 1; fs.twinNext = twinNext;
+    } else if (twins) { drawTwinLine(g, pts.map(v => ({ x: v.x * UNIT, y: v.y * UNIT })), chainInk(twins[0]), chainInk(twins[1])); fs.twinLine = 1; }
     else for (const [w, c] of [[9, NAVY], [4.5, ink]] as const) {
       g.moveTo(pts[0].x * UNIT, pts[0].y * UNIT);
       for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x * UNIT, pts[i].y * UNIT);
@@ -2682,9 +2700,17 @@ export class RealtimeRenderer {
     this.drawLoop(g, world, plan.seal, ink);
     this.drawPierce(g, world, plan.pierce, ink);
     if (!plan.endsOnSurvivor && !plan.endsOnObject && !plan.seal) {
-      if (ui.pointer) g.moveTo(anchor.x * UNIT, anchor.y * UNIT).lineTo(ui.pointer.x * UNIT, ui.pointer.y * UNIT).stroke({ color: ink, width: 2, alpha: 0.45 });
-      // Reach of the next link and the valid next links (outlined; `nextCandidates` already counts both anchors).
-      g.circle(anchor.x * UNIT, anchor.y * UNIT, linkRadiusOf(world) * UNIT).stroke({ color: ink, width: 1.5, alpha: 0.35 });
+      if (twinNext !== null) {
+        // Task 33 «Близнецы»: the next colour — the tail to the pointer, the reach ring and a bead at the last link.
+        const next = chainInk(twinNext), ax = anchor.x * UNIT, ay = anchor.y * UNIT;
+        if (ui.pointer) for (const [w, c, a] of [[6, NAVY, 0.6], [3.5, next, 0.9]] as const) g.moveTo(ax, ay).lineTo(ui.pointer.x * UNIT, ui.pointer.y * UNIT).stroke({ color: c, width: w, alpha: a, cap: 'round' });
+        g.circle(ax, ay, linkRadiusOf(world) * UNIT).stroke({ color: next, width: 2, alpha: 0.6 });
+        g.circle(ax, ay, 8).fill(next).stroke({ color: NAVY, width: 2.5 });
+      } else {
+        if (ui.pointer) g.moveTo(anchor.x * UNIT, anchor.y * UNIT).lineTo(ui.pointer.x * UNIT, ui.pointer.y * UNIT).stroke({ color: ink, width: 2, alpha: 0.45 });
+        // Reach of the next link and the valid next links (outlined; `nextCandidates` already counts both anchors).
+        g.circle(anchor.x * UNIT, anchor.y * UNIT, linkRadiusOf(world) * UNIT).stroke({ color: ink, width: 1.5, alpha: 0.35 });
+      }
       this.visibleReachCircles = ++reach;
       // Stage G: the hero is a second anchor — his circle (always drawn faint) gets the chain color too.
       if (heroAnchorOn(world)) {
