@@ -315,7 +315,7 @@ test('task 32: a chain of one colour through the colourless core — drawn with 
  * Task 28 «Тюремщик в походе»: a new run walks to row 5 (battles won by the hook `winArena`, the first button of every node
  * screen); the boss bar shows only in the Jailer's fight. There the player severs the weight and kills the core with bombs (the
  * key 2 at the mouse, as a player does): the crowd dies with the boss in a wave from the core, the bar empties and fades, the
- * Jailer's screen offers 4 cards.
+ * Jailer's oath screen shows what there is (3 for a new viewer's meta run, tasks 36–37).
  */
 test('task 28: the Jailer in a run — the bar only in its fight; bombs sever the weight and kill the core, the crowd dies in a wave from the core, the bar fades, the Jailer\'s screen offers 4', async ({ page }) => {
   test.setTimeout(180_000);
@@ -443,8 +443,11 @@ test('task 28: the Jailer in a run — the bar only in its fight; bombs sever th
   }
   const run = await state();
   expect(run.pending?.source).toBe('oath');
-  expect(run.pending.options.length).toBe(4);
-  await expect(page.getByTestId('run-talisman')).toContainText('Гиря отрублена — на выбор четыре.');
+  // Tasks 36–37: a new viewer's meta run keeps every pack locked — the oath screen has 3 candidates (`oath-hunger` and two relics),
+  // and the severed weight's «1 из 4» shows what there is (spec 36). The 4 of an unlocked pool: jailerRun.spec.ts (Node).
+  expect(run.locked?.length).toBeGreaterThan(0);
+  expect(run.pending.options.length).toBe(3);
+  await expect(page.getByTestId('run-talisman')).not.toContainText('на выбор четыре');
   await page.screenshot({ path: 'artifacts/realtime-boss-run-oath.png' });
   expect(errors).toEqual([]);
 });
