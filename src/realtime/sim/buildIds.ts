@@ -119,7 +119,7 @@ export const FORM_FIELD_TITLES: Readonly<Record<FormField, string>> = { link: 'Ð
 export const FORM_FIELD: Readonly<Record<string, FormField>> = {
   [FORMS.seal]: 'end', [FORMS.pierce]: 'end', [HAMMERS.blast]: 'end',
   [FORMS.fork]: 'link', [FORMS.alien]: 'link', [FORMS.twins]: 'link', 'hero-anchor': 'link',
-  [HAMMERS.fire]: 'path', [HAMMERS.cut]: 'path', [HAMMERS.return]: 'path',
+  [HAMMERS.fire]: 'path', [HAMMERS.cut]: 'path', [HAMMERS.return]: 'path', [FROST_PASS]: 'path',
 };
 
 /**
