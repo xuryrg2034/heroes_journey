@@ -229,6 +229,8 @@ test('task 33: «Развилка» — one fork a chain: before it the reach ri
   await page.mouse.move(a3at.x, a3at.y, { steps: 5 });
   await expect.poll(async () => (await snap(page)).chain).toEqual([a1, a2, a3]);
   expect((await snap(page)).forms.forks).toBe(1);
+  // Where the branch came from: a pale dashed stroke from a1 to a3 over the dash's line.
+  expect((await snap(page)).forms.forkBranch).toBe(1);
   await expect.poll(async () => (await snap(page)).forms.forkRings).toBe(0);
   expect((await snap(page)).forms.forkMarks).toBe(0);
   await page.screenshot({ path: 'artifacts/realtime-forms-fork-after.png' });
