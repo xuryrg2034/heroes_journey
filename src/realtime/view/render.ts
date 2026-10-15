@@ -13,10 +13,10 @@ import { Application, Container, Graphics, GraphicsContext, Sprite, Text, type T
 import { COLORS, PALE, drawTerrain, makePlayer } from '../art/art';
 import { characterSprite } from '../art/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
-import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainAnchors, chainColor, colorGroups, colorJoin, colorShiftIds, colorShiftLeft, colorlessLink, enemyAnchors, heroAnchorOn, jumpLanding, linkPoint, loopCandidates, loopOn, nextCandidates, nextObjectCandidates, planChain, sameColor, twinsNextColor, type ChainPlan } from '../sim/chain';
+import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainAnchors, chainColor, colorGroups, colorJoin, colorShiftIds, colorShiftLeft, colorlessLink, enemyAnchors, heroAnchorOn, jumpLanding, linkPoint, loopCandidates, loopOn, nextCandidates, nextObjectCandidates, planChain, reachOf, sameColor, twinsNextColor, type ChainPlan } from '../sim/chain';
 import { FROST_PASS_LIFE, FROST_PASS_RADIUS, frostPassPoints, frostPassPreview } from '../sim/frostPass';
 import { drawAlienRing, drawForkMark, drawFrostPoint, drawFrostPreview, drawReturnRoute, drawTwinLine } from './formsView';
-import { enemyArtScale } from '../sim/enemies/kinds';
+import { enemyArtRadius, enemyArtScale } from '../sim/enemies/kinds';
 import { BOAR_ART_SCALE, archerLine, archerMark, lynxLine, lynxStunned, quillsUp, quillsWarning, sapperFuse, shamanBeam, shieldUp, wolfHowl, wolfRushLine } from '../sim/enemies/index';
 import { brittleNow } from '../sim/items';
 import { chameleonWarn, eliteAffixes, eliteArmorView, type AffixId } from '../sim/elites';
@@ -367,7 +367,7 @@ export class RealtimeRenderer {
    * that are not the last, its Y marks; the rings of «Чужак»; the twin line of «Близнецы»; the cold «Наледь» will leave and the
    * trail it left; the arrows and hit marks of «Возврат» before the release, and its run after it.
    */
-  readonly formsShown = { forkRings: 0, forkMarks: 0, alienRings: 0, twinLine: 0, twinNext: -1, frostPreview: 0, frostPoints: 0, returnArrows: 0, returnHits: 0, returnRun: 0 };
+  readonly formsShown = { forkRings: 0, forkMarks: 0, alienRings: 0, twinLine: 0, twinNext: -1, forkBranch: 0, frostPreview: 0, frostPoints: 0, returnArrows: 0, returnHits: 0, returnRun: 0 };
   /** Task 29: when the word «Наледь» last rose over the hero (real clock) — at most one a second. */
   private frostWordAt: number | null = null;
   /** Task 29: the colour of the last chain whose plan had a run back — the run after the release keeps it (the chain is gone). */
@@ -2574,7 +2574,7 @@ export class RealtimeRenderer {
     this.bossShown.severPips = 0;
     this.bossShown.coreRing = 0;
     const fs = this.formsShown;
-    fs.forkRings = 0; fs.forkMarks = 0; fs.alienRings = 0; fs.twinLine = 0; fs.twinNext = -1; fs.frostPreview = 0; fs.returnArrows = 0; fs.returnHits = 0; fs.returnRun = 0;
+    fs.forkRings = 0; fs.forkMarks = 0; fs.alienRings = 0; fs.twinLine = 0; fs.twinNext = -1; fs.forkBranch = 0; fs.frostPreview = 0; fs.returnArrows = 0; fs.returnHits = 0; fs.returnRun = 0;
     this.bossShown.severLit = 0;
     this.colorShiftShown = 0;
     this.colorShiftFreedBy = 0;
@@ -2671,6 +2671,22 @@ export class RealtimeRenderer {
       for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x * UNIT, pts[i].y * UNIT);
       g.stroke({ color: c, width: w, alpha: 0.95, cap: 'round', join: 'round' });
     }
+    // Task 33 «Развилка» (design 15.10.2026): the dash runs the links in order, so the line does not show where a fork link was
+    // taken from — a thin pale dashed stroke from that older link (the latest one before the previous that reaches it now).
+    world.chain.forEach((link, i) => {
+      if (!link.fork || i < 2) return;
+      const at = linkPoint(world, link), e = link.kind === 'enemy' ? world.enemies.find(x => x.id === link.id) : undefined;
+      if (!at) return;
+      const reach = reachOf(world, e ? enemyArtRadius(p, e) : OBJECT_RADIUS);
+      for (let j = i - 2; j >= 0; j--) {
+        const from = linkPoint(world, world.chain[j]);
+        if (!from || Math.hypot(from.x - at.x, from.y - at.y) > reach) continue;
+        dashedLine(g, from.x * UNIT, from.y * UNIT, at.x * UNIT, at.y * UNIT, 7, 6);
+        g.stroke({ color: PALE, width: 2, alpha: 0.5, cap: 'round' });
+        fs.forkBranch++;
+        return;
+      }
+    });
     // Task 29 «Наледь»: where the dash will leave the cold — faint rings of the consumable's blue.
     if (world.kit?.talismans.includes(FROST_PASS)) for (const f of frostPassPreview(world)) { drawFrostPreview(g, f.x * UNIT, f.y * UNIT, FROST_PASS_RADIUS * UNIT); fs.frostPreview++; }
     // Task 29 «Возврат»: the way back of the second pass, in the chain's colour, with arrows; its hits are marked below.
