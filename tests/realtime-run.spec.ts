@@ -345,7 +345,7 @@ test('the sandbox keeps the prototype: ?sandbox=1 opens the arena menu and the d
   expect(await page.evaluate(() => (window as any).__realtime.run)).toBeNull();
 });
 
-test('the sandbox opens by the anchor too: a changed #sandbox boots it (a published build keeps no query); the run screen shows no dev words — no seed, no sandbox link', async ({ page }) => {
+test('the sandbox opens by the anchor too: a changed #sandbox boots it (a published build keeps no query); the run screen shows no dev words — no seed, no sandbox link (the «Песочница» button of the map — user request 15.10.2026)', async ({ page }) => {
   const errors: string[] = [];
   page.on('pageerror', e => errors.push(e.message));
   await page.goto('/');
@@ -357,7 +357,8 @@ test('the sandbox opens by the anchor too: a changed #sandbox boots it (a publis
   await page.getByTestId('gift-1').click();
   await expect(page.getByTestId('run-map')).toBeVisible();
   await expect(page.locator('.rt-run-head')).not.toContainText('seed');
-  await expect(page.locator('.rt-run-head')).not.toContainText('Песочница');
+  // User request 15.10.2026 (over «Обучение v1»): the map's header has the «Песочница» button; still no seed, no anchor link.
+  await expect(page.getByTestId('open-sandbox')).toHaveText('Песочница');
   await expect(page.locator('a[href="#sandbox"]')).toHaveCount(0);
   // The anchor itself still boots the sandbox (testers type it).
   await page.evaluate(() => { location.hash = '#sandbox'; });
@@ -712,5 +713,87 @@ test('run (design 12.10.2026, «Смена цвета»): a mouse chain of 6 ene
     return (!s.moving && left === 0) || late ? left : undefined;
   }, ids, 5);
   expect(alive).toBe(0);
+  expect(errors).toEqual([]);
+});
+
+test('run: the map\'s «Песочница» opens the sandbox (`#sandbox`) and its «Поход» brings back the same map of the same run; no button while a fight is open (user request 15.10.2026)', async ({ page }) => {
+  const errors: string[] = [];
+  await openRun(page, errors);
+  await newRun(page);
+  // A fight is open: the arena hides the map — no «Песочница» to lose it by.
+  const nodeId = await enterFirstNode(page);
+  await expect(page.getByTestId('run')).toBeHidden();
+  await expect(page.getByTestId('open-sandbox')).toBeHidden();
+  expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
+  await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
+  await page.getByTestId('result-map').click();
+  await expect(page.getByTestId('run')).toBeVisible();
+  const before = await runState(page);
+  expect(before.visited).toEqual([nodeId]);
+
+  // The header: «Песочница» left of «Логи», in its style.
+  const sandboxButton = page.getByTestId('open-sandbox'), logs = page.getByTestId('logs-open');
+  await expect(sandboxButton).toHaveText('Песочница');
+  const [a, b] = [await sandboxButton.boundingBox(), await logs.boundingBox()];
+  expect(a && b && a.x + a.width <= b.x && Math.abs(a.y - b.y) < 2, `${JSON.stringify(a)} / ${JSON.stringify(b)}`).toBe(true);
+  await page.screenshot({ path: 'artifacts/realtime-run-sandbox-button.png' });
+
+  await sandboxButton.click();
+  await expect(page.getByTestId('menu')).toBeVisible();
+  expect(new URL(page.url()).hash).toBe('#sandbox');
+  // The sandbox opens on its arena menu (it covers the top bar): «← Поход» in the menu's corner; «Поход» by «Арены (M)» too.
+  await expect(page.getByTestId('menu-run')).toHaveText('← Поход');
+  await expect(page.getByTestId('open-run')).toHaveText('Поход');
+  await page.screenshot({ path: 'artifacts/realtime-sandbox-run-button.png' });
+  await page.getByTestId('menu-run').click();
+  await expect(page.getByTestId('run')).toBeVisible();
+  await expect(page.getByTestId(`node-${nodeId}`)).toHaveAttribute('data-status', 'current');
+  expect(await runState(page)).toEqual(before);
+  expect(new URL(page.url()).hash).toBe('');
+
+  // In a sandbox fight (the menu closed) «Поход» stands by «Арены (M)», clear of the HUD; it brings back the same map too.
+  await page.getByTestId('open-sandbox').click();
+  await expect(page.getByTestId('menu')).toBeVisible();
+  // The sandbox has booted (its arena buttons answer once the page's hook is up).
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime && (window as any).__realtime.run === null)).toBe(true);
+  await page.getByTestId('arena-1').click();
+  await expect(page.getByTestId('menu')).toBeHidden();
+  const [bar, arenas, hud] = [await page.getByTestId('open-run').boundingBox(), await page.getByTestId('open-menu').boundingBox(), await page.getByTestId('hud').boundingBox()];
+  expect(bar && arenas && hud && bar.x + bar.width <= arenas.x && bar.x >= hud.x + hud.width, `${JSON.stringify(bar)} / ${JSON.stringify(arenas)} / ${JSON.stringify(hud)}`).toBe(true);
+  await page.screenshot({ path: 'artifacts/realtime-sandbox-run-bar.png' });
+  await page.getByTestId('open-run').click();
+  await expect(page.getByTestId('run')).toBeVisible();
+  expect(await runState(page)).toEqual(before);
+  expect(errors).toEqual([]);
+});
+
+test('run: a sandbox opened by `?sandbox=1` has no «Поход» button (the anchor\'s button only)', async ({ page }) => {
+  await page.goto('/?sandbox=1');
+  await expect(page.getByTestId('menu')).toBeVisible();
+  await expect(page.getByTestId('open-run')).toHaveCount(0);
+  await expect(page.getByTestId('menu-run')).toHaveCount(0);
+});
+
+test('run: in an iframe (the published artifact) «Песочница» and «← Поход» switch by the anchor the same way, the run is kept', async ({ page }) => {
+  const errors: string[] = [];
+  await page.goto('/');
+  await page.evaluate(() => localStorage.clear());
+  const origin = new URL(page.url()).origin;
+  await page.setContent(`<iframe id="app" src="${origin}/" style="width:1280px;height:720px;border:0"></iframe>`);
+  const frame = page.frameLocator('#app');
+  page.on('pageerror', e => errors.push(e.message));
+  // The app's frame (a reload by the anchor keeps the frame object; its document is new).
+  const app = () => page.frames().find(f => f !== page.mainFrame())!;
+  await expect.poll(() => app()?.evaluate(() => !!(window as any).__realtime?.run).catch(() => false)).toBe(true);
+  await frame.getByTestId('run-new').click();
+  await frame.getByTestId('gift-1').click();
+  await expect(frame.getByTestId('run-map')).toBeVisible();
+  const before = await app().evaluate(() => (window as any).__realtime.run.state());
+  await frame.getByTestId('open-sandbox').click();
+  await expect(frame.getByTestId('menu')).toBeVisible();
+  expect(new URL(app().url()).hash).toBe('#sandbox');
+  await frame.getByTestId('menu-run').click();
+  await expect(frame.getByTestId('run-map')).toBeVisible();
+  expect(await app().evaluate(() => (window as any).__realtime.run.state())).toEqual(before);
   expect(errors).toEqual([]);
 });
