@@ -9,7 +9,8 @@
  * the ids of sim/buildIds.ts and run/rtTalismans.ts (an id without a row gets its first letters).
  */
 import { buildModules, moduleActive, type BuildProgress } from '../sim/build';
-import { COUNTER_TALISMANS as T, HAMMERS as H, OATH_HUNGER, RELICS as R, RELIC_IDS } from '../sim/buildIds';
+import { COUNTER_TALISMANS as T, FORMS as F, FROST_PASS, HAMMERS as H, OATH_HUNGER, RELICS as R, RELIC_IDS } from '../sim/buildIds';
+import { formIconSvg } from './formIcons';
 import type { World } from '../sim/world';
 import { rtHammer, rtTalisman } from '../run/rtTalismans';
 
@@ -61,6 +62,13 @@ export const BUILD_LABELS: Readonly<Record<string, Label>> = {
   'ash-ward': { short: 'Обер', glyph: '◈', title: 'Пепельный оберег' },
   'dew-flask': { short: 'Роса', glyph: '◌', title: 'Фляга росы' },
   'tough-hide': { short: 'Шкур', glyph: '▣', title: 'Крепкая шкура' },
+  // Task 29 — the forms (sandbox only; drawn icons, view/formIcons.ts).
+  [F.seal]: { short: 'Печ', glyph: '◎', title: 'Печать', svg: formIconSvg('seal') },
+  [F.pierce]: { short: 'Прям', glyph: '↗', title: 'Прямая', svg: formIconSvg('pierce') },
+  [F.fork]: { short: 'Разв', glyph: 'Y', title: 'Развилка', svg: formIconSvg('fork') },
+  [F.alien]: { short: 'Чуж', glyph: '◐', title: 'Чужак', svg: formIconSvg('stranger') },
+  [F.twins]: { short: 'Близ', glyph: '∞', title: 'Близнецы', svg: formIconSvg('twins') },
+  [FROST_PASS]: { short: 'Нал', glyph: '❄', title: 'Наледь', svg: formIconSvg('rime') },
   // The view's test module (buildTestModule.ts; sandbox hook only).
   'view-test-counter': { short: 'Тест', glyph: 'T', title: 'Тестовый счётчик (песочница)' },
 };
@@ -89,10 +97,48 @@ export const FIRE_TEXT: Readonly<Record<string, string>> = {
   [R.bloodOath]: '+1 ⚡',
   [OATH_HUNGER]: '+1 HP',
   'view-test-counter': 'тест',
+  [FROST_PASS]: 'Наледь',
 };
 
-export const labelOf = (id: string): Label => BUILD_LABELS[id] ?? { short: id.replace(/^relic-/, '').slice(0, 4), glyph: id.slice(0, 1).toUpperCase(), title: id };
-export const fireTextOf = (id: string): string => FIRE_TEXT[id] ?? labelOf(id).title;
+/**
+ * Task 29: the forms' rules (the hover card; sandbox only — the run's catalogue gets them in task 30). After the report
+ * «Талисманы меняющие стиль игры» and the sim's modules (sim/forms.ts, frostPass.ts, chain.ts `loopOn`, pierce.ts `pierceOn`).
+ */
+const FORM_RULES: Readonly<Record<string, string>> = {
+  [F.seal]: 'Замкни цепь в кольцо — удар по всем врагам внутри. С «Развилкой» кольца нет.',
+  [F.pierce]: 'Прямой хвост цепи: проход идёт дальше по прямой и бьёт всех на пути.',
+  [F.fork]: 'Следующее звено — в досягаемости любого звена цепи, не только последнего.',
+  [F.alien]: 'Раз за цепь одно звено может быть чужого цвета; цвет цепи прежний.',
+  [F.twins]: 'Цвета разбиты на пары, пара — один цвет: 1 и 3, 2 и 4.',
+  [FROST_PASS]: 'Путь прохода 2 с морозит врагов, которые в него входят.',
+};
+
+/**
+ * Task 29 (`Params.counterWindow`, sandbox only): the counters count within one chain — two of them get new names, every one a
+ * new rule (core's contract 15.10.2026). Off — the old names and rules.
+ */
+const WINDOW_NAMES: Readonly<Record<string, { short: string; title: string }>> = {
+  [T.fifthLink]: { short: 'Остр', title: 'Острие' },
+  [T.thirdChain]: { short: 'Улов', title: 'Улов' },
+};
+const WINDOW_RULES: Readonly<Record<string, string>> = {
+  [T.fifthLink]: '3-е звено цепи получает +2 силы перед ударом.',
+  [T.thirdChain]: 'Цепь, убившая 3+ врагов: следующий прыжок за 5 с бесплатен.',
+  [T.prism]: 'Звенья после кристалла или смены цвета в цепи получают +1 силы.',
+  [T.shockwave]: 'Цепь из 4+ звеньев посылает ударную волну.',
+  [T.finisher]: 'Последнее звено — самое крепкое в цепи и погибло: неуязвимость ×2.',
+  [T.eliteHunter]: 'После элиты или крепкого звенья получают +3 силы.',
+  [T.longArm]: 'С 3-го звена цепи R ×1,5.',
+  [T.frostEdge]: 'Цепь 3+, кончившаяся на выжившем, замораживает его на 2 с.',
+};
+const WINDOW_FIRE: Readonly<Record<string, string>> = { [T.prism]: '+1 силы' };
+
+/** The row's label; `counterWindow` — the counters' chain window (task 29): «Острие», «Улов». */
+export function labelOf(id: string, counterWindow = false): Label {
+  const label = BUILD_LABELS[id] ?? { short: id.replace(/^relic-/, '').slice(0, 4), glyph: id.slice(0, 1).toUpperCase(), title: id };
+  return counterWindow && WINDOW_NAMES[id] ? { ...label, ...WINDOW_NAMES[id] } : label;
+}
+export const fireTextOf = (id: string, counterWindow = false): string => (counterWindow ? WINDOW_FIRE[id] : undefined) ?? FIRE_TEXT[id] ?? labelOf(id, counterWindow).title;
 
 /**
  * The hover card of an item (design 10.10.2026, «подробно — по запросу»): its full name, its rule and — a relic or an oath —
@@ -100,8 +146,10 @@ export const fireTextOf = (id: string): string => FIRE_TEXT[id] ?? labelOf(id).t
  * catalogue does not know — the view's title. The oath's price is inside its rule in the catalogue; its short price is the
  * view's.
  */
-export function itemCard(id: string, kind: BuildKind): { name: string; rule: string; price: string | null } {
-  const label = labelOf(id);
+export function itemCard(id: string, kind: BuildKind, counterWindow = false): { name: string; rule: string; price: string | null } {
+  const label = labelOf(id, counterWindow);
+  if (counterWindow && WINDOW_RULES[id]) return { name: label.title, rule: WINDOW_RULES[id], price: null };
+  if (FORM_RULES[id]) return { name: label.title, rule: FORM_RULES[id], price: null };
   const def = kind === 'hammer' ? rtHammer(id) : rtTalisman(id);
   const price = def && 'price' in def && def.price ? def.price : label.price ?? null;
   return { name: def?.name ?? label.title, rule: def?.effect ?? '', price };
@@ -166,6 +214,8 @@ export class BuildColumn {
   private rows: Row[] = [];
   private more: HTMLElement | null = null;
   private key = '';
+  /** Task 29: the counters' chain window of the world shown (names and rules of the counters). */
+  private counterWindow = false;
   private bottom = Infinity;
   private fitted = '';
   /** Flashes started so far (tests read it). */
@@ -199,7 +249,8 @@ export class BuildColumn {
 
   /** Rebuilds the rows when the kit changes, refreshes the progress, runs the flashes down (`dt` — real seconds, 0 in pause). */
   update(world: World, dt: number, hidden: boolean): void {
-    const entries = buildEntries(world), key = entries.map(e => `${e.kind}:${e.id}`).join('|');
+    this.counterWindow = !!world.params.counterWindow;
+    const entries = buildEntries(world), key = `${this.counterWindow ? 'w|' : ''}${entries.map(e => `${e.kind}:${e.id}`).join('|')}`;
     if (key !== this.key) this.rebuild(entries, key);
     this.el.hidden = hidden || !this.rows.length;
     if (this.el.hidden) this.tip.hidden = true;
@@ -215,8 +266,11 @@ export class BuildColumn {
     if (!this.el.hidden && this.fitted !== `${this.key}@${this.bottom}`) this.fit();
   }
 
-  /** An item fired: its icon flashes (0.6 s; a folded one — the «+N» row). Returns false when the column has no such item. */
-  flash(id: string): boolean {
+  /**
+   * An item fired: its icon flashes (0.6 s; a folded one — the «+N» row). Returns false when the column has no such item. `fired`
+   * false — the flash of an arrived icon (task 29), not counted among the firings (`flashes`).
+   */
+  flash(id: string, fired = true): boolean {
     const row = this.rows.find(r => r.id === id);
     if (!row) return false;
     row.flash = FLASH_TIME;
@@ -224,7 +278,7 @@ export class BuildColumn {
     el.classList.remove('rt-build-flash');
     void el.offsetWidth;
     el.classList.add('rt-build-flash');
-    this.flashes++;
+    if (fired) this.flashes++;
     return true;
   }
 
@@ -251,7 +305,7 @@ export class BuildColumn {
     this.flying.add(id);
     const box = target.getBoundingClientRect(), k = box.width / ARRIVE_SIZE;
     const dx = box.left + box.width / 2 - from.x, dy = box.top + box.height / 2 - from.y, total = (ARRIVE_HOLD + ARRIVE_FLY) * 1000;
-    const done = (): void => { ghost.remove(); this.flying.delete(id); this.flash(id); };
+    const done = (): void => { ghost.remove(); this.flying.delete(id); this.flash(id, false); };
     if (typeof ghost.animate !== 'function') { done(); return true; }
     const flight = ghost.animate([
       { transform: 'translate(0, 0) scale(0.6)', opacity: 0 },
@@ -292,7 +346,7 @@ export class BuildColumn {
   private showTip(anchor: HTMLElement, rows: Row[], event: PointerEvent): void {
     if (event.buttons) return;
     this.tip.innerHTML = rows.map(r => {
-      const card = itemCard(r.id, r.kind);
+      const card = itemCard(r.id, r.kind, this.counterWindow);
       return `<div><b>${esc(card.name)}</b>${card.rule ? `<span>${esc(card.rule)}</span>` : ''}${card.price ? `<em>Цена: ${esc(card.price)}</em>` : ''}</div>`;
     }).join('');
     this.tip.dataset.id = rows.map(r => r.id).join(' ');
@@ -311,7 +365,7 @@ export class BuildColumn {
     this.more = null;
     this.el.replaceChildren();
     this.rows = entries.map(({ id, kind }) => {
-      const label = labelOf(id), el = document.createElement('div');
+      const label = labelOf(id, this.counterWindow), el = document.createElement('div');
       el.className = `rt-build-item rt-build-${kind}`;
       el.setAttribute('data-testid', `build-${id}`);
       el.dataset.kind = kind;

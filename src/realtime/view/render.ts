@@ -13,7 +13,9 @@ import { Application, Container, Graphics, GraphicsContext, Sprite, Text, type T
 import { COLORS, PALE, drawTerrain, makePlayer } from '../art/art';
 import { characterSprite } from '../art/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
-import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainColor, colorShiftIds, colorShiftLeft, heroAnchorOn, jumpLanding, linkPoint, loopCandidates, nextCandidates, nextObjectCandidates, planChain, type ChainPlan } from '../sim/chain';
+import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainAnchors, chainColor, colorGroups, colorJoin, colorShiftIds, colorShiftLeft, enemyAnchors, heroAnchorOn, jumpLanding, linkPoint, loopCandidates, loopOn, nextCandidates, nextObjectCandidates, planChain, sameColor, type ChainPlan } from '../sim/chain';
+import { FROST_PASS_LIFE, FROST_PASS_RADIUS, frostPassPoints, frostPassPreview } from '../sim/frostPass';
+import { drawAlienRing, drawForkMark, drawFrostPoint, drawFrostPreview, drawReturnRoute, drawTwinLine } from './formsView';
 import { enemyArtScale } from '../sim/enemies/kinds';
 import { BOAR_ART_SCALE, archerLine, archerMark, lynxLine, lynxStunned, quillsUp, quillsWarning, sapperFuse, shamanBeam, shieldUp, wolfHowl, wolfRushLine } from '../sim/enemies/index';
 import { brittleNow } from '../sim/items';
@@ -30,8 +32,8 @@ import { DEFAULT_PARAMS, enemyBodyRadius, enemyDrawRadius, heroRadius, type Enem
 import { shieldFails } from '../sim/guard';
 import { NO_COLOR, SECOND_WIND_HP, doorOpen, focusGuarded, touchDistance, type Enemy, type EnemyKind, type World, type WorldEvent } from '../sim/world';
 import { itemHealOf, linkRadiusOf } from '../sim/build';
-import { FIRE_LIFE, FIRE_RADIUS, hammerFirePoints } from '../sim/hammers';
-import { HAMMERS } from '../sim/buildIds';
+import { FIRE_LIFE, FIRE_RADIUS, hammerFirePoints, returnRunOf } from '../sim/hammers';
+import { FROST_PASS, HAMMERS } from '../sim/buildIds';
 import { fireTextOf } from './buildColumn';
 import { findLoopHint, type LoopHintFigure } from './loopHint';
 // Casino stage 1: «Однорукий гоблин» (the idol, the reels, the odds line; the arrow marks are drawn in `drawSignals`).
@@ -339,6 +341,16 @@ export class RealtimeRenderer {
   private readonly signalLayer = new Graphics();
   /** Task 27: the Jailer's flail chain — under the enemies (`drawBoss`). */
   private readonly bossLayer = new Graphics();
+  /** Task 29: the trail of «Наледь» on the arena — under the enemies (`drawForms`). */
+  private readonly formLayer = new Graphics();
+  /**
+   * Task 29 «Формы» (tests read it): what the forms' highlight drew in the last frame — the reach rings of «Развилка» at links
+   * that are not the last, its Y marks; the rings of «Чужак»; the twin line of «Близнецы»; the cold «Наледь» will leave and the
+   * trail it left; the arrows and hit marks of «Возврат» before the release, and its run after it.
+   */
+  readonly formsShown = { forkRings: 0, forkMarks: 0, alienRings: 0, twinLine: 0, frostPreview: 0, frostPoints: 0, returnArrows: 0, returnHits: 0, returnRun: 0 };
+  /** Task 29: the colour of the last chain whose plan had a run back — the run after the release keeps it (the chain is gone). */
+  private backInk = 0xffffff;
   /**
    * Task 27: what the Jailer's view drew (tests read it): the move signs and the chains of the last frame, the «отрубит» pip of
    * the drawn chain (`severLit` — in its lit phase); the hit flashes, the cut chains and the «−1 пластина» words since the start.
@@ -554,7 +566,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.reachLayer, this.reachMask, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.heroLayer, this.overlay, this.prologueLayer, this.fxLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.reachLayer, this.reachMask, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.heroLayer, this.overlay, this.prologueLayer, this.fxLayer, this.flash);
     this.app.stage.addChild(this.root, this.edgeLayer);
     this.heroArt = makePlayer();
     this.heroLayer.addChild(this.heroRing, this.heroArt);
@@ -999,7 +1011,8 @@ export class RealtimeRenderer {
       view.root.zIndex = e.y;
       // Camera: bodies off screen are not drawn (a margin keeps a body half in view and its strike lunge).
       view.root.visible = this.sees(e, 1.5);
-      const dim = color !== null && e.color !== color ? strength : 0;
+      // Task 29 «Близнецы»: the pair of the chain's colour is the chain's colour — not muted (`sameColor`, the chain's own rule).
+      const dim = color !== null && !sameColor(world, e.color, color) ? strength : 0;
       if (dim > 0 && view.root.visible) dimmed++;
       view.root.alpha = mode === 'alpha' ? 1 - dim : 1;
       const shade = Math.round(255 * (mode === 'darken' ? 1 - dim : 1));
@@ -1333,7 +1346,7 @@ export class RealtimeRenderer {
       // Phase A (Т4): the affixes of an elite are rules of the fight — shown whatever the role toggle says, at most two.
       const affixes = e.elite ? eliteAffixes(e).slice(0, AFFIX_MAX_SHOWN) : [];
       if (!role && !affixes.length) continue;
-      const alpha = color !== null && e.color !== color ? 1 - strength : 1;
+      const alpha = color !== null && !sameColor(world, e.color, color) ? 1 - strength : 1;
       // Under an elite: below its larger drawing and its gold rim.
       const y = e.y * UNIT + r * 1.25 * enemyArtScale(p, e) + (e.elite ? plate * 0.6 : 0);
       const texts = affixes.map(id => { const t = this.affixText(labels++); t.text = AFFIX_SHORT[id]; t.style.fill = AFFIX_INK[id]; t.scale.set(px / 2); return t; });
@@ -1469,6 +1482,14 @@ export class RealtimeRenderer {
     }
     this.chainBreaks = this.chainBreaks.filter(b => b.until > this.clock);
     for (const b of this.chainBreaks) drawFlailChain(cg, b.x0, b.y0, b.x1, b.y1, b.sag, px, 1 - (b.until - this.clock) / CHAIN_BREAK_LIFE);
+  }
+
+  /** Task 29 «Наледь»: the cold the dash left on the arena — under the enemies, fading with its life (`FROST_PASS_LIFE`). */
+  private drawForms(world: World): void {
+    const g = this.formLayer.clear();
+    let n = 0;
+    for (const f of frostPassPoints(world)) { drawFrostPoint(g, f.x * UNIT, f.y * UNIT, FROST_PASS_RADIUS * UNIT, f.life / FROST_PASS_LIFE); n++; }
+    this.formsShown.frostPoints = n;
   }
 
   private drawElites(world: World): void {
@@ -2154,7 +2175,7 @@ export class RealtimeRenderer {
       if (ev.type === 'cheque') { if (ev.door) this.finalFlash(ev.x, ev.y); this.showCheque(world, ev); continue; }
       // Phase B (Д5): the build. An item fired — a short text at the hero (its icon flashes in the column, main.ts).
       if (ev.type === 'talismanFired') {
-        this.floatText(fireTextOf(ev.id), world.hero.x * UNIT, world.hero.y * UNIT - 150, PLAYER_FX);
+        this.floatText(fireTextOf(ev.id, !!world.params.counterWindow), world.hero.x * UNIT, world.hero.y * UNIT - 150, PLAYER_FX);
         this.talismanTexts++;
         continue;
       }
@@ -2452,6 +2473,8 @@ export class RealtimeRenderer {
     this.signals.quillBadges = 0;
     this.eliteShown.planPlates = 0;
     this.bossShown.severPips = 0;
+    const fs = this.formsShown;
+    fs.forkRings = 0; fs.forkMarks = 0; fs.alienRings = 0; fs.twinLine = 0; fs.frostPreview = 0; fs.returnArrows = 0; fs.returnHits = 0; fs.returnRun = 0;
     this.bossShown.severLit = 0;
     this.colorShiftShown = 0;
     this.colorShiftFreedBy = 0;
@@ -2491,6 +2514,12 @@ export class RealtimeRenderer {
     if (!world.chain.length) {
       this.depthChain = '';
       this.drawLoopHint(g, world);
+      // Task 29 «Возврат»: the run back after the release goes along its fixed way — the way in the chain's colour, dimmer.
+      const run = returnRunOf(world);
+      if (run && run.route.length > 1) {
+        drawReturnRoute(g, [{ x: hero.x * UNIT, y: hero.y * UNIT }, ...run.route.map(v => ({ x: v.x * UNIT, y: v.y * UNIT }))], this.backInk, 1.1 * UNIT, 0.6);
+        fs.returnRun = 1;
+      }
       // Out of a chain: the reachable buttons / open door get a faint ring (a link of any color).
       if (world.status === 'playing' && !world.move) for (const o of nextObjectCandidates(world)) g.circle(o.x * UNIT, o.y * UNIT, OBJECT_RADIUS * UNIT + 10).stroke({ color: 0xffffff, width: 2, alpha: 0.45 });
       return;
@@ -2501,10 +2530,32 @@ export class RealtimeRenderer {
     // Line hero → links, navy under the chain color.
     const pts: Vec[] = [{ x: hero.x, y: hero.y }];
     for (const l of world.chain) { const pt = linkPoint(world, l); if (pt) pts.push(pt); }
-    for (const [w, c] of [[9, NAVY], [4.5, ink]] as const) {
+    // Task 29 «Близнецы»: the pair of the chain's colour counts as one — the line in dashes of both colours.
+    const twins = color === null ? null : colorGroups(world)?.find(group => group.includes(color) && group.length > 1) ?? null;
+    if (twins) { drawTwinLine(g, pts.map(v => ({ x: v.x * UNIT, y: v.y * UNIT })), chainInk(twins[0]), chainInk(twins[1])); fs.twinLine = 1; }
+    else for (const [w, c] of [[9, NAVY], [4.5, ink]] as const) {
       g.moveTo(pts[0].x * UNIT, pts[0].y * UNIT);
       for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x * UNIT, pts[i].y * UNIT);
       g.stroke({ color: c, width: w, alpha: 0.95, cap: 'round', join: 'round' });
+    }
+    // Task 29 «Наледь»: where the dash will leave the cold — faint rings of the consumable's blue.
+    if (world.kit?.talismans.includes(FROST_PASS)) for (const f of frostPassPreview(world)) { drawFrostPreview(g, f.x * UNIT, f.y * UNIT, FROST_PASS_RADIUS * UNIT); fs.frostPreview++; }
+    // Task 29 «Возврат»: the way back of the second pass, in the chain's colour, with arrows; its hits are marked below.
+    if (plan.back) {
+      this.backInk = ink;
+      fs.returnArrows = drawReturnRoute(g, plan.back.route.map(v => ({ x: v.x * UNIT, y: v.y * UNIT })), ink, 1.1 * UNIT);
+      // The bodies the run back strikes: the link marks (killed — the white badge with the cross; wounded — the orange ring).
+      const rr = enemyDrawRadius(p) * UNIT;
+      for (const hit of plan.back.hits) {
+        const e = world.enemies.find(x => x.id === hit.id);
+        if (!e) continue;
+        const x = e.x * UNIT, y = e.y * UNIT, cx = x + rr * 0.7, cy = y - rr * 0.75, s = rr * 0.2;
+        if (hit.outcome.killed) {
+          g.circle(cx, cy, rr * 0.3).fill(0xf4efe0).stroke({ color: ink, width: 2.5 });
+          g.moveTo(cx - s, cy - s).lineTo(cx + s, cy + s).moveTo(cx + s, cy - s).lineTo(cx - s, cy + s).stroke({ color: 0xa8322a, width: 3, cap: 'round' });
+        } else g.circle(x, y, rr + 8).stroke({ color: 0xffa040, width: 3, alpha: 0.9 });
+        fs.returnHits++;
+      }
     }
     const anchor = chainAnchor(world);
     this.drawLoop(g, world, plan.seal, ink);
@@ -2519,8 +2570,20 @@ export class RealtimeRenderer {
         g.circle(hero.x * UNIT, hero.y * UNIT, linkRadiusOf(world) * UNIT).stroke({ color: ink, width: 1.5, alpha: 0.35 });
         this.heroAnchorShown = true;
       }
-      const candidates = nextCandidates(world);
-      for (const e of candidates) g.circle(e.x * UNIT, e.y * UNIT, enemyDrawRadius(p) * UNIT + 5).stroke({ color: 0xffffff, width: 3, alpha: 0.9 });
+      // Task 29 «Развилка»: every link is an anchor — a fainter reach ring at each link but the last.
+      const forks = chainAnchors(world).filter(a => a.link && Math.hypot(a.x - anchor.x, a.y - anchor.y) > 1e-6);
+      for (const a of forks) { g.circle(a.x * UNIT, a.y * UNIT, linkRadiusOf(world) * UNIT).stroke({ color: ink, width: 1.25, alpha: 0.2 }); fs.forkRings++; }
+      const candidates = nextCandidates(world), cr = enemyDrawRadius(p) * UNIT + 5;
+      for (const e of candidates) {
+        // Task 29 «Чужак»: a candidate of another colour (the rule not spent this chain) — a dashed ring of its own colour.
+        if (colorJoin(world, e) === 'foreign') { drawAlienRing(g, e.x * UNIT, e.y * UNIT, cr, chainInk(e.color)); fs.alienRings++; }
+        else g.circle(e.x * UNIT, e.y * UNIT, cr).stroke({ color: 0xffffff, width: 3, alpha: 0.9 });
+        // «Развилка»: reachable only from a link that is not the last (not from it, not from the hero) — a Y by its ring.
+        if (forks.length) {
+          const from = enemyAnchors(world, e);
+          if (from.length && !from.some(a => !a.link || Math.hypot(a.x - anchor.x, a.y - anchor.y) <= 1e-6)) { drawForkMark(g, e.x * UNIT - cr * 0.8, e.y * UNIT - cr * 0.8, cr * 0.42); fs.forkMarks++; }
+        }
+      }
       if (this.showLinkDepth) this.drawLinkDepths(world, candidates); else this.depthChain = '';
     } else this.depthChain = '';
     if (!plan.endsOnSurvivor && !plan.endsOnObject && !plan.seal) {
@@ -2764,7 +2827,7 @@ export class RealtimeRenderer {
   private drawLoopHint(g: Graphics, world: World): void {
     this.loopShown.hint = 0; this.loopShown.candidates = 0; this.loopShown.closed = 0; this.loopShown.marks = 0;
     for (const label of this.sealLabels) label.visible = false;
-    if (!world.params.loopHint || !world.params.loopEnabled) { this.hintFigure = null; return; }
+    if (!world.params.loopHint || !loopOn(world)) { this.hintFigure = null; return; }
     if (this.hintFrame++ % 10 === 0) this.hintFigure = findLoopHint(world);
     const f = this.hintFigure;
     if (!f || world.status !== 'playing' || world.move) return;
@@ -2900,6 +2963,7 @@ export class RealtimeRenderer {
     this.drawRipples(world);
     this.syncEnemies(world);
     this.drawSignals(world);
+    this.drawForms(world);
     this.drawBadges(world);
     this.drawElites(world);
     this.drawCaptions(world);

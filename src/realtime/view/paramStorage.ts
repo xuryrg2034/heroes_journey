@@ -87,16 +87,20 @@ export function saveSound(sound: SoundSetting): void {
  * the sandbox loadout from the next arena. Not a Param (Params are hashed: a new key would change the hash of old journals);
  * the loadout goes into the journal as it is. Its own key; storage may be unavailable (then nothing taken).
  */
-export interface SandboxBuild { talisman: string; relic: string; hammer: string }
+export interface SandboxBuild {
+  talisman: string; relic: string; hammer: string;
+  /** Task 29: the forms by field (sim/buildIds.ts `FORM_FIELD`) — «Конец», «Звено», «Путь»; '' — none. Old saves: none. */
+  end: string; link: string; path: string;
+}
 const BUILD_KEY = 'ashen-oath-realtime-sandbox-build';
 
 export function loadSandboxBuild(): SandboxBuild {
-  const empty: SandboxBuild = { talisman: '', relic: '', hammer: '' };
+  const empty: SandboxBuild = { talisman: '', relic: '', hammer: '', end: '', link: '', path: '' };
   try {
     const raw = JSON.parse(localStorage.getItem(BUILD_KEY) ?? 'null') as Partial<SandboxBuild> | null;
     if (!raw || typeof raw !== 'object') return empty;
     const text = (v: unknown): string => (typeof v === 'string' ? v : '');
-    return { talisman: text(raw.talisman), relic: text(raw.relic), hammer: text(raw.hammer) };
+    return { talisman: text(raw.talisman), relic: text(raw.relic), hammer: text(raw.hammer), end: text(raw.end), link: text(raw.link), path: text(raw.path) };
   } catch { return empty; }
 }
 

@@ -46,7 +46,7 @@ import { CHAIN_COLORS, FINAL_FLASH, PLAYER_FX, TARGET, RealtimeRenderer, type Re
 import { focusMaxOf } from '../sim/build';
 import { DOOR_HEAT, doorPayout, greedLine, multText, nextHeat } from '../sim/purse';
 import { OATH_BROKEN_MULT, oathMark, OATHS, type OathId } from '../sim/oath';
-import { COUNTER_TALISMANS, HAMMERS, OATH_HUNGER, RELICS, isHammerId } from '../sim/buildIds';
+import { COUNTER_TALISMANS, FORM_FIELD, FORM_FIELD_TITLES, FORM_IDS, FROST_PASS, HAMMERS, OATH_HUNGER, RELICS, isHammerId, type FormField } from '../sim/buildIds';
 import { ActionBar, SELF_ITEMS, type TileId } from './actionBar';
 import { BuildColumn, labelOf } from './buildColumn';
 import { registerViewTestModule, VIEW_TEST_MODULE } from './buildTestModule';
@@ -407,7 +407,7 @@ async function boot(): Promise<void> {
   let sandboxOath: OathId | null = null;
   let buildOverride: { talismans: string[]; hammer?: string } | null = null;
   const sandboxLoadout = (): Loadout => {
-    const talismans = [...params.sandboxTalismans ? [params.sandboxTalismans] : [], ...buildOverride ? buildOverride.talismans : [sandboxBuild.talisman, sandboxBuild.relic].filter(Boolean)];
+    const talismans = [...params.sandboxTalismans ? [params.sandboxTalismans] : [], ...buildOverride ? buildOverride.talismans : [sandboxBuild.talisman, sandboxBuild.relic, sandboxBuild.end, sandboxBuild.link, sandboxBuild.path].filter(Boolean)];
     const hammer = buildOverride ? buildOverride.hammer : sandboxBuild.hammer;
     return {
       items: Object.fromEntries(SLOT_ITEMS.map(kind => [kind, params.sandboxItems])),
@@ -518,9 +518,17 @@ async function boot(): Promise<void> {
   let lastSlotCounts: number[] | null = null;
   let arenaItemsUsed = 0, arenaHintShown = false;
   /** Starts a fight on `arena` (the sandbox's menu, or the arena of a run node with the run's HP). */
+  /**
+   * Task 29 (design 15.10.2026): the forms of a sandbox fight's kit (and its hammer — a form of «Конец» or «Путь») show where
+   * they went — each icon flies from the hero to its row of the column at the fight's start, while the start invulnerability
+   * holds (`BuildColumn.arrive`). The run gets it in task 30 (the first fight after the choice).
+   */
+  let pendingArrivals: string[] = [];
   const startArena = (arena: ArenaTemplate, seed: number, hero?: HeroStart, loadout?: Loadout, notice?: ArenaItemNotice, simParams?: Params): void => {
     renderer.resetEffects();
     sim = newSimulation(arena, seed, hero, loadout, simParams);
+    const kit = world().kit;
+    pendingArrivals = sandbox && kit ? [...kit.talismans.filter(id => !!FORM_FIELD[id]), ...kit.hammer ? [kit.hammer] : []] : [];
     labelLayer.hideAll();
     if (!simParams) recorder?.beginFight(sim, fightContext());
     SLOT_ITEMS.forEach((kind, i) => { slotBlink[i] = notice?.blink.includes(kind) ? ITEM_BLINK : 0; });
@@ -606,12 +614,22 @@ async function boot(): Promise<void> {
     // Phase B (Д5): the sandbox build — from the next arena (R, the menu); the column shows what is taken.
     const none = { value: '', label: 'нет' };
     const option = (id: string) => ({ value: id, label: labelOf(id).title });
-    const choose = (key: 'talisman' | 'relic' | 'hammer') => (value: string): void => { sandboxBuild[key] = value; saveSandboxBuild(sandboxBuild); };
+    const choose = (key: 'talisman' | 'relic' | 'hammer' | 'end' | 'link' | 'path') => (value: string): void => { sandboxBuild[key] = value; saveSandboxBuild(sandboxBuild); };
+    // Task 29 (design 15.10.2026): the forms by their field, so that pairs of different fields are taken in one place; a hammer
+    // is a form too — its field stands in the «Молот» list (one hammer slot: two lists could not both hold a hammer).
+    const formOption = (field: FormField) => FORM_IDS.filter(id => FORM_FIELD[id] === field).map(option);
+    const fieldOf = (id: string): string => FORM_FIELD[id] ? ` · ${FORM_FIELD_TITLES[FORM_FIELD[id]].toLowerCase()}` : '';
+    panel.addBuildChoice('Форма · конец', 'build-form-end', [none, ...formOption('end')], sandboxBuild.end, choose('end'),
+      'Задача 29: что делает конец цепи («Печать» — кольцо, «Прямая» — пробой). С новой арены. Молот «Взрыв на конце» — тоже поле «Конец».');
+    panel.addBuildChoice('Форма · звено', 'build-form-link', [none, ...formOption('link'), option('hero-anchor')], sandboxBuild.link, choose('link'),
+      'Задача 29: какое звено можно взять («Развилка», «Чужак», «Близнецы», «Якорь у героя»). С новой арены.');
+    panel.addBuildChoice('Форма · путь', 'build-form-path', [none, ...formOption('path'), option(FROST_PASS)], sandboxBuild.path, choose('path'),
+      'Задача 29: что оставляет проход («Наледь»). С новой арены. Молоты «Огненный», «Режущий», «Возврат» — тоже поле «Путь».');
     panel.addBuildChoice('Талисман-счётчик', 'build-talisman', [none, ...Object.values(COUNTER_TALISMANS).map(option)], sandboxBuild.talisman, choose('talisman'),
       'Т1: условие и триггер. Предмет действует с новой арены; прогресс счётчика — в колонке слева.');
     panel.addBuildChoice('Реликвия или клятва', 'build-relic', [none, ...Object.values(RELICS).map(option), option(OATH_HUNGER)], sandboxBuild.relic, choose('relic'),
       'Т3: плюс и цена (цена — в колонке); 5а: новая «Клятва голода».');
-    panel.addBuildChoice('Молот', 'build-hammer', [none, ...Object.values(HAMMERS).map(option)], sandboxBuild.hammer, choose('hammer'),
+    panel.addBuildChoice('Молот', 'build-hammer', [none, ...Object.values(HAMMERS).map(id => ({ value: id, label: `${labelOf(id).title}${fieldOf(id)}` }))], sandboxBuild.hammer, choose('hammer'),
       'Т2: один молот, меняет проход героя.');
     // Casino stage 1, item 2: the sandbox oath — the toggle on (journalled), the oath from now (a command) and in every next arena.
     panel.addGroupChoice('Ставка клятвы', 'Клятва боя', 'oath-choice', [none, ...OATHS.map(def => ({ value: def.id, label: def.name }))], '', value => {
@@ -1272,6 +1290,11 @@ async function boot(): Promise<void> {
     const columnWasHidden = buildColumn.el.hidden;
     buildColumn.update(w, live ? realDt : 0, runScreenOpen || menuOpen);
     if (buildColumn.el.hidden !== columnWasHidden) measureEdgeInset();
+    if (pendingArrivals.length && !buildColumn.el.hidden && w.status === 'playing') {
+      const at = renderer.toScreen(w.hero.x, w.hero.y);
+      for (const id of pendingArrivals) buildColumn.arrive(id, { x: at.x, y: at.y - 40 });
+      pendingArrivals = [];
+    }
     focusBar.classList.toggle('rt-focus-on', w.focusing);
     energyText.textContent = `⚡ ${w.energy.toFixed(1)} / ${ENERGY_MAX}`;
     energyText.classList.toggle('rt-ready', w.energy >= jumpCostOf(w));
@@ -1545,6 +1568,8 @@ async function boot(): Promise<void> {
         guard: { sparks: renderer.blocksShown, wards: renderer.wardsShown, fails: renderer.shieldFailShown },
         /** Task 27 «Тюремщик»: the boss's view — move signs and chains of the frame, the «отрубит» pip, hits, cut chains, «−1 пластина». */
         boss: { ...renderer.bossShown },
+        /** Task 29 «Формы»: the forms' highlight of the frame (`formsShown`) and the icons' flights to the column (started; flying now). */
+        forms: { ...renderer.formsShown, arrivals: buildColumn.arrivals, flying: [...buildColumn.flying] },
         /** The prologue's sleep: «z» marks drawn this frame (the sim's rule: a calm arena or `asleep`). */
         sleepMarks: renderer.sleepShown,
         /** Task 14 «Котомка у двери»: the bag of the sim (null — none: before the goals, or the rule off) and what the view drew of it. */

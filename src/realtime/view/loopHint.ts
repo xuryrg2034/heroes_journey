@@ -12,6 +12,7 @@ import { enemyArtRadius, kindOf } from '../sim/enemies/kinds';
 import { dist, insidePolygon, lineOfSight, type Vec } from '../sim/geometry';
 import { loopMinOf } from '../sim/seal';
 import { NO_COLOR, type Enemy, type LoopKind, type World } from '../sim/world';
+import { loopOn } from '../sim/chain';
 
 export interface LoopHintFigure { kind: LoopKind; color: number; ring: Vec[]; inside: number }
 
@@ -22,7 +23,8 @@ const MAX_BODIES = 18;
 
 export function findLoopHint(world: World): LoopHintFigure | null {
   const p = world.params;
-  if (!p.loopEnabled || world.status !== 'playing' || world.move || world.chain.length) return null;
+  // Task 29: the loop is on by the panel or by «Печать» in the kit, never with «Развилка» (`loopOn`).
+  if (!loopOn(world) || world.status !== 'playing' || world.move || world.chain.length) return null;
   const R = linkRadiusOf(world), hero: Vec = { x: world.hero.x, y: world.hero.y };
   const bodies = world.enemies.filter(e => !kindOf(e).immune);
   const reach = (from: Vec, to: Enemy): boolean =>
