@@ -85,7 +85,8 @@ export function hammerFireOf(world: World): { x: number; y: number; k: number; r
 }
 
 /** Phase B: effects of the player's build shown so far (fire and cut trail — in the last frame; tests read them). */
-export interface PlayerEffectCounts { waves: number; blasts: number; cuts: number; cutTrail: number; cutFrames: number; fire: number; bombs: number; returns: number }
+/** Task 31: `fireEdge` — the drawn chain has the fire's edge this frame (the path will light); `fireFlares` — path flares so far, `flarePoints` — their points. */
+export interface PlayerEffectCounts { waves: number; blasts: number; cuts: number; cutTrail: number; cutFrames: number; fire: number; bombs: number; returns: number; fireEdge: number; fireFlares: number; flarePoints: number }
 
 /** Input state the view shows (pointer line, jump aim); owned by main.ts. */
 export interface RenderUi {
@@ -191,6 +192,8 @@ const CHASM = 0x07090a, CHASM_RIM = 0x9a8a66;
 const THORN = 0x2b3a1d, THORN_INK = 0x9a8452;
 /** Stage 3a (М4): the brazier's fire and the grey of a brazier put out. */
 const EMBER = 0xff8a3a, FLAME = 0xffd36b, ASH = 0x7a7a72;
+/** Task 31: real seconds the flare of the fire's path lasts. */
+const FIRE_FLARE_LIFE = 0.45;
 /** П8: the colour of the caption plates (lavender: not the elite's lemon, not the player's pale blue). */
 const CAPTION_COLOR = 0xc8b0ff;
 /** К7 «Проклятый сундук»: the curse's violet (the chest's eye and chain glow, the hero's border, the counter). */
@@ -544,7 +547,9 @@ export class RealtimeRenderer {
   /** Stage 2, step 3: spin flashes shown so far (tests read it: the flash was on screen). */
   spinsShown = 0;
   /** Phase B (Д5): effects of the player's build — waves, blasts, cuts, bombs, return runs so far; fire points and cut trail segments in the last frame, frames with a cut trail so far. */
-  readonly playerEffects: PlayerEffectCounts = { waves: 0, blasts: 0, cuts: 0, cutTrail: 0, cutFrames: 0, fire: 0, bombs: 0, returns: 0 };
+  readonly playerEffects: PlayerEffectCounts = { waves: 0, blasts: 0, cuts: 0, cutTrail: 0, cutFrames: 0, fire: 0, bombs: 0, returns: 0, fireEdge: 0, fireFlares: 0, flarePoints: 0 };
+  /** Task 31: the flares of the fire's path (the dash reached the threshold) — a bright stroke along the whole path, fading. */
+  private readonly fireFlareFx: { g: Graphics; life: number }[] = [];
   /** Phase B (Д5): the radius R of the circle around the hero in the last frame, in units (`linkRadiusOf`). */
   heroReachRadius = 0;
   /** Phase B (Д5): short texts at the hero for fired items so far (`talismanFired`). */
@@ -1940,6 +1945,32 @@ export class RealtimeRenderer {
    * Phase B (design answer 23): a burst of the player's build at an arena point — the pale-blue rim, no hatching, no dark
    * threat outline. `grow` — a ring widening from the hero to its radius (the wave, as the spin's ring).
    */
+  /** Task 31: the whole path of the fire flashes at once — a wide flame stroke along its points and a burst at each (no text). */
+  private fireFlare(points: readonly Vec[], r: number): void {
+    const g = new Graphics(), w = Math.max(0.3, r) * 2 * UNIT;
+    if (points.length > 1) {
+      for (const [width, color, alpha] of [[w + 8, PLAYER_FX, 0.9], [w, EMBER, 0.75], [w * 0.45, 0xfff2c4, 0.95]] as const) {
+        g.moveTo(points[0].x * UNIT, points[0].y * UNIT);
+        for (let i = 1; i < points.length; i++) g.lineTo(points[i].x * UNIT, points[i].y * UNIT);
+        g.stroke({ color, width, alpha, cap: 'round', join: 'round' });
+      }
+    }
+    this.fxLayer.addChild(g);
+    this.fireFlareFx.push({ g, life: FIRE_FLARE_LIFE });
+    for (const p of points) this.playerBurst(p.x, p.y, r, FLAME, 0.5, FIRE_FLARE_LIFE, true);
+    this.playerEffects.fireFlares++;
+    this.playerEffects.flarePoints += points.length;
+  }
+
+  private updateFireFlares(dt: number): void {
+    for (let i = this.fireFlareFx.length - 1; i >= 0; i--) {
+      const f = this.fireFlareFx[i];
+      f.life -= dt;
+      if (f.life <= 0) { f.g.destroy(); this.fireFlareFx.splice(i, 1); continue; }
+      f.g.alpha = Math.min(1, (f.life / FIRE_FLARE_LIFE) * 1.6);
+    }
+  }
+
   private playerBurst(x: number, y: number, r: number, fill: number, fillAlpha: number, life: number, grow = false): void {
     const g = new Graphics().circle(0, 0, r * UNIT).fill({ color: fill, alpha: fillAlpha }).stroke({ color: PLAYER_FX, width: 5, alpha: 0.95 });
     g.position.set(x * UNIT, y * UNIT);
@@ -2243,7 +2274,9 @@ export class RealtimeRenderer {
       if (ev.type === 'wave') { this.playerBurst(ev.x, ev.y, ev.r, PLAYER_FX, 0.16, 0.35, true); this.playerEffects.waves++; continue; }
       if (ev.type === 'hammer') {
         if (ev.kind === 'blast') { this.playerBurst(ev.x, ev.y, ev.r ?? 1.5, 0xffffff, 0.42, 0.35); this.playerEffects.blasts++; }
-        // `fire`: the fire is drawn from the module's state (`hammerFireOf`), not from the event.
+        // `fire`: the fire is drawn from the module's state (`hammerFireOf`). Task 31 (`fireMinLinks`): the dash reached the
+        // threshold and the whole path lit at once (`flare`) — the path flashes in one stroke with a burst at each of its points.
+        else if (ev.kind === 'fire') { if (ev.flare?.length) this.fireFlare(ev.flare, ev.r ?? 0.5); }
         else if (ev.kind === 'cut') { this.cutSeen = true; this.playerEffects.cuts++; }
         else if (ev.kind === 'return') this.playerEffects.returns++;
         continue;
@@ -2514,6 +2547,7 @@ export class RealtimeRenderer {
   private drawChain(world: World, ui: RenderUi): void {
     const g = this.chainLayer.clear(), p = world.params, hero = world.hero;
     this.drawnPlan = null;
+    this.playerEffects.fireEdge = 0;
     for (const label of this.quillLabels) label.visible = false;
     for (const label of this.plateLabels) label.visible = false;
     for (const label of this.depthLabels) label.visible = false;
@@ -2581,6 +2615,16 @@ export class RealtimeRenderer {
     for (const l of world.chain) { const pt = linkPoint(world, l); if (pt) pts.push(pt); }
     // Task 29 «Близнецы»: the pair of the chain's colour counts as one — the line in dashes of both colours.
     const twins = color === null ? null : colorGroups(world)?.find(group => group.includes(color) && group.length > 1) ?? null;
+    // Task 31 «Огненный проход» (`fireMinLinks`): the dash will reach the threshold — the path gets the fire's edge under the
+    // chain line (embers with the pale-blue rim of the player's effects, as the fire itself); short of it — no edge.
+    if (plan.fire?.lit && pts.length > 1) {
+      for (const [w, c, a] of [[22, PLAYER_FX, 0.75], [17, EMBER, 0.9], [11, FLAME, 0.55]] as const) {
+        g.moveTo(pts[0].x * UNIT, pts[0].y * UNIT);
+        for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x * UNIT, pts[i].y * UNIT);
+        g.stroke({ color: c, width: w, alpha: a, cap: 'round', join: 'round' });
+      }
+      this.playerEffects.fireEdge = 1;
+    }
     if (twins) { drawTwinLine(g, pts.map(v => ({ x: v.x * UNIT, y: v.y * UNIT })), chainInk(twins[0]), chainInk(twins[1])); fs.twinLine = 1; }
     else for (const [w, c] of [[9, NAVY], [4.5, ink]] as const) {
       g.moveTo(pts[0].x * UNIT, pts[0].y * UNIT);
@@ -3012,6 +3056,7 @@ export class RealtimeRenderer {
     this.updateSparks(realDt);
     this.updateDying(realDt);
     this.updateClearWaves(realDt);
+    this.updateFireFlares(realDt);
     this.drawObjects(world);
     this.drawMarkers(world);
     this.drawTrails(world);
@@ -3099,6 +3144,8 @@ export class RealtimeRenderer {
     this.dying.length = 0;
     for (const wv of this.clearWaves) wv.g.destroy();
     this.clearWaves.length = 0;
+    for (const f of this.fireFlareFx) f.g.destroy();
+    this.fireFlareFx.length = 0;
     this.bossCoreAt = null;
     this.plaqued.clear();
     for (const pl of this.plaques.values()) pl.box.destroy({ children: true });

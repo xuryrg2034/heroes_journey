@@ -403,6 +403,49 @@ test('acceptance Т2 hammers (Д5): «Режущий проход» kills an ene
   expect(errors).toEqual([]);
 });
 
+test('task 31 «Огонь от трёх звеньев»: a mouse chain of 2 links — no fire edge in the highlight, no fire after the release; of 3 — the edge, the whole path flares at once at the 3rd link, the path burns; the column counts up to 3', async ({ page }) => {
+  const errors: string[] = [];
+  await openArena(page, errors, 1);
+  await page.evaluate(() => (window as any).__realtime.useBuild({ hammer: 'fire-pass' }, 6));
+  await quiet(page);
+  await expect(page.getByTestId('build-fire-pass')).toBeVisible();
+  const fx = async (): Promise<any> => ((await buildSnap(page)) as any).playerEffects;
+  /** Press on the first link and drag through the rest, the button held. */
+  const draw = async (ids: number[]): Promise<void> => {
+    const s = await buildSnap(page), points = [];
+    for (const id of ids) { const e = s.enemies.find(x => x.id === id)!; points.push(await screen(page, e.x, e.y)); }
+    await page.mouse.move(points[0].x, points[0].y);
+    await page.mouse.down();
+    for (const p of points.slice(1)) await page.mouse.move(p.x, p.y, { steps: 4 });
+  };
+  // Two links: the plan says the path will not light — no edge; released — no fire, no flare.
+  const two = [await place(page, 9.2, 5, 'basic', 0, 0), await place(page, 10.6, 5, 'basic', 0, 0)];
+  await draw(two);
+  await expect.poll(async () => ((await buildSnap(page)) as any).chain.length).toBe(2);
+  expect((await fx()).fireEdge).toBe(0);
+  await expect.poll(() => progressOf(page, 'fire-pass')).toBe('●●○');
+  await page.screenshot({ path: 'artifacts/realtime-fire-plan-2.png' });
+  await page.mouse.up();
+  await expect.poll(() => page.evaluate(() => (window as any).__realtime.snapshot().moving)).toBe(null);
+  await page.waitForTimeout(200);
+  expect((await fx()).fire).toBe(0);
+  expect((await fx()).fireFlares).toBe(0);
+  // Three links: the edge while drawn; the dash reaches the 3rd — the whole path flares at once, then burns.
+  await quiet(page);
+  const three = [await place(page, 9.2, 5, 'basic', 1, 0), await place(page, 10.6, 5, 'basic', 1, 0), await place(page, 12, 5, 'basic', 1, 0)];
+  await draw(three);
+  await expect.poll(async () => ((await buildSnap(page)) as any).chain.length).toBe(3);
+  expect((await fx()).fireEdge).toBe(1);
+  await expect.poll(() => progressOf(page, 'fire-pass')).toBe('●●●');
+  await page.screenshot({ path: 'artifacts/realtime-fire-plan-3.png' });
+  await page.mouse.up();
+  await expect.poll(async () => (await fx()).fireFlares, { timeout: 3_000, intervals: [16] }).toBe(1);
+  await page.screenshot({ path: 'artifacts/realtime-fire-flare.png' });
+  expect((await fx()).flarePoints).toBeGreaterThan(1);
+  await expect.poll(async () => (await fx()).fire).toBeGreaterThan(0);
+  expect(errors).toEqual([]);
+});
+
 test('acceptance Т3 relics (Д5): «Широкий круг» — the R circle 1.25 times wider; «Тяжёлый клинок» — the focus reserve and its bar half as long', async ({ page }) => {
   const errors: string[] = [];
   await openArena(page, errors, 1);
