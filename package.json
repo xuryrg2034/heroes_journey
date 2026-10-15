@@ -12,6 +12,7 @@
     "realtime:big-arenas": "tsx scripts/realtime-big-arenas.ts",
     "realtime:measure-loops": "tsx scripts/measure-loops.ts",
     "realtime:style-change": "tsx scripts/realtime-style-change.ts",
+    "realtime:forms-price": "tsx scripts/realtime-forms-price.ts",
     "realtime:spawn-hold": "tsx scripts/realtime-spawn-hold.ts",
     "realtime:economy": "tsx scripts/realtime-economy.ts",
     "realtime:marked-goals": "tsx scripts/realtime-marked-goals.ts",
