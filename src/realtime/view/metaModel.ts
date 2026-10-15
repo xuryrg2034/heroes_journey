@@ -6,6 +6,7 @@
  */
 import type { ItemKind } from '../sim/kit';
 import { BUILD_LABELS, labelOf } from './buildColumn';
+import { forestEvent } from '../forest/forestEvents';
 
 /** The kinds of things a pack opens (the card's caption and picture follow it). */
 export type MetaItemKind = 'talisman' | 'relic' | 'hammer' | 'form' | 'event';
@@ -50,8 +51,8 @@ export interface HearthState {
   lines: Record<string, number>;
 }
 
-/** The start of a run from the camp: the maps to choose from (seeds) and the consumables to choose from. */
-export interface HearthStart { maps?: number[]; items?: ItemKind[] }
+/** The start of a run from the camp: the maps to choose from (seeds, the base first), the consumables to choose from, the run's flags (core). */
+export interface HearthStart { maps?: number[]; items?: ItemKind[]; flags?: object }
 
 /** What the view needs of the meta (core's profile; a stub until it lands). */
 export interface MetaSource {
@@ -95,12 +96,12 @@ export function xpPartLabel(id: MetaXpPart, n?: number): string {
 }
 
 /** The forest events a pack may open (the card's name). */
-const EVENT_TITLES: Readonly<Record<string, string>> = { 'bone-wheel': 'Колесо костей', 'porcupine-nest': 'Гнездо дикобразов', 'old-trap': 'Старый капкан' };
+
 const KIND_WORD: Readonly<Record<MetaItemKind, string>> = { talisman: 'талисман', relic: 'реликвия', hammer: 'молот', form: 'форма', event: 'событие' };
 
 /** A pack card: its name, a big glyph (or the form's SVG) and what it is. */
 export function metaItemCard(item: MetaPackItem): { title: string; glyph: string; svg?: string; kind: string } {
-  if (item.kind === 'event') return { title: EVENT_TITLES[item.id] ?? item.id, glyph: '?', kind: KIND_WORD.event };
+  if (item.kind === 'event') return { title: forestEvent(item.id)?.title ?? item.id, glyph: '?', kind: KIND_WORD.event };
   const label = BUILD_LABELS[item.id] ? labelOf(item.id) : { title: item.id, glyph: '•' };
   return { title: label.title, glyph: label.glyph, ...('svg' in label && label.svg ? { svg: label.svg } : {}), kind: KIND_WORD[item.kind] };
 }
