@@ -257,9 +257,19 @@ function hatchCircle(g: Graphics, X: number, Y: number, R: number, step: number)
  * on the side away from its weight (the weight hangs at the right of its shield, all round it as it turns, and would cover the
  * row). `bossPipRadius` — the distance from the centre: over the head clears the illustration, under the feet the disc.
  */
-const bossPipRadius = (e: Enemy, r: number, below: boolean): number => (e.kind !== JAILER ? r * 1.06 : below ? r * 1.35 : r * 2.4);
+const bossPipRadius = (e: Enemy, r: number, below: boolean): number => (e.kind !== JAILER ? r * 1.06 : below ? r * 1.35 : r * (JAILER_ART - JAILER_FEET + 0.1));
+/** Task 27: the Jailer's illustration — its size in body radii (about 1.5 times the hero's height) and where its feet stand. */
+const JAILER_ART = 5.4;
+const JAILER_FEET = 1.0;
 /** The core's row goes under it while its weight hangs this far (units) above its centre, back over it once the weight is this far below. */
 const BOSS_PIP_FLIP = 0.3;
+/** Task 27: the weight's HP plaque — this many body radii out from the ball's centre, away from its core. */
+const WEIGHT_BADGE = 1.45;
+/** The unit vector from a weight's core to the weight (up when it has none or stands on it). */
+function weightOutward(world: World, e: Enemy): { x: number; y: number } {
+  const core = jailerCore(world, e), dx = core && core !== e ? e.x - core.x : 0, dy = core && core !== e ? e.y - core.y : -1, d = Math.hypot(dx, dy);
+  return d > 1e-6 ? { x: dx / d, y: dy / d } : { x: 0, y: -1 };
+}
 
 /** A dashed segment (the wolves' pack lines, phase A), in one path — the caller strokes it. */
 function dashedLine(g: Graphics, x0: number, y0: number, x1: number, y1: number, dash: number, gap: number): void {
@@ -331,9 +341,9 @@ export class RealtimeRenderer {
   private readonly bossLayer = new Graphics();
   /**
    * Task 27: what the Jailer's view drew (tests read it): the move signs and the chains of the last frame, the «отрубит» pip of
-   * the drawn chain; the hit flashes, the cut chains and the «−1 пластина» words since the start.
+   * the drawn chain (`severLit` — in its lit phase); the hit flashes, the cut chains and the «−1 пластина» words since the start.
    */
-  readonly bossShown = { flail: 0, throw: 0, whistle: 0, chains: 0, severPips: 0, hits: 0, breaks: 0, plates: 0 };
+  readonly bossShown = { flail: 0, throw: 0, whistle: 0, chains: 0, severPips: 0, severLit: 0, hits: 0, breaks: 0, plates: 0 };
   /** Task 27: the move signs of the last frame (core id →), so a `bossMove` hit flashes where its sign stood. */
   private bossMovesSeen = new Map<number, { move: JailerMoveId; x: number; y: number; r: number; dir: number }>();
   /** Task 27: the chains of the last frame (weight id → its ends and sag), so a severed weight's chain falls where it hung. */
@@ -912,23 +922,28 @@ export class RealtimeRenderer {
       body.addChild(plaque);
     }
     if (e.kind === JAILER && e.color !== NO_COLOR) {
-      // Task 27: the Jailer — its illustration in any look (the boss is known by it), over the disc of its colour; the colour's
-      // plaque at the belt, as the basic enemy's.
-      const sprite = characterSprite('jailer', r * 3.8, r * 3.8);
-      if (sprite) { sprite.position.set(0, -r * 0.6); body.addChild(sprite); }
-      const plaque = new Graphics();
-      plaque.circle(0, r * 0.78, r * 0.36).fill(chainInk(e.color)).stroke({ color: NAVY, width: 2.5 });
-      drawSigil(plaque.context, e.color, r * 0.2, NAVY, r * 0.78);
+      // Task 27: the Jailer — its illustration in any look (the boss is known by it), over the disc of its colour, about 1.5 times
+      // the hero's height (design 15.10.2026: the body stays the sim's, the drawing is large); its feet at the disc's bottom.
+      // The colour's plaque at its belt, as the basic enemy's.
+      const sprite = characterSprite('jailer', r * JAILER_ART, r * JAILER_ART);
+      if (sprite) { sprite.position.set(0, r * (JAILER_FEET - JAILER_ART / 2)); body.addChild(sprite); }
+      const belt = r * (JAILER_FEET - JAILER_ART * 0.38), plaque = new Graphics();
+      plaque.circle(0, belt, r * 0.4).fill(chainInk(e.color)).stroke({ color: NAVY, width: 2.5 });
+      drawSigil(plaque.context, e.color, r * 0.22, NAVY, belt);
       body.addChild(plaque);
     }
     let hpLabel: Text | null = null;
     if (e.hp > 0 && (e.leader || e.kind === JAILER || e.kind === JAILER_WEIGHT)) {
       // Task 12: the leader's HP — the number a chain must beat: the HP badge's place (top right, clear of the face), half as large
       // again, a gold rim and a bright number. Task 27: the Jailer's core and weight wear the same plaque.
-      const badge = new Graphics().circle(r * 0.85, -r * 0.8, r * 0.56).fill(0x233039).stroke({ color: NAVY, width: 5 }).circle(r * 0.85, -r * 0.8, r * 0.56).stroke({ color: TARGET, width: 3 });
+      // Task 27: the Jailer's plaque by its head, clear of the shield arc; the weight's stands outside the ball, away from the
+      // core (`syncEnemies` moves its box every frame), so the two numbers never meet.
+      const box = new Container(), badge = new Graphics().circle(0, 0, r * 0.56).fill(0x233039).stroke({ color: NAVY, width: 5 }).circle(0, 0, r * 0.56).stroke({ color: TARGET, width: 3 });
       hpLabel = new Text({ text: String(e.hp), style: { fontFamily: 'Georgia, serif', fontSize: 28, fontWeight: 'bold', fill: 0xfff2c4 } });
-      hpLabel.anchor.set(0.5); hpLabel.position.set(r * 0.85, -r * 0.8);
-      body.addChild(badge, hpLabel);
+      hpLabel.anchor.set(0.5);
+      box.addChild(badge, hpLabel);
+      box.position.set(e.kind === JAILER ? r * 1.25 : r * 0.85, e.kind === JAILER ? r * (JAILER_FEET - JAILER_ART * 0.82) : -r * 0.8);
+      body.addChild(box);
     } else if (e.hp > 0) {
       const badge = new Graphics().circle(r * 0.72, -r * 0.72, r * 0.36).fill(0x233039).stroke({ color: PALE, width: 2 });
       hpLabel = new Text({ text: String(e.hp), style: { fontFamily: 'Georgia, serif', fontSize: 17, fontWeight: 'bold', fill: PALE } });
@@ -964,6 +979,13 @@ export class RealtimeRenderer {
         this.enemyViews.set(e.id, view);
       }
       if (view.hpLabel && view.hp !== e.hp) { view.hpLabel.text = String(e.hp); view.hp = e.hp; }
+      // Task 27 (design 15.10.2026): the two HP numbers never meet. The weight's plaque stands outside its ball, on the line from
+      // its core (`weightOutward`); the core's at the end of its plate row, on the side away from its weight (`bossPipsBelow`).
+      if (view.hpLabel?.parent && (e.kind === JAILER_WEIGHT || e.kind === JAILER)) {
+        const R = BASE_ENEMY_RADIUS * UNIT;
+        if (e.kind === JAILER_WEIGHT) { const u = weightOutward(world, e); view.hpLabel.parent.position.set(u.x * R * WEIGHT_BADGE, u.y * R * WEIGHT_BADGE); }
+        else view.hpLabel.parent.position.set(R * 1.65, this.bossPipsBelow.get(e.id) ? R * 1.8 : -R * (JAILER_ART - JAILER_FEET + 0.55));
+      }
       // Strike: a short lunge towards the hero.
       let ox = 0, oy = 0;
       if (e.strikeFlash > 0) {
@@ -1391,7 +1413,15 @@ export class RealtimeRenderer {
         below = dy < -BOSS_PIP_FLIP ? true : dy > BOSS_PIP_FLIP ? false : this.bossPipsBelow.get(e.id) ?? false;
         this.bossPipsBelow.set(e.id, below);
       }
-      if (armor && this.sees(e, 1.5)) drawPlatePips(g, x, y, bossPipRadius(e, r, below), armor, 0, px, below);
+      if (armor && this.sees(e, 1.5)) {
+        if (e.kind === JAILER_WEIGHT) {
+          // The weight's plate pip beside its HP plaque, outside the ball (not over the core's drawing): the plaque's point plus a
+          // step across the line from the core (the side to the right of it on screen).
+          const u = weightOutward(world, e), n = u.y > 0 ? { x: u.y, y: -u.x } : { x: -u.y, y: u.x }, k = r / (BASE_ENEMY_RADIUS * UNIT) * BASE_ENEMY_RADIUS * UNIT;
+          const side = n.x < 0 ? -1 : 1, cx = x + u.x * k * WEIGHT_BADGE + n.x * side * k * 0.95, cy = y + u.y * k * WEIGHT_BADGE + n.y * side * k * 0.95;
+          drawPlatePips(g, cx, cy + 13 * px, 0, armor, 0, px);
+        } else drawPlatePips(g, x, y, bossPipRadius(e, r, below), armor, 0, px, below);
+      }
       if (e.kind === JAILER_WEIGHT) {
         const core = jailerCore(world, e);
         if (!core || core === e || core.hp <= 0) continue;
@@ -2422,6 +2452,7 @@ export class RealtimeRenderer {
     this.signals.quillBadges = 0;
     this.eliteShown.planPlates = 0;
     this.bossShown.severPips = 0;
+    this.bossShown.severLit = 0;
     this.colorShiftShown = 0;
     this.colorShiftFreedBy = 0;
     this.colorShiftMarkShown = 0;
@@ -2532,7 +2563,8 @@ export class RealtimeRenderer {
         // Task 27 «отрубит» (design 15.10.2026): the dash severs a boss part — the core's plate that the end of the dash takes
         // blinks as an empty lemon ring over the core (no text).
         const core = lp.severs && linked ? jailerCore(world, linked) : undefined, armor = core && core !== linked ? eliteArmorView(core) : null;
-        if (core && armor && drawSeverPip(g, core.x * UNIT, core.y * UNIT, bossPipRadius(core, r, this.bossPipsBelow.get(core.id) ?? false), armor, 1 / Math.max(0.1, this.scale), Math.floor(this.clock * 4) % 2 === 0, this.bossPipsBelow.get(core.id) ?? false)) this.bossShown.severPips++;
+        const lit = Math.floor(this.clock * 4) % 2 === 0;
+        if (core && armor && drawSeverPip(g, core.x * UNIT, core.y * UNIT, bossPipRadius(core, r, this.bossPipsBelow.get(core.id) ?? false), armor, 1 / Math.max(0.1, this.scale), lit, this.bossPipsBelow.get(core.id) ?? false)) { this.bossShown.severPips++; if (lit) this.bossShown.severLit++; }
       } else {
         g.circle(x, y, r + 4).stroke({ color: 0xffa040, width: 4 });
         g.circle(cx, cy, r * 0.32).fill(0xffa040).stroke({ color: NAVY, width: 2 });

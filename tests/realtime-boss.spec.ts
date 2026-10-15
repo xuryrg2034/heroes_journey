@@ -1,6 +1,6 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
-import { gameWait } from './realtimeFrames';
+import { gameWait, untilFrame } from './realtimeFrames';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
 
 /**
@@ -10,7 +10,7 @@ import { replay, type Journal } from '../src/realtime/sim/simulation';
  * player draws the chain with the mouse. Runs through playwright.realtime.config.ts only; the rules are checked in Node
  * (`npm run test:realtime-jailer`).
  */
-interface BossView { flail: number; throw: number; whistle: number; chains: number; severPips: number; hits: number; breaks: number; plates: number }
+interface BossView { flail: number; throw: number; whistle: number; chains: number; severPips: number; severLit: number; hits: number; breaks: number; plates: number }
 interface Snap {
   arena: string;
   status: string;
@@ -41,9 +41,23 @@ async function quiet(page: Page): Promise<void> {
   });
 }
 
-/** Press at the first point and drag through the rest (each read just before the pointer goes there). */
+/**
+ * «Застава» is larger than the screen: after a teleport the camera glides to the hero. Waits (frame by frame, in game time) until
+ * the screen point of arena point (x, y) holds still for 5 frames, so a press lands where the test reads it.
+ */
+async function cameraSettled(page: Page, at: { x: number; y: number }): Promise<void> {
+  const still = await untilFrame(page, (_snap, p: { x: number; y: number }, late, rt) => {
+    const s = rt.toScreen(p.x, p.y), w = window as any, last = w.__bossCam;
+    w.__bossCam = { x: s.x, y: s.y, n: last && Math.abs(last.x - s.x) < 0.5 && Math.abs(last.y - s.y) < 0.5 ? last.n + 1 : 0 };
+    return w.__bossCam.n >= 5 ? true : late ? false : undefined;
+  }, at, 3);
+  expect(still, 'the camera came to rest').toBe(true);
+}
+
+/** Press at the first point (once the camera rests) and drag through the rest (each read just before the pointer goes there). */
 async function drawChain(page: Page, points: (() => Promise<{ x: number; y: number }>)[]): Promise<void> {
   const first = await points[0]();
+  await cameraSettled(page, first);
   const at0 = await screen(page, first.x, first.y);
   await page.mouse.move(at0.x, at0.y);
   await page.mouse.down();
@@ -111,6 +125,8 @@ test('task 27: a chain through the weight severs it — the plate first, then «
   await expect.poll(async () => (await snap(page)).boss.severPips).toBe(1);
   await page.evaluate(([core]) => (window as any).__realtime.chill(core, 0), [ids.core] as const);
   await gameWait(page, 0.05);
+  // The snapshot in the ring's lit phase (it blinks 4 times a second).
+  expect(await untilFrame(page, snap => snap.boss.severLit > 0 ? true : undefined, null, 2)).toBe(true);
   await page.screenshot({ path: 'artifacts/realtime-boss-sever-plan.png' });
   await page.evaluate(([core]) => (window as any).__realtime.chill(core, 60), [ids.core] as const);
   const coreBefore = (await snap(page)).enemies.find(e => e.id === ids.core)!;
