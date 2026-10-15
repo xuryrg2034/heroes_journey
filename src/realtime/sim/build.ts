@@ -46,6 +46,11 @@ export interface LinkContext {
    * drawn before it, the dash the crystals it broke (`HeroMove.broken`). Absent — 0.
    */
   crystalsBefore?: number;
+  /**
+   * Task 33 (design 15.10.2026, one rule of «Смена цвета»): colourless enemy links before this one (chain.ts `colorlessLink`, the
+   * Jailer's core) — «Призма» does not count them, as `colorSegments` does not. Absent — 0.
+   */
+  colorlessBefore?: number;
 }
 
 /** The last enemy link the dash reached: where it was, whether it died, whether it was an elite. */
@@ -59,6 +64,8 @@ export interface DashBuild {
   links: number;
   /** Elite enemy links reached so far. */
   elites: number;
+  /** Task 33: colourless enemy links reached so far (absent while none: older dashes hash as before). */
+  colorless?: number;
   /** Where the hero stood at the release (the start of the chain). */
   start: Vec;
   last?: LastLink;
@@ -323,6 +330,8 @@ export const COLOR_SHIFT_MIN = 2;
 export function colorShiftOf(world: World): number {
   const base = world.params.colorShiftLinks;
   if (!(base > 0)) return 0;
+  // Task 33: «Близнецы» turn the shift off (`Params.twinsNoShift`).
+  if (colorRuleOf(world)?.noShift?.(world)) return 0;
   const talisman = hasTalisman(world, 'millstone-shard') && base > COLOR_SHIFT_MIN ? Math.max(COLOR_SHIFT_MIN, base - MILLSTONE_STEP) : base;
   return modded(world, 'colorShift', talisman);
 }
@@ -401,6 +410,10 @@ export interface ChainColorRule {
   key?(color: number): number;
   /** Enemy links of another colour one chain may take («Чужак»: 1); default 0. */
   foreign?: number;
+  /** Task 33 «Близнецы»: the pair's colours alternate once the chain took the second one (chain.ts `colorSegments`). */
+  alternate?(world: World): boolean;
+  /** Task 33 «Близнецы»: «Смена цвета» does not act (`colorShiftOf` 0). */
+  noShift?(world: World): boolean;
 }
 
 /** The anchors the modules make of `value` (chain.ts `chainAnchors`); `chain` is asked only when a module has the hook. */

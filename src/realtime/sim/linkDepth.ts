@@ -17,7 +17,7 @@
  *   checked (every enemy and every passable object of the arena). A search cut by the budget gives the best path found
  *   so far (`cut`); it never gives a path that is not valid.
  */
-import { NO_PIERCE, OBJECT_RADIUS, canLink, canLinkObject, chainAnchors, nextCandidates, planChain, reachOf } from './chain';
+import { NO_PIERCE, OBJECT_RADIUS, canLink, canLinkObject, chainAnchors, nextCandidates, nextLink, planChain, reachOf } from './chain';
 import { enemyArtRadius } from './enemies/kinds';
 import { dist } from './geometry';
 import type { ChainLink, Enemy, World } from './world';
@@ -78,21 +78,21 @@ export function linkDepth(world: World, enemy: Enemy, options: LinkDepthOptions 
     const anchors = chainAnchors(shadow), near = (at: { x: number; y: number }, reach: number): boolean => anchors.some(a => dist(a, at) <= reach);
     for (const e of world.enemies) {
       if (!near(e, reachOf(shadow, enemyArtRadius(world.params, e))) || !canLink(shadow, e, plan)) continue;
-      shadow.chain.push({ kind: 'enemy', id: e.id });
+      shadow.chain.push(nextLink(shadow, { kind: 'enemy', id: e.id }));
       visit(count + 1);
       shadow.chain.pop();
       if (result.depth >= max) return;
     }
     for (const o of world.objects) {
       if (!PASS_KINDS.has(o.kind) || !near(o, reachOf(shadow, OBJECT_RADIUS)) || !canLinkObject(shadow, o, plan)) continue;
-      shadow.chain.push({ kind: 'object', id: o.id });
+      shadow.chain.push(nextLink(shadow, { kind: 'object', id: o.id }));
       visit(count);
       shadow.chain.pop();
       if (result.depth >= max) return;
     }
   };
 
-  shadow.chain.push({ kind: 'enemy', id: enemy.id });
+  shadow.chain.push(nextLink(shadow, { kind: 'enemy', id: enemy.id }));
   visit(1);
   return result;
 }

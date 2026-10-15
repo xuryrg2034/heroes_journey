@@ -12,10 +12,15 @@
  * - **«Близнецы»** (`form-twins`): the palette's colours 1 + 3 and 2 + 4 (indices 0 + 2, 1 + 3; design answer 1) count as one
  *   colour. A row of 2–3 colours has a pair and a single colour, or two singles.
  *
+ * Task 33 «Цена „Близнецов“ и „Развилки“» (sandbox; the run keeps the old forms until task 30): «Близнецы» alternate the pair's
+ * colours once the chain took the second one (`Params.twinsAlternate`, chain.ts `colorSegments`) and turn «Смена цвета» off
+ * (`Params.twinsNoShift`); «Развилка» takes `Params.forkBranches` links from an older link (`ChainLink.fork`, `forkSpent`).
+ *
  * One colour rule acts (buildIds.ts `COLOR_RULE_RANK`: «Близнецы» before «Чужак»). No state, no events, no randomness.
  */
 import { registerBuildModule } from './build';
 import { FORMS } from './buildIds';
+import type { World } from './world';
 
 /** «Близнецы»: the pair of a colour (colour index c and c ± 2 share a key). */
 export const twinKey = (color: number): number => (color >= 2 ? color - 2 : color);
@@ -23,12 +28,22 @@ export const twinKey = (color: number): number => (color >= 2 ? color - 2 : colo
 /** «Чужак»: enemy links of another colour one chain may take. */
 export const ALIEN_LINKS = 1;
 
+/**
+ * Task 33 «Развилка» (`Params.forkBranches`): the links taken from an older link (`ChainLink.fork`) reached the limit — the anchors
+ * are the plain ones again. 0 — no limit.
+ */
+export function forkSpent(world: World): boolean {
+  const max = world.params.forkBranches ?? 0;
+  return max > 0 && world.chain.filter(link => link.fork).length >= max;
+}
+
 registerBuildModule({
   id: FORMS.fork,
-  // Every link of the chain, then the hero when «Якорь у героя» made him an anchor (the default list holds him without a link).
-  anchors: (_world, value, chain) => [...chain, ...value.filter(a => !a.link)],
+  // Every link of the chain, then the hero when «Якорь у героя» made him an anchor (the default list holds him without a link);
+  // task 33: the plain anchors once the forks are spent.
+  anchors: (world, value, chain) => (forkSpent(world) ? [...value] : [...chain, ...value.filter(a => !a.link)]),
 });
 
 registerBuildModule({ id: FORMS.alien, color: { foreign: ALIEN_LINKS } });
 
-registerBuildModule({ id: FORMS.twins, color: { key: twinKey } });
+registerBuildModule({ id: FORMS.twins, color: { key: twinKey, alternate: world => !!world.params.twinsAlternate, noShift: world => !!world.params.twinsNoShift } });

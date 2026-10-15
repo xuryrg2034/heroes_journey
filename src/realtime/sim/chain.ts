@@ -239,7 +239,7 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   const out: LinkPlan[] = [];
   // Phase B: the build layer numbers the enemy links only while a build module acts (otherwise the old plan, exactly).
   const build = buildActive(world), chain = build ? nextChainNo(world) : 0, gain = linkGainOf(world);
-  let index = 0, elites = 0, crystals = 0;
+  let index = 0, elites = 0, crystals = 0, colorless = 0;
   // Task 29 («Возврат»): the power the dash ends with when it stops on a survivor (the links after it are not struck).
   let stopPower = 0;
   // Casino «Котёл»: the struck enemy links and the crystal links of the plan, for its cheque (only while the cauldron is on).
@@ -259,11 +259,11 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
       out.push({ link, outcome: null });
       continue;
     }
-    const ctx: LinkContext | null = build ? { chain, index: ++index, enemy, id: enemy.id, elite: !!enemy.elite, elitesBefore: elites, power, plan: true, crystalsBefore: crystals } : null;
+    const ctx: LinkContext | null = build ? { chain, index: ++index, enemy, id: enemy.id, elite: !!enemy.elite, elitesBefore: elites, power, plan: true, crystalsBefore: crystals, ...colorless ? { colorlessBefore: colorless } : {} } : null;
     const outcome = strike(ctx ? power + linkPowerOf(world, ctx) : power, enemy.hp, chainFactor(world, enemy), gain, platesOf(enemy));
     power = outcome.powerAfter;
     // The package: a plate pass is the elite's link too — «Охотник на элит» gives the tail its power (4.3, «Связь с силой цепи»).
-    if (ctx) { if (outcome.killed || outcome.plate) power += afterLinkPowerOf(world, ctx, outcome); if (enemy.elite) elites++; }
+    if (ctx) { if (outcome.killed || outcome.plate) power += afterLinkPowerOf(world, ctx, outcome); if (enemy.elite) elites++; if (colorlessLink(world, enemy)) colorless++; }
     // Casino «Котёл»: the dash stops on a survivor — links after it (the world changed since they were drawn) are not in the cheque.
     if (!endsOnSurvivor) { reached++; purse?.struck.push({ enemy, outcome }); }
     if (outcome.killed) kills++;
@@ -607,24 +607,39 @@ export const brazierPowerOf = (world: World): number => Math.max(0, world.params
  * shifts fall on every multiple of `every` within the segment (6, 12, 18…) — for a one-colour chain the links of the old
  * path. Without the key the free link opens a new segment whatever its colour (the old path).
  */
-function colorSegments(world: World, links: readonly ChainLink[], every: number): { color: number | null; count: number; shifts: number[]; foreign: number[] } {
+function colorSegments(world: World, links: readonly ChainLink[], every: number): { color: number | null; count: number; shifts: number[]; foreign: number[]; need: number | null } {
   let color: number | null = null, count = 0;
+  // Task 33 «Близнецы» (`ChainColorRule.alternate`): the segment's first colour, the pair's other colour once taken, the last link's.
+  let first: number | null = null, second: number | null = null, last: number | null = null;
   const shifts: number[] = [], foreign: number[] = [], keep = !!world.params.colorShiftKeep;
   // Task 29, field «Звено»: the one colour rule (`colorRuleOf`): «Близнецы» — a pair counts as one colour; «Чужак» — links of
   // another colour the chain may take (the first such links of the chain, whatever the segment; the colour stays).
-  const rule = colorRuleOf(world), key = rule?.key, foreignMax = rule?.foreign ?? 0;
+  const rule = colorRuleOf(world), key = rule?.key, foreignMax = rule?.foreign ?? 0, alternate = !!rule?.alternate?.(world);
   const same = (a: number, b: number): boolean => (key ? key(a) === key(b) : a === b);
   for (const link of links) {
-    if (isCrystal(world, link)) { color = null; count = 0; continue; }
+    if (isCrystal(world, link)) { color = null; count = 0; first = second = last = null; continue; }
     if (link.kind !== 'enemy') continue;
     const e = findEnemy(world, link.id);
     if (!e || colorlessLink(world, e)) continue;
-    if (color === null || (every > 0 && count >= every && !(keep && same(e.color, color)))) { color = e.color; count = 0; }
+    if (color === null || (every > 0 && count >= every && !(keep && same(e.color, color)))) { color = e.color; count = 0; first = e.color; second = null; }
     else if (foreign.length < foreignMax && !same(e.color, color)) foreign.push(e.id);
+    else if (alternate && second === null && e.color !== first && same(e.color, color)) second = e.color;
+    last = e.color;
     count++;
     if (every > 0 && (keep ? count % every === 0 : count === every)) shifts.push(e.id);
   }
-  return { color, count, shifts, foreign };
+  // The colour the next link must be: the pair's other one than the last link's, once the chain took both (task 33).
+  const need = alternate && second !== null && first !== null && last !== null ? (last === first ? second : first) : null;
+  return { color, count, shifts, foreign, need };
+}
+
+/**
+ * Task 33 «Близнецы» with `Params.twinsAlternate`: the exact colour the next enemy link of the drawn chain must be (the pair's
+ * other colour than the last link's) once the chain took both colours of the pair; null — any colour of the pair (or the rule
+ * is off). The refusal (`colorJoin`), the chameleon's colour and the view's next-colour ring read it.
+ */
+export function twinsNextColor(world: World, links: readonly ChainLink[] = world.chain): number | null {
+  return colorRuleOf(world)?.alternate?.(world) ? colorSegments(world, links, colorShiftOf(world)).need : null;
 }
 
 /**
@@ -708,6 +723,9 @@ export function foreignLinkIds(world: World, links: readonly ChainLink[] = world
 export type ColorJoin = 'chain' | 'chameleon' | 'foreign';
 export function colorJoin(world: World, enemy: Enemy, color: number | null = chainColor(world)): ColorJoin | null {
   if (colorlessLink(world, enemy)) return 'chain';
+  // Task 33: «Близнецы» alternate — only the pair's next colour (a chameleon in its window takes it).
+  const need = twinsNextColor(world);
+  if (need !== null) return enemy.color === need ? 'chain' : chameleonOpen(world, enemy) ? 'chameleon' : null;
   if (color === null || sameColor(world, enemy.color, color)) return 'chain';
   if (chameleonOpen(world, enemy)) return 'chameleon';
   return (foreignLeft(world) ?? 0) > 0 ? 'foreign' : null;
@@ -750,6 +768,21 @@ export function chainAnchors(world: World): ChainAnchor[] {
     const p = linkPoint(world, link);
     return p ? [{ x: p.x, y: p.y, link }] : [];
   }))];
+}
+
+/**
+ * Task 33 «Развилка» (`Params.forkBranches` > 0): `target` as the next link of the drawn chain — marked `fork` when the plain
+ * anchors (the last link, the hero with «Якорь») do not reach it, so the chain took it from an older link. The drawing
+ * (`dragChain`) and П1 (linkDepth.ts) append through it; without the limit the link as it is.
+ */
+export function nextLink(world: World, target: ChainLink): ChainLink {
+  const plain: ChainLink = { kind: target.kind, id: target.id } as ChainLink;
+  if (!((world.params.forkBranches ?? 0) > 0) || !world.chain.length) return plain;
+  const point = linkPoint(world, plain), enemy = plain.kind === 'enemy' ? findEnemy(world, plain.id) : undefined;
+  if (!point) return plain;
+  const reach = reachOf(world, enemy ? enemyArtRadius(world.params, enemy) : OBJECT_RADIUS);
+  const anchors = heroAnchorOn(world) ? [lastAnchor(world), { x: world.hero.x, y: world.hero.y }] : [lastAnchor(world)];
+  return anchors.some(anchor => !anchorRefusal(world, anchor, point, reach)) ? plain : { ...plain, fork: true };
 }
 
 /** The last link still on the arena as an anchor (with its link), or the hero (none). */
@@ -987,11 +1020,11 @@ export function dragChain(world: World, p: Vec, mode: DragMode = 'full'): void {
   }
   // A chain begun by dragging from an empty spot is a new chain: its links refresh focus anew (as `beginChain`).
   if (!world.chain.length) world.focusRefreshed = new Set();
-  const color = chainColor(world);
+  const color = chainColor(world), need = twinsNextColor(world);
   const joined = target.kind === 'enemy' ? findEnemy(world, target.id) : undefined, join = joined ? colorJoin(world, joined, color) : null;
-  world.chain.push(target);
-  // Phase A, T4: a chameleon taken in its window by a chain of another colour takes the chain's colour.
-  if (joined && join === 'chameleon') adoptChainColor(world, joined, color);
+  world.chain.push(nextLink(world, target));
+  // Phase A, T4: a chameleon taken in its window by a chain of another colour takes the chain's colour (task 33: the pair's next).
+  if (joined && join === 'chameleon') adoptChainColor(world, joined, need ?? color);
   refreshFocus(world, target);
 }
 
@@ -1295,15 +1328,17 @@ function maybeFinisher(world: World): void {
  */
 function dashStrike(world: World, move: HeroMove, enemy: Enemy): { ctx: LinkContext | null; outcome: StrikeOutcome } {
   const b = move.build;
-  const ctx: LinkContext | null = b ? { chain: b.chain, index: b.links + 1, enemy, id: enemy.id, elite: !!enemy.elite, elitesBefore: b.elites, power: move.power, plan: false, crystalsBefore: move.broken } : null;
+  const ctx: LinkContext | null = b ? { chain: b.chain, index: b.links + 1, enemy, id: enemy.id, elite: !!enemy.elite, elitesBefore: b.elites, power: move.power, plan: false, crystalsBefore: move.broken, ...b.colorless ? { colorlessBefore: b.colorless } : {} } : null;
   return { ctx, outcome: strike(ctx ? move.power + linkPowerOf(world, ctx) : move.power, enemy.hp, dashFactor(world, enemy), linkGainOf(world), platesOf(enemy)) };
 }
 
 /** Phase B: the layer notes an enemy link the dash reached (struck or passed fallen). */
-function noteLink(move: HeroMove, link: { id: number; x: number; y: number; elite?: unknown }, killed: boolean): void {
+function noteLink(move: HeroMove, link: { id: number; x: number; y: number; elite?: unknown }, killed: boolean, colorless = false): void {
   const b = move.build!;
   b.links++;
   if (link.elite) b.elites++;
+  // Task 33: «Призма» does not count a colourless link (`LinkContext.colorlessBefore`).
+  if (colorless) b.colorless = (b.colorless ?? 0) + 1;
   b.last = { id: link.id, x: link.x, y: link.y, killed, ...link.elite ? { elite: true as const } : {} };
 }
 
@@ -1332,7 +1367,7 @@ function hitEnemy(world: World, enemy: Enemy): void {
     // The package (4.3, rule 1): the hit takes a plate (at 0 the window opens), the elite is no survivor — the chain goes on
     // through it; the hero does not take its spot (it stands). As the last link: back to the stop, as from a survivor.
     stripPlates(world, enemy, { source: 'chain' }, false);
-    if (ctx) { move.power += afterLinkPowerOf(world, ctx, outcome); noteLink(move, enemy, false); runHook(world, 'onLink', m => m.onLink!(world, ctx, outcome)); }
+    if (ctx) { move.power += afterLinkPowerOf(world, ctx, outcome); noteLink(move, enemy, false, colorlessLink(world, enemy)); runHook(world, 'onLink', m => m.onLink!(world, ctx, outcome)); }
     if (!move.links.length) returnToStop(move);
     maybeFinisher(world);
     return;
@@ -1356,7 +1391,7 @@ function hitEnemy(world: World, enemy: Enemy): void {
     // Phase B: the modules' power after the link (the plan adds the same), then their hooks.
     if (ctx) {
       move.power += afterLinkPowerOf(world, ctx, outcome);
-      noteLink(move, enemy, true);
+      noteLink(move, enemy, true, colorlessLink(world, enemy));
       runHook(world, 'onLink', m => m.onLink!(world, ctx, outcome));
       const kill = { id: enemy.id, x: enemy.x, y: enemy.y, elite: !!enemy.elite, fallen: false, kills: move.kills };
       runHook(world, 'onChainKill', m => m.onChainKill!(world, kill));
@@ -1374,7 +1409,7 @@ function hitEnemy(world: World, enemy: Enemy): void {
     const speed = p.survivorKnockbackDistance / p.survivorKnockbackTime;
     enemy.knock = p.survivorKnockbackTime; enemy.knockVx = dx / d * speed; enemy.knockVy = dy / d * speed;
   }
-  if (ctx) { noteLink(move, enemy, false); runHook(world, 'onLink', m => m.onLink!(world, ctx, outcome)); }
+  if (ctx) { noteLink(move, enemy, false, colorlessLink(world, enemy)); runHook(world, 'onLink', m => m.onLink!(world, ctx, outcome)); }
   // The chain stops on a survivor: the hero goes back to the last freed spot (over the points flown over a drop, stage 3a).
   move.links = [];
   returnToStop(move);
@@ -1389,7 +1424,7 @@ function hitEnemy(world: World, enemy: Enemy): void {
 function passFallen(world: World, fallen: FallenLink): void {
   const move = world.move!, p = world.params, b = move.build;
   // Phase B: the build's gain (1 without a build module) and, while the layer counts, the modules' power around the link.
-  const ctx: LinkContext | null = b ? { chain: b.chain, index: b.links + 1, enemy: null, id: fallen.id, elite: !!fallen.elite, elitesBefore: b.elites, power: move.power, plan: false, crystalsBefore: move.broken } : null;
+  const ctx: LinkContext | null = b ? { chain: b.chain, index: b.links + 1, enemy: null, id: fallen.id, elite: !!fallen.elite, elitesBefore: b.elites, power: move.power, plan: false, crystalsBefore: move.broken, ...b.colorless ? { colorlessBefore: b.colorless } : {} } : null;
   move.power += ctx ? linkPowerOf(world, ctx) + linkGainOf(world) + afterLinkPowerOf(world, ctx, null) : linkGainOf(world);
   // Stage 3a (М2): a link that fell into a cliff — the hero flies over its point but does not stop there: the point is
   // noted, and if nothing on the ground follows, the hero flies back along the chain (`returnToStop`).

@@ -23,7 +23,7 @@
  */
 import { registerArena } from './arenas';
 import { chainColor, colorShiftIds, colorShiftLeft, enemyRefusal, foreignLeft, foreignLinkIds, nextCandidates, planChain, type StrikeOutcome } from './chain';
-import { FORMS } from './buildIds';
+import { COUNTER_TALISMANS, FORMS } from './buildIds';
 import { FIRST_WINDUP_FACTOR, FLAIL_LIE, FLAIL_PUSH, FLAIL_RADIUS, JAILER, JAILER_ARENA_HP, JAILER_HP, JAILER_WEIGHT, JAILER_WINDUP, PHASE2_TIME, THROW_LIE,
   WEIGHT_HOLD, WEIGHT_HP, WHISTLE_ADDS, WHISTLE_PERIOD, WHISTLE_RADIUS, DESPAIR_SPEED, jailerMove, inJailerShield } from './enemies/jailer';
 import { polygon, zone, type Vec } from './geometry';
@@ -504,6 +504,22 @@ check('task 32: the arena «Тюремщик» plays the colourless core with 5 
   const old = replay(journal), oc = old.world.enemies.find(e => e.kind === JAILER)!;
   assert(oc.hp === JAILER_HP && !('jailerColorless' in old.world.params) && !('jailerHp' in old.world.params), `the old core: HP ${oc.hp}`);
   assert(replay(JSON.parse(JSON.stringify(journal))).hash() === old.hash() && replays(sim), 'both replay');
+});
+
+check('task 33 (design 15.10.2026): «Призма» with the chain window does not count the colourless core, as «Смена цвета» does not — the same links after the shift as without the core', () => {
+  const fired = (withCore: boolean): number => {
+    const { sim, core } = colorless({ colorShiftLinks: 2, counterWindow: true }, [COUNTER_TALISMANS.prism]), w = sim.world;
+    const a = place(sim, { x: 8.5, y: 7 }, 0, 'basic', 2), b = place(sim, { x: 11.5, y: 7 }, 0, 'basic', 2), c = place(sim, { x: 13, y: 7 }, 0, 'basic', 2);
+    const path = withCore ? [a, core, b, c] : [a, b, c];
+    if (!withCore) sim.command({ t: 'chill', id: core.id, seconds: 60 });
+    draw(sim, [path[0]]);
+    for (const e of path.slice(1)) sim.command({ t: 'drag', x: e.x, y: e.y, mode: 'full' });
+    assert(chainIds(w).join() === path.map(e => e.id).join(), `the chain ${chainIds(w)}`);
+    const { events } = releaseAsPlanned(sim);
+    return events.filter(e => e.type === 'talismanFired' && e.id === COUNTER_TALISMANS.prism).length;
+  };
+  const plain = fired(false), through = fired(true);
+  assert(plain === 1 && through === 1, `«Призма» after the shift: without the core ${plain}, through the core ${through}`);
 });
 
 console.log(`jailer: ${checks} checks passed`);

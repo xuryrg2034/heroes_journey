@@ -854,6 +854,22 @@ export interface Params {
    * The boss arenas put 5 (`ArenaTemplate.jailerHp`, world.ts `createWorld`: only when the given values hold the default).
    */
   jailerHp: number;
+  // ---- Task 33 «Цена „Близнецов“ и „Развилки“» (sim/forms.ts, chain.ts; docs/realtime-prototype.md, 9ф). ----
+  /**
+   * «Близнецы»: strict alternation (design 15.10.2026). While the chain goes by one colour of the pair, as before; once it took
+   * the pair's other colour, the pair's colours must alternate (A-A-Б-A-Б…; A-Б-Б is refused «не тот цвет»). A crystal (a new
+   * colour segment) starts it again. The sandbox — on (`DEFAULT_PARAMS`); the run — off (`RUN_FORCED`); journals without the
+   * key: off (the free pair).
+   */
+  twinsAlternate: boolean;
+  /** «Близнецы» turn «Смена цвета» off (`colorShiftOf` 0 with the form in the kit). Sandbox on, run off, journals without the key: off. */
+  twinsNoShift: boolean;
+  /**
+   * «Развилка»: links a chain may take from an older link — not from the last one, nor from the hero with «Якорь» (`ChainLink.fork`);
+   * once spent, the anchors are the last link (and the hero with «Якорь») again. 0 — no limit (the old path). Sandbox 1, run 0,
+   * journals without the key: 0.
+   */
+  forkBranches: number;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -1237,6 +1253,10 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   // Task 32 (enemies/jailer.ts): the old core by default; the boss arenas turn both on for themselves.
   jailerColorless: false,
   jailerHp: 2,
+  // Task 33 (forms.ts): the sandbox's price of the forms; the run keeps the old forms (`RUN_FORCED`) until task 30.
+  twinsAlternate: true,
+  twinsNoShift: true,
+  forkBranches: 1,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -1655,6 +1675,12 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   // Task 32 «Бесцветный Тюремщик, больше HP» (enemies/jailer.ts, docs/realtime-elite-behaviors.md).
   { kind: 'bool', key: 'jailerColorless', group: 'Босс', label: 'Тюремщик: бесцветный', stage: 5,
     hint: 'Ядро Тюремщика берёт цепь любого цвета, звеном в любом месте (и первым). Цвет цепи оно не задаёт и не меняет, в счёт «Смены цвета» не входит. Гиря свой цвет хранит. Арена «Тюремщик» включает правило сама.' },
+  // Task 33 «Цена „Близнецов“ и „Развилки“» (forms.ts, docs/realtime-prototype.md, 9ф).
+  { kind: 'bool', key: 'twinsAlternate', group: 'Талисманы', label: '«Близнецы»: чередование', stage: 5,
+    hint: 'Пока цепь идёт по одному цвету пары — как раньше. Когда цепь взяла второй цвет пары, цвета пары чередуются: A-A-Б-A-Б. Тот же цвет подряд — отказ «не тот цвет». Кристалл начинает заново. В походе выключено.' },
+  { kind: 'bool', key: 'twinsNoShift', group: 'Талисманы', label: '«Близнецы» выключают «Смену цвета»', stage: 5,
+    hint: 'С «Близнецами» в сборке смена цвета не наступает, даже если «Смена цвета: после … звеньев» больше 0. В походе выключено.' },
+  n('forkBranches', 'Талисманы', '«Развилка»: развилок за цепь', 0, 4, 1, 5, '', 'Сколько звеньев цепь может взять не от последнего звена (и не от героя с «Якорем»). Потом якорь — снова только последнее звено. 0 — без предела. В походе — 0.'),
   n('jailerHp', 'Босс', 'Тюремщик: HP ядра', 2, 10, 1, 5, '', 'HP ядра при появлении (новый бой). Арена «Тюремщик» ставит 5, если на панели значение по умолчанию (2).'),
 ];
 
@@ -1704,7 +1730,7 @@ export function defaultParams(): Params { return sanitizeParams(null); }
  * (design 12.10.2026). П9 «Второе дыхание» (design decision 11.10.2026): a sandbox rule — off in a run, whatever the saved
  * panel holds. Task 29: the counters' chain window (`counterWindow`) — a sandbox rule until task 30, off in a run.
  */
-export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4, loopEnabled: false, loopHint: false, pierceEnabled: false, secondWind: false, endBlastMinLinks: 3, fireMinLinks: 3, returnFixed: false, counterWindow: false });
+export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4, loopEnabled: false, loopHint: false, pierceEnabled: false, secondWind: false, endBlastMinLinks: 3, fireMinLinks: 3, returnFixed: false, counterWindow: false, twinsAlternate: false, twinsNoShift: false, forkBranches: 0 });
 /**
  * The values a run arena plays with: the saved panel with the stand-ins of run rules off (`RUN_FORCED`) and the run's own
  * numbers on top (`forced`; iteration 2.1: the healing consumable — `rtRunParams`, run/rtRun.ts).

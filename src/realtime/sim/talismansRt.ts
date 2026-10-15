@@ -86,7 +86,8 @@ export function shockwaveLinksOf(params: Params): number {
 export function afterPrismShift(world: World, link: LinkContext): boolean {
   if ((link.crystalsBefore ?? 0) > 0) return true;
   const every = colorShiftOf(world);
-  return every > 0 && link.index - 1 >= every;
+  // Task 33 (design 15.10.2026): a colourless link (the Jailer's core) is not counted, as chain.ts `colorSegments` does not.
+  return every > 0 && link.index - 1 - (link.colorlessBefore ?? 0) >= every;
 }
 
 /** A tough link (HP above 0, as the view's pale ring) — by the outcome of its hit; a fallen link — unknown, not tough. */

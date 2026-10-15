@@ -172,7 +172,8 @@ export interface ArenaObject {
 export const OBJECT_RADIUS = 0.45;
 
 /** A chain link: an enemy, or an arena object (a button or the door can only be the last link; a crystal anywhere). */
-export type ChainLink = { kind: 'enemy'; id: number } | { kind: 'object'; id: number };
+/** A link of the drawn chain. `fork` (task 33, `Params.forkBranches`): «Развилка» took it from an older link — absent otherwise. */
+export type ChainLink = ({ kind: 'enemy'; id: number } | { kind: 'object'; id: number }) & { fork?: true };
 
 /** The last finished dash (render: combo counter, score popup; result screen). */
 export interface ChainSummary { kills: number; hits: number; crystals: number; score: number; time: number }

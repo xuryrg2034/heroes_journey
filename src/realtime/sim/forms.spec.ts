@@ -25,7 +25,7 @@ import browserJournal from '../../../tests/fixtures/realtime-browser-journal.jso
 import legacyJournals from '../../../tests/fixtures/realtime-legacy-build-journals.json';
 import { registerArena } from './arenas';
 import { BUILD_SOURCES, COUNTER_TALISMANS, FORMS, FORM_FIELD, HAMMERS } from './buildIds';
-import { chainColor, colorGroups, colorJoin, enemyAnchors, enemyRefusal, foreignLeft, hoverRefusal, loopCandidates, nextCandidates, planChain, type ChainPlan, type StrikeOutcome } from './chain';
+import { chainColor, colorGroups, colorJoin, colorShiftIds, colorShiftLeft, enemyAnchors, enemyRefusal, foreignLeft, hoverRefusal, loopCandidates, nextCandidates, planChain, twinsNextColor, type ChainPlan, type StrikeOutcome } from './chain';
 import { platesOf } from './elites';
 import { bodyRadiusOf } from './enemies/kinds';
 import { returnRunOf } from './hammers';
@@ -299,6 +299,106 @@ check('«Близнецы»: colours 1 + 3 and 2 + 4 are one colour; a row of 3 
   settle(sim);
   assertPlanIsDash(sim, plan, before, 'twins');
   assert(replays(sim), 'replays');
+});
+
+// ---- Task 33 «Цена „Близнецов“ и „Развилки“» (`twinsAlternate`, `twinsNoShift`, `forkBranches`) ----
+
+/** «Близнецы»: enemies of `colors` in a row from (5.7, 5), 1.2 apart (a `null` — a crystal there); the chain drawn through all. */
+function twinsRow(colors: readonly (number | null)[], extra: Partial<Params> = {}, talismans: string[] = [FORMS.twins]) {
+  const sim = fight(talismans, extra);
+  const points = colors.map((_, i) => ({ x: 5.7 + 1.2 * i, y: 5 }));
+  const placed = colors.map((color, i) => (color === null ? (sim.command({ t: 'crystal', x: points[i].x, y: points[i].y, value: 1 }) as number) : place(sim, points[i], { color })));
+  draw(sim, points);
+  return { sim, placed, points };
+}
+const enemyIds = (sim: Simulation): number[] => sim.world.chain.filter(l => l.kind === 'enemy').map(l => l.id);
+
+check('task 33 «Близнецы» alternate: A-A-Б-A joins, the plan is the dash; A-Б-Б is refused at the third («не тот цвет», no candidate ring); a crystal starts it again', () => {
+  const ok = twinsRow([0, 0, 2, 0]);
+  assert(enemyIds(ok.sim).join() === ok.placed.join(), `A-A-Б-A joins (${enemyIds(ok.sim)})`);
+  assert(twinsNextColor(ok.sim.world) === 2, `the next colour is Б (${twinsNextColor(ok.sim.world)})`);
+  const plan = planChain(ok.sim.world), before = snapshot(ok.sim);
+  ok.sim.command({ t: 'release' });
+  settle(ok.sim);
+  assertPlanIsDash(ok.sim, plan, before, 'A-A-Б-A');
+  assert(replays(ok.sim), 'replays');
+
+  const bad = twinsRow([0, 2, 2]);
+  const third = enemy(bad.sim, bad.placed[2])!;
+  assert(enemyIds(bad.sim).join() === bad.placed.slice(0, 2).join(), `A-Б-Б stops at Б (${enemyIds(bad.sim)})`);
+  assert(enemyRefusal(bad.sim.world, third) === 'color' && hoverRefusal(bad.sim.world, bad.points[2]) === 'color', 'the third: «не тот цвет»');
+  assert(!nextCandidates(bad.sim.world).some(e => e.id === third.id), 'no candidate ring at the third');
+  // An A after Б joins: the alternation, not a ban of the pair.
+  const back = place(bad.sim, { x: 6.9, y: 6.2 }, { color: 0 });
+  bad.sim.command({ t: 'drag', x: 6.9, y: 6.2, mode: 'full' });
+  assert(enemyIds(bad.sim).at(-1) === back, 'A after Б joins');
+
+  const crystal = twinsRow([0, 2, null, 2, 2]);
+  assert(enemyIds(crystal.sim).length === 4 && crystal.sim.world.chain.length === 5, `after a crystal Б-Б joins (${crystal.sim.world.chain.map(l => l.kind[0] + l.id).join()})`);
+
+  const free = twinsRow([0, 2, 2], { twinsAlternate: false });
+  assert(enemyIds(free.sim).length === 3 && twinsNextColor(free.sim.world) === null, 'without the key: the free pair (A-Б-Б joins)');
+  const plain = twinsRow([0, 0, 2], {}, []);
+  assert(enemyIds(plain.sim).length === 2, 'without the form: Б is another colour');
+});
+
+check('task 33 «Близнецы» turn «Смена цвета» off: with `colorShiftLinks` 6 no shift on the 6th link (another colour after it is refused); without the key the shift comes', () => {
+  const run = (extra: Partial<Params>) => twinsRow([0, 0, 0, 0, 0, 0, 1], { colorShiftLinks: 6, ...extra });
+  const off = run({});
+  assert(colorShiftLeft(off.sim.world) === null && colorShiftIds(off.sim.world).length === 0, 'no shift with «Близнецы»');
+  assert(enemyIds(off.sim).length === 6 && enemyRefusal(off.sim.world, enemy(off.sim, off.placed[6])!) === 'color', 'colour 1 after six links is refused');
+  const on = run({ twinsNoShift: false });
+  assert(enemyIds(on.sim).length === 7 && colorShiftIds(on.sim.world).length === 1, 'without the key the 6th link frees the colour');
+  const form = twinsRow([0, 0, 0, 0, 0, 0, 1], { colorShiftLinks: 6 }, [FORMS.fork]);
+  assert(enemyIds(form.sim).length === 7, '«Развилка» does not turn the shift off');
+});
+
+check('task 33 «Развилка» once a chain: the first fork joins (`ChainLink.fork`), a second is refused («далеко»), the plan is the dash; 0 — no limit, 2 — two', () => {
+  const scene = (extra: Partial<Params>) => {
+    const sim = fight([FORMS.fork], extra);
+    const a = place(sim, { x: 5.7, y: 5 }), b = place(sim, { x: 6.9, y: 5 });
+    draw(sim, [{ x: 5.7, y: 5 }, { x: 6.9, y: 5 }]);
+    const reach = sim.world.params.linkRadius + 0.3, at1 = { x: 5.7, y: 5 - reach }, at2 = { x: 6.9, y: 5 + reach };
+    const c = place(sim, at1, { hp: 1 }), d = place(sim, at2);
+    sim.command({ t: 'drag', x: at1.x, y: at1.y, mode: 'full' });
+    return { sim, a, b, c, d, at2 };
+  };
+  const one = scene({});
+  assert(ids(one.sim).join() === [one.a, one.b, one.c].join() && one.sim.world.chain.map(l => !!l.fork).join() === 'false,false,true', `the fork from a (${JSON.stringify(one.sim.world.chain)})`);
+  const d = enemy(one.sim, one.d)!;
+  assert(enemyRefusal(one.sim.world, d) === 'far' && !nextCandidates(one.sim.world).some(e => e.id === d.id), 'a second fork (from b) is refused');
+  assert(enemyAnchors(one.sim.world, d).length === 0, 'no anchor rings for it');
+  one.sim.command({ t: 'drag', x: one.at2.x, y: one.at2.y, mode: 'full' });
+  assert(ids(one.sim).length === 3, 'the drag does not take it');
+  const plan = planChain(one.sim.world), before = snapshot(one.sim);
+  one.sim.command({ t: 'release' });
+  settle(one.sim);
+  assertPlanIsDash(one.sim, plan, before, 'fork once');
+  assert(replays(one.sim), 'replays');
+  for (const [max, len] of [[0, 4], [2, 4]] as const) {
+    const s = scene({ forkBranches: max });
+    s.sim.command({ t: 'drag', x: s.at2.x, y: s.at2.y, mode: 'full' });
+    assert(ids(s.sim).length === len, `forkBranches ${max}: the second fork joins (${ids(s.sim).length})`);
+  }
+  // A link the last one reaches is no fork, and the hero with «Якорь» is a plain anchor.
+  const line = fight([FORMS.fork]);
+  const p = [5.7, 6.9, 8.1].map(x => place(line, { x, y: 5 }));
+  draw(line, [5.7, 6.9, 8.1].map(x => ({ x, y: 5 })));
+  assert(ids(line).join() === p.join() && line.world.chain.every(l => !l.fork), 'a straight chain has no fork');
+});
+
+check('task 33: journals without the keys play the old forms (the free pair, the shift with «Близнецы», forks without a limit); the run keeps them off', () => {
+  const p = quiet();
+  for (const key of ['twinsAlternate', 'twinsNoShift', 'forkBranches'] as const) delete (p as Partial<Params>)[key];
+  const sim = new Simulation({ arena: 'forms-field', params: p, seed: seedOf(3), record: true, loadout: { talismans: [FORMS.twins] } });
+  sim.command({ t: 'clear', keepMarked: false });
+  sim.command({ t: 'teleport', x: 4.5, y: 5 });
+  const placed = [0, 2, 2].map((color, i) => place(sim, { x: 5.7 + 1.2 * i, y: 5 }, { color }));
+  draw(sim, placed.map((_, i) => ({ x: 5.7 + 1.2 * i, y: 5 })));
+  assert(ids(sim).length === 3 && !('twinsAlternate' in sim.world.params), 'A-Б-Б joins without the key');
+  assert(replay(JSON.parse(JSON.stringify(sim.exportJournal()!))).hash() === sim.hash(), 'replays');
+  const run = runParams(defaultParams());
+  assert(!run.twinsAlternate && !run.twinsNoShift && run.forkBranches === 0 && defaultParams().twinsAlternate && defaultParams().twinsNoShift && defaultParams().forkBranches === 1, 'sandbox on, run off');
 });
 
 // ---- «Возврат» in the highlight ----
