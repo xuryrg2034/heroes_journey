@@ -841,6 +841,19 @@ export interface Params {
    * `loot`). Off by default; journals without the key: off. The run turns it on (run/rtRun.ts `RT_RUN_FORCED`).
    */
   bossPartLoot: boolean;
+  // ---- Task 32 «Бесцветный Тюремщик, больше HP» (sim/enemies/jailer.ts, docs/realtime-elite-behaviors.md). ----
+  /**
+   * The Jailer's core is colourless (design 15.10.2026): with the frame on, a chain of any colour takes it, as any link (the first
+   * too); it does not set or change the chain's colour (the first coloured enemy sets it), is not counted by «Смена цвета» and is
+   * neither «Чужак» nor a colour of «Близнецы» (chain.ts `colorlessLink`). The weight keeps its colour. Off by default; journals
+   * without the key: off. The boss arenas turn it on for themselves (`ArenaTemplate.jailerColorless`, world.ts `createWorld`).
+   */
+  jailerColorless: boolean;
+  /**
+   * HP of the Jailer's core at its spawn (enemies/jailer.ts `jailerHpOf`). Default 2 (the old core); journals without the key: 2.
+   * The boss arenas put 5 (`ArenaTemplate.jailerHp`, world.ts `createWorld`: only when the given values hold the default).
+   */
+  jailerHp: number;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -1221,6 +1234,9 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   // Task 28 «Тюремщик в походе» (enemies/jailer.ts): off by default; the boss arenas turn `bossClears` on for themselves, the run `bossPartLoot`.
   bossClears: false,
   bossPartLoot: false,
+  // Task 32 (enemies/jailer.ts): the old core by default; the boss arenas turn both on for themselves.
+  jailerColorless: false,
+  jailerHp: 2,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -1636,6 +1652,10 @@ export const PARAM_DEFS: readonly ParamDef[] = [
     hint: 'Ядро босса умерло — вся толпа гибнет без зачёта игроку (очки, убийства, котомка, котёл не растут), метки появления снимаются, новых врагов нет, дверь открыта, герой больше не теряет HP. Проход, убивший ядро, кончается на нём. Арена «Тюремщик» включает правило сама.' },
   { kind: 'bool', key: 'bossPartLoot', group: 'Босс', label: 'Добыча отрубленной части', stage: 5,
     hint: 'Часть босса, отрубленная игроком, роняет добычу как элита в броне (расходник открытого вида или ресурсы). Включено в походе.' },
+  // Task 32 «Бесцветный Тюремщик, больше HP» (enemies/jailer.ts, docs/realtime-elite-behaviors.md).
+  { kind: 'bool', key: 'jailerColorless', group: 'Босс', label: 'Тюремщик: бесцветный', stage: 5,
+    hint: 'Ядро Тюремщика берёт цепь любого цвета, звеном в любом месте (и первым). Цвет цепи оно не задаёт и не меняет, в счёт «Смены цвета» не входит. Гиря свой цвет хранит. Арена «Тюремщик» включает правило сама.' },
+  n('jailerHp', 'Босс', 'Тюремщик: HP ядра', 2, 10, 1, 5, '', 'HP ядра при появлении (новый бой). Арена «Тюремщик» ставит 5, если на панели значение по умолчанию (2).'),
 ];
 
 const MAX_PHASES = 8;

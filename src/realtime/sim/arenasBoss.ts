@@ -6,14 +6,15 @@
  * (`JAILER_YARD_ARENA`: no other new living element in that fight).
  */
 import { OUTPOST_ARENA, registerArena, type ArenaTemplate } from './arenas';
-import { JAILER, JAILER_WEIGHT } from './enemies/jailer';
+import { JAILER, JAILER_ARENA_HP, JAILER_WEIGHT } from './enemies/jailer';
 
 /**
  * «Тюремщик» — the layout of «Застава» (20×14: the yard on the brink, gates of 2 units north and south, the door on top), its
  * enemies replaced by the Jailer: the core (colour 1, marked — the goal) in the west of the yard, the cliff behind it, and its
  * weight (colour 0) in its hand. The newcomers: the panel's pace, basic enemies only (no wolf packs, no boars, no new kinds),
  * no chest. The whistle calls its adds at the gate farther from the hero. The arena turns `Params.bossFrame` on for itself, and
- * (task 28) `Params.bossClears`: the Jailer's death ends the fight.
+ * (task 28) `Params.bossClears`: the Jailer's death ends the fight; (task 32) `Params.jailerColorless` and `Params.jailerHp`
+ * (`JAILER_ARENA_HP`): the core is colourless, with more HP.
  */
 export const JAILER_ARENA: ArenaTemplate = registerArena({
   id: 'jailer',
@@ -34,6 +35,8 @@ export const JAILER_ARENA: ArenaTemplate = registerArena({
   phaseOverride: { wolfShare: 0, boarShare: 0 },
   bossFrame: true,
   bossClears: true,
+  jailerColorless: true,
+  jailerHp: JAILER_ARENA_HP,
   gates: [{ x: 10, y: 3.6 }, { x: 10, y: 9.5 }],
 });
 

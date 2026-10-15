@@ -34,7 +34,7 @@ import { hasTalisman } from './kit';
 import { afterLinkPowerOf, anchorsOf, buildActive, chainShieldOf, colorRuleOf, colorShiftOf, crystalEveryOf, endShadowOf, focusMaxOf, hasHook, jumpCostOf, linkGainOf, linkPowerOf, linkRadiusOf, nextChainNo, runHook, type ChainAnchor, type ChainEnd, type LinkContext } from './build';
 import { FORMS, HAMMERS } from './buildIds';
 import { returnPowerOf, returnRoute, returnTargets, traceTo } from './returnRun';
-import { endsFight } from './enemies/jailer';
+import { colorlessCore, endsFight } from './enemies/jailer';
 import { blockedAt, cliffAt, dist, inThorns, lineOfSight, overCliff, pushOutOfObstacles, type Vec } from './geometry';
 import { heroRadius, type Params } from './params';
 import { closingEdgeCrosses, enemiesInside, loopMinOf, sealDamage, sealHoldOf, strikeSeal } from './seal';
@@ -599,7 +599,7 @@ export const brazierPowerOf = (world: World): number => Math.max(0, world.params
  * A segment starts at the first enemy link, after a crystal (it resets the colour and the count) and, with `every` > 0, at
  * the first enemy link after `every` links of the segment (that link may be of any colour; it sets the new one). Every enemy
  * link counts, whatever its outcome (an elite's plate hit too); objects that keep the colour (loot, a brazier, the chest)
- * do not count and do not reset. A link of another colour inside a segment (a link before it died while the chain was
+ * do not count and do not reset; nor does a colourless link (task 32, `colorlessLink`: the Jailer's core). A link of another colour inside a segment (a link before it died while the chain was
  * drawn: the chain is counted again from the links left) just counts.
  *
  * «Свобода цвета держится» (`colorShiftKeep`, design 13.10.2026): after `every` links only a link of another colour opens a
@@ -618,7 +618,7 @@ function colorSegments(world: World, links: readonly ChainLink[], every: number)
     if (isCrystal(world, link)) { color = null; count = 0; continue; }
     if (link.kind !== 'enemy') continue;
     const e = findEnemy(world, link.id);
-    if (!e) continue;
+    if (!e || colorlessLink(world, e)) continue;
     if (color === null || (every > 0 && count >= every && !(keep && same(e.color, color)))) { color = e.color; count = 0; }
     else if (foreign.length < foreignMax && !same(e.color, color)) foreign.push(e.id);
     count++;
@@ -707,10 +707,19 @@ export function foreignLinkIds(world: World, links: readonly ChainLink[] = world
  */
 export type ColorJoin = 'chain' | 'chameleon' | 'foreign';
 export function colorJoin(world: World, enemy: Enemy, color: number | null = chainColor(world)): ColorJoin | null {
+  if (colorlessLink(world, enemy)) return 'chain';
   if (color === null || sameColor(world, enemy.color, color)) return 'chain';
   if (chameleonOpen(world, enemy)) return 'chameleon';
   return (foreignLeft(world) ?? 0) > 0 ? 'foreign' : null;
 }
+
+/**
+ * Task 32 (`Params.jailerColorless`, design 15.10.2026): `enemy` is a colourless link — a chain of any colour takes it, anywhere (the
+ * first link too); it does not set, change or count the chain's colour (`colorSegments`: the next coloured enemy sets it), and is
+ * neither «Чужак» nor a colour of «Близнецы». The Jailer's core with the frame on. The refusal, the highlight, П1 and the view
+ * read it through `colorJoin`, `chainColor`; the view draws such a body without a team colour.
+ */
+export function colorlessLink(world: World, enemy: Pick<Enemy, 'kind'>): boolean { return colorlessCore(world, enemy); }
 
 /** Score of a finished chain with `kills` kills: per kill × K × (1 + bonus × K), or flat per kill with the toggle off. */
 export function chainScore(params: World['params'], kills: number): number {

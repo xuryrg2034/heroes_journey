@@ -18,7 +18,7 @@ import type { HammerEventKind } from './buildIds';
 import type { BoarState } from './enemies/boar';
 import { behaviorOf, bodyRadiusOf, enemyKind, groupBehaviors, kindOf } from './enemies/kinds';
 import { FlowField, type Vec, dist, hasZone, inThorns, inWater, lineOfSight, overCliff, pushOutOfCliffs, pushOutOfObstacles } from './geometry';
-import { type Params, type Pressure, copyParams, enemyBodyRadius, heroRadius, invulnerabilityFor, pressureAt } from './params';
+import { type Params, type Pressure, DEFAULT_PARAMS, copyParams, enemyBodyRadius, heroRadius, invulnerabilityFor, pressureAt } from './params';
 import { hasTalisman, kitOf, type ItemKind, type Kit, type Loadout, type ResourceKind } from './kit';
 import { affixSpeedFactor, eliteDeath, makeElite, platesOf, stripPlates, touchLoot, updateAffixes, updateArmor, type AffixId, type EliteArmor, type TrailPoint } from './elites';
 import { updateBurning } from './items';
@@ -682,6 +682,9 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   if (arena.bossFrame && !params.bossFrame) params = { ...copyParams(params), bossFrame: true };
   // Task 28: a boss arena's death of the boss ends the fight — on when the values have the key off (absent: an older journal, as it was).
   if (arena.bossClears && params.bossClears === false) params = { ...copyParams(params), bossClears: true };
+  // Task 32: the boss arena's colourless core and its HP — when the values hold the old ones (absent: an older journal, as it was).
+  if (arena.jailerColorless && params.jailerColorless === false) params = { ...copyParams(params), jailerColorless: true };
+  if (arena.jailerHp !== undefined && params.jailerHp === DEFAULT_PARAMS.jailerHp) params = { ...copyParams(params), jailerHp: arena.jailerHp };
   const maxHp = start ? Math.max(1, Math.floor(start.maxHp)) : params.heroHp;
   const hp = start ? Math.max(1, Math.min(maxHp, Math.floor(start.hp))) : params.heroHp;
   // Stage 2, step 3 («Песочные часы»): the phase table starts later — the delay is the talisman's, read once at the start.

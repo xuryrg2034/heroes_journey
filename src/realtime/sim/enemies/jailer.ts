@@ -13,8 +13,10 @@
  * stays what the dash does. The phase: 2 when the core has `PHASE2_PLATES` plates or fewer, or `PHASE2_TIME` game seconds have
  * passed. The core's death kills its parts after the dash (not the player's kill). The goal of the arena — the core marked.
  *
- * **The Jailer.** The weight (`jailer-weight`, HP 3, 1 plate) holds «Кистень» and «Бросок гири»; the core (`jailer`, HP 2,
- * 3 plates, a shield in front as the shieldbearer's: `shieldArc` turned to the hero at `shieldTurn`) holds «Свисток».
+ * **The Jailer.** The weight (`jailer-weight`, HP 3, 1 plate) holds «Кистень» and «Бросок гири»; the core (`jailer`, HP
+ * `Params.jailerHp` — 2, the boss arenas 5; 3 plates, a shield in front as the shieldbearer's: `shieldArc` turned to the hero at
+ * `shieldTurn`) holds «Свисток». Task 32 (`Params.jailerColorless`): the core is colourless — a chain of any colour takes it and
+ * it does not touch the chain's colour (`colorlessCore`; chain.ts `colorlessLink`); the weight keeps its colour.
  * - «Кистень» (`flail`): the hero within `FLAIL_REACH` of the core; a half disc of `FLAIL_RADIUS` in front (towards the hero at
  *   the windup's start). The hit: −`FLAIL_DAMAGE` to the hero whose body touches it; enemies in it (not the boss) are thrown
  *   `FLAIL_PUSH` away from the core — a cliff kills them, not the player's kill. Then the weight lies at the arc's end for
@@ -37,7 +39,7 @@
  */
 import { datan2, dcos, dhypot, dsin } from '../detMath';
 import { dist, lineOfSight, pushOutOfObstacles, type Vec } from '../geometry';
-import { heroRadius } from '../params';
+import { heroRadius, type Params } from '../params';
 import type { SpawnMarker } from '../spawn';
 import { dropArmorLoot } from '../elites';
 import { canBeHurt, completeGoals, damageEnemy, dropIntoCliffs, enemyFrozen, hurtHero, killEnemy, noteBlock, type Enemy, type World } from '../world';
@@ -51,7 +53,9 @@ export type JailerMoveId = 'flail' | 'throw' | 'whistle';
 export const JAILER_MOVES: readonly JailerMoveId[] = ['flail', 'throw', 'whistle'];
 
 // ---- Баланс (гипотезы отчёта о боссах, 15.10.2026; тесты проверяют правила, не числа) ----
+/** HP of the old core (the default of `Params.jailerHp`); task 32: the boss arenas put `JAILER_ARENA_HP`. */
 export const JAILER_HP = 2;
+export const JAILER_ARENA_HP = 5;
 export const JAILER_PLATES = 3;
 export const WEIGHT_HP = 3;
 export const WEIGHT_PLATES = 1;
@@ -128,6 +132,13 @@ export function jailerShieldUp(world: World, e: Enemy): boolean {
   // Task 28: a core that stands without its shield (`StartEnemy.shieldless`: the run's viewer has not met the shieldbearer).
   return frameOn(world) && e.kind === JAILER && !e.vars.bare && !enemyFrozen(e) && world.params.shieldArc > 0;
 }
+
+// ---- Task 32 «Бесцветный Тюремщик, больше HP» ----
+
+/** HP of the core at its spawn: `Params.jailerHp` (a journal without the key — `JAILER_HP`), at least 1. */
+export const jailerHpOf = (params: Params): number => Math.max(1, Math.round(params.jailerHp ?? JAILER_HP));
+/** Task 32: `e` is a colourless core in this world (the frame and `Params.jailerColorless` on). Its parts keep their colours. */
+export const colorlessCore = (world: World, e: Pick<Enemy, 'kind'>): boolean => e.kind === JAILER && frameOn(world) && !!world.params.jailerColorless;
 
 // ---- Task 28 «Тюремщик в походе»: the boss's death ends the fight (`Params.bossClears`) ----
 
@@ -421,7 +432,7 @@ registerEnemyKind({
   id: JAILER,
   behavior: 'jailer',
   speedClass: 'normal',
-  hp: () => JAILER_HP,
+  hp: jailerHpOf,
   speed: world => world.pressure.enemySpeed,
   bodyScale: 1,
   artScale: 1,

@@ -188,6 +188,13 @@ export interface ArenaTemplate extends ArenaShape {
    * (no `bossClears` at all) replays as it was. Omitted — the values as given.
    */
   bossClears?: boolean;
+  /**
+   * Task 32: the Jailer's core is colourless on this arena — the world plays `Params.jailerColorless` on when the given values have
+   * it off (`false`; a journal without the key replays as it was). Omitted — the values as given.
+   */
+  jailerColorless?: boolean;
+  /** Task 32: HP of the Jailer's core on this arena — `Params.jailerHp` when the given values hold its default. Omitted — as given. */
+  jailerHp?: number;
   /** Task 27: the gates of a boss arena — where the Jailer's «Свисток» calls its adds (enemies/jailer.ts). Omitted — none. */
   gates?: Vec[];
 }
