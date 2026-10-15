@@ -125,3 +125,17 @@ export class BossBar {
   /** A new fight: no bar until its world says so. */
   reset(): void { this.last = null; this.fade = 0; this.dead = false; this.el.hidden = true; this.el.style.opacity = ''; }
 }
+
+/** Task 28: the bosses by their core's kind — the name the goal shows. */
+export const BOSS_NAMES: Readonly<Record<string, string>> = { [JAILER]: 'Тюремщик' };
+
+/**
+ * Task 28 (design 15.10.2026, «одно имя — одно значение»): the goal of a boss fight is the boss itself — the HUD plate and the
+ * result say «Тюремщик 0 / 1», not «отмеченные» (that word is the ataman's and the horde's). A boss fight: `bossFrame` on, the
+ * goal `marked` and a marked boss core among the arena's start enemies; any other fight — the sim's `label` as it is.
+ */
+export function goalLabelOf(w: World, label: string): string {
+  if (!w.params.bossFrame || w.arena.goal !== 'marked') return label;
+  const boss = w.arena.enemies.find(e => e.marked && e.kind !== undefined && BOSS_NAMES[e.kind] !== undefined);
+  return boss ? BOSS_NAMES[boss.kind!] : label;
+}

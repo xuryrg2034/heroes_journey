@@ -73,7 +73,7 @@ import { RtRecorder, type FightContext } from '../telemetry/recorder';
 import type { PrologueTally } from '../telemetry/prologue';
 import { devSource } from '../telemetry/sinks';
 import { LogsPanel } from './logsPanel';
-import { BossBar, bossBarState, BOSS_BAR_H } from './bossBar';
+import { BossBar, bossBarState, BOSS_BAR_H, goalLabelOf } from './bossBar';
 
 /**
  * Telemetry (docs/realtime-telemetry.md, track ТA): the fight observer that fills the summary of each fight record — the
@@ -1085,8 +1085,9 @@ async function boot(): Promise<void> {
       // П10: a run fight says it in its own line under the table.
       ...fightChainLine ? [] : [['Лучшая цепь', `${w.stats.bestChain} убийств`] as [string, string]],
       ['Кристаллов выпало', String(w.stats.crystals)],
-      ['В стадии жадности', greed],
-      ['Цель', `${goal.label} ${goal.done} / ${goal.total}`],
+      // Task 28: a fight that the boss's death ends (`bossClears`) has no greed to speak of — after the core it is the way to the door.
+      ...w.params.bossClears ? [] : [['В стадии жадности', greed] as [string, string]],
+      ['Цель', `${goalLabelOf(w, goal.label)} ${goal.done} / ${goal.total}`],
       ['Получено урона', `${w.stats.damageTaken} (ударов ${w.stats.hitsTaken})`],
       ['Врагов пришло', String(w.stats.spawned)],
     ];
@@ -1337,7 +1338,7 @@ async function boot(): Promise<void> {
     // Casino «Котёл»: with the cauldron on the score line shows the cauldron instead of the score.
     scoreText.textContent = w.params.purse ? `котёл ${w.purse?.cauldron ?? 0}` : `очки ${w.stats.score}`;
     // П4 «Раздув за дела» (purse.ts `greedLine`): after the goals the line shows the cauldron, its greed step and the next one.
-    goalText.textContent = w.stage === 'greed' ? greedLine(w) ?? `дверь открыта · убито ${w.stats.kills}` : `${goal.label} ${goal.done} / ${goal.total}`;
+    goalText.textContent = w.stage === 'greed' ? greedLine(w) ?? `дверь открыта · убито ${w.stats.kills}` : `${goalLabelOf(w, goal.label)} ${goal.done} / ${goal.total}`;
     if (prologue) goalText.textContent = prologueGoalLine(w);
     goalText.classList.toggle('rt-door-open', w.stage === 'greed');
     // Casino «Ставка клятвы»: the oath's line under the goal (none without an oath).

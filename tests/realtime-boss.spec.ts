@@ -198,6 +198,8 @@ test('task 28: the boss bar — only in a boss fight, 480 × 14 px at the top ce
   // Under the HUD plate: the goal and the rest of the plate stay clear.
   expect(box.y).toBeGreaterThanOrEqual(hud.y + hud.height);
   expect(box.y).toBeGreaterThanOrEqual(goal.y + goal.height);
+  // The goal is the boss itself (design 15.10.2026: «отмеченные» is the ataman's and the horde's word).
+  await expect(page.getByTestId('goal')).toHaveText('Тюремщик 0 / 1');
   let s: any = await snap(page);
   const core = s.enemies.find((e: any) => e.kind === 'jailer');
   expect(s.bossBar).toMatchObject({ visible: true, cells: 2 + core.armor.max, filled: core.hp + core.armor.plates, phaseAt: 2 + 1, phase2: false });
@@ -277,6 +279,7 @@ test('task 28: the Jailer in a run — the bar only in its fight; bombs sever th
   await expect(bar).toBeVisible();
   // Let the fight run: the first move comes at 2 s, the crowd walks in.
   await page.waitForTimeout(3_000);
+  await expect(page.getByTestId('goal')).toHaveText('Тюремщик 0 / 1');
   await page.screenshot({ path: 'artifacts/realtime-boss-run.png' });
 
   // Bombs at the mouse (key 2). The hero stands off the core, with HP to spare (test setup through the journal).
@@ -336,6 +339,10 @@ test('task 28: the Jailer in a run — the bar only in its fight; bombs sever th
   await expect(page.getByTestId('result')).toContainText('Тюремщик');
   await expect(page.getByTestId('result')).not.toContainText('Тюремщик · Тюремщик');
   await expect(page.getByTestId('result')).not.toContainText('jailer');
+  // The goal row names the boss; no greed row in a fight the boss's death ends.
+  await expect(page.getByTestId('result')).toContainText('Тюремщик 1 / 1');
+  await expect(page.getByTestId('result')).not.toContainText('отмеченные');
+  await expect(page.getByTestId('result')).not.toContainText('В стадии жадности');
   await page.screenshot({ path: 'artifacts/realtime-boss-run-result.png' });
   await page.getByTestId('result-map').click();
   for (let i = 0; i < 4 && (await state()).pending?.source !== 'oath'; i++) {
