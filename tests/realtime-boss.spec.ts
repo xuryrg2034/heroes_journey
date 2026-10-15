@@ -274,6 +274,44 @@ test('task 32: the colourless core — grey, no sigil; chains of two colours rin
 });
 
 /**
+ * Task 32 «Бесцветный Тюремщик» (core): a chain of one colour goes through the colourless core and on by its colour — the mouse
+ * draws [a, core, b] (a and b of colour 2, the core of colour 1 in the data); a bystander of colour 3 on the way is not taken. The
+ * dash strikes all three (a, b die, the core loses a plate); the fight replays in Node to the page's hash.
+ */
+test('task 32: a chain of one colour through the colourless core — drawn with the mouse, struck by the dash, replayed in Node', async ({ page }) => {
+  const errors: string[] = [];
+  await openJailer(page, errors);
+  await quiet(page);
+  const ids = await page.evaluate(() => {
+    const rt = (window as any).__realtime;
+    rt.clear(false);
+    rt.teleport(7, 6);
+    return { core: rt.place(10, 6, 1, 5, 'jailer'), weight: rt.place(10, 6, 0, 3, 'jailer-weight') };
+  });
+  await expect.poll(async () => (await snap(page)).boss.chains).toBe(1);
+  // The cold takes the shield down (the core faces the hero): the colour rule alone.
+  await gameWait(page, 0.35);
+  const links = await page.evaluate(([core]) => {
+    const rt = (window as any).__realtime;
+    rt.chill(core, 60);
+    return { a: rt.place(8.5, 6, 2, 0, 'basic'), b: rt.place(11.5, 6.4, 2, 0, 'basic'), other: rt.place(11, 7.4, 3, 0, 'basic') };
+  }, [ids.core] as const);
+  const enemy = async (id: number): Promise<{ x: number; y: number }> => (await snap(page)).enemies.find(e => e.id === id)!;
+  await drawChain(page, [() => enemy(links.a), () => enemy(ids.core), () => enemy(links.other), () => enemy(links.b)]);
+  await expect.poll(async () => (await snap(page)).chain).toEqual([links.a, ids.core, links.b]);
+  await page.mouse.up();
+  await expect.poll(async () => { const s = await snap(page); return !(s as any).moving && s.chain.length === 0; }, { timeout: 5_000 }).toBe(true);
+  const s = await snap(page);
+  const core = s.enemies.find(e => e.id === ids.core)!;
+  expect(s.enemies.some(e => e.id === links.a || e.id === links.b)).toBe(false);
+  expect(s.enemies.some(e => e.id === links.other)).toBe(true);
+  expect(core.armor?.plates).toBe(2);
+  const recorded = await page.evaluate(() => { const rt = (window as any).__realtime; return { journal: rt.journal(), hash: rt.hash() }; }) as { journal: Journal; hash: string };
+  expect(replay(recorded.journal).hash()).toBe(recorded.hash);
+  expect(errors).toEqual([]);
+});
+
+/**
  * Task 28 «Тюремщик в походе»: a new run walks to row 5 (battles won by the hook `winArena`, the first button of every node
  * screen); the boss bar shows only in the Jailer's fight. There the player severs the weight and kills the core with bombs (the
  * key 2 at the mouse, as a player does): the crowd dies with the boss in a wave from the core, the bar empties and fades, the
