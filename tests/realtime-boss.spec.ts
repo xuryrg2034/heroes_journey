@@ -10,7 +10,7 @@ import { replay, type Journal } from '../src/realtime/sim/simulation';
  * player draws the chain with the mouse. Runs through playwright.realtime.config.ts only; the rules are checked in Node
  * (`npm run test:realtime-jailer`).
  */
-interface BossView { flail: number; throw: number; whistle: number; chains: number; severPips: number; severLit: number; hits: number; breaks: number; plates: number }
+interface BossView { flail: number; throw: number; whistle: number; chains: number; severPips: number; severLit: number; hits: number; breaks: number; plates: number; colorless: number; coreRing: number }
 interface Snap {
   arena: string;
   status: string;
@@ -202,7 +202,9 @@ test('task 28: the boss bar — only in a boss fight, 480 × 14 px at the top ce
   await expect(page.getByTestId('goal')).toHaveText('Тюремщик 0 / 1');
   let s: any = await snap(page);
   const core = s.enemies.find((e: any) => e.kind === 'jailer');
-  expect(s.bossBar).toMatchObject({ visible: true, cells: 2 + core.armor.max, filled: core.hp + core.armor.plates, phaseAt: 2 + 1, phase2: false });
+  // Task 32: the arena's core has 5 HP (`Params.jailerHp`) — five HP cells.
+  expect(core.hp).toBe(5);
+  expect(s.bossBar).toMatchObject({ visible: true, cells: 5 + core.armor.max, filled: core.hp + core.armor.plates, phaseAt: 5 + 1, phase2: false });
   await page.screenshot({ path: 'artifacts/realtime-boss-bar.png' });
 
   // The first move of the fight: its name at its sign; it goes after a second.
@@ -221,6 +223,53 @@ test('task 28: the boss bar — only in a boss fight, 480 × 14 px at the top ce
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
   await expect(bar).toBeHidden();
   expect(((await snap(page)) as any).bossBar.visible).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+/**
+ * Task 32 «Бесцветный Тюремщик» (design 15.10.2026, docs/design-notes/task-32-jailer.md): the core is drawn without a team colour
+ * (grey, no sigil). A chain of any colour gets the candidate ring at the core, and the core is never muted with the other colours.
+ * Two chains of two colours, real input (the mouse); the chain through the core itself is core's test.
+ */
+test('task 32: the colourless core — grey, no sigil; chains of two colours ring it as a candidate and never mute it', async ({ page }) => {
+  const errors: string[] = [];
+  await openJailer(page, errors);
+  await quiet(page);
+  const ids = await page.evaluate(() => {
+    const rt = (window as any).__realtime;
+    rt.clear(false);
+    rt.teleport(6.6, 6);
+    return { core: rt.place(10, 6, 1, 5, 'jailer'), weight: rt.place(10, 6, 0, 3, 'jailer-weight') };
+  });
+  await expect.poll(async () => (await snap(page)).boss.chains).toBe(1);
+  // The core faces the hero (west), then it is frozen: no moves while the test draws.
+  await gameWait(page, 0.35);
+  await page.evaluate(([core]) => (window as any).__realtime.chill(core, 60), [ids.core] as const);
+  expect((await snap(page)).boss.colorless).toBe(1);
+  await page.screenshot({ path: 'artifacts/realtime-boss-colorless.png' });
+
+  const enemy = async (id: number): Promise<{ x: number; y: number }> => (await snap(page)).enemies.find(e => e.id === id)!;
+  for (const [color, other] of [[0, 2], [2, 0]] as const) {
+    // A link of `color` in reach of the core; a bystander of `other` — muted while the chain is drawn (the core is not).
+    const c = await enemy(ids.core);
+    const placed = await page.evaluate(([x, y, color, other]) => {
+      const rt = (window as any).__realtime;
+      rt.teleport(x - 3, y);
+      return { link: rt.place(x - 1.5, y, color, 0, 'basic'), bystander: rt.place(x - 3, y + 1.6, other, 2, 'basic') };
+    }, [c.x, c.y, color, other] as const);
+    await drawChain(page, [() => enemy(placed.link)]);
+    await expect.poll(async () => (await snap(page)).chain).toEqual([placed.link]);
+    await expect.poll(async () => (await snap(page)).boss.coreRing).toBe(1);
+    const s: any = await snap(page);
+    // Muted: the bystander, and the weight when its colour (0) is not the chain's. Never the core.
+    expect(s.colorShift.dimmed).toBe(color === 0 ? 1 : 2);
+    expect(s.boss.colorless).toBe(1);
+    await page.screenshot({ path: `artifacts/realtime-boss-colorless-chain-${color}.png` });
+    // Release: the link dies. The bystander stays (the next round's chain is its colour: it is not muted then).
+    await page.mouse.up();
+    await expect.poll(async () => (await snap(page)).enemies.some(e => e.id === placed.link), { timeout: 5_000 }).toBe(false);
+    await expect.poll(async () => { const s = await snap(page); return !(s as any).moving && s.chain.length === 0; }, { timeout: 5_000 }).toBe(true);
+  }
   expect(errors).toEqual([]);
 });
 

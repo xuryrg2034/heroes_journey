@@ -13,7 +13,7 @@ import { Application, Container, Graphics, GraphicsContext, Sprite, Text, type T
 import { COLORS, PALE, drawTerrain, makePlayer } from '../art/art';
 import { characterSprite } from '../art/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
-import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainAnchors, chainColor, colorGroups, colorJoin, colorShiftIds, colorShiftLeft, enemyAnchors, heroAnchorOn, jumpLanding, linkPoint, loopCandidates, loopOn, nextCandidates, nextObjectCandidates, planChain, sameColor, type ChainPlan } from '../sim/chain';
+import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainAnchors, chainColor, colorGroups, colorJoin, colorShiftIds, colorShiftLeft, colorlessLink, enemyAnchors, heroAnchorOn, jumpLanding, linkPoint, loopCandidates, loopOn, nextCandidates, nextObjectCandidates, planChain, sameColor, type ChainPlan } from '../sim/chain';
 import { FROST_PASS_LIFE, FROST_PASS_RADIUS, frostPassPoints, frostPassPreview } from '../sim/frostPass';
 import { drawAlienRing, drawForkMark, drawFrostPoint, drawFrostPreview, drawReturnRoute, drawTwinLine } from './formsView';
 import { enemyArtScale } from '../sim/enemies/kinds';
@@ -134,6 +134,8 @@ const BASE_ENEMY_RADIUS = 0.4;
 /** Boar art is drawn a bit larger than the crowd (its body circle stays the same); the link reach uses the same scale. */
 const BOAR_SCALE = BOAR_ART_SCALE;
 const BONE = 0xeadbb9;
+/** Task 32: the colourless link (the Jailer's core, `colorlessLink`) — a neutral stone grey outside the chain palette, no sigil. */
+const COLORLESS = 0x8f8a80;
 /**
  * Target reticle of marked enemies, the rim of elites, the goal arrows, the button rings, the loot halo: lemon, outside the
  * chain sigils (phase B, Т5: was the gold `ffd36b`, close to the yellow chain under deuteranopia; `FLAME` keeps that gold).
@@ -299,6 +301,8 @@ interface EnemyView {
   look: EnemyLook;
   /** The colour the disc was drawn in (phase A: «Хамелеон» changes colour — the body is rebuilt). */
   color: number;
+  /** Task 32: drawn without a team colour (`colorlessLink`). */
+  colorless: boolean;
   /** Porcupine (iteration 2.1): the raised crown of quills and the lowered quills lying flat (one of them shown). */
   quills: { up: Graphics; down: Graphics } | null;
 }
@@ -372,7 +376,7 @@ export class RealtimeRenderer {
    * Task 27: what the Jailer's view drew (tests read it): the move signs and the chains of the last frame, the «отрубит» pip of
    * the drawn chain (`severLit` — in its lit phase); the hit flashes, the cut chains and the «−1 пластина» words since the start.
    */
-  readonly bossShown = { flail: 0, throw: 0, whistle: 0, chains: 0, severPips: 0, severLit: 0, hits: 0, breaks: 0, plates: 0, clears: 0, waves: 0 };
+  readonly bossShown = { flail: 0, throw: 0, whistle: 0, chains: 0, severPips: 0, severLit: 0, hits: 0, breaks: 0, plates: 0, clears: 0, waves: 0, colorless: 0, coreRing: 0 };
   /** Task 28: the core's last point (arena units) — the centre of the crowd's death wave; the waves on screen. */
   private bossCoreAt: { x: number; y: number } | null = null;
   private readonly clearWaves: { g: Graphics; x: number; y: number; t: number; reach: number }[] = [];
@@ -832,11 +836,11 @@ export class RealtimeRenderer {
   }
 
   /** Disc sprite of an enemy: vector art rendered once per (look, color, tough, kind) into a texture. */
-  private enemyDisc(color: number, tough: boolean, kind: EnemyKind, look: EnemyLook, grey = false): Sprite {
-    const key = `${look}-${color}-${tough ? 1 : 0}-${kind}${grey ? '-grey' : ''}`;
+  private enemyDisc(color: number, tough: boolean, kind: EnemyKind, look: EnemyLook, grey = false, colorless = false): Sprite {
+    const key = `${look}-${color}-${tough ? 1 : 0}-${kind}${grey ? '-grey' : ''}${colorless ? '-colorless' : ''}`;
     let entry = this.bodyTextures.get(key);
     if (!entry) {
-      const g = new Graphics(this.enemyContext(color, tough, kind, look, grey)), b = g.getLocalBounds();
+      const g = new Graphics(this.enemyContext(color, tough, kind, look, grey, colorless)), b = g.getLocalBounds();
       const texture = this.app.renderer.generateTexture({ target: g, resolution: 2, antialias: true });
       entry = { texture, ax: -b.minX / b.width, ay: -b.minY / b.height };
       this.bodyTextures.set(key, entry);
@@ -847,7 +851,7 @@ export class RealtimeRenderer {
     return sprite;
   }
 
-  private enemyContext(color: number, tough: boolean, kind: EnemyKind, look: EnemyLook, grey = false): GraphicsContext {
+  private enemyContext(color: number, tough: boolean, kind: EnemyKind, look: EnemyLook, grey = false, colorless = false): GraphicsContext {
     const r = BASE_ENEMY_RADIUS * UNIT;
     const ctx = new GraphicsContext();
     ctx.ellipse(0, r * 0.8, r * 0.9, r * 0.32).fill({ color: 0x050a07, alpha: 0.45 });
@@ -858,7 +862,8 @@ export class RealtimeRenderer {
       ctx.moveTo(-s, -s).lineTo(s, s).moveTo(s, -s).lineTo(-s, s).stroke({ color: THREAT, width: 6, cap: 'round' });
       return ctx;
     }
-    const fill = grey ? greyOf(chainInk(color)) : chainInk(color);
+    // Task 32: a colourless link (the Jailer's core) — the neutral grey, no sigil: no team colour to read.
+    const fill = colorless ? COLORLESS : grey ? greyOf(chainInk(color)) : chainInk(color);
     if (kind === JAILER_WEIGHT) {
       // Task 27: the Jailer's weight — a spiked ball in its chain colour (the colour reads on the body) with the colour's sigil.
       drawWeight(ctx, 0, 0, r * 0.86, fill, 1);
@@ -905,7 +910,7 @@ export class RealtimeRenderer {
       ctx.circle(0, 0, r).fill(fill).stroke({ color: NAVY, width: 3 });
       ctx.moveTo(Math.cos(Math.PI * 1.1) * r * 0.72, Math.sin(Math.PI * 1.1) * r * 0.72).arc(0, 0, r * 0.72, Math.PI * 1.1, Math.PI * 1.6).stroke({ color: 0xffffff, width: 3, alpha: 0.28 });
       if (tough) ctx.circle(0, 0, r - 5).stroke({ color: PALE, width: 2.5, alpha: 0.95 });
-      drawSigil(ctx, color, r * 0.36, NAVY);
+      if (!colorless) drawSigil(ctx, color, r * 0.36, NAVY);
       if (kind === 'boar') this.tusks(ctx, r);
     } else {
       ctx.circle(0, 0, r).fill({ color: fill, alpha: 0.9 }).stroke({ color: NAVY, width: 3 });
@@ -938,14 +943,14 @@ export class RealtimeRenderer {
     for (const sx of [-1, 1]) ctx.poly([sx * r * 0.32, r * 0.55, sx * r * 0.72, r * 0.98, sx * r * 0.78, r * 0.42, sx * r * 0.52, r * 0.5]).fill(BONE).stroke({ color: NAVY, width: 2.5, join: 'round' });
   }
 
-  private buildEnemyBody(e: Enemy, look: EnemyLook): { body: Container; grey: Sprite | null; hpLabel: Text | null; exclaim: Text | null; quills: { up: Graphics; down: Graphics } | null } {
+  private buildEnemyBody(e: Enemy, look: EnemyLook, colorless: boolean): { body: Container; grey: Sprite | null; hpLabel: Text | null; exclaim: Text | null; quills: { up: Graphics; down: Graphics } | null } {
     const body = new Container();
     // Iteration 2.1: the porcupine's quills behind its disc (raised or lowered each frame).
     const quills = e.kind === 'porcupine' ? this.quillGraphics() : null;
     if (quills) body.addChild(quills.up, quills.down);
-    body.addChild(this.enemyDisc(e.color, e.hp > 0, e.kind, look));
+    body.addChild(this.enemyDisc(e.color, e.hp > 0, e.kind, look, false, colorless));
     let grey: Sprite | null = null;
-    if (e.color !== NO_COLOR) { grey = this.enemyDisc(e.color, e.hp > 0, e.kind, look, true); grey.alpha = 0; body.addChild(grey); }
+    if (e.color !== NO_COLOR && !colorless) { grey = this.enemyDisc(e.color, e.hp > 0, e.kind, look, true); grey.alpha = 0; body.addChild(grey); }
     const r = BASE_ENEMY_RADIUS * UNIT;
     if (look === 'sprite' && e.color !== NO_COLOR && e.kind === 'basic') {
       const sprite = characterSprite('melee', r * 1.75, r * 1.75);
@@ -958,12 +963,12 @@ export class RealtimeRenderer {
     if (e.kind === JAILER && e.color !== NO_COLOR) {
       // Task 27: the Jailer — its illustration in any look (the boss is known by it), over the disc of its colour, about 1.5 times
       // the hero's height (design 15.10.2026: the body stays the sim's, the drawing is large); its feet at the disc's bottom.
-      // The colour's plaque at its belt, as the basic enemy's.
+      // The colour's plaque at its belt, as the basic enemy's. Task 32: colourless — the plaque is the neutral grey, no sigil.
       const sprite = characterSprite('jailer', r * JAILER_ART, r * JAILER_ART);
       if (sprite) { sprite.position.set(0, r * (JAILER_FEET - JAILER_ART / 2)); body.addChild(sprite); }
       const belt = r * (JAILER_FEET - JAILER_ART * 0.38), plaque = new Graphics();
-      plaque.circle(0, belt, r * 0.4).fill(chainInk(e.color)).stroke({ color: NAVY, width: 2.5 });
-      drawSigil(plaque.context, e.color, r * 0.22, NAVY, belt);
+      plaque.circle(0, belt, r * 0.4).fill(colorless ? COLORLESS : chainInk(e.color)).stroke({ color: NAVY, width: 2.5 });
+      if (!colorless) drawSigil(plaque.context, e.color, r * 0.22, NAVY, belt);
       body.addChild(plaque);
     }
     let hpLabel: Text | null = null;
@@ -1001,15 +1006,16 @@ export class RealtimeRenderer {
     // Crowd readability (design answer 10): while a chain is drawn, other colors are muted.
     const color = world.chain.length ? chainColor(world) : null;
     const mode = world.params.dimMode, strength = world.params.dimStrength;
-    let dimmed = 0;
+    let dimmed = 0, colorlessShown = 0;
     for (const e of world.enemies) {
       seen.add(e.id);
       let view = this.enemyViews.get(e.id);
-      if (view && (view.look !== look || view.color !== e.color || (view.hp > 0) !== (e.hp > 0))) { view.root.destroy({ children: true }); this.enemyViews.delete(e.id); view = undefined; }
+      const colorless = colorlessLink(world, e);
+      if (view && (view.look !== look || view.color !== e.color || view.colorless !== colorless || (view.hp > 0) !== (e.hp > 0))) { view.root.destroy({ children: true }); this.enemyViews.delete(e.id); view = undefined; }
       if (!view) {
-        const root = new Container(), { body, grey, hpLabel, exclaim, quills } = this.buildEnemyBody(e, look);
+        const root = new Container(), { body, grey, hpLabel, exclaim, quills } = this.buildEnemyBody(e, look, colorless);
         root.addChild(body); this.enemyLayer.addChild(root);
-        view = { root, body, grey, hpLabel, exclaim, hp: e.hp, look, color: e.color, quills };
+        view = { root, body, grey, hpLabel, exclaim, hp: e.hp, look, color: e.color, colorless, quills };
         this.enemyViews.set(e.id, view);
       }
       if (view.hpLabel && view.hp !== e.hp) { view.hpLabel.text = String(e.hp); view.hp = e.hp; }
@@ -1034,8 +1040,10 @@ export class RealtimeRenderer {
       // Camera: bodies off screen are not drawn (a margin keeps a body half in view and its strike lunge).
       view.root.visible = this.sees(e, 1.5);
       // Task 29 «Близнецы»: the pair of the chain's colour is the chain's colour — not muted (`sameColor`, the chain's own rule).
-      const dim = color !== null && !sameColor(world, e.color, color) ? strength : 0;
+      // Task 32: a colourless link joins a chain of any colour — never muted.
+      const dim = color !== null && !colorless && !sameColor(world, e.color, color) ? strength : 0;
       if (dim > 0 && view.root.visible) dimmed++;
+      if (colorless && view.root.visible) colorlessShown++;
       view.root.alpha = mode === 'alpha' ? 1 - dim : 1;
       const shade = Math.round(255 * (mode === 'darken' ? 1 - dim : 1));
       view.root.tint = (shade << 16) | (shade << 8) | shade;
@@ -1060,6 +1068,7 @@ export class RealtimeRenderer {
     }
     this.quillCounts = { quillsRaised, quillsTrembling };
     this.dimmedShown = dimmed;
+    this.bossShown.colorless = colorlessShown;
     for (const [id, view] of this.enemyViews) if (!seen.has(id)) { view.root.destroy({ children: true }); this.enemyViews.delete(id); }
     this.enemyLayer.sortableChildren = true;
   }
@@ -1368,7 +1377,7 @@ export class RealtimeRenderer {
       // Phase A (Т4): the affixes of an elite are rules of the fight — shown whatever the role toggle says, at most two.
       const affixes = e.elite ? eliteAffixes(e).slice(0, AFFIX_MAX_SHOWN) : [];
       if (!role && !affixes.length) continue;
-      const alpha = color !== null && !sameColor(world, e.color, color) ? 1 - strength : 1;
+      const alpha = color !== null && !colorlessLink(world, e) && !sameColor(world, e.color, color) ? 1 - strength : 1;
       // Under an elite: below its larger drawing and its gold rim.
       const y = e.y * UNIT + r * 1.25 * enemyArtScale(p, e) + (e.elite ? plate * 0.6 : 0);
       const texts = affixes.map(id => { const t = this.affixText(labels++); t.text = AFFIX_SHORT[id]; t.style.fill = AFFIX_INK[id]; t.scale.set(px / 2); return t; });
@@ -2556,6 +2565,7 @@ export class RealtimeRenderer {
     this.signals.quillBadges = 0;
     this.eliteShown.planPlates = 0;
     this.bossShown.severPips = 0;
+    this.bossShown.coreRing = 0;
     const fs = this.formsShown;
     fs.forkRings = 0; fs.forkMarks = 0; fs.alienRings = 0; fs.twinLine = 0; fs.frostPreview = 0; fs.returnArrows = 0; fs.returnHits = 0; fs.returnRun = 0;
     this.bossShown.severLit = 0;
@@ -2689,6 +2699,8 @@ export class RealtimeRenderer {
         // Task 29 «Чужак»: a candidate of another colour (the rule not spent this chain) — a dashed ring of its own colour.
         if (colorJoin(world, e) === 'foreign') { drawAlienRing(g, e.x * UNIT, e.y * UNIT, cr, chainInk(e.color)); fs.alienRings++; }
         else g.circle(e.x * UNIT, e.y * UNIT, cr).stroke({ color: 0xffffff, width: 3, alpha: 0.9 });
+        // Task 32: the Jailer's core as a candidate (a colourless core — at a chain of any colour).
+        if (e.kind === JAILER) this.bossShown.coreRing = 1;
         // «Развилка»: reachable only from a link that is not the last (not from it, not from the hero) — a Y by its ring.
         if (forks.length) {
           const from = enemyAnchors(world, e);
