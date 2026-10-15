@@ -624,3 +624,26 @@ test('task 24 (а): in a run fight the pale risk ring shows while the reels spin
   expect(outcomes[0], 'the first pull of this run is a safe one (a triple)').toBe('safe');
   expect(errors).toEqual([]);
 });
+
+/**
+ * Task 24 (design 15.10.2026): «рычаг не готов» (the refusal hint at the pointer) is not shown while the reels spin — it read as
+ * «wait at the lever» against «pulled — walk out»; after the reels stop, on the rest of the cooldown, it is back. The sandbox with
+ * the bust by area, a cooldown of 3 s (journalled param), a safe pull by the mouse, the pointer held on the lever.
+ */
+test('task 24: no «рычаг не готов» at the lever while the reels spin; it is back on the rest of the cooldown', async ({ page }) => {
+  const errors = await openBustSandbox(page, BUST_SEED, false, true);
+  await page.evaluate(() => (window as any).__realtime.setParam('slotCooldown', 3));
+  const g = (await snap(page)).slot.goblin!;
+  await pullByMouse(page);
+  const lever = await screen(page, g.x, g.y);
+  await page.mouse.move(lever.x + 2, lever.y + 2);
+  await page.mouse.move(lever.x, lever.y);
+  // Every frame of the spin: the lever refuses, but no hint.
+  const spun = await untilFrame(page, (q: any, _a, late) => (q.slot.goblin?.spinning ? (q.hint === 'lever' ? 'shown' : undefined) : 'stopped') ?? (late ? 'late' : undefined), null, 5);
+  expect(spun, 'no hint while the reels spin').toBe('stopped');
+  // The reels stopped (a safe triple), the cooldown runs on: the hint is back.
+  expect((await snap(page)).slot.bustCircles).toBe(0);
+  await page.mouse.move(lever.x + 1, lever.y + 1);
+  await expect.poll(async () => page.evaluate(() => (window as any).__realtime.snapshot().hint)).toBe('lever');
+  expect(errors).toEqual([]);
+});

@@ -1080,6 +1080,9 @@ async function boot(): Promise<void> {
     }
     // Stage G: the reason at the pointer (not in jump aiming, menus or pause).
     hintReason = params.refusalHint && live && !ui.jumpMode && ui.pointer && pointerClient ? hoverRefusal(w, ui.pointer, dragging) : null;
+    // Task 24 (design 15.10.2026): no «рычаг не готов» while the reels spin or the bust burns — it read as «wait at the lever» against
+    // the lesson «pulled — walk out»; on the rest of the cooldown after them it is back.
+    if (hintReason === 'lever' && (goblinOf(w)?.spin || bustBlasts(w).length > 0)) hintReason = null;
     // Stage 3a (М2): in jump aiming — why the jump would not start there (over a cliff, into an obstacle).
     jumpHint = live && ui.jumpMode && ui.pointer && pointerClient && w.status === 'playing' && !w.move ? jumpRefusal(w, ui.pointer) : null;
     if ((hintReason || jumpHint) && pointerClient) {
