@@ -129,3 +129,12 @@ NOT smooth plastic surfaces, NOT excessive gradients.
 - `public/art/characters/npc-herbalist.png` — Марфа, травница.
 - `public/art/characters/npc-smith.png` — Ерофей, точильщик.
 - `public/art/camp/hearth.png` — фон экрана лагеря, 1280×720, непрозрачный; шесть мест вокруг костра (пни и коврики).
+
+### Гарнизон, шаг 1а (16.10.2026)
+
+Набор для задачи 38 (`docs/design-notes/task-38-garrison-step1.md`), Codex `image_gen`, промпты — `artifacts/art-prompts/garrison.json`. Проверка `check-art.mjs` 16.10.2026: PASS для четырёх фигур. Подключение в вид — задача ui.
+- `public/art/characters/garrison-guard.png` — Стражник.
+- `public/art/characters/garrison-houndmaster.png` — Псарь.
+- `public/art/characters/garrison-hound.png` — Пёс.
+- `public/art/characters/castellan.png` — Кастелян (босс).
+- `public/art/camp/outskirts.png` — фон экрана «Предместье», 1280×720, непрозрачный.
