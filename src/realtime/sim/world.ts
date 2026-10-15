@@ -397,8 +397,13 @@ export type WorldEvent =
   | { type: 'defeat' }
   /** Phase B (build.ts `talismanFired`): an item of the build triggered — a flash of its icon, a short text at the hero. */
   | { type: 'talismanFired'; id: string }
-  /** Phase B, Т2: a hammer acted — `fire` laid, the end `blast`, a `cut`, the `return` run; at a point, with a circle if any. */
-  | { type: 'hammer'; kind: HammerEventKind; x: number; y: number; r?: number }
+  /**
+   * Phase B, Т2: a hammer acted — `fire` laid, the end `blast`, a `cut`, the `return` run; at a point, with a circle if any.
+   * Task 31 (`Params.fireMinLinks`): `fire` comes in the tick the dash reaches the threshold, at the start of the chain, and
+   * `flare` holds the places of the points of the path that lit at once then (the view's flash); without the key — at the
+   * release, no `flare`.
+   */
+  | { type: 'hammer'; kind: HammerEventKind; x: number; y: number; r?: number; flare?: Vec[] }
   /** Phase B, Т1 («Ударная волна»): a wave of radius `r` around the hero at the end of the dash. */
   | { type: 'wave'; x: number; y: number; r: number }
   /**

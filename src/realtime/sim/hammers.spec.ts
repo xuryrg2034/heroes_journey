@@ -21,10 +21,10 @@ import { registerArena } from './arenas';
 import { buildModules, registerBuildModule, setBuildState } from './build';
 import { buildHit } from './buildHits';
 import { BUILD_SOURCES, HAMMERS, type HammerId } from './buildIds';
-import { chainScore } from './chain';
+import { chainScore, planChain } from './chain';
 import { bodyRadiusOf } from './enemies/kinds';
-import { inWater, pond } from './geometry';
-import { BLAST_RADIUS, CUT_RADIUS, END_BLAST_LEGACY_MIN_LINKS, FIRE_LIFE, FIRE_PAUSE, FIRE_RADIUS, RETURN_RADIUS, hammerFirePoints, type FirePoint } from './hammers';
+import { dist, inWater, pond } from './geometry';
+import { BLAST_RADIUS, CUT_RADIUS, END_BLAST_LEGACY_MIN_LINKS, FIRE_LEGACY_MIN_LINKS, FIRE_LIFE, FIRE_PAUSE, FIRE_RADIUS, RETURN_RADIUS, hammerFirePoints, type FirePoint } from './hammers';
 import { worldState } from './hash';
 import { defaultParams, runParams, type Params } from './params';
 import { SIM_DT, Simulation, replay, type Journal } from './simulation';
@@ -343,6 +343,159 @@ check('end blast: a journal without `endBlastMinLinks` (recorded before the key,
   // A run plays the threshold of the user's decision whatever the saved panel holds.
   const panel = defaultParams(); panel.endBlastMinLinks = 1;
   assert(runParams(panel).endBlastMinLinks === 3, 'a run forces 3');
+});
+
+// ---- «Огненный проход» от трёх звеньев (task 31, decision of the user 15.10.2026) ----
+
+/**
+ * One dash of a fire hammer through `links` (drawn by commands): the highlight's fire before the release, then every tick until
+ * the hero stands and 30 more — the fire points seen on each tick, the tick of the fire event and its `flare`, the tick the
+ * dash reached each link (`chainHit`).
+ */
+function fireDash(sim: Simulation, links: readonly Enemy[]) {
+  const w = sim.world;
+  sim.command({ t: 'begin', x: links[0].x, y: links[0].y });
+  for (const e of links.slice(1)) sim.command({ t: 'drag', x: e.x, y: e.y, mode: 'full' });
+  assert(w.chain.length === links.length, `chain drawn: ${w.chain.length} of ${links.length}`);
+  return fireRelease(sim);
+}
+/** Releases the drawn chain of a fire hammer (`fireDash`). */
+function fireRelease(sim: Simulation) {
+  const w = sim.world;
+  const plan = planChain(w).fire;
+  sim.command({ t: 'release' });
+  const events: WorldEvent[] = [], seen: FirePoint[][] = [], hitTick = new Map<number, number>();
+  let fireTick = -1, tick = 0;
+  for (let after = 0; after < 30 && tick < 2000 && w.status === 'playing'; tick++) {
+    sim.tick();
+    for (const e of w.events) {
+      if (e.type === 'chainHit' && !hitTick.has(e.enemyId)) hitTick.set(e.enemyId, tick);
+      if (e.type === 'hammer' && e.kind === 'fire' && fireTick < 0) fireTick = tick;
+    }
+    events.push(...w.events); w.events.length = 0;
+    seen.push(hammerFirePoints(w).map(p => ({ ...p })));
+    if (!w.move) after++;
+  }
+  return { plan, events, seen, hitTick, fireTick, fire: hammerEvents(events, 'fire') };
+}
+
+check('fire (task 31, `fireMinLinks` 3): a chain of 1 or 2 enemy links — not one point of fire, no event; 3 — the whole path from the start lights at once when the dash reaches the 3rd; the highlight before the release says the same', () => {
+  assert(defaultParams().fireMinLinks === 3, 'the threshold by default');
+  for (const n of [1, 2, 3, 4]) {
+    const sim = fight(HAMMERS.fire), w = sim.world;
+    const links = row(sim, new Array<number>(n).fill(0));
+    // Off the chain by the start of the path: 1 HP of another colour — the fire of the whole path finds it, or nothing does.
+    const byStart = place(sim, 4.5, 6.1, 1, { color: 1 });
+    const { plan, events, seen, hitTick, fireTick, fire } = fireDash(sim, links);
+    assert(plan !== undefined && plan.need === 3 && plan.links === n && plan.lit === (n >= 3), `${n} link(s): the highlight ${JSON.stringify(plan)}`);
+    if (n < 3) {
+      assert(seen.every(s => s.length === 0) && fire.length === 0, `${n} link(s): no fire (${Math.max(...seen.map(s => s.length))} points, ${fire.length} events)`);
+      assert(alive(w, byStart) && byStart.hp === 1 && hitsOf(events, byStart).length === 0, `${n} link(s): nothing burns`);
+      assert(w.build === undefined && !('build' in (worldState(w) as object)), `${n} link(s): no state left`);
+    } else {
+      const third = hitTick.get(links[2].id)!;
+      assert(fire.length === 1 && fireTick === third, `${n} links: one fire event, in the tick the dash reached the 3rd link (${fireTick} / ${third})`);
+      assert(seen.slice(0, third).every(s => s.length === 0), `${n} links: no fire before the 3rd link`);
+      const lit = seen[third];
+      assert(lit.length >= 8 && lit.every(p => p.life === lit[0].life && p.life >= FIRE_LIFE - SIM_DT - 1e-9) && lit.some(p => near(p.x, 4) && near(p.y, 6)) && lit.some(p => p.x > 7.2), `${n} links: the whole path from the start at once: ${lit.map(p => p.x.toFixed(2)).join(' ')}`);
+      assert(fire[0].flare?.length === lit.length && near(fire[0].x, 4) && near(fire[0].y, 6), `${n} links: the event at the start with the lit points (${fire[0].flare?.length} / ${lit.length})`);
+      assert(!alive(w, byStart) && killsOf(events, byStart)[0]?.source === BUILD_SOURCES.hammerFire, `${n} links: the fire by the start burns`);
+      if (n === 4) assert(seen.flat().some(p => p.x > 8.6), 'the rest of the dash lays fire as before');
+    }
+    assert(replays(sim), `${n} link(s): replay`);
+  }
+});
+
+check('fire (task 31): the survivor at the end and a link fallen ahead count as the end blast\'s; the highlight before the release equals the dash; the column shows the links up to 3', () => {
+  // 0, 0, then a 9 HP survivor: 3 links reached — the path lights.
+  const sim = fight(HAMMERS.fire), w = sim.world;
+  const links = row(sim, [0, 0, 9]);
+  const survivor = fireDash(sim, links);
+  assert(survivor.plan?.lit === true && survivor.plan.links === 3 && alive(w, links[2]), `the survivor counts: ${JSON.stringify(survivor.plan)}`);
+  assert(survivor.fire.length === 1 && survivor.fireTick === survivor.hitTick.get(links[2].id), 'lit when the survivor is struck');
+  assert(replays(sim), 'replay');
+  // The 2nd link dies ahead of the dash (a fallen link the dash passes): the chain still reaches 3.
+  const cut = fight(HAMMERS.fire, quiet(), 11, 'kills', { talismans: [CUT_SECOND] });
+  const fallen = fireDash(cut, row(cut, [0, 0, 0]));
+  assert(fallen.events.some(e => e.type === 'kill' && e.source === BUILD_SOURCES.hammerCut), 'the 2nd link fell ahead');
+  assert(fallen.plan?.lit === true && fallen.fire.length === 1 && fallen.seen.some(s => s.length > 0), 'a fallen link counts');
+  assert(replays(cut), 'replay');
+  // The progress of the drawn chain: 2 links — 2 of 3; none — nothing.
+  const col = fight(HAMMERS.fire), cw = col.world, two = row(col, [0, 0]);
+  const module = buildModules().find(m => m.id === HAMMERS.fire)!;
+  assert(module.progress!(cw) === null, 'no chain — no progress');
+  col.command({ t: 'begin', x: two[0].x, y: two[0].y });
+  col.command({ t: 'drag', x: two[1].x, y: two[1].y, mode: 'full' });
+  const p = module.progress!(cw);
+  assert(p !== null && p.value === 2 && p.max === 3, `progress ${JSON.stringify(p)}`);
+});
+
+check('fire (task 31): on arenas of several seeds the highlight of every chain says whether the path lights, and the dash does exactly that', () => {
+  const outcomes = new Set<string>();
+  for (let k = 1; k <= 6; k++) {
+    const seed = Math.imul(k, 2654435761) >>> 0;
+    // The arena's own newcomers (they stand): 10 s to fill it, then chains of 1–4 links drawn by commands.
+    const params = defaultParams();
+    params.maxEnemies = 30; params.enemySpeed = 0; params.speedSpread = 0; params.contactDamage = 0; params.hitstop = false; params.survivorKnockback = false;
+    const sim = new Simulation({ arena: 'kills', params, seed, record: true, loadout: { talismans: [], hammer: HAMMERS.fire } });
+    const w = sim.world;
+    ticks(sim, 600);
+    for (let chain = 0; chain < 6 && w.status === 'playing' && w.enemies.length; chain++) {
+      // Up to `want` links (1–4): the nearest enemy, then the nearest one the chain takes.
+      const want = 1 + ((k + chain) % 4);
+      // The fire of the chain before goes out first: the points seen after the release are this dash's.
+      for (let i = 0; i < 300 && hammerFirePoints(w).length && w.status === 'playing'; i++) sim.tick();
+      w.events.length = 0;
+      if (w.status !== 'playing' || !w.enemies.length) break;
+      const byDist = (from: { x: number; y: number }) => [...w.enemies].sort((a, b) => dist(a, from) - dist(b, from) || a.id - b.id);
+      sim.command({ t: 'teleport', x: byDist(w.hero)[0].x + 0.9, y: byDist(w.hero)[0].y });
+      sim.command({ t: 'begin', x: byDist(w.hero)[0].x, y: byDist(w.hero)[0].y });
+      if (!w.chain.length) continue;
+      for (let i = 1; i < want; i++) {
+        const last = w.enemies.find(e => e.id === w.chain[w.chain.length - 1].id);
+        if (!last) break;
+        for (const e of byDist(last)) {
+          if (w.chain.some(l => l.id === e.id)) continue;
+          const before = w.chain.length;
+          sim.command({ t: 'drag', x: e.x, y: e.y, mode: 'full' });
+          if (w.chain.length > before) break;
+        }
+      }
+      const { plan, seen, fire } = fireRelease(sim);
+      const lit = fire.length > 0;
+      assert(plan !== undefined && plan.lit === lit && lit === seen.some(s => s.length > 0), `seed ${seed}, chain ${chain}: the highlight ${JSON.stringify(plan)}, the dash lit ${lit}`);
+      outcomes.add(`${plan.links}:${lit}`);
+    }
+    assert(replays(sim), `seed ${seed}: replay`);
+  }
+  assert([...outcomes].some(o => o.endsWith('true')) && [...outcomes].some(o => o.endsWith('false')), `lit and unlit chains both met: ${[...outcomes].join(' ')}`);
+});
+
+check('fire (task 31): a journal without `fireMinLinks` (recorded before the key) plays the old path — fire from the release on a chain of 1 link; its replay is the fight recorded with the key absent; a run forces 3', () => {
+  assert(FIRE_LEGACY_MIN_LINKS === 0, 'the old path: no threshold');
+  const noKey = (): Params => { const p = quiet(); delete (p as Partial<Params>).fireMinLinks; return p; };
+  const fireOf = (params: Params) => {
+    const sim = fight(HAMMERS.fire, params);
+    const out = fireDash(sim, row(sim, [0]));
+    return { sim, ...out };
+  };
+  const today = fireOf(quiet());
+  assert(today.fire.length === 0 && today.seen.every(s => s.length === 0), 'key 3, 1 link: no fire');
+  const old = fireOf(noKey());
+  assert(old.plan?.lit === true && old.plan.need === 0, `no key: the highlight lights (${JSON.stringify(old.plan)})`);
+  assert(old.fire.length === 1 && old.seen[0].length > 0 && old.fire[0].flare === undefined, 'no key: fire from the first tick of the dash, the old event');
+  assert(replays(old.sim), 'no key: replay');
+  const journal = JSON.parse(JSON.stringify(today.sim.exportJournal()!)) as Journal;
+  assert(journal.params.fireMinLinks === 3, 'the journal keeps the key');
+  delete (journal.params as Partial<Params>).fireMinLinks;
+  const again = replay(journal);
+  assert(again.hash() === old.sim.hash() && again.hash() !== today.sim.hash(), 'no key: the replay hash is the old fight\'s');
+  // The column: nothing on the old path.
+  const sim = fight(HAMMERS.fire, noKey()), links = row(sim, [0]);
+  sim.command({ t: 'begin', x: links[0].x, y: links[0].y });
+  assert(buildModules().find(m => m.id === HAMMERS.fire)!.progress!(sim.world) === null, 'no key: no progress');
+  const panel = defaultParams(); panel.fireMinLinks = 1;
+  assert(runParams(panel).fireMinLinks === 3, 'a run forces 3');
 });
 
 // ---- «Режущий проход» ----

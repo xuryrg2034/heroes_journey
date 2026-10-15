@@ -7,14 +7,17 @@
  * counter, the flat score per kill, the kill goal, an elite's loot) but not a kill of the chain (no combo, no crystal, no
  * chain score) — except a link ahead of the dash: it becomes a fallen link the dash passes (chain.ts `passFallen`). Not the
  * reaper; no ×2 on a frozen brittle enemy (it keeps its brittleness for the chain); no quills, no shield (only the chain
- * meets them). Numbers are constants of this file, not `Params` — except the end blast's chain threshold
- * (`Params.endBlastMinLinks`, `endBlastMinLinks` below).
+ * meets them). Numbers are constants of this file, not `Params` — except the chain thresholds of the end blast and of the fire
+ * (`Params.endBlastMinLinks`, `Params.fireMinLinks`, `endBlastMinLinks` and `fireMinLinks` below).
  *
  * - **«Огненный проход»** (`fire-pass`): the hero's path of the dash leaves fire points every `FIRE_STEP` (radius
  *   `FIRE_RADIUS`, `FIRE_LIFE` game seconds); none in water (as the trail of a fiery elite) and none over a cliff (no
  *   ground). An enemy whose centre stands in a point (as the elite's trail and thorns): −`FIRE_DAMAGE`, then a pause of
  *   `FIRE_PAUSE` (its own, not the elite trail's `Enemy.singed`); it kills. Fiery elites do not burn; the hero never.
- *   The burn runs in the world step (`onUpdate`: after burning, before thorns).
+ *   The burn runs in the world step (`onUpdate`: after burning, before thorns). Task 31: the path lights only when the dash
+ *   reaches `fireMinLinks` enemy links (3 by default, counted as the end blast's) — the whole path from the start at once
+ *   (`igniteFire`); a shorter chain — no fire, no event. The highlight says the same before the release (chain.ts
+ *   `planChain(...).fire`).
  * - **«Взрыв на конце»** (`end-blast`): at the end of the dash a blast of `BLAST_RADIUS` around the last enemy link — the
  *   point where it died, or the survivor where it stands now — hits every enemy whose body touches it for `BLAST_DAMAGE`.
  *   No push (no fall into a cliff), the hero is not hurt (not `addBlast`, which hurts him). A chain without an enemy link — no blast;
@@ -38,7 +41,7 @@
 import { buildStateOf, chainEnemyLinks, registerBuildModule, setBuildState } from './build';
 import { BUILD_SOURCES, HAMMERS } from './buildIds';
 import { buildHit, buildHitAll, enemiesInCircle, enemiesNearPath } from './buildHits';
-import { returnFixedOn, returnStrike, startReturnRun } from './chain';
+import { fireMinLinks, returnFixedOn, returnStrike, startReturnRun } from './chain';
 import { eliteAffixes } from './elites';
 import { kindOf } from './enemies/kinds';
 import { dist, inWater, overCliff, type Vec } from './geometry';
@@ -47,6 +50,8 @@ import { RETURN_RADIUS, returnPowerOf, returnRoute, returnTargets, returnWaypoin
 import type { Enemy, HeroMove, World } from './world';
 
 export { RETURN_RADIUS };
+// Task 31: the fire's threshold lives in chain.ts (the highlight `planChain(...).fire` reads it; chain.ts does not import this file).
+export { FIRE_LEGACY_MIN_LINKS, fireMinLinks } from './chain';
 
 // ---- Numbers (design 10.10.2026; start values, balance after the playtest) ----
 
@@ -80,6 +85,12 @@ export interface FireState {
   singed?: [number, number][];
   /** Units of the dash's path left to the next point — present only during a dash. */
   next?: number;
+  /**
+   * Task 31 (`fireMinLinks`): the points of this dash's path laid before it reached the threshold — not burning, not ageing; they
+   * all light at once when the dash reaches it (`igniteFire`), and go out with the dash otherwise. Present only during a dash
+   * that has not lit yet (an empty list: waiting, no point yet — e.g. all in water); never without the key.
+   */
+  wait?: FirePoint[];
 }
 
 /** `World.build['cutting-pass']` during a dash: the chain's enemy links (never cut) and the enemies cut already. */
@@ -115,7 +126,8 @@ export function hammerFirePoints(world: World): readonly FirePoint[] {
 function layFire(world: World, state: FireState, p: Vec): void {
   if (inWater(p, world.arena)) return;
   if (world.arena.terrain && overCliff(p, world.arena)) return;
-  state.points.push({ x: p.x, y: p.y, life: FIRE_LIFE });
+  // Task 31: before the threshold the point waits (the same place the old path lays it).
+  (state.wait ?? state.points).push({ x: p.x, y: p.y, life: FIRE_LIFE });
 }
 
 /** Lays the points along this tick's path: the first one at the start of the dash, then every `FIRE_STEP`. */
@@ -167,29 +179,56 @@ function burnFire(world: World, dt: number): void {
   storeFire(world, state);
 }
 
+/**
+ * Task 31: the dash reached the threshold — the waiting points of its path light at once (each burns `FIRE_LIFE` from now) and
+ * the event `hammer` `fire` goes with them (`flare`: their places — the view's flash of the whole path).
+ */
+function igniteFire(world: World, state: FireState, start: Vec): void {
+  const wait = state.wait ?? [];
+  delete state.wait;
+  for (const p of wait) p.life = FIRE_LIFE;
+  state.points.push(...wait);
+  world.events.push({ type: 'hammer', kind: 'fire', x: start.x, y: start.y, r: FIRE_RADIUS, flare: wait.map(p => ({ x: p.x, y: p.y })) });
+}
+
 registerBuildModule({
   id: HAMMERS.fire,
   onRelease: (world, release) => {
     const state = buildStateOf<FireState>(world, HAMMERS.fire) ?? { points: [] };
     // The first point falls at the start of the dash.
     state.next = 0;
+    // Task 31: with the threshold the path waits for it — no fire, no event yet (`igniteFire`).
+    if (fireMinLinks(world.params) > 0) state.wait = [];
     setBuildState(world, HAMMERS.fire, state);
-    world.events.push({ type: 'hammer', kind: 'fire', x: release.start.x, y: release.start.y, r: FIRE_RADIUS });
+    if (!state.wait) world.events.push({ type: 'hammer', kind: 'fire', x: release.start.x, y: release.start.y, r: FIRE_RADIUS });
   },
   onDashStep: (world, step) => {
     if (step.kind !== 'dash') return;
     const state = buildStateOf<FireState>(world, HAMMERS.fire);
     if (!state || state.next === undefined) return;
     fireAlong(world, state, step.path);
+    // Task 31: the hits of this tick brought the dash to the threshold — the whole path so far (this tick's too) lights.
+    const b = step.move.build;
+    if (state.wait && b && b.links >= fireMinLinks(world.params)) igniteFire(world, state, b.start);
     storeFire(world, state);
   },
-  onChainEnd: world => {
+  onChainEnd: (world, end) => {
     const state = buildStateOf<FireState>(world, HAMMERS.fire);
     if (!state) return;
+    // Task 31: the threshold reached in the dash's last tick without a step of the hero (no `onDashStep`) — the same count
+    // (`ChainEnd.links` is the dash's count at its end); a shorter chain — the waiting points go out unlit.
+    if (state.wait && end.links >= fireMinLinks(world.params)) igniteFire(world, state, end.start);
+    delete state.wait;
     delete state.next;
     storeFire(world, state);
   },
   onUpdate: burnFire,
+  // Task 31: the column shows the links of the drawn chain (or of the dash) up to the threshold, as the end blast's; the old path
+  // (no key) — nothing.
+  progress: world => {
+    const max = fireMinLinks(world.params), links = chainEnemyLinks(world);
+    return max <= 0 || links === null ? null : { value: Math.min(links, max), max };
+  },
 });
 
 // ---- «Взрыв на конце» ----

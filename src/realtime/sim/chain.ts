@@ -159,7 +159,20 @@ export interface ChainPlan {
    * nobody (enemies/jailer.ts `bossClear`). Absent otherwise.
    */
   bossClear?: true;
+  /**
+   * Task 31 (the hammer «Огненный проход», `Params.fireMinLinks`): will the path of this dash light — see `FirePreview`. Absent
+   * without the hammer.
+   */
+  fire?: FirePreview;
 }
+
+/**
+ * Task 31: the fire of the planned dash. `links` — the enemy links the dash reaches (the dash's `ChainEnd.links`: struck, a plate
+ * taken, the survivor it stops on; not the links after a survivor, crystals, braziers, buttons, the door, loot); `need` — the
+ * threshold (`fireMinLinks`; 0 — a journal without the key, the old path: the fire from the release); `lit` — `links ≥ need`:
+ * the whole path lights once the dash reaches the `need`-th link (hammers.ts `igniteFire`).
+ */
+export interface FirePreview { lit: boolean; links: number; need: number }
 
 /**
  * Task 29, item 5: the return run of the drawn chain as it would be released now. `route` — the way back, the point where the
@@ -233,6 +246,8 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   const purse = purseOn(world) ? { struck: [] as { enemy: Enemy; outcome: StrikeOutcome }[], crystals: 0 } : null;
   // Task 28: the chain killed the boss's core — the fight ends on it, the links after it are not reached.
   let cleared = false;
+  // Task 31: the enemy links the dash reaches (`ChainEnd.links`), up to the survivor it stops on.
+  let reached = 0;
   for (const link of links) {
     if (cleared) { out.push({ link, outcome: null }); continue; }
     const enemy = link.kind === 'enemy' ? findEnemy(world, link.id) : undefined;
@@ -250,7 +265,7 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
     // The package: a plate pass is the elite's link too — «Охотник на элит» gives the tail its power (4.3, «Связь с силой цепи»).
     if (ctx) { if (outcome.killed || outcome.plate) power += afterLinkPowerOf(world, ctx, outcome); if (enemy.elite) elites++; }
     // Casino «Котёл»: the dash stops on a survivor — links after it (the world changed since they were drawn) are not in the cheque.
-    if (!endsOnSurvivor) purse?.struck.push({ enemy, outcome });
+    if (!endsOnSurvivor) { reached++; purse?.struck.push({ enemy, outcome }); }
     if (outcome.killed) kills++;
     // The package: a plate hit is no survivor — the chain goes on through the armoured elite.
     else if (!outcome.plate) { if (!endsOnSurvivor) stopPower = power; endsOnSurvivor = true; }
@@ -289,8 +304,27 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
     const hits = over ? [] : at >= 0 ? back.hits.slice(0, at + 1) : back.hits;
     if (hits !== back.hits) back = { ...back, hits, kills: hits.filter(h => h.outcome.killed).length };
   }
-  return { links: out, endsOnSurvivor, endsOnObject, power, kills, ...seal ? { seal } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {} };
+  // Task 31: the fire of «Огненный проход» — lit once the dash reaches the threshold.
+  const need = fireMinLinks(world.params);
+  const fire: FirePreview | null = fireOn(world) ? { lit: reached >= need, links: reached, need } : null;
+  return { links: out, endsOnSurvivor, endsOnObject, power, kills, ...seal ? { seal } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {} };
 }
+
+// ---- Task 31: the threshold of «Огненный проход» (the fire itself — hammers.ts) ----
+
+/**
+ * Task 31 (decision of the user 15.10.2026, playtest 15.10.2026: a path of one link set a crowd on fire — 84–235 fire kills to
+ * 4–10 chain kills a fight): the path of the dash lights only when the dash reaches this many enemy links — counted as the end
+ * blast's (`ChainEnd.links`: struck, passed fallen, the survivor at the end; crystals, braziers, buttons, the door and loot do
+ * not count). Then the whole path from the start of the dash lights at once, and the rest of the dash lays fire as before. The
+ * panel key `fireMinLinks` (default 3, a run forces 3). A journal without the key — recorded before it — plays the old path:
+ * `FIRE_LEGACY_MIN_LINKS` 0, the fire from the release on any chain (no waiting at all).
+ */
+export const FIRE_LEGACY_MIN_LINKS = 0;
+export function fireMinLinks(params: Params): number { return params.fireMinLinks ?? FIRE_LEGACY_MIN_LINKS; }
+
+/** The hammer «Огненный проход» acts in this world. */
+export const fireOn = (world: World): boolean => world.kit?.hammer === HAMMERS.fire;
 
 // ---- Task 29, item 5: the return run of «Возврат» in the highlight (returnRun.ts; the run — hammers.ts) ----
 

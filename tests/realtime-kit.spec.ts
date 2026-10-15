@@ -395,8 +395,9 @@ test('acceptance Т2 hammers (Д5): «Режущий проход» kills an ene
   // «Огненный проход»: the path burns — the view draws the module's fire points (World.build['fire-pass'].points).
   await page.evaluate(() => (window as any).__realtime.useBuild({ hammer: 'fire-pass' }, 6));
   await quiet(page);
-  const c = await place(page, 9.2, 5, 'basic', 2, 0), d = await place(page, 10.6, 5, 'basic', 2, 0);
-  await chainThrough(page, [c, d]);
+  // Task 31: the path lights from a chain of 3 enemy links (`fireMinLinks` 3).
+  const c = await place(page, 9.2, 5, 'basic', 2, 0), d = await place(page, 10.6, 5, 'basic', 2, 0), e = await place(page, 12.0, 5, 'basic', 2, 0);
+  await chainThrough(page, [c, d, e]);
   await expect.poll(async () => (await buildSnap(page)).playerEffects.fire).toBeGreaterThan(0);
   await page.screenshot({ path: 'artifacts/realtime-phaseB-hammer-fire.png' });
   expect(errors).toEqual([]);

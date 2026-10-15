@@ -353,6 +353,13 @@ export interface Params {
    */
   endBlastMinLinks: number;
   /**
+   * Hammer «Огненный проход» (sim/hammers.ts, task 31, decision of the user 15.10.2026): the path of the dash lights only when
+   * the dash reaches this many enemy links (counted as `endBlastMinLinks`) — then the whole path from the start of the dash at
+   * once. A journal without the value (recorded before 15.10.2026) plays the old path: the fire from the release on any chain.
+   * A run forces 3.
+   */
+  fireMinLinks: number;
+  /**
    * Task 29 (sim/hammers.ts «Возврат», sim/returnRun.ts): the release fixes the way back and the bodies of the return run as the
    * highlight shows them (as the pierce's); bodies that walked off the way are struck by the fixation. A journal without the
    * value plays the old path (the bodies near the path the hero really runs). The sandbox: on; a run forces it off (task 30).
@@ -1020,6 +1027,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   sandboxTalismans: '',
   // Баланс: decision of the user 11.10.2026 (playtest v17) — a chain of 3+ links.
   endBlastMinLinks: 3,
+  // Баланс: decision of the user 15.10.2026 (task 31, playtest 15.10.2026) — the fire from a chain of 3+ links, as the blast.
+  fireMinLinks: 3,
   returnFixed: true,
   returnShadowEnd: true,
   returnWaveFixed: true,
@@ -1398,6 +1407,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
     options: [{ value: '', label: 'нет' }, { value: 'hero-anchor', label: 'Якорь у героя' }, { value: 'whetstone', label: 'Точильный камень' }, { value: 'millstone-shard', label: 'Осколок жернова' },
       { value: 'hourglass', label: 'Песочные часы' }, { value: 'nimble-paws', label: 'Ловкие лапы' }, { value: 'ash-ward', label: 'Пепельный оберег' }] },
   n('endBlastMinLinks', 'Талисманы', '«Взрыв на конце»: звеньев от', 1, 6, 1, 5, '', 'Молот срабатывает, если проход дошёл до стольких вражеских звеньев (погибшие по пути и выживший на конце считаются). В походе — 3.'),
+  n('fireMinLinks', 'Талисманы', '«Огненный проход»: звеньев от', 1, 6, 1, 5, '', 'Путь прохода загорается, когда проход дошёл до стольких вражеских звеньев (погибшие по пути и выживший на конце считаются), — весь путь от начала разом. В походе — 3.'),
   { kind: 'bool', key: 'returnFixed', group: 'Талисманы', label: '«Возврат»: путь и тела при отпускании', stage: 5,
     hint: 'Задача 29. Отпускание фиксирует путь назад и тела второго прохода, как их показала подсветка; ушедшее с пути тело всё равно получает удар. В походе выключено (до задачи 30).' },
   { kind: 'bool', key: 'returnShadowEnd', group: 'Талисманы', label: '«Возврат»: тень видит конец прохода', stage: 5,
@@ -1674,7 +1684,7 @@ export function defaultParams(): Params { return sanitizeParams(null); }
  * (design 12.10.2026). П9 «Второе дыхание» (design decision 11.10.2026): a sandbox rule — off in a run, whatever the saved
  * panel holds. Task 29: the counters' chain window (`counterWindow`) — a sandbox rule until task 30, off in a run.
  */
-export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4, loopEnabled: false, loopHint: false, pierceEnabled: false, secondWind: false, endBlastMinLinks: 3, returnFixed: false, counterWindow: false });
+export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4, loopEnabled: false, loopHint: false, pierceEnabled: false, secondWind: false, endBlastMinLinks: 3, fireMinLinks: 3, returnFixed: false, counterWindow: false });
 /**
  * The values a run arena plays with: the saved panel with the stand-ins of run rules off (`RUN_FORCED`) and the run's own
  * numbers on top (`forced`; iteration 2.1: the healing consumable — `rtRunParams`, run/rtRun.ts).
