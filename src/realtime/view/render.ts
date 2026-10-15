@@ -11,7 +11,7 @@
  */
 import { Application, Container, Graphics, GraphicsContext, Particle, ParticleContainer, Sprite, Text, type Texture } from 'pixi.js';
 import { COLORS, PALE, drawTerrain, makePlayer } from '../art/art';
-import { characterSprite } from '../art/characterAssets';
+import { characterSprite, hasCharacterArt, type CharacterArtId } from '../art/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
 import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainAnchors, chainColor, colorGroups, colorJoin, colorShiftIds, colorShiftLeft, colorlessLink, enemyAnchors, forkAnchorOf, heroAnchorOn, jumpLanding, linkPoint, loopCandidates, loopOn, nextCandidates, nextObjectCandidates, planChain, sameColor, twinsNextColor, type ChainPlan } from '../sim/chain';
 import { FROST_PASS_LIFE, FROST_PASS_RADIUS, frostPassPoints, frostPassPreview } from '../sim/frostPass';
@@ -144,6 +144,11 @@ const COLORLESS = 0x8f8a80;
 /** Task 35, С4: the steel core of «Тяжёлый клинок» on the chain line; the gold notch of «Пятое звено». */
 const HEAVY_CORE = 0x3e4a56;
 const NOTCH_GOLD = 0xffd36b;
+/** Task 38: the garrison's art by kind and its size (box side, in body radii). */
+const GARRISON_ART: Readonly<Record<string, { id: CharacterArtId; size: number }>> = {
+  [GUARD]: { id: 'garrison-guard', size: 3.4 }, [HANDLER]: { id: 'garrison-houndmaster', size: 3.4 },
+  [HOUND]: { id: 'garrison-hound', size: 2.9 }, [CASTELLAN]: { id: 'castellan', size: 4.2 },
+};
 /** Task 38: real seconds a cut tether's snap lasts. */
 const SNAP_LIFE = 0.4;
 /** Task 35, С2: shards in the pool — 60 enemies dying at once at 8 shards each. */
@@ -959,11 +964,14 @@ export class RealtimeRenderer {
       if (tough) ctx.circle(0, 0, r - 4).stroke({ color: PALE, width: 2.5, alpha: 0.95 });
       if (kind === 'boar') this.tusks(ctx, r);
     }
-    // Task 38: the garrison's stand-in silhouettes over the disc (the shield, the hat, the ears, the crown) until the art comes.
-    if (kind === GUARD) guardMarks(ctx, r);
-    else if (kind === HANDLER) handlerMarks(ctx, r);
-    else if (kind === HOUND) houndMarks(ctx, r);
-    else if (kind === CASTELLAN) castellanMarks(ctx, r);
+    // Task 38: the garrison's stand-in silhouettes over the disc (the shield, the hat, the ears, the crown) where its art is missing.
+    const art = GARRISON_ART[kind];
+    if (!art || !hasCharacterArt(art.id)) {
+      if (kind === GUARD) guardMarks(ctx, r);
+      else if (kind === HANDLER) handlerMarks(ctx, r);
+      else if (kind === HOUND) houndMarks(ctx, r);
+      else if (kind === CASTELLAN) castellanMarks(ctx, r);
+    }
     return ctx;
   }
 
@@ -1006,6 +1014,20 @@ export class RealtimeRenderer {
       plaque.circle(0, r * 0.62, r * 0.34).fill(chainInk(e.color)).stroke({ color: NAVY, width: 2 });
       drawSigil(plaque.context, e.color, r * 0.19, NAVY, r * 0.62);
       body.addChild(plaque);
+    }
+    // Task 38: the garrison's art (design, Codex) over the disc of its colour, its feet at the disc's bottom; the colour's plaque at
+    // its belt (the Castellan — colourless: the grey plaque, no sigil); no art — the silhouette of `enemyContext`.
+    const gart = GARRISON_ART[e.kind];
+    if (gart && e.color !== NO_COLOR) {
+      const sprite = characterSprite(gart.id, r * gart.size, r * gart.size);
+      if (sprite) {
+        sprite.position.set(0, r * (1 - gart.size / 2));
+        body.addChild(sprite);
+        const belt = r * (1 - gart.size * 0.36), plaque = new Graphics();
+        plaque.circle(0, belt, r * 0.34).fill(colorless ? COLORLESS : chainInk(e.color)).stroke({ color: NAVY, width: 2.5 });
+        if (!colorless) drawSigil(plaque.context, e.color, r * 0.19, NAVY, belt);
+        body.addChild(plaque);
+      }
     }
     if (e.kind === JAILER && e.color !== NO_COLOR) {
       // Task 27: the Jailer — its illustration in any look (the boss is known by it), over the disc of its colour, about 1.5 times

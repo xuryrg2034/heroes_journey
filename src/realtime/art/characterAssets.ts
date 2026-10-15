@@ -9,6 +9,8 @@ export const CHARACTER_ART_IDS = [
   'player', 'melee', 'ranged', 'boss', 'prism', 'sentinel', 'jailer',
   // Task 37 «Очаг»: the camp's NPC (the camp screen shows them as DOM images; the drawn silhouettes stay the fallback).
   'npc-owl', 'npc-herbalist', 'npc-smith',
+  // Task 38 «Гарнизон, шаг 1а»: the guard, the dog handler, the hound and the Castellan (the drawn silhouettes stay the fallback).
+  'garrison-guard', 'garrison-houndmaster', 'garrison-hound', 'castellan',
 ] as const;
 
 export type CharacterArtId = typeof CHARACTER_ART_IDS[number];
@@ -33,6 +35,9 @@ export async function loadCharacterArt(): Promise<void> {
 }
 
 /** Fit the full silhouette without changing its aspect ratio or chain color. */
+/** The art of `id` is loaded (task 38: the drawn silhouettes stand in without it). */
+export const hasCharacterArt = (id: CharacterArtId): boolean => textures.has(id);
+
 export function characterSprite(id: CharacterArtId | null, maxWidth: number, maxHeight: number): Sprite | null {
   if(id===null)return null;
   const texture = textures.get(id);
