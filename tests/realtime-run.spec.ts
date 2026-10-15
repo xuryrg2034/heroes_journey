@@ -1,6 +1,9 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
 import { untilFrame } from './realtimeFrames';
+import { createRtRun, serializeRtRun } from '../src/realtime/run/rtRun';
+import { RT_RUN_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
+import { SCHEDULE_PRACTICE, SCHEDULE_RUN_ARENAS } from '../src/realtime/run/schedule';
 
 /**
  * The run of the real-time game in the browser (stage 2, step 1; docs/realtime-slice.md). Runs through
@@ -202,14 +205,27 @@ const ALL_FOUR = ['shield', 'archer', 'sapper', 'porcupine'];
 const ARENA_KINDS: Record<string, string[]> = { shields: ['shield'], archers: ['archer'], powder: ['sapper'], thorns: ['porcupine'], ford: ['archer'], outpost: ALL_FOUR, 'last-stand': ALL_FOUR };
 const OWN_ARENA: Record<string, string> = { shield: 'shields', archer: 'archers', sapper: 'powder', porcupine: 'thorns' };
 
-test('run: two runs walk to the final arena — every arena from its pool or the own arena of a kind not met yet (hard → «Застава», boss → «Последний рубеж», no «временно»); the final victory ends the run, a reload keeps the end', async ({ page }) => {
+/**
+ * Two runs walked to the end (task 26, 15.10.2026: a new run of the page plays the forest schedule — its arenas come from the
+ * viewer's history, not from the row pools). The first — a new run of the page (a new viewer: the schedule); the second — a saved
+ * run without the schedule (a save before task 26; «Испытание» II and up plays the same pools): the pool rules are checked on it.
+ */
+test('run: two runs walk to the final arena — a new run by the schedule (its arenas, hard → «Застава» or a practice stand-in, boss → «Последний рубеж»), a saved run without it from the pools or the own arena of a kind not met yet (hard → «Застава»); no «временно»; the final victory ends the run, a reload keeps the end', async ({ page }) => {
   test.setTimeout(300_000);
   const errors: string[] = [];
   await openRun(page, errors);
-  const met: { run: number; row: number; arena: string; type: string }[] = [];
+  const met: { run: number; row: number; arena: string; type: string; scheduled: boolean }[] = [];
   // Two runs (seeds spread apart) to the end: battles are won by the test hook, other nodes take their first button.
-  for (const seed of [Math.imul(1, 2654435761) >>> 0, Math.imul(2, 2654435761) >>> 0]) {
-    await page.evaluate(s => (window as any).__realtime.run.newRun(s), seed);
+  for (const [n, seed] of [Math.imul(1, 2654435761) >>> 0, Math.imul(2, 2654435761) >>> 0].entries()) {
+    if (n === 0) await page.evaluate(s => (window as any).__realtime.run.newRun(s), seed);
+    else {
+      // A save without the schedule (as `?seed=` makes it: the full gift).
+      await page.evaluate(([key, value]) => localStorage.setItem(key, value), [RT_RUN_STORAGE_KEY, serializeRtRun(createRtRun(seed, { gift: 'full', seeded: true }))] as const);
+      await page.reload();
+      await expect(page.getByTestId('run')).toBeVisible();
+    }
+    const scheduled = (await page.evaluate(() => !!(window as any).__realtime.run.state().schedule)) as boolean;
+    expect(scheduled, `run ${n + 1}: the schedule`).toBe(n === 0);
     let finalWon = false;
     for (let step = 0; step < 120; step++) {
       const state = await page.evaluate(() => (window as any).__realtime.run.state()) as RunState & { pending: { kind: string; nodeId?: string; arena?: string; battle?: string; standIn?: string } | null };
@@ -219,7 +235,7 @@ test('run: two runs walk to the final arena — every arena from its pool or the
         // Node ids carry the map row (`r6c1`, `den-r11c0`); the run row is the map row less the trunk (4).
         const row = Number(/r(\d+)c/.exec(pending.nodeId!)![1]) - 4;
         expect(pending.standIn, `${pending.nodeId}: no temporary arena`).toBeUndefined();
-        met.push({ run: seed, row, arena: pending.arena!, type: pending.battle! });
+        met.push({ run: seed, row, arena: pending.arena!, type: pending.battle!, scheduled });
         await expect(page.getByTestId('run')).toBeHidden();
         expect((await snapshot(page)).arena).toBe(pending.arena);
         // The map screen named the arena without «временно».
@@ -252,7 +268,15 @@ test('run: two runs walk to the final arena — every arena from its pool or the
     await expect(page.getByTestId('run-result-victory')).toBeVisible();
     expect(await runState(page)).toEqual(ended);
   }
-  for (const [i, { run, row, arena, type }] of met.entries()) {
+  for (const [i, { run, row, arena, type, scheduled }] of met.entries()) {
+    if (scheduled) {
+      // The schedule (docs/realtime-slice.md, section 7): the final — «Последний рубеж»; the hard node — «Застава» once the cliff and the
+      // elite are met, else a practice stand-in; every other fight — an arena of the schedule.
+      if (type === 'final') expect(arena, `row ${row}: final`).toBe('last-stand');
+      else if (type === 'hard') expect(arena === 'outpost' || SCHEDULE_PRACTICE.some(p => p.arena === arena), `row ${row}: hard ${arena}`).toBe(true);
+      else expect(SCHEDULE_RUN_ARENAS.includes(arena), `row ${row}: ${arena}`).toBe(true);
+      continue;
+    }
     const seen = new Set(met.slice(0, i).filter(m => m.run === run).flatMap(m => ARENA_KINDS[m.arena] ?? []));
     if (type === 'hard') expect(arena, `row ${row}: hard`).toBe('outpost');
     else if (type === 'final') expect(arena, `row ${row}: final`).toBe('last-stand');
@@ -447,15 +471,17 @@ test('run (phase A, Т2): the node preview names its roster in one line; the car
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
-  // Task 17 (Е1): a gentle run's row 1 is «Поляна» alone (no roster); «Двор кнопок» and its rosters come from row 2. The first
-  // battle (r5c0) is won by the run hook; then row 2 of seed 11 offers «Двор кнопок» with «Волки» (r6c0), of seed 1 with «Натиск»
-  // (r6c0) (rtRun.ts, chooseRoster).
-  const toRowTwo = async (seed: number): Promise<void> => {
+  // A new run of the page plays the forest schedule (task 26): its first fight (r5c0) — «Поляна» alone (no roster), the second — the
+  // wolf's arc, «Поляна» with «Волки» (seed 11, r6c0). A saved run without the schedule (a save before task 26; «Испытание» II and up
+  // plays the same pools) keeps the pool rosters: task 17 (Е1) — row 1 «Поляна» alone, row 2 of seed 1 offers «Двор кнопок» with
+  // «Натиск» (r6c0) (rtRun.ts, chooseRoster). The first battle is won by the run hook.
+  const toRowTwo = async (seed: number, saved = false): Promise<void> => {
     await page.goto(`/?seed=${seed}`);
     await page.evaluate(() => localStorage.clear());
+    if (saved) await page.evaluate(([key, value]) => localStorage.setItem(key, value), [RT_RUN_STORAGE_KEY, serializeRtRun(createRtRun(seed, { gift: 'full', seeded: true }))] as const);
     await page.reload();
     await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
-    await page.getByTestId('run-new').click();
+    if (!saved) await page.getByTestId('run-new').click();
     await page.getByTestId('gift-0').click();
     const pick = page.locator('[data-action="gift-pick"]').first();
     if (await pick.count()) await pick.click();
@@ -473,7 +499,7 @@ test('run (phase A, Т2): the node preview names its roster in one line; the car
   await page.getByTestId('node-r6c0').click();
   await expect(page.getByTestId('run-roster')).toHaveText('Состав: Волки');
   await expect(page.getByTestId('run-danger-enemies')).toContainText('Враги: обычные, волки');
-  await toRowTwo(1);
+  await toRowTwo(1, true);
   await page.getByTestId('node-r6c0').click();
   await expect(page.getByTestId('run-roster')).toHaveText('Состав: Натиск');
   // «Натиск» replaces the newcomers by boars: no wolves of the template's phases.
