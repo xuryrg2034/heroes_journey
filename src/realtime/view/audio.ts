@@ -70,6 +70,19 @@ export class ChainAudio {
     this.tone(1568 * 2.76, 'sine', 0.25, volume * 0.18);
   }
 
+  /**
+   * Tasks 36–37 «Мета v1»: the run-end and camp sounds — a soft tick as the experience counts, a bright ping when the bar reaches
+   * a threshold, a paper flip per pack card and the reward chord on the last, coins for a purchase, the fire's low hum on opening.
+   */
+  meta(kind: 'tick' | 'mark' | 'flip' | 'pack' | 'buy' | 'open', volume: number): void {
+    if (kind === 'tick') this.tone(660, 'sine', 0.04, volume * 0.18);
+    else if (kind === 'mark') { this.tone(1175, 'triangle', 0.25, volume * 0.5); this.tone(1760, 'sine', 0.3, volume * 0.3, 0.06); }
+    else if (kind === 'flip') { this.tone(420, 'triangle', 0.07, volume * 0.4); this.tone(840, 'sine', 0.12, volume * 0.35, 0.04); }
+    else if (kind === 'pack') for (const [i, semis] of [0, 4, 7, 12, 16].entries()) this.tone(523 * Math.pow(2, semis / 12), 'triangle', 0.5, volume * 0.42, i * 0.07);
+    else if (kind === 'buy') for (let i = 0; i < 3; i++) this.tone(1320 + 220 * i, 'triangle', 0.08, volume * 0.35, i * 0.05);
+    else this.tone(98, 'sine', 0.6, volume * 0.35);
+  }
+
   /** The finisher: a low thump under the last hit. */
   finisher(volume: number): void {
     this.tone(110, 'sine', 0.35, volume);

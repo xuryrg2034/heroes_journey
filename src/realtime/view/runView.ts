@@ -41,6 +41,11 @@ import { FX_LEVELS, countUpTime, countUpValue, fxLevelOf, type FxLevel } from '.
 import { SECOND_WIND_HP } from '../sim/world';
 import { featCardLine } from './featView';
 import type { FirstMeetId } from './firstMeet';
+import { MetaEndView, type MetaSound } from './metaEnd';
+import { HearthView } from './hearthView';
+import { MetaStub } from './metaStub';
+import { KIND_CAPTIONS } from './newSeen';
+import type { ItemKind as KitItem } from '../sim/kit';
 
 /** What the run asks of the arena view. */
 export interface RunHost {
@@ -118,6 +123,11 @@ export interface RunHost {
    * heal's button, `circle` — the goblins' circle); the host decides «first» (view/firstMeet.ts) and reports it. Absent — nothing.
    */
   firstMeet?(id: FirstMeetId): void;
+  /**
+   * Tasks 36–37 «Мета v1»: the hero's experience, the packs, the record and the camp «Очаг» — only outside the sandbox (absent —
+   * none). `sound` plays the meta's sounds by the run's sound setting.
+   */
+  meta?: { sound(kind: MetaSound | 'buy' | 'open'): void };
   /** Telemetry (П8): a map choice made while a sign was shown on an available node card. Absent — nothing recorded. */
   mapChoice?(run: RtRunState, choice: MapSignChoice): void;
 }
@@ -295,6 +305,10 @@ export class RunView {
   private resShown: { seed: number; value: number } | null = null;
   private resCount: { from: number; to: number; start: number; total: number; frame: number } | null = null;
   private pressAt: { x: number; y: number } | null = null;
+  /** Tasks 36–37: the meta (core's profile; a stand-in until it lands), the run-end block of the ended run, the camp. */
+  private readonly meta: MetaStub | null;
+  private metaEnd: MetaEndView | null = null;
+  readonly hearth: HearthView | null;
   /** Task 35, С3 (tests read it): flights started, tokens thrown, the number now and whether it is counting. */
   readonly resFly = { flights: 0, tokens: 0, from: 0, to: 0, shown: 0, counting: false };
 
@@ -322,6 +336,36 @@ export class RunView {
     });
     this.run = this.store.load();
     this.lines = host.hints ? new ScreenLines(host.hints.store, host.hints.on) : null;
+    this.meta = host.meta ? new MetaStub() : null;
+    const meta = this.meta;
+    this.hearth = meta ? new HearthView({
+      meta,
+      runActive: () => !!this.run && !this.run.result,
+      start: (seed, item) => this.newRun(undefined, { seed, item }),
+      back: () => this.open(),
+      sound: kind => this.host.meta?.sound(kind),
+      beasts: () => { const seen = this.host.newSeen?.store; return seen ? Object.keys(KIND_CAPTIONS).filter(k => seen.hasKind(k)) : []; },
+    }) : null;
+  }
+
+  /** Tasks 36–37: the camp «Очаг» over the run screen. */
+  openHearth(): void {
+    if (!this.hearth) return;
+    this.metaEnd?.finish();
+    this.el.hidden = true;
+    this.hearth.open();
+  }
+
+  /** Tasks 36–37: the meta block of the ended run (created once per run; a reload shows its end state at once). */
+  private metaEndOf(run: RtRunState, play: boolean): MetaEndView | null {
+    if (!this.meta || !run.result) return null;
+    const key = `${run.seed}:${run.result.nodeId}`;
+    if (this.metaEnd?.key === key) return this.metaEnd;
+    this.metaEnd?.stop();
+    const end = this.meta.endRun(run, []);
+    this.metaEnd = end ? new MetaEndView(end, key, s => this.host.meta?.sound(s)) : null;
+    if (this.metaEnd && !play) this.metaEnd.finish();
+    return this.metaEnd;
   }
 
   get state(): RtRunState | null { return this.run; }
@@ -338,14 +382,18 @@ export class RunView {
   }
 
   /** A new run (a given seed — `?seed=` — makes it a seeded run). */
-  newRun(seed?: number): RtRunState {
+  newRun(seed?: number, camp?: { seed: number | null; item: KitItem | null }): RtRunState {
     const seeded = seed !== undefined || this.fixedSeed !== null;
-    const value = (seed ?? this.fixedSeed ?? Math.floor(Math.random() * 0x100000000)) >>> 0;
+    const value = (seed ?? this.fixedSeed ?? camp?.seed ?? Math.floor(Math.random() * 0x100000000)) >>> 0;
+    this.hearth?.close();
+    this.metaEnd?.stop(); this.metaEnd = null;
     const previous = this.run;
     // Task 16 «Подвиги»: feats from the run after the first Jailer (the profile's `jailer`); the viewer's run number for telemetry.
     // Task 18 «Испытание I–V»: the level chosen on «Новый поход» (the profile's last choice; 0 while the choice is closed).
     // Task 26 «Расписание леса»: the viewer's history goes into the run as a snapshot (the run ignores it from «Испытание II»).
     this.run = createRtRun(value, { gift: this.profile.giftKind(seeded), seeded, feats: this.profile.featsOn(), ash: this.profile.ashChoice(), schedule: this.profile.scheduleHistory(() => this.host.scheduleSeed?.() ?? []) });
+    // Task 37 (stand-in until core's `hearth` flag of the run): Марфа's consumable in hand from the start, its kind open.
+    if (camp?.item) { this.run.items[camp.item]++; if (!this.run.openItems.includes(camp.item)) this.run.openItems.push(camp.item); }
     const viewerRun = this.profile.startRun();
     this.host.session?.clock.runStarted();
     this.store.save(this.run);
@@ -362,7 +410,7 @@ export class RunView {
     this.run = step.run;
     this.store.save(this.run);
     this.notice = this.describe(step.events);
-    if (this.run.result && !before?.result) this.profile.endRun({ reachedJailer: rtReachedJailer(this.run), seeded: !!this.run.seeded, won: rtRunWon(this.run) });
+    if (this.run.result && !before?.result) { this.profile.endRun({ reachedJailer: rtReachedJailer(this.run), seeded: !!this.run.seeded, won: rtRunWon(this.run) }); this.metaEndOf(this.run, true); }
     // Task 16: the Jailer fought (won or lost) — the profile's sticky mark, also for a run abandoned later (not a seeded run).
     if (!this.run.seeded && rtFoughtJailer(before, this.run)) this.profile.markJailer();
     // Task 16 telemetry: the real seconds the screen of this step's choice was open (since it opened or the last step on it).
@@ -496,6 +544,7 @@ export class RunView {
       this.newRun(); return;
     }
     if (action === 'cancel-reset') { this.confirmReset = false; this.draw(); return; }
+    if (action === 'hearth') { this.openHearth(); return; }
     // Task 18: the level of «Испытание» for the next new run (remembered in the profile at once).
     if (action === 'ash') { const level = Number(target.dataset.level); if (isRtAshLevel(level)) this.profile.chooseAsh(level); this.draw(); return; }
     if (action === 'logs') { this.host.openLogs?.(); return; }
@@ -695,6 +744,9 @@ export class RunView {
     if (session?.on() && !run.result && !this.inArena && this.sessionNudge === null) this.sessionNudge = session.clock.takeNudge();
     this.el.innerHTML = `${this.headerHtml(run)}${this.pickLineHtml(run)}<div class="rt-run-body">${this.mapHtml(run)}${run.pending || run.result ? '' : this.detailHtml(run)}</div>${this.modalHtml(run)}${this.dieRollHtml()}${this.chanceHtml()}`;
     this.flyResources(run);
+    // Tasks 36–37: the ended run's meta block keeps its element (and its animation) over redraws.
+    const slot = this.el.querySelector('[data-meta-slot]');
+    if (slot && this.metaEnd) { slot.replaceWith(this.metaEnd.el); if (!this.el.hidden) this.metaEnd.play(this.pressAt); }
   }
 
   /**
@@ -758,7 +810,8 @@ export class RunView {
 
   private startHtml(): string {
     return `<div class="rt-run-start rt-card"><h2>Поход</h2><p>Карта леса, арены в реальном времени, привалы, события и торговец. Поражение на арене заканчивает поход.</p>`
-      + this.ashHtml() + `<button class="rt-again" data-action="new-run" data-testid="run-new">Новый поход</button></div>`;
+      + this.ashHtml() + `<button class="rt-again" data-action="new-run" data-testid="run-new">Новый поход</button>`
+      + (this.meta?.hearthOpen() ? '<button class="rt-other" data-action="hearth" data-testid="run-hearth">Лагерь</button>' : '') + '</div>';
   }
 
   /**
@@ -789,7 +842,8 @@ export class RunView {
     ].join(', ');
     const reset = this.confirmReset
       ? `<span class="rt-run-confirm">Бросить поход? <button data-action="new-run" data-testid="run-reset-confirm">Да, новый</button><button data-action="cancel-reset">Нет</button></span>`
-      : `<button data-action="new-run" data-testid="run-reset">Новый поход</button>`;
+      : `<button data-action="new-run" data-testid="run-reset">Новый поход</button>`
+        + (this.meta?.hearthOpen() ? '<button data-action="hearth" data-testid="run-hearth">Лагерь</button>' : '');
     // Task 17: the winged heart by the HP — the run's second wind waits (lit) or is spent (dim); gone from row 5.
     const wind = secondWindMark(run);
     const windHtml = wind ? `<span class="rt-run-wind${wind === 'spent' ? ' rt-spent' : ''}" data-testid="run-second-wind" data-state="${wind}" title="${wind === 'ready'
@@ -970,12 +1024,15 @@ export class RunView {
       const won = run.result.outcome === 'victory', kills = run.battles.reduce((sum, b) => sum + b.kills, 0), damage = run.battles.reduce((sum, b) => sum + b.damage, 0);
       // П6 «Незакрытое дело» (rtRunEnd.ts): the facts first, in their fixed order — they replace the row «Ряд похода».
       const facts = rtRunEndLines(run).map(line => `<li data-testid="run-end-${line.id}">${escapeHtml(line.text)}</li>`).join('');
-      return card(`<h2>${won ? 'Поход пройден' : 'Поход окончен'}</h2>${facts ? `<ul class="rt-run-end-facts" data-testid="run-end-facts">${facts}</ul>` : ''}`
+      // Tasks 36–37: the meta block (experience, pack, record, the carry) — its element is put in after the redraw (`draw`).
+      const meta = this.metaEndOf(run, false);
+      return card(`<h2>${won ? 'Поход пройден' : 'Поход окончен'}</h2>${meta ? '<div data-meta-slot></div>' : ''}${facts ? `<ul class="rt-run-end-facts" data-testid="run-end-facts">${facts}</ul>` : ''}`
         + `<dl class="rt-result-stats"><dt>Арен пройдено</dt><dd>${run.battles.filter(b => b.won).length}</dd>`
         + `<dt>Узлов</dt><dd>${run.visited.length}</dd><dt>Убито</dt><dd>${kills}</dd><dt>Получено урона</dt><dd>${damage}</dd></dl>`
         + this.luckHtml(run)
         + (this.host.session?.on() ? `<p class="rt-run-session" data-testid="run-session-line">${escapeHtml(this.host.session.clock.endLine())}</p>` : '')
-        + this.ashHtml() + `<button class="rt-again" data-action="new-run" data-testid="run-new">Новый поход</button>${this.logsButton('logs-open-result')}`, `run-result-${run.result.outcome}`);
+        + this.ashHtml() + (meta ? '<button class="rt-again" data-action="hearth" data-testid="run-to-hearth">В лагерь</button>' : '')
+        + `<button class="${meta ? 'rt-other' : 'rt-again'}" data-action="new-run" data-testid="run-new">Новый поход</button>${this.logsButton('logs-open-result')}`, `run-result-${run.result.outcome}`);
     }
     const pending = run.pending;
     if (!pending) return '';

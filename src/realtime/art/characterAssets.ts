@@ -7,6 +7,8 @@ import { Assets, Sprite, type Texture } from 'pixi.js';
 
 export const CHARACTER_ART_IDS = [
   'player', 'melee', 'ranged', 'boss', 'prism', 'sentinel', 'jailer',
+  // Task 37 «Очаг»: the camp's NPC (the camp screen shows them as DOM images; the drawn silhouettes stay the fallback).
+  'npc-owl', 'npc-herbalist', 'npc-smith',
 ] as const;
 
 export type CharacterArtId = typeof CHARACTER_ART_IDS[number];
