@@ -802,6 +802,7 @@ async function boot(): Promise<void> {
   if (runView) {
     host.appendChild(runView.el);
     if (runView.hearth) host.appendChild(runView.hearth.el);
+    host.appendChild(runView.runStart.el);
     // A reload in the middle of an arena: the run shows its open battle node, whose arena starts again from the start.
     // A viewer without the key «пролог пройден» gets the prologue instead (started at the end of boot).
     if (prologueDue) runView.el.hidden = true; else runView.open();

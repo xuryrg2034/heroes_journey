@@ -525,3 +525,5 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-mp-counts { display: flex; gap: 12px; font: 15px Georgia, serif; color: #8e947b; }
 .rt-mp-counts .rt-mp-diff { color: #ffd88a; font-weight: 700; }
 .rt-hearth-buy.rt-hearth-later { background: transparent; border-color: #c9b98a; color: #a99c7a; }
+/* Tasks 36–37: the one start of a run (runStart.ts) — its choice windows over the run screen and the camp. */
+.rt-run-start-choice { position: absolute; inset: 0; z-index: 9; }

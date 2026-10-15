@@ -7,15 +7,11 @@
  *   (no text promises anything).
  * - A click on an NPC: a bubble with the line (by the last run's occasion) and the NPC's upgrades — the price, «куплено», a
  *   lack shown on the disabled button («нужно 8, есть 5»), level 3 locked. Неясыть: the bestiary (free). The NPC's quest.
- * - «В поход»: with «Две/Три тропы» — a choice of 2/3 forest maps; with «Выбор травницы» — the consumable's kind from 2; then the
- *   run starts as before (the gift).
+ * - «В поход»: the one start of a run (runStart.ts) — the choices bought (maps, Марфа's kind), then the run as before (the gift).
  * View only: the profile (core) holds the stock, the levels and the meetings (`MetaSource`); the run's flags come from it.
  */
-import { createRtRun, rtMapNodes } from '../run/rtRun';
-import { ITEM_TITLES, type ItemKind } from '../sim/kit';
 import { KIND_CAPTIONS } from './newSeen';
-import { RT_NODE_TYPES } from './nodeTypes';
-import { HEARTH_LEVEL_LOCKED, HEARTH_PLACES, HEARTH_PRICES, NPCS, metaItemCard, xpBar, type HearthStart, type HearthState, type MetaSource, type NpcId } from './metaModel';
+import { HEARTH_LEVEL_LOCKED, HEARTH_PLACES, HEARTH_PRICES, NPCS, metaItemCard, xpBar, type HearthState, type MetaSource, type NpcId } from './metaModel';
 import { NPC_LINES, pickLine, questLine, type DeathCause } from './npcLines';
 import { rowWord } from './metaEnd';
 
@@ -50,7 +46,8 @@ export interface HearthHost {
   /** A run is open on the map: the button returns to it instead of starting a new one. */
   runActive(): boolean;
   /** Start a new run with `seed` (null — the default seed) and the chosen start consumable. */
-  start(seed: number, item: ItemKind | null, plan: HearthStart, map: number | null): void;
+  /** «В поход»: the one start of a new run (the choices bought, then the run). */
+  begin(): void;
   /** Telemetry: a click on an NPC; a purchase. */
   click?(npc: NpcId): void;
   bought?(npc: NpcId, level: number, price: number): void;
@@ -62,20 +59,17 @@ export interface HearthHost {
 }
 
 /** What the camp shows now (tests read it). */
-export interface HearthShown { open: boolean; npcs: NpcId[]; empty: number; bubble: NpcId | null; line: string; bought: number; bestiary: number; step: 'camp' | 'maps' | 'items'; maps: number }
+export interface HearthShown { open: boolean; npcs: NpcId[]; empty: number; bubble: NpcId | null; line: string; bought: number; bestiary: number }
 
 export class HearthView {
   readonly el: HTMLDivElement;
   private bubble: NpcId | null = null;
   private bestiary = false;
-  private step: 'camp' | 'maps' | 'items' = 'camp';
-  /** The start being chosen: the core's plan for the base seed, the map chosen (its index) and its seed. */
-  private start: { plan: HearthStart; base: number; seed: number; map: number | null } | null = null;
   /** The occasion line was said in this visit (then idle lines). */
   private said = new Set<NpcId>();
   private boughtNow: { npc: NpcId; level: 1 | 2 } | null = null;
   private lastLine = '';
-  readonly shown: HearthShown = { open: false, npcs: [], empty: 0, bubble: null, line: '', bought: 0, bestiary: 0, step: 'camp', maps: 0 };
+  readonly shown: HearthShown = { open: false, npcs: [], empty: 0, bubble: null, line: '', bought: 0, bestiary: 0 };
 
   constructor(private readonly host: HearthHost) {
     this.el = document.createElement('div');
@@ -94,7 +88,7 @@ export class HearthView {
   get isOpen(): boolean { return !this.el.hidden; }
 
   open(): void {
-    this.el.hidden = false; this.bubble = null; this.bestiary = false; this.step = 'camp'; this.start = null; this.said.clear();
+    this.el.hidden = false; this.bubble = null; this.bestiary = false; this.said.clear();
     this.shown.open = true;
     this.host.sound?.('open');
     this.draw();
@@ -115,14 +109,14 @@ export class HearthView {
       const quest = h.quest?.npc === live ? '<i class="rt-hearth-quest-mark" title="Задание">!</i>' : '';
       return `<button class="rt-hearth-place rt-hearth-npc${this.bubble === live ? ' rt-on' : ''}" style="left:${at.x}px;top:${at.y}px" data-action="npc" data-npc="${live}" data-testid="hearth-npc-${live}" title="${esc(NPCS[live].name)}">${fig}${quest}<span class="rt-hearth-name">${esc(NPCS[live].name)}</span></button>`;
     }).join('');
-    this.shown.npcs = here; this.shown.empty = HEARTH_PLACES.length - here.length; this.shown.bubble = this.bubble; this.shown.step = this.step;
+    this.shown.npcs = here; this.shown.empty = HEARTH_PLACES.length - here.length; this.shown.bubble = this.bubble;
     const bar = xpBar(h.xp, h.thresholds);
     const next = h.nextPack ? `<div class="rt-hearth-next" data-testid="hearth-next" title="Следующий набор: ${esc(h.nextPack.title)}">${Array.from({ length: h.nextPack.size }, () => '<span class="rt-hearth-sil">?</span>').join('')}<small>${h.nextPack.at}</small></div>` : '';
     const record = h.record ? `<p class="rt-hearth-record" data-testid="hearth-record">Рекорд: ${esc(rowWord(h.record.row, h.record.won))}</p>` : '';
     const go = this.host.runActive() ? '<button class="rt-again rt-hearth-go" data-action="back" data-testid="hearth-back">К походу</button>' : '<button class="rt-again rt-hearth-go" data-action="go" data-testid="hearth-go">В поход</button>';
     const center = `<div class="rt-hearth-fire-wrap">${FIRE_SVG}</div><div class="rt-hearth-glow"></div><div class="rt-hearth-center"><div class="rt-hearth-bar" data-testid="hearth-bar" title="Опыт героя"><i style="width:${(bar.k * 100).toFixed(1)}%"></i><em>${h.xp}${bar.to !== null ? ` / ${bar.to}` : ''}</em></div>${next}${record}${go}</div>`;
     const head = `<header class="rt-hearth-head"><b>Очаг</b><span class="rt-hearth-stock" data-testid="hearth-stock" title="Запас лагеря">${ICON}<b>${h.stock}</b></span></header>`;
-    this.el.innerHTML = head + `<div class="rt-hearth-stage">${center}${places}${this.bubbleHtml(h)}</div>${this.bestiaryHtml(h)}${this.startHtml()}`;
+    this.el.innerHTML = head + `<div class="rt-hearth-stage">${center}${places}${this.bubbleHtml(h)}</div>${this.bestiaryHtml(h)}`;
   }
 
   private bubbleHtml(h: HearthState): string {
@@ -157,28 +151,6 @@ export class HearthView {
     return `<div class="rt-overlay rt-hearth-modal" data-action="close" data-testid="hearth-bestiary-panel"><div class="rt-card rt-hearth-book-card"><h2>Бестиарий</h2>${rows ? `<ul class="rt-hearth-beasts">${rows}</ul>` : '<p class="rt-run-note">Пока пусто.</p>'}<button class="rt-other" data-action="close">Закрыть</button></div></div>`;
   }
 
-  /** The start of a run: the maps to choose from, then the consumable's kind. */
-  private startHtml(): string {
-    const s = this.start?.plan;
-    if (!s) return '';
-    if (this.step === 'maps' && s.maps) {
-      this.shown.maps = s.maps.length;
-      // Each map as the run map draws it (its node icons), and its nodes counted by kind — a count that differs from another map lit.
-      const counts = s.maps.map(mapCounts);
-      const cards = s.maps.map((seed, i) => {
-        const line = MAP_KINDS.map(k => { const n = counts[i][k.id] ?? 0, differs = counts.some((c, j) => j !== i && (c[k.id] ?? 0) !== n);
-          return `<span class="${differs ? 'rt-mp-diff' : ''}" title="${esc(k.label)}">${k.icon} ${n}</span>`; }).join('');
-        return `<button class="rt-hearth-map" data-action="map" data-seed="${seed}" data-index="${i}" data-testid="hearth-map-${i}">${mapPreview(seed)}<span class="rt-mp-counts">${line}</span><b>Путь ${i + 1}</b></button>`;
-      }).join('');
-      return `<div class="rt-overlay rt-hearth-modal" data-testid="hearth-maps"><div class="rt-card"><h2>${s.maps.length === 3 ? 'Три пути' : 'Два пути'}</h2><div class="rt-hearth-maps">${cards}</div></div></div>`;
-    }
-    if (this.step === 'items' && s.items) {
-      const cards = s.items.map(kind => `<button class="rt-run-choice" data-action="item" data-item="${kind}" data-testid="hearth-item-${kind}"><b>${esc(ITEM_TITLES[kind])}</b></button>`).join('');
-      return `<div class="rt-overlay rt-hearth-modal" data-testid="hearth-items"><div class="rt-card"><h2>Склянка в дорогу</h2><div class="rt-run-choices">${cards}</div></div></div>`;
-    }
-    return '';
-  }
-
   private say(npc: NpcId, h: HearthState): void {
     const l = this.said.has(npc) ? undefined : h.last;
     // The quest's result belongs to the NPC who gave it (the camp's quest was that run's).
@@ -208,51 +180,9 @@ export class HearthView {
     if (action === 'bestiary') { this.bestiary = true; this.draw(); return; }
     if (action === 'close') { if (event.target === target || target.tagName === 'BUTTON') { this.bestiary = false; this.draw(); } return; }
     if (action === 'back') { this.close(); this.host.back(); return; }
-    if (action === 'go') {
-      // The base seed of the new run (as «Новый поход» draws it); core's plan for it — the maps (the base first), Марфа's kinds, the flags.
-      const base = Math.floor(Math.random() * 0x100000000) >>> 0, plan = this.host.meta.start(base);
-      this.start = { plan, base, seed: base, map: null };
-      if (plan.maps && plan.maps.length > 1) { this.step = 'maps'; this.draw(); return; }
-      if (plan.items && plan.items.length > 1) { this.step = 'items'; this.draw(); return; }
-      this.go(plan.items?.[0] ?? null); return;
-    }
-    if (action === 'map' && this.start) {
-      this.start.seed = Number(target.dataset.seed) >>> 0; this.start.map = Number(target.dataset.index);
-      if (this.start.plan.items && this.start.plan.items.length > 1) { this.step = 'items'; this.draw(); return; }
-      this.go(this.start.plan.items?.[0] ?? null); return;
-    }
-    if (action === 'item' && this.start) { this.go(target.dataset.item as ItemKind); return; }
+    // The one start of a run (runStart.ts): the camp's choices bought, then the run — the same way as «Новый поход».
+    if (action === 'go') { this.close(); this.host.begin(); return; }
   }
-
-  private go(item: ItemKind | null): void {
-    const s = this.start!;
-    this.close();
-    this.host.start(s.seed, item, s.plan, s.map);
-  }
-}
-
-/** The kinds of nodes the map choice counts (the run map's icons, view/nodeTypes.ts); «Застава» is the checkpoint. */
-const MAP_KINDS: readonly { id: string; icon: string; label: string }[] = [
-  { id: 'battle', icon: RT_NODE_TYPES.battle.icon, label: 'Бои' }, { id: 'hard', icon: RT_NODE_TYPES.hard.icon, label: 'Трудные бои' },
-  { id: 'event', icon: RT_NODE_TYPES.event.icon, label: 'События' }, { id: 'rest', icon: RT_NODE_TYPES.rest.icon, label: 'Привалы' },
-  { id: 'shop', icon: RT_NODE_TYPES.shop.icon, label: 'Торговцы' }, { id: 'checkpoint', icon: RT_NODE_TYPES.checkpoint.icon, label: 'Заставы' },
-];
-
-/** A map's nodes counted by kind (a find counts as an event, as the map shows it). */
-function mapCounts(seed: number): Record<string, number> {
-  const out: Record<string, number> = {};
-  for (const n of rtMapNodes(createRtRun(seed))) { const k = n.type === 'find' ? 'event' : n.type; out[k] = (out[k] ?? 0) + 1; }
-  return out;
-}
-
-/** A forest map by its seed as the run map draws it: the edges, the node circles with their icons (no stream is drawn for it). */
-export function mapPreview(seed: number): string {
-  const run = createRtRun(seed), nodes = rtMapNodes(run);
-  const W = 1000, H = 520, pad = 40, x = (row: number) => pad + (row - 5) * (W - 2 * pad) / 9, y = (slot: number) => pad + slot * (H - 2 * pad);
-  const byId = new Map(nodes.map(n => [n.id, n]));
-  const edges = nodes.flatMap(n => n.next.map(id => { const m = byId.get(id); return m ? `<line x1="${x(n.row)}" y1="${y(n.slot ?? 0.5)}" x2="${x(m.row)}" y2="${y(m.slot ?? 0.5)}" class="rt-edge"/>` : ''; })).join('');
-  const dots = nodes.map(n => `<g class="rt-node rt-mp-node${n.row === 5 ? ' rt-available' : ''}" transform="translate(${x(n.row)},${y(n.slot ?? 0.5)})"><circle r="27"/><text dy="10">${RT_NODE_TYPES[n.type].icon}</text></g>`).join('');
-  return `<svg class="rt-run-map rt-hearth-mapsvg" viewBox="0 0 ${W} ${H}" aria-hidden="true">${edges}${dots}</svg>`;
 }
 
 /** For the end screen's pack names (re-export so the run screen reads one module). */

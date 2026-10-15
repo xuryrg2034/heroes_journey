@@ -173,5 +173,15 @@ test('tasks 36–37: a run that crosses 60 opens «Охотник» — three ca
   expect(run.locked).toBeDefined();
   expect(run.locked).not.toContain('elite-hunter');
   expect(run.locked).toContain('return-pass');
+  // The same start from «Новый поход» on the map (design 16.10.2026): the choice of maps over the run screen, no camp screen.
+  await page.getByTestId('gift-1').click();
+  await expect(page.getByTestId('run-gift')).toBeHidden();
+  await page.getByTestId('run-reset').click();
+  await page.getByTestId('run-reset-confirm').click();
+  await expect(page.getByTestId('hearth-maps')).toBeVisible();
+  await expect(page.getByTestId('hearth')).toBeHidden();
+  await page.getByTestId('hearth-map-0').click();
+  await expect(page.getByTestId('run-gift')).toBeVisible();
+  expect((await page.evaluate(() => (window as any).__realtime.run.state())).hearth?.maps).toBe(2);
   expect(errors).toEqual([]);
 });

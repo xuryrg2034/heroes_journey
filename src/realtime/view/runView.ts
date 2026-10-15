@@ -44,6 +44,7 @@ import type { FirstMeetId } from './firstMeet';
 import { MetaEndView, type MetaSound } from './metaEnd';
 import { HearthView } from './hearthView';
 import { ProfileMeta } from './metaSource';
+import { RunStart } from './runStart';
 import { rtHearthFlagsWith, rtRunKey, type RtHearthStart, type RtMetaEnd } from '../run/rtMeta';
 import type { HearthStart } from './metaModel';
 import { KIND_CAPTIONS } from './newSeen';
@@ -323,6 +324,8 @@ export class RunView {
   private offerNew: { key: string; ids: Set<string> } | null = null;
   private metaEnd: MetaEndView | null = null;
   readonly hearth: HearthView | null;
+  /** Tasks 36–37: the one start of a new run with the camp's choices (the camp's «В поход» and «Новый поход»). */
+  readonly runStart = new RunStart();
   /** Task 35, С3 (tests read it): flights started, tokens thrown, the number now and whether it is counting. */
   readonly resFly = { flights: 0, tokens: 0, from: 0, to: 0, shown: 0, counting: false };
 
@@ -355,13 +358,24 @@ export class RunView {
     this.hearth = meta ? new HearthView({
       meta,
       runActive: () => !!this.run && !this.run.result,
-      start: (seed, item, plan, map) => this.newRun(undefined, { seed, item, plan, map }),
+      begin: () => this.beginRun(),
       click: npc => this.host.meta?.click?.(this.run, npc),
       bought: (npc, level, price) => this.host.meta?.buy?.(this.run, npc, level, price),
       back: () => this.open(),
       sound: kind => this.host.meta?.sound(kind),
       beasts: () => { const seen = this.host.newSeen?.store; return seen ? Object.keys(KIND_CAPTIONS).filter(k => seen.hasKind(k)) : []; },
     }) : null;
+  }
+
+  /**
+   * Tasks 36–37 (design 16.10.2026): «Новый поход» and the camp's «В поход» start a run the same way — core's plan for a base seed
+   * (`hearthStart`): «Два / Три пути» and «Выбор травницы» show their choice, then the run; nothing bought — the run at once. A
+   * given seed (`?seed=`) and the sandbox start as before.
+   */
+  beginRun(): void {
+    if (!this.meta || this.fixedSeed !== null) { this.newRun(); return; }
+    const base = Math.floor(Math.random() * 0x100000000) >>> 0;
+    this.runStart.begin(this.profile.hearthStart(base), base, (seed, item, plan, map) => this.newRun(undefined, { seed, item, plan, map }));
   }
 
   /** Tasks 36–37: the camp «Очаг» over the run screen. */
@@ -407,8 +421,8 @@ export class RunView {
     const previous = this.run;
     // Tasks 36–37 (core): an abandoned run («Новый поход» over an open one) counts before the new one starts — its carry is 50 %.
     if (this.meta && previous && !previous.result && !previous.seeded) { const end = this.profile.endRunMeta(previous); if (end) this.host.meta?.end?.(previous, end); }
-    // The camp's flags (core `hearthStart`): from the camp — its plan with the map and the consumable chosen; «Новый поход» — the plan
-    // of this seed without a map choice (none was shown) and Марфа's first kind. Only a meta run (not `?seed=`, not the sandbox).
+    // The camp's flags (core `hearthStart`): the start's plan with the map and the consumable chosen (`beginRun`); a run started
+    // otherwise (a test hook) — the plan of its seed with no map choice. Only a meta run (not `?seed=`, not the sandbox).
     const plan = this.meta && !seeded ? (camp?.plan as RtHearthStart | undefined) ?? this.profile.hearthStart(value) : null;
     const flags = plan ? rtHearthFlagsWith(camp ? plan : { ...plan, flags: { ...plan.flags, maps: undefined } }, camp?.item ?? plan.items?.[0]) : null;
     const metaRun = this.meta && !seeded ? { locked: this.profile.locked(), ...flags && Object.values(flags).some(v => v !== undefined) ? { hearth: flags } : {} } : {};
@@ -568,7 +582,8 @@ export class RunView {
     const action = target.dataset.action!;
     if (action === 'new-run') {
       if (run && !run.result && !this.confirmReset) { this.confirmReset = true; this.draw(); return; }
-      this.newRun(); return;
+      this.confirmReset = false;
+      this.beginRun(); return;
     }
     if (action === 'cancel-reset') { this.confirmReset = false; this.draw(); return; }
     if (action === 'hearth') { this.openHearth(); return; }
