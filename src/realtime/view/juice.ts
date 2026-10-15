@@ -55,14 +55,6 @@ export function shardLife(link: number): number {
 /** С4 «Тяжёлый клинок»: the chain line's width factor and the hit's shift, semitones (design 15.10.2026). */
 export const HEAVY_LINE = 1.4, HEAVY_SEMIS = -5;
 
-/**
- * С4 «Пятое звено»: the enemy links (1, 2, … along the chain) where the talisman fires — every 5th; with the chain window
- * («Острие») only the `edge`-th. The same rule as the sim's (sim/talismansRt.ts `fifthLinkFires`).
- */
-export function fifthLinkAt(index: number, every: number, edge: number | null): boolean {
-  return edge !== null ? index === edge : index > 0 && index % every === 0;
-}
-
 /** С3: real seconds a header number takes to count up to its new value (0.3 for a step of one, 0.6 from six on). */
 export function countUpTime(step: number): number {
   return Math.max(0.3, Math.min(0.6, 0.3 + 0.06 * (Math.abs(step) - 1)));

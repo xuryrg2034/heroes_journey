@@ -47,8 +47,8 @@ import { SLOT_BUST_SOURCE, goblinOf } from '../sim/slot';
 import { bustBlink } from './bustBlink';
 import { dashCheque } from '../sim/purse';
 import { chainFeel, DashLinks, QUIET_LINKS } from './chainFeel';
-import { FX_DEFAULT, FlashGate, HEAVY_LINE, fifthLinkAt, shardCount, shardLife, type FxLevel } from './juice';
-import { EDGE_LINK, FIFTH_LINK_EVERY, counterWindowOn } from '../sim/talismansRt';
+import { FX_DEFAULT, FlashGate, HEAVY_LINE, shardCount, shardLife, type FxLevel } from './juice';
+import { fifthLinkFiresAt } from '../sim/talismansRt';
 import { LINK_DEPTH_SHOWN, linkDepths, type LinkDepth } from '../sim/linkDepth';
 import { CHEST_CURSE_KILLS, cursed } from '../sim/chest';
 import { FLAIL_RADIUS, JAILER, JAILER_WEIGHT, jailerCore, jailerMove, jailerShieldUp, type JailerMoveId } from '../sim/enemies/jailer';
@@ -2721,12 +2721,11 @@ export class RealtimeRenderer {
     // (planChain) where the talisman fires — only once the chain has reached that link, never an empty place ahead.
     this.juiceShown.notches = [];
     if (world.kit?.talismans.includes(COUNTER_TALISMANS.fifthLink)) {
-      const edge = counterWindowOn(world) ? EDGE_LINK : null;
       let index = 0, prev: Vec = { x: hero.x, y: hero.y };
       for (const lp of plan.links) {
         const at = linkPoint(world, lp.link);
         if (!at) continue;
-        if (lp.link.kind === 'enemy' && fifthLinkAt(++index, FIFTH_LINK_EVERY, edge)) {
+        if (lp.link.kind === 'enemy' && fifthLinkFiresAt(world, ++index)) {
           const dx = at.x - prev.x, dy = at.y - prev.y, len = Math.hypot(dx, dy);
           if (len > 1e-6) {
             const ux = dx / len, uy = dy / len, back = Math.min(len * 0.45, 0.75), cx = (at.x - ux * back) * UNIT, cy = (at.y - uy * back) * UNIT, h = 13 * lw;
