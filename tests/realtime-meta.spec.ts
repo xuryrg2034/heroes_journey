@@ -185,3 +185,18 @@ test('tasks 36–37: a run that crosses 60 opens «Охотник» — three ca
   expect((await page.evaluate(() => (window as any).__realtime.run.state())).hearth?.maps).toBe(2);
   expect(errors).toEqual([]);
 });
+
+test('tasks 36–37 (design smoke v62): an abandoned run is settled before the new one is planned — «Новый поход» → «Да, новый» carries the quest its end picked', async ({ page }) => {
+  const errors = collectErrors(page);
+  await openRun(page);
+  await newRun(page);
+  // The first run is abandoned: «Новый поход» in the header, «Да, новый».
+  await page.getByTestId('run-reset').click();
+  await page.getByTestId('run-reset-confirm').click();
+  await expect(page.getByTestId('run-gift')).toBeVisible();
+  const quest = await page.evaluate(() => JSON.parse(localStorage.getItem('ashen-oath-rt-profile-v1')!).meta?.hearth?.quest ?? null);
+  expect(quest, 'the abandoned run picked a quest').not.toBeNull();
+  const run = await page.evaluate(() => (window as any).__realtime.run.state());
+  expect(run.hearth?.quest).toEqual(quest);
+  expect(errors).toEqual([]);
+});

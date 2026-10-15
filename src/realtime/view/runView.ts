@@ -384,8 +384,26 @@ export class RunView {
    */
   beginRun(): void {
     if (!this.meta || this.fixedSeed !== null) { this.newRun(); return; }
+    // An abandoned run is settled first: its end picks the next run's quest, which the plan below carries (design smoke v62).
+    this.settleAbandoned();
     const base = Math.floor(Math.random() * 0x100000000) >>> 0;
     this.runStart.begin(this.profile.hearthStart(base), base, (seed, item, plan, map) => this.newRun(undefined, { seed, item, plan, map }));
+  }
+
+  /** Tasks 36–37: the key of the abandoned run already settled (its meta applied, its telemetry sent once). */
+  private settled: string | null = null;
+  /**
+   * Tasks 36–37 (core): an abandoned run («Новый поход» over an open one) counts before the new run is planned — its carry is 50 %,
+   * and its end picks the quest of the next run (`hearthStart` reads it). Once per run (a second call does nothing).
+   */
+  private settleAbandoned(): void {
+    const previous = this.run;
+    if (!this.meta || !previous || previous.result || previous.seeded) return;
+    const key = rtRunKey(previous);
+    if (this.settled === key) return;
+    this.settled = key;
+    const end = this.profile.endRunMeta(previous);
+    if (end) this.host.meta?.end?.(previous, end);
   }
 
   /** Tasks 36–37: the camp «Очаг» over the run screen. */
@@ -430,7 +448,7 @@ export class RunView {
     this.metaEnd?.stop(); this.metaEnd = null;
     const previous = this.run;
     // Tasks 36–37 (core): an abandoned run («Новый поход» over an open one) counts before the new one starts — its carry is 50 %.
-    if (this.meta && previous && !previous.result && !previous.seeded) { const end = this.profile.endRunMeta(previous); if (end) this.host.meta?.end?.(previous, end); }
+    this.settleAbandoned();
     // The camp's flags (core `hearthStart`): the start's plan with the map and the consumable chosen (`beginRun`); a run started
     // otherwise (a test hook) — the plan of its seed with no map choice. Only a meta run (not `?seed=`, not the sandbox).
     const plan = this.meta && !seeded ? (camp?.plan as RtHearthStart | undefined) ?? this.profile.hearthStart(value) : null;
