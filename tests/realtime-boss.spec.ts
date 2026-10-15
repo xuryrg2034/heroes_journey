@@ -221,3 +221,122 @@ test('task 28: the boss bar — only in a boss fight, 480 × 14 px at the top ce
   expect(((await snap(page)) as any).bossBar.visible).toBe(false);
   expect(errors).toEqual([]);
 });
+
+/**
+ * Task 28 «Тюремщик в походе»: a new run walks to row 5 (battles won by the hook `winArena`, the first button of every node
+ * screen); the boss bar shows only in the Jailer's fight. There the player severs the weight and kills the core with bombs (the
+ * key 2 at the mouse, as a player does): the crowd dies with the boss in a wave from the core, the bar empties and fades, the
+ * Jailer's screen offers 4 cards.
+ */
+test('task 28: the Jailer in a run — the bar only in its fight; bombs sever the weight and kill the core, the crowd dies in a wave from the core, the bar fades, the Jailer\'s screen offers 4', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+  await page.goto('/');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
+  await page.getByTestId('run-new').click();
+  await page.getByTestId('gift-1').click();
+  const state = (): Promise<any> => page.evaluate(() => (window as any).__realtime.run.state());
+  const bar = page.getByTestId('boss-bar');
+  let jailer = false, plainFights = 0;
+  for (let step = 0; step < 80 && !jailer; step++) {
+    const run = await state();
+    const pending = run.pending;
+    if (pending?.kind === 'battle') {
+      await expect(page.getByTestId('run')).toBeHidden();
+      if (/r9c/.test(pending.nodeId)) { jailer = true; break; }
+      // Every other fight: no boss bar.
+      expect(((await snap(page)) as any).bossBar.visible).toBe(false);
+      await expect(bar).toBeHidden();
+      plainFights++;
+      expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
+      await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
+      await page.getByTestId('result-map').click();
+      continue;
+    }
+    if (pending) {
+      await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
+      continue;
+    }
+    const node = page.locator('[data-status="available"]').first();
+    await node.click();
+    if (/r9c/.test((await node.getAttribute('data-node'))!)) await page.screenshot({ path: 'artifacts/realtime-boss-run-card.png' });
+    await page.getByTestId('run-enter').click();
+  }
+  expect(jailer).toBe(true);
+  expect(plainFights).toBeGreaterThan(0);
+  let s: any = await snap(page);
+  expect(['jailer', 'jailer-yard']).toContain(s.arena);
+  await expect(bar).toBeVisible();
+  // Let the fight run: the first move comes at 2 s, the crowd walks in.
+  await page.waitForTimeout(3_000);
+  await page.screenshot({ path: 'artifacts/realtime-boss-run.png' });
+
+  // Bombs at the mouse (key 2). The hero stands off the core, with HP to spare (test setup through the journal).
+  await page.evaluate(() => { const rt = (window as any).__realtime; rt.setItems('bomb', 9); rt.setParam('contactDamage', 0); });
+  const bombAt = async (kind: string, shoot = false): Promise<boolean> => {
+    const t = (await snap(page) as any).enemies.find((e: any) => e.kind === kind);
+    if (!t) return false;
+    await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x + 4, y), [t.x, t.y] as const);
+    await page.waitForTimeout(150);
+    const t2 = (await snap(page) as any).enemies.find((e: any) => e.kind === kind);
+    if (!t2) return false;
+    const at = await screen(page, t2.x, t2.y);
+    await page.mouse.move(at.x, at.y);
+    await page.keyboard.press('2');
+    if (shoot) {
+      // The core's death: a frame in the middle of the wave.
+      for (let f = 0; f < 60; f++) {
+        if ((await snap(page) as any).boss.waves > 0) { await page.waitForTimeout(180); await page.screenshot({ path: 'artifacts/realtime-boss-run-wave.png' }); break; }
+        await page.waitForTimeout(16);
+      }
+    }
+    await page.waitForTimeout(450);
+    return true;
+  };
+  for (let i = 0; i < 4 && (await snap(page) as any).enemies.some((e: any) => e.kind === 'jailer-weight'); i++) await bombAt('jailer-weight');
+  s = await snap(page);
+  expect(s.enemies.some((e: any) => e.kind === 'jailer-weight'), 'the weight severed').toBe(false);
+  expect(s.boss.breaks).toBeGreaterThan(0);
+  // The severed weight drops the loot of an armoured elite (`bossPartLoot`, the run).
+  await expect.poll(async () => (await snap(page) as any).objects.filter((o: any) => o.kind === 'loot').length).toBeGreaterThan(0);
+  const loot = (await snap(page) as any).objects.filter((o: any) => o.kind === 'loot').map((o: any) => o.id);
+  // The core: bombs until it dies; the crowd stands.
+  let dead = false;
+  for (let i = 0; i < 6 && !dead; i++) {
+    expect((await snap(page) as any).enemies.filter((e: any) => e.partOf == null && e.kind !== 'jailer').length, 'a crowd to die with the boss').toBeGreaterThan(0);
+    await bombAt('jailer', !!i);
+    dead = !(await snap(page) as any).enemies.some((e: any) => e.kind === 'jailer');
+  }
+  expect(dead).toBe(true);
+  // The wave runs from the core (at most 0.6 s), then the loot of the weight lies on the arena: the boss's death does not take it.
+  await page.waitForTimeout(900);
+  await page.screenshot({ path: 'artifacts/realtime-boss-run-after.png' });
+  s = await snap(page);
+  const left = s.objects.filter((o: any) => o.kind === 'loot').map((o: any) => o.id);
+  expect(loot.some((id: number) => left.includes(id)), "the weight's loot still lies after the wave").toBe(true);
+  expect(s.boss.clears).toBeGreaterThan(0);
+  expect(s.boss.waves).toBe(1);
+  expect(s.enemies.length).toBe(0);
+  expect(s.bossBar.visible ? s.bossBar.fading : true).toBe(true);
+  await expect(bar).toBeHidden({ timeout: 2_000 });
+  expect(s.status).toBe('playing');
+
+  // The door is open: in, then the Jailer's screen — 4 cards after a severed weight.
+  expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
+  await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
+  await page.getByTestId('result-map').click();
+  for (let i = 0; i < 4 && (await state()).pending?.source !== 'oath'; i++) {
+    if ((await state()).pending?.kind === 'hammer') await page.getByTestId('hammer-refuse').click();
+    else break;
+  }
+  const run = await state();
+  expect(run.pending?.source).toBe('oath');
+  expect(run.pending.options.length).toBe(4);
+  await expect(page.getByTestId('run-talisman')).toContainText('Гиря отрублена — на выбор четыре.');
+  await page.screenshot({ path: 'artifacts/realtime-boss-run-oath.png' });
+  expect(errors).toEqual([]);
+});

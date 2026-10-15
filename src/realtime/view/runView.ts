@@ -19,7 +19,7 @@ import {
   rtChooseTalisman, rtRerollTalismans, rtRerollView, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtFoughtJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
   rtOathPreview, rtOathStakeOn, rtArenaRules, RT_SECOND_WIND_LAST_ROW, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
   rtCasinoView, rtCasinoPlay, rtCasinoLeave, rtCasinoNode, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE,
-  healOffer, healOnMap, healVisible, rtResourceTotal, rtNodeFeat, RT_HEAL_MAP_GAIN, rtAsh, rtAshOptions, rtAshTitle, rtRunWon, isRtAshLevel, rtScheduleMet,
+  healOffer, healOnMap, healVisible, rtResourceTotal, rtNodeFeat, RT_HEAL_MAP_GAIN, rtAsh, rtAshOptions, rtAshTitle, rtRunWon, isRtAshLevel, rtScheduleMet, RT_JAILER_SEVERED_SLOTS,
   type RtArenaOutcome, type RtArenaRules, type RtCasinoTable, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
@@ -204,13 +204,15 @@ const STATUS_LABEL = { visited: 'Пройден', current: 'Текущий', ope
  * What the node card says about the node (the rules of this run). An ordinary battle and the breakthrough say nothing here (design
  * 13.10.2026): the card's head already says «Бой · ряд похода N» and its lines the arena.
  */
-const nodeHint = (node: ForestMapNode): string | undefined => {
+const nodeHint = (node: ForestMapNode, run: Pick<RtRunState, 'jailer'>): string | undefined => {
   switch (node.type) {
     case 'find': return 'Находка: один из трёх расходников.';
     case 'rest': return `Лечение +${rtHp(FOREST_REST_HEAL)} HP или крафт: 2 ресурса одного вида — расходник.`;
     case 'shop': return `Расходники, лечение и «Закалка» за ресурсы крафта.`;
     case 'hard': return `Трудный бой: арена «Застава». Победа: +${rtHp(FOREST_HARD_HEAL)} HP и талисман на выбор из трёх (один всегда редкий).`;
-    case 'checkpoint': return 'Тюремщик: обычная арена своего ряда. Победа: молот на выбор, затем клятва или реликвия.';
+    // Task 28: a run with the Jailer's fight (`RtRunState.jailer`); a run saved before it plays an ordinary arena of the row there.
+    case 'checkpoint': return run.jailer ? 'Тюремщик: бой с боссом. Победа: молот на выбор, затем клятва или реликвия (гиря отрублена — 1 из 4).'
+      : 'Тюремщик: обычная арена своего ряда. Победа: молот на выбор, затем клятва или реликвия.';
     case 'boss': return 'Последний рубеж: финальная арена. Победа завершает поход.';
     default: return undefined;
   }
@@ -845,7 +847,7 @@ export class RunView {
       + (arena ? this.arenaHead(arena.arena, arena.roster) + this.dangersHtml(run, node, arena.arena, arena.roster, fresh, status === 'available' ? this.terrainMet(run, node) : undefined)
         : isArenaNode(node) && status === 'locked' ? '<p class="rt-run-note">Арена станет известна, когда узел откроется.</p>' : '')
       + (status === 'available' ? this.featHtml(run, node) : '')
-      + (nodeHint(node) ? `<p class="rt-run-hint">${escapeHtml(nodeHint(node)!)}</p>` : '')
+      + (nodeHint(node, run) ? `<p class="rt-run-hint">${escapeHtml(nodeHint(node, run)!)}</p>` : '')
       // B7 К9 (no hidden odds): an event node the circle may still stand on says so, with its chance; the terms in small
       // print on a second line (design 12.10.2026).
       + (this.host.goblinCircle && !run.casino && rtCasinoNode(node) && (status === 'available' || status === 'locked')
@@ -967,7 +969,8 @@ export class RunView {
       // Task 16: the feat's talisman choice, the last screen of the won fight (its card `run-feat-talisman`).
       const title = pending.source === 'oath' ? 'Клятва или реликвия на выбор' : chest ? 'Проклятый сундук' : feat ? 'Подвиг: талисман на выбор' : 'Талисман на выбор';
       const options = pending.options.map(option => `<button class="rt-run-choice" data-action="talisman" data-option="${option}" data-testid="talisman-${option}"><b>${rtTalisman(option)?.rarity === 'relic' ? '◆ ' : ''}${escapeHtml(talismanName(option))}</b>${talismanCardLines(option)}</button>`).join('');
-      const note = pending.source === 'oath' ? 'У клятвы и реликвии есть цена. Не взятые уходят из пула до конца похода.'
+      // Task 28: a severed weight gave the Jailer's screen a fourth card (`rtOathSlots`) — the note says why.
+      const note = pending.source === 'oath' ? `${pending.options.length >= RT_JAILER_SEVERED_SLOTS ? 'Гиря отрублена — на выбор четыре. ' : ''}У клятвы и реликвии есть цена. Не взятые уходят из пула до конца похода.`
         : chest ? 'Награда за сундук: талисман на выбор. Не взятые уходят из пула до конца похода.'
         : feat ? 'Награда за подвиг: талисман на выбор. Не взятые уходят из пула до конца похода.' : 'Не взятые уходят из пула до конца похода.';
       // B5 К10 «Переброс»: «Застава», an event's reward and the chest (not the Jailer); the price grows on the screen, off with its reason.
