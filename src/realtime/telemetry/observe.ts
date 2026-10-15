@@ -150,6 +150,9 @@ export class EventCursor {
   }
 }
 
+/** Task 34: one `shiftSkip` per body and drawn chain length (the observer counts it once; the view journals the held pointer's first). */
+export const skipKey = (enemyId: number, links: number): string => `${enemyId}:${links}`;
+
 /** Median of a list of numbers (0 for an empty one). */
 export function median(values: readonly number[]): number {
   if (!values.length) return 0;
@@ -194,6 +197,8 @@ export function createFightObserver(start: World): FightObserver {
   let drawStart: number | null = start.chain.length ? 0 : null;
   let takenOff: { key: number; at: number }[] = [];
   let lastRefusal: { kind: string; refusal: string; version: number } | null = null;
+  // Task 34: the `shiftSkip` keys counted in the drawn chain (an emptied chain forgets them).
+  const skips = new Set<string>();
   // Elites alive: when seen, the chains that hit them and the last of those (dashes are numbered by `s.chain.count`).
   const elites = new Map<number, { born: number; chains: number; lastDash: number }>();
   let goalsDone = start.greedStart !== null;
@@ -322,6 +327,9 @@ export function createFightObserver(start: World): FightObserver {
         case 'crystal': s.chain.crystals++; return;
         // «Смена цвета»: the dash reached the link that freed the colour (a shift by length, not through a crystal).
         case 'colorShift': s.chain.colorShifts++; return;
+        // Task 34: a body of another colour passed by on a free chain — once per body and chain length within the drawn chain (the
+        // held pointer repeats it every frame; the view journals only the first, `skipKey`).
+        case 'shiftSkip': { const key = skipKey(ev.enemyId, ev.links); if (!skips.has(key)) { skips.add(key); s.chain.shiftSkips++; } return; }
         case 'loop':
           // The pointer on the last link opens (no reason); the rules open with one (sim `syncLoop`).
           if (ev.action === 'open') { if (ev.refusal) bump(s.chain.loopBreaks, ev.refusal); else s.chain.unseals++; lastRefusal = null; return; }
@@ -455,7 +463,7 @@ export function createFightObserver(start: World): FightObserver {
     while (same < n && same < keys.length && linkKey(chain[same]) === keys[same]) same++;
     if (same === n && same === keys.length) return;
     version++;
-    if (!n) { takenOff = []; keys = []; return; }
+    if (!n) { takenOff = []; keys = []; skips.clear(); return; }
     if (stepBack) for (let i = same; i < keys.length; i++) takenOff.push({ key: keys[i], at: clock });
     if (takenOff.length) {
       takenOff = takenOff.filter(t => clock - t.at <= BACKSTEP_READD_WINDOW);

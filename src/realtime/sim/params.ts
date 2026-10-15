@@ -870,6 +870,14 @@ export interface Params {
    * journals without the key: 0.
    */
   forkBranches: number;
+  // ---- Task 34 «Смена цвета — только точкой курсора» (chain.ts `dragChain`; docs/realtime-prototype.md, «Смена цвета»). ----
+  /**
+   * While the chain's colour is free by «Смена цвета» (`colorShiftLinks`), an enemy of another colour joins only at the pointer
+   * event itself (`full`); the sweep points and the held still pointer (`sweep`, `append`) take only the chain's colour (and the
+   * colourless core) and pass the others by, without a refusal (user 15.10.2026, playtest v57: a swipe through the crowd changed
+   * the colour by accident). Sandbox and run on; journals without the key: off.
+   */
+  shiftAtPointer: boolean;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -1257,6 +1265,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   twinsAlternate: true,
   twinsNoShift: true,
   forkBranches: 1,
+  // Task 34 (chain.ts): another colour on a free chain only at the pointer; the run turns it on too (`RUN_FORCED`).
+  shiftAtPointer: true,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -1380,6 +1390,8 @@ export const PARAM_DEFS: readonly ParamDef[] = [
     hint: 'Быстрое движение мыши берёт звенья вдоль всего пути, а не только в точках событий мыши.' },
   { kind: 'bool', key: 'holdPicks', group: 'Цепь', label: 'Взятие под неподвижной мышью', stage: 4,
     hint: 'Пока кнопка зажата, враг, подошедший под курсор или вошедший в R, добавляется без движения мыши (только добавление, без обрезки).' },
+  { kind: 'bool', key: 'shiftAtPointer', group: 'Цепь', label: 'Смена цвета — только точкой курсора', stage: 5,
+    hint: 'Пока цвет цепи свободен («Смена цвета»), тело другого цвета берётся только там, где остановилась мышь (или нажатием). Протяжка и неподвижный курсор берут только цвет цепи, другие цвета пропускают без отказа.' },
   { kind: 'bool', key: 'refusalHint', group: 'Цепь', label: 'Подсказка: почему не берётся', stage: 4,
     hint: 'У курсора над врагом или объектом, который нельзя взять следующим звеном: «далеко», «не тот цвет», «нет видимости», «после выжившего»…' },
   n('dashSpeed', 'Цепь', 'Скорость прохода', 2, 40, 0.5, 2, 'ед/с'),
@@ -1730,7 +1742,7 @@ export function defaultParams(): Params { return sanitizeParams(null); }
  * (design 12.10.2026). П9 «Второе дыхание» (design decision 11.10.2026): a sandbox rule — off in a run, whatever the saved
  * panel holds. Task 29: the counters' chain window (`counterWindow`) — a sandbox rule until task 30, off in a run.
  */
-export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4, loopEnabled: false, loopHint: false, pierceEnabled: false, secondWind: false, endBlastMinLinks: 3, fireMinLinks: 3, returnFixed: false, counterWindow: false, twinsAlternate: false, twinsNoShift: false, forkBranches: 0 });
+export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4, loopEnabled: false, loopHint: false, pierceEnabled: false, secondWind: false, endBlastMinLinks: 3, fireMinLinks: 3, returnFixed: false, counterWindow: false, twinsAlternate: false, twinsNoShift: false, forkBranches: 0, shiftAtPointer: true });
 /**
  * The values a run arena plays with: the saved panel with the stand-ins of run rules off (`RUN_FORCED`) and the run's own
  * numbers on top (`forced`; iteration 2.1: the healing consumable — `rtRunParams`, run/rtRun.ts).

@@ -736,6 +736,12 @@ export interface FightSummary {
      * (`colorShift` events: the link that freed the chain's colour). 0 while the rule is off.
      */
     colorShifts: number;
+    /**
+     * Task 34 (from 15.10.2026, `Params.shiftAtPointer`; absent in older records — `withSummaryDefaults`): bodies of another colour
+     * a sweep point or the held still pointer passed by on a free chain (`shiftSkip` events; one per body and chain length within
+     * a drawn chain) — the accidental colour changes the rule took off. 0 while the rule is off.
+     */
+    shiftSkips: number;
   };
   /** Package «Урон имеет значение» (from 11.10.2026): the elites of the fight (`elite` set; armoured or not). */
   elites: EliteSummary;
@@ -1065,7 +1071,7 @@ export function emptyFightSummary(): FightSummary {
     chain: {
       count: 0, lengthMedian: 0, lengthMax: 0, cancels: 0, backsteps: 0, crystals: 0, colorChanges: 0, focusSpent: 0, focusEmpty: 0, survivorEnds: 0,
       closeAttempts: 0, seals: 0, sealsEmpty: 0, sealInside: [], unseals: 0, loopBreaks: {}, backstepReadds: 0, toughNotFirst: 0, drawTime: [],
-      pierces: 0, pierceHits: [], colorShifts: 0,
+      pierces: 0, pierceHits: [], colorShifts: 0, shiftSkips: 0,
     },
     elites: {
       count: 0, lifetime: [], chainsPer: [], aliveAtEnd: 0, beforeGoals: 0, downs: 0, cleanKills: 0, lateWindowKills: 0, windows: 0, windowsClosed: 0,

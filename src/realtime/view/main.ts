@@ -35,7 +35,7 @@ import { inThorns, inWater, overCliff, setFlowClock, type Vec } from '../sim/geo
 import { crowdLifetime, defaultParams, type ParamKey, type Params } from '../sim/params';
 import { rtArenaParams, rtPageParams } from '../run/rtRun';
 import { replay, Simulation, type Journal } from '../sim/simulation';
-import { focusGuarded, goalLamps, goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World } from '../sim/world';
+import { focusGuarded, goalLamps, goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World, type WorldEvent } from '../sim/world';
 import { linkPoint } from '../sim/chain';
 import { ChainAudio } from './audio';
 import { chainFeel, QUIET_GAIN } from './chainFeel';
@@ -68,7 +68,7 @@ import { DeathSeries } from './deathSeries';
 import { bustBlasts, goblinOf } from '../sim/slot';
 import { SoundGate, ThreatWatch } from './soundGate';
 import type { FightObserverFactory, ReplayTo, RtRecord } from '../telemetry/schema';
-import { fightObserver } from '../telemetry/observe';
+import { fightObserver, skipKey } from '../telemetry/observe';
 import { RtRecorder, type FightContext } from '../telemetry/recorder';
 import type { PrologueTally } from '../telemetry/prologue';
 import { devSource } from '../telemetry/sinks';
@@ -510,6 +510,14 @@ async function boot(): Promise<void> {
   /** «Пробел» or its tile: the jump aim on (when the jump can start) or off; a consumable aim gives way. */
   const toggleJump = (): void => { const on = !ui.jumpMode && canJump(world()); stopAim(); ui.jumpMode = on; };
   let dragging = false;
+  /** Task 34: the `shiftSkip` keys the held pointer journalled in the drawn chain (an empty chain forgets them). */
+  const holdSkips = new Set<string>();
+  /** Task 34: a `shiftSkip` among `events` the held pointer has not journalled yet (it remembers them). */
+  const newHoldSkip = (events: readonly WorldEvent[]): boolean => {
+    let fresh = false;
+    for (const ev of events) if (ev.type === 'shiftSkip' && !holdSkips.has(skipKey(ev.enemyId, ev.links))) { holdSkips.add(skipKey(ev.enemyId, ev.links)); fresh = true; }
+    return fresh;
+  };
   /** Pointer in page pixels (the hint follows it) and the reason shown last frame (snapshot). */
   let pointerClient: { x: number; y: number } | null = null;
   let hintReason: Refusal | null = null;
@@ -1129,12 +1137,18 @@ async function boot(): Promise<void> {
     if (itemAim !== null && (w.status !== 'playing' || (w.kit?.items[SLOT_ITEMS[itemAim]] ?? 0) < 1)) itemAim = null;
     // Stage G: the held still pointer takes an enemy that came under it or into reach (only appends; toggle). Journalled
     // only when it took a link: an append that found nothing changes nothing.
+    if (!w.chain.length) holdSkips.clear();
     if (live && dragging && params.holdPicks && ui.pointer && w.status === 'playing') {
-      const before = w.chain.length, p = ui.pointer, cmd: Command = { t: 'drag', x: p.x, y: p.y, mode: 'append' };
+      const before = w.chain.length, from = w.events.length, p = ui.pointer, cmd: Command = { t: 'drag', x: p.x, y: p.y, mode: 'append' };
       recorder?.beforeCommand(w);
-      sim.command(cmd, { onlyIfChanged: () => w.chain.length !== before });
+      // Task 34: an append that only passed a body of another colour on a free chain (`shiftSkip`) is journalled once per body and
+      // chain length, so the replay counts it too; the frames that repeat it are left out with their event.
+      let keep: boolean | null = null;
+      const kept = (): boolean => (keep ??= w.chain.length !== before || newHoldSkip(w.events.slice(from)));
+      sim.command(cmd, { onlyIfChanged: kept });
       // Only a journalled command is shown to the observer (the Node replay sees only those).
-      if (w.chain.length !== before) recorder?.afterCommand(cmd, w);
+      if (kept()) recorder?.afterCommand(cmd, w);
+      else w.events.length = from;
     }
     // Stage G: the reason at the pointer (not in jump aiming, menus or pause).
     hintReason = params.refusalHint && live && !ui.jumpMode && ui.pointer && pointerClient ? hoverRefusal(w, ui.pointer, dragging) : null;

@@ -107,3 +107,49 @@ test('task 10 view (review): 6 blue (the shift sounds), a red 7th, a step back t
   await page.mouse.up();
   expect(errors).toEqual([]);
 });
+
+test('task 34 (user 15.10.2026): in a run, 6 blue free the colour; a quick swipe through a mixed crowd keeps the chain blue; the pointer stopping on a red takes it', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
+  await page.getByTestId('run-new').click();
+  await page.getByTestId('gift-1').click();
+  const node = page.locator('[data-status="available"]').first();
+  await node.click();
+  await page.getByTestId('run-enter').click();
+  await expect(page.getByTestId('run')).toBeHidden();
+  // The run's own rule (no panel): the shift at 6, the colour kept free, another colour only at the pointer.
+  expect(await page.evaluate(() => { const p = (window as any).__realtime.params; return [p.colorShiftLinks, p.colorShiftKeep, p.shiftAtPointer]; })).toEqual([6, true, true]);
+  // Only the test's enemies, standing still: 6 blue in a row from the hero, then a red, a green beside it, a blue, and a red past it.
+  const at = await page.evaluate(() => {
+    const rt = (window as any).__realtime;
+    for (const [k, v] of [['maxEnemies', 0], ['enemySpeed', 0], ['wolfSpeed', 0], ['speedSpread', 0], ['boarMax', 0], ['contactDamage', 0], ['hitstop', false]] as const) rt.setParam(k, v);
+    rt.clear(false);
+    const h = rt.snapshot().hero;
+    const spots: [number, number, number][] = [[0.8, 0, 0], [1.6, 0, 0], [2.4, 0, 0], [3.2, 0, 0], [4.0, 0, 0], [4.8, 0, 0], [5.6, 0, 1], [5.6, 0.45, 2], [6.4, 0, 0], [7.2, 0, 1]];
+    return spots.map(([dx, dy, color]) => ({ id: rt.place(h.x + dx, h.y + dy, color, 0, 'basic') as number, color, ...rt.toScreen(h.x + dx, h.y + dy) as { x: number; y: number } }));
+  });
+  const chain = async (): Promise<number[]> => (await snap(page)).chain as number[];
+  await page.mouse.move(at[0].x, at[0].y);
+  await page.mouse.down();
+  for (let i = 1; i < 6; i++) {
+    await page.mouse.move(at[i].x, at[i].y, { steps: 2 });
+    await expect.poll(async () => (await chain()).length).toBe(i + 1);
+  }
+  expect((await snap(page)).colorShift.left).toBe(0);
+  // One quick move (a single pointer event) from the 6th to the blue past the red and the green: the swipe takes only the blue.
+  await page.mouse.move(at[8].x, at[8].y, { steps: 1 });
+  await expect.poll(async () => (await chain()).length).toBe(7);
+  expect(await chain()).toEqual([...at.slice(0, 6), at[8]].map(e => e.id));
+  // The pointer stops on the red: it joins, the chain's colour is red.
+  await page.mouse.move(at[9].x, at[9].y, { steps: 1 });
+  await expect.poll(async () => (await chain()).length).toBe(8);
+  expect((await chain()).at(-1)).toBe(at[9].id);
+  await page.screenshot({ path: 'artifacts/realtime-shift-pointer.png' });
+  await page.mouse.up();
+  expect(errors).toEqual([]);
+});

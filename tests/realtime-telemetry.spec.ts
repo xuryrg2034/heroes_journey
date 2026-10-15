@@ -638,3 +638,45 @@ test('the cost of recording on «Большая поляна» (?arena=18) is be
   expect(nodePerTick).toBeLessThan(0.1);
   expect(errors).toEqual([]);
 });
+
+test('task 34: a red that comes under the still held pointer on a free chain is passed by; the hold journals it once and the browser summary is the replay summary (`shiftSkips`)', async ({ page }) => {
+  const errors: string[] = [];
+  await openSandbox(page, errors, '&seed=4242');
+  await page.keyboard.press('1');
+  await expect(page.getByTestId('menu')).toBeHidden();
+  const { hx, hy } = await page.evaluate(() => {
+    const rt = (window as any).__realtime;
+    for (const [k, v] of [['maxEnemies', 0], ['enemySpeed', 0], ['wolfSpeed', 0], ['speedSpread', 0], ['baseIntervalMin', 1000], ['baseIntervalMax', 1000], ['baseFloor', 0], ['contactDamage', 0], ['crystals', false], ['colorShiftLinks', 6], ['hitstop', false], ['heroHp', 40]] as const) rt.setParam(k, v);
+    rt.clear(false);
+    rt.teleport(4.2, 3.6);
+    return { hx: 4.2, hy: 3.6 };
+  });
+  const points = Array.from({ length: 6 }, (_, i) => ({ x: hx + 0.8 * (i + 1), y: hy }));
+  for (const p of points) await place(page, p.x, p.y, 0);
+  const screens = [];
+  for (const p of points) screens.push(await screen(page, p.x, p.y));
+  await page.mouse.move(screens[0].x, screens[0].y);
+  await page.mouse.down();
+  for (const s of screens.slice(1)) await page.mouse.move(s.x, s.y, { steps: 2 });
+  await expect.poll(async () => (await page.evaluate(() => (window as any).__realtime.snapshot().chain.length))).toBe(6);
+  // The pointer stops on an empty spot by the 6th; a red comes there (placed under it) and stands for a while.
+  const spot = { x: points[5].x + 0.5, y: hy + 0.8 }, at = await screen(page, spot.x, spot.y);
+  await page.mouse.move(at.x, at.y, { steps: 2 });
+  await place(page, spot.x, spot.y, 1);
+  await gameWait(page, 0.3);
+  expect(await page.evaluate(() => (window as any).__realtime.snapshot().chain.length)).toBe(6);
+  await page.mouse.up();
+  await expect.poll(async () => (await snap(page)).moving, { timeout: 5_000 }).toBeNull();
+  await winSandbox(page);
+  const all = await records(page);
+  const fight = all.filter((r): r is FightRecord => r.kind === 'fight')[0];
+  const journal = await journalOf(all, fight);
+  // The held pointer's frames over the red: one journalled append (the first), the rest left out.
+  expect(journal.commands.filter(c => c.cmd.t === 'drag' && c.cmd.mode === 'append' && Math.hypot(c.cmd.x - spot.x, c.cmd.y - spot.y) < 0.05)).toHaveLength(1);
+  const report = analyzeJournal(journal);
+  expect(report.hash).toBe(fight.endHash);
+  const strip = (x: FightSummary) => { const c = JSON.parse(JSON.stringify(x)) as FightSummary; delete c.tempo.inView; c.threats = {}; return c; };
+  expect(strip(fight.summary)).toEqual(strip(report.summary));
+  expect(fight.summary.chain.shiftSkips).toBe(1);
+  expect(errors).toEqual([]);
+});

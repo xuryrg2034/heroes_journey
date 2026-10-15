@@ -16,7 +16,8 @@
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import { registerArena } from './arenas';
-import { chainColor, colorShiftIds, colorShiftLeft, colorShiftOf, crystalEveryOf, hoverRefusal, objectRefusal, planChain, type StrikeOutcome } from './chain';
+import { chainColor, colorShiftIds, colorShiftLeft, colorShiftOf, crystalEveryOf, hoverRefusal, nextCandidates, objectRefusal, planChain, type StrikeOutcome } from './chain';
+import type { Command } from './commands';
 import { COUNTER_TALISMANS, RELICS } from './buildIds';
 import { worldState } from './hash';
 import type { Loadout } from './kit';
@@ -30,6 +31,8 @@ import type { Enemy, World, WorldEvent } from './world';
 import { rtRunParams } from '../run/rtRun';
 import { rtTalisman } from '../run/rtTalismans';
 import { prologueParams } from '../run/prologue';
+import { fightObserver } from '../telemetry/observe';
+import { withSummaryDefaults } from '../telemetry/schema';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -523,6 +526,170 @@ check('keep: the run and the prologue play it on; the sandbox off; a journal wit
     const strip = (w: World): string => { const s = worldState(w) as Record<string, unknown>; delete s.params; return JSON.stringify(s); };
     assert(strip(b.world) === strip(a.sim.world), `seed ${k}: no key — the same world`);
   }
+});
+
+// ---- Task 34 «Смена цвета — только точкой курсора» (`shiftAtPointer`, user 15.10.2026) ----
+
+/** 6 blue drawn with the pointer (free colour), then `extra` bodies placed: `[x, y, color]`; returns their ids. */
+function freeSix(extra: readonly (readonly [number, number, number])[], params: Params = quiet(), k = 1): { sim: Simulation; ids: number[]; six: Laid[] } {
+  const sim = field(params, k), six = lay(sim, rep(0, 6));
+  const { taken } = drawRow(sim, six);
+  assert(taken === 6 && colorShiftLeft(sim.world) === 0, `six blue: ${taken}`);
+  const ids = extra.map(([x, y, color]) => sim.command({ t: 'place', x, y, color, hp: 0, kind: 'basic' }) as number);
+  return { sim, ids, six };
+}
+const SIXTH = { x: HERO.x + STEP * 6, y: 6 };
+/** A red right after the 6th blue and a blue behind it on the same line: the swipe from the 6th crosses the red first. */
+const RED_THEN_BLUE = [[SIXTH.x + 0.8, 6, 1], [SIXTH.x + 1.6, 6, 0]] as const;
+const sweep = (sim: Simulation, from: { x: number; y: number }, to: { x: number; y: number }): void => { sim.command({ t: 'sweep', fx: from.x, fy: from.y, x: to.x, y: to.y }); };
+const colors = (sim: Simulation): number[] => sim.world.chain.filter(l => l.kind === 'enemy').map(l => sim.world.enemies.find(e => e.id === l.id)!.color);
+
+check('task 34: 6 blue, a swipe through a red to a blue — the red is passed by, the blue joins; the pointer stopping on the red takes it (keep on and off)', () => {
+  for (const keepOn of [false, true]) {
+    const params = keepOn ? keep() : quiet(), tag = keepOn ? 'keep' : 'no keep';
+    const a = freeSix(RED_THEN_BLUE, params), [red, blue] = a.ids;
+    a.sim.world.events.length = 0;
+    sweep(a.sim, SIXTH, { x: SIXTH.x + 1.6, y: 6 });
+    assert(a.sim.world.chain.length === 7 && a.sim.world.chain[6].id === blue && !a.sim.world.chain.some(l => l.id === red), `${tag}: the red passed by, the blue joined (${colors(a.sim)})`);
+    assert(colors(a.sim).every(c => c === 0), `${tag}: the chain stays blue`);
+    assert(of(a.sim.world.events, 'shiftSkip').some(e => e.enemyId === red && e.links === 6), `${tag}: a shiftSkip for the red`);
+    // The pointer event itself on the red: it joins and sets the colour (the swipe ends on it).
+    const b = freeSix(RED_THEN_BLUE, params), [red2] = b.ids;
+    sweep(b.sim, SIXTH, { x: SIXTH.x + 0.8, y: 6 });
+    assert(b.sim.world.chain.length === 7 && b.sim.world.chain[6].id === red2 && chainColor(b.sim.world) === 1 && colorShiftLeft(b.sim.world) === 5, `${tag}: the red under the stopped pointer joins, the colour red, the count from it`);
+    const c = freeSix(RED_THEN_BLUE, params);
+    c.sim.command({ t: 'drag', x: SIXTH.x + 0.8, y: 6, mode: 'full' });
+    assert(c.sim.world.chain.at(-1)!.id === c.ids[0], `${tag}: a full drag on the red takes it`);
+    const plan = planChain(a.sim.world), hits = of(dash(a.sim), 'chainHit');
+    assert(hits.map(h => h.enemyId).join() === plan.links.map(l => l.link.id).join(), `${tag}: the plan is the dash`);
+    assert(replays(a.sim) && replays(b.sim), `${tag}: replays`);
+  }
+  // Without the key the swipe takes the red on its way and the blue behind it is refused (the old path).
+  const old = freeSix(RED_THEN_BLUE, quiet({ shiftAtPointer: false }));
+  sweep(old.sim, SIXTH, { x: SIXTH.x + 1.6, y: 6 });
+  assert(old.sim.world.chain.length === 7 && old.sim.world.chain[6].id === old.ids[0] && chainColor(old.sim.world) === 1, `key off: the swipe takes the red (${colors(old.sim)})`);
+});
+
+check('task 34: a red that comes under the still held pointer (append) is not taken; a blue there is; without the key the red is', () => {
+  const at = { x: SIXTH.x + 1, y: 6.8 };
+  const on = freeSix([[at.x, at.y, 1]]);
+  for (let i = 0; i < 5; i++) on.sim.command({ t: 'drag', x: at.x, y: at.y, mode: 'append' });
+  assert(on.sim.world.chain.length === 6 && colorShiftLeft(on.sim.world) === 0, 'the red under the still pointer: not taken, the colour still free');
+  assert(of(on.sim.world.events, 'shiftSkip').length === 5, 'a shiftSkip each frame (the view journals the first)');
+  const blue = on.sim.command({ t: 'place', x: at.x + 0.2, y: at.y, color: 0, hp: 0, kind: 'basic' }) as number;
+  on.sim.command({ t: 'drag', x: at.x + 0.2, y: at.y, mode: 'append' });
+  assert(on.sim.world.chain.at(-1)!.id === blue, 'a blue that comes under it joins');
+  const off = freeSix([[at.x, at.y, 1]], quiet({ shiftAtPointer: false }));
+  off.sim.command({ t: 'drag', x: at.x, y: at.y, mode: 'append' });
+  assert(off.sim.world.chain.at(-1)!.id === off.ids[0] && of(off.sim.world.events, 'shiftSkip').length === 0, 'key off: the red joins, no shiftSkip');
+  assert(replays(on.sim), 'replays');
+});
+
+check('task 34: the highlight and the hint do not change — the red on a free chain is a candidate, no refusal at the pointer, П1 counts it', () => {
+  const { sim, ids } = freeSix(RED_THEN_BLUE), w = sim.world, red = w.enemies.find(e => e.id === ids[0])!;
+  assert(nextCandidates(w).some(e => e.id === red.id), 'the red is a candidate (its ring stays)');
+  assert(hoverRefusal(w, red) === null && hoverRefusal(w, red, true) === null, `no refusal at the red (${hoverRefusal(w, red, true)})`);
+  const off = freeSix(RED_THEN_BLUE, quiet({ shiftAtPointer: false })), redOff = off.sim.world.enemies.find(e => e.id === off.ids[0])!;
+  assert(linkDepth(w, red, { max: 10 }).depth === linkDepth(off.sim.world, redOff, { max: 10 }).depth, 'П1 the same with the key on and off');
+});
+
+check('task 34: outside a free colour nothing changes — 5 blue, a crystal, an empty start: the swipe plays as without the key, the same world', () => {
+  const strip = (w: World): string => { const s = worldState(w) as Record<string, unknown>; delete s.params; return JSON.stringify(s); };
+  const play = (shiftAtPointer: boolean): { sim: Simulation; drawn: number[] } => {
+    const sim = field(quiet({ shiftAtPointer }), 2);
+    const row = lay(sim, [...rep(0, 5), 1, 0]);
+    drawRow(sim, row.slice(0, 5));
+    sweep(sim, row[4], row[6]);
+    // A crystal resets the colour: the swipe after it takes any colour first (not a «Смена цвета» freedom).
+    sim.command({ t: 'crystal', x: row[4].x, y: 7, value: 0 });
+    const red = { x: row[4].x + 0.9, y: 7.6 }, blue = { x: row[4].x + 1.7, y: 7.6 };
+    sim.command({ t: 'place', x: red.x, y: red.y, color: 1, hp: 0, kind: 'basic' });
+    sim.command({ t: 'place', x: blue.x, y: blue.y, color: 0, hp: 0, kind: 'basic' });
+    sweep(sim, row[6], { x: row[4].x, y: 7 });
+    sweep(sim, { x: row[4].x, y: 7 }, blue);
+    const drawn = colors(sim).slice();
+    dash(sim);
+    // A chain begun by a swipe from an empty spot has no colour yet: it takes what it meets.
+    sim.command({ t: 'teleport', x: HERO.x, y: 9 });
+    const fresh = lay(sim, [2, 3], 9);
+    sweep(sim, { x: HERO.x, y: 9 }, fresh[1]);
+    return { sim, drawn };
+  };
+  const on = play(true), off = play(false);
+  assert(strip(on.sim.world) === strip(off.sim.world), 'the same world with the key on and off');
+  assert(on.drawn.includes(1), `the chain through the crystal took the red (${on.drawn})`);
+  assert(colors(on.sim).join() === '2', `an empty start: the swipe took the first body it met (${colors(on.sim)})`);
+});
+
+check('task 34: the key off and a journal without the key play the old path, the same world; the run and the sandbox on', () => {
+  assert(rtRunParams(defaultParams()).shiftAtPointer === true && defaultParams().shiftAtPointer === true, 'run and sandbox on');
+  for (let k = 1; k <= 3; k++) {
+    const a = freeSix(RED_THEN_BLUE, quiet({ shiftAtPointer: false }), k);
+    sweep(a.sim, SIXTH, { x: SIXTH.x + 1.6, y: 6 });
+    a.sim.command({ t: 'drag', x: SIXTH.x + 1.6, y: 6, mode: 'append' });
+    assert(colors(a.sim)[6] === 1, `seed ${k}: the old path took the red`);
+    dash(a.sim);
+    ticks(a.sim, 120);
+    const journal = JSON.parse(JSON.stringify(a.sim.exportJournal()!)) as Journal;
+    delete (journal.params as Partial<Params>).shiftAtPointer;
+    const b = replay(journal);
+    const strip = (w: World): string => { const s = worldState(w) as Record<string, unknown>; delete s.params; return JSON.stringify(s); };
+    assert(strip(b.world) === strip(a.sim.world) && !('shiftAtPointer' in b.world.params), `seed ${k}: no key — the same world`);
+  }
+});
+
+check('task 34: the plan is the dash on several seeds — random swipes through a mixed crowd on a free chain; within a swipe only its end may change the colour', () => {
+  const seen = new Set<string>();
+  let oldBroke = 0;
+  for (let k = 1; k <= 8; k++) {
+    const rng = new Rng(seedOf(k)), crowd: [number, number, number][] = [];
+    while (crowd.length < 14) {
+      const x = SIXTH.x + 0.6 + rng.next() * 5, y = 4 + rng.next() * 4;
+      if (crowd.every(([cx, cy]) => Math.hypot(cx - x, cy - y) > 0.75)) crowd.push([x, y, Math.floor(rng.next() * 4)]);
+    }
+    const ends = Array.from({ length: 5 }, () => ({ x: SIXTH.x + 0.5 + rng.next() * 5.5, y: 4 + rng.next() * 4 }));
+    const run = (params: Params): { sim: Simulation; mixed: boolean } => {
+      const { sim } = freeSix(crowd, params, k), w = sim.world;
+      let from: { x: number; y: number } = SIXTH, mixed = false;
+      for (const to of ends) {
+        const before = w.chain.length, pre = w.enemies.find(e => e.id === w.chain[before - 1].id)!.color;
+        sweep(sim, from, to);
+        from = to;
+        // The links the swipe took before its end are of the chain's colour before it.
+        const added = w.chain.slice(before, -1).map(l => w.enemies.find(e => e.id === l.id)!.color);
+        if (added.some(c => c !== pre)) mixed = true;
+      }
+      return { sim, mixed };
+    };
+    const on = run(keep()), w = on.sim.world;
+    assert(!on.mixed, `seed ${k}: a swipe changed the colour before its end`);
+    if (run(keep({ shiftAtPointer: false })).mixed) oldBroke++;
+    const plan = planChain(w), enemyLinks = plan.links.filter(l => l.outcome), shifts = colorShiftIds(w).length, hits = of(dash(on.sim), 'chainHit');
+    assert(hits.length === enemyLinks.length && enemyLinks.every((l, i) => hits[i].enemyId === l.link.id && hits[i].killed === (l.outcome as StrikeOutcome).killed), `seed ${k}: the dash is the plan`);
+    seen.add(`${enemyLinks.length}/${shifts}`);
+    assert(replays(on.sim), `seed ${k}: replay`);
+  }
+  assert(seen.size >= 3, `the seeds give different chains: ${[...seen]}`);
+  // The check catches the problem: without the key some swipe changes the colour on its way.
+  assert(oldBroke >= 1, `without the key a swipe changes the colour midway on some seed (${oldBroke})`);
+  console.log(`  links/shifts by seed: ${[...seen].join(' ')}; old path mixed on ${oldBroke} of 8`);
+});
+
+check('task 34 telemetry: the observer counts a passed body once per body and chain length (a still pointer repeats it); 0 with the key off', () => {
+  const count = (params: Params): number => {
+    const sim = field(params), obs = fightObserver(sim.world), w = sim.world;
+    const cmd = (c: Command): void => { sim.command(c); obs.command(c, w); };
+    const six = lay(sim, rep(0, 6));
+    cmd({ t: 'begin', x: six[0].x, y: six[0].y });
+    for (const p of six.slice(1)) cmd({ t: 'drag', x: p.x, y: p.y, mode: 'full' });
+    for (const [x, y, color] of RED_THEN_BLUE) cmd({ t: 'place', x, y, color, hp: 0, kind: 'basic' });
+    for (let i = 0; i < 4; i++) cmd({ t: 'drag', x: SIXTH.x + 0.8, y: 6, mode: 'append' });
+    cmd({ t: 'sweep', fx: SIXTH.x, fy: 6, x: SIXTH.x + 1.6, y: 6 });
+    return obs.summary().chain.shiftSkips;
+  };
+  const on = count(quiet()), off = count(quiet({ shiftAtPointer: false }));
+  assert(on === 1 && off === 0, `skips: on ${on}, off ${off}`);
+  assert(withSummaryDefaults({ chain: {} }).chain.shiftSkips === 0, 'an older record reads 0');
 });
 
 console.log(`${checks} checks passed`);

@@ -347,6 +347,11 @@ export type WorldEvent =
   | { type: 'crystalBreak'; objectId: number; x: number; y: number; score: number; combo: number }
   /** «Смена цвета»: the dash reached the link that freed the chain's colour (the N-th link of a colour segment). */
   | { type: 'colorShift'; enemyId: number; x: number; y: number }
+  /**
+   * Task 34 (`Params.shiftAtPointer`): a sweep point or the held still pointer passed by an enemy of another colour on a free
+   * chain — without the rule it would have joined and changed the colour. `links` — the drawn chain's length then (telemetry).
+   */
+  | { type: 'shiftSkip'; enemyId: number; links: number }
   | { type: 'finisher'; kills: number }
   /**
    * Loop research, step 2: the loop gesture — closed (`close`), refused with a reason (`refused`), opened by the pointer on
