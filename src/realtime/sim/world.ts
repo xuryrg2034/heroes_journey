@@ -1609,6 +1609,8 @@ export function dropIntoCliffs(world: World, shoved: Map<Enemy, Enemy> | null, c
     if (world.status !== 'playing') return;
     if (!world.enemies.includes(e) || !overCliff(e, arena)) continue;
     if (kindOf(e).immune) { pushOutOfObstacles(e, bodyRadiusOf(world.params, e), arena); continue; }
+    // Task 27 (design 15.10.2026): a boss's part is held by its core — no push throws it over (a sever by chance is no skill).
+    if (e.partOf !== undefined && world.params.bossFrame) { pushOutOfObstacles(e, bodyRadiusOf(world.params, e), arena); continue; }
     const by = shoved?.get(e);
     const why: KillCause = cause ?? (knocked?.has(e) ? { source: 'chain', credited: true, fall: true }
       : by ? { source: by.kind, credited: false, fall: true } : { source: 'push', credited: false, fall: true });

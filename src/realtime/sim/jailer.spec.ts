@@ -17,6 +17,7 @@
  * - the core's death kills the weight after the dash (not the player's kill), the marked core opens the door;
  * - the frame off: the kinds are plain enemies; the arena «Тюремщик» turns it on for itself (a copy of the values, kept in the
  *   journal); other arenas play the given values; a journal without the key plays the old world;
+ * - the weight never falls into a cliff by a push (design 15.10.2026: it is held by the core); a plain enemy there falls;
  * - a fight on «Тюремщик» replays to its hash (checkpoints every 300 ticks) on several seeds.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
@@ -28,7 +29,7 @@ import { polygon, zone, type Vec } from './geometry';
 import { worldState } from './hash';
 import { defaultParams, type Params } from './params';
 import { Simulation, SIM_DT, replay, type Journal } from './simulation';
-import { enemyFrozen, type Enemy, type World, type WorldEvent } from './world';
+import { dropIntoCliffs, enemyFrozen, type Enemy, type World, type WorldEvent } from './world';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -351,6 +352,15 @@ check('the frame off: the kinds walk as plain enemies (no plates, no part, no mo
   assert(!given.bossFrame && boss1.world.params.bossFrame === true && boss1.world.params !== given && boss1.exportJournal()!.params.bossFrame === true, 'a copy with the frame on, in the journal');
   const outpost = new Simulation({ arena: 'outpost', params: given, seed: seedOf(1), record: true });
   assert(outpost.world.params === given && !outpost.world.params.bossFrame, '«Застава» plays the values given');
+});
+
+check('the weight is held by the core: over a cliff after a push it is put back on the edge, alive (design 15.10.2026); a plain enemy there falls', () => {
+  const sim = field('jailer-cliff'), w = sim.world, { weight } = boss(sim, { x: 12, y: 6 }, { x: 7, y: 6 });
+  const plain = place(sim, { x: 3, y: 9 }, 2);
+  weight.x = 3; weight.y = 4;
+  dropIntoCliffs(w, null);
+  assert(w.enemies.includes(weight) && weight.x >= 5 - 1e-6, `the weight stays (${weight.x}, ${weight.y})`);
+  assert(!w.enemies.includes(plain), 'a plain enemy over the cliff falls');
 });
 
 check('a journal without the key plays the old world (a sandbox fight with chains)', () => {
