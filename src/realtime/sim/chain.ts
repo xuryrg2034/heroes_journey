@@ -223,7 +223,7 @@ export interface FirePreview {
 /** Task 46 «Клеймо»: the chain's colour (the last coloured enemy link the dash reaches) and the bodies along the path it paints. */
 export interface PaintPreview { color: number; ids: number[] }
 /** Task 46: a body struck at the end of the dash (the wave, the end blast) on the shadow world: killed, its HP after, plates. */
-export interface EndHit { id: number; killed: boolean; hpAfter: number; plate?: true; platesAfter?: number }
+export interface EndHit { id: number; killed: boolean; hpAfter: number; plate?: true; platesBefore?: number; platesAfter?: number }
 /**
  * Task 46 «Подрыв»: the end blast of the drawn chain — its centre (the last enemy link reached, where it stands now), radius, hit and
  * plates off an elite, `detonate` (the last link an elite or tough: «Подрыв», not the plain blast) and the bodies with their outcomes.
@@ -485,7 +485,7 @@ function endHits(before: readonly Enemy[], after: readonly Enemy[], ids: readonl
     if (!b) return [];
     const a = after.find(e => e.id === id);
     if (!a) return [{ id, killed: true, hpAfter: 0 }];
-    return [platesOf(b) > 0 ? { id, killed: false, hpAfter: a.hp, plate: true as const, platesAfter: platesOf(a) } : { id, killed: false, hpAfter: a.hp }];
+    return [platesOf(b) > 0 ? { id, killed: false, hpAfter: a.hp, plate: true as const, platesBefore: platesOf(b), platesAfter: platesOf(a) } : { id, killed: false, hpAfter: a.hp }];
   });
 }
 

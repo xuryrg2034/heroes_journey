@@ -1,0 +1,75 @@
+[
+  {
+    "id": "trace-basket",
+    "file": "public/art/camp/trace-basket.png",
+    "generator": "built-in image_gen",
+    "prompt": "a wicker basket overflowing with mint-green and turquoise herbs and roots, one small potion vial leaning on it Use case: stylized-concept. Production transparent PNG game prop icon for Ashen Oath. ONE object only, centered, front three-quarter view, chunky readable silhouette that reads at 48px, 8% empty margin. Whimsical dark-fantasy 2D indie-game illustration, thick irregular dark NAVY outline, thinner interior lines, flat color blocks, simple two-step cel shading, minimal detail, no texture, no grain. Palette: deep navy, slate blue, muted steel blue, dark violet, desaturated turquoise, small warm-orange and pale-yellow accents, plus the object's natural colours. GENUINELY TRANSPARENT alpha background, no scenery, no floor, no shadow, no text, no letters, no numbers, no labels, no frame, no sheet. NOT photorealistic, NOT painterly, NOT 3D, NOT glossy."
+  },
+  {
+    "id": "trace-wheel",
+    "file": "public/art/camp/trace-wheel.png",
+    "generator": "built-in image_gen",
+    "prompt": "a small wooden knife-grinding wheel on a stand with a foot pedal, a whetstone wheel of grey stone Use case: stylized-concept. Production transparent PNG game prop icon for Ashen Oath. ONE object only, centered, front three-quarter view, chunky readable silhouette that reads at 48px, 8% empty margin. Whimsical dark-fantasy 2D indie-game illustration, thick irregular dark NAVY outline, thinner interior lines, flat color blocks, simple two-step cel shading, minimal detail, no texture, no grain. Palette: deep navy, slate blue, muted steel blue, dark violet, desaturated turquoise, small warm-orange and pale-yellow accents, plus the object's natural colours. GENUINELY TRANSPARENT alpha background, no scenery, no floor, no shadow, no text, no letters, no numbers, no labels, no frame, no sheet. NOT photorealistic, NOT painterly, NOT 3D, NOT glossy."
+  },
+  {
+    "id": "trace-mug",
+    "file": "public/art/camp/trace-mug.png",
+    "generator": "built-in image_gen",
+    "prompt": "an overturned wooden mug with three bone dice spilled beside it Use case: stylized-concept. Production transparent PNG game prop icon for Ashen Oath. ONE object only, centered, front three-quarter view, chunky readable silhouette that reads at 48px, 8% empty margin. Whimsical dark-fantasy 2D indie-game illustration, thick irregular dark NAVY outline, thinner interior lines, flat color blocks, simple two-step cel shading, minimal detail, no texture, no grain. Palette: deep navy, slate blue, muted steel blue, dark violet, desaturated turquoise, small warm-orange and pale-yellow accents, plus the object's natural colours. GENUINELY TRANSPARENT alpha background, no scenery, no floor, no shadow, no text, no letters, no numbers, no labels, no frame, no sheet. NOT photorealistic, NOT painterly, NOT 3D, NOT glossy."
+  },
+  {
+    "id": "trophy-jailer",
+    "file": "public/art/camp/trophy-jailer.png",
+    "generator": "built-in image_gen",
+    "prompt": "a heavy iron ball weight on a short broken chain, with a crude skull-and-weight mark on the ball Use case: stylized-concept. Production transparent PNG game prop icon for Ashen Oath. ONE object only, centered, front three-quarter view, chunky readable silhouette that reads at 48px, 8% empty margin. Whimsical dark-fantasy 2D indie-game illustration, thick irregular dark NAVY outline, thinner interior lines, flat color blocks, simple two-step cel shading, minimal detail, no texture, no grain. Palette: deep navy, slate blue, muted steel blue, dark violet, desaturated turquoise, small warm-orange and pale-yellow accents, plus the object's natural colours. GENUINELY TRANSPARENT alpha background, no scenery, no floor, no shadow, no text, no letters, no numbers, no labels, no frame, no sheet. NOT photorealistic, NOT painterly, NOT 3D, NOT glossy."
+  },
+  {
+    "id": "trophy-severed",
+    "file": "public/art/camp/trophy-severed.png",
+    "generator": "built-in image_gen",
+    "prompt": "a short severed piece of thick iron chain, the last link cut through with a bright cut edge Use case: stylized-concept. Production transparent PNG game prop icon for Ashen Oath. ONE object only, centered, front three-quarter view, chunky readable silhouette that reads at 48px, 8% empty margin. Whimsical dark-fantasy 2D indie-game illustration, thick irregular dark NAVY outline, thinner interior lines, flat color blocks, simple two-step cel shading, minimal detail, no texture, no grain. Palette: deep navy, slate blue, muted steel blue, dark violet, desaturated turquoise, small warm-orange and pale-yellow accents, plus the object's natural colours. GENUINELY TRANSPARENT alpha background, no scenery, no floor, no shadow, no text, no letters, no numbers, no labels, no frame, no sheet. NOT photorealistic, NOT painterly, NOT 3D, NOT glossy."
+  },
+  {
+    "id": "trophy-troll",
+    "file": "public/art/camp/trophy-troll.png",
+    "generator": "built-in image_gen",
+    "prompt": "a crooked mossy troll horn, teal-grey, with a small mushroom growing on its base Use case: stylized-concept. Production transparent PNG game prop icon for Ashen Oath. ONE object only, centered, front three-quarter view, chunky readable silhouette that reads at 48px, 8% empty margin. Whimsical dark-fantasy 2D indie-game illustration, thick irregular dark NAVY outline, thinner interior lines, flat color blocks, simple two-step cel shading, minimal detail, no texture, no grain. Palette: deep navy, slate blue, muted steel blue, dark violet, desaturated turquoise, small warm-orange and pale-yellow accents, plus the object's natural colours. GENUINELY TRANSPARENT alpha background, no scenery, no floor, no shadow, no text, no letters, no numbers, no labels, no frame, no sheet. NOT photorealistic, NOT painterly, NOT 3D, NOT glossy."
+  },
+  {
+    "id": "trophy-chief",
+    "file": "public/art/camp/trophy-chief.png",
+    "generator": "built-in image_gen",
+    "prompt": "Use case: stylized-concept. Production transparent PNG game trophy icon for Ashen Oath. Edit target: supplied chief-cauldron image. SAME cauldron as chief-cauldron: preserve its exact rounded pot shape, thick polygonal oval rim, two hanging angular ring handles, black iron and slate-blue colours and navy contours. REMOVE all three stones, all logs, all flames and the orange fire reflection on the bottom of the pot and handles. Finish the bare rounded iron bottom. ADD one crooked wooden-handled iron ladle sticking out of its mouth and one small green drip on the rim. Mouth may show a little dark content. No steam. One isolated cauldron trophy, centered, object occupies about 85% of a square canvas, intended final canvas 256x256. No halo.\nWhimsical dark-fantasy 2D indie-game illustration. Bold hand-drawn cartoon aesthetic, thick irregular dark NAVY outer contours, thinner interior lines, chunky angular asymmetric forms, exaggerated proportions, extremely strong silhouette readable at 64px. Flat color blocks, simple two-step cel shading, one shadow tone and tiny sharp highlights, minimal detail, no texture, no grain. GENUINELY TRANSPARENT alpha background, no scenery, no floor, no ground shadow, no text, no letters, no labels, no frame, no sheet, one subject only. NOT photorealistic, NOT painterly, NOT anime/manga, NOT 3D, NOT glossy/plastic, NOT highly textured, NOT excessive gradients.",
+    "note": "same cauldron as chief-cauldron"
+  },
+  {
+    "id": "trophy-shackles",
+    "file": "public/art/camp/trophy-shackles.png",
+    "generator": "built-in image_gen",
+    "prompt": "a pair of broken iron shackles, the chain between them snapped Use case: stylized-concept. Production transparent PNG game prop icon for Ashen Oath. ONE object only, centered, front three-quarter view, chunky readable silhouette that reads at 48px, 8% empty margin. Whimsical dark-fantasy 2D indie-game illustration, thick irregular dark NAVY outline, thinner interior lines, flat color blocks, simple two-step cel shading, minimal detail, no texture, no grain. Palette: deep navy, slate blue, muted steel blue, dark violet, desaturated turquoise, small warm-orange and pale-yellow accents, plus the object's natural colours. GENUINELY TRANSPARENT alpha background, no scenery, no floor, no shadow, no text, no letters, no numbers, no labels, no frame, no sheet. NOT photorealistic, NOT painterly, NOT 3D, NOT glossy."
+  },
+  {
+    "id": "trophy-castellan",
+    "file": "public/art/camp/trophy-castellan.png",
+    "generator": "built-in image_gen",
+    "prompt": "a torn tall war banner on a short pole, dark violet cloth with a tower emblem shape (no letters) Use case: stylized-concept. Production transparent PNG game prop icon for Ashen Oath. ONE object only, centered, front three-quarter view, chunky readable silhouette that reads at 48px, 8% empty margin. Whimsical dark-fantasy 2D indie-game illustration, thick irregular dark NAVY outline, thinner interior lines, flat color blocks, simple two-step cel shading, minimal detail, no texture, no grain. Palette: deep navy, slate blue, muted steel blue, dark violet, desaturated turquoise, small warm-orange and pale-yellow accents, plus the object's natural colours. GENUINELY TRANSPARENT alpha background, no scenery, no floor, no shadow, no text, no letters, no numbers, no labels, no frame, no sheet. NOT photorealistic, NOT painterly, NOT 3D, NOT glossy."
+  },
+  {
+    "id": "trophy-ash",
+    "file": "public/art/camp/trophy-ash.png",
+    "generator": "built-in image_gen",
+    "prompt": "a small wooden board with eight carved notches in a row, grey ash in the notches Use case: stylized-concept. Production transparent PNG game prop icon for Ashen Oath. ONE object only, centered, front three-quarter view, chunky readable silhouette that reads at 48px, 8% empty margin. Whimsical dark-fantasy 2D indie-game illustration, thick irregular dark NAVY outline, thinner interior lines, flat color blocks, simple two-step cel shading, minimal detail, no texture, no grain. Palette: deep navy, slate blue, muted steel blue, dark violet, desaturated turquoise, small warm-orange and pale-yellow accents, plus the object's natural colours. GENUINELY TRANSPARENT alpha background, no scenery, no floor, no shadow, no text, no letters, no numbers, no labels, no frame, no sheet. NOT photorealistic, NOT painterly, NOT 3D, NOT glossy."
+  },
+  {
+    "id": "trophy-bestiary",
+    "file": "public/art/camp/trophy-bestiary.png",
+    "generator": "built-in image_gen",
+    "prompt": "an ink pot with a grey owl feather quill standing in it, a drop of ink on the rim Use case: stylized-concept. Production transparent PNG game prop icon for Ashen Oath. ONE object only, centered, front three-quarter view, chunky readable silhouette that reads at 48px, 8% empty margin. Whimsical dark-fantasy 2D indie-game illustration, thick irregular dark NAVY outline, thinner interior lines, flat color blocks, simple two-step cel shading, minimal detail, no texture, no grain. Palette: deep navy, slate blue, muted steel blue, dark violet, desaturated turquoise, small warm-orange and pale-yellow accents, plus the object's natural colours. GENUINELY TRANSPARENT alpha background, no scenery, no floor, no shadow, no text, no letters, no numbers, no labels, no frame, no sheet. NOT photorealistic, NOT painterly, NOT 3D, NOT glossy."
+  },
+  {
+    "id": "trophy-chain",
+    "file": "public/art/camp/trophy-chain.png",
+    "generator": "built-in image_gen",
+    "prompt": "a long thin chain coiled into a ring, bright turquoise glow on the links Use case: stylized-concept. Production transparent PNG game prop icon for Ashen Oath. ONE object only, centered, front three-quarter view, chunky readable silhouette that reads at 48px, 8% empty margin. Whimsical dark-fantasy 2D indie-game illustration, thick irregular dark NAVY outline, thinner interior lines, flat color blocks, simple two-step cel shading, minimal detail, no texture, no grain. Palette: deep navy, slate blue, muted steel blue, dark violet, desaturated turquoise, small warm-orange and pale-yellow accents, plus the object's natural colours. GENUINELY TRANSPARENT alpha background, no scenery, no floor, no shadow, no text, no letters, no numbers, no labels, no frame, no sheet. NOT photorealistic, NOT painterly, NOT 3D, NOT glossy."
+  }
+]
