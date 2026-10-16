@@ -13,6 +13,8 @@
  * - Deterministic: comparisons and `+ − × ÷` only (the crossing test is the sign of cross products).
  */
 import { kindOf } from './enemies/kinds';
+import { talismanFired } from './build';
+import { FUSIONS } from './buildIds';
 import { insidePolygon, type Vec } from './geometry';
 import type { Params } from './params';
 import { damageEnemy, type ChainLink, type Enemy, type LoopKind, type SealMove, type World } from './world';
@@ -62,6 +64,7 @@ export function enemiesInside(world: World, ring: readonly Vec[], links: readonl
 /** The seal's strike at the end of the dash: the hit on those still on the arena, then the hold on the survivors. */
 export function strikeSeal(world: World, seal: SealMove): void {
   const struck: number[] = [];
+  let froze = false;
   for (const id of seal.inside) {
     if (world.status !== 'playing') return;
     const e = world.enemies.find(x => x.id === id);
@@ -70,8 +73,12 @@ export function strikeSeal(world: World, seal: SealMove): void {
     damageEnemy(world, e, seal.damage, { source: SEAL_SOURCE, credited: true });
     // The hold is the cold without the ×2: a frost-brittle enemy held longer than its cold loses the brittleness (the
     // hold would otherwise stretch it).
-    if (seal.hold > 0 && world.enemies.includes(e) && seal.hold > (e.chill ?? 0)) { e.chill = seal.hold; delete e.brittle; }
+    if (seal.ice && seal.brittle && seal.hold > 0 && world.enemies.includes(e)) {
+      // Task 44 «Ледяная печать»: the cold of the consumable — the longer of its own and the seal's, brittle.
+      e.chill = Math.max(e.chill ?? 0, seal.hold); e.brittle = true; froze = true;
+    } else if (seal.hold > 0 && world.enemies.includes(e) && seal.hold > (e.chill ?? 0)) { e.chill = seal.hold; delete e.brittle; froze = true; }
   }
+  if (seal.ice && froze) talismanFired(world, FUSIONS.iceSeal);
   world.events.push({ type: 'seal', phase: 'strike', kind: seal.kind, points: seal.ring.map(p => ({ x: p.x, y: p.y })), inside: struck, links: seal.links });
   if (struck.length && world.params.hitstop) world.hitstop = Math.max(world.hitstop, SEAL_HITSTOP);
 }

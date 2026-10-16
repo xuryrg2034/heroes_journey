@@ -21,6 +21,7 @@ import type { World } from '../sim/world';
 import { rtTalisman } from '../run/rtTalismans';
 import { runRow } from '../run/arenaPools';
 import { rtGarrisonNodeId } from '../run/garrison';
+import { fusionOfHalf } from '../sim/buildIds';
 import { rtEventView, rtFightArc, rtGiftView, rtHandFullOffers, rtLevel, rtNode, rtRestView, rtScheduleMet, rtShopView, type RtRunState, type RtRunStep } from '../run/rtRun';
 import type { GiftOption } from '../forest/runGift';
 import { ITEM_KINDS } from '../forest/items';
@@ -34,7 +35,7 @@ import {
   encodeJournal, fightKey, fightRecordId, gzipBase64, isIdSegment, journalPartId, makeExport, noteRecordId, nullObserver, packJournal, paramsHash, runKey, runRecordId, SANDBOX_RUN,
   sessionKey, splitParts, prologueKey, prologueRecordId, RT_TELEMETRY_SCHEMA,
   type FightObserver, type FightObserverFactory, type FightOutcome, type FightRecord, type FightSummary, type JournalMeta, type JournalPart, type NoteRecord, type RtHeader, type RtRecord,
-  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, CASINO_SOURCE, FEAT_SOURCE, type FeatSummary, type RunResources, type RunResourceSink, type RunResourceSource, type RunFeat, type RunFirst, type RunDie, type RunItems, type RunMapHeal, type RunMapSign, type RunFx, RUN_FX_LEVELS, type RunSecondWind, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord, type PrologueFrom, type PrologueRecord,
+  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, CASINO_SOURCE, FEAT_SOURCE, type FeatSummary, type RunResources, type RunResourceSink, type RunResourceSource, type RunFeat, type RunFirst, type RunDie, type RunItems, type RunMapHeal, type RunMapSign, type RunFx, type RunFusions, RUN_FX_LEVELS, type RunSecondWind, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord, type PrologueFrom, type PrologueRecord,
 } from './schema';
 import { PrologueTally } from './prologue';
 
@@ -315,6 +316,8 @@ interface RunMeta {
   resources?: RunResources;
   /** Task 35, С1: the level of «Тряска и вспышки» in the run (absent — not reported). */
   fx?: RunFx;
+  /** Task 44: the run's fusions (absent — a run without the flag, until its first step). */
+  fusions?: RunFusions;
   /** Tasks 36–37: the run's meta fields (`RunRecord.xp` … `quest`; absent — none yet). */
   metaTlm?: Partial<Pick<RunRecord, 'xp' | 'pack' | 'record' | 'locked' | 'carry' | 'stock' | 'hearthBuys' | 'npcClicks' | 'hearth' | 'quest'>>;
 }
@@ -698,6 +701,7 @@ export class RtRecorder {
     const record: RunRecord = {
       ...this.header(runRecordId(this.session, meta.key), 'run', meta.key, paramsHash(runParams)),
       seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, ...meta.hints?.length ? { hints: meta.hints } : {}, ...meta.items ? { items: meta.items } : {}, ...meta.gentle ? { gentle: true as const } : {}, ...meta.startPotion ? { startPotion: true as const } : {}, ...meta.secondWindOn ? { secondWindOn: true as const } : {}, ...meta.startItems ? { startItems: meta.startItems } : {}, ...meta.secondWind ? { secondWind: meta.secondWind } : {}, ...meta.mapHeals?.length ? { mapHeals: meta.mapHeals } : {}, /* task 18: the run's own level */ ...run.ash ? { ash: run.ash } : {}, /* task 41: the cap of healing potions */ ...run.potionCap ? { potionCap: run.potionCap } : {}, /* task 26: living elements of the snapshot (affix types apart) */ ...run.schedule ? { schedule: { start: run.schedule.seen.filter(id => !id.startsWith('affix:')).length } } : {},
+      ...run.fusions ? { fusions: meta.fusions ?? { halves: [], paired: [], made: [], declined: [] } } : {},
       ...meta.featsOn ? { featsOn: true as const } : {}, ...meta.feats?.length ? { feats: meta.feats } : {}, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun, ...meta.viewerRunApprox ? { viewerRunApprox: true as const } : {} } : {}, ...meta.firsts?.length ? { firsts: meta.firsts } : {}, ...meta.resources ? { resources: meta.resources } : {}, ...meta.fx ? { fx: meta.fx } : {}, ...meta.metaTlm ?? {}, ...runLevels(run), runParams,
     };
     void this.put([JSON.parse(JSON.stringify(record)) as RunRecord]);
@@ -909,6 +913,13 @@ export class RtRecorder {
           // On a battle card (design correction 14.10.2026) the heal is before the node's fight: its HP in is what the fight starts with.
           const visit = meta.nodes[meta.nodes.length - 1];
           if (before?.pending?.kind === 'battle' && visit?.nodeId === ev.nodeId) visit.hpIn = ev.hpAfter;
+        } else if (after.fusions && (ev.type === 'talisman-taken' || ev.type === 'fusion-paired' || ev.type === 'fusion-made' || ev.type === 'fusion-declined')) {
+          // Task 44 «Сплавы»: the halves, the pairs, the fusions at a rest and the refusals (the row of the node the step acted on).
+          const f = meta.fusions ??= { halves: [], paired: [], made: [], declined: [] }, row = meta.nodes[meta.nodes.length - 1]?.row ?? 0;
+          if (ev.type === 'talisman-taken') { if (fusionOfHalf(ev.id)) f.halves.push({ id: ev.id, row }); }
+          else if (ev.type === 'fusion-paired') f.paired.push({ fusion: ev.fusion, row });
+          else if (ev.type === 'fusion-made') f.made.push({ fusion: ev.fusion, row, nodeId: ev.nodeId });
+          else f.declined.push({ fusions: [...ev.fusions], row, nodeId: ev.nodeId });
         } else if (ev.type === 'run-won' || ev.type === 'run-lost') {
           meta.outcome = ev.type === 'run-won' ? 'victory' : 'defeat';
           // П6: the end of the run (the step that ended it; the first one, should a step repeat).

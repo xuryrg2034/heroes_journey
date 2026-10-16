@@ -38,8 +38,8 @@
  *
  * A dash that ends in the door (victory) has no end: no blast, no return (build.ts: `onChainEnd` is not called).
  */
-import { buildStateOf, chainEnemyLinks, registerBuildModule, setBuildState } from './build';
-import { BUILD_SOURCES, HAMMERS } from './buildIds';
+import { buildStateOf, chainEnemyLinks, registerBuildModule, setBuildState, talismanFired } from './build';
+import { BUILD_SOURCES, FUSIONS, HAMMERS } from './buildIds';
 import { buildHit, buildHitAll, enemiesInCircle, enemiesNearPath } from './buildHits';
 import { fireMinLinks, fireOn, planChain, returnFixedOn, returnStrike, startReturnRun } from './chain';
 import { eliteAffixes } from './elites';
@@ -47,7 +47,8 @@ import { kindOf } from './enemies/kinds';
 import { dist, inWater, overCliff, type Vec } from './geometry';
 import { frostPassPath } from './frostPass';
 import type { Params } from './params';
-import { RETURN_RADIUS, returnPowerOf, returnRoute, returnTargets, returnWaypoints, traceTo, type ReturnFixed } from './returnRun';
+import { boomerangFull } from './fusions';
+import { RETURN_RADIUS, returnPowerFor, returnRoute, returnTargets, returnWaypoints, traceTo, type ReturnFixed } from './returnRun';
 import type { Enemy, HeroMove, World } from './world';
 
 export { RETURN_RADIUS };
@@ -375,11 +376,15 @@ registerBuildModule({
   onChainEnd: (world, end) => {
     const state = buildStateOf<ReturnState>(world, HAMMERS.return), trace = state?.trace, hero = world.hero;
     setBuildState(world, HAMMERS.return, undefined);
+    // Task 44 «Бумеранг»: the full power when the last enemy link died (the highlight's `ReturnPreview.full`).
+    const lastKilled = !!end.last?.killed, power = returnPowerFor(world, end.power, lastKilled);
+    const fired = (): void => { if (boomerangFull(world, lastKilled)) talismanFired(world, FUSIONS.boomerang); };
     if (state?.fixed) {
       // `returnFixed`: from where the hero stands along the fixed route; the fixed bodies at their waypoints.
       const { points, bodies } = returnWaypoints(state.fixed, hero);
       const route = [{ x: hero.x, y: hero.y }, ...state.fixed.route.slice(1).map(p => ({ x: p.x, y: p.y }))];
-      if (!startReturnRun(world, points, returnPowerOf(end.power))) return;
+      if (!startReturnRun(world, points, power)) return;
+      fired();
       setBuildState(world, HAMMERS.return, { run: { route, total: points.length, bodies } } satisfies ReturnState);
       world.events.push({ type: 'hammer', kind: 'return', x: hero.x, y: hero.y, r: RETURN_RADIUS });
       return;
@@ -388,7 +393,8 @@ registerBuildModule({
     // The way back: the dash's corners in reverse, from where the hero stands to the start of the chain.
     const route = returnRoute(trace, hero);
     if (!route.length) return;
-    if (!startReturnRun(world, route, returnPowerOf(end.power))) return;
+    if (!startReturnRun(world, route, power)) return;
+    fired();
     setBuildState(world, HAMMERS.return, { hit: [] } satisfies ReturnState);
     world.events.push({ type: 'hammer', kind: 'return', x: hero.x, y: hero.y, r: RETURN_RADIUS });
   },

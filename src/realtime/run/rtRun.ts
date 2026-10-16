@@ -51,6 +51,9 @@ import { HAMMER_SALT, isHammerId, rtEventTalismanOffer, rtHammerOffer, rtTalisma
 // Task 30 «Формы в походе»: the run's forms, their node roll and the openers' pool.
 import { FORM_SALT, isRtForm, rtFormField, rtFormOffer, rtTalismanEligible, rtTalismanShown, RT_FORMS, RT_OPENERS, RT_RARE_SLOT, type RtTalismanDef, type RtTalismanPool } from './rtTalismans';
 import type { FormField } from '../sim/buildIds';
+// Task 44 «Сплавы»: the recipes (sim/buildIds.ts) and the run's fusion catalogue.
+import { fusionOfHalf, fusionRecipe, FUSION_RECIPES, type FusionId, type FusionRecipe } from '../sim/buildIds';
+import { isRtFusion } from './rtTalismans';
 // П6 «Незакрытое дело»: the lost fight's killing blow (rtRunEnd.ts).
 import { validDeath, type RtDeath } from './rtRunEnd';
 // Task 16 «Подвиги»: the feat kinds of the simulation (sim/feat.ts).
@@ -441,7 +444,11 @@ export const RT_MODIFIER_TEXT: Readonly<Record<RtModifier, string>> = {
 const isRtModifier = (value: unknown): value is RtModifier => typeof value === 'string' && (RT_MODIFIERS as readonly string[]).includes(value);
 
 /** What one merchant visit offers besides healing and «Закалка»: consumables by slot (and, with talismans, one talisman). */
-export interface RtShopStock { items: ItemKind[]; talisman: string | null }
+export interface RtShopStock {
+  items: ItemKind[]; talisman: string | null;
+  /** Task 44 «Сплавы»: the talisman is the guaranteed pair of a half the run holds (`rtFusionPair`), not the rarity draw. Absent otherwise. */
+  pair?: true;
+}
 export type RtShopGoodKind = 'heal' | 'harden' | 'item' | 'talisman';
 export interface RtShopPurchase { good: RtShopGoodKind; slot?: number; item?: ItemKind; talisman?: string; price: number; paid: Record<ResourceKind, number> }
 /**
@@ -587,6 +594,14 @@ export interface RtRunState {
    */
   forms?: true;
   /**
+   * Task 44 «Сплавы» (design 16.10.2026; docs/realtime-slice.md, section 8): the run's fusions — a half's pair on the next talisman
+   * screen (`rtFusionPair`), the fusion at a rest (`rtRestFuse`). Only with `forms`; set when the run is created (`RT_FUSIONS_ON`);
+   * absent — a run saved before it (or created without it): the old offers and rests, to its end.
+   */
+  fusions?: true;
+  /** Task 44: the halves whose pair guarantee is spent (a screen showed the partner), in order; absent — none yet. */
+  fusionShown?: RtTalismanId[];
+  /**
    * Task 38 «Гарнизон» (design 15.10.2026): the forest final does not end the run — its relic, «Предместье», then the garrison (run/
    * garrison.ts). Set when the run is created (`RT_GARRISON_ON`); absent — a run saved before it (or created without it): the forest
    * final wins the run, to its end, byte for byte as before.
@@ -712,6 +727,12 @@ export type RtRunEvent =
   | { type: 'talisman-taken'; id: RtTalismanId }
   /** Task 30 «одна форма на поле»: the form `id` of the same field as `by` (taken now) left the run (it is gone from the pool). */
   | { type: 'form-replaced'; id: RtTalismanId; by: RtTalismanId }
+  /** Task 44: the talisman taken completed the pair of `fusion` (both parts in the run). */
+  | { type: 'fusion-paired'; fusion: FusionId }
+  /** Task 44: the rest made `fusion` of its `parts` (they left the run). */
+  | { type: 'fusion-made'; nodeId: string; fusion: FusionId; parts: RtTalismanId[] }
+  /** Task 44: the rest closed by the heal or the craft while `fusions` were ready (the offer stays for the next rests). */
+  | { type: 'fusion-declined'; nodeId: string; fusions: FusionId[] }
   /** B5 К10: the talisman offer was rerolled for `price` resources (`paid` by kind); `options` — the new offer. */
   | { type: 'talisman-rerolled'; nodeId: string; price: number; paid: Record<ResourceKind, number>; options: RtTalismanOption[] }
   | { type: 'hammer-offered'; nodeId: string; options: HammerId[] }
@@ -832,7 +853,7 @@ export interface RtArenaOutcome {
  * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
  * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
  */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; garrison?: boolean; moat?: boolean; potionCap?: number } = {}): RtRunState {
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; potionCap?: number } = {}): RtRunState {
   const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
   // Task 12 (13.10.2026): the goal layouts of the `marked` arenas, as the mix — on as `RT_RUN_FORCED` says unless the option says.
   const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
@@ -857,6 +878,8 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   const hearth = locked && options.hearth ? rtCleanHearth(options.hearth) : undefined;
   // Task 30 «Формы в походе» (15.10.2026): its own flag, on unless the option says (false — the hammer screen and the old pools).
   const forms = options.forms ?? RT_FORMS_ON;
+  // Task 44 «Сплавы» (16.10.2026): its own flag, only with the forms.
+  const fusions = forms && (options.fusions ?? RT_FUSIONS_ON);
   // Task 38 «Гарнизон» (15.10.2026): its own flag, off unless the option says (design turns it on after the ui view).
   const garrison = options.garrison ?? RT_GARRISON_ON;
   // Task 40 «Гарнизон, шаг 1б» (16.10.2026): «Ров», the keymaster and the cart — only with the garrison, by `RT_GARRISON_MOAT_ON`
@@ -865,7 +888,7 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   // Task 41 «Три зелья» (16.10.2026): the cap of healing potions, `RT_POTION_CAP` unless the option says (0 — none, as a save before it).
   const potionCap = Math.max(0, Math.floor(options.potionCap ?? RT_POTION_CAP));
   const run: RtRunState = {
-    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...locked ? { locked, heroId: RT_HERO_ID } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...potionCap ? { potionCap } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...locked ? { locked, heroId: RT_HERO_ID } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...potionCap ? { potionCap } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
@@ -1321,7 +1344,8 @@ export function rtFormSlots(run: Pick<RtRunState, 'battles' | 'hearth'>, nodeId:
  */
 export function rtFormSlotField(run: Pick<RtRunState, 'forms' | 'talismans'>): FormField | null {
   if (!run.forms) return null;
-  const held = new Set(run.talismans.filter(isRtForm).map(id => rtFormField(id)));
+  // Task 44: a fusion holds the field of its form part.
+  const held = new Set(run.talismans.filter(id => isRtForm(id) || isRtFusion(id)).map(id => rtFormField(id)));
   return held.has('path') === held.has('end') ? null : held.has('path') ? 'end' : 'path';
 }
 /**
@@ -1343,6 +1367,85 @@ export function rtFormHammer(run: Pick<RtRunState, 'forms' | 'talismans'>): Hamm
   const hammers = run.talismans.filter(isHammerId);
   return hammers.find(id => rtFormField(id) === 'path') ?? hammers[0];
 }
+// ---------- Task 44 «Сплавы» (design 16.10.2026; docs/realtime-slice.md, section 8, «Сплавы») ----------
+
+/** Task 44: a new run with forms makes fusions (its own flag `fusions`; never without `forms`). */
+export const RT_FUSIONS_ON = true;
+/** The salt of a node's fusion roll (`mixSeed(arenaSeed, «rt-fusion»)`): which owed pair a screen shows when several are owed. */
+export const FUSION_SALT = [...'rt-fusion'].reduce((hash, ch) => Math.imul(hash ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5);
+type FusionRun = Pick<RtRunState, 'seed' | 'forms' | 'fusions' | 'schedule' | 'locked' | 'talismans' | 'talismansGone' | 'fusionShown'>;
+/**
+ * Both parts of `recipe` are available in this run (design 16.10.2026, answer 9): the flag, the form part in the run's form catalogue
+ * (a first run offers only the simple forms; a meta run's locked forms are out), the counter part not locked. A recipe never
+ * unlocks anything: the fusions come with the meta's packs.
+ */
+export function rtFusionRecipeOn(run: Pick<RtRunState, 'forms' | 'fusions' | 'schedule' | 'locked'>, recipe: FusionRecipe): boolean {
+  return !!run.fusions && !!run.forms && rtFormCatalog(run).some(def => def.id === recipe.form) && !rtIsLocked(run, recipe.counter);
+}
+/**
+ * The recipe line of a card (the choice screens, the build): the half's partner and the fusion; null — not a half, a run without
+ * fusions, or a part not available in this run (`rtFusionRecipeOn`).
+ */
+export function rtFusionRecipe(run: Pick<RtRunState, 'forms' | 'fusions' | 'schedule' | 'locked'>, id: RtTalismanId): { partner: RtTalismanId; fusion: FusionId } | null {
+  const of = fusionOfHalf(id), recipe = of ? fusionRecipe(of.fusion) : undefined;
+  return of && recipe && rtFusionRecipeOn(run, recipe) ? of : null;
+}
+/** «Пара собрана»: the fusions whose both parts the run holds now — the rest offers them (`rtRestView`). */
+export function rtFusionsReady(run: Pick<RtRunState, 'fusions' | 'talismans'>): FusionId[] {
+  if (!run.fusions) return [];
+  return FUSION_RECIPES.filter(r => run.talismans.includes(r.form) && run.talismans.includes(r.counter)).map(r => r.fusion);
+}
+/**
+ * The owed pairs (the guarantee): every half the run holds whose recipe is on, whose partner and fusion it does not hold and whose
+ * guarantee was not spent yet (`fusionShown`: a screen showed the partner). In the order of `talismans`.
+ */
+export function rtFusionOwed(run: FusionRun): { half: RtTalismanId; partner: RtTalismanId }[] {
+  if (!run.fusions) return [];
+  return run.talismans.flatMap(half => {
+    const of = rtFusionRecipe(run, half);
+    if (!of || run.fusionShown?.includes(half) || run.talismans.includes(of.partner) || run.talismans.includes(of.fusion)) return [];
+    return [{ half, partner: of.partner }];
+  });
+}
+/** The screens that carry the guarantee (design answer 6): «Застава», an event's reward, the chest, the feat, the Jailer's form screen, the merchant. */
+export type RtFusionScreen = 'hard' | 'event' | 'chest' | 'feat' | 'form' | 'shop';
+const FUSION_SCREENS: readonly string[] = ['hard', 'event', 'chest', 'feat', 'form', 'shop'];
+/** The place of the pair on a screen with `options`: the last one; «Застава»'s rare place (the form of the other field) is never taken. */
+const pairSlot = (screen: RtFusionScreen, options: readonly RtTalismanId[]): number =>
+  screen === 'hard' && options.length <= RT_RARE_SLOT + 1 ? options.length : Math.max(0, options.length - 1);
+/** The partner may stand on this screen beside `others`: in the pool (not gone, not locked), no clash; a form — of the run's form pool, its field not held by a fusion; the Jailer's form screen — forms only. */
+function pairFits(run: FusionRun, partner: RtTalismanId, screen: RtFusionScreen, others: readonly RtTalismanId[]): boolean {
+  if (!rtTalismanEligible(partner, talismanPool(run), others)) return false;
+  if (!isRtForm(partner)) return screen !== 'form';
+  const field = rtFormField(partner);
+  return rtFormPool(run).includes(partner) && !run.talismans.some(id => isRtFusion(id) && rtFormField(id) === field);
+}
+/**
+ * Task 44, the pair guarantee: the partner this screen of `nodeId` shows in its last place (`pairSlot`) — one of the owed pairs that
+ * fits, by the node's fusion roll when several do. Null — none owed, none fits, a run without fusions, or an owed partner is on the
+ * screen by its own draw already (nothing changes). No stream is spent.
+ */
+export function rtFusionPair(run: FusionRun, nodeId: string, screen: RtFusionScreen, options: readonly RtTalismanId[]): RtTalismanId | null {
+  const owed = rtFusionOwed(run);
+  if (!owed.length || owed.some(o => options.includes(o.partner))) return null;
+  const at = pairSlot(screen, options), others = options.filter((_, i) => i !== at);
+  const fits = owed.filter(o => pairFits(run, o.partner, screen, others));
+  return fits.length ? fits[mixSeed(arenaSeed(run, nodeId), FUSION_SALT) % fits.length].partner : null;
+}
+/** The screen's options with the guaranteed pair in its place (`rtFusionPair`); the same options when none. */
+function withFusionPair(run: FusionRun, nodeId: string, screen: RtFusionScreen, options: RtTalismanOption[]): RtTalismanOption[] {
+  const pair = rtFusionPair(run, nodeId, screen, options);
+  if (!pair) return options;
+  const out = [...options];
+  out.splice(pairSlot(screen, options), 1, pair);
+  return out;
+}
+/** A screen closes: the halves whose partner it showed spend their guarantee (one screen, design answer 8). */
+function spendFusionShown(run: RtRunState, shown: readonly RtTalismanId[]): void {
+  const spent = rtFusionOwed(run).filter(o => shown.includes(o.partner)).map(o => o.half);
+  if (spent.length) run.fusionShown = [...run.fusionShown ?? [], ...spent];
+}
+
 /**
  * Баланс (phase B, Т3): the price of the relic «Жернов» — the run's maximum HP this much lower when it is taken (real-time
  * HP; sim/relics.ts has its arena plus). The maximum stays at least 1; HP above the new maximum is cut to it.
@@ -1361,6 +1464,9 @@ function takeTalisman(run: RtRunState, id: RtTalismanId, events: RtRunEvent[]): 
     events.push({ type: 'form-replaced', id: replaced, by: id });
   }
   run.talismans.push(id);
+  // Task 44: the pair of a recipe is collected — the rest offers the fusion.
+  const of = run.fusions ? fusionOfHalf(id) : undefined;
+  if (of && run.talismans.includes(of.partner)) events.push({ type: 'fusion-paired', fusion: of.fusion });
   if (id === 'tough-hide') { run.maxHp += RT_TOUGH_HIDE_HP; run.hp += RT_TOUGH_HIDE_HP; }
   if (id === RELICS.millstone) { run.maxHp = Math.max(1, run.maxHp - RT_MILLSTONE_MAX_HP_PRICE); run.hp = Math.min(run.hp, run.maxHp); }
   events.push({ type: 'talisman-taken', id });
@@ -1388,7 +1494,12 @@ export function rtChestOwed(run: Pick<RtRunState, 'battles'>, nodeId: string): b
  * the screen opens with it, a reroll draws with it again (`exclude` — the talismans shown and rerolled), a save is checked
  * with it. An empty `exclude` is the pool as it is: the offer the screen opened with.
  */
-function talismanOfferOf(run: RtRunState, nodeId: string, source: RtTalismanSource, base: number, exclude: readonly RtTalismanId[] = []): RtTalismanOption[] | null {
+function talismanOfferOf(run: RtRunState, nodeId: string, source: RtTalismanSource, base: number, exclude: readonly RtTalismanId[] = [], pair = true): RtTalismanOption[] | null {
+  const options = drawTalismanOffer(run, nodeId, source, base, exclude);
+  // Task 44: the pair guarantee takes the last place of the screens that carry it (`pair` false — the draw alone, a reroll's «left» check).
+  return options && pair && FUSION_SCREENS.includes(source) ? withFusionPair(run, nodeId, source as RtFusionScreen, options) : options;
+}
+function drawTalismanOffer(run: RtRunState, nodeId: string, source: RtTalismanSource, base: number, exclude: readonly RtTalismanId[] = []): RtTalismanOption[] | null {
   const pool = talismanPool(run, exclude);
   // Task 30: the Jailer's form screen — by the node's form roll, not by `base` (no `talismans` draw).
   if (source === 'form') return rtFormOptions(run, nodeId, exclude);
@@ -1439,7 +1550,7 @@ export function rtRerollView(run: RtRunState): RtRerollView | null {
   const rerolls = pending.rerolls ?? 0, price = free ? 0 : RT_REROLL_PRICE + rerolls, total = stockTotal(run.materials);
   const shown = [...pending.rerolled ?? [], ...pending.options];
   // Task 30: the form screen — some form of the pool not shown on it yet (its reroll fills the places left from those shown).
-  const left = pending.source === 'form' ? rtFormPool(run).some(id => !shown.includes(id)) : (talismanOfferOf(run, pending.nodeId, pending.source, 0, shown) ?? []).length > 0;
+  const left = pending.source === 'form' ? rtFormPool(run).some(id => !shown.includes(id)) : (talismanOfferOf(run, pending.nodeId, pending.source, 0, shown, false) ?? []).length > 0;
   const reason = !left ? (pending.source === 'form' ? 'Других форм нет' : 'Других талисманов не осталось') : total < price ? `Нужно ресурсов: ${price}, есть ${total}` : '';
   return { price, total, rerolls, available: !reason, reason, ...free ? { free: true as const } : {} };
 }
@@ -1458,7 +1569,9 @@ export function rtRerollTalismans(current: RtRunState): RtRunStep {
   const paid = view.free ? emptyMaterials() : shopPayment(run.materials, view.price);
   for (const kind of RESOURCE_KINDS) run.materials[kind] -= paid[kind];
   if (view.free) run.jailerRerolled = (run.jailerRerolled ?? 0) + 1;
-  const rerolled = [...pending.rerolled ?? [], ...pending.options];
+  // Task 44: the guaranteed pair stays on the screen through a reroll — it is not one of the shown ones.
+  const pairs = rtFusionOwed(run).map(o => o.partner);
+  const rerolled = [...pending.rerolled ?? [], ...pending.options.filter(id => !pairs.includes(id))];
   // Task 30: the form screen rerolls by the node's form roll — no `talismans` draw.
   const options = talismanOfferOf(run, pending.nodeId, pending.source, pending.source === 'form' ? 0 : draw(run, 'talismans', true), rerolled)!;
   run.pending = { ...pending, options, rerolls: view.rerolls + 1, rerolled };
@@ -1475,6 +1588,8 @@ export function rtChooseTalisman(current: RtRunState, chosen: RtTalismanOption |
   if (pending?.kind !== 'talisman') return fail('Сейчас нечего выбирать.');
   if (chosen !== null && !pending.options.includes(chosen)) return fail('Этого варианта нет среди предложенных.');
   const run = structuredClone(current), events: RtRunEvent[] = [];
+  // Task 44: the screen showed these options — a half whose partner was among them spends its guarantee (taken or refused).
+  spendFusionShown(run, pending.options);
   if (chosen) takeTalisman(run, chosen, events);
   // Task 30: a form not taken stays in the form pool (the Jailer's three and the «Застава» form; only a replaced form is gone).
   run.talismansGone.push(...pending.options.filter(option => option !== chosen && !isRtForm(option)));
@@ -1810,7 +1925,9 @@ export function rtEnterNode(current: RtRunState, nodeId: string, oath: OathId | 
     // first (none open — none; one open — the other slot a closed kind, buying it opens it).
     const base = draw(run, 'merchant', true), stock = shopStock(base, run.openItems, GIFT_POOL);
     // Step 3: the talisman of the visit from the slice's list (the rarity roll of the turn-based merchant).
-    run.pending = { kind: 'shop', nodeId, stock: { items: stock.items, talisman: rtShopTalisman(base, talismanPool(run)) }, bought: [] };
+    // Task 44: the guaranteed pair of a half replaces the visit's talisman (`stock.pair`; no stream spent beyond the visit's draw).
+    const drawn = rtShopTalisman(base, talismanPool(run)), pair = rtFusionPair(run, nodeId, 'shop', drawn ? [drawn] : []);
+    run.pending = { kind: 'shop', nodeId, stock: { items: stock.items, talisman: pair ?? drawn, ...pair ? { pair: true as const } : {} }, bought: [] };
     return { ok: true, run, events };
   }
   // B7 К9: the circle's roll comes before the event's draw; the circle spends no `events` draw.
@@ -1936,7 +2053,8 @@ function afterVictory(run: RtRunState, node: ForestMapNode, battle: RtBattleKind
   // Phase B (design answers 1–2): the first Jailer's row of the run offers a hammer first; its oath choice follows. Task 30: a
   // run with forms offers forms there instead (by the node's form roll; nothing to offer — straight to the oaths).
   if (choice === 'oath' && hammerDue(run, node) && run.forms) {
-    const options = rtFormOptions(run, node.id);
+    // Task 44: with the guaranteed pair of a half in its last place (`talismanOfferOf`).
+    const options = talismanOfferOf(run, node.id, 'form', 0)!;
     if (options.length) { offerTalismans(run, node.id, 'form', options, events); return { ok: true, run, events }; }
     offerOaths(run, node.id, events); return { ok: true, run, events };
   }
@@ -2228,7 +2346,14 @@ export interface RtRestView {
   crafted: ItemKind[];
   /** Crafting was chosen: «К карте» completes the rest. */
   canFinish: boolean;
+  /**
+   * Task 44 «Сплавы»: the fusions whose both parts the run holds (`rtFusionsReady`) — «Сплав: „…“» beside the heal and the craft;
+   * `available` — no craft chosen yet (the fusion takes the rest). Empty — none ready, a run without fusions.
+   */
+  fusions: RtRestFusion[];
 }
+/** Task 44: a fusion the rest offers — its parts (the form, the counter) and whether it may be chosen now. */
+export interface RtRestFusion { fusion: FusionId; form: RtTalismanId; counter: RtTalismanId; available: boolean }
 export function rtRestView(run: RtRunState): RtRestView | null {
   const pending = run.pending, node = pending?.kind === 'rest' ? rtNode(run, pending.nodeId) : undefined;
   if (!node || pending?.kind !== 'rest') return null;
@@ -2238,14 +2363,37 @@ export function rtRestView(run: RtRunState): RtRestView | null {
       const have = run.materials[resource], item = RESOURCES[resource].crafts, full = !!rtItemRefusal(run, item);
       return { resource, item, have, cost: CRAFT_COST, available: have >= CRAFT_COST && !full, opens: !run.openItems.includes(item), ...full ? { handFull: true as const } : {} };
     }),
-    crafted: [...pending.crafted], canFinish: crafting };
+    crafted: [...pending.crafted], canFinish: crafting,
+    // Task 44: under «Клятва голода» or the gift's «следующий привал не лечит» too (the heal is 0, the fusion stays).
+    fusions: rtFusionsReady(run).map(fusion => { const r = fusionRecipe(fusion)!; return { fusion, form: r.form, counter: r.counter, available: !crafting }; }) };
+}
+/** Task 44: the rest closes by the heal or the craft while fusions are ready — the telemetry's refusal (the offer stays for the next rests). */
+const fusionDeclined = (run: RtRunState, nodeId: string): RtRunEvent[] => { const ready = rtFusionsReady(run); return ready.length ? [{ type: 'fusion-declined', nodeId, fusions: ready }] : []; };
+/**
+ * Task 44 «Сплавы»: make `fusion` at the open rest (design 16.10.2026): its two parts leave the run and the pool for good, the fusion
+ * joins it (the field of its form part); the rest completes — no heal, no craft — and the gift's «следующий привал не лечит» is
+ * spent. Not after crafting began.
+ */
+export function rtRestFuse(current: RtRunState, fusion: FusionId): RtRunStep {
+  const view = rtRestView(current);
+  if (!view) return fail('Сейчас нет привала.');
+  const offer = view.fusions.find(entry => entry.fusion === fusion);
+  if (!offer) return fail('Этого сплава нет: нужны обе части.');
+  if (!offer.available) return fail('На этом привале выбран крафт: сплава не будет.');
+  const run = structuredClone(current), parts = [offer.form, offer.counter];
+  run.talismans = run.talismans.filter(id => !parts.includes(id));
+  run.talismansGone.push(...parts);
+  run.talismans.push(fusion);
+  delete run.restNoHeal;
+  const events: RtRunEvent[] = [{ type: 'fusion-made', nodeId: view.nodeId, fusion, parts }];
+  completeNode(run, rtNode(run, view.nodeId)!, events); return { ok: true, run, events };
 }
 /** Heal at the open rest (HP up to the maximum); the rest completes. Not after crafting began. */
 export function rtRestHeal(current: RtRunState): RtRunStep {
   const view = rtRestView(current);
   if (!view) return fail('Сейчас нет привала.');
   if (!view.heal.available) return fail('На этом привале выбран крафт: лечения не будет.');
-  const run = structuredClone(current), events: RtRunEvent[] = [{ type: 'healed', nodeId: view.nodeId, amount: view.heal.amount }];
+  const run = structuredClone(current), events: RtRunEvent[] = [{ type: 'healed', nodeId: view.nodeId, amount: view.heal.amount }, ...fusionDeclined(current, view.nodeId)];
   run.hp += view.heal.amount;
   delete run.restNoHeal;
   completeNode(run, rtNode(run, view.nodeId)!, events); return { ok: true, run, events };
@@ -2273,7 +2421,7 @@ export function rtRestFinish(current: RtRunState): RtRunStep {
   const view = rtRestView(current);
   if (!view) return fail('Сейчас нет привала.');
   if (!view.canFinish) return fail('Сначала выбери: лечение или крафт.');
-  const run = structuredClone(current), events: RtRunEvent[] = [];
+  const run = structuredClone(current), events: RtRunEvent[] = fusionDeclined(current, view.nodeId);
   delete run.restNoHeal;
   completeNode(run, rtNode(run, view.nodeId)!, events); return { ok: true, run, events };
 }
@@ -2321,8 +2469,9 @@ export function rtShopView(run: RtRunState): RtShopView | null {
   });
   // Task 30: a run with forms shows the counters by their chain window (`rtTalismanShown`) and what a form would replace.
   const talisman = pending.stock.talisman ? rtTalismanShown(pending.stock.talisman, !!run.forms) : undefined;
-  if (talisman && talisman.rarity !== 'oath' && talisman.rarity !== 'relic' && talisman.rarity !== 'form') {
-    const price = SHOP_TALISMAN_PRICE[talisman.rarity], sold = pending.bought.some(entry => entry.good === 'talisman'), reason = sold ? 'Куплено' : short(price);
+  // Task 44: the merchant may sell a form as the fusion's pair (`RtShopStock.pair`) — at the rare talisman's price.
+  if (talisman && talisman.rarity !== 'oath' && talisman.rarity !== 'relic' && talisman.rarity !== 'fusion' && (talisman.rarity !== 'form' || pending.stock.pair)) {
+    const price = SHOP_TALISMAN_PRICE[talisman.rarity === 'form' ? 'rare' : talisman.rarity], sold = pending.bought.some(entry => entry.good === 'talisman'), reason = sold ? 'Куплено' : short(price);
     const replaces = sold ? null : rtFormReplaces(run, talisman.id);
     goods.push({ id: 'talisman', good: 'talisman', talisman: talisman.id, label: talisman.name, text: talisman.effect, price, fullPrice: price, available: !reason, reason, sold, ...replaces ? { replaces } : {} });
   }
@@ -2360,7 +2509,9 @@ export function rtShopLeave(current: RtRunState): RtRunStep {
   const run = structuredClone(current), events: RtRunEvent[] = [];
   // A talisman shown and not bought leaves the pool (docs/talismans.md: shown and refused).
   const talisman = pending.stock.talisman;
-  if (talisman && !pending.bought.some(entry => entry.good === 'talisman')) run.talismansGone.push(talisman);
+  // Task 44: the visit showed the pair — its guarantee is spent; a form not bought stays in the form pool (as on the choice screens).
+  if (talisman) spendFusionShown(run, [talisman]);
+  if (talisman && !pending.bought.some(entry => entry.good === 'talisman') && !isRtForm(talisman)) run.talismansGone.push(talisman);
   completeNode(run, rtNode(run, pending.nodeId)!, events); return { ok: true, run, events };
 }
 
@@ -2961,7 +3112,7 @@ export function migrateRun(value: unknown): unknown {
 const oathNodeOf = (node: ForestMapNode | undefined): boolean => !!node && rtOathNode(node);
 
 /** A talisman the merchant's stock may hold: a talisman of the slice (not an oath, not a relic). */
-const validShopTalisman = (value: unknown): boolean => isRtTalisman(value) && !isRtOath(value) && rtTalisman(value)?.rarity !== 'relic';
+const validShopTalisman = (value: unknown): boolean => isRtTalisman(value) && !isRtOath(value) && rtTalisman(value)?.rarity !== 'relic' && rtTalisman(value)?.rarity !== 'fusion';
 const isTalismanList = (value: unknown): value is RtTalismanId[] => Array.isArray(value) && value.every(isRtTalisman) && new Set(value).size === value.length;
 
 /**
@@ -3017,6 +3168,9 @@ function checkRun(value: unknown): RtRunState | null {
   if (value.jailerRerolled !== undefined && !(isCount(value.jailerRerolled) && value.jailerRerolled >= 1 && isRecord(value.hearth) && value.jailerRerolled <= (value.hearth.jailerRerolls as number))) return null;
   // Task 30 (15.10.2026): a flag; absent — a save before it, which has the hammer screen and the old pools.
   if (value.forms !== undefined && value.forms !== true) return null;
+  // Task 44 (16.10.2026): a flag, only with the forms; the halves whose guarantee is spent — known ids, each once, only with it.
+  if (value.fusions !== undefined && !(value.fusions === true && value.forms === true)) return null;
+  if (value.fusionShown !== undefined && !(value.fusions === true && isTalismanList(value.fusionShown) && value.fusionShown.length && new Set(value.fusionShown).size === value.fusionShown.length && value.fusionShown.every(id => fusionOfHalf(id as string)))) return null;
   // Task 26: the viewer's snapshot — sorted known elements, no repeats (may be empty); only below «Испытание II».
   if (value.schedule !== undefined && !(isRecord(value.schedule) && Object.keys(value.schedule).length === 1 && Array.isArray(value.schedule.seen)
     && value.schedule.seen.every(isScheduleElement) && JSON.stringify([...new Set(value.schedule.seen)].sort()) === JSON.stringify(value.schedule.seen)
@@ -3068,6 +3222,8 @@ function checkRun(value: unknown): RtRunState | null {
   // Task 30: the forms and the openers only in a run with the flag (no hammer of the hammer screen there); one form per field.
   const formLike = (id: RtTalismanId) => isRtForm(id) || RT_OPENERS.some(def => def.id === id);
   if (!run.forms && [...run.talismans, ...run.talismansGone].some(formLike)) return null;
+  // Task 44: the fusions only in a run with the flag.
+  if (!run.fusions && [...run.talismans, ...run.talismansGone].some(isRtFusion)) return null;
   if (run.forms) {
     const fields = run.talismans.flatMap(id => rtFormField(id) ?? []);
     if (run.hammer !== undefined || new Set(fields).size !== fields.length) return null;
@@ -3239,7 +3395,8 @@ function checkRun(value: unknown): RtRunState | null {
         if ((rerolls === undefined) !== (rerolled === undefined)) return null;
         if (rerolls !== undefined && !(isCount(rerolls) && rerolls >= 1 && isCount(run.jailerRerolled) && rerolls <= run.jailerRerolled && isTalismanList(rerolled)
           && rerolled.length >= rerolls && rerolled.every(id => isRtForm(id) && !options.includes(id)))) return null;
-        if (JSON.stringify(rtFormOptions(run, node.id, (rerolled as RtTalismanId[] | undefined) ?? [])) !== JSON.stringify(options)) return null;
+        // Task 44: with the guaranteed pair of a half in its last place (`talismanOfferOf`).
+        if (JSON.stringify(talismanOfferOf(run, node.id, 'form', 0, (rerolled as RtTalismanId[] | undefined) ?? [])) !== JSON.stringify(options)) return null;
         break;
       }
       // B5 К10 (the same version 7): the rerolls of this screen and the talismans they took away — both or neither; only an
@@ -3293,7 +3450,9 @@ function checkRun(value: unknown): RtRunState | null {
       const boughtTalisman = pending.bought.some(entry => isRecord(entry) && entry.good === 'talisman');
       // Task 30: a bought «Близнецы» may have replaced «Якорь у героя» — it was taken then, gone now: the same draw either way.
       const entering = talismanPool({ ...run, talismans: run.talismans.filter(id => !(boughtTalisman && id === stock.talisman)) });
-      if (rtShopTalisman(streamValue(level.seed, 'merchant', level.streams.merchant - 1), entering) !== stock.talisman) return null;
+      // Task 44: the guaranteed pair (`stock.pair`) — a half's partner in a run with fusions, instead of the draw.
+      if (stock.pair !== undefined) { if (!(stock.pair === true && run.fusions === true && typeof stock.talisman === 'string' && fusionOfHalf(stock.talisman))) return null; }
+      else if (rtShopTalisman(streamValue(level.seed, 'merchant', level.streams.merchant - 1), entering) !== stock.talisman) return null;
       const items = stock.items as ItemKind[];
       if (!pending.bought.every(entry => isRecord(entry) && isCount(entry.price) && isMaterials(entry.paid) && (entry.good === 'heal' || entry.good === 'harden'
         || entry.good === 'item' && isCount(entry.slot) && entry.slot < items.length && entry.item === items[entry.slot]

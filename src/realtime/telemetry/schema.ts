@@ -316,6 +316,13 @@ export interface RunCarry { n: number; share: number; cap: number; resources: nu
 export interface RunHearthBuy { npc: string; level: number; price: number }
 /** Task 37: what the camp gave the run at its start (`RunRecord.hearth`): maps offered and the index chosen, the start consumable, Ерофей's flags. */
 export interface RunHearth { maps?: number; map?: number; startItems?: string[]; jailerRerolls?: number; hammerAll?: true }
+/** Task 44: the fusions of a run (`RunRecord.fusions`). Rows are run rows (1…). */
+export interface RunFusions {
+  halves: { id: string; row: number }[];
+  paired: { fusion: string; row: number }[];
+  made: { fusion: string; row: number; nodeId: string }[];
+  declined: { fusions: string[]; row: number; nodeId: string }[];
+}
 /** Task 37: the run's quest and (once the run ended) whether it was done. */
 export interface RunQuest { npc: string; id: string; done?: boolean }
 
@@ -415,6 +422,12 @@ export interface RunRecord extends RtHeader {
   /** Task 37: what the camp gave this run at its start; the run's quest. */
   hearth?: RunHearth;
   quest?: RunQuest;
+  /**
+   * Task 44 «Сплавы» (from 16.10.2026): the run has fusions (`RtRunState.fusions`) and what happened to them — the halves taken (their
+   * row), the pairs collected, the fusions made at a rest and the rests closed by the heal or the craft with a pair ready. Absent — a
+   * run without the flag (older records too).
+   */
+  fusions?: RunFusions;
   /** The Params of the run, once per run (decision 3): the journals name them by `params.hash`. Named `runParams` because `params` is the header's `{storage, hash}`. */
   runParams: Params;
 }
@@ -637,6 +650,14 @@ export function checkRecord(value: unknown): string | null {
       if (r.ash !== undefined && !(Number.isInteger(r.ash) && (r.ash as number) >= 1 && (r.ash as number) <= 5)) return 'run ash';
       // Task 41 (16.10.2026): optional — the cap of healing potions, a whole number from 1.
       if (r.potionCap !== undefined && !(Number.isInteger(r.potionCap) && (r.potionCap as number) >= 1)) return 'run potionCap';
+      // Task 44 (16.10.2026): optional — the fusions: four lists of objects with a row (and an id, a fusion, a node).
+      if (r.fusions !== undefined) {
+        const f = r.fusions as Record<string, unknown> | null, list = (v: unknown, keys: readonly string[]): boolean => Array.isArray(v) && v.every(x => {
+          const o = x as Record<string, unknown> | null;
+          return !!o && typeof o === 'object' && Number.isInteger(o.row) && keys.every(k => typeof o[k] === 'string' || (k === 'fusions' && Array.isArray(o[k])));
+        });
+        if (!f || typeof f !== 'object' || !list(f.halves, ['id']) || !list(f.paired, ['fusion']) || !list(f.made, ['fusion', 'nodeId']) || !list(f.declined, ['fusions', 'nodeId'])) return 'run fusions';
+      }
       // Task 15 (14.10.2026): optional — the map heals bought.
       if (r.mapHeals !== undefined && !(Array.isArray(r.mapHeals) && r.mapHeals.every(h => {
         const o = h as Record<string, unknown> | null;

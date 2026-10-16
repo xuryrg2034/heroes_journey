@@ -16,7 +16,7 @@
  * source, as before: the streams do not move.
  */
 import { mixSeed } from '../forest/items';
-import { COUNTER_TALISMANS as CT, FORM_FIELD, FORMS as FM, FROST_PASS, HAMMERS as HM, HAMMER_IDS as HAMMER_LIST, RELICS as RL, type FormField, type HammerId as Hammer } from '../sim/buildIds';
+import { COUNTER_TALISMANS as CT, FORM_FIELD, FORMS as FM, FROST_PASS, FUSIONS as FU, FUSION_RECIPES, HAMMERS as HM, HAMMER_IDS as HAMMER_LIST, RELICS as RL, type FormField, type HammerId as Hammer } from '../sim/buildIds';
 import { rarityOfRoll, type TalismanPool } from '../forest/talismanOffers';
 import { isTalismanId, TALISMANS, type TalismanId, type TalismanRarity } from '../forest/talismans';
 import { rtHp } from './hpScale';
@@ -27,7 +27,7 @@ export type RtTalismanId = string;
  * Rarity of a real-time talisman: the turn-based ones and (phase B, Т3) `relic` — a relic with a price, offered with the
  * oaths by the Jailer's row; not an oath (`isRtOath`: no +2 energy at the start of an arena).
  */
-export type RtRarity = TalismanRarity | 'relic' | 'form';
+export type RtRarity = TalismanRarity | 'relic' | 'form' | 'fusion';
 /** `effect` — the rule (a relic: its plus); `price` — the price of a relic, shown as plainly as the plus (section 5). */
 export interface RtTalismanDef {
   id: RtTalismanId; name: string; rarity: RtRarity; effect: string; price?: string; excludes?: readonly string[];
@@ -151,7 +151,25 @@ export const RT_COUNTER_WINDOW: Readonly<Record<string, { name?: string; effect:
   [CT.frostEdge]: { effect: 'Цепь из 3+ звеньев кончилась на выжившем: он замерзает на 2 с' },
 };
 
-const BY_ID = new Map([...RT_TALISMANS, ...RT_FORMS, ...RT_OPENERS].map(entry => [entry.id, entry]));
+/**
+ * Task 44 «Сплавы» (docs/realtime-slice.md, section 8, «Сплавы»): the fusions of a run with the flag `fusions` — made at a rest from
+ * their two parts (sim/buildIds.ts `FUSION_RECIPES`), never drawn (rarity `fusion`). The field is the form part's (`FORM_FIELD`); the
+ * text tells the fusion's rule and the parts' rules it keeps (the counters' chain window of a run with forms). «Бумеранг» keeps the
+ * exclusions of its parts («Возврат» — «Взрыв на конце», «Добивание» — «Быстрые ноги»).
+ */
+export const RT_FUSIONS: readonly RtTalismanDef[] = [
+  { id: FU.iceSeal, name: 'Ледяная печать', rarity: 'fusion', field: FORM_FIELD[FU.iceSeal],
+    effect: 'Замкни цепь в кольцо — удар по всем врагам внутри; выжившие замерзают на 3 с и хрупки (следующий удар цепи ×2). Цепь из 3+ звеньев кончилась на выжившем — он замерзает на 2 с' },
+  { id: FU.spear, name: 'Копьё', rarity: 'fusion', field: FORM_FIELD[FU.spear],
+    effect: 'Прямой хвост цепи: проход идёт дальше по прямой вдвое дальше и бьёт всех на пути, с элиты снимает 2 пластины. С 3-го звена цепи радиус звена R ×1,5' },
+  { id: FU.boomerang, name: 'Бумеранг', rarity: 'fusion', field: FORM_FIELD[FU.boomerang], excludes: [HM.blast, RL.swiftFeet],
+    effect: 'После прохода герой бежит к началу цепи вторым проходом: последнее звено погибло — с полной силой, иначе с половиной; неуязвим на бегу. Последнее звено — самое крепкое в цепи и погибло: неуязвимость после цепи вдвое дольше' },
+];
+/** A fusion of the run (`RT_FUSIONS`). */
+export const isRtFusion = (id: RtTalismanId): boolean => RT_FUSIONS.some(entry => entry.id === id);
+export { FUSION_RECIPES };
+
+const BY_ID = new Map([...RT_TALISMANS, ...RT_FORMS, ...RT_OPENERS, ...RT_FUSIONS].map(entry => [entry.id, entry]));
 export const rtTalisman = (id: RtTalismanId): RtTalismanDef | undefined => BY_ID.get(id);
 export const isRtTalisman = (value: unknown): value is RtTalismanId => typeof value === 'string' && BY_ID.has(value);
 export const isRtOath = (id: RtTalismanId): boolean => rtTalisman(id)?.rarity === 'oath';
@@ -159,7 +177,7 @@ export const isRtRelic = (id: RtTalismanId): boolean => rtTalisman(id)?.rarity =
 /** The rule of a talisman in one line; a relic — its plus and its price («цена: …»). */
 export const rtTalismanText = (id: RtTalismanId, window = false): string => { const def = rtTalismanShown(id, window); return def ? `${def.effect}${def.price ? `; цена: ${def.price}` : ''}` : ''; };
 /** Names of the rarities (offer cards). */
-export const RT_RARITY_NAME: Readonly<Record<RtRarity, string>> = { common: 'обычный', uncommon: 'необычный', rare: 'редкий', oath: 'клятва', relic: 'реликвия', form: 'форма' };
+export const RT_RARITY_NAME: Readonly<Record<RtRarity, string>> = { common: 'обычный', uncommon: 'необычный', rare: 'редкий', oath: 'клятва', relic: 'реликвия', form: 'форма', fusion: 'сплав' };
 /**
  * Task 30: a talisman as a run shows it — with the counters' chain window (`window`: a run with the flag `forms`) a counter has
  * its new name and rule (`RT_COUNTER_WINDOW`); otherwise the catalogue's definition.

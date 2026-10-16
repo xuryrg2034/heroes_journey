@@ -9,7 +9,7 @@
 import { ITEM_KINDS } from '../forest/items';
 import { RESOURCE_KINDS } from '../forest/resources';
 import type { ItemKind, ResourceKind } from '../forest/types';
-import { isHammerId, type HammerId } from './buildIds';
+import { expandFusions, isHammerId, type HammerId } from './buildIds';
 import { featGoalOf, type FeatGoal } from './feat';
 
 export type { ItemKind, ResourceKind };
@@ -241,7 +241,12 @@ export function kitOf(loadout: Loadout): Kit {
   for (const kind of SLOT_ITEMS) items[kind] = count(loadout.items?.[kind]);
   // In the run's opening order (the loot draws by it), each once.
   const openItems = [...new Set(loadout.openItems ?? [])].filter(kind => SLOT_ITEMS.includes(kind));
-  const talismans = [...new Set((loadout.talismans ?? []).filter(id => typeof id === 'string'))];
+  // Task 44 В«РЎРїР»Р°РІС‹В»: a fusion brings its parts (their rules stay); its hammer part (В«Р’РѕР·РІСЂР°С‚В») takes the hammer slot вЂ” the fusion
+  // is the form of its field. A loadout without a fusion makes the same kit as before.
+  const given = [...new Set((loadout.talismans ?? []).filter(id => typeof id === 'string'))];
+  const expanded = expandFusions(given), fusedHammer = expanded.length !== given.length ? expanded.find(id => isHammerId(id) && !given.includes(id)) : undefined;
+  const talismans = fusedHammer ? expanded.filter(id => id !== fusedHammer) : expanded;
+  const hammer = isHammerId(fusedHammer) ? fusedHammer : loadout.hammer;
   return {
     items, materials: emptyResources(), openItems, randomElites: !!loadout.randomElites, talismans,
     firstPower: (talismans.includes('whetstone') ? WHETSTONE_POWER : 0) + count(loadout.firstPower),
@@ -249,7 +254,7 @@ export function kitOf(loadout: Loadout): Kit {
     extraStart: !!loadout.extraStart, earlyPace: !!loadout.earlyPace,
     ...count(loadout.eliteAffixes) > 0 ? { eliteAffixes: Math.min(MAX_AFFIXES, count(loadout.eliteAffixes)) } : {},
     ...count(loadout.colors) >= MIN_COLORS && count(loadout.colors) < COLOR_COUNT ? { colors: count(loadout.colors) } : {},
-    ...isHammerId(loadout.hammer) ? { hammer: loadout.hammer } : {},
+    ...isHammerId(hammer) ? { hammer } : {},
     // Package «Урон имеет значение»: absent unless the loadout gives them (kits before hash as before).
     ...count(loadout.elitePlates) >= 1 ? { elitePlates: Math.min(MAX_PLATES, count(loadout.elitePlates)) } : {},
     ...count(loadout.toughHp) > 2 ? { toughHp: Math.min(MAX_TOUGH_HP, count(loadout.toughHp)) } : {},

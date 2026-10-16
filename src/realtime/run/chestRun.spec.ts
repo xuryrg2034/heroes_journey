@@ -23,6 +23,7 @@ import { RT_TASK17_OFF,
   rtRerollTalismans, rtRerollView, serializeRtRun, RT_CHEST_TALISMANS, type RtRunState,
 } from './rtRun';
 import { rtTalisman } from './rtTalismans';
+import { fusionOfHalf } from '../sim/buildIds';
 import { stepChoices } from '../telemetry/recorder';
 import { CHEST_SOURCE } from '../telemetry/schema';
 import { CHEST_CURSE_KILLS } from '../sim/chest';
@@ -99,7 +100,9 @@ check('the chest taken, the curse lifted or not: after the «Застава» ta
       assert(step.ok, 'the «Застава» choice');
       const after = step.run, chest = offerOf(after);
       assert(chest.source === 'chest' && chest.nodeId === nodeId && after.streams.talismans === draws + 1 && !after.visited.includes(nodeId), `seed ${k}: the chest's screen, one more draw`);
-      assert(chest.options.length === RT_CHEST_TALISMANS && chest.options.every(id => ['common', 'uncommon'].includes(rtTalisman(id)!.rarity) && !hard.options.includes(id) && !after.talismans.includes(id)), `seed ${k}: ${chest.options}`);
+      // Task 44: the guaranteed pair of a half just taken may stand in the last place (above the rarity).
+      const pairOf = (id: string): boolean => { const of = fusionOfHalf(id); return !!of && after.talismans.includes(of.partner); };
+      assert(chest.options.length === RT_CHEST_TALISMANS && chest.options.every(id => (['common', 'uncommon'].includes(rtTalisman(id)!.rarity) || pairOf(id)) && !hard.options.includes(id) && !after.talismans.includes(id)), `seed ${k}: ${chest.options}`);
       assert(step.events.some(e => e.type === 'talisman-offered' && same(e.options, chest.options)) && !step.events.some(e => e.type === 'node-completed'), 'offered; the node waits');
       assert(same(reload(after), after), 'the chest screen saves and loads');
       const done = ok(rtChooseTalisman(after, chest.options[1]), 'the chest choice');

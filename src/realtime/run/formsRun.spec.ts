@@ -326,6 +326,8 @@ check('saves: a run with forms reads back; a run without the flag saves no field
     // Each with its control: the same save without the one thing wrong reads back.
     const noFlag = structuredClone(taken) as Partial<RtRunState>;
     delete noFlag.forms;
+    // Task 44: the fusions' flag lives only with the forms.
+    delete noFlag.fusions;
     bad(noFlag, 'a form without the flag');
     assert(parseRtRun(JSON.stringify({ ...noFlag, talismans: noFlag.talismans!.filter(id => !isRtForm(id)) })), 'control: without the form it reads');
     const fresh = createRtRun(seedOf(k + 2000), { gift: 'mini', forms: false });
@@ -338,6 +340,7 @@ check('saves: a run with forms reads back; a run without the flag saves no field
     bad({ ...at, pending: { kind: 'hammer', nodeId: offer.nodeId, options: rtHammerOptions(at, offer.nodeId) } }, 'the hammer screen with the flag');
     const atOld = structuredClone(at) as Partial<RtRunState>;
     delete atOld.forms;
+    delete atOld.fusions;
     assert(parseRtRun(JSON.stringify({ ...atOld, pending: { kind: 'hammer', nodeId: offer.nodeId, options: rtHammerOptions(at, offer.nodeId) } })), 'control: the hammer screen without the flag reads');
   }
 });
