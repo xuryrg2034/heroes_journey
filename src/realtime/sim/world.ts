@@ -656,8 +656,6 @@ export interface World {
    * last is gone: worlds without them hash as before).
    */
   tethers?: Tether[];
-  /** Task 43: kills of bolts (not the player's) the kill goal counts — absent until the first (worlds without it hash as before). */
-  goalKills?: number;
 }
 
 /**
@@ -1004,8 +1002,7 @@ export function goalProgress(world: World): { done: number; total: number; label
     return { done: Math.min(total, Math.max(0, pulls - unsettled)), total, label: 'рычаг' };
   }
   const total = world.arena.killGoal ?? world.params.killGoal;
-  // Task 43: the bolts' kills count for the goal too (`goalKills`, absent until one).
-  return { done: Math.min(world.stats.kills + (world.goalKills ?? 0), total), total, label: 'убито' };
+  return { done: Math.min(world.stats.kills, total), total, label: 'убито' };
 }
 
 /** The prologue: game seconds the lamps of a dash that ended short still burn (its last kill and its end fall in one tick). */
@@ -1398,11 +1395,7 @@ export function secondWindRecovering(world: World): boolean {
  */
 export interface KillCause {
   source: string; credited: boolean; fall?: boolean;
-  /**
-   * Task 43 (the bolt, enemies/crossbow.ts): a kill not the player's (`credited` false) that still counts for the arena's kill goal
-   * (`World.goalKills`). Absent — a kill not the player's counts for nothing but a marked goal (as before).
-   */
-  goal?: boolean;
+
   /**
    * Package «Урон имеет значение» (elites.ts `stripPlates`): which firing of the source this is (a blast's id) — one firing
    * takes plates off an elite once. Absent — the source and the tick tell the firing.
@@ -1426,8 +1419,6 @@ export function killEnemy(world: World, e: Enemy, cause: KillCause): void {
   // Casino «Котёл»: a link the player's tool killed keeps its embers for the chain's cheque (only while the cauldron is on).
   if (link) (move.fallen ??= []).push({ id: e.id, x: e.x, y: e.y, credited: cause.credited, ...e.elite && move.build ? { elite: true as const } : {}, ...cause.credited && move.purse ? { embers: fallenEmbers(e) } : {} });
   if (cause.credited) { world.stats.kills++; if (!link) world.stats.score += world.params.scorePerKill; }
-  // Task 43: a bolt's kill — not the player's, but the kill goal counts it (absent until one: worlds hash as before).
-  else if (cause.goal) world.goalKills = (world.goalKills ?? 0) + 1;
   // Task 14 «Котомка у двери» (bag.ts): a credited kill after the goals fills the bag (nothing without one).
   if (cause.credited && world.bag) bagKill(world);
   // Casino «Котёл»: a kill of the player's build outside the chain — 1 ember, no heat (the source decides, purse.ts). A link of

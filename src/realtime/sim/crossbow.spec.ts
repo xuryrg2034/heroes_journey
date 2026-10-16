@@ -4,8 +4,9 @@
  *
  * Every check plays journalled commands (clear, teleport, place, param, chill, begin / release) and looks at what the player meets:
  * - the line is fixed at the windup's start: the hero who leaves it is not hit; the hero who stays is hit for `crossbowDamage`;
- * - the bolt strikes the FIRST body on the line: a body between the crossbowman and the hero dies (not the player's kill, but the
- *   kill goal counts it) and the hero is not hit; an armoured elite between loses a plate;
+ * - the bolt strikes the FIRST body on the line: a body between the crossbowman and the hero dies (not the player's kill, not the
+ *   kill goal «убей N»; a marked target counts for a marked goal, as a hound's frenzy) and the hero is not hit; an armoured elite
+ *   between loses a plate;
  * - the reload; the crossbowman keeps 5–7 from the hero; its death drops the shot;
  * - the threat `bolt` of the telemetry (hit, dodged); a journal without the new keys plays the old world; replays.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
@@ -30,6 +31,11 @@ const dist = (a: Vec, b: Vec): number => Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y
 registerArena({
   id: 'crossbow-field', name: 'Поле арбалета', summary: 'Тест арбалета', goal: 'kills', killGoal: 999, width: 24, height: 12,
   heroStart: { x: 4, y: 6 }, obstacles: [], buttons: [], door: { x: 23.3, y: 6 }, enemies: [],
+});
+
+registerArena({
+  id: 'crossbow-marked', name: 'Отмеченный на линии', summary: 'Тест арбалета', goal: 'marked', width: 24, height: 12,
+  heroStart: { x: 4, y: 6 }, obstacles: [], buttons: [], door: { x: 23.3, y: 6 }, enemies: [{ x: 7, y: 6, color: 2, hp: 0, marked: true }],
 });
 
 /** Nothing comes, nobody walks; the hero has 15 HP and no grace window to blur the count. */
@@ -82,7 +88,7 @@ check('the line is fixed at the windup\'s start: the hero who stays is hit for 2
   }
 });
 
-check('the bolt strikes the first body: a plain enemy between dies — not the player\'s kill, the kill goal counts it; the hero is not hit; an armoured elite loses a plate', () => {
+check('the bolt strikes the first body: a plain enemy between dies — not the player\'s kill, not the kill goal; a marked one counts for the marked goal; the hero is not hit; an armoured elite loses a plate', () => {
   for (const k of [1, 2, 3]) {
     const { sim } = aimed(k), w = sim.world;
     const shield = place(sim, { x: 7, y: 6 }, 2, 'basic', 2);
@@ -91,8 +97,19 @@ check('the bolt strikes the first body: a plain enemy between dies — not the p
     const events = ticks(sim, ticksOf(1.2));
     const shot = bolts(events).find(e => e.action === 'shot'), kill = events.find((e): e is Extract<WorldEvent, { type: 'kill' }> => e.type === 'kill' && e.enemyId === shield.id);
     assert(shot?.hit === 'enemy' && shot.target === shield.id && kill?.source === BOLT_SOURCE && kill.credited === false, `seed ${k}: the body between died (${JSON.stringify(kill)})`);
-    assert(w.hero.hp === hp && w.stats.kills === kills && goalProgress(w).done === goal + 1 && w.goalKills === 1, `seed ${k}: hero unhurt, no kill of the player, the goal +1`);
+    assert(w.hero.hp === hp && w.stats.kills === kills && goalProgress(w).done === goal && w.stats.markedKills === 0, `seed ${k}: hero unhurt, no kill of the player, the kill goal unchanged`);
     assert(replays(sim), `seed ${k}: replay`);
+  }
+  // A marked target between (an arena of a marked goal): its death counts for the goal — the rule of a hound's frenzy.
+  {
+    const sim = new Simulation({ arena: 'crossbow-marked', params: quiet(), seed: seedOf(6), record: true }), w = sim.world;
+    const target = w.enemies.find(e => e.marked)!;
+    sim.command({ t: 'chill', id: target.id, seconds: 10 });
+    sim.command({ t: 'teleport', x: 4, y: 6 });
+    place(sim, { x: 10, y: 6 }, 1, CROSSBOW, 1);
+    ticks(sim, ticksOf(2.5));
+    assert(!w.enemies.includes(target) && w.stats.markedKills === 1 && w.stats.kills === 0 && w.stage === 'greed', `a marked target killed by the bolt counts for the goal (${w.stats.markedKills}, ${w.stage})`);
+    assert(replays(sim), 'replay');
   }
   const { sim } = aimed(5, { eliteArmor: true }), w = sim.world;
   const elite = place(sim, { x: 7, y: 6 }, 2, 'basic', 2, true);

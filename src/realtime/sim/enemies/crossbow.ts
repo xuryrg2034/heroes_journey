@@ -7,8 +7,8 @@
  * centre on to the first wall or tree (`crossbowLine`; it does not follow the hero). Then the bolt flies along it and strikes the
  * FIRST body on it (a body whose circle touches the line, `BOLT_HALF` wide each side; the nearest along the line): the hero takes
  * `crossbowDamage` (his invulnerability and the chain's shield block it — the bolt stops there); an enemy dies (an armoured elite
- * loses a plate, elites.ts) — not the player's kill (no score, no kills, no bag), but it counts for the arena's kill goal
- * (`KillCause.goal`, `World.goalKills`). Leaving the line or a body between saves the hero. Then the crossbow reloads
+ * loses a plate, elites.ts) — not the player's kill (no score, no kills, no bag, not the kill goal «убей N»), as a hound's frenzy;
+ * a marked target that dies by it counts for a marked goal (design 16.10.2026). Leaving the line or a body between saves the hero. Then the crossbow reloads
  * `crossbowReload` s. A frozen holder waits (its timers too); its death drops the shot.
  *
  * **The crossbowman** (`crossbow`): slow, HP 1, touches as a plain enemy; keeps `crossbowNear`…`crossbowFar` from the hero (backs
@@ -35,8 +35,8 @@ export const CROSSBOW_DAMAGE = 2;
 export const CROSSBOW_NEAR = 5;
 export const CROSSBOW_FAR = 7;
 export const CROSSBOW_HP = 1;
-/** Half the bolt's lane (the design's window check: 0.2 + the hero's 0.28 = 0.48 units to leave it, 0.12 s at speed 4). */
-export const BOLT_HALF = 0.2;
+/** Half the bolt's lane (0.5 wide, as the archer's line; design 16.10.2026: 0.25 + the hero's 0.28 = 0.53 units to leave it, 0.13 s at speed 4). */
+export const BOLT_HALF = 0.25;
 /** The line's longest length (the arenas are smaller: a wall ends it first). */
 const MAX_LINE = 60;
 const LINE_STEP = 0.05;
@@ -98,7 +98,7 @@ export function fireBolt(world: World, e: Enemy, source: string, spared: (other:
     else noteBlock(world, world.hero.x, world.hero.y, source, e.id);
   } else if (best) {
     world.events.push({ type: 'bolt', action: 'shot', id: e.id, ...line, hit: 'enemy', target: best.id });
-    damageEnemy(world, best, Math.max(1, best.hp + 1), { source, credited: false, firing: e.id, goal: true });
+    damageEnemy(world, best, Math.max(1, best.hp + 1), { source, credited: false, firing: e.id });
   } else world.events.push({ type: 'bolt', action: 'shot', id: e.id, ...line });
 }
 
