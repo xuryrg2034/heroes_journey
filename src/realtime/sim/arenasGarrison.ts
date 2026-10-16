@@ -250,14 +250,17 @@ export const KNIGHT_TEST_ARENA: ArenaTemplate = registerArena({
   garrison: true,
 });
 
-/** Баланс (task 43, part Г): crossbowmen among the newcomers of «Бойницы» (the guards' 0.15 and the handler's 0.05 of «Галерея» — about as dense). */
-export const CROSSBOW_SHARE = 0.06;
+/**
+ * Баланс (task 43, part Г): crossbowmen among the newcomers of «Бойницы» (the bot's sweep 16.10.2026: 0.06 with three at the start —
+ * 35 % deaths, above «Галерея» and «Ров»; 0.04 with two — 25 %).
+ */
+export const CROSSBOW_SHARE = 0.04;
 
 /**
  * Task 43 «Бойницы» (part Г, design 16.10.2026, docs/design-notes/task-43-garrison-step2.md, 6; garrison rows 6–7, the branch
- * without «Ров»): kill 25 — the crossbowman's first meeting. Three crossbowmen at the far wall aim lines through the hero; five
+ * without «Ров»): kill 25 — the crossbowman's first meeting. Two crossbowmen at the far corners aim lines through the hero; five
  * crates in the middle field (walls of 0.9: a bolt's line and its aim stop at them) are the cover to step behind, a guards' line
- * the body to put between. The newcomers: guards' lines and crossbowmen.
+ * the body to put between. The newcomers: guards' lines and crossbowmen (`CROSSBOW_SHARE`).
  */
 export const LOOPHOLES_ARENA: ArenaTemplate = registerArena({
   id: 'g-loopholes',
@@ -271,7 +274,7 @@ export const LOOPHOLES_ARENA: ArenaTemplate = registerArena({
   buttons: [],
   door: { x: 8, y: 0.7 },
   enemies: [
-    { x: 3.2, y: 1.8, color: 1, kind: CROSSBOW }, { x: 12.8, y: 1.8, color: 3, kind: CROSSBOW }, { x: 10.5, y: 2.4, color: 0, kind: CROSSBOW },
+    { x: 3.2, y: 1.8, color: 1, kind: CROSSBOW }, { x: 12.8, y: 1.8, color: 3, kind: CROSSBOW }, { x: 10.5, y: 2.4, color: 0 },
     ...line(5.6, 3.4, 2, 1),
     { x: 1.6, y: 4.2, color: 0 }, { x: 14.4, y: 4.2, color: 2 },
   ],
@@ -283,8 +286,9 @@ export const LOOPHOLES_ARENA: ArenaTemplate = registerArena({
 
 /**
  * Task 43 «Ристалище» (part Г; garrison rows 3–4): kill 20 — the knight's first meeting. Weapon racks (two long walls at the sides,
- * a short one in the middle) stop a knight's «Рывок» and split the yard; a guards' line with a knight in its middle (colour 0) and a
- * knight alone at the back (colour 2). The newcomers: guards' lines (no knights).
+ * a short one in the middle) stop a knight's «Рывок» and split the yard; one knight, in the middle of a guards' line (colour 0: the bot's
+ * sweep 16.10.2026 — with a second knight alone 23 % deaths, with one 16 %, as «Псарня» 8 % and «Ров» 30 % around it). The newcomers:
+ * guards' lines (no knights).
  */
 export const ARMORY_ARENA: ArenaTemplate = registerArena({
   id: 'g-armory',
@@ -299,7 +303,7 @@ export const ARMORY_ARENA: ArenaTemplate = registerArena({
   door: { x: 8, y: 0.7 },
   enemies: [
     { x: 4.4, y: 3.2, color: 0, kind: GUARD, formation: 1 }, { x: 5.3, y: 3.2, color: 0, kind: KNIGHT, formation: 1 }, { x: 6.2, y: 3.2, color: 0, kind: GUARD, formation: 1 },
-    { x: 11.2, y: 2.4, color: 2, kind: KNIGHT },
+    { x: 11.2, y: 2.4, color: 2 },
     { x: 2.4, y: 2, color: 3 }, { x: 13.8, y: 3.6, color: 1 }, { x: 9, y: 2.2, color: 1 },
   ],
   phaseOverride: NO_PACKS,

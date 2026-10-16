@@ -114,10 +114,12 @@ export const GARRISON_HARD_ARENA = GUARDROOM_ARENA.id;
 export const GARRISON_FINAL_ARENA = CASTELLAN_ARENA.id;
 /**
  * Task 43, part Г (design 16.10.2026, task-43 spec 6): the pools of a run of step 2 (`RtRunState.step2`) — «Ристалище» on rows 3–4
- * (the knight's own arena) on the trails; the branches of rows 6–9 split: `den` (the left one) — «Ров» on rows 6–9 (the keymaster),
+ * (the knight's own arena) on the trails, «Плац» on rows 1–4 (design answer 4: its line takes a knight once «Ристалище» was played); the branches of rows 6–9 split: `den` (the left one) — «Ров» on rows 6–9 (the keymaster),
  * `camp` (the right one) — «Бойницы» on rows 6–7 (the crossbowman). Each kind is met only on its branch.
  */
-export const GARRISON_STEP2_TRAIL_POOLS: readonly ArenaPoolEntry[] = [...GARRISON_POOLS, { arena: ARMORY_ARENA.id, rows: [3, 4] }];
+export const GARRISON_STEP2_TRAIL_POOLS: readonly ArenaPoolEntry[] = [
+  ...GARRISON_POOLS.map(entry => (entry.arena === YARD_ARENA.id ? { arena: YARD_ARENA.id, rows: [1, 4] as const } : entry)), { arena: ARMORY_ARENA.id, rows: [3, 4] },
+];
 /** Task 43: the branch with «Ров» (the other one has «Бойницы»). */
 export const GARRISON_MOAT_BRANCH: MapBranch = 'den';
 export const GARRISON_STEP2_POOLS: Readonly<Record<MapBranch, readonly ArenaPoolEntry[]>> = {

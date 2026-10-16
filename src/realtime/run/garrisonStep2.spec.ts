@@ -12,7 +12,7 @@
  */
 import { runRow } from './arenaPools';
 import {
-  bareNodeId, garrisonArenaKinds, garrisonStep2Mode, GARRISON_ARMORY_ARENA, GARRISON_BOLT_ROW, GARRISON_LOOPHOLES_ARENA, GARRISON_MOAT_ARENA, GARRISON_MOAT_BRANCH,
+  bareNodeId, garrisonArenaChoices, garrisonArenaKinds, garrisonBolts, garrisonKnights, garrisonStep2Mode, GARRISON_ARMORY_ARENA, GARRISON_BOLT_ROW, GARRISON_LOOPHOLES_ARENA, GARRISON_MOAT_ARENA, GARRISON_MOAT_BRANCH,
   RT_GARRISON_STEP2_ON, rtGarrisonNodeId,
 } from './garrison';
 import { walkRun, type Walk, type WalkOptions } from './metaWalk.testkit';
@@ -56,7 +56,29 @@ function kindsOf(f: Fight): string[] {
   return [...kinds];
 }
 
-const RUNS = Array.from({ length: 40 }, (_, i) => walkStep2(i + 1, i % 2 ? 'camp' : 'den'));
+const RUNS = Array.from({ length: 60 }, (_, i) => walkStep2(i + 1, i % 2 ? 'camp' : 'den'));
+
+check('the rule by rows (the choices of a node of each branch after a history): «Плац» first, «Псарня» before «Ристалище» (the checkpoint\'s handler), «Ристалище» never before the guards; «Ров» never on `camp`, «Бойницы» never on `den`; crossbowmen only from row 8', () => {
+  const trail = garrisonStep2Mode('g:r6c1'), den = garrisonStep2Mode('g:den-r10c1'), camp = garrisonStep2Mode('g:camp-r10c1');
+  assert(trail.step2?.branch === null && den.step2?.branch === 'den' && camp.step2?.branch === 'camp', 'the branch by the node id');
+  const choices = (row: number, history: string[], mode = trail) => garrisonArenaChoices(row, history, mode).join();
+  assert(choices(3, []) === 'g-yard', `row 3, nothing met: ${choices(3, [])}`);
+  assert(choices(3, ['g-yard']) === 'g-kennel', `row 3 after «Плац»: ${choices(3, ['g-yard'])}`);
+  assert(choices(3, ['g-yard', 'g-kennel']) === GARRISON_ARMORY_ARENA && choices(4, ['g-yard', 'g-kennel']) === GARRISON_ARMORY_ARENA, 'rows 3–4: «Ристалище» once the handler was met');
+  assert(choices(6, ['g-yard', 'g-kennel'], camp) === GARRISON_ARMORY_ARENA, 'the knight overdue on row 6: «Ристалище»');
+  const met = ['g-yard', 'g-kennel', GARRISON_ARMORY_ARENA, 'g-guardroom'];
+  for (const row of [6, 7, 8, 9]) for (const history of [met, [...met, GARRISON_MOAT_ARENA], [...met, GARRISON_LOOPHOLES_ARENA]]) {
+    assert(!garrisonArenaChoices(row, history, den).includes(GARRISON_LOOPHOLES_ARENA), `den row ${row}: «Бойницы»`);
+    assert(!garrisonArenaChoices(row, history, camp).includes(GARRISON_MOAT_ARENA), `camp row ${row}: «Ров»`);
+  }
+  assert(choices(6, met, den) === GARRISON_MOAT_ARENA && choices(6, met, camp) === GARRISON_LOOPHOLES_ARENA, 'row 6: each branch its own arena');
+  for (const arena of [GALLERY_ARENA.id, GUARDROOM_ARENA.id]) {
+    assert(!garrisonBolts(arena, 7, [GARRISON_LOOPHOLES_ARENA]) && garrisonBolts(arena, 8, [GARRISON_LOOPHOLES_ARENA]) && !garrisonBolts(arena, 9, [GARRISON_MOAT_ARENA]), `${arena}: bolts from row 8 after «Бойницы»`);
+  }
+  assert(!garrisonBolts(GARRISON_MOAT_ARENA, 9, [GARRISON_LOOPHOLES_ARENA]) && !garrisonBolts(YARD_ARENA.id, 9, [GARRISON_LOOPHOLES_ARENA]), 'no bolts elsewhere');
+  assert(garrisonKnights(GUARDROOM_ARENA.id, 'checkpoint', [GARRISON_ARMORY_ARENA]) === 1 && garrisonKnights(GUARDROOM_ARENA.id, 'hard', [GARRISON_ARMORY_ARENA]) === 2
+    && garrisonKnights(YARD_ARENA.id, 'battle', [GARRISON_ARMORY_ARENA]) === 1 && garrisonKnights(GUARDROOM_ARENA.id, 'hard', ['g-yard']) === 0 && garrisonKnights(GALLERY_ARENA.id, 'battle', [GARRISON_ARMORY_ARENA]) === 0, 'the knights by arena');
+});
 
 check('the default of the game: a new run with «Ров» takes `step2` (`RT_GARRISON_STEP2_ON`); without «Ров» — no flag; a save with `step2` and no `moat` is no run', () => {
   const run = createRtRun(1);
@@ -67,7 +89,7 @@ check('the default of the game: a new run with «Ров» takes `step2` (`RT_GAR
   assert(parseRtRun(JSON.stringify(bad)) === null, 'step2 without moat');
 });
 
-check('the branches split (40 runs, steered): «Ров» only on `den` (rows 6–9), «Бойницы» only on `camp` (rows 6–7, or later while the crossbowman is overdue); both branches walked', () => {
+check('the branches split (60 runs, steered): «Ров» only on `den` (rows 6–9), «Бойницы» only on `camp` (rows 6–7, or later while the crossbowman is overdue); both branches walked', () => {
   let moats = 0, loopholes = 0, den = 0, camp = 0;
   for (const [i, { walk, fights }] of RUNS.entries()) {
     assert(walk.run.step2 === true && walk.run.result !== null, `run ${i + 1}: a run of step 2 walked to its end`);
