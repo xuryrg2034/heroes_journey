@@ -87,6 +87,28 @@ const FUSION_BODIES: Readonly<Record<FusionIcon, string>> = {
     `<path d="M3 15.5 L7.6 14.2 L6.4 19 Z" fill="${LEMON}" stroke="${NAVY}" stroke-width="1.3" stroke-linejoin="round"/>`,
 };
 
+/** Task 47 §1: hammers with a drawn icon (the others keep their glyph, view/buildColumn.ts). */
+export type HammerIcon = 'fire';
+/** The fire of the consumable (render.ts `EMBER`, `FLAME`). */
+const EMBER = '#ff8a3a';
+const FLAME = '#ffd36b';
+/**
+ * Task 47 §1 (design 16.10.2026, docs/design-notes/task-47-view-polish.md): «Огненный проход» — the dash's arrow with a tongue of the
+ * consumable's fire behind it (the burning trail). Not «Режущий проход»'s slash, «Возврат»'s arrow back, «Наледь»'s ice shards, nor the
+ * fire rim of the highlight.
+ */
+const HAMMER_BODIES: Readonly<Record<HammerIcon, string>> = {
+  fire: `<path d="M14 10 C9 9.6 4.4 13 1.2 22.8 C3.6 19.6 5 20.6 6.2 19.2 C6 21.4 7.6 21 9 18.6 C9.6 20 11 19.4 11.8 17 C13.4 15.6 14.6 13.4 14 10 Z" fill="${EMBER}" stroke="${NAVY}" stroke-width="1.5" stroke-linejoin="round"/>` +
+    `<path d="M12.6 11.6 C9.6 11.6 6.6 14 4.6 18.8 C6.4 17.2 7.4 17.6 8.4 16.6 C8.6 17.8 10 17.2 10.8 15.6 C12 14.8 12.8 13.4 12.6 11.6 Z" fill="${FLAME}"/>` +
+    `<path d="M11.6 12.4 L19 5" stroke="${NAVY}" stroke-width="4" stroke-linecap="round"/><path d="M11.6 12.4 L19 5" stroke="${PALE}" stroke-width="2" stroke-linecap="round"/>` +
+    `<path d="M22.6 1.4 L21 9.6 L14.4 3 Z" fill="${PALE}" stroke="${NAVY}" stroke-width="1.5" stroke-linejoin="round"/>`,
+};
+
+/** The SVG markup of a hammer's icon, `size` px square. */
+export function hammerIconSvg(hammer: HammerIcon, size = 24): string {
+  return `<svg class="rt-form-icon rt-hammer-icon" data-hammer="${hammer}" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">${HAMMER_BODIES[hammer]}</svg>`;
+}
+
 /** The SVG markup of a fusion's icon, `size` px square. */
 export function fusionIconSvg(fusion: FusionIcon, size = 24): string {
   return `<svg class="rt-form-icon rt-fusion-icon" data-fusion="${fusion}" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">${FUSION_BODIES[fusion]}</svg>`;
