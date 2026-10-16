@@ -471,3 +471,22 @@ test('task 46 view: «Тряска и вспышки» 0 % - the detonation has 
   await sameHash(page);
   expect(errors).toEqual([]);
 });
+
+test('task 46 view: «Подрыв» on an elite of 2 plates that is the last link - the words say «−1 пластина» (the dash took one, the blast takes the other); after the dash 0 plates', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = collectErrors(page);
+  await sandboxWith(page, 'fusion-hunter-blast', { x: 4, y: 5.5 }, [['eliteArmor', true], ['elitePlates', 2]]);
+  const pts = await rowOf(page, 3);
+  const elite = await placeAt(page, 9.6, 5.5, 0, 3, true);
+  expect((await enemy(page, elite)).armor.plates).toBe(2);
+  await drawOver(page, [...pts, [9.6, 5.5]]);
+  await expect.poll(async () => (await snap(page)).chain.length).toBe(4);
+  await expect.poll(async () => (await snap(page)).fusionShown.blastDetonate).toBe(1);
+  expect((await snap(page)).fusionShown.blastPlates).toBe(1);
+  await page.screenshot({ path: 'artifacts/realtime-fusion-blast-plan-1plate.png' });
+  await page.mouse.up();
+  await dashOver(page);
+  expect((await enemy(page, elite)).armor.plates).toBe(0);
+  await sameHash(page);
+  expect(errors).toEqual([]);
+});

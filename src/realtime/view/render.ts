@@ -34,7 +34,6 @@ import { NO_COLOR, SECOND_WIND_HP, doorOpen, focusGuarded, touchDistance, type C
 import { itemHealOf, linkRadiusOf } from '../sim/build';
 import { FIRE_LIFE, FIRE_RADIUS, FIRE_STEP, firePassPreview, hammerFirePoints, returnRunOf } from '../sim/hammers';
 import { COUNTER_TALISMANS, FROST_PASS, FUSIONS, HAMMERS, RELICS } from '../sim/buildIds';
-import { blastPlatesOn } from '../sim/fusions';
 import { fireTextOf } from './buildColumn';
 import { findLoopHint, type LoopHintFigure } from './loopHint';
 // Casino stage 1: «Однорукий гоблин» (the idol, the reels, the odds line; the arrow marks are drawn in `drawSignals`).
@@ -591,7 +590,7 @@ export class RealtimeRenderer {
     /** Task 46 «Подрыв»: the end blast's circle — radius in cells (0 — none), `blastDetonate` 1 — the wide circle with the thick rim, `blastNumber` — the hit written at it (0 — none), `blastMarks` — outcome marks on bodies, `blastPlates` — the plates the words over an elite say. */
     blastRadius: 0, blastDetonate: 0, blastNumber: 0, blastMarks: 0, blastPlates: 0,
     /** Task 46 «Ледяная волна»: the wave's circle — radius in cells (0 — none), bodies with the frost sign (`waveIce`), with the white rim of brittleness (`waveBrittle`), marked as killed (`waveKills`). */
-    waveRadius: 0, waveIce: 0, waveBrittle: 0, waveKills: 0,
+    waveRadius: 0, waveIce: 0, waveBrittle: 0, waveKills: 0, wavePlates: 0,
     /** Task 46 «Клеймо», the execution: paint flashes played; bodies whose new colour is still fading in. */
     paintFlashes: 0, paintFading: 0,
     /** Task 46 «Подрыв»: detonation flashes played. */
@@ -3090,7 +3089,7 @@ export class RealtimeRenderer {
     this.linkDepthShown.labels = [];
     this.pierceShown.arrow = 0; this.pierceShown.marks = 0; this.pierceShown.end = 0;
     this.fusionShown.spearPlates = 0; this.fusionShown.ice = 0; this.fusionShown.backPower = -1; this.fusionShown.backFull = 0;
-    Object.assign(this.fusionShown, { paint: 0, blastRadius: 0, blastDetonate: 0, blastNumber: 0, blastMarks: 0, blastPlates: 0, waveRadius: 0, waveIce: 0, waveBrittle: 0, waveKills: 0 });
+    Object.assign(this.fusionShown, { paint: 0, blastRadius: 0, blastDetonate: 0, blastNumber: 0, blastMarks: 0, blastPlates: 0, waveRadius: 0, waveIce: 0, waveBrittle: 0, waveKills: 0, wavePlates: 0 });
     for (const label of this.fusionLabels) label.visible = false;
     if (this.backPowerLabel) this.backPowerLabel.visible = false;
     this.signals.quillBadges = 0;
@@ -3444,6 +3443,12 @@ export class RealtimeRenderer {
    * - «Ледяная волна»: the wave's circle round the dash's end; the cross on those it kills, the frost sign on those it freezes
    *   (a white rim — brittle).
    */
+  /** The plates of `e` before the dash's end: after the chain's own plate hit when it is a link of the plan, else as it stands. */
+  private plateBefore(plan: ChainPlan, e: Enemy): number {
+    const link = plan.links.find(l => l.link.kind === 'enemy' && l.link.id === e.id);
+    return link?.outcome?.plate ? link.outcome.platesAfter ?? 0 : eliteArmorView(e)?.plates ?? 0;
+  }
+
   private drawFusionEnd(g: Graphics, world: World, plan: ChainPlan, _ink: number): void {
     const p = world.params, r = enemyDrawRadius(p) * UNIT, shown = this.fusionShown;
     const paint = plan.fire?.lit ? plan.fire.paint : undefined;
@@ -3474,8 +3479,8 @@ export class RealtimeRenderer {
         const X = e.x * UNIT, Y = e.y * UNIT, cx = X + r * 0.7, cy = Y - r * 0.75;
         shown.blastMarks++;
         if (hit.plate) {
-          // A plated body: the lemon ring and the plates the blast takes (its number, a boss's armour 1: sim `blastPlatesOn`; not more than the body has).
-          const before = eliteArmorView(e)?.plates ?? 0, removed = Math.max(1, Math.min(blastPlatesOn(blast, e), before)), RR = e.elite || e.leader ? r * enemyArtScale(p, e) * 1.06 : r, s = r * 0.2;
+          // A plated body: the lemon ring and the plates the blast takes — the plan's difference (`plateBefore` − `platesAfter`).
+          const removed = Math.max(0, this.plateBefore(plan, e) - (hit.platesAfter ?? 0)), RR = e.elite || e.leader ? r * enemyArtScale(p, e) * 1.06 : r, s = r * 0.2;
           g.circle(X, Y, RR + 4).stroke({ color: ELITE_LEMON, width: 4 });
           g.circle(cx, cy, r * 0.32).fill(ELITE_LEMON).stroke({ color: NAVY, width: 2 });
           g.roundRect(cx - s * 0.8, cy - s, s * 1.6, s * 2, s * 0.5).fill(NAVY);
@@ -3499,6 +3504,7 @@ export class RealtimeRenderer {
     }
     const wave = plan.wave;
     if (wave) {
+      const blastIds = new Set((blast?.bodies ?? []).map(b => b.id));
       const x = wave.at.x * UNIT, y = wave.at.y * UNIT, R = wave.radius * UNIT;
       g.circle(x, y, R).fill({ color: ICE, alpha: 0.1 });
       g.circle(x, y, R).stroke({ color: NAVY, width: 6, alpha: 0.5 }).circle(x, y, R).stroke({ color: ICE, width: 3, alpha: 0.95 });
@@ -3514,6 +3520,17 @@ export class RealtimeRenderer {
           shown.waveKills++;
         } else if (wave.ice.ids.includes(hit.id)) {
           drawIceMark(g, X, Y, r, wave.ice.brittle);
+          if (hit.plate) {
+            // The wave also takes plates off an armoured survivor: the same words as the blast's, under the body.
+            const removed = Math.max(0, this.plateBefore(plan, e) - (hit.platesAfter ?? 0)), RR = e.elite || e.leader ? r * enemyArtScale(p, e) * 1.06 : r;
+            if (removed > 0) {
+              const label = this.plateLabel(this.eliteShown.planPlates++);
+              label.text = `−${removed} ${platesWord(removed)}`;
+              label.position.set(X, Y + RR + (blastIds.has(hit.id) ? 44 : 18));
+              label.visible = true;
+              shown.wavePlates = removed;
+            }
+          }
           shown.waveIce++;
           if (wave.ice.brittle) shown.waveBrittle++;
         }
@@ -3975,6 +3992,8 @@ export class RealtimeRenderer {
     this.shakeLeft = 0;
     this.flashLeft = 0;
     this.flashGate.reset();
+    for (const gh of this.ghosts) gh.root.destroy({ children: true });
+    this.ghosts.length = 0; this.paintAt.clear();
     for (const s of this.shards) { s.life = 0; s.delay = 0; s.p.alpha = 0; }
     this.shardLayer.particleChildren.length = 0; this.shardLayer.update(); this.shardLayer.visible = this.shardsAwake = false;
     this.juiceShown.shardsLive = 0;
