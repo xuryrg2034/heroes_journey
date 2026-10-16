@@ -886,6 +886,14 @@ export interface Params {
    * the key: off.
    */
   holdNearest: boolean;
+  // ---- Task 42 «Неподвижный курсор у героя ничего не берёт» (chain.ts `heroHeld`; docs/realtime-prototype.md, «Неподвижный курсор»). ----
+  /**
+   * A drag point in the hero's circle (`HERO_CANCEL_RADIUS`) treats the hero as a link: the held still pointer (`append`) and the
+   * sweep points take nothing and cancel nothing; the pointer event (`full`) on an empty chain takes nothing (one link — still the
+   * step back, two or more — nothing). Without it the pointer event there took the only link off and the next frame took the same
+   * body again («мерцание у героя»; logs 16.10.2026). The press is unchanged. Sandbox and run on; journals without the key: off.
+   */
+  holdHeroLink: boolean;
   // ---- Task 38 «Гарнизон, шаг 1» (sim/tethers.ts, sim/enemies/garrison.ts; docs/realtime-elite-behaviors.md, «Гарнизон»). ----
   /**
    * The law of tethers (design 15.10.2026): a tether is a line between two bodies (the dog handler's leash, the Castellan's
@@ -1314,6 +1322,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   shiftAtPointer: true,
   // Task 39 (chain.ts `pickAt`): the held pointer takes a body only when it is nearer than every link of the chain.
   holdNearest: true,
+  // Task 42 (chain.ts `heroHeld`): a drag point in the hero's circle takes nothing (the step back from one link stays).
+  holdHeroLink: true,
   // Task 38 «Гарнизон» (tethers.ts, enemies/garrison.ts): off by default; the run turns `tethers` and `guardFormation` on.
   tethers: false,
   leashLength: 3,
@@ -1452,6 +1462,8 @@ export const PARAM_DEFS: readonly ParamDef[] = [
     hint: 'Пока цвет цепи свободен («Смена цвета»), тело другого цвета берётся только там, где остановилась мышь (или нажатием). Протяжка и неподвижный курсор берут только цвет цепи, другие цвета пропускают без отказа.' },
   { kind: 'bool', key: 'holdNearest', group: 'Цепь', label: 'Неподвижный курсор берёт ближайшее', stage: 5,
     hint: 'Зажатый неподвижный курсор берёт тело, только если оно ближе к курсору, чем любое звено цепи. Курсор на звене цепи ничего не берёт и не обрезает.' },
+  { kind: 'bool', key: 'holdHeroLink', group: 'Цепь', label: 'Неподвижный курсор у героя ничего не берёт', stage: 5,
+    hint: 'Курсор в круге героя считает героя звеном цепи: неподвижный курсор и протяжка там ничего не берут и не отменяют, событие мыши на пустой цепи ничего не берёт. Единственное звено курсор на героя по-прежнему снимает; нажатие не меняется.' },
   { kind: 'bool', key: 'refusalHint', group: 'Цепь', label: 'Подсказка: почему не берётся', stage: 4,
     hint: 'У курсора над врагом или объектом, который нельзя взять следующим звеном: «далеко», «не тот цвет», «нет видимости», «после выжившего»…' },
   n('dashSpeed', 'Цепь', 'Скорость прохода', 2, 40, 0.5, 2, 'ед/с'),
@@ -1817,7 +1829,7 @@ export function defaultParams(): Params { return sanitizeParams(null); }
  * panel holds. Task 29: the counters' chain window (`counterWindow`) — off here; task 30: a run with the flag `forms` turns it on with the
  * forms' price and `returnFixed` (run/rtRun.ts `RT_FORMS_PARAMS`, `rtArenaParams`).
  */
-export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4, loopEnabled: false, loopHint: false, pierceEnabled: false, secondWind: false, endBlastMinLinks: 3, fireMinLinks: 3, returnFixed: false, counterWindow: false, twinsAlternate: false, twinsNoShift: false, forkBranches: 0, shiftAtPointer: true, holdNearest: true });
+export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4, loopEnabled: false, loopHint: false, pierceEnabled: false, secondWind: false, endBlastMinLinks: 3, fireMinLinks: 3, returnFixed: false, counterWindow: false, twinsAlternate: false, twinsNoShift: false, forkBranches: 0, shiftAtPointer: true, holdNearest: true, holdHeroLink: true });
 /**
  * The values a run arena plays with: the saved panel with the stand-ins of run rules off (`RUN_FORCED`) and the run's own
  * numbers on top (`forced`; iteration 2.1: the healing consumable — `rtRunParams`, run/rtRun.ts).

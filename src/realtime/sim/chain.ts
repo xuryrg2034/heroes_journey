@@ -1047,6 +1047,9 @@ export function dragChain(world: World, p: Vec, mode: DragMode = 'full'): void {
     if (world.params.cancelOnHero || (world.params.chainStepBack && world.chain.length === 1)) { world.chain = []; delete world.chainClosed; }
     return;
   }
+  // Task 42: with `holdHeroLink` the hero is a link for every drag point — in its circle the held pointer and the sweep points do
+  // nothing, and the pointer event on an empty chain takes nothing (the cancel above stays).
+  if (heroHeld(world, p, mode)) return;
   const plan = planChain(world, world.chain, NO_PIERCE), target = pickAt(world, p, mode, plan);
   if (mode !== 'full' && pointerShiftColor(world) !== null) {
     // Task 34 telemetry: the body the path without `shiftAtPointer` would have taken here (the nearest one `canLink` allows).
@@ -1080,12 +1083,25 @@ export function dragChain(world: World, p: Vec, mode: DragMode = 'full'): void {
 const seesLinks = (world: World, mode: DragMode): boolean => mode === 'full' || (mode === 'append' && !!world.params.holdNearest);
 
 /**
+ * Task 42 (`Params.holdHeroLink`, design 16.10.2026): a drag point in the hero's circle (`HERO_CANCEL_RADIUS`) treats the hero as
+ * a link of the chain — the held still pointer (`append`) and a sweep point take nothing and cancel nothing; the pointer event
+ * (`full`) on an empty chain takes nothing (with one link it still takes it off — the step back to the hero; with two or more,
+ * nothing). Without it the pointer event there took the only link off and the next frame's held pointer (or the next pointer
+ * event) took the same body again («мерцание у героя», logs 16.10.2026). The press (`begin`) is unchanged; a drag begun in the
+ * circle takes once its point leaves it.
+ */
+const heroHeld = (world: World, p: Vec, mode: DragMode): boolean =>
+  !!world.params.holdHeroLink && (mode !== 'full' || !world.chain.length) && dist(p, world.hero) <= HERO_CANCEL_RADIUS;
+
+/**
  * What a drag point in `mode` picks (`dragChain` acts on it): the nearest body in its press circle among the ones it may take and,
  * for the pointer event (`full`) and the held pointer with `holdNearest` (task 39), the chain's own links. A link of the chain —
  * `full` truncates there (the step back), `append` does nothing; null — nothing. Task 34: on a colour free by «Смена цвета» a
- * sweep point and the held pointer take only the chain's colour. The view's ring «что возьмётся» reads it (no copy of the rule).
+ * sweep point and the held pointer take only the chain's colour. Task 42: with `holdHeroLink` a held or sweep point in the hero's
+ * circle picks nothing, nor the pointer event there on an empty chain. The view's ring «что возьмётся» reads it (no copy of the rule).
  */
 export function pickAt(world: World, p: Vec, mode: DragMode = 'full', plan: ChainPlan = planChain(world, world.chain, NO_PIERCE)): ChainLink | null {
+  if (heroHeld(world, p, mode)) return null;
   const seeLinks = seesLinks(world, mode), free = mode === 'full' ? null : pointerShiftColor(world);
   const keepsColor = (e: Enemy): boolean => free === null || colorlessLink(world, e) || sameColor(world, e.color, free);
   return pick(world, p,
