@@ -619,6 +619,49 @@ check('the end of a move in a solid body: the pierce ending in the core — the 
   }
 });
 
+check('the touch of the solid bodies (design 24.14): the hero pressed to the core or a part is touched (edge + his radius + 0.05); 0.07 off it — not; after a chain that kills next to the core — the after-chain shield (0.5 s), then the touch', () => {
+  for (const k of SEEDS) {
+    // Pressed to the core, then to the club: the walk puts him on the edge.
+    for (const which of ['core', 'club'] as const) {
+      const d = den(k, { contactDamage: 1 }), { sim, w } = d;
+      freeze(sim, d.rock);
+      if (which === 'core') freeze(sim, d.club);
+      const body = which === 'core' ? d.core : d.club, from = { x: body.x - 0.6, y: body.y + 1.2 }, len = Math.hypot(body.x - from.x, body.y - from.y);
+      sim.command({ t: 'teleport', x: from.x, y: from.y });
+      sim.command({ t: 'walk', x: (body.x - from.x) / len, y: (body.y - from.y) / len });
+      const events = ticks(sim, ticksOf(1.2), [], (_w, ev) => of(ev, 'hit').length > 0);
+      const hit = of(events, 'hit')[0];
+      assert(hit && hit.source === 'touch' && hit.enemyId === body.id, `seed ${k}, ${which}: pressed — touched (${JSON.stringify(hit)})`);
+      assert(Math.hypot(w.hero.x - body.x, w.hero.y - body.y) >= heroRadius(w.params) + bodyRadiusOf(w.params, body) - 1e-6, `seed ${k}, ${which}: outside the body`);
+      assert(replays(sim), `seed ${k}: replay`);
+    }
+    // 0.07 off the core's edge: no touch.
+    {
+      const d = den(k, { contactDamage: 1 }), { sim, w, core } = d;
+      freeze(sim, d.club); freeze(sim, d.rock);
+      sim.command({ t: 'teleport', x: core.x, y: core.y + heroRadius(w.params) + bodyRadiusOf(w.params, core) + 0.07 });
+      const events = ticks(sim, ticksOf(1));
+      assert(!of(events, 'hit').length, `seed ${k}: out of the gap — no touch`);
+    }
+    // A chain that kills a weak body at the core's side: the hero lands at 0.64 from its centre — the shield, then the touch.
+    {
+      const d = den(k, { contactDamage: 1 }), { sim, w, core } = d;
+      freeze(sim, d.club); freeze(sim, d.rock);
+      const weak = place(sim, { x: core.x + 0.64, y: core.y }, 0, 0);
+      sim.command({ t: 'teleport', x: core.x + 0.9, y: core.y + 1.8 });
+      draw(sim, [weak]);
+      sim.command({ t: 'release' });
+      settle(sim);
+      const landed = w.time, shield = w.hero.chainShield;
+      assert(!w.enemies.includes(weak) && shield > 0.4, `seed ${k}: landed with the shield (${shield})`);
+      const events = ticks(sim, ticksOf(1.2), [], (_w, ev) => of(ev, 'hit').length > 0);
+      const hit = of(events, 'hit')[0];
+      assert(hit && hit.enemyId === core.id && w.time - landed >= shield - 1e-6, `seed ${k}: the core's touch after the shield (${(w.time - landed).toFixed(2)} s)`);
+      assert(replays(sim), `seed ${k}: replay`);
+    }
+  }
+});
+
 check('the view\'s read of «Удар дубиной»: a lane 4.5 × 1.6 from the core\'s edge towards the hero', () => {
   const d = den(1), { sim, w, core } = d;
   freeze(sim, d.rock);

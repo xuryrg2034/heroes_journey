@@ -1101,12 +1101,12 @@ export function startShieldWindow(world: World): void {
  * When the shield is gone the window ends. Blocks of «Щит фокуса» or of the invulnerability after a hit alone light nothing.
  */
 function noteShieldBlocks(world: World, state: ShieldGoalState): void {
-  const { hero, params } = world;
+  const { hero } = world;
   if (!(hero.chainShield > 0)) { if (state.window) delete state.window; return; }
   const current = state.window;
   if (!current || world.arena.calm || world.asleep || world.status !== 'playing' || world.move) return;
   for (const e of world.enemies) {
-    if (current.enemies.includes(e.id) || dist(e, hero) > touchDistanceOf(params, e) + CONTACT_SLACK || enemyFrozen(e)) continue;
+    if (current.enemies.includes(e.id) || dist(e, hero) > touchReachOf(world, e) || enemyFrozen(e)) continue;
     const touches = behaviorOf(e).touches;
     if ((touches && !touches(world, e)) || touchDamage(world, e) <= 0) continue;
     current.enemies.push(e.id);
@@ -1202,6 +1202,17 @@ export function touchRaised(world: World, e: Enemy): boolean {
  */
 export function touchDistance(params: Params): number {
   return heroRadius(params) + enemyBodyRadius(params) * params.touchFactor;
+}
+
+/** Task 48 (design 16.10.2026, spec 24.14): the gap a solid body's touch reaches past the hero's edge (he is never closer than that edge). */
+export const SOLID_TOUCH_GAP = 0.05;
+/**
+ * The reach of `e`'s touch on the hero (centre to centre): its body's touch with the slack (`touchDistanceOf` + `CONTACT_SLACK`); task 48 —
+ * a solid body (`Params.trollSolid`, the hero is put out of it): its edge + the hero's radius + `SOLID_TOUCH_GAP` (pressed to the Troll
+ * he is touched, as by any enemy). Every other body, and every world without solid ones — as before.
+ */
+export function touchReachOf(world: World, e: Enemy): number {
+  return solidBody(world, e) ? bodyRadiusOf(world.params, e) + heroRadius(world.params) + SOLID_TOUCH_GAP : touchDistanceOf(world.params, e) + CONTACT_SLACK;
 }
 
 /** `touchDistance` for this enemy's own body (a kind may be larger or smaller; the prototype kinds are all 1). */
@@ -1848,7 +1859,7 @@ function contactDamage(world: World, dt: number): void {
   // A behaviour may say its touch does not hurt now: the charging boar's hit is the charge (enemies/boar.ts).
   let striker: Enemy | null = null, damage = 0;
   for (const e of world.enemies) {
-    if (dist(e, hero) > touchDistanceOf(params, e) + CONTACT_SLACK || enemyFrozen(e)) continue;
+    if (dist(e, hero) > touchReachOf(world, e) || enemyFrozen(e)) continue;
     const touches = behaviorOf(e).touches;
     if (touches && !touches(world, e)) continue;
     const dmg = touchDamage(world, e);
