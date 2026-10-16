@@ -445,6 +445,43 @@ check('the boss summary (`boss.castellan`): raises, windows with and without a h
   }
 });
 
+check('the full Castellan\'s numbers are keys of the fight: plates (`castellanPlates`), «Караул!» (`castellanGuardPeriod`), the yard crowd (`castellanCrowd`: fewer bodies); a journal without them plays the numbers of before (its core — 4 plates); the Castellan v0 never reads them', () => {
+  for (const k of [1, 2]) {
+    // Plates and «Караул!»: 6 plates, a call every 25 s (from the phase 2 at 35 s).
+    const keyed = yard(k, { castellanPlates: 6, castellanGuardPeriod: 25 }), w = keyed.w;
+    assert(keyed.core.armor?.plates === 6 && keyed.core.armor.max === 6, `seed ${k}: 6 plates (${keyed.core.armor?.plates})`);
+    keyed.sim.command({ t: 'teleport', x: 1.5, y: 12.8 });
+    const calls: number[] = [];
+    for (let i = 0; i < ticksOf(90); i++) {
+      keyed.sim.tick();
+      for (const e of of(w.events, 'castellanMove')) if (e.move === 'guard') calls.push(w.time);
+      w.events.length = 0;
+      for (const g of w.enemies.filter(e => e.kind === GUARD)) keyed.sim.command({ t: 'chill', id: g.id, seconds: 1 });
+    }
+    assert(calls.length >= 2 && calls.slice(1).every((t, i) => Math.abs(t - calls[i] - 25) < 0.05), `seed ${k}: «Караул!» every 25 s (${calls.map(t => t.toFixed(1))})`);
+    assert(replays(keyed.sim), `seed ${k}: replay`);
+    // A journal without the keys: 4 plates, «Караул!» every 15 s (the numbers of before).
+    const journal = keyed.sim.exportJournal()! as Journal, without = JSON.parse(JSON.stringify(journal)) as Journal;
+    for (const key of ['castellanPlates', 'castellanGuardPeriod', 'castellanCrowd'] as const) delete (without.params as Partial<Params>)[key];
+    const old = replay(without), oldCore = old.world.enemies.find(e => e.kind === CASTELLAN)!;
+    assert(oldCore.armor?.max === 4, `seed ${k}: without the key — 4 plates (${oldCore.armor?.max})`);
+    // The crowd: the run's spawns on, the same seed and the same 40 s — ×0.5 brings fewer bodies to the yard than ×1.
+    const count = (crowd: number): number => {
+      const p = rtRunParams(defaultParams()); p.heroHp = 999; p.contactDamage = 0; p.castellanCrowd = crowd; p.crossbowWindup = 100;
+      const sim = new Simulation({ arena: 'g-castellan', params: p, seed: seedOf(k), record: true });
+      sim.command({ t: 'teleport', x: 10, y: 12.5 });
+      let born = 0;
+      for (let i = 0; i < ticksOf(40); i++) { sim.tick(); born += of(sim.world.events, 'spawn').length; sim.world.events.length = 0; }
+      return born + sim.world.enemies.length;
+    };
+    const full = count(1), half = count(0.5);
+    assert(half < full * 0.75, `seed ${k}: the crowd ×0.5 — fewer bodies (${half} of ${full})`);
+    // The Castellan v0 never reads them.
+    const v0 = yard(k, { castellanPlates: 7 }, 'g-castellan');
+    assert(v0.core.armor?.plates === 4, `seed ${k}: v0 keeps 4 plates`);
+  }
+});
+
 check('a journal without `castellanFull` plays the Castellan v0; the run\'s values play the full one on «Двор кастеляна» under its own id', () => {
   for (const k of [1, 2]) {
     const v0 = yard(k, {}, 'g-castellan');

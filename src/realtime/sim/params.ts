@@ -963,6 +963,14 @@ export interface Params {
    * sandbox — its own arena «Двор кастеляна (полный)».
    */
   castellanFull: boolean;
+  /**
+   * Task 43, the full Castellan's numbers (read only on his arena, `castellanFull`; the Castellan v0 never reads them; journals without
+   * a key play the numbers of before — 4 plates, the crowd ×1, «Караул!» every 15 s): the core's plates; the yard crowd's factor — its
+   * density floor and its top-up pace (the groups' interval ÷ it); «Караул!» every this many game s (phase 2 and 3).
+   */
+  castellanPlates: number;
+  castellanCrowd: number;
+  castellanGuardPeriod: number;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -1379,6 +1387,10 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   crossbowFar: 7,
   // Task 43 «Кастелян полный»: off by default (v0); the run turns it on, the sandbox has its own arena.
   castellanFull: false,
+  // Task 43: the full Castellan's numbers (design 16.10.2026: 5 plates; the crowd and «Караул!» — the grid; the defaults wait for the pick).
+  castellanPlates: 4,
+  castellanCrowd: 1,
+  castellanGuardPeriod: 15,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -1837,6 +1849,9 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   // Task 43 «Кастелян полный» (enemies/garrison.ts; the arena's template when the fight starts).
   { kind: 'bool', key: 'castellanFull', group: 'Гарнизон', label: 'Кастелян полный', stage: 5,
     hint: '«Двор кастеляна» играется полным: ров, решётка и три рычага, арбалет на станке, три фазы. Действует со следующего запуска арены. «Двор кастеляна (полный)» включает его сам; в походе включено.' },
+  n('castellanPlates', 'Гарнизон', 'Кастелян полный: пластины ядра', 1, 8, 1, 5, '', 'Со следующего запуска арены.'),
+  n('castellanCrowd', 'Гарнизон', 'Кастелян полный: толпа двора', 0.25, 2, 0.05, 5, '×', 'Множитель плотности и темпа пополнения толпы (интервал групп ÷ множитель).'),
+  n('castellanGuardPeriod', 'Гарнизон', 'Кастелян полный: «Караул!» раз в', 5, 60, 1, 5, 'с'),
 ];
 
 const MAX_PHASES = 8;
