@@ -108,7 +108,7 @@ check('the v2 yard: the core behind the grate is refused (`grate`, «за реш
   for (const k of SEEDS) {
     const { sim, w, core, hounds, stand, levers } = yard(k);
     assert(hounds.length === 2 && hounds.every(h => h.partOf === core.id) && stand.partOf === core.id && stand.hp === 4 && stand.armor?.plates === 1, `seed ${k}: the parts`);
-    assert(levers.length === 3 && core.armor?.plates === 4 && castellanGrate(w)?.open === false, `seed ${k}: three levers, the grate down`);
+    assert(levers.length === 3 && core.armor?.plates === 5 && core.armor.max === 5 && castellanGrate(w)?.open === false, `seed ${k}: three levers, the grate down`);
     sim.command({ t: 'teleport', x: EDGE.x, y: EDGE.y });
     ticks(sim, 1);
     assert(enemyRefusal(w, core) === 'grate', `seed ${k}: refused (${enemyRefusal(w, core)})`);
@@ -116,7 +116,7 @@ check('the v2 yard: the core behind the grate is refused (`grate`, «за реш
     assert(w.chain.length === 0, `seed ${k}: no chain`);
     sim.command({ t: 'release' });
     settle(sim);
-    assert(core.armor?.plates === 4 && core.hp === 4, `seed ${k}: the core untouched`);
+    assert(core.armor?.plates === 5 && core.hp === 4, `seed ${k}: the core untouched`);
     assert(replays(sim), `seed ${k}: replay`);
   }
 });
@@ -147,7 +147,7 @@ check('a chain that ends on a lever raises the grate after the dash for 5 s; the
 
 check('in the window a chain across the moat takes a plate off the core (the highlight = the dash); one hit per window — the grate drops after that dash; two windows — 2 plates — phase 3, the grate stays down', () => {
   for (const k of SEEDS) {
-    const { sim, w, core, levers } = yard(k, { crossbowWindup: 100 });
+    const { sim, w, core, levers } = yard(k, { crossbowWindup: 100, castellanPlates: 4 }); // 4 plates: two windows reach phase 3 (2 plates left)
     for (const [n, lever] of [levers[0], levers[1]].entries()) {
       pull(sim, lever);
       ticks(sim, 1);
@@ -200,7 +200,7 @@ check('the grate drops while the core is in the drawn chain: the core and the li
     sim.command({ t: 'release' });
     const after = settle(sim);
     ticks(sim, 1, after);
-    assert(!w.enemies.includes(weak) && core.armor?.plates === 4 && core.hp === 4 && !of(after, 'chainHit').some(e => e.enemyId === core.id), `seed ${k}: the dash killed the weak link only, the core untouched`);
+    assert(!w.enemies.includes(weak) && core.armor?.plates === 5 && core.hp === 4 && !of(after, 'chainHit').some(e => e.enemyId === core.id), `seed ${k}: the dash killed the weak link only, the core untouched`);
     // The fight's boss summary counts the drop-out: once, the core and the link behind it (the replay of the journal).
     const c = analyzeJournal(JSON.parse(JSON.stringify(sim.exportJournal()!)) as Journal).summary.boss?.castellan;
     assert(c?.unlinks === 1 && c.unlinked === 2, `seed ${k}: the summary's drop-outs (${c?.unlinks}, ${c?.unlinked})`);
@@ -222,7 +222,7 @@ check('the despair\'s window takes one hit too: struck in it, the grate stays do
     settle(sim);
     ticks(sim, 1);
     const left = castellanGrate(w)!;
-    assert(core.armor?.plates === 3 && !left.open && enemyRefusal(w, core) === 'grate', `seed ${k}: down after the hit (${JSON.stringify(left)})`);
+    assert(core.armor?.plates === 4 && !left.open && enemyRefusal(w, core) === 'grate', `seed ${k}: down after the hit (${JSON.stringify(left)})`);
     // The next cycle opens again.
     ticks(sim, ticksOf(DESPAIR_PERIOD), [], world => castellanGrate(world)!.open);
     assert(castellanGrate(w)!.open, `seed ${k}: the next cycle opens`);
@@ -244,13 +244,13 @@ check('the gallery: a jump down into the yard costs 0 (with 0 energy, the core a
     assert((w.move as World['move'])?.kind === 'jump', `seed ${k}: the jump down started`);
     settle(sim);
     assert(w.hero.y > 5.35 && w.energy === 0, `seed ${k}: in the yard, the energy 0 (${w.hero.y.toFixed(2)}, ${w.energy})`);
-    // Four windows by the three levers (each ready again 10 s after its pull), a plate each; then the chain that kills the core.
+    // Five windows (the core's 5 plates) by the three levers (each ready again 10 s after its pull), a plate each; then the chain that kills the core.
     const window = (): void => {
       ticks(sim, ticksOf(12), [], world => levers.some(o => gateLeverReady(world, o)));
       pull(sim, levers.find(o => gateLeverReady(w, o))!);
       ticks(sim, 1);
     };
-    for (let n = 0; n < 4; n++) {
+    for (let n = 0; n < 5; n++) {
       window();
       sim.command({ t: 'teleport', x: EDGE.x, y: EDGE.y });
       sim.command({ t: 'begin', x: core.x, y: core.y });
@@ -330,7 +330,7 @@ check('the stand cut by the chain: «Болт» gone; the despair — the grate 
     const events = cutStand(sim, stand);
     assert(!w.enemies.includes(stand) && of(events, 'partSevered').some(e => e.id === stand.id), `seed ${k}: cut`);
     assert(of(events, 'grate').some(e => e.action === 'keys') && castellanGrate(w)!.despair && core.vars.phase === 2, `seed ${k}: the despair, phase 2`);
-    assert(core.armor?.plates === 4, `seed ${k}: the stand takes no plate off the core (${core.armor?.plates})`);
+    assert(core.armor?.plates === 5, `seed ${k}: the stand takes no plate off the core (${core.armor?.plates})`);
     // Over 20 s: the core is refused (`grate`) 7 s of every 10.
     let open = 0, shut = 0;
     for (let i = 0; i < ticksOf(2 * DESPAIR_PERIOD); i++) { ticks(sim, 1); if (enemyRefusal(w, core) === 'grate') shut++; else open++; }
@@ -442,6 +442,43 @@ check('the boss summary (`boss.castellan`): raises, windows with and without a h
     assert(c.bolts.shots === shots.length && c.bolts.hero === hero && shots.length > 0, `seed ${k}: bolts ${JSON.stringify(c.bolts)} / ${shots.length}`);
     const replayed = analyzeJournal(JSON.parse(JSON.stringify(sim.exportJournal()!)) as Journal).summary;
     assert(JSON.stringify(replayed.boss) === JSON.stringify(live.boss), `seed ${k}: the replay counts the same (${JSON.stringify(replayed.boss)})`);
+  }
+});
+
+check('the full Castellan\'s numbers are keys of the fight: plates (`castellanPlates`), «Караул!» (`castellanGuardPeriod`), the yard crowd (`castellanCrowd`: fewer bodies); a journal without them plays the numbers of before (its core — 4 plates); the Castellan v0 never reads them', () => {
+  for (const k of [1, 2]) {
+    // Plates and «Караул!»: 6 plates, a call every 25 s (from the phase 2 at 35 s).
+    const keyed = yard(k, { castellanPlates: 6, castellanGuardPeriod: 25 }), w = keyed.w;
+    assert(keyed.core.armor?.plates === 6 && keyed.core.armor.max === 6, `seed ${k}: 6 plates (${keyed.core.armor?.plates})`);
+    keyed.sim.command({ t: 'teleport', x: 1.5, y: 12.8 });
+    const calls: number[] = [];
+    for (let i = 0; i < ticksOf(90); i++) {
+      keyed.sim.tick();
+      for (const e of of(w.events, 'castellanMove')) if (e.move === 'guard') calls.push(w.time);
+      w.events.length = 0;
+      for (const g of w.enemies.filter(e => e.kind === GUARD)) keyed.sim.command({ t: 'chill', id: g.id, seconds: 1 });
+    }
+    assert(calls.length >= 2 && calls.slice(1).every((t, i) => Math.abs(t - calls[i] - 25) < 0.05), `seed ${k}: «Караул!» every 25 s (${calls.map(t => t.toFixed(1))})`);
+    assert(replays(keyed.sim), `seed ${k}: replay`);
+    // A journal without the keys: 4 plates, «Караул!» every 15 s (the numbers of before).
+    const journal = keyed.sim.exportJournal()! as Journal, without = JSON.parse(JSON.stringify(journal)) as Journal;
+    for (const key of ['castellanPlates', 'castellanGuardPeriod', 'castellanCrowd'] as const) delete (without.params as Partial<Params>)[key];
+    const old = replay(without), oldCore = old.world.enemies.find(e => e.kind === CASTELLAN)!;
+    assert(oldCore.armor?.max === 4, `seed ${k}: without the key — 4 plates (${oldCore.armor?.max})`);
+    // The crowd: the run's spawns on, the same seed and the same 40 s — ×0.5 brings fewer bodies to the yard than ×1.
+    const count = (crowd: number): number => {
+      const p = rtRunParams(defaultParams()); p.heroHp = 999; p.contactDamage = 0; p.castellanCrowd = crowd; p.crossbowWindup = 100;
+      const sim = new Simulation({ arena: 'g-castellan', params: p, seed: seedOf(k), record: true });
+      sim.command({ t: 'teleport', x: 10, y: 12.5 });
+      let born = 0;
+      for (let i = 0; i < ticksOf(40); i++) { sim.tick(); born += of(sim.world.events, 'spawn').length; sim.world.events.length = 0; }
+      return born + sim.world.enemies.length;
+    };
+    const full = count(1), half = count(0.5);
+    assert(half < full * 0.75, `seed ${k}: the crowd ×0.5 — fewer bodies (${half} of ${full})`);
+    // The Castellan v0 never reads them.
+    const v0 = yard(k, { castellanPlates: 7 }, 'g-castellan');
+    assert(v0.core.armor?.plates === 4, `seed ${k}: v0 keeps 4 plates`);
   }
 });
 

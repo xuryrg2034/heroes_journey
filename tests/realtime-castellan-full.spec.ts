@@ -53,7 +53,7 @@ test('task 43: «Двор кастеляна (полный)» — «за реш�
     return last;
   };
   const core = (await read()).enemies.find(e => e.kind === 'castellan')!;
-  expect(core.armor?.plates).toBe(4);
+  expect(core.armor?.plates).toBe(5);
   // The hero at the moat's yard edge below the core: the pointer over the core — «за решёткой»; a press takes nothing.
   await page.evaluate(() => (window as any).__realtime.teleport(10, 5.6));
   const pc = await settled(core.x, core.y);
@@ -83,7 +83,7 @@ test('task 43: «Двор кастеляна (полный)» — «за реш�
   await expect.poll(async () => (await read()).chain).toEqual([core.id]);
   await page.screenshot({ path: 'artifacts/realtime-castellan-full-window.png' });
   await page.mouse.up();
-  await expect.poll(async () => (await read()).enemies.find(e => e.id === core.id)?.armor?.plates, { timeout: 5_000 }).toBe(3);
+  await expect.poll(async () => (await read()).enemies.find(e => e.id === core.id)?.armor?.plates, { timeout: 5_000 }).toBe(4);
   const recorded = await page.evaluate(() => { const rt = (window as any).__realtime; return { journal: rt.journal(), hash: rt.hash() }; }) as { journal: Journal; hash: string };
   expect(replay(recorded.journal).hash()).toBe(recorded.hash);
   expect(errors).toEqual([]);

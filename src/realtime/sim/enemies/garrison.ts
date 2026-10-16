@@ -443,7 +443,7 @@ function callGuards(world: World, core: Enemy, gate: Vec): void {
     const off = (k - (GUARD_FORMATION - 1) / 2) * GUARD_STEP;
     world.markers.push({ id: world.nextId++, kind: GUARD, x: gate.x + px * off, y: gate.y + py * off, color, hp: 0, timeLeft: delay, total: delay, plain: true, formation });
   }
-  core.vars.wt = fullOn(world) ? FULL_GUARD_PERIOD : GUARD_CALL_PERIOD;
+  core.vars.wt = fullOn(world) ? fullGuardPeriodOf(world) : GUARD_CALL_PERIOD;
   world.events.push({ type: 'castellanMove', id: core.id, move: 'guard', stage: 'hit' });
 }
 
@@ -479,7 +479,9 @@ function conduct(world: World, core: Enemy, dt: number): void {
   // Once: the core takes the arena's hounds (its parts, on its leashes) and its plates.
   if (!v.pk) {
     v.pk = 1;
-    core.armor = { plates: CASTELLAN_PLATES, max: CASTELLAN_PLATES, boss: true };
+    // Task 43: the full Castellan's plates are a number of the fight (`Params.castellanPlates`).
+    const plates = fullOn(world) ? fullPlatesOf(world) : CASTELLAN_PLATES;
+    core.armor = { plates, max: plates, boss: true };
     v.born = world.time; v.cd = CASTELLAN_FIRST_MOVE; v.phase = 1;
     for (const hound of world.enemies.filter(e => e.kind === HOUND && e.partOf === undefined && !tetherOf(world, e.id))) {
       hound.partOf = core.id; hound.vars.ow = core.id;
@@ -511,7 +513,7 @@ function conduct(world: World, core: Enemy, dt: number): void {
   if ((v.phase ?? 1) >= 2 && (v.wt ?? 0) <= TIME_EPS) {
     const gate = farGate(world);
     if (gate) { callGuards(world, core, gate); v.cd = CASTELLAN_MOVE_GAP; return; }
-    v.wt = fullOn(world) ? FULL_GUARD_PERIOD : GUARD_CALL_PERIOD;
+    v.wt = fullOn(world) ? fullGuardPeriodOf(world) : GUARD_CALL_PERIOD;
   }
   // The hounds on its leashes take turns (`vars.nh` — the turn); one within reach of the hero starts the lunge.
   const leashed = houndsOf(world, core).filter(h => tetherOf(world, h.id)?.holder === core.id && !enemyFrozen(h));
@@ -680,7 +682,7 @@ registerEnemyKind({
 //   `castellan-bolt`); in phase 2 and 3 two bolts `PAIR_GAP` s apart. Cut: «Болт» gone, the despair — the grate stuck open
 //   `DESPAIR_OPEN` s of every `DESPAIR_PERIOD` s (`vars.dp`).
 // - **Phases.** 1 — the hounds and «Болт»; 2 — the first part lost or 35 s: «Караул!» every `FULL_GUARD_PERIOD` s, the pair of
-//   bolts; 3 — the core has `PHASE3_PLATES` plates or `PHASE3_TIME` s: the parts wind up ×`PHASE3_WINDUP` (the grate as before).
+//   bolts («Караул!» every `Params.castellanGuardPeriod` s); 3 — the core has `PHASE3_PLATES` plates or `PHASE3_TIME` s: the parts wind up ×`PHASE3_WINDUP` (the grate as before).
 // - «Спустить пса»: the lane stops at the moat — its strike reaches the hero at the moat's far edge, the hound lands at the near one.
 
 export const STAND = 'castellan-crossbow';
@@ -691,7 +693,12 @@ export const GRATE_OPEN = 5;
 export const LEVER_COOLDOWN = 10;
 export const DESPAIR_OPEN = 3;
 export const DESPAIR_PERIOD = 10;
+/** The numbers of before (journals without the keys): «Караул!» every 15 s, 4 plates, the crowd ×1. */
 export const FULL_GUARD_PERIOD = 15;
+export const FULL_PLATES = CASTELLAN_PLATES;
+/** Task 43: the full Castellan's numbers of this fight (`Params.castellanPlates`, `castellanGuardPeriod`); a journal without the key — before. */
+const fullPlatesOf = (world: World): number => world.params.castellanPlates ?? FULL_PLATES;
+const fullGuardPeriodOf = (world: World): number => world.params.castellanGuardPeriod ?? FULL_GUARD_PERIOD;
 export const PHASE3_PLATES = 2;
 export const PHASE3_TIME = 80;
 export const PHASE3_WINDUP = 0.8;

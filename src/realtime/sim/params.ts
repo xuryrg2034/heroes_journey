@@ -963,6 +963,14 @@ export interface Params {
    * sandbox — its own arena «Двор кастеляна (полный)».
    */
   castellanFull: boolean;
+  /**
+   * Task 43, the full Castellan's numbers (read only on his arena, `castellanFull`; the Castellan v0 never reads them; journals without
+   * a key play the numbers of before — 4 plates, the crowd ×1, «Караул!» every 15 s): the core's plates; the yard crowd's factor — its
+   * density floor and its top-up pace (the groups' interval ÷ it); «Караул!» every this many game s (phase 2 and 3).
+   */
+  castellanPlates: number;
+  castellanCrowd: number;
+  castellanGuardPeriod: number;
   // ---- Task 43 «Гарнизон, шаг 2», part В «Рыцарь» (sim/enemies/garrison.ts «Рыцарь»; docs/realtime-elite-behaviors.md). ----
   // The knight comes only by an arena's roster (no knight — none of these is read). Journals without the keys: the defaults below.
   /** Task 43: the knight's plates in armour (the law of a boss's plates: one per pass, no regrowth, no window). */
@@ -1399,6 +1407,10 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   crossbowFar: 7,
   // Task 43 «Кастелян полный»: off by default (v0); the run turns it on, the sandbox has its own arena.
   castellanFull: false,
+  // Task 43: the full Castellan's numbers (the design's pick 16.10.2026 by the bot grid: 5 plates, the yard crowd ×0.5, «Караул!» every 15 s).
+  castellanPlates: 5,
+  castellanCrowd: 0.5,
+  castellanGuardPeriod: 15,
   // Task 43 «Рыцарь» (enemies/garrison.ts): the knight's numbers (it comes only by a roster).
   knightPlates: 2,
   knightHp: 3,
@@ -1867,6 +1879,9 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   // Task 43 «Кастелян полный» (enemies/garrison.ts; the arena's template when the fight starts).
   { kind: 'bool', key: 'castellanFull', group: 'Гарнизон', label: 'Кастелян полный', stage: 5,
     hint: '«Двор кастеляна» играется полным: ров, решётка и три рычага, арбалет на станке, три фазы. Действует со следующего запуска арены. «Двор кастеляна (полный)» включает его сам; в походе включено.' },
+  n('castellanPlates', 'Гарнизон', 'Кастелян полный: пластины ядра', 1, 8, 1, 5, '', 'Со следующего запуска арены.'),
+  n('castellanCrowd', 'Гарнизон', 'Кастелян полный: толпа двора', 0.25, 2, 0.05, 5, '×', 'Множитель плотности и темпа пополнения толпы (интервал групп ÷ множитель).'),
+  n('castellanGuardPeriod', 'Гарнизон', 'Кастелян полный: «Караул!» раз в', 5, 60, 1, 5, 'с'),
   // Task 43 «Рыцарь» (enemies/garrison.ts).
   n('knightPlates', 'Гарнизон', 'Рыцарь: пластин лат', 0, 6, 1, 5, '', 'Каждая цепь через рыцаря снимает одну пластину; пока латы целы, HP не теряет; латы не растут. После прохода, снявшего последнюю, — наступление.'),
   n('knightHp', 'Гарнизон', 'Рыцарь: HP', 0, 8, 1, 5),

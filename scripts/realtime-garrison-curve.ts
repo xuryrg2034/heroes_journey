@@ -24,7 +24,7 @@
  * the median game time of the fight, the deaths by the killing blow's source.
  */
 import { execSync } from 'node:child_process';
-import { defaultParams } from '../src/realtime/sim/params';
+import { defaultParams, type Params } from '../src/realtime/sim/params';
 import type { World } from '../src/realtime/sim/world';
 import { runRow } from '../src/realtime/run/arenaPools';
 import { rtGarrisonNodeId } from '../src/realtime/run/garrison';
@@ -49,7 +49,7 @@ const MOAT = args.includes('--moat');
  * measure of the entry, not a knob of the Castellan); `crowd` (task 43) — the density floor of his fight AND the groups' pace × this (the
  * loadout's `floorScale` and the params' group interval ÷ it).
  */
-interface CastellanSet { plates?: number; coreHp?: number; houndHp?: number; windup?: number; guardPeriod?: number; guards?: number; touch?: boolean; floor?: number; fullHp?: boolean; crowd?: number }
+interface CastellanSet { plates?: number; coreHp?: number; houndHp?: number; windup?: number; guardPeriod?: number; guards?: number; touch?: boolean; floor?: number; fullHp?: boolean; crowd?: number; full?: Partial<Params> }
 const CASTELLAN_SETS: Readonly<Record<string, CastellanSet>> = {
   base: {},
   plates2: { plates: 2 },
@@ -79,6 +79,13 @@ const CASTELLAN_SETS: Readonly<Record<string, CastellanSet>> = {
   crowd75: { crowd: 0.75 },
   crowd75plates5: { crowd: 0.75, plates: 5 },
   crowd75plates6: { crowd: 0.75, plates: 6 },
+  // Task 43, the last grid (design 16.10.2026: 5 plates): the game's own keys of the full Castellan (`full` — `Params` put on the fight's
+  // values: `castellanPlates`, `castellanCrowd`, `castellanGuardPeriod`), a fight that replays from its journal.
+  p5c75: { full: { castellanPlates: 5, castellanCrowd: 0.75 } },
+  p5c50: { full: { castellanPlates: 5, castellanCrowd: 0.5 } },
+  p5c60: { full: { castellanPlates: 5, castellanCrowd: 0.6 } },
+  p5c50g25: { full: { castellanPlates: 5, castellanCrowd: 0.5, castellanGuardPeriod: 25 } },
+  p5c60g25: { full: { castellanPlates: 5, castellanCrowd: 0.6, castellanGuardPeriod: 25 } },
 };
 /**
  * `--boss-aim`: in a fight with a boss core (the Castellan, the Jailer — `BOSS_CORES`) the bot hunts the boss — it walks at the core
@@ -109,6 +116,7 @@ function fight(run: RtRunState, t: Tally): RtArenaOutcome {
   if (pending?.kind !== 'battle') throw new Error('no battle');
   const castellan = pending.arena === 'g-castellan' && SET ? SET : null, params = rtArenaParams(run, rtRunParams(defaultParams()));
   if (castellan?.touch === false) params.toughTouch = false;
+  if (castellan?.full) Object.assign(params, castellan.full);
   const loadout = rtArenaLoadout(run);
   if (castellan?.floor !== undefined) loadout.floorScale = castellan.floor;
   // Task 43: the crowd's density floor and its top-up pace (the groups' interval ÷ the factor: fewer groups a second).
