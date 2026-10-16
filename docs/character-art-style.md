@@ -169,3 +169,12 @@ NOT smooth plastic surfaces, NOT excessive gradients.
 Предметы для задачи 51 (разделы 3.4 и 4), Codex `image_gen`, промпты — `artifacts/art-prompts/camp-props.json`; RGBA, прозрачный фон, проверено глазами на листе 16.10.2026 — стиль един с `troll-club.png` и `jailer-cage.png`, читаются в малом размере. Подключение — ui с видом задачи 51.
 - `public/art/camp/trace-basket.png` (корзина Марфы), `trace-wheel.png` (точильное колесо Ерофея), `trace-mug.png` (кружка с костями Шиша) — около 512 px.
 - `public/art/camp/trophy-jailer.png` (гиря с цепью), `trophy-severed.png` (обрубок цепи), `trophy-troll.png` (рог Тролля), `trophy-chief.png` (котелок Главаря), `trophy-shackles.png` (сломанные кандалы), `trophy-castellan.png` (знамя Кастеляна), `trophy-ash.png` (доска Испытания с восемью засечками), `trophy-bestiary.png` (чернильница Неясыти), `trophy-chain.png` (длинная цепь кольцом) — 256×256.
+
+### Босс леса — Главарь с котелком (17.10.2026)
+
+Набор для задачи 54 (`docs/design-notes/task-54-chief.md`, раздел 18), Codex `image_gen`, промпты — `artifacts/art-prompts/forest-boss.json`. Главарь нарисован по `boss.png` как образцу (лицо, корона, уши, клыки, ожерелье, плащ, палитра). Проверка `check-art.mjs` 17.10.2026: PASS для четырёх; глазами — стиль един с Троллем и Тюремщиком. Подключение — ui на шаге 54; до него — заглушки. `boss.png` остаётся в наборе как история (вид его не рисует).
+- `public/art/characters/chief.png` — Главарь: корона, клыки, рёв «Обед!», правая рука пустая ладонью вверх (половник — отдельно), без чайника и мешка, 1281×1263.
+- `public/art/characters/chief-ladle.png` — половник (предмет), 751×481.
+- `public/art/characters/chief-sack.png` — мешок с перцем, грибом и морковью (предмет), 751×677.
+- `public/art/characters/chief-cauldron.png` — котелок на трёх камнях с огнём; горловина пустая (варево и пар рисует вид цветом варева), 1000×813.
+- `public/art/camp/trophy-chief.png` перерисован: тот же котелок без огня, с половником — трофей «Котелок Главаря» совпадает с котелком боя.
