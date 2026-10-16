@@ -319,8 +319,9 @@ test('colours Т5 (Д5): the yellow of the chain is ochre c8962e, the rim of an 
   const plain = await place(page, 6, 6.5, 'basic', 3, 0);
   const elite = await page.evaluate(() => (window as any).__realtime.place(10, 5, 3, 1, 'basic', true)) as number;
   await page.waitForTimeout(400);
-  // The elite creeps toward the hero (~0.2 unit/s) even at `enemySpeed` 0: on a slow machine it left the scanned strip between the
-  // snapshot and the screenshot (16.10.2026, the whole file only). The pause («P») holds the bodies where the snapshot says.
+  // `setParam('enemySpeed', 0)` is clamped to the slider's minimum 0.2 (sanitizeParams; core 16.10.2026): the elite walks to the hero,
+  // and on a slow run it left the scanned strip between the snapshot and the screenshot (the whole file only). The pause («P») holds
+  // the bodies where the snapshot says.
   await page.keyboard.press('p');
   await expect.poll(async () => (await buildSnap(page) as BuildSnap & { paused: boolean }).paused).toBe(true);
   const scale = (await page.evaluate(() => (window as any).__realtime.camera())).scale as number;
