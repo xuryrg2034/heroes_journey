@@ -70,9 +70,10 @@ export const BUILD_LABELS: Readonly<Record<string, Label>> = {
   [F.twins]: { short: 'Близ', glyph: '∞', title: 'Близнецы', svg: formIconSvg('twins') },
   [FROST_PASS]: { short: 'Нал', glyph: '❄', title: 'Наледь', svg: formIconSvg('rime') },
   // Task 44 — the fusions (drawn icons, view/formIcons.ts).
-  [U.iceSeal]: { short: 'Лёд', glyph: '◎', title: 'Ледяная печать', svg: fusionIconSvg('iceSeal') },
-  [U.spear]: { short: 'Копь', glyph: '↗', title: 'Копьё', svg: fusionIconSvg('spear') },
-  [U.boomerang]: { short: 'Бум', glyph: '↺', title: 'Бумеранг', svg: fusionIconSvg('boomerang') },
+  // Design 16.10.2026: a fusion's word whole, on a line of its own under the icon (`rt-build-fusion`), never cut.
+  [U.iceSeal]: { short: 'Лёд. печать', glyph: '◎', title: 'Ледяная печать', svg: fusionIconSvg('iceSeal') },
+  [U.spear]: { short: 'Копьё', glyph: '↗', title: 'Копьё', svg: fusionIconSvg('spear') },
+  [U.boomerang]: { short: 'Бумеранг', glyph: '↺', title: 'Бумеранг', svg: fusionIconSvg('boomerang') },
   // The view's test module (buildTestModule.ts; sandbox hook only).
   'view-test-counter': { short: 'Тест', glyph: 'T', title: 'Тестовый счётчик (песочница)' },
 };
@@ -384,7 +385,7 @@ export class BuildColumn {
     this.el.replaceChildren();
     this.rows = entries.map(({ id, kind }) => {
       const label = labelOf(id, this.counterWindow), el = document.createElement('div');
-      el.className = `rt-build-item rt-build-${kind}`;
+      el.className = `rt-build-item rt-build-${kind}${fusionRecipe(id) ? ' rt-build-fusion' : ''}`;
       el.setAttribute('data-testid', `build-${id}`);
       el.dataset.kind = kind;
       const icon = document.createElement('i');

@@ -184,7 +184,16 @@ async function expectFusedColumn(page: Page, fusion: string): Promise<void> {
   const ids = (await snap(page)).buildItems.map((i: { id: string }) => i.id);
   expect(ids).not.toContain(r.form);
   expect(ids).not.toContain(r.counter);
-  await expect(page.getByTestId(`build-${fusion}`).locator('svg.rt-fusion-icon')).toHaveCount(1);
+  const row = page.getByTestId(`build-${fusion}`);
+  await expect(row.locator('svg.rt-fusion-icon')).toHaveCount(1);
+  // Design 16.10.2026: the name whole («Копьё», «Бумеранг», «Лёд. печать») — not cut, not over the icon.
+  const name = row.locator('b');
+  await expect(name).toHaveText({ 'fusion-ice-seal': 'Лёд. печать', 'fusion-spear': 'Копьё', 'fusion-boomerang': 'Бумеранг' }[fusion]!);
+  expect(await name.evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'the name is not cut').toBe(true);
+  const icon = (await row.locator('.rt-build-icon').boundingBox())!, text = (await name.boundingBox())!, box = (await row.boundingBox())!;
+  expect(text.y, 'the name under the icon').toBeGreaterThanOrEqual(icon.y + icon.height - 1);
+  expect(text.x + text.width, 'the name inside the row').toBeLessThanOrEqual(box.x + box.width + 1);
+  await page.getByTestId('build-column').screenshot({ path: `artifacts/realtime-fusion-column-${fusion.replace('fusion-', '')}.png` });
 }
 /** A chain over the bodies at arena points `pts` by the real mouse (held). */
 async function drawOver(page: Page, pts: readonly [number, number][]): Promise<void> {

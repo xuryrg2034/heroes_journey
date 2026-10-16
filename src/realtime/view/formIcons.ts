@@ -75,9 +75,13 @@ const FUSION_BODIES: Readonly<Record<FusionIcon, string>> = {
     dot(12, 4.5, 2.2, ICE) + dot(18.5, 15.8, 2.2, ICE) + dot(5.5, 15.8, 2.2, ICE) +
     `<path d="M12 7.4 L15.2 12 L12 16.6 L8.8 12 Z" fill="${ICE}" stroke="${NAVY}" stroke-width="1.4" stroke-linejoin="round"/>` +
     `<path d="M11.2 9.6 L12.4 11" stroke="#ffffff" stroke-width="1.1" stroke-linecap="round"/>`,
-  spear: `<path d="M1.5 22.5 L17 7" stroke="${NAVY}" stroke-width="3.6" stroke-linecap="round"/><path d="M1.5 22.5 L17 7" stroke="${STEEL}" stroke-width="1.6" stroke-linecap="round"/>` +
-    dot(4.5, 19.5, 2.2, PALE) + dot(8.5, 15.5, 2.2, PALE) + dot(12.5, 11.5, 2.2, PALE) +
-    `<path d="M23 1 L21.2 10.4 L13.6 2.8 Z" fill="${LEMON}" stroke="${NAVY}" stroke-width="1.4" stroke-linejoin="round"/>`,
+  // Design 16.10.2026: not «Прямая»'s diagonal with a small tip — a long shaft, a broad leaf head and two plates knocked off at the tip.
+  spear: `<path d="M1.5 22.5 L13 11" stroke="${NAVY}" stroke-width="3.8" stroke-linecap="round"/><path d="M1.5 22.5 L13 11" stroke="${WOOD}" stroke-width="1.8" stroke-linecap="round"/>` +
+    `<path d="M11 13 L13.8 10.2" stroke="${NAVY}" stroke-width="4.4" stroke-linecap="round"/>` +
+    `<path d="M23 1 Q22 10.5 13 12.2 Q12.4 4 23 1 Z" fill="${LEMON}" stroke="${NAVY}" stroke-width="1.5" stroke-linejoin="round"/>` +
+    `<path d="M21.6 2.4 L14.4 11" stroke="${NAVY}" stroke-width="0.9" stroke-linecap="round"/>` +
+    `<rect x="16" y="15.5" width="4" height="3" rx="0.6" transform="rotate(25 18 17)" fill="${STEEL}" stroke="${NAVY}" stroke-width="1.2"/>` +
+    `<rect x="19.2" y="11.6" width="4" height="3" rx="0.6" transform="rotate(-20 21.2 13.1)" fill="${STEEL}" stroke="${NAVY}" stroke-width="1.2"/>`,
   boomerang: `<path d="M3.5 9 Q12 1.5 20.5 9 L18 12 Q12 7 6 12 Z" fill="${WOOD}" stroke="${NAVY}" stroke-width="1.6" stroke-linejoin="round"/>` +
     `<path d="M18.5 16.5 Q12 22.5 5.5 16.5" fill="none" stroke="${NAVY}" stroke-width="4" stroke-linecap="round"/><path d="M18.5 16.5 Q12 22.5 5.5 16.5" fill="none" stroke="${LEMON}" stroke-width="2" stroke-linecap="round"/>` +
     `<path d="M3 15.5 L7.6 14.2 L6.4 19 Z" fill="${LEMON}" stroke="${NAVY}" stroke-width="1.3" stroke-linejoin="round"/>`,

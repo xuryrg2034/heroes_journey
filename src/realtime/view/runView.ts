@@ -1345,7 +1345,7 @@ export class RunView {
         + `<small>${f.available ? `«${escapeHtml(partName(f.form, run))}» и «${escapeHtml(partName(f.counter, run))}» станут одним; привал уйдёт на сплав` : 'выбран крафт'}</small></button>`).join('');
       return card(`<h2>Привал</h2><p>${fusions ? 'Лечение, крафт или сплав: сплав занимает привал, первый рецепт отменяет лечение и сплав.' : 'Лечение или крафт: первый рецепт отменяет лечение этого привала.'}${view.crafted.length ? ` Сделано: ${view.crafted.map(item => ITEM_TITLES[item]).join(', ')}.` : ''}</p>`
         + `<div class="rt-run-choices"><button class="rt-run-choice" data-action="rest-heal" data-testid="rest-heal" ${view.heal.available ? '' : 'disabled'}><b>Лечение +${view.heal.amount} HP</b>`
-        + `<small>${!view.heal.available ? 'выбран крафт' : view.heal.amount < view.heal.value ? `не выше максимума (лечит до ${view.heal.value})` : `лечит до ${view.heal.value} HP`}</small></button>${fusions}${recipes}</div>`
+        + `<small>${!view.heal.available ? 'выбран крафт' : view.heal.amount < view.heal.value ? `лечит до ${view.heal.value} HP, не выше максимума` : `лечит до ${view.heal.value} HP`}</small></button>${fusions}${recipes}</div>`
         + (view.canFinish ? `<button class="rt-other" data-action="rest-finish" data-testid="rest-finish">К карте</button>` : ''), 'run-rest');
     }
     if (pending.kind === 'outskirts') {

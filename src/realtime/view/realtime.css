@@ -232,7 +232,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-run-pair { text-decoration: underline dotted #9fd8ff; text-underline-offset: 3px; }
 .rt-fuse-recipe { display: flex; align-items: center; gap: 4px; margin-bottom: 4px; }
 .rt-fuse-recipe em { font-style: normal; color: var(--rt-muted); }
-.rt-fuse-icon { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 50%; background: #233039; border: 1px solid #4a5a66; font-style: normal; font-size: 14px; color: #f2dfb4; }
+.rt-fuse-icon { display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 50%; background: #233039; border: 1px solid #4a5a66; font-style: normal; font-size: 17px; color: #f2dfb4; }
+.rt-fuse-recipe .rt-fuse-icon svg { width: 28px; height: 28px; }
 .rt-fuse-anim { position: absolute; left: 50%; top: 42%; width: 0; height: 0; pointer-events: none; z-index: 12; }
 .rt-fuse-anim > span { position: absolute; left: -32px; top: -32px; }
 .rt-fuse-anim .rt-fuse-icon { width: 64px; height: 64px; border-width: 2px; box-shadow: 0 0 18px #9fd8ff66; }
@@ -345,6 +346,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-build-icon-svg svg { display: block; }
 .rt-build-arrive { position: fixed; z-index: 9; width: 48px; height: 48px; margin: 0; grid-row: auto; pointer-events: none; transform-origin: 50% 50%; box-shadow: 0 0 0 3px #bfe3ff, 0 0 18px #bfe3ff; }
 .rt-build-compact .rt-build-icon-svg svg { width: 16px; height: 16px; }
+/* Task 44 (design 16.10.2026): a fusion's name whole — on its own line under the icon, across the row, wrapping, never cut. */
+.rt-build-fusion .rt-build-icon { grid-row: 1; }
+.rt-build-fusion b { grid-column: 1 / -1; grid-row: 2; white-space: normal; overflow: visible; font-size: 10px; line-height: 1.15; color: #bfe3ff; }
 @keyframes rt-build-flash { 0% { background: #ffffff; color: #10150f; box-shadow: 0 0 0 3px #bfe3ff, 0 0 14px #bfe3ff; transform: scale(1.25); } 100% { box-shadow: none; transform: scale(1); } }
 
 /* Telemetry (track ТA, docs/realtime-telemetry.md): the «Логи» panel and the flash of the N note. */
