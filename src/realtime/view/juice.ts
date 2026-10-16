@@ -55,6 +55,33 @@ export function shardLife(link: number): number {
 /** С4 «Тяжёлый клинок»: the chain line's width factor and the hit's shift, semitones (design 15.10.2026). */
 export const HEAVY_LINE = 1.4, HEAVY_SEMIS = -5;
 
+/**
+ * Task 47, С7 (design 16.10.2026): the hero's squash and stretch at the dash's start (stretched up) and end (squashed), `SQUASH_TIME`
+ * real seconds, at most `SQUASH_MAX` of his size; the С1 level scales it (0 — none). The drawing only: his body and the input stay.
+ */
+export const SQUASH_TIME = 0.1, SQUASH_MAX = 0.15;
+export type SquashKind = 'start' | 'end';
+
+/** С7: the hero's drawing scale `t` seconds into a squash of `kind` at the level (per cent): x and y factors. */
+export function squashScale(kind: SquashKind, t: number, level: number): { x: number; y: number } {
+  if (t < 0 || t >= SQUASH_TIME || level <= 0) return { x: 1, y: 1 };
+  // Full at once, eased back to 1 (ease-out); stretch — taller and narrower, squash — lower and wider.
+  const k = 1 - t / SQUASH_TIME, a = SQUASH_MAX * Math.min(1, level / 100) * k * k, s = kind === 'start' ? 1 : -1;
+  return { x: 1 - a * s, y: 1 + a * s };
+}
+
+/** Task 47, С4 «Длинная рука»: real seconds the reach ring burns brighter when the counters' window gives R ×1.5. */
+export const LONG_ARM_FLASH = 0.2;
+
+/** Task 47, С4 «Быстрые ноги»: the speed lines behind the dashing hero — how many, their spacing across and length (units). */
+export const SPEED_LINES = 3, SPEED_LINE_GAP = 0.22, SPEED_LINE_LEN = 0.9;
+
+/** Task 47, С4 «Ударная волна»: the hum's strength 0.3–1 by the bodies the wave struck (full from `WAVE_FULL`). */
+export const WAVE_FULL = 6;
+export function waveStrength(struck: number): number {
+  return 0.3 + 0.7 * Math.max(0, Math.min(1, struck / WAVE_FULL));
+}
+
 /** С3: real seconds a header number takes to count up to its new value (0.3 for a step of one, 0.6 from six on). */
 export function countUpTime(step: number): number {
   return Math.max(0.3, Math.min(0.6, 0.3 + 0.06 * (Math.abs(step) - 1)));
