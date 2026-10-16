@@ -23,6 +23,8 @@ import { hasTalisman, kitOf, type ItemKind, type Kit, type Loadout, type Resourc
 import { affixSpeedFactor, eliteDeath, makeElite, platesOf, stripPlates, touchLoot, updateAffixes, updateArmor, type AffixId, type EliteArmor, type TrailPoint } from './elites';
 import { updateBurning } from './items';
 import { RngStreams } from './rng';
+// Task 40: the keymaster's prisoner stands (tethers.ts).
+import { dropShackleOf, shackled } from './tethers';
 // Casino stage 1 («Однорукий гоблин», slot.ts): the slot's state and step.
 import { goblinOf, placeArenaGoblin, updateSlot, type SlotOutcome, type SlotState, type SlotSymbol } from './slot';
 import { fallenEmbers, greedHurt, purseDoor, purseKill, type DoorExit, type PurseMove, type PurseWorld } from './purse';
@@ -499,9 +501,10 @@ export type WorldEvent =
   | { type: 'bossPhase'; id: number; phase: number }
   /**
    * Task 38 (tethers.ts): a tether is gone — `cut` by the dash (at its end; `x`, `y` — where the dash crossed it first), `death` of
-   * an end (the holder's death frees every hound it held). The rules never read it.
+   * an end (the holder's death frees every hound it held). Task 40: `shackle` — the keymaster shackled `held` (a new tether);
+   * `kind` — `shackle` on every event of a shackle (absent — a leash). The rules never read it.
    */
-  | { type: 'tether'; action: 'cut' | 'death'; holder: number; held: number; x: number; y: number }
+  | { type: 'tether'; action: 'cut' | 'death' | 'shackle'; holder: number; held: number; x: number; y: number; kind?: 'shackle' }
   /** Task 38 (enemies/garrison.ts): a loosed hound's frenzy began (`start`) or ended (`end`); it bit an enemy (`bite`). */
   | { type: 'frenzy'; action: 'start' | 'end' | 'bite'; id: number; target?: number; x: number; y: number }
   /** Task 38 (enemies/garrison.ts): the Castellan's move — «Спустить пса» (`lunge`: windup `start`, `hit`) or «Караул!» (`guard`). */
@@ -645,9 +648,11 @@ export interface World {
 
 /**
  * Task 38 (tethers.ts): a tether between two bodies — `holder` holds `held` (the dog handler or the Castellan and a hound). One
- * tether a held body: `held` names it (the dash's `cuts`, the plan's `cuts`). `kind` — `leash` (the shackles of the keeper — step 1б).
+ * tether a held body: `held` names it (the dash's `cuts`, the plan's `cuts`). `kind` — `leash`; task 40 — `shackle` (the keymaster
+ * and its prisoner: the prisoner stands and no chain takes it).
  */
-export interface Tether { holder: number; held: number; kind: 'leash' }
+export type TetherKind = 'leash' | 'shackle';
+export interface Tether { holder: number; held: number; kind: TetherKind }
 
 /**
  * The lamps of a `shield` arena (`World.shieldGoal`): `lit` — shield windows that absorbed a touch which would have hurt (at
@@ -711,7 +716,9 @@ export interface HeroStart { hp: number; maxHp: number }
  */
 export function createWorld(template: ArenaTemplate, params: Params, seed = 1, start?: HeroStart, loadout?: Loadout): World {
   // Task 12: with `markedGoals` on, a template's goal layout (its enemies, summary and horde) — the world plays it throughout.
-  const arena = markedGoalArena(template, params.markedGoals);
+  const marked = markedGoalArena(template, params.markedGoals);
+  // Task 40: a deep fight (`Loadout.deep`) stands the template's deep enemies too, after its own (absent — the template as it is).
+  const arena = loadout?.deep === true && marked.deepEnemies?.length ? { ...marked, enemies: [...marked.enemies, ...marked.deepEnemies] } : marked;
   // Task 27 «Каркас босса»: a boss arena plays the frame — a copy of the values with it on (the given object stays as it is).
   if (arena.bossFrame && !params.bossFrame) params = { ...copyParams(params), bossFrame: true };
   // Task 28: a boss arena's death of the boss ends the fight — on when the values have the key off (absent: an older journal, as it was).
@@ -721,6 +728,8 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   if (arena.jailerHp !== undefined && params.jailerHp === DEFAULT_PARAMS.jailerHp) params = { ...copyParams(params), jailerHp: arena.jailerHp };
   // Task 38: an arena of the garrison plays the law of tethers and the guards' formation (the given object stays as it is).
   if (arena.garrison && (!params.tethers || !params.guardFormation)) params = { ...copyParams(params), tethers: true, guardFormation: true };
+  // Task 40: «Ров» plays the keymaster's shackles (the given object stays as it is; a journal keeps the copy).
+  if (arena.shackles && !params.shackles) params = { ...copyParams(params), shackles: true };
   const maxHp = start ? Math.max(1, Math.floor(start.maxHp)) : params.heroHp;
   const hp = start ? Math.max(1, Math.min(maxHp, Math.floor(start.hp))) : params.heroHp;
   // Stage 2, step 3 («Песочные часы»): the phase table starts later — the delay is the talisman's, read once at the start.
@@ -1404,6 +1413,8 @@ export function killEnemy(world: World, e: Enemy, cause: KillCause): void {
   if (!link) purseKill(world, cause);
   if (e.marked) world.stats.markedKills++;
   checkGoals(world);
+  // Task 40: a prisoner's shackle goes with it (nothing while no shackle holds it).
+  if (world.tethers) dropShackleOf(world, e);
   behaviorOf(e).onDeath?.(world, e, cause);
   // Stage 2, step 3: an elite killed by the player drops its loot.
   eliteDeath(world, e, cause);
@@ -1514,8 +1525,10 @@ function moveEnemies(world: World, dt: number): Set<Enemy> | null {
     if (list.length !== world.enemies.length && !world.enemies.includes(e)) continue;
     // A frozen enemy stands: no own step (its timers wait), no walk.
     if (enemyFrozen(e)) continue;
+    // Task 40: the keymaster's prisoner stands — no own step, no walk (a knockback still slides it; tethers.ts `shackled`).
+    const held = !!world.tethers && shackled(world, e);
     // A behaviour with its own movement (the boar's windup, charge and rest) skips the common walk this step.
-    const own = calm ? undefined : behaviorOf(e).step;
+    const own = calm || held ? undefined : behaviorOf(e).step;
     if (own && own(world, e, dt)) continue;
     if (e.knock > 0) {
       const t = Math.min(dt, e.knock);
@@ -1525,7 +1538,7 @@ function moveEnemies(world: World, dt: number): Set<Enemy> | null {
       if (arena.terrain && overCliff(e, arena) && !kindOf(e).immune) killEnemy(world, e, { source: 'chain', credited: true, fall: true });
       continue;
     }
-    if (calm) continue;
+    if (calm || held) continue;
     const r = bodyRadiusOf(params, e), stop = touchDistanceOf(params, e);
     const d = dist(e, hero);
     if (d <= stop + 0.01) continue;

@@ -29,6 +29,8 @@ export const RT_KIND_TITLES: Readonly<Record<string, string>> = {
   basic: 'обычный', wolf: 'волк', boar: 'кабан', reaper: 'жнец', shield: 'щитоносец', archer: 'лучник', sapper: 'сапёр', porcupine: 'дикобраз', lynx: 'рысь', shaman: 'шаман',
   // Task 28 «Тюремщик в походе»: the boss and its part (a touch of either may kill in the run's Jailer fight).
   jailer: 'Тюремщик', 'jailer-weight': 'гиря Тюремщика',
+  // Tasks 38–40 «Гарнизон» (the report's names; their touches are not in `RT_DEATH_TOUCH`: the end screen's killer line is design's call).
+  guard: 'стражник', handler: 'псарь', hound: 'пёс', castellan: 'Кастелян', keymaster: 'Ключник',
 };
 
 /**

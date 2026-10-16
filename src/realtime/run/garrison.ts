@@ -13,6 +13,10 @@
  * - **Arenas.** Ordinary nodes play the garrison's pools (`GARRISON_POOLS`) by the rule «a new enemy first on its own arena»:
  *   «Плац» brings the guards' line, «Псарня» the leash and the hound. The checkpoint and the hard nodes play «Караульня», the boss
  *   nodes «Двор кастеляна» (sim/arenasGarrison.ts).
+ * - **Task 40 «Гарнизон, шаг 1б»** (design 16.10.2026, docs/design-notes/task-40-garrison-step1b.md; a run with the flag
+ *   `RtRunState.moat`): «Ров» joins the pools on rows 6–9 and brings the keymaster (its own arena: the first meeting); a deep fight
+ *   (`Loadout.deep`) — «Ров» on rows 8–9 (a second keymaster, a dog handler), «Галерея» and «Караульня» from row 8 once «Ров» was
+ *   played (a keymaster). A run without the flag plays the pools of step 1а.
  * - **Row tables** (design 3.2, a hypothesis): tough HP up to 3 on rows 1–5, up to 4 from row 6; elite plates 3 on rows 1–5, 4 from
  *   row 6; an affix on rows 1–8, two on row 9; elites from row 3 (the guaranteed one on ordinary nodes from row 3). The tough touch
  *   2 and the invulnerability 0.5 s from row 1; no second wind; the bag from row 1.
@@ -22,8 +26,8 @@ import type { ForestMapNode, ForestRunMap } from '../forest/forestMap';
 import { generatedRunMap, generateForestMap, TRAIL_FIRST_ROW, type GeneratedForestMap } from '../forest/mapGenerator';
 import type { Loadout } from '../sim/kit';
 import { arenaTemplate } from '../sim/arenas';
-import { CASTELLAN_ARENA, GALLERY_ARENA, GUARDROOM_ARENA, KENNEL_ARENA, YARD_ARENA } from '../sim/arenasGarrison';
-import { GUARD, HANDLER } from '../sim/enemies/garrison';
+import { CASTELLAN_ARENA, GALLERY_ARENA, GUARDROOM_ARENA, KENNEL_ARENA, MOAT_ARENA, YARD_ARENA } from '../sim/arenasGarrison';
+import { GUARD, HANDLER, KEYMASTER } from '../sim/enemies/garrison';
 import { pickArena, runRow, type ArenaPoolEntry } from './arenaPools';
 import { RT_TALISMANS, rtTalismanEligible, type RtTalismanId, type RtTalismanPool } from './rtTalismans';
 
@@ -33,6 +37,11 @@ import { RT_TALISMANS, rtTalismanEligible, type RtTalismanId, type RtTalismanPoo
  * with `garrison: false` (old-route tests) or saved without the flag ends at the forest final.
  */
 export const RT_GARRISON_ON = true;
+/**
+ * Task 40 «Гарнизон, шаг 1б»: a new run with the garrison takes «Ров», the keymaster and the cart (`RtRunState.moat`). A run saved
+ * before it (no flag) plays the garrison of step 1а to its end.
+ */
+export const RT_GARRISON_MOAT_ON = true;
 const textHash = (text: string): number => [...text].reduce((hash, ch) => Math.imul(hash ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5);
 /** The salt of the garrison's seed (its map, its streams, its arena seeds). */
 export const GARRISON_SALT = textHash('garrison-map');
@@ -87,35 +96,45 @@ export const GARRISON_POOLS: readonly ArenaPoolEntry[] = [
   { arena: KENNEL_ARENA.id, rows: [2, 6] },
   { arena: GALLERY_ARENA.id, rows: [4, 9] },
 ];
+/** Task 40: the pools of a run with «Ров» (`RtRunState.moat`) — «Ров» on rows 6–9 too. */
+export const GARRISON_MOAT_POOLS: readonly ArenaPoolEntry[] = [...GARRISON_POOLS, { arena: MOAT_ARENA.id, rows: [6, 9] }];
+export const GARRISON_MOAT_ARENA = MOAT_ARENA.id;
 /** «Караульня»: the garrison's checkpoint (row 5) and its hard nodes. */
 export const GARRISON_HARD_ARENA = GUARDROOM_ARENA.id;
 /** «Двор кастеляна»: the garrison's boss nodes. */
 export const GARRISON_FINAL_ARENA = CASTELLAN_ARENA.id;
 /** Every arena the garrison plays (a save naming another one at a garrison node is malformed). */
-export const GARRISON_RUN_ARENAS: readonly string[] = [...GARRISON_POOLS.map(entry => entry.arena), GARRISON_HARD_ARENA, GARRISON_FINAL_ARENA];
+export const GARRISON_RUN_ARENAS: readonly string[] = [...GARRISON_MOAT_POOLS.map(entry => entry.arena), GARRISON_HARD_ARENA, GARRISON_FINAL_ARENA];
 /** The names of the garrison's arenas on the run's map. */
 export const GARRISON_ARENA_TITLES: Readonly<Record<string, string>> = Object.fromEntries(GARRISON_RUN_ARENAS.map(id => [id, arenaTemplate(id).name]));
 
-/** The garrison's new kinds and their own arenas (design 2.5: the line on «Плац», the leash on «Псарня»). */
+/**
+ * The garrison's new kinds and their own arenas (design 2.5: the line on «Плац», the leash on «Псарня»; task 40: the keymaster on
+ * «Ров» — a run with the flag `moat`).
+ */
 export const GARRISON_KINDS = [GUARD, HANDLER] as const;
-export const GARRISON_OWN_ARENAS: Readonly<Record<string, string>> = { [GUARD]: YARD_ARENA.id, [HANDLER]: KENNEL_ARENA.id };
-/** The garrison's new kinds an arena brings (its newcomers and its start enemies). */
-export function garrisonArenaKinds(arena: string): string[] {
+export const GARRISON_MOAT_KINDS = [GUARD, HANDLER, KEYMASTER] as const;
+export const GARRISON_OWN_ARENAS: Readonly<Record<string, string>> = { [GUARD]: YARD_ARENA.id, [HANDLER]: KENNEL_ARENA.id, [KEYMASTER]: MOAT_ARENA.id };
+const kindsOf = (moat: boolean): readonly string[] => (moat ? GARRISON_MOAT_KINDS : GARRISON_KINDS);
+const poolsOf = (moat: boolean): readonly ArenaPoolEntry[] => (moat ? GARRISON_MOAT_POOLS : GARRISON_POOLS);
+/** The garrison's new kinds an arena brings (its newcomers and its start enemies; not its deep enemies). */
+export function garrisonArenaKinds(arena: string, moat = false): string[] {
   const t = arenaTemplate(arena), kinds = new Set([...(t.newcomers ?? []).map(entry => entry.kind), ...t.enemies.map(entry => entry.kind ?? 'basic')]);
-  return GARRISON_KINDS.filter(kind => kinds.has(kind));
+  return kindsOf(moat).filter(kind => kinds.has(kind));
 }
-const lastRow = (arena: string): number => GARRISON_POOLS.find(entry => entry.arena === arena)?.rows[1] ?? 0;
+const lastRow = (arena: string, moat: boolean): number => poolsOf(moat).find(entry => entry.arena === arena)?.rows[1] ?? 0;
 
 /**
  * The arenas an ordinary garrison node (a battle, the breakthrough) on garrison row `row` may play after the arenas `history` of the
  * garrison — the forest's rule «a new enemy first on its own arena» (arenaPools.ts `ordinaryArenaChoices`) over the garrison's
  * kinds: an overdue kind (its own arena's rows are past) — its own arena; the own arenas of unmet kinds of the row; the row's
- * candidates that bring no unmet kind; the whole row.
+ * candidates that bring no unmet kind; the whole row. Task 40: `moat` — the pools and kinds of a run with «Ров».
  */
-export function garrisonArenaChoices(row: number, history: readonly string[]): string[] {
-  const candidates = GARRISON_POOLS.filter(entry => row >= entry.rows[0] && row <= entry.rows[1]).map(entry => entry.arena);
-  const met = new Set(history.flatMap(garrisonArenaKinds)), unmet = (arena: string) => garrisonArenaKinds(arena).filter(kind => !met.has(kind));
-  const overdue = GARRISON_KINDS.filter(kind => !met.has(kind) && row > lastRow(GARRISON_OWN_ARENAS[kind])).map(kind => GARRISON_OWN_ARENAS[kind]);
+export function garrisonArenaChoices(row: number, history: readonly string[], moat = false): string[] {
+  const candidates = poolsOf(moat).filter(entry => row >= entry.rows[0] && row <= entry.rows[1]).map(entry => entry.arena);
+  const kindsIn = (arena: string): string[] => garrisonArenaKinds(arena, moat);
+  const met = new Set(history.flatMap(kindsIn)), unmet = (arena: string) => kindsIn(arena).filter(kind => !met.has(kind));
+  const overdue = kindsOf(moat).filter(kind => !met.has(kind) && row > lastRow(GARRISON_OWN_ARENAS[kind], moat)).map(kind => GARRISON_OWN_ARENAS[kind]);
   if (overdue.length) return overdue;
   const own = new Set<string>();
   for (const arena of candidates) for (const kind of unmet(arena)) own.add(GARRISON_OWN_ARENAS[kind]);
@@ -125,11 +144,24 @@ export function garrisonArenaChoices(row: number, history: readonly string[]): s
   return fitting.length ? fitting : [...candidates];
 }
 
-/** The arena of a garrison node (`type`, map `row`) by the draw `roll` of the garrison's pool stream after `history`. */
-export function garrisonArena(node: Pick<ForestMapNode, 'type' | 'row'>, history: readonly string[], roll: number): string {
+/** The arena of a garrison node (`type`, map `row`) by the draw `roll` of the garrison's pool stream after `history` (`moat` — task 40). */
+export function garrisonArena(node: Pick<ForestMapNode, 'type' | 'row'>, history: readonly string[], roll: number, moat = false): string {
   if (node.type === 'hard' || node.type === 'checkpoint') return GARRISON_HARD_ARENA;
   if (node.type === 'boss') return GARRISON_FINAL_ARENA;
-  return pickArena(garrisonArenaChoices(runRow(node.row), history), history, roll);
+  return pickArena(garrisonArenaChoices(runRow(node.row), history, moat), history, roll);
+}
+
+/** Баланс (task 40, design 3): the deep fights from this garrison row — «Ров» with two keymasters and a dog handler, the keymaster in «Галерея» and «Караульня». */
+export const GARRISON_DEEP_ROW = 8;
+/**
+ * Task 40: the fight of `arena` on garrison row `row` after the garrison's arenas `history` (this node's not among them) is deep
+ * (`Loadout.deep`): «Ров» from `GARRISON_DEEP_ROW`; «Галерея» and «Караульня» from it once «Ров» was played (the keymaster met on
+ * its own arena first). Only a run with the flag `moat` asks.
+ */
+export function garrisonDeep(arena: string, row: number, history: readonly string[]): boolean {
+  if (row < GARRISON_DEEP_ROW) return false;
+  if (arena === MOAT_ARENA.id) return true;
+  return (arena === GALLERY_ARENA.id || arena === GUARDROOM_ARENA.id) && history.includes(MOAT_ARENA.id);
 }
 
 // ---------- The forest final's reward ----------
@@ -168,9 +200,11 @@ export const garrisonAffixes = (row: number): number => (row >= GARRISON_AFFIX2_
 
 /**
  * The garrison's rules over the loadout of a fight of a garrison node (`kit` — changed in place): the row tables, elites of a known
- * kind, the bag from row 1 (not the checkpoint, not the boss), no second wind; the boss fight — no random elites.
+ * kind, the bag from row 1 (not the checkpoint, not the boss), no second wind; the boss fight — no random elites. Task 40: `deep` —
+ * the arena's deep enemies stand too (`garrisonDeep`).
  */
-export function garrisonKit(kit: Loadout, node: Pick<ForestMapNode, 'type' | 'row'>, battle: 'battle' | 'hard' | 'final' | 'event'): void {
+export function garrisonKit(kit: Loadout, node: Pick<ForestMapNode, 'type' | 'row'>, battle: 'battle' | 'hard' | 'final' | 'event', deep = false): void {
+  if (deep) kit.deep = true; else delete kit.deep;
   const row = runRow(node.row);
   delete kit.guaranteedElite; delete kit.eliteKinds; delete kit.affixKinds; delete kit.withoutKinds; delete kit.secondWind; delete kit.colors;
   kit.randomElites = battle !== 'final' && row >= GARRISON_ELITE_ROW;

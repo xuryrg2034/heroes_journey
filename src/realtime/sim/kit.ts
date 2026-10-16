@@ -123,6 +123,12 @@ export interface Loadout {
    * 0.85 — the phases come 15 % earlier). The run gives it to the final. Absent (or 1) — the durations as before.
    */
   phaseScale?: number;
+  /**
+   * Task 40 «Гарнизон, шаг 1б»: the arena's deep start enemies stand too (`ArenaTemplate.deepEnemies`; world.ts `createWorld`) —
+   * the run gives it to «Ров» on garrison rows 8–9 (the second keymaster, the dog handler) and to «Галерея» and «Караульня» from
+   * row 8 once «Ров» was played (the keymaster). Absent — the template's start enemies as they are.
+   */
+  deep?: boolean;
 }
 
 /**
@@ -193,6 +199,8 @@ export interface Kit {
   floorScale?: number;
   /** Task 18 «Испытание V»: the phase durations' factor (absent — 1: kits before hash as before). */
   phaseScale?: number;
+  /** Task 40: the deep start enemies stood (absent — no: kits before hash as before). */
+  deep?: true;
 }
 
 /** Баланс (design answer to step 3, «пустые» исходы событий): «злость» — this many more enemies in the first wave. */
@@ -260,6 +268,8 @@ export function kitOf(loadout: Loadout): Kit {
     // Task 18 «Испытание V»: absent unless the run gives them (kits before hash as before).
     ...scale(loadout.floorScale) !== undefined ? { floorScale: scale(loadout.floorScale)! } : {},
     ...scale(loadout.phaseScale) !== undefined ? { phaseScale: scale(loadout.phaseScale)! } : {},
+    // Task 40: absent unless the run gives it (kits before hash as before).
+    ...loadout.deep === true ? { deep: true as const } : {},
   };
 }
 /** A kit with nothing (test setup on a world without a loadout). */

@@ -18,11 +18,17 @@
  * A freed body gets `vars.loose` (its kind starts what freedom means — the hound's frenzy — once no dash runs); the holder's
  * behaviour hears a cut by the chain (`EnemyBehavior.onTetherCut`: the Castellan loses a plate).
  *
+ * **Task 40 — shackles** (`Params.shackles`, the keymaster of enemies/garrison.ts). A shackle (`kind: 'shackle'`) is a tether of the
+ * same law: the dash cuts it, the highlight lists it. Its prisoner stands (world.ts `moveEnemies`) and no chain takes it (chain.ts
+ * refusal `shackled`); a cut frees it for the next chain (no `vars.loose`). The keymaster's death during a move (a dash, a jump)
+ * leaves its shackles standing until the move ends (`settleTethers`: «кандалы падают после конца прохода»); at any other time they
+ * go at once.
+ *
  * Determinism: the crossing is one function of + − × ÷ (`tetherCrossing`), for the plan and the dash alike.
  */
 import { behaviorOf } from './enemies/kinds';
 import type { Vec } from './geometry';
-import type { ChainLink, Enemy, Tether, World } from './world';
+import type { ChainLink, Enemy, Tether, TetherKind, World } from './world';
 
 /** Баланс (design 2.1): the part of a tether at each end a segment may cross without cutting it (a body's radius), units. */
 export const TETHER_END_GAP = 0.35;
@@ -38,12 +44,20 @@ export function tetherOf(world: World, held: number): Tether | undefined { retur
 /** The tethers `holder` (its id) holds, in the arena's order. */
 export function tethersHeldBy(world: World, holder: number): Tether[] { return (world.tethers ?? []).filter(t => t.holder === holder); }
 
-/** A new tether: `holder` holds `held` (nothing while the law is off, or when `held` is held already). */
-export function addTether(world: World, holder: Enemy, held: Enemy): boolean {
+/** A new tether of `kind`: `holder` holds `held` (nothing while the law is off, or when `held` is held already). */
+export function addTether(world: World, holder: Enemy, held: Enemy, kind: TetherKind = 'leash'): boolean {
   if (!tethersOn(world) || holder === held || tetherOf(world, held.id)) return false;
-  (world.tethers ??= []).push({ holder: holder.id, held: held.id, kind: 'leash' });
+  (world.tethers ??= []).push({ holder: holder.id, held: held.id, kind });
   return true;
 }
+
+/** Task 40: `e` is a prisoner — a shackle holds it (it stands, no chain takes it). */
+export function shackled(world: World, e: Pick<Enemy, 'id'>): boolean {
+  return !!world.tethers?.some(t => t.held === e.id && t.kind === 'shackle');
+}
+
+/** Task 40: the event's mark of a shackle (absent for a leash: the events of task 38 as they were). */
+const kindMark = (tether: Tether): { kind?: 'shackle' } => (tether.kind === 'shackle' ? { kind: 'shackle' as const } : {});
 
 /** Removes the tethers `gone` (the list empty — the field goes: worlds without tethers hash as before). */
 function removeTethers(world: World, gone: readonly Tether[]): void {
@@ -118,21 +132,47 @@ export function cutTethers(world: World, cuts: readonly number[]): void {
   for (const tether of gone) {
     const holder = enemyAt(world, tether.holder), held = enemyAt(world, tether.held);
     const at = holder && held ? { x: (holder.x + held.x) / 2, y: (holder.y + held.y) / 2 } : held ?? holder ?? { x: 0, y: 0 };
-    world.events.push({ type: 'tether', action: 'cut', holder: tether.holder, held: tether.held, x: at.x, y: at.y });
-    loose(held);
+    world.events.push({ type: 'tether', action: 'cut', holder: tether.holder, held: tether.held, x: at.x, y: at.y, ...kindMark(tether) });
+    // A leash cut looses its hound (its frenzy); a shackle cut only frees the prisoner (task 40).
+    if (tether.kind === 'leash') loose(held);
     if (holder && held) behaviorOf(holder).onTetherCut?.(world, holder, held);
   }
 }
 
 /**
  * `e` died: every tether of it is gone. The bodies it held are loose (the holder's death frees them, as a cut does); a held body's
- * death only drops its own tether.
+ * death only drops its own tether. Task 40: the shackles of a keymaster that dies while a move runs stay until the move ends
+ * (`settleTethers`) — the prisoners stand and stay out of the chain till then.
  */
 export function dropTethers(world: World, e: Enemy): void {
-  const gone = (world.tethers ?? []).filter(t => t.holder === e.id || t.held === e.id);
+  const gone = (world.tethers ?? []).filter(t => (t.holder === e.id && !(t.kind === 'shackle' && world.move)) || t.held === e.id);
   removeTethers(world, gone);
   for (const tether of gone) {
-    world.events.push({ type: 'tether', action: 'death', holder: tether.holder, held: tether.held, x: e.x, y: e.y });
-    if (tether.holder === e.id) loose(enemyAt(world, tether.held));
+    world.events.push({ type: 'tether', action: 'death', holder: tether.holder, held: tether.held, x: e.x, y: e.y, ...kindMark(tether) });
+    if (tether.holder === e.id && tether.kind === 'leash') loose(enemyAt(world, tether.held));
+  }
+}
+
+/**
+ * Task 40: `e` died — the shackle that held it goes with it (a prisoner of any kind: a plain enemy has no `onDeath` of its own).
+ * Nothing while no shackle holds it (every world without a keymaster).
+ */
+export function dropShackleOf(world: World, e: Enemy): void {
+  const gone = (world.tethers ?? []).filter(t => t.held === e.id && t.kind === 'shackle');
+  removeTethers(world, gone);
+  for (const tether of gone) world.events.push({ type: 'tether', action: 'death', holder: tether.holder, held: tether.held, x: e.x, y: e.y, kind: 'shackle' });
+}
+
+/**
+ * Task 40: a move ended — the shackles whose keymaster died during it go now («кандалы падают после конца прохода»). Only
+ * shackles: a leash never waits (worlds without a keymaster are untouched).
+ */
+export function settleTethers(world: World): void {
+  if (!world.tethers?.length) return;
+  const gone = world.tethers.filter(t => t.kind === 'shackle' && (!enemyAt(world, t.holder) || !enemyAt(world, t.held)));
+  removeTethers(world, gone);
+  for (const tether of gone) {
+    const at = enemyAt(world, tether.held) ?? { x: 0, y: 0 };
+    world.events.push({ type: 'tether', action: 'death', holder: tether.holder, held: tether.held, x: at.x, y: at.y, kind: 'shackle' });
   }
 }

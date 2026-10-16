@@ -9,8 +9,8 @@
  * own kinds). Numbers are for the playtest, not balance.
  */
 import { registerArena, type ArenaTemplate, type Pace } from './arenas';
-import { tree, wall } from './geometry';
-import { CASTELLAN, GUARD, GUARD_FORMATION, HANDLER, HOUND } from './enemies/garrison';
+import { polygon, tree, wall, zone } from './geometry';
+import { CASTELLAN, GUARD, GUARD_FORMATION, HANDLER, HOUND, KEYMASTER } from './enemies/garrison';
 
 /** No wolf packs and no boars (as the arenas of one kind). */
 const NO_PACKS: Partial<Pace> = { wolfShare: 0, boarShare: 0 };
@@ -84,6 +84,8 @@ export const GALLERY_ARENA: ArenaTemplate = registerArena({
   buttons: [],
   door: { x: 8, y: 0.7 },
   enemies: [{ x: 8, y: 2, color: 2, kind: HANDLER }, ...line(8, 5.2, 0, 1)],
+  // Task 40: from garrison row 8, once «Ров» was played, a keymaster stands behind the far palisade (`Loadout.deep`).
+  deepEnemies: [{ x: 12.5, y: 1.6, color: 3, kind: KEYMASTER }],
   phaseOverride: NO_PACKS,
   killGoal: 25,
   newcomers: [{ kind: GUARD, share: GUARD_SHARE, group: GUARD_FORMATION }, { kind: HANDLER, share: HANDLER_SHARE }],
@@ -106,6 +108,8 @@ export const GUARDROOM_ARENA: ArenaTemplate = registerArena({
   buttons: [],
   door: { x: 8, y: 0.7 },
   enemies: [{ x: 8, y: 3, color: 1, kind: HANDLER, elite: true }, ...line(4, 3.6, 0, 1), ...line(12, 3.6, 2, 2)],
+  // Task 40: a hard node from garrison row 8, once «Ров» was played — a keymaster at the back of the guardroom (`Loadout.deep`).
+  deepEnemies: [{ x: 8, y: 1.4, color: 3, kind: KEYMASTER }],
   phaseOverride: NO_PACKS,
   killGoal: 30,
   newcomers: [{ kind: GUARD, share: GUARD_SHARE, group: GUARD_FORMATION }, { kind: HANDLER, share: HANDLER_SHARE }],
@@ -141,5 +145,36 @@ export const CASTELLAN_ARENA: ArenaTemplate = registerArena({
   garrison: true,
 });
 
-/** The garrison's arenas on the sandbox menu (after the boss arena). */
-export const GARRISON_ARENAS: readonly ArenaTemplate[] = [YARD_ARENA, KENNEL_ARENA, GALLERY_ARENA, GUARDROOM_ARENA, CASTELLAN_ARENA];
+/**
+ * Task 40 «Ров» (design 16.10.2026, docs/design-notes/task-40-garrison-step1b.md, 3; garrison rows 6–9): kill 25. A cliff strip
+ * across the middle (the forest's law М2: nobody walks it, the chain and the jump fly over, a body pushed into it falls); the hero
+ * below it, the door at the right edge on his bank (not under the action bar), the keymaster and plain enemies across it. The keymaster's first meeting («a new enemy first on its own
+ * arena»). A deep fight (garrison rows 8–9, `Loadout.deep`): a second keymaster and a dog handler with two hounds across the moat.
+ * The arena turns the shackles on for itself (`shackles`), as the garrison's laws.
+ */
+export const MOAT_ARENA: ArenaTemplate = registerArena({
+  id: 'g-moat',
+  name: 'Ров',
+  summary: 'Убей цепью 25 врагов. За рвом Ключник надевает кандалы: узник не берётся в цепь, пока цепь не пройдёт поперёк кандалов. Дверь справа, на твоём берегу.',
+  goal: 'kills',
+  width: 16,
+  height: 10,
+  heroStart: { x: 8, y: 7.6 },
+  obstacles: [wall(1.5, 7.4, 2, 1), wall(12.5, 7.4, 2, 1), tree(4.2, 1.6), tree(11.8, 1.6)],
+  terrain: [zone('cliff', polygon(0, 4.3, 3, 4.15, 5.5, 4.4, 8, 4.2, 10.5, 4.4, 13, 4.15, 16, 4.3, 16, 5.5, 13, 5.65, 10.5, 5.4, 8, 5.6, 5.5, 5.4, 3, 5.65, 0, 5.5))],
+  buttons: [],
+  door: { x: 15.3, y: 6.5 },
+  enemies: [
+    { x: 8, y: 2.6, color: 1, kind: KEYMASTER },
+    { x: 5.6, y: 3.3, color: 0 }, { x: 6.6, y: 2.6, color: 2 }, { x: 10.4, y: 3.3, color: 0 },
+    { x: 9.4, y: 2.2, color: 3 }, { x: 2.8, y: 3.2, color: 1 }, { x: 13.2, y: 3.2, color: 2 },
+  ],
+  deepEnemies: [{ x: 13.8, y: 1.8, color: 3, kind: KEYMASTER }, { x: 2.4, y: 1.8, color: 1, kind: HANDLER }],
+  phaseOverride: NO_PACKS,
+  killGoal: 25,
+  garrison: true,
+  shackles: true,
+});
+
+/** The garrison's arenas on the sandbox menu (after the boss arena; task 40 «Ров» at the end: the menu numbers stay). */
+export const GARRISON_ARENAS: readonly ArenaTemplate[] = [YARD_ARENA, KENNEL_ARENA, GALLERY_ARENA, GUARDROOM_ARENA, CASTELLAN_ARENA, MOAT_ARENA];

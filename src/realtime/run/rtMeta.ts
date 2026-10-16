@@ -61,12 +61,23 @@ export const RT_NPC_EVENTS: Readonly<Record<'herb' | 'smith', { event: string; o
 
 /**
  * The depth record: the farthest run row (of its level), the victory, the best XP of a run. Task 38: `level` — 2 when the farthest
- * row is the garrison's; absent — the forest (every record before it).
+ * row is the garrison's; absent — the forest (every record before it). Task 40 (design 16.10.2026, 5): `wonLevel` — the level the
+ * record passed (1 — the forest, 2 — the garrison; absent — none); `won` — it passed one (`wonLevel` ≥ 1; a record saved before it
+ * with `won: true` reads as `wonLevel: 1`).
  */
-export interface RtDepthRecord { row: number; won: boolean; xp: number; level?: 2 }
-/** Task 38: the depth `a` (level, row) is farther than `b` — the level first, then the row. */
-export const rtDepthBeyond = (a: { level?: number; row: number }, b: { level?: number; row: number }): boolean =>
-  (a.level ?? 1) !== (b.level ?? 1) ? (a.level ?? 1) > (b.level ?? 1) : a.row > b.row;
+export interface RtDepthRecord { row: number; won: boolean; xp: number; level?: 2; wonLevel?: 1 | 2 }
+/**
+ * Task 40: the level a depth passed (0 — none). A depth without `wonLevel` (a record saved before it): 1 when `won`, or when it is the
+ * garrison's (`level` 2 — only a run that won the forest reaches the garrison).
+ */
+export const rtWonLevelOf = (d: { won?: boolean; wonLevel?: number; level?: number }): number => d.wonLevel ?? (d.won || d.level === 2 ? 1 : 0);
+/**
+ * Task 38: the depth `a` (level, row) is farther than `b` — the level first, then the row. Task 40: the level passed comes first
+ * (`wonLevel`: «Гарнизон пройден» beats any row), then the level, then the row.
+ */
+export const rtDepthBeyond = (a: { level?: number; row: number; won?: boolean; wonLevel?: number }, b: { level?: number; row: number; won?: boolean; wonLevel?: number }): boolean =>
+  rtWonLevelOf(a) !== rtWonLevelOf(b) ? rtWonLevelOf(a) > rtWonLevelOf(b)
+    : (a.level ?? 1) !== (b.level ?? 1) ? (a.level ?? 1) > (b.level ?? 1) : a.row > b.row;
 export interface RtHeroMeta { xp: number; packs: string[]; record?: RtDepthRecord }
 /** The death cause the camp's lines read (design lines v1): the Jailer's fight, the final, the fire trail, a touch, an arrow, a blast. */
 export type RtDeathCause = 'crowd' | 'archer' | 'sapper' | 'jailer' | 'final' | 'fire' | 'other';
@@ -107,9 +118,13 @@ export interface RtMetaEnd {
   thresholds: number[];
   pack: RtMetaPackView | null;
   nextPack: { id: string; title: string; at: number; size: number } | null;
-  /** Task 38: `level` (2 — the garrison) on `before` and `after` only when that record is the garrison's; absent — the forest. */
-  record: { before: { row: number; won: boolean; level?: 2 } | null; after: { row: number; won: boolean; level?: 2 }; beaten: boolean };
-  carry: { n: number; share: 1 | 0.5; cap: number; resources: number };
+  /**
+   * Task 38: `level` (2 — the garrison) on `before` and `after` only when that record is the garrison's; absent — the forest. Task 40:
+   * `wonLevel` — the level the record passed (1 the forest, 2 the garrison: «Гарнизон пройден»); absent — none.
+   */
+  record: { before: { row: number; won: boolean; level?: 2; wonLevel?: 1 | 2 } | null; after: { row: number; won: boolean; level?: 2; wonLevel?: 1 | 2 }; beaten: boolean };
+  /** Task 40: `cart` — what «Повозка» sent (inside `n`, 100 %); absent — no cart. `resources` — the stock left at the end. */
+  carry: { n: number; share: 1 | 0.5; cap: number; resources: number; cart?: number };
   stock: { before: number; after: number };
   quest?: { npc: RtHearthNpc; id: RtQuestId; done: boolean; xp: number; stock: number };
 }
@@ -129,8 +144,19 @@ export function rtRunDepth(run: RtRunState): number {
 /** Task 38: the level the run reached — 1 the forest, 2 the garrison. */
 export const rtRunLevel = (run: RtRunState): 1 | 2 => rtLevel(run);
 const won = (run: RtRunState): boolean => run.result?.outcome === 'victory';
-/** Task 38: the run's depth as the record keeps it: its row and, in the garrison, `level` 2. */
-const runDepthOf = (run: RtRunState): { row: number; level?: 2 } => ({ row: rtRunDepth(run), ...rtRunLevel(run) === 2 ? { level: 2 as const } : {} });
+/**
+ * Task 40: the level the run passed — 2: it won the garrison (the Castellan); 1: it won the forest (its final; a run that went on
+ * into the garrison too); 0 — none.
+ */
+export function rtRunWonLevel(run: RtRunState): 0 | 1 | 2 {
+  if (won(run)) return rtRunLevel(run) === 2 ? 2 : 1;
+  return rtForestCleared(run) ? 1 : 0;
+}
+/** Task 38: the run's depth as the record keeps it: its row and, in the garrison, `level` 2; task 40 — the level it passed. */
+const runDepthOf = (run: RtRunState): { row: number; level?: 2; wonLevel?: 1 | 2 } => {
+  const passed = rtRunWonLevel(run);
+  return { row: rtRunDepth(run), ...rtRunLevel(run) === 2 ? { level: 2 as const } : {}, ...passed ? { wonLevel: passed } : {} };
+};
 
 /** The run's XP before its quest: the parts and the base (before «Испытание»). */
 export function rtRunXp(run: RtRunState): { parts: RtXpPart[]; total: number } {
@@ -161,12 +187,16 @@ export function rtRunXp(run: RtRunState): { parts: RtXpPart[]; total: number } {
   return { parts: parts.filter(part => part.xp > 0), total: base + ash };
 }
 
-/** The carry to the camp: a victory 100 %, a defeat or an abandoned run 50 % (down) but not below min(resources, 6); the cap 20 a level. */
+/**
+ * The carry to the camp: a victory 100 %, a defeat or an abandoned run 50 % (down) but not below min(resources, 6); the cap 20 a
+ * level. Task 40 «Повозка»: what the cart sent (`RtRunState.cart`) is carried whole at any end and counts in the cap — the carry is
+ * min(cap, cart + the rest by the rule).
+ */
 export function rtCarry(run: RtRunState): RtMetaEnd['carry'] {
   // Task 38: the cap is 20 a level reached (the garrison — 40).
-  const resources = stockTotal(run.materials), cap = RT_CARRY_CAP_PER_LEVEL * rtRunLevel(run);
-  if (won(run)) return { n: Math.min(cap, resources), share: 1, cap, resources };
-  return { n: Math.min(cap, Math.max(Math.floor(resources * RT_CARRY_LOSS_SHARE), Math.min(resources, RT_CARRY_FLOOR))), share: 0.5, cap, resources };
+  const resources = stockTotal(run.materials), cap = RT_CARRY_CAP_PER_LEVEL * rtRunLevel(run), cart = run.cart?.n ?? 0, sent = run.cart ? { cart } : {};
+  if (won(run)) return { n: Math.min(cap, cart + resources), share: 1, cap, resources, ...sent };
+  return { n: Math.min(cap, cart + Math.max(Math.floor(resources * RT_CARRY_LOSS_SHARE), Math.min(resources, RT_CARRY_FLOOR))), share: 0.5, cap, resources, ...sent };
 }
 
 /** The quest of the run done (checked after the run by its state; `record` — the depth record before it). */
@@ -233,10 +263,13 @@ export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState): { me
   hero.xp = after;
   const next = RT_META_PACKS[hero.packs.length];
   // The depth record (run rows; the victory; the best XP of a run).
-  // Task 38: the depth is (level, row) — the level first, then the row.
+  // Task 38: the depth is (level, row) — the level first, then the row. Task 40: the level passed first (`wonLevel`), then (level, row).
   const depth = runDepthOf(run), row = depth.row, win = won(run), old = hero.record, farther = rtDepthBeyond(depth, old ?? { row: 0 });
-  const best: { row: number; level?: 2 } = !old || farther ? depth : { row: old.row, ...old.level ? { level: old.level } : {} };
-  const record: RtDepthRecord = { row: best.row, won: (old?.won ?? false) || win, xp: Math.max(old?.xp ?? 0, gained), ...best.level ? { level: best.level } : {} };
+  const oldPassed = old ? rtWonLevelOf(old) : 0;
+  const best: { row: number; level?: 2; wonLevel?: 1 | 2 } = !old || farther ? depth
+    : { row: old.row, ...old.level ? { level: old.level } : {}, ...oldPassed ? { wonLevel: oldPassed as 1 | 2 } : {} };
+  const passed = Math.max(oldPassed, best.wonLevel ?? 0) as 0 | 1 | 2;
+  const record: RtDepthRecord = { row: best.row, won: (old?.won ?? false) || win || passed > 0, xp: Math.max(old?.xp ?? 0, gained), ...best.level ? { level: best.level } : {}, ...passed ? { wonLevel: passed } : {} };
   const beaten = old ? farther || (win && !old.won) : farther;
   hero.record = record;
   meta.heroes[heroId] = hero;
@@ -257,7 +290,10 @@ export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState): { me
   const end: RtMetaEnd = {
     hero: heroId, xp: { gained, parts, before, after }, thresholds: [...RT_META_THRESHOLDS], pack,
     nextPack: next ? { id: next.id, title: next.title, at: next.at, size: next.items.length } : null,
-    record: { before: old ? { row: old.row, won: old.won, ...old.level ? { level: old.level } : {} } : null, after: { row: record.row, won: record.won, ...record.level ? { level: record.level } : {} }, beaten },
+    record: {
+      before: old ? { row: old.row, won: old.won, ...old.level ? { level: old.level } : {}, ...oldPassed ? { wonLevel: oldPassed as 1 | 2 } : {} } : null,
+      after: { row: record.row, won: record.won, ...record.level ? { level: record.level } : {}, ...record.wonLevel ? { wonLevel: record.wonLevel } : {} }, beaten,
+    },
     carry, stock: { before: stockBefore, after: hearth.stock },
     ...quest ? { quest: { npc: quest.npc, id: quest.id, done: questDone, xp: questDone ? RT_QUEST_XP : 0, stock: questDone ? RT_QUEST_STOCK : 0 } } : {},
   };
@@ -356,7 +392,9 @@ export function parseRtMeta(value: unknown): RtMeta | undefined {
   if (isPlain(cat)) {
     const packs = Array.isArray(cat.packs) ? RT_META_PACKS.map(pack => pack.id).filter((id, i) => i < (cat.packs as unknown[]).length && (cat.packs as unknown[])[i] === id) : [];
     const r = cat.record;
-    heroes[RT_HERO_ID] = { xp: isCount(cat.xp) ? cat.xp : 0, packs, ...isPlain(r) && isCount(r.row) && isCount(r.xp) && typeof r.won === 'boolean' ? { record: { row: r.row, won: r.won, xp: r.xp, ...r.level === 2 ? { level: 2 as const } : {} } } : {} };
+    // Task 40: `wonLevel` 1 or 2; a record saved before it — `won: true` (or a garrison record) reads as the forest passed (1).
+    const passed = isPlain(r) && (r.wonLevel === 1 || r.wonLevel === 2) ? r.wonLevel : isPlain(r) && (r.won === true || r.level === 2) ? 1 : 0;
+    heroes[RT_HERO_ID] = { xp: isCount(cat.xp) ? cat.xp : 0, packs, ...isPlain(r) && isCount(r.row) && isCount(r.xp) && typeof r.won === 'boolean' ? { record: { row: r.row, won: r.won || passed > 0, xp: r.xp, ...r.level === 2 ? { level: 2 as const } : {}, ...passed ? { wonLevel: passed } : {} } } : {} };
   }
   const h = value.hearth;
   const hearth: RtHearthMeta | undefined = isPlain(h) ? {

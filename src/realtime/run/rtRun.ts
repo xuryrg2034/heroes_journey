@@ -59,7 +59,7 @@ import { FEAT_KINDS, isFeatKind, type FeatKind } from '../sim/feat';
 import { isRtLockable, isRtQuest, RT_HERO_ID, type RtHeroId, type RtQuest } from './metaCatalog';
 import { HAMMER_IDS, RT_HAMMER_OFFER_SIZE } from './rtTalismans';
 // Task 38 «Гарнизон, шаг 1»: the garrison level after the forest (run/garrison.ts; the flow — section «Task 38» below).
-import { garrisonArena, garrisonCombinedMap, garrisonKit, garrisonRelicOffer, garrisonSeed, generateGarrisonMap, GARRISON_RUN_ARENAS, RT_GARRISON_ON, rtGarrisonNodeId } from './garrison';
+import { garrisonArena, garrisonCombinedMap, garrisonDeep, garrisonKit, garrisonRelicOffer, garrisonSeed, generateGarrisonMap, GARRISON_RUN_ARENAS, RT_GARRISON_MOAT_ON, RT_GARRISON_ON, rtGarrisonNodeId } from './garrison';
 
 /**
  * Version 2 (step 3, 08.10.2026): consumables, open consumables, banked energy, the find's choice, crafting, the merchant's
@@ -593,6 +593,18 @@ export interface RtRunState {
    * until «В гарнизон» (a run in the forest saves as before). Its nodes are on the run's map with the prefix `g:`.
    */
   garrisonLevel?: RtGarrisonLevel;
+  /**
+   * Task 40 «Гарнизон, шаг 1б» (design 16.10.2026): the garrison plays «Ров» and the keymaster (run/garrison.ts `GARRISON_MOAT_POOLS`,
+   * `garrisonDeep`), and «Предместье» has the cart when the run has the camp (`hearth`). Set when a run with the garrison is created
+   * (`RT_GARRISON_MOAT_ON`); only with `garrison`. Absent — a run saved before it: the garrison of step 1а, no cart, to its end.
+   */
+  moat?: true;
+  /**
+   * Task 40 «Повозка»: what «В гарнизон» sent to the camp — `n` resources (0 … `RT_CART_MAX`, out of the run's stock at once) of
+   * `before` (the stock then). Carried 100 % at any end, within the carry's cap (run/rtMeta.ts `rtCarry`). Set only for a run with
+   * the cart (`moat` and the camp); absent — no cart (every run without the camp, byte for byte as before).
+   */
+  cart?: { n: number; before: number };
   /** The map, kept whole: a later tuning of the generator never changes a run in progress. */
   map: GeneratedForestMap;
   /** Draws made by each long stream of the run (runStreams.ts): arenas (`pool`), events, merchant, gift. */
@@ -729,8 +741,8 @@ export type RtRunEvent =
   | { type: 'node-completed'; nodeId: string }
   /** Task 38: the final of level `level` (1 — the forest) is won and the run goes on (its relic, «Предместье», the next level). */
   | { type: 'level-cleared'; level: number; nodeId: string }
-  /** Task 38: «В гарнизон» — the garrison's map is made, its first row open. */
-  | { type: 'garrison-entered' }
+  /** Task 38: «В гарнизон» — the garrison's map is made, its first row open. Task 40: `cart` — resources the cart took (with the cart only). */
+  | { type: 'garrison-entered'; cart?: number }
   | { type: 'run-won'; nodeId: string }
   | { type: 'run-lost'; nodeId: string };
 
@@ -807,7 +819,7 @@ export interface RtArenaOutcome {
  * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
  * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
  */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; garrison?: boolean } = {}): RtRunState {
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; garrison?: boolean; moat?: boolean } = {}): RtRunState {
   const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
   // Task 12 (13.10.2026): the goal layouts of the `marked` arenas, as the mix — on as `RT_RUN_FORCED` says unless the option says.
   const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
@@ -834,8 +846,10 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   const forms = options.forms ?? RT_FORMS_ON;
   // Task 38 «Гарнизон» (15.10.2026): its own flag, off unless the option says (design turns it on after the ui view).
   const garrison = options.garrison ?? RT_GARRISON_ON;
+  // Task 40 «Гарнизон, шаг 1б» (16.10.2026): «Ров», the keymaster and the cart — only with the garrison, on unless the option says.
+  const moat = garrison && (options.moat ?? RT_GARRISON_MOAT_ON);
   const run: RtRunState = {
-    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...locked ? { locked, heroId: RT_HERO_ID } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...garrison ? { garrison: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...locked ? { locked, heroId: RT_HERO_ID } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
@@ -991,7 +1005,12 @@ export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}):
     ...node && pending?.kind === 'battle' ? rtAshPressure(ash, pending.battle) : {},
   };
   // Task 38 «Гарнизон»: a garrison fight plays the garrison's row tables (run/garrison.ts; no schedule, no gentle tables there).
-  if (node && pending?.kind === 'battle' && rtGarrisonNodeId(node.id)) { garrisonKit(kit, node, pending.battle); return kit; }
+  if (node && pending?.kind === 'battle' && rtGarrisonNodeId(node.id)) {
+    // Task 40: a deep fight of a run with «Ров» (its deep enemies: the second keymaster, the keymaster in «Галерея», «Караульня»).
+    const before = run.picks.flatMap(pick => pick.arena && rtGarrisonNodeId(pick.nodeId) && pick.nodeId !== node.id ? [pick.arena] : []);
+    garrisonKit(kit, node, pending.battle, !!run.moat && garrisonDeep(pending.arena, runRow(node.row), before));
+    return kit;
+  }
   // Task 26 «Расписание леса»: a scheduled run's fight takes the schedule's elite and enemy rules (it replaces Е2 and the final's rule).
   if (run.schedule && node && pending?.kind === 'battle') {
     const pick = run.picks.find(entry => entry.nodeId === node.id);
@@ -1567,7 +1586,7 @@ function arenaPick(run: RtRunState, node: ForestMapNode, advance: boolean): RtAr
   // Task 38: a garrison node — the garrison's arena by its pool stream after the garrison's arenas (no roster).
   if (rtGarrisonNodeId(node.id)) {
     const garrisonHistory = run.picks.flatMap(pick => pick.arena && rtGarrisonNodeId(pick.nodeId) ? [pick.arena] : []);
-    return { arena: garrisonArena(node, garrisonHistory, draw(run, 'pool', advance)) };
+    return { arena: garrisonArena(node, garrisonHistory, draw(run, 'pool', advance), !!run.moat) };
   }
   const history = run.picks.flatMap(pick => pick.arena ? [pick.arena] : []);
   // Task 26: a run with a schedule spends the pool draw as before (the stream counters stay) but reads the node's own roll.
@@ -2740,13 +2759,38 @@ function openOutskirts(run: RtRunState, events: RtRunEvent[]): void {
   events.push({ type: 'healed', nodeId: run.currentNodeId ?? '', amount });
   run.pending = { kind: 'outskirts' };
 }
-/** «В гарнизон»: the garrison's map (the forest's generator, the salt `garrison-map`) and its streams from 0; its first row is open. */
-export function rtEnterGarrison(current: RtRunState): RtRunStep {
+/**
+ * «В гарнизон»: the garrison's map (the forest's generator, the salt `garrison-map`) and its streams from 0; its first row is open.
+ * Task 40 «Повозка»: a run with the cart (`rtCartView`) sends `deposit` resources to the camp now (absent — the default, «оставить
+ * 6»; an integer of 0 … the view's `max`, else refused): they leave the run's stock at once (`shopPayment`: each unit from the kind
+ * held most) and are carried 100 % at any end (`RtRunState.cart`).
+ */
+export function rtEnterGarrison(current: RtRunState, deposit?: number): RtRunStep {
   if (current.pending?.kind !== 'outskirts' || !current.garrison || current.garrisonLevel || current.result) return fail('Сейчас нет пути в гарнизон.');
+  const cart = rtCartView(current);
+  if (deposit !== undefined && (!cart || !Number.isInteger(deposit) || deposit < 0 || deposit > cart.max)) return fail('Столько в Повозку не положить.');
   const run = structuredClone(current);
   run.garrisonLevel = { map: generateGarrisonMap(run.seed), streams: emptyStreams() };
   run.pending = null;
-  return { ok: true, run, events: [{ type: 'garrison-entered' }] };
+  if (!cart) return { ok: true, run, events: [{ type: 'garrison-entered' }] };
+  const n = deposit ?? cart.deposit, paid = shopPayment(run.materials, n);
+  for (const kind of RESOURCE_KINDS) run.materials[kind] -= paid[kind];
+  run.cart = { n, before: cart.stock };
+  return { ok: true, run, events: [{ type: 'garrison-entered', cart: n }] };
+}
+/** Баланс (task 40, design 4): the cart keeps this much of the stock by default («оставить 6»); it takes at most the forest's cap. */
+export const RT_CART_KEEP = 6;
+export const RT_CART_MAX = 20;
+/**
+ * Task 40 «Повозка» on «Предместье»: the run's stock, the most the cart takes (min(stock, `RT_CART_MAX`)) and the default deposit
+ * (min(stock − `RT_CART_KEEP`, `RT_CART_MAX`), not below 0); the view's «−» and «+» step by 1 within 0 … `max`. Null — no cart:
+ * not on «Предместье», a run without the flag `moat` or without the camp (`hearth`: a run of the meta with «Очаг»).
+ */
+export interface RtCartView { stock: number; max: number; deposit: number; keep: number }
+export function rtCartView(run: RtRunState): RtCartView | null {
+  if (run.pending?.kind !== 'outskirts' || !run.moat || !run.hearth || run.garrisonLevel || run.result) return null;
+  const stock = stockTotal(run.materials);
+  return { stock, max: Math.min(stock, RT_CART_MAX), deposit: Math.max(0, Math.min(stock - RT_CART_KEEP, RT_CART_MAX)), keep: RT_CART_KEEP };
 }
 /**
  * A save's open screen of the transition: the forest final's relic offer (source `level`: the run's last completed node is the
@@ -2926,6 +2970,11 @@ function checkRun(value: unknown): RtRunState | null {
   // Task 38: a flag; absent — a save before it (the forest final ends the run). The garrison level only with it (its map and
   // streams); `level` — the streams of the level the run is on now (its open screens draw from them).
   if (value.garrison !== undefined && value.garrison !== true) return null;
+  // Task 40: a flag, only with the garrison; the cart only in a run with it and the camp, once in the garrison (n of 0 … the
+  // cart's most, not above the stock it was taken from).
+  if (value.moat !== undefined && !(value.moat === true && value.garrison === true)) return null;
+  if (value.cart !== undefined && !(value.moat === true && value.hearth !== undefined && value.garrisonLevel !== undefined && isRecord(value.cart)
+    && Object.keys(value.cart).length === 2 && isCount(value.cart.n) && isCount(value.cart.before) && value.cart.n <= RT_CART_MAX && value.cart.n <= value.cart.before)) return null;
   const garrisonStreams = value.garrisonLevel === undefined ? null : validGarrisonLevel(value);
   if (value.garrisonLevel !== undefined && !garrisonStreams) return null;
   const level = garrisonStreams ? { seed: garrisonSeed(value.seed as number), streams: garrisonStreams } : { seed: value.seed as number, streams };
@@ -3001,7 +3050,7 @@ function checkRun(value: unknown): RtRunState | null {
     const node = map.node(pick.nodeId)!;
     if (!isArenaNode(node) && !(node.type === 'event' && pick.eventId && battleOption(forestEvent(pick.eventId)!))) return null;
     if (rtGarrisonNodeId(node.id)) {
-      if (pick.roster !== undefined || pick.arc !== undefined || pick.arena !== garrisonArena(node, garrisonHistory, streamValue(level.seed, 'pool', garrisonHistory.length))) return null;
+      if (pick.roster !== undefined || pick.arc !== undefined || pick.arena !== garrisonArena(node, garrisonHistory, streamValue(level.seed, 'pool', garrisonHistory.length), !!run.moat)) return null;
       garrisonHistory.push(pick.arena);
       continue;
     }

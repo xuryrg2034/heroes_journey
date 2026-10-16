@@ -92,6 +92,7 @@ import { featResult } from '../sim/feat';
 import type { Command } from '../sim/commands';
 import { WOLF_RUSH } from '../sim/enemies/wolf';
 import { BOSS_CLEAR, JAILER } from '../sim/enemies/jailer';
+import { houndFrenzied } from '../sim/enemies/garrison';
 import { kindOf } from '../sim/enemies/kinds';
 import { dist, inThorns, inWater } from '../sim/geometry';
 import { heroRadius } from '../sim/params';
@@ -277,6 +278,8 @@ export function createFightObserver(start: World): FightObserver {
           hit = true;
           const striker = world.enemies.find(e => e.id === ev.enemyId);
           if (striker && ev.source === kindOf(striker).hitSource && touchRaised(world, striker)) { s.damage.raisedTouches.hits++; s.damage.raisedTouches.damage += ev.damage; }
+          // Task 40: a frenzied hound's touch (the striker in its frenzy after the tick: the touch is the tick's last step).
+          if (ev.source === 'hound' && striker && houndFrenzied(striker)) { s.garrison.frenzyHits++; s.garrison.frenzyDamage += ev.damage; }
           return;
         }
         case 'kill': {
@@ -330,7 +333,12 @@ export function createFightObserver(start: World): FightObserver {
         // «Смена цвета»: the dash reached the link that freed the colour (a shift by length, not through a crystal).
         case 'colorShift': s.chain.colorShifts++; return;
         // Task 38: a tether the dash cut at its end.
-        case 'tether': if (ev.action === 'cut') s.chain.cuts++; return;
+        case 'tether':
+          if (ev.action === 'cut') s.chain.cuts++;
+          // Task 40: the keymaster's shackles — put on, cut (the game second of the first cut).
+          if (ev.action === 'shackle') s.garrison.shackles++;
+          if (ev.action === 'cut' && ev.kind === 'shackle') { s.garrison.shackleCuts++; s.garrison.firstShackleCut ??= Math.round(world.time * 100) / 100; }
+          return;
         // Task 34: a body of another colour passed by on a free chain — once per body and chain length within the drawn chain (the
         // held pointer repeats it every frame; the view journals only the first, `skipKey`).
         case 'shiftSkip': { const key = skipKey(ev.enemyId, ev.links); if (!skips.has(key)) { skips.add(key); s.chain.shiftSkips++; } return; }

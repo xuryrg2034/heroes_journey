@@ -34,8 +34,8 @@ function check(name: string, run: () => void): void { run(); checks++; console.l
 
 /** A walk of seed `k` with the garrison (`garrison` false — without it); every state goes to `each`. */
 const walk = (k: number, garrison: boolean, extra: Partial<WalkOptions> = {}) => walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison }, ...extra });
-/** The run without its garrison flag (to compare with a run without the flag). */
-const withoutFlag = (run: RtRunState): string => { const copy = structuredClone(run) as Partial<RtRunState>; delete copy.garrison; return JSON.stringify(copy); };
+/** The run without its garrison flags (to compare with a run without the flag; task 40: `moat` comes only with `garrison`). */
+const withoutFlag = (run: RtRunState): string => { const copy = structuredClone(run) as Partial<RtRunState>; delete copy.garrison; delete copy.moat; return JSON.stringify(copy); };
 const forestBoss = (run: RtRunState): boolean => run.visited.some(id => !rtGarrisonNodeId(id) && rtNode(run, id)?.type === 'boss');
 
 check('with the flag the forest final goes on: level-cleared (no run-won), a relic 1 of 3 (only relics), «Предместье» with full HP, «В гарнизон» — the garrison\'s map', () => {

@@ -907,6 +907,22 @@ export interface Params {
    * without the key: off (a guard walks as a plain slow enemy). The run turns it on (`RT_RUN_FORCED`).
    */
   guardFormation: boolean;
+  // ---- Task 40 «Гарнизон, шаг 1б» (sim/enemies/garrison.ts «Ключник», sim/tethers.ts; docs/realtime-elite-behaviors.md). ----
+  /**
+   * The keymaster's shackles (design 16.10.2026): every `shacklePeriod` s (the first 3 s after it appears) the keymaster shackles
+   * the nearest enemy within `shackleRange` (a plain one, a guard, a dog handler — not an elite, a boss or its part, a hound,
+   * another keymaster, a body held already, a link of the drawn chain), at most `shackleMax` at once. A shackle is a tether (the
+   * law of tethers.ts: the dash's segment across it cuts it after the dash; the highlight's `cuts` lists it); the prisoner stands
+   * and no chain takes it (refusal `shackled`). The keymaster's death drops its shackles after the dash. Needs `tethers`. Off by
+   * default; journals without the key: off (no shackle is made). The run turns it on (`RT_RUN_FORCED`); «Ров» on itself.
+   */
+  shackles: boolean;
+  /** Task 40: game seconds between the keymaster's shackles (journals without the key: 6). */
+  shacklePeriod: number;
+  /** Task 40: the keymaster shackles an enemy within this of its centre (units; journals without the key: 4). */
+  shackleRange: number;
+  /** Task 40: prisoners a keymaster holds at most (journals without the key: 2). */
+  shackleMax: number;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -1304,6 +1320,11 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   houndFrenzy: 6,
   houndFrenzyDamage: 1,
   guardFormation: false,
+  // Task 40 «Гарнизон, шаг 1б» (enemies/garrison.ts «Ключник»): off by default; the run and «Ров» turn `shackles` on.
+  shackles: false,
+  shacklePeriod: 6,
+  shackleRange: 4,
+  shackleMax: 2,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -1741,6 +1762,12 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('houndFrenzyDamage', 'Гарнизон', 'Укус пса в ярости', 0, 4, 1, 5, '', 'Урон укуса врагу (элите — пластина). Убийства яростью игроку не засчитываются.'),
   { kind: 'bool', key: 'guardFormation', group: 'Гарнизон', label: 'Строй стражников', stage: 5,
     hint: 'Стражники идут строем по 3 в линию поперёк пути к герою, шаг 0,9. Без строя — обычные медленные враги. В походе включено.' },
+  // Task 40 «Гарнизон, шаг 1б» (enemies/garrison.ts «Ключник»).
+  { kind: 'bool', key: 'shackles', group: 'Гарнизон', label: 'Кандалы Ключника', stage: 5,
+    hint: 'Ключник надевает кандалы на ближайшего врага рядом (не элиту, не пса, не другого Ключника). Узник стоит и не берётся в цепь. Цепь поперёк кандалов рубит их после прохода — узник свободен для следующей цепи. Нужен закон связи. В походе и на арене «Ров» включено.' },
+  n('shacklePeriod', 'Гарнизон', 'Кандалы: раз в', 1, 20, 0.5, 5, 'с', 'Первые кандалы — через 3 с после появления Ключника.'),
+  n('shackleRange', 'Гарнизон', 'Кандалы: дальность', 1, 8, 0.25, 5, 'ед.'),
+  n('shackleMax', 'Гарнизон', 'Кандалы: узников на Ключника', 1, 5, 1, 5),
 ];
 
 const MAX_PHASES = 8;

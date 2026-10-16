@@ -253,6 +253,8 @@ const SOURCE_TITLES: Record<string, string> = {
   quills: 'иглы', 'fire-trail': 'огонь элиты', thorns: 'терновник', reaper: 'жнец',
   // Task 28: the Jailer's moves.
   flail: 'кистень', throw: 'бросок гири',
+  // Task 38–40: the garrison's touches and the Castellan's move (the frenzied hound's touch — `garrison.frenzyHits`, section «Гарнизон»).
+  hound: 'касание пса', guard: 'касание стражника', handler: 'касание псаря', keymaster: 'касание ключника', castellan: 'касание Кастеляна', lunge: '«Спустить пса»',
 };
 const THREAT_TITLES: Record<string, string> = {
   archer: 'метка лучника', boar: 'полоса кабана', wolf: 'бросок стаи волков', lynx: 'прыжок рыси', sapper: 'фитиль и взрыв сапёра', 'sapper-instant': 'взрыв сапёра без предупреждения',
@@ -906,7 +908,7 @@ function itemsSection(runs: readonly RunRecord[], entries: readonly FightEntry[]
 
 // ---- Task 20 «Ресурсы похода» (RunRecord.resources, from 14.10.2026) ----
 const RESOURCE_SOURCE_TITLES: Record<string, string> = { gift: 'дар', event: 'события', casino: 'игорный круг', loot: 'добыча элит', bag: 'котомка', feat: 'подвиги', merchant: 'торговец', other: 'прочее' };
-const RESOURCE_SINK_TITLES: Record<string, string> = { craft: 'крафт', healMap: 'лечение на карте', merchant: 'торговец', event: 'события', casino: 'игорный круг', reroll: 'переброс', other: 'прочее' };
+const RESOURCE_SINK_TITLES: Record<string, string> = { craft: 'крафт', healMap: 'лечение на карте', merchant: 'торговец', event: 'события', casino: 'игорный круг', reroll: 'переброс', cart: 'Повозка', other: 'прочее' };
 /** Start, gained, spent, end of one kind (or of all kinds together). */
 export interface ResourceTally { start: number; gained: number; spent: number; end: number }
 /** One run with `resources`: by source and sink (all kinds together), by kind, and whether every kind adds up. */
@@ -1059,6 +1061,8 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## От чего умирают', '', deathSection(fights), '',
     // Task 28 «Тюремщик в походе».
     '## Босс', '', bossSection(fights), '',
+    // Task 40 «Гарнизон, шаг 1б»: the survival through both levels, the garrison's fights and the cart.
+    '## Гарнизон', '', garrisonSection(runs, runFights), '',
     '## Элиты', '', ELITE_LEGEND, '', table(ELITE_HEAD, eliteRows(runFights, sandbox)), '',
     '## Однорукий гоблин', '', SLOT_LEGEND, '', table(SLOT_HEAD, [slotRow('походы', runFights), slotRow('песочница', sandbox)].filter((r): r is (string | number)[] => !!r)), '',
     // Task 20: how the hero left the lit idol's circle.
@@ -1451,4 +1455,79 @@ export function threatTotals(entries: readonly FightEntry[]): Record<string, Thr
     o.warned += t.warned; o.hit += t.hit; o.dodged += t.dodged; o.shielded += t.shielded; o.interrupted += t.interrupted; o.exitTicks.push(...t.exitTicks);
   }
   return out;
+}
+
+// ---- Task 40 «Гарнизон» (docs/realtime-telemetry.md, «Гарнизон»; docs/realtime-slice.md, «Гарнизон») ----
+
+/** A run row of a level as the report names it: «л N» — the forest, «г N» — the garrison. */
+export const levelRowKey = (level: 1 | 2, row: number): string => `${level === 2 ? 'г' : 'л'} ${row}`;
+/** The farthest run row a run reached on each level (from its node visits: a garrison node's id begins with `g:`). */
+export function runLevelRows(run: Pick<RunRecord, 'nodes'>): { forest: number; garrison: number } {
+  let forest = 0, garrison = 0;
+  for (const n of run.nodes) { if (n.nodeId.startsWith('g:')) garrison = Math.max(garrison, n.row); else forest = Math.max(forest, n.row); }
+  return { forest, garrison };
+}
+/** The row a lost run died on («л N» / «г N», its last node visit); null — not lost, or no visit. */
+function deathRowKey(run: Pick<RunRecord, 'nodes' | 'outcome'>): string | null {
+  const last = run.nodes[run.nodes.length - 1];
+  return run.outcome === 'defeat' && last ? levelRowKey(last.nodeId.startsWith('g:') ? 2 : 1, last.row) : null;
+}
+/** The numbers of the section (the tests read them). */
+export interface GarrisonStats {
+  runs: number;
+  /** Runs that reached each row (keys «л 1» … «л 10», «г 1» … «г 10»), and the lost runs by the row they died on. */
+  reached: Record<string, number>;
+  deaths: Record<string, number>;
+  /** Fights of the garrison (`FightRecord.level` 2 or a `g:` node): count, cuts per fight, frenzy kills, shackles. */
+  fights: number; cuts: number[]; frenzyKills: number; shackles: number; shackleCuts: number; firstShackleCut: number[];
+  /** HP the garrison's fights took by source; the frenzied hounds' touches apart (`garrison.frenzyDamage`). */
+  damage: Record<string, number>;
+  /** Runs with the cart: what it took and the stock it was taken from. */
+  carts: { n: number; before: number }[];
+}
+const GARRISON_ROWS = 10;
+export function garrisonStats(runs: readonly RunRecord[], runFights: readonly FightEntry[]): GarrisonStats {
+  const reached: Record<string, number> = {}, deaths: Record<string, number> = {}, damage: Record<string, number> = {};
+  for (const r of runs) {
+    const far = runLevelRows(r);
+    for (let row = 1; row <= GARRISON_ROWS; row++) {
+      if (far.forest >= row || far.garrison > 0) bump(reached, levelRowKey(1, row));
+      if (far.garrison >= row) bump(reached, levelRowKey(2, row));
+    }
+    const key = deathRowKey(r);
+    if (key) bump(deaths, key);
+  }
+  const own = runFights.filter(e => fightLevel(e.record) === 2), sums = own.map(e => (e.analysis ? e.analysis.summary : withSummaryDefaults(e.record.summary)));
+  for (const s of sums) {
+    for (const [source, hp] of Object.entries(s.damage.bySource)) bump(damage, source, hp);
+    if (s.garrison.frenzyDamage) { bump(damage, 'hound-frenzy', s.garrison.frenzyDamage); bump(damage, 'hound', -s.garrison.frenzyDamage); }
+  }
+  return {
+    runs: runs.length, reached, deaths, fights: own.length, cuts: sums.map(s => s.chain.cuts), frenzyKills: sums.reduce((a, s) => a + s.chain.frenzyKills, 0),
+    shackles: sums.reduce((a, s) => a + s.garrison.shackles, 0), shackleCuts: sums.reduce((a, s) => a + s.garrison.shackleCuts, 0),
+    firstShackleCut: sums.flatMap(s => (s.garrison.firstShackleCut === null ? [] : [s.garrison.firstShackleCut])), damage,
+    carts: runs.flatMap(r => (r.cart ? [{ n: r.cart.n, before: r.cart.before }] : [])),
+  };
+}
+const GARRISON_SOURCES: readonly [string, string][] = [
+  ['hound', 'пёс (на поводке или после ярости)'], ['hound-frenzy', 'пёс в ярости'], ['guard', 'стражник'], ['handler', 'псарь'], ['keymaster', 'Ключник'],
+  ['lunge', '«Спустить пса»'], ['castellan', 'Кастелян'], ['touch', 'обычные враги'],
+];
+const GARRISON_LEGEND = 'Задача 40 (с 16.10.2026; эвристика, не оценка баланса): походы через оба уровня — лес («л N») и гарнизон («г N»), ряд по посещённым узлам (`RunRecord.nodes`: узел гарнизона — `g:…`). Дошли — походы, вошедшие в узел этого ряда (поход в гарнизоне прошёл все ряды леса); доля — от всех походов отчёта. Смерти — проигранные походы по ряду последнего узла. Бои гарнизона — `FightRecord.level` 2 (или узел `g:`): рубки за бой (`chain.cuts`: поводки и кандалы), убийства яростью пса (`chain.frenzyKills`, не в зачёт игроку), кандалы надеты и разрублены, секунда первой рубки кандалов (`garrison`), урон герою по источникам (`damage.bySource`; касания пса в ярости — `garrison.frenzyDamage` — отдельно). Повозка — сдача у «Предместья» (`RunRecord.cart`). Цель плейтеста — отсев 10–15 п. п. на уровень и нет ряда, где смертей больше, чем у обоих соседей.';
+export function garrisonSection(runs: readonly RunRecord[], runFights: readonly FightEntry[]): string {
+  const st = garrisonStats(runs, runFights);
+  if (!st.runs && !st.fights) return `${GARRISON_LEGEND}\n\n_походов и боёв гарнизона нет_`;
+  const keys = [...Array.from({ length: GARRISON_ROWS }, (_, i) => levelRowKey(1, i + 1)), ...Array.from({ length: GARRISON_ROWS }, (_, i) => levelRowKey(2, i + 1))];
+  const shown = keys.filter((k, i) => i < GARRISON_ROWS || (st.reached[k] ?? 0) > 0 || (st.deaths[k] ?? 0) > 0);
+  const curve = shown.map(k => [k, st.reached[k] ?? 0, pct(st.reached[k] ?? 0, st.runs), st.deaths[k] ?? 0]);
+  const mean = (list: readonly number[]): string => (list.length ? n1(list.reduce((a, b) => a + b, 0) / list.length) : '—');
+  const fights = st.fights ? table(['Боёв', 'Рубок за бой, среднее', 'Боёв с рубкой', 'Убийств яростью пса', 'Кандалы надеты', 'Кандалы разрублены', 'Первая рубка кандалов, с мед.'],
+    [[st.fights, mean(st.cuts), st.cuts.filter(n => n > 0).length, st.frenzyKills, st.shackles, st.shackleCuts, st.firstShackleCut.length ? n1(median(st.firstShackleCut)) : '—']]) : '_боёв гарнизона нет_';
+  const total = Object.values(st.damage).reduce((a, b) => a + b, 0);
+  const damage = GARRISON_SOURCES.filter(([id]) => (st.damage[id] ?? 0) > 0).map(([id, title]) => [title, st.damage[id], pct(st.damage[id], total)]);
+  const other = total - GARRISON_SOURCES.reduce((a, [id]) => a + Math.max(0, st.damage[id] ?? 0), 0);
+  if (other > 0) damage.push(['прочее', other, pct(other, total)]);
+  const carts = st.carts.length ? `Повозка: походов ${st.carts.length}, сдано мед. ${n1(median(st.carts.map(c => c.n)))}, запас до сдачи мед. ${n1(median(st.carts.map(c => c.before)))}.` : 'Повозка: сдач нет.';
+  return [GARRISON_LEGEND, '', table(['Ряд', 'Дошли', 'Доля', 'Смертей'], curve), '', fights, '',
+    damage.length ? table(['Урон герою в гарнизоне', 'HP', 'Доля'], damage) : '_урона в боях гарнизона нет_', '', carts].join('\n');
 }

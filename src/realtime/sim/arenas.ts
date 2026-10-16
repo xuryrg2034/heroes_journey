@@ -213,6 +213,16 @@ export interface ArenaTemplate extends ArenaShape {
    * sandbox shows them as the run does. Omitted — the values as given.
    */
   garrison?: boolean;
+  /**
+   * Task 40 «Гарнизон, шаг 1б»: the arena plays the keymaster's shackles whatever the given values hold — the world gets a copy with
+   * `Params.shackles` on (world.ts `createWorld`; the journal keeps that copy). «Ров». Omitted — the values as given.
+   */
+  shackles?: boolean;
+  /**
+   * Task 40: start enemies that stand too in a deep fight (`Loadout.deep`: the run gives it to «Ров» on garrison rows 8–9, to
+   * «Галерея» and «Караульня» from row 8 once «Ров» was played) — after `enemies`. Omitted — none; without `deep` never read.
+   */
+  deepEnemies?: StartEnemy[];
 }
 
 /**

@@ -45,6 +45,10 @@ export interface WalkOptions {
   pickNode?: (run: RtRunState, ids: readonly string[]) => string | null;
   /** Called with every state the walk passes through (after each step). */
   each?: (run: RtRunState) => void;
+  /** Task 40: what «Повозка» takes at «Предместье» (`rtEnterGarrison`'s deposit); absent — the default. */
+  deposit?: (run: RtRunState) => number | undefined;
+  /** Task 40 (the bot's curve, scripts/realtime-garrison-curve.ts): the open battle played for real; absent or null — the outcome made up. */
+  fight?: (run: RtRunState) => RtArenaOutcome | null;
 }
 export interface Walk { run: RtRunState; digest: number; steps: number; offered: Set<string> }
 
@@ -90,6 +94,8 @@ export function walkRun(options: WalkOptions): Walk {
     switch (pending.kind) {
       case 'battle': {
         const type = rtNode(run, pending.nodeId)!.type, lose = options.loseAt?.(run, type) ?? false;
+        const played = options.fight?.(run);
+        if (played) { run = seen(ok(resolveArena(run, played), 'resolve')); break; }
         const outcome: RtArenaOutcome = {
           nodeId: pending.nodeId, won: !lose, hp: lose ? 0 : Math.max(1, run.maxHp - (step % 4)), kills: 20 + step % 7, damage: step % 4, time: 60 + step,
           materials: options.loot !== undefined ? { [RESOURCE_KINDS[(k + step) % RESOURCE_KINDS.length]]: options.loot } : { [RESOURCE_KINDS[(k + step) % RESOURCE_KINDS.length]]: 1 + (step % 3) },
@@ -141,7 +147,7 @@ export function walkRun(options: WalkOptions): Walk {
         break;
       }
       // Task 38: «Предместье» — «В гарнизон».
-      case 'outskirts': run = seen(ok(rtEnterGarrison(run), 'garrison')); break;
+      case 'outskirts': run = seen(ok(rtEnterGarrison(run, options.deposit?.(run)), 'garrison')); break;
       default: throw new Error(`seed ${k}: no walk for ${pending.kind}`);
     }
   }

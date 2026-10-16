@@ -28,6 +28,14 @@
  * - «Караул!» (`guard`, phase 2: the first part lost — a hound killed or its leash cut — or `CASTELLAN_PHASE2_TIME` s): every
  *   `GUARD_CALL_PERIOD` s three guard markers of one colour, a formation, at the gate farthest from the hero.
  * A leash cut by the dash and a hound killed — each takes a plate off the core after the dash (the frame's rule of a severed part).
+ *
+ * **Ключник** (`keymaster`, task 40 «Гарнизон, шаг 1б», design 16.10.2026, docs/design-notes/task-40-garrison-step1b.md, 2): slow,
+ * HP 1, touches as a plain enemy; keeps `KEYMASTER_NEAR`…`KEYMASTER_FAR` from the hero. With `Params.shackles` (and the law of
+ * tethers) it shackles the nearest enemy within `shackleRange` every `shacklePeriod` s — the first `SHACKLE_FIRST` s after it
+ * appears, at most `shackleMax` prisoners at once; not while a dash runs (the state changes after the dash). A target: a plain
+ * enemy, a guard, a dog handler — not an elite, a boss's part, a hound, another keymaster, a body held already, a link of the drawn
+ * chain. A cut of its shackle by the dash — its next shackle `shacklePeriod` s later. Its death drops its shackles after the move
+ * (tethers.ts `dropTethers`, `settleTethers`).
  * Numbers are hypotheses of the design; the tests check the rules.
  */
 import { dhypot } from '../detMath';
@@ -35,7 +43,7 @@ import { dropArmorLoot } from '../elites';
 import { dist, lineOfSight, pushOutOfCliffs, pushOutOfObstacles, type Vec } from '../geometry';
 import { heroRadius } from '../params';
 import { palette, spawnEnemy } from '../spawn';
-import { addTether, dropTethers, tetherOf, tethersOn } from '../tethers';
+import { addTether, dropTethers, tetherOf, tethersHeldBy, tethersOn } from '../tethers';
 import { canBeHurt, damageEnemy, enemyFrozen, enemyGroundFactor, enemySpeed, hurtHero, noteBlock, touchDistanceOf, type Enemy, type World } from '../world';
 import { bossClear, bossClearsOn } from './jailer';
 import { bodyRadiusOf, kindOf, registerBehavior, registerEnemyKind } from './kinds';
@@ -44,6 +52,7 @@ export const GUARD = 'guard';
 export const HANDLER = 'handler';
 export const HOUND = 'hound';
 export const CASTELLAN = 'castellan';
+export const KEYMASTER = 'keymaster';
 
 // ---- Баланс (гипотезы спеки задачи 38, 15.10.2026; тесты проверяют правила, не числа) ----
 /** The guards' line: their places this far apart (units). */
@@ -478,4 +487,83 @@ registerBehavior({
 registerEnemyKind({
   id: CASTELLAN, behavior: CASTELLAN, speedClass: 'slow', hp: () => CASTELLAN_HP, speed: world => world.pressure.enemySpeed * world.params.speedSlow,
   bodyScale: 1, artScale: 1, touchDamage: world => world.params.contactDamage, mass: () => 1, spread: false, chainable: true, hitSource: CASTELLAN,
+});
+
+// ---------- Ключник (task 40) ----------
+
+// Баланс (гипотезы спеки задачи 40, 16.10.2026; тесты проверяют правила, не числа).
+export const KEYMASTER_HP = 1;
+/** The keymaster keeps this far from the hero (backs off closer than NEAR, walks up farther than FAR). */
+export const KEYMASTER_NEAR = 4;
+export const KEYMASTER_FAR = 5;
+/** The first shackle: this many game seconds after the keymaster appears (the player sees it before its first prisoner). */
+export const SHACKLE_FIRST = 3;
+/** The defaults of the shackles' numbers (journals without the keys). */
+export const SHACKLE_PERIOD = 6;
+export const SHACKLE_RANGE = 4;
+export const SHACKLE_MAX = 2;
+/** The kinds a keymaster shackles (design 2: a plain enemy, the guard, the dog handler). */
+export const SHACKLE_KINDS: readonly string[] = ['basic', GUARD, HANDLER];
+
+const shacklesOn = (world: World): boolean => !!world.params.shackles && tethersOn(world);
+const shacklePeriodOf = (world: World): number => Math.max(0.5, world.params.shacklePeriod ?? SHACKLE_PERIOD);
+const shackleRangeOf = (world: World): number => Math.max(0, world.params.shackleRange ?? SHACKLE_RANGE);
+const shackleMaxOf = (world: World): number => Math.max(0, Math.floor(world.params.shackleMax ?? SHACKLE_MAX));
+
+/** `e` may be shackled by `keeper` now: its kind, not an elite, not a boss's part, not held, not a link of the drawn chain. */
+function shackleable(world: World, keeper: Enemy, e: Enemy): boolean {
+  return e !== keeper && SHACKLE_KINDS.includes(e.kind) && !e.elite && e.partOf === undefined && !tetherOf(world, e.id)
+    && !world.chain.some(link => link.kind === 'enemy' && link.id === e.id);
+}
+
+/** The nearest enemy the keymaster may shackle within its range (the first of equals in the arena's order); null — none. */
+function shackleTarget(world: World, keeper: Enemy): Enemy | null {
+  const range = shackleRangeOf(world);
+  let best: Enemy | null = null, bestD = Infinity;
+  for (const e of world.enemies) {
+    if (!shackleable(world, keeper, e)) continue;
+    const d = dist(keeper, e);
+    if (d <= range + TIME_EPS && d < bestD) { best = e; bestD = d; }
+  }
+  return best;
+}
+
+/** The prisoners the keymaster `keeper` holds now. */
+export const prisonersOf = (world: World, keeper: Enemy): number => tethersHeldBy(world, keeper.id).filter(t => t.kind === 'shackle').length;
+
+registerBehavior({
+  id: KEYMASTER,
+  beforeStep(world, members, dt) {
+    if (!shacklesOn(world)) return;
+    for (const e of members) {
+      if (!world.enemies.includes(e) || enemyFrozen(e)) continue;
+      // The first group step after it appears: the first shackle in `SHACKLE_FIRST` s.
+      e.vars.sc = Math.max(0, (e.vars.sc ?? SHACKLE_FIRST) - dt);
+      if (e.vars.sc > TIME_EPS || world.move || world.status !== 'playing' || prisonersOf(world, e) >= shackleMaxOf(world)) continue;
+      const target = shackleTarget(world, e);
+      if (!target || !addTether(world, e, target, 'shackle')) continue;
+      e.vars.sc = shacklePeriodOf(world);
+      world.events.push({ type: 'tether', action: 'shackle', holder: e.id, held: target.id, x: target.x, y: target.y, kind: 'shackle' });
+    }
+  },
+  step(world, e, dt) {
+    if (e.knock > 0) return false;
+    const hero = world.hero, d = dist(e, hero);
+    if (d > KEYMASTER_FAR) return false;
+    if (d >= KEYMASTER_NEAR) return true;
+    // Too close: it backs off from the hero (off walls, trees and cliffs).
+    const away = { x: e.x + (e.x - hero.x) / Math.max(d, 1e-6), y: e.y + (e.y - hero.y) / Math.max(d, 1e-6) };
+    walkTo(world, e, away, walkStep(world, e, dt));
+    return true;
+  },
+  onTetherCut(world, holder) {
+    // A shackle cut by the dash: the next one `shacklePeriod` s later.
+    if (shacklesOn(world)) holder.vars.sc = Math.max(holder.vars.sc ?? 0, shacklePeriodOf(world));
+  },
+  onDeath(world, e) { dropTethers(world, e); },
+});
+
+registerEnemyKind({
+  id: KEYMASTER, behavior: KEYMASTER, speedClass: 'slow', hp: () => KEYMASTER_HP, speed: world => world.pressure.enemySpeed * world.params.speedSlow,
+  bodyScale: 1, artScale: 1, touchDamage: world => world.params.contactDamage, mass: () => 1, spread: true, chainable: true, hitSource: KEYMASTER,
 });

@@ -45,7 +45,7 @@ import { doorFinaleOn, greedRelease, linkEmbers, planCheque, purseOn, settleCheq
 import { oathButton, oathCrystal, oathDashEnd, oathJump, oathLink, oathRelease } from './oath';
 import { bagKill } from './bag';
 // Task 38 «Гарнизон»: the law of tethers — the plan lists the tethers the dash cuts, the release fixes them, the dash's end cuts them.
-import { cutTethers, dashPathPoints, planTetherCuts, tethersOn } from './tethers';
+import { cutTethers, dashPathPoints, dropShackleOf, planTetherCuts, settleTethers, shackled, tethersOn } from './tethers';
 import { NO_COLOR, OBJECT_RADIUS, checkGoals, damageEnemy, doorOf, doorOpen, enemyFrozen, findObject, nextFiring, startShieldWindow, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
 
 export { OBJECT_RADIUS };
@@ -844,7 +844,7 @@ export function inChain(world: World, enemy: Enemy): number {
  * Why a target cannot be the next link (stage G): the checks of `canLink` / `canLinkObject` in their order, and the
  * text the pointer hint shows. One function decides both, so the hint never disagrees with the chain.
  */
-export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'unlit' | 'color' | 'far' | 'sight' | 'guarded' | 'crossed' | 'sealed' | 'lever';
+export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'unlit' | 'color' | 'far' | 'sight' | 'guarded' | 'crossed' | 'sealed' | 'lever' | 'shackled';
 export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   move: 'идёт проход',
   colorless: 'не берётся цепью',
@@ -865,6 +865,8 @@ export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   sealed: 'петля замкнута',
   // Casino stage 1: the goblin's lever during its marker, its cooldown and after the last pull (dark).
   lever: 'рычаг не готов',
+  // Task 40 «Ключник»: a prisoner in the keymaster's shackles (tethers.ts `shackled`) — no chain takes it until they are cut.
+  shackled: 'в кандалах',
 };
 
 /**
@@ -920,6 +922,8 @@ export function enemyAnchors(world: World, enemy: Enemy): ChainAnchor[] { return
 export function enemyRefusal(world: World, enemy: Enemy, plan: ChainPlan = planChain(world, world.chain, NO_PIERCE)): Refusal | null {
   if (world.status !== 'playing' || world.move) return 'move';
   if (enemy.color === NO_COLOR || !kindOf(enemy).chainable) return 'colorless';
+  // Task 40: the keymaster's prisoner (only while a shackle holds it: nothing in worlds without one).
+  if (world.tethers && shackled(world, enemy)) return 'shackled';
   if (inChain(world, enemy) >= 0) return 'inChain';
   if (loopClosed(world)) return 'sealed';
   if (plan.endsOnSurvivor) return 'afterSurvivor';
@@ -1447,6 +1451,8 @@ function hitEnemy(world: World, enemy: Enemy): void {
     if (world.curse) curseKill(world);
     if (enemy.marked) world.stats.markedKills++;
     world.events.push({ type: 'kill', enemyId: enemy.id, x: enemy.x, y: enemy.y, color: enemy.color, source: 'chain', credited: true });
+    // Task 40: a prisoner's shackle goes with it (nothing while no shackle holds it).
+    if (world.tethers) dropShackleOf(world, enemy);
     // Stage 2 of the transition: the kind's own reaction to its death (the sapper lights its fuse); an elite's loot (step 3).
     behaviorOf(enemy).onDeath?.(world, enemy, { source: 'chain', credited: true });
     eliteDeath(world, enemy, { source: 'chain', credited: true });
@@ -1604,6 +1610,8 @@ function finishMove(world: World): void {
   if (move.kind === 'dash' && world.oath) oathDashEnd(world);
   // Task 38: the dash cuts the tethers its release fixed (the bodies freed act once no move runs).
   if (move.kind === 'dash' && move.cuts && world.status === 'playing') cutTethers(world, move.cuts);
+  // Task 40: the shackles of a keymaster that died during the move fall now (after the dash, after the jump).
+  if (world.tethers) settleTethers(world);
   if (move.kind === 'dash') {
     // Crystals of this chain are worth its final length (main game: crystalChain).
     for (const id of move.dropped) { const c = findObject(world, id); if (c) c.value = move.kills; }

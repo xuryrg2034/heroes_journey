@@ -21,11 +21,11 @@ import type { World } from '../sim/world';
 import { rtTalisman } from '../run/rtTalismans';
 import { runRow } from '../run/arenaPools';
 import { rtGarrisonNodeId } from '../run/garrison';
-import { rtEventView, rtFightArc, rtGiftView, rtNode, rtRestView, rtScheduleMet, rtShopView, type RtRunState, type RtRunStep } from '../run/rtRun';
+import { rtEventView, rtFightArc, rtGiftView, rtLevel, rtNode, rtRestView, rtScheduleMet, rtShopView, type RtRunState, type RtRunStep } from '../run/rtRun';
 import type { GiftOption } from '../forest/runGift';
 import { ITEM_KINDS } from '../forest/items';
 import { RESOURCE_KINDS } from '../forest/resources';
-import type { RtMetaEnd } from '../run/rtMeta';
+import { rtRunWonLevel, type RtMetaEnd } from '../run/rtMeta';
 import { bagPayout } from '../sim/bag';
 import { TelemetryBuffer, telemetryKeys, TLM_PREFIX, TLM_RUN_META_KEY, TLM_SESSION_KEY, TLM_TESTER_KEY, type BufferOptions, type BufferStats, type KeyValueStore } from './buffer';
 import { EventCursor } from './observe';
@@ -253,6 +253,15 @@ export function mergeChoice(list: RunChoice[], c: RunChoice): void {
 }
 
 /** The build at the end of the run (or now). */
+/**
+ * Task 40 (from 16.10.2026): the run's levels for its record — the level it is on (2 — the garrison), the highest level it passed
+ * (1 — the forest's final won, 2 — the Castellan), the cart of «Предместье» (absent — none of them: the record as before).
+ */
+function runLevels(run: RtRunState): Pick<RunRecord, 'level' | 'levelCleared' | 'cart'> {
+  const cleared = rtRunWonLevel(run);
+  return { ...rtLevel(run) === 2 ? { level: 2 as const } : {}, ...cleared ? { levelCleared: cleared } : {}, ...run.cart ? { cart: { ...run.cart } } : {} };
+}
+
 export function runKit(run: RtRunState): RunRecord['kit'] {
   const rarity = (id: string) => rtTalisman(id)?.rarity;
   return {
@@ -317,6 +326,8 @@ interface RunMeta {
  */
 export const RESOURCE_CONTEXT: Readonly<Record<string, readonly [RunResourceSource, RunResourceSink]>> = {
   gift: ['gift', 'other'], event: ['event', 'event'], casino: ['casino', 'casino'], shop: ['merchant', 'merchant'], rest: ['other', 'craft'],
+  // Task 40: «В гарнизон» on «Предместье» — the cart's deposit.
+  outskirts: ['other', 'cart'],
 };
 
 /** Where a fight is: a run node or the sandbox. */
@@ -687,7 +698,7 @@ export class RtRecorder {
     const record: RunRecord = {
       ...this.header(runRecordId(this.session, meta.key), 'run', meta.key, paramsHash(runParams)),
       seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, ...meta.hints?.length ? { hints: meta.hints } : {}, ...meta.items ? { items: meta.items } : {}, ...meta.gentle ? { gentle: true as const } : {}, ...meta.startPotion ? { startPotion: true as const } : {}, ...meta.secondWindOn ? { secondWindOn: true as const } : {}, ...meta.startItems ? { startItems: meta.startItems } : {}, ...meta.secondWind ? { secondWind: meta.secondWind } : {}, ...meta.mapHeals?.length ? { mapHeals: meta.mapHeals } : {}, /* task 18: the run's own level */ ...run.ash ? { ash: run.ash } : {}, /* task 26: living elements of the snapshot (affix types apart) */ ...run.schedule ? { schedule: { start: run.schedule.seen.filter(id => !id.startsWith('affix:')).length } } : {},
-      ...meta.featsOn ? { featsOn: true as const } : {}, ...meta.feats?.length ? { feats: meta.feats } : {}, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun, ...meta.viewerRunApprox ? { viewerRunApprox: true as const } : {} } : {}, ...meta.firsts?.length ? { firsts: meta.firsts } : {}, ...meta.resources ? { resources: meta.resources } : {}, ...meta.fx ? { fx: meta.fx } : {}, ...meta.metaTlm ?? {}, runParams,
+      ...meta.featsOn ? { featsOn: true as const } : {}, ...meta.feats?.length ? { feats: meta.feats } : {}, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun, ...meta.viewerRunApprox ? { viewerRunApprox: true as const } : {} } : {}, ...meta.firsts?.length ? { firsts: meta.firsts } : {}, ...meta.resources ? { resources: meta.resources } : {}, ...meta.fx ? { fx: meta.fx } : {}, ...meta.metaTlm ?? {}, ...runLevels(run), runParams,
     };
     void this.put([JSON.parse(JSON.stringify(record)) as RunRecord]);
   }
@@ -792,7 +803,7 @@ export class RtRecorder {
       const meta = this.metaFor(run), tlm = meta.metaTlm ??= {};
       tlm.xp = { gained: end.xp.gained, before: end.xp.before, after: end.xp.after, parts: end.xp.parts.map(part => ({ ...part })) };
       if (end.pack) tlm.pack = end.pack.id;
-      tlm.record = { row: end.record.after.row, won: end.record.after.won, beaten: end.record.beaten };
+      tlm.record = { row: end.record.after.row, won: end.record.after.won, beaten: end.record.beaten, ...end.record.after.level ? { level: end.record.after.level } : {}, ...end.record.after.wonLevel ? { wonLevel: end.record.after.wonLevel } : {} };
       tlm.carry = { ...end.carry };
       tlm.stock = { ...end.stock };
       if (end.quest) tlm.quest = { npc: end.quest.npc, id: end.quest.id, done: end.quest.done };

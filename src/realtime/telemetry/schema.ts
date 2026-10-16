@@ -281,7 +281,8 @@ export interface RunFirst { id: string; fight: string | null; row: number }
  * acted on (recorder.ts `RESOURCE_CONTEXT`); what fits none is `other`. So for every kind start + Σ gained − Σ spent = end.
  */
 export const RUN_RESOURCE_SOURCES = ['gift', 'event', 'casino', 'loot', 'bag', 'feat', 'merchant', 'other'] as const;
-export const RUN_RESOURCE_SINKS = ['craft', 'healMap', 'merchant', 'event', 'casino', 'reroll', 'other'] as const;
+// Task 40: `cart` — what «Повозка» took at «Предместье» (it leaves the run's stock for the camp).
+export const RUN_RESOURCE_SINKS = ['craft', 'healMap', 'merchant', 'event', 'casino', 'reroll', 'cart', 'other'] as const;
 export type RunResourceSource = typeof RUN_RESOURCE_SOURCES[number];
 export type RunResourceSink = typeof RUN_RESOURCE_SINKS[number];
 export interface RunResources {
@@ -300,7 +301,7 @@ export interface RunResources {
 /** Tasks 36–37 (from 15.10.2026): the hero's XP of the run (`RunRecord.xp`) — gained, the total before and after (clipped), the parts. */
 export interface RunXp { gained: number; before: number; after: number; parts: { id: string; xp: number; n?: number }[] }
 /** Task 37: the resources carried to the camp (`RunRecord.carry`): carried, the share (1 or 0.5), the cap, the run's resources at the end. */
-export interface RunCarry { n: number; share: number; cap: number; resources: number }
+export interface RunCarry { n: number; share: number; cap: number; resources: number; /** Task 40: what «Повозка» sent (inside `n`); absent — no cart. */ cart?: number }
 /** Task 37: an upgrade bought in the camp after the run (`RunRecord.hearthBuys`). */
 export interface RunHearthBuy { npc: string; level: number; price: number }
 /** Task 37: what the camp gave the run at its start (`RunRecord.hearth`): maps offered and the index chosen, the start consumable, Ерофей's flags. */
@@ -378,8 +379,19 @@ export interface RunRecord extends RtHeader {
   xp?: RunXp;
   /** Task 36: the pack the run opened (its id); absent — none. */
   pack?: string;
-  /** Task 36: the depth record after the run (run rows) and whether this run beat it. */
-  record?: { row: number; won: boolean; beaten: boolean };
+  /**
+   * Task 36: the depth record after the run (run rows) and whether this run beat it. Task 40 (from 16.10.2026): `level` 2 — the
+   * record is the garrison's; `wonLevel` — the level it passed (1 the forest, 2 the garrison); absent — the forest, none.
+   */
+  record?: { row: number; won: boolean; beaten: boolean; level?: 2; wonLevel?: 1 | 2 };
+  /**
+   * Task 40 «Гарнизон, шаг 1б» (from 16.10.2026): the level the run ended on (2 — the garrison; absent — the forest, older records)
+   * and the highest level it passed (`levelCleared`: 1 — the forest's final won, 2 — the Castellan; absent — none).
+   */
+  level?: 2;
+  levelCleared?: 1 | 2;
+  /** Task 40 «Повозка»: what the cart sent at «Предместье» (`n`) and the stock it was taken from (`before`); absent — no cart. */
+  cart?: { n: number; before: number };
   /** Task 36: items locked in the run (the snapshot's count; 0 — a meta run with every pack open); absent — not a meta run. */
   locked?: number;
   /** Task 37: the carry to the camp and the stock before and after it (the quest's stock included). */
@@ -560,9 +572,14 @@ function runMetaOk(r: Record<string, unknown>): boolean {
   if (xp !== undefined && !(plain(xp) && whole(xp.gained) && whole(xp.before) && whole(xp.after) && Array.isArray(xp.parts)
     && xp.parts.every(p => plain(p) && typeof p.id === 'string' && whole(p.xp) && (p.n === undefined || whole(p.n))))) return false;
   if (r.pack !== undefined && !(typeof r.pack === 'string' && r.pack.length > 0)) return false;
-  if (record !== undefined && !(plain(record) && whole(record.row) && typeof record.won === 'boolean' && typeof record.beaten === 'boolean')) return false;
+  if (record !== undefined && !(plain(record) && whole(record.row) && typeof record.won === 'boolean' && typeof record.beaten === 'boolean'
+    && (record.level === undefined || record.level === 2) && (record.wonLevel === undefined || record.wonLevel === 1 || record.wonLevel === 2))) return false;
   if (r.locked !== undefined && !whole(r.locked)) return false;
-  if (carry !== undefined && !(plain(carry) && whole(carry.n) && (carry.share === 1 || carry.share === 0.5) && whole(carry.cap) && whole(carry.resources))) return false;
+  if (carry !== undefined && !(plain(carry) && whole(carry.n) && (carry.share === 1 || carry.share === 0.5) && whole(carry.cap) && whole(carry.resources) && (carry.cart === undefined || whole(carry.cart)))) return false;
+  // Task 40 (16.10.2026): the run's level (2), the level it passed (1 or 2), the cart (`n` of `before`).
+  if (r.level !== undefined && r.level !== 2) return false;
+  if (r.levelCleared !== undefined && r.levelCleared !== 1 && r.levelCleared !== 2) return false;
+  if (r.cart !== undefined && !(plain(r.cart) && whole(r.cart.n) && whole(r.cart.before) && (r.cart.n as number) <= (r.cart.before as number))) return false;
   if (stock !== undefined && !(plain(stock) && whole(stock.before) && whole(stock.after))) return false;
   if (r.hearthBuys !== undefined && !(Array.isArray(r.hearthBuys) && r.hearthBuys.every(b => plain(b) && typeof b.npc === 'string' && whole(b.level, 1) && whole(b.price, 1)))) return false;
   if (r.npcClicks !== undefined && !(plain(r.npcClicks) && Object.values(r.npcClicks).every(n => whole(n, 1)))) return false;
@@ -870,11 +887,21 @@ export interface FightSummary {
    */
   boss: BossSummary | null;
   /**
+   * Task 40 «Гарнизон, шаг 1б» (from 16.10.2026; absent in older records — `withSummaryDefaults` reads 0 and null): the keymaster's
+   * shackles of the fight — put on (`tether` events `shackle`), cut by the dashes (`tether` `cut` of a shackle), the game second of the
+   * first cut (null — none); the frenzied hounds' touches on the hero — hits and HP (their `hit` events of the source `hound` while
+   * the striker is in its frenzy after the tick; inside `damage.bySource.hound`, which keeps the touch of every hound).
+   */
+  garrison: GarrisonSummary;
+  /**
    * Task 16 telemetry (from 14.10.2026): the viewer's first meetings during the fight (`RtRecorder.firstMeet`), counted by the view —
    * a replay cannot see them (not compared by `summaryDiff`). Absent — not counted (the sandbox, older records).
    */
   novelty?: number;
 }
+
+/** Task 40: the garrison's numbers of a fight (`FightSummary.garrison`). */
+export interface GarrisonSummary { shackles: number; shackleCuts: number; firstShackleCut: number | null; frenzyHits: number; frenzyDamage: number }
 
 /**
  * Task 16 «Подвиги» of one fight (sim/feat.ts `featResult`, read from the world at the end): its kind and N, done, the game second
@@ -1168,6 +1195,7 @@ export function emptyFightSummary(): FightSummary {
     feat: null,
     death: null,
     boss: null,
+    garrison: { shackles: 0, shackleCuts: 0, firstShackleCut: null, frenzyHits: 0, frenzyDamage: 0 },
   };
 }
 
