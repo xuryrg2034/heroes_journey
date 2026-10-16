@@ -122,6 +122,22 @@ export class ChainAudio {
     else this.tone(98, 'sine', 0.6, volume * 0.35);
   }
 
+  /**
+   * Task 47, С5: the chord of a reward screen by its best card's tier — 0 common (two soft notes), 1 rare (a rising triad and a
+   * glint), 2 form (a full major chord with the octave and a long shimmer). The fusion's chord (`meta('fuse')`) stays its own.
+   */
+  reward(tier: 0 | 1 | 2, volume: number): void {
+    if (tier === 0) for (const [i, semis] of [0, 7].entries()) this.tone(523 * Math.pow(2, semis / 12), 'triangle', 0.22, volume * 0.32, i * 0.05);
+    else if (tier === 1) {
+      for (const [i, semis] of [0, 4, 7].entries()) this.tone(587 * Math.pow(2, semis / 12), 'triangle', 0.32, volume * 0.38, i * 0.06);
+      this.tone(1760, 'sine', 0.3, volume * 0.2, 0.2);
+    } else {
+      for (const [i, semis] of [0, 4, 7, 12].entries()) this.tone(440 * Math.pow(2, semis / 12), 'triangle', 0.55, volume * 0.42, i * 0.07);
+      this.tone(1760, 'sine', 0.7, volume * 0.22, 0.28);
+      this.tone(2349, 'sine', 0.6, volume * 0.14, 0.34);
+    }
+  }
+
   /** Task 38: a tether cut by the dash snaps — a short crack and a rope's twang falling. */
   snap(volume: number): void {
     this.tone(1400, 'square', 0.03, volume * 0.5);

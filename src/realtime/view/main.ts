@@ -43,7 +43,7 @@ import { ChainAudio } from './audio';
 import { chainFeel, QUIET_GAIN } from './chainFeel';
 import { FX_LEVELS, HEAVY_SEMIS, fxLevelOf, waveStrength, type FxLevel } from './juice';
 import type { MetaSound } from './metaEnd';
-type MetaSoundKind = MetaSound | 'buy' | 'open' | 'heal' | 'fuse';
+type MetaSoundKind = MetaSound | 'buy' | 'open' | 'heal' | 'fuse' | 'reward0' | 'reward1' | 'reward2';
 import { DebugPanel, formatTime } from './debugPanel';
 import { loadFx, loadHintsOn, loadLinkDepth, loadParams, loadRoleBadges, loadSandboxBuild, loadNewOnMap, loadSessionClock, loadSound, PARAMS_STORAGE_KEY, saveFx, saveHintsOn, saveLinkDepth, saveNewOnMap, saveParams, saveRoleBadges, saveSandboxBuild, saveSessionClock, saveSound, type SoundSetting } from './paramStorage';
 import { SessionClock } from './session';
@@ -765,7 +765,12 @@ async function boot(): Promise<void> {
     firstMeet: meetFirst,
     // Tasks 36–37: the meta outside the sandbox; its sounds follow the run's sound setting.
     ...sandbox ? {} : { meta: {
-      sound: (kind: MetaSoundKind) => { if (runSound?.on) audio.meta(kind, runSound.volume); },
+      sound: (kind: MetaSoundKind) => {
+        if (!runSound?.on) return;
+        // Task 47, С5: the reward screens' chords by tier; the rest are the meta's sounds.
+        if (kind === 'reward0' || kind === 'reward1' || kind === 'reward2') audio.reward(Number(kind[6]) as 0 | 1 | 2, runSound.volume);
+        else audio.meta(kind, runSound.volume);
+      },
       // Telemetry (core's recorder): the run's meta (before the next run starts), the camp's map, purchases and NPC clicks.
       end: (run, end) => recorder?.runMetaEnd(run, end),
       map: (run, chosen) => recorder?.hearthMap(run, chosen),
@@ -1870,6 +1875,10 @@ async function boot(): Promise<void> {
       arenaOpen: () => runView.arenaOpen,
       /** Task 35, С3: the header's resource flights — started, tokens thrown, from → to, the number now, counting. */
       resFly: () => ({ ...runView.resFly }),
+      /** Task 47: the reward chords by tier, the card reveal (С6) and the run-end lines (С8) — counts, skips, what is running now. */
+      screens: () => runView.screensInfo(),
+      /** Task 47, tests only: multiplies the times of the staged screens (С6, С8) by `k` — a slow reveal to act in the middle of it. */
+      screenPace: (k: number) => { runView.screenPace = k > 0 ? k : 1; },
       winArena: async () => {
         const w = world();
         if (!runView.arenaOpen || w.status !== 'playing') return false;

@@ -61,6 +61,7 @@
     "test:realtime-node-card": "tsx src/realtime/view/nodeCard.spec.ts",
     "test:realtime-power-number": "tsx src/realtime/view/powerNumber.spec.ts",
     "test:realtime-juice": "tsx src/realtime/view/juice.spec.ts",
+    "test:realtime-reveal": "tsx src/realtime/view/reveal.spec.ts",
     "test:realtime-horde-view": "tsx src/realtime/view/hordeView.spec.ts",
     "test:realtime-bag-view": "tsx src/realtime/view/bagView.spec.ts",
     "test:realtime-feat-view": "tsx src/realtime/view/featView.spec.ts",

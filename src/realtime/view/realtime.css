@@ -584,3 +584,15 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-run-level-word { margin: -8px 0 12px; text-align: center; font: 600 14px Georgia, serif; letter-spacing: 2px; text-transform: uppercase; color: #9fb0c0; }
 /* Task 38: the header keeps its numbers and buttons on one line (the garrison's title is longer). */
 .rt-run-hp, .rt-run-head button { white-space: nowrap; }
+
+/* Task 47, С6 «Раскрытие награды»: the choice cards fade in one by one (view/reveal.ts; the view sets the delays, the redraws keep them).
+   A card not yet shown takes no press; a click on the bare screen shows them all. */
+.rt-reveal-card { animation: rt-reveal-in .14s ease-out both; }
+@keyframes rt-reveal-in {
+  from { opacity: 0; transform: translateY(10px) scale(.97); pointer-events: none; }
+  to { opacity: 1; transform: none; pointer-events: auto; }
+}
+/* Task 47, С8 «Итог похода по шагам»: the run-end lines come one by one; the meta block waits for the last. */
+.rt-end-line { animation: rt-end-in .18s ease-out both; }
+@keyframes rt-end-in { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
+.rt-end-wait { opacity: 0; pointer-events: none; }
