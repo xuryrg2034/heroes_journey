@@ -41,7 +41,7 @@ import { focusGuarded, goalLamps, goalProgress, heroInCrowd, type EnemyKind, typ
 import { linkPoint } from '../sim/chain';
 import { ChainAudio } from './audio';
 import { chainFeel, QUIET_GAIN } from './chainFeel';
-import { FX_LEVELS, HEAVY_SEMIS, fxLevelOf, type FxLevel } from './juice';
+import { FX_LEVELS, HEAVY_SEMIS, fxLevelOf, waveStrength, type FxLevel } from './juice';
 import type { MetaSound } from './metaEnd';
 type MetaSoundKind = MetaSound | 'buy' | 'open' | 'heal' | 'fuse';
 import { DebugPanel, formatTime } from './debugPanel';
@@ -51,7 +51,7 @@ import { CHAIN_COLORS, FINAL_FLASH, PLAYER_FX, TARGET, RealtimeRenderer, type Re
 import { focusMaxOf } from '../sim/build';
 import { DOOR_HEAT, doorPayout, greedLine, multText, nextHeat } from '../sim/purse';
 import { OATH_BROKEN_MULT, oathMark, OATHS, type OathId } from '../sim/oath';
-import { COUNTER_TALISMANS, FORM_FIELD, FORM_FIELD_TITLES, FORM_IDS, FROST_PASS, HAMMERS, OATH_HUNGER, RELICS, isHammerId, type FormField } from '../sim/buildIds';
+import { BUILD_SOURCES, COUNTER_TALISMANS, FORM_FIELD, FORM_FIELD_TITLES, FORM_IDS, FROST_PASS, HAMMERS, OATH_HUNGER, RELICS, isHammerId, type FormField } from '../sim/buildIds';
 import { ActionBar, SELF_ITEMS, type TileId } from './actionBar';
 import { BuildColumn, labelOf } from './buildColumn';
 import { registerViewTestModule, VIEW_TEST_MODULE } from './buildTestModule';
@@ -403,7 +403,11 @@ async function boot(): Promise<void> {
   const soundOn = (): boolean => (runSound ? runSound.on : params.sound);
   const soundVolume = (): number => (runSound ? runSound.volume : params.soundVolume);
   /** Task 35, С4: the build's sounds asked for so far — «Тяжёлый клинок» thuds, «Пятое звено» bells (tests read them). */
-  const itemSounds = { thuds: 0, bells: 0 };
+  // Task 47, С4: the hammers' sounds (`crackles`, `pops`, `swishes`, `rings`), «Быстрые ноги»' `whistles`, «Ударная волна»'s `hums`
+  // (`humLast` — the last hum's strength).
+  const itemSounds = { thuds: 0, bells: 0, crackles: 0, pops: 0, swishes: 0, rings: 0, whistles: 0, hums: 0, humLast: 0 };
+  /** Task 47, С4: the hero dashed in the last frame (the whistle sounds at a dash's start). */
+  let dashHeard = false;
   /** Markers of elites already announced by sound, for the world they belong to (each arena counts ids anew). */
   const eliteMarkersHeard = new Set<number>();
   let eliteMarkersWorld: unknown = null;
@@ -1266,6 +1270,11 @@ async function boot(): Promise<void> {
       for (const m of w.markers) if (m.elite && !eliteMarkersHeard.has(m.id)) { eliteMarkersHeard.add(m.id); audio.eliteMarker(soundVolume()); }
       // П2 «Тихая мелочь, громкая цепь»: 1–2 enemy links at the release sound −6 dB; 6+ end with a chord.
       const feel = chainFeel(renderer.dashLinks.of(w)), hitVolume = soundVolume() * (feel === 'quiet' ? QUIET_GAIN : 1);
+      // Task 47, С4 «Быстрые ноги»: a whistle as the dash starts.
+      const dashNow = w.move?.kind === 'dash';
+      if (dashNow && !dashHeard && w.kit?.talismans.includes(RELICS.swiftFeet)) { audio.whistle(soundVolume()); itemSounds.whistles++; }
+      dashHeard = dashNow;
+      let swished = false;
       for (const ev of w.events) {
         // Task 35, С4 «Тяжёлый клинок»: the hit 5 semitones lower with a dull thud under it.
         if (ev.type === 'chainHit') {
@@ -1280,6 +1289,19 @@ async function boot(): Promise<void> {
         else if (ev.type === 'finisher') audio.finisher(soundVolume());
         // Task 38: a tether cut by the dash snaps.
         else if (ev.type === 'tether' && ev.action === 'cut') audio.snap(soundVolume());
+        // Task 47, С4: the hammers — the fire's crackle, the end's pop, the cut's swish (one a frame: a dash cuts many), the bell
+        // backwards of «Возврат».
+        else if (ev.type === 'hammer') {
+          if (ev.kind === 'fire') { audio.crackle(soundVolume()); itemSounds.crackles++; }
+          else if (ev.kind === 'blast') { audio.pop(soundVolume()); itemSounds.pops++; }
+          else if (ev.kind === 'cut') { if (!swished) { swished = true; audio.swish(hitVolume); itemSounds.swishes++; } }
+          else if (ev.kind === 'return') { audio.ringBack(soundVolume()); itemSounds.rings++; }
+        }
+        // Task 47, С4 «Ударная волна»: a hum by the wave's strength (the bodies it struck in this frame).
+        else if (ev.type === 'wave') {
+          const strength = waveStrength(w.events.filter(e => e.type === 'enemyHit' && e.source === BUILD_SOURCES.wave).length);
+          audio.hum(strength, soundVolume()); itemSounds.hums++; itemSounds.humLast = strength;
+        }
         // Task 22: every hit on the hero (one in 0.3 s at most).
         else if (ev.type === 'hit') { if (soundGate.pass('hurt', now / 1000)) audio.hurt(soundVolume()); }
         else if (ev.type === 'enemySignal') audio.signal(ev.signal, soundVolume());
