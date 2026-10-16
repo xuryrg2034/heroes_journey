@@ -55,7 +55,7 @@ import { cutTethers, dashPathPoints, dropShackleOf, planTetherCuts, settleTether
 import { behindGrate, gateLever, grateLinkDrop, jumpDownFree, onGallery } from './enemies/garrison';
 // Task 48: the Troll's window (the refusal, one hit per window, the drop from the drawn chain).
 import { TROLL, trollLinkDrop, trollReserve, trollShut, trollWards, trollWindowOn } from './enemies/troll';
-import { NO_COLOR, OBJECT_RADIUS, checkGoals, damageEnemy, doorOf, doorOpen, enemyFrozen, findObject, nextFiring, startShieldWindow, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
+import { NO_COLOR, OBJECT_RADIUS, checkGoals, damageEnemy, doorOf, doorOpen, pushOutOfSolids, enemyFrozen, findObject, nextFiring, startShieldWindow, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
 
 export { OBJECT_RADIUS };
 export type { ChainAnchor };
@@ -589,6 +589,8 @@ function planDashEnd(world: World, out: readonly LinkPlan[], pierce: PiercePrevi
   else if (at !== stop) { at = stop; traceTo(trace, at); }
   const end = { x: stop.x, y: stop.y };
   pushOutOfObstacles(end, heroRadius(world.params), world.arena);
+  // Task 48: out of a solid body as `finishMove` puts the hero — the bodies this dash kills are gone by then.
+  pushOutOfSolids(world, end, new Set([...struck, ...pierce?.bodies.map(b => [b.id, b.outcome] as const) ?? []].flatMap(([id, o]) => (o.killed ? [id] : []))));
   // The world after the first pass: the links struck, the pierce's bodies, the seal's strike on those inside.
   const pierced = new Map((pierce?.bodies ?? []).map(b => [b.id, b.outcome] as const));
   const enemies: Enemy[] = [];
@@ -1535,7 +1537,10 @@ function jumpTarget(world: World, p: Vec): Vec {
 /** Landing point of a jump towards `p`: clamped to the jump radius; null when it lands in an obstacle or over a cliff. */
 export function jumpLanding(world: World, p: Vec): Vec | null {
   const land = jumpTarget(world, p);
-  return blockedAt(land, heroRadius(world.params), world.arena) ? null : land;
+  if (blockedAt(land, heroRadius(world.params), world.arena)) return null;
+  // Task 48: a landing in a solid body (the Troll's) — next to it, where the hero will stand (the preview's point too).
+  pushOutOfSolids(world, land);
+  return land;
 }
 
 /**
@@ -1874,6 +1879,8 @@ function finishMove(world: World): void {
   const hero = world.hero, move = world.move!;
   hero.x = move.stop.x; hero.y = move.stop.y;
   pushOutOfObstacles(hero, heroRadius(world.params), world.arena);
+  // Task 48: out of a solid body (the Troll's) — the plan's end does the same (`planDashEnd`).
+  pushOutOfSolids(world, hero);
   world.move = null;
   // Stage 3a (М3, design 09.10.2026): any dash or jump ending in thorns gives the hero a full interval to walk out (also
   // one from thorns into thorns: the timer starts again).

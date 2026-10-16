@@ -7,7 +7,7 @@
  * (enemies/*), the arena is a template (arenas.ts). Iteration 2, stage A: the hero walks (the `walk` command →
  * `world.input`), enemies follow the flow field around obstacles.
  */
-import { dcos, dhypot, dsin } from './detMath';
+import { datan2, dcos, dhypot, dsin } from './detMath';
 import { type ArenaTemplate, type StartEnemy, arenaTemplate, LEADER_HP_OVER_TOUGH, markedCount, markedGoalArena } from './arenas';
 // The prototype kinds register on import (enemies/index.ts); the core reads them through the registry only.
 import './enemies/index';
@@ -17,7 +17,7 @@ import { enemyWalkFactorOf, focusMaxOf, heroSpeedOf, jumpCostOf, runHook, type D
 import type { HammerEventKind } from './buildIds';
 import type { BoarState } from './enemies/boar';
 import { behaviorOf, bodyRadiusOf, enemyKind, groupBehaviors, kindOf } from './enemies/kinds';
-import { FlowField, type Vec, dist, hasZone, inThorns, inWater, lineOfSight, overCliff, pushOutOfCliffs, pushOutOfObstacles } from './geometry';
+import { FlowField, type Vec, blockedAt, dist, hasZone, inThorns, inWater, lineOfSight, overCliff, pushOutOfCliffs, pushOutOfObstacles } from './geometry';
 import { type Params, type Pressure, DEFAULT_PARAMS, copyParams, enemyBodyRadius, heroRadius, invulnerabilityFor, pressureAt } from './params';
 import { hasTalisman, kitOf, type ItemKind, type Kit, type Loadout, type ResourceKind } from './kit';
 import { affixSpeedFactor, eliteDeath, makeElite, platesOf, stripPlates, touchLoot, updateAffixes, updateArmor, type AffixId, type EliteArmor, type TrailPoint } from './elites';
@@ -783,6 +783,8 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   if (arena.shackles && !params.shackles) params = { ...copyParams(params), shackles: true };
   // Task 43: the full Castellan's arena plays its key on (the sandbox «Двор кастеляна (полный)»; a journal keeps the copy).
   if (arena.castellanFull && !params.castellanFull) params = { ...copyParams(params), castellanFull: true };
+  // Task 48: the Troll's arena plays his solid bodies (when the values have it off; a journal keeps the copy).
+  if (arena.troll && params.trollSolid === false) params = { ...copyParams(params), trollSolid: true };
   // Task 48: the Troll's arena plays his window and his crowd (when the values hold the old ones; a journal keeps the copy).
   if (arena.troll && params.trollWindow === false) params = { ...copyParams(params), trollWindow: true };
   if (arena.troll && params.trollCrowd === DEFAULT_PARAMS.trollCrowd) params = { ...copyParams(params), trollCrowd: TROLL_CROWD };
@@ -1679,6 +1681,38 @@ function stepHeroWalk(world: World, dt: number): void {
   }
   hero.x += mx; hero.y += my;
   pushOutOfObstacles(hero, heroRadius(params), world.arena);
+  // Task 48: a solid body (the Troll's, `Params.trollSolid`) stops the walk as an obstacle (nothing on other arenas).
+  pushOutOfSolids(world, hero);
+}
+
+/** Task 48: the solid bodies of this world now (`EnemyBehavior.solid`; none — every other world). */
+const solidBody = (world: World, e: Enemy): boolean => !!behaviorOf(e).solid?.(world, e);
+/** The search of a free spot round a solid body: the way out first, then turned by these angles either side. */
+const SOLID_TURNS = [0, Math.PI / 6, -Math.PI / 6, Math.PI / 3, -Math.PI / 3, Math.PI / 2, -Math.PI / 2, 2 * Math.PI / 3, -2 * Math.PI / 3, 5 * Math.PI / 6, -5 * Math.PI / 6, Math.PI];
+
+/**
+ * Task 48 (`Params.trollSolid`; design 16.10.2026, docs/design-notes/task-48-troll.md, 24.10): the hero's point `p` (his centre) out of
+ * every solid body it is in — onto the body's edge plus his radius, the way out first (from the body's centre through `p`; at the very
+ * centre — south), else the nearest turn of it that is free (no wall, tree, edge or cliff, no other solid body). Bodies in `exclude` do
+ * not count (the plan's dash kills them before its end). No solid body in the world, or none overlapped — `p` is left as it is.
+ */
+export function pushOutOfSolids(world: World, p: Vec, exclude?: ReadonlySet<number>): void {
+  const r = heroRadius(world.params), solids = world.enemies.filter(e => !exclude?.has(e.id) && solidBody(world, e));
+  if (!solids.length) return;
+  const inside = (q: Vec): Enemy | undefined => solids.find(e => dist(q, e) < bodyRadiusOf(world.params, e) + r - 1e-9);
+  for (let pass = 0; pass < 4; pass++) {
+    const e = inside(p);
+    if (!e) return;
+    const min = bodyRadiusOf(world.params, e) + r, dx = p.x - e.x, dy = p.y - e.y, base = dhypot(dx, dy) > 1e-6 ? datan2(dy, dx) : Math.PI / 2;
+    let moved = false;
+    for (const turn of SOLID_TURNS) {
+      const q = { x: e.x + dcos(base + turn) * min, y: e.y + dsin(base + turn) * min };
+      if (blockedAt(q, r, world.arena) || inside(q)) continue;
+      p.x = q.x; p.y = q.y; moved = true;
+      break;
+    }
+    if (!moved) return;
+  }
 }
 
 /**
@@ -1711,7 +1745,10 @@ function separate(world: World): Map<Enemy, Enemy> | null {
         else { dx /= d; dy /= d; }
         // Overlap split by mass: the charging boar barely yields, the crowd gets shoved aside.
         const ma = kindOf(a).mass(world, a), mb = kindOf(b).mass(world, b), overlap = min - d;
-        const pa = overlap * mb / (ma + mb), pb = overlap * ma / (ma + mb);
+        // Task 48: a solid body never yields (the other takes the whole overlap; two solid ones stay as they are).
+        const sa = solidBody(world, a), sb = solidBody(world, b);
+        if (sa && sb) continue;
+        const pa = sa ? 0 : sb ? overlap : overlap * mb / (ma + mb), pb = sb ? 0 : sa ? overlap : overlap * ma / (ma + mb);
         a.x -= dx * pa; a.y -= dy * pa; b.x += dx * pb; b.y += dy * pb;
         if (shoved) { if (ma > mb) shoved.set(b, a); else if (mb > ma) shoved.set(a, b); }
       }
@@ -1723,6 +1760,8 @@ function separate(world: World): Map<Enemy, Enemy> | null {
       const ahead = dx * wx + dy * wy;
       // Task 43: a body that runs through the hero now (the knight's «Рывок») is not put back on his touch circle.
       if (d < heroMin && !world.move && behaviorOf(e).passesHero?.(world, e)) { /* it runs on */ }
+      // Task 48: a solid body is not moved by the hero (he is put out of it instead, `pushOutOfSolids`).
+      else if (d < heroMin && !world.move && solidBody(world, e)) { /* it stands */ }
       else if (d < heroMin && !world.move && parting && ahead > 0) {
         // Across the way: keep the distance along it, move sideways onto the touch circle.
         const side = dx * -wy + dy * wx, sign = Math.abs(side) > 1e-6 ? Math.sign(side) : (e.id % 2 ? 1 : -1);
@@ -1838,6 +1877,7 @@ function stepHeroKnock(world: World, dt: number): void {
   const t = Math.min(dt, hero.knock);
   hero.x += hero.knockVx * t; hero.y += hero.knockVy * t; hero.knock -= t;
   pushOutOfObstacles(hero, heroRadius(world.params), world.arena);
+  pushOutOfSolids(world, hero);
 }
 
 /** Goals of the arena are done: the greed stage starts (phase table, reaper). Stage 2: the kill goal (chain.ts); stage 3: arena goals. */

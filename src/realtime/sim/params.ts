@@ -895,6 +895,13 @@ export interface Params {
    */
   trollWindow: boolean;
   /**
+   * Task 48 (design 16.10.2026, docs/design-notes/task-48-troll.md, 24.10): the Troll's core and parts are solid for the hero — he never
+   * stands inside them (walking, a knockback, the end of a dash or a jump put him out as out of an obstacle; the plan's end and the
+   * jump's landing show that point), and the bodies are never moved by the parting or the crowd. Off by default and in journals without
+   * the key (the old path: the bodies parted). The arena «Берлога тролля» turns it on for itself.
+   */
+  trollSolid: boolean;
+  /**
    * Task 48, the Troll's numbers (read only on his arena; journals without a key play the defaults below): the core's HP and plates
    * (the ceiling of «Храп»'s regrowth too), the window after «Удар дубиной» and after «Хвост метёт» (game s), «Храп»'s length (its
    * window), the plates a «Храп» left alone regrows (0 — none), «Рык» every this many s in phase 2 and 3, the crowd's factor — its
@@ -1436,8 +1443,10 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   jailerHp: 2,
   // Task 48 «Тролль» (enemies/troll.ts): the window off by default (the arena «Берлога тролля» turns it on); his numbers (hypotheses of the spec).
   trollWindow: false,
-  trollHp: 4,
-  trollPlates: 5,
+  trollSolid: false,
+  // Design 16.10.2026 (spec 24.11, the bot's grid): HP 2, 4 plates, the crowd ×0.45 on the arena.
+  trollHp: 2,
+  trollPlates: 4,
   trollWindowClub: 1.5,
   trollWindowTail: 1,
   trollSnore: 4,
@@ -1938,6 +1947,8 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   // Task 48 «Тролль» (enemies/troll.ts, docs/realtime-elite-behaviors.md, «Тролль (задача 48)»).
   { kind: 'bool', key: 'trollWindow', group: 'Тролль', label: 'Окно Тролля', stage: 5,
     hint: 'Ядро Тролля закрыто вне окна: цепь его не берёт («вне окна»), огонь, взрывы, волна, прямая, печать и возврат его не ранят. Окно открывают «Удар дубиной» (1,5 с), «Хвост метёт» (1 с) и «Храп». Одно попадание за окно. Арена «Берлога тролля» включает правило сама.' },
+  { kind: 'bool', key: 'trollSolid', group: 'Тролль', label: 'Тело Тролля — препятствие', stage: 5,
+    hint: 'Герой не входит в тело ядра и частей Тролля: его выталкивает, как от стены; сами тела не сдвигаются. Арена «Берлога тролля» включает правило сама.' },
   n('trollHp', 'Тролль', 'Тролль: HP ядра', 1, 12, 1, 5, '', 'Со следующего запуска арены.'),
   n('trollPlates', 'Тролль', 'Тролль: пластины ядра', 0, 10, 1, 5, '', 'И потолок отрастания «Храпа». Со следующего запуска арены.'),
   n('trollWindowClub', 'Тролль', 'Окно после «Удара дубиной»', 0.2, 5, 0.1, 5, 'с'),
@@ -1945,7 +1956,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('trollSnore', 'Тролль', '«Храп»: длина', 1, 10, 0.5, 5, 'с', 'Всё это время окно открыто. Не задет — отрастает пластина.'),
   n('trollSnoreRegrow', 'Тролль', '«Храп»: пластин за сон', 0, 3, 1, 5, '', '0 — «Храп» без отрастания.'),
   n('trollRoarPeriod', 'Тролль', '«Рык»: раз в', 5, 60, 1, 5, 'с', 'Во второй и третьей фазе; первый — при входе во вторую.'),
-  n('trollCrowd', 'Тролль', 'Тролль: толпа', 0.25, 2, 0.05, 5, '×', 'Множитель плотности и темпа пополнения толпы. Арена «Берлога тролля» ставит 0,6, если на панели 1.'),
+  n('trollCrowd', 'Тролль', 'Тролль: толпа', 0.25, 2, 0.05, 5, '×', 'Множитель плотности и темпа пополнения толпы. Арена «Берлога тролля» ставит 0,45, если на панели 1.'),
   // Task 38 «Гарнизон, шаг 1» (tethers.ts, enemies/garrison.ts, docs/realtime-elite-behaviors.md).
   { kind: 'bool', key: 'tethers', group: 'Гарнизон', label: 'Закон связи', stage: 5,
     hint: 'Поводок — линия между псарём (или Кастеляном) и псом, не звено. Отрезок прохода цепи, пересекающий поводок, рубит его после прохода; подсветка показывает те же поводки. Прыжок, ходьба, круговой удар и расходники не рубят. Сорвавшийся пёс в ярости кусает всех. В походе включено.' },

@@ -1581,7 +1581,7 @@ function drawTalismanOffer(run: RtRunState, nodeId: string, source: RtTalismanSo
   if (source === 'feat') return rtEventTalismanOffer(base, RT_FEAT_TALISMANS, pool);
   // Task 38: the forest final's reward — a relic 1 of 3.
   // Task 48: the Troll's three parts severed in the won final — 1 of 4 (the first three are those of 3).
-  if (source === 'level') return garrisonRelicOffer(base, pool, rtLevelSlots(run, nodeId));
+  if (source === 'level') return levelOffer(run, nodeId, base, pool);
   if (source === 'oath') return rtTalismanOffer(base, source, pool, rtOathSlots(run, nodeId));
   if (source === 'hard') {
     // Task 30: the rare place of «Застава» holds a form of the other field (`rtFormSlotField`) — by the node's form roll over the
@@ -3060,6 +3060,22 @@ export function rtForestCleared(run: Pick<RtRunState, 'garrison' | 'visited' | '
 export const RT_TROLL_ALL_PARTS_SLOTS = 4;
 export function rtLevelSlots(run: Pick<RtRunState, 'battles'>, nodeId: string): number {
   return run.battles.some(record => record.nodeId === nodeId && record.won && (record.parts ?? 0) >= 3) ? RT_TROLL_ALL_PARTS_SLOTS : GARRISON_RELIC_SLOTS;
+}
+/**
+ * The forest final's relic screen (the same `talismans` draw `base`): the relics of the pool (1 of 3, task 48: up to 4 after the
+ * Troll's three parts); design 16.10.2026 (spec 24.13): the places of the 4 the relics left empty — a rare talisman each, by the pool's
+ * own draw (`rtTalismanOffer` of a hard battle: its rare place, the same `base`; the options shown are out of the pool for the next).
+ * Only the Troll's 1 of 4 fills: the 1 of 3 shows the relics it has, as before.
+ */
+function levelOffer(run: RtRunState, nodeId: string, base: number, pool: RtTalismanPool): RtTalismanOption[] {
+  const slots = rtLevelSlots(run, nodeId), options: RtTalismanOption[] = garrisonRelicOffer(base, pool, slots);
+  if (slots !== RT_TROLL_ALL_PARTS_SLOTS) return options;
+  while (options.length < slots) {
+    const rare = rtTalismanOffer(base, 'hard', { ...pool, gone: [...pool.gone, ...options] }, 1)[0];
+    if (!rare) break;
+    options.push(rare);
+  }
+  return options;
 }
 /** The forest final is won: `level-cleared`, then its relic 1 of 3 (task 48: 1 of 4 after the Troll's three parts; the next draw of the forest's `talismans` stream). */
 function openLevelReward(run: RtRunState, node: ForestMapNode, events: RtRunEvent[]): void {

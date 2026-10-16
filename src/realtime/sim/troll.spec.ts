@@ -20,7 +20,9 @@
  */
 import { TROLL_BACK } from './arenasBoss';
 import { HAMMERS } from './buildIds';
-import { enemyRefusal, planChain, REFUSAL_TEXT } from './chain';
+import { enemyRefusal, jumpLanding, planChain, REFUSAL_TEXT } from './chain';
+import { bodyRadiusOf } from './enemies/kinds';
+import { blockedAt } from './geometry';
 import {
   CLUB_LIE, MOVE_GAP, PHASE2_TIME, PHASE3_TIME, ROAR_WINDUP, ROAR_WOLVES_MAX, TAIL_OUTER, TROLL, TROLL_CLUB, TROLL_ROCK, TROLL_TAIL, trollMove, trollState,
 } from './enemies/troll';
@@ -42,6 +44,8 @@ const SEEDS = [1, 2, 3];
 function quiet(extra: Partial<Params> = {}): Params {
   const p = defaultParams();
   p.baseFloor = 0; p.baseIntervalMin = 1e6; p.baseIntervalMax = 1e6; p.speedSpread = 0; p.contactDamage = 0; p.heroHp = 999; p.hitstop = false; p.enemySpeed = 0;
+  // The rules are checked on the spec's first numbers (HP 4, 5 plates); the defaults of the design (HP 2, 4 plates) — the run's test.
+  p.trollHp = 4; p.trollPlates = 5;
   return Object.assign(p, extra);
 }
 interface Den { sim: Simulation; w: World; core: Enemy; club: Enemy; rock: Enemy; tail: Enemy }
@@ -553,6 +557,65 @@ check('no place at the Troll\'s back: the hero walking north through him, or jum
       assert(w.hero.y >= limit, `seed ${k}, x ${x}: the jump landed at y ${w.hero.y.toFixed(2)}`);
       assert(replays(sim), `seed ${k}: replay`);
     }
+  }
+});
+
+check('solid bodies (`trollSolid`, design 24.10): the hero walking into the Troll and a crowd body overlapping him never move the core or the parts — the hero is put out of them; without the key the walk parts the core off its spot', () => {
+  for (const k of SEEDS) {
+    for (const solid of [true, false]) {
+      const params = quiet();
+      if (!solid) delete (params as Partial<Params>).trollSolid;
+      const d = den(k, {}, undefined, params), { sim, w, core } = d;
+      assert(!!w.params.trollSolid === solid, `seed ${k}: the key ${solid}`);
+      freeze(sim, d.club); freeze(sim, d.rock);
+      const parts = [d.club, d.rock, d.tail], r = heroRadius(w.params) + bodyRadiusOf(w.params, core) - 1e-6;
+      // A crowd body right on the core's side.
+      const shoved = place(sim, { x: core.x + 0.3, y: core.y + 0.1 }, 0, 0);
+      sim.command({ t: 'teleport', x: 11, y: 3.6 });
+      const len = Math.hypot(1, 1.4);
+      sim.command({ t: 'walk', x: 1 / len, y: -1.4 / len });
+      let shift = 0, near = Infinity;
+      for (let i = 0; i < ticksOf(3); i++) {
+        sim.tick(); w.events.length = 0;
+        for (const e of [core, ...parts]) if (w.enemies.includes(e) && e.vars.hx !== undefined) shift = Math.max(shift, Math.hypot(e.x - e.vars.hx, e.y - e.vars.hy));
+        near = Math.min(near, Math.hypot(w.hero.x - core.x, w.hero.y - core.y));
+      }
+      if (solid) {
+        assert(shift === 0 && near >= r, `seed ${k}: the bodies stand (shift ${shift}), the hero outside (${near.toFixed(3)})`);
+        assert(Math.hypot(shoved.x - core.x, shoved.y - core.y) >= 2 * bodyRadiusOf(w.params, core) - 1e-6, `seed ${k}: the crowd body is pushed off the core`);
+      } else assert(shift > 0.1, `seed ${k}: without the key the core is parted off its spot (${shift})`);
+      assert(replays(sim), `seed ${k}: replay`);
+    }
+  }
+});
+
+check('the end of a move in a solid body: the pierce ending in the core — the highlight\'s end (the return run\'s start) is the point the hero is put on, off the core and off the back wall; a jump into the core or a part lands where its preview showed, outside them', () => {
+  for (const k of SEEDS) {
+    const d = den(k, { pierceEnabled: true }, { hammer: HAMMERS.return }), { sim, w, core } = d;
+    freeze(sim, d.club); freeze(sim, d.rock);
+    sim.command({ t: 'teleport', x: 15.6, y: 5.8 });
+    const links = [[14.83, 5.03], [13.98, 4.18], [13.13, 3.33]].map(([x, y]) => place(sim, { x, y }, 0, 0));
+    draw(sim, links);
+    const plan = planChain(w), end = plan.back?.route[0];
+    assert(plan.pierce && end && Math.hypot(plan.pierce.to.x - core.x, plan.pierce.to.y - core.y) < 0.6, `seed ${k}: the pierce ends inside the core (${JSON.stringify(plan.pierce?.to)})`);
+    const r = heroRadius(w.params) + bodyRadiusOf(w.params, core) - 1e-6;
+    assert(Math.hypot(end.x - core.x, end.y - core.y) >= r && !blockedAt(end, heroRadius(w.params), w.arena), `seed ${k}: the planned end is outside (${JSON.stringify(end)})`);
+    sim.command({ t: 'release' });
+    let landed: { x: number; y: number } | null = null;
+    for (let i = 0; i < 600 && !landed && w.move; i++) { sim.tick(); w.events.length = 0; if (w.move?.kind === 'return') landed = { x: w.hero.x, y: w.hero.y }; }
+    assert(landed && Math.abs(landed.x - end.x) < 1e-9 && Math.abs(landed.y - end.y) < 1e-9, `seed ${k}: the hero at the planned end (${JSON.stringify(landed)} vs ${JSON.stringify(end)})`);
+    settle(sim);
+    // Jumps into the core (by the back wall) and into a part.
+    for (const target of [{ x: core.x, y: core.y - 0.1 }, { x: d.rock.x, y: d.rock.y }]) {
+      sim.command({ t: 'teleport', x: target.x + 0.3, y: target.y + 2.2 });
+      sim.command({ t: 'energy', value: 7 });
+      const land = jumpLanding(w, target)!;
+      assert(land && !blockedAt(land, heroRadius(w.params), w.arena) && [core, d.club, d.rock, d.tail].every(e => Math.hypot(land.x - e.x, land.y - e.y) >= r), `seed ${k}: the preview lands outside (${JSON.stringify(land)})`);
+      sim.command({ t: 'jump', x: target.x, y: target.y });
+      settle(sim);
+      assert(Math.abs(w.hero.x - land.x) < 1e-9 && Math.abs(w.hero.y - land.y) < 1e-9, `seed ${k}: the jump landed at the preview (${w.hero.x}, ${w.hero.y})`);
+    }
+    assert(replays(sim), `seed ${k}: replay`);
   }
 });
 

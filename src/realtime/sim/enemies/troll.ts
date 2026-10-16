@@ -75,15 +75,16 @@ export const TROLL_TAIL_SOURCE = 'troll-tail';
 
 // ---- Баланс (гипотезы спеки задачи 48, 16.10.2026; тесты проверяют правила, не числа) ----
 /** The defaults of the Troll's keys (journals without them). */
-export const TROLL_HP = 4;
-export const TROLL_PLATES = 5;
+// Design 16.10.2026 (spec 24.11): HP 2, 4 plates, the crowd ×0.45 (the bot's grid: between the Jailer and the full Castellan).
+export const TROLL_HP = 2;
+export const TROLL_PLATES = 4;
 export const TROLL_WINDOW_CLUB = 1.5;
 export const TROLL_WINDOW_TAIL = 1;
 export const TROLL_SNORE = 4;
 export const TROLL_SNORE_REGROW = 1;
 export const TROLL_ROAR_PERIOD = 20;
 /** The crowd's factor the arena «Берлога тролля» puts (`Params.trollCrowd` when the values hold 1). */
-export const TROLL_CROWD = 0.6;
+export const TROLL_CROWD = 0.45;
 /**
  * The core's body and art: × the common size. Design 16.10.2026 (spec 24.2, question В9): ×1 — the body ×2 was shifted up to 0.79 off
  * its spot by the hero's parting; the drawing is large in the view (as the Jailer's), the body of the simulation is common.
@@ -504,6 +505,8 @@ registerBehavior({
     holdSpot(e);
     return true;
   },
+  // Task 48, design 24.10 (`Params.trollSolid`): the core and the parts are solid for the hero — he is put out of them, they never move.
+  solid: (world, e) => frameOn(world) && !!world.params.trollSolid && (e.kind === TROLL || e.partOf !== undefined),
   onDeath(world, e, cause) {
     if (!frameOn(world)) return;
     if (e.kind === TROLL) { if (bossClearsOn(world) && !world.bossCleared) bossClear(world); return; }
