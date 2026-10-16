@@ -422,7 +422,11 @@ export function createFightObserver(start: World): FightObserver {
           if (ev.phase === 'release') s.chain.pierces++;
           else if (ev.phase === 'end') s.chain.pierceHits.push(ev.hits);
           return;
-        case 'talismanFired': bump(s.build.fired, ev.id); return;
+        case 'talismanFired':
+          bump(s.build.fired, ev.id);
+          // Task 46: the bodies a fusion of the dash's end acted on.
+          if (ev.bodies !== undefined) { const fb = s.build.fusionBodies ??= {}; fb[ev.id] = (fb[ev.id] ?? 0) + ev.bodies; }
+          return;
         // Task 30: a run with forms may hold «Взрыв на конце» beside a hammer of «Путь» (from the kit's talismans): the blast is its own.
         case 'hammer': bump(s.build.fired, ev.kind === 'blast' && world.kit?.hammer !== HAMMERS.blast && world.kit?.talismans.includes(HAMMERS.blast) ? HAMMERS.blast : world.kit?.hammer ?? 'hammer'); return;
         case 'ward': bump(s.build.fired, 'ash-ward'); return;

@@ -9,7 +9,7 @@
 import { ITEM_KINDS } from '../forest/items';
 import { RESOURCE_KINDS } from '../forest/resources';
 import type { ItemKind, ResourceKind } from '../forest/types';
-import { expandFusions, isHammerId, type HammerId } from './buildIds';
+import { expandFusions, FORM_FIELD, FUSION_EXCLUDES, FUSIONS_V2, isHammerId, type HammerId } from './buildIds';
 import { featGoalOf, type FeatGoal } from './feat';
 
 export type { ItemKind, ResourceKind };
@@ -272,18 +272,36 @@ export const hasTalisman = (world: { kit?: Kit }, id: string): boolean => !!worl
 
 const count = (value: unknown): number => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 
+/**
+ * Task 46 (design 16.10.2026, section 5, decision 10): the slot rule of a kit with a fusion of task 46. The hammer slot takes the
+ * hammer of the field «Путь» among the fusions' hammer parts and the loadout's hammer (a fusion's first); the other hammer («Взрыв
+ * на конце») acts from the talismans (build.ts `moduleActive`), as a run's forms do (run/rtRun.ts `rtFormHammer`); no hammer of
+ * «Путь» — the first one takes the slot. A loadout hammer a fusion excludes (`FUSION_EXCLUDES`) leaves the kit, as before. Only a
+ * kit with an id of `FUSIONS_V2` comes here: every other loadout makes the kit of before.
+ */
+function fusionSlot(given: readonly string[], own: unknown): { talismans: string[]; hammer: HammerId | undefined } {
+  const expanded = expandFusions(given);
+  const excluded = new Set(given.flatMap(id => FUSION_EXCLUDES[id] ?? []));
+  const parts = expanded.filter(id => isHammerId(id) && !given.includes(id)) as HammerId[];
+  const hammers = [...parts, ...isHammerId(own) && !excluded.has(own) && !parts.includes(own) ? [own] : []];
+  const slot = hammers.find(id => FORM_FIELD[id] === 'path') ?? hammers[0];
+  const talismans = [...expanded.filter(id => id !== slot), ...hammers.filter(id => id !== slot && !expanded.includes(id))];
+  return { talismans, hammer: slot };
+}
+
 /** The kit an arena starts with from its loadout (counts clamped to whole numbers ≥ 0). */
 export function kitOf(loadout: Loadout): Kit {
   const items = emptyItems();
   for (const kind of SLOT_ITEMS) items[kind] = count(loadout.items?.[kind]);
   // In the run's opening order (the loot draws by it), each once.
   const openItems = [...new Set(loadout.openItems ?? [])].filter(kind => SLOT_ITEMS.includes(kind));
-  // Task 44 В«РЎРїР»Р°РІС‹В»: a fusion brings its parts (their rules stay); its hammer part (В«Р’РѕР·РІСЂР°С‚В») takes the hammer slot вЂ” the fusion
+  // Task 44 «Сплавы»: a fusion brings its parts (their rules stay); its hammer part («Возврат») takes the hammer slot — the fusion
   // is the form of its field. A loadout without a fusion makes the same kit as before.
   const given = [...new Set((loadout.talismans ?? []).filter(id => typeof id === 'string'))];
-  const expanded = expandFusions(given), fusedHammer = expanded.length !== given.length ? expanded.find(id => isHammerId(id) && !given.includes(id)) : undefined;
-  const talismans = fusedHammer ? expanded.filter(id => id !== fusedHammer) : expanded;
-  const hammer = isHammerId(fusedHammer) ? fusedHammer : loadout.hammer;
+  const { talismans, hammer } = given.some(id => FUSIONS_V2.includes(id)) ? fusionSlot(given, loadout.hammer) : (() => {
+    const expanded = expandFusions(given), fusedHammer = expanded.length !== given.length ? expanded.find(id => isHammerId(id) && !given.includes(id)) : undefined;
+    return { talismans: fusedHammer ? expanded.filter(id => id !== fusedHammer) : expanded, hammer: isHammerId(fusedHammer) ? fusedHammer : loadout.hammer };
+  })();
   return {
     items, materials: emptyResources(), openItems, randomElites: !!loadout.randomElites, talismans,
     firstPower: (talismans.includes('whetstone') ? WHETSTONE_POWER : 0) + count(loadout.firstPower),

@@ -162,8 +162,15 @@ export const RT_FUSIONS: readonly RtTalismanDef[] = [
     effect: 'Замкни цепь в кольцо — удар по всем врагам внутри; выжившие замерзают на 3 с и хрупки (следующий удар цепи ×2). Цепь из 3+ звеньев кончилась на выжившем — он замерзает на 2 с' },
   { id: FU.spear, name: 'Копьё', rarity: 'fusion', field: FORM_FIELD[FU.spear],
     effect: 'Прямой хвост цепи: проход идёт дальше по прямой вдвое дальше и бьёт всех на пути, с элиты снимает 2 пластины. С 3-го звена цепи радиус звена R ×1,5' },
-  { id: FU.boomerang, name: 'Бумеранг', rarity: 'fusion', field: FORM_FIELD[FU.boomerang], excludes: [HM.blast, RL.swiftFeet],
+  { id: FU.boomerang, name: 'Бумеранг', rarity: 'fusion', field: FORM_FIELD[FU.boomerang], excludes: [HM.blast, RL.swiftFeet, FU.hunterBlast],
     effect: 'После прохода герой бежит к началу цепи вторым проходом: последнее звено погибло — с полной силой, иначе с половиной; неуязвим на бегу. Последнее звено — самое крепкое в цепи и погибло: неуязвимость после цепи вдвое дольше' },
+  // Task 46 (design 16.10.2026, sections 3, 5 and 9; the texts tell the fusion's rule and the parts' rules it keeps).
+  { id: FU.brand, name: 'Клеймо', rarity: 'fusion', field: FORM_FIELD[FU.brand],
+    effect: 'Цепь из 3+ звеньев: путь горит 2 с, огонь бьёт на 1. Враги рядом с путём принимают цвет цепи. Звенья после смены цвета получают +1 силы' },
+  { id: FU.hunterBlast, name: 'Подрыв', rarity: 'fusion', field: FORM_FIELD[FU.hunterBlast], excludes: [HM.return, FU.boomerang],
+    effect: 'Цепь из 3+ звеньев: взрыв радиусом 1,5 вокруг последнего звена, удар 1. Последнее звено — элита или крепкий: взрыв 2,25, удар 4, с элиты 2 пластины. После элиты или крепкого звенья получают +3 силы' },
+  { id: FU.frostWave, name: 'Ледяная волна', rarity: 'fusion', field: FORM_FIELD[FU.frostWave],
+    effect: 'Путь прохода 2 с морозит врагов. Цепь из 4+ звеньев: волна радиусом 2 бьёт на 1; выжившие замерзают на 3 с и хрупки (следующий удар цепи ×2)' },
 ];
 /** A fusion of the run (`RT_FUSIONS`). */
 export const isRtFusion = (id: RtTalismanId): boolean => RT_FUSIONS.some(entry => entry.id === id);

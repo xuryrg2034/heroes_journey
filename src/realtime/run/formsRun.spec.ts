@@ -20,7 +20,7 @@ import {
   type RtRunState, type RtRunStep,
 } from './rtRun';
 import { isRtForm, rtFormField, rtTalisman, RT_FORMS } from './rtTalismans';
-import { FORMS, FROST_PASS, HAMMERS } from '../sim/buildIds';
+import { FORMS, FROST_PASS, HAMMERS, fusionOfHalf } from '../sim/buildIds';
 import { AFFIX_IDS } from '../sim/elites';
 import { affixElement, PART_ARC, SCHEDULE_ELEMENTS } from './schedule';
 import { stepChoices } from '../telemetry/recorder';
@@ -41,6 +41,8 @@ const win = (run: RtRunState, severed = false): RtRunState => {
   const pending = run.pending as Extract<Pending, { kind: 'battle' }>;
   return ok(resolveArena(run, { nodeId: pending.nodeId, won: true, hp: run.hp, kills: 0, damage: 0, time: 1, ...severed ? { severed: true } : {} }), 'win');
 };
+/** Task 44/46: `id` is the partner of a half of a recipe the run holds (the pair guarantee may show it in the last place). */
+const pairOfHeld = (run: RtRunState, id: string): boolean => run.talismans.some(h => fusionOfHalf(h)?.partner === id);
 const nodeOf = (run: RtRunState): ForestMapNode => rtNode(run, (run.pending as { nodeId: string }).nodeId)!;
 
 /** What a walk saw: every talisman screen (source, options) and the merchant's talisman, in order. */
@@ -192,7 +194,7 @@ check('«Застава» after a form: its rare place holds a form of the other
         if (offer.source === 'hard') {
           const field = rtFormSlotField(run), form = offer.options.find(isRtForm);
           if (field) {
-            assert(form && offer.options.indexOf(form) === 0 && rtFormField(form) === field && offer.options.slice(1).every(id => !isRtForm(id)), `seed ${k}: the rare place a form of «${field}» (${offer.options})`);
+            assert(form && offer.options.indexOf(form) === 0 && rtFormField(form) === field && offer.options.slice(1).every(id => !isRtForm(id) || pairOfHeld(run, id)), `seed ${k}: the rare place a form of «${field}» (${offer.options})`);
             assert(rtFormPool(run, field).includes(form) && !rtFormReplaces(run, form), `seed ${k}: from the pool of that field, replacing nothing`);
             formed++; fields.add(`${rtFormField(first!)}→${field}`);
             return form;
@@ -209,7 +211,8 @@ check('«Застава» after a form: its rare place holds a form of the other
     // The same seed with the Jailer's forms refused: «Застава» has no form.
     walk(createRtRun(seedOf(k + 300), { gift: 'mini' }), k, {
       prefer: run => (run.visited.some(id => rtNode(run, id)!.type === 'checkpoint') ? 'hard' : 'checkpoint'),
-      pick: (_run, offer) => { if (offer.source === 'hard') { assert(!offer.options.some(isRtForm), `seed ${k}: no form without the first one`); refusedPlain++; } return null; },
+      // Task 44/46: the pair guarantee of a half the run holds (a gift's talisman) may put its form partner in the last place.
+      pick: (run, offer) => { if (offer.source === 'hard') { assert(!offer.options.some(id => isRtForm(id) && !pairOfHeld(run, id)), `seed ${k}: no form without the first one`); refusedPlain++; } return null; },
     });
   }
   console.log(`   120 seeds: a form in the rare place ${formed} times (${[...fields].join(', ')}), runs ending with two forms ${both}; «Застава» with both fields held — talismans ${plain} times; without a first form ${refusedPlain}`);

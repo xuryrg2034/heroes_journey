@@ -16,7 +16,9 @@
  *   chain (`counterWindowOn`; the same ids, the rules below each module). Off, or a journal without the key — the old windows.
  */
 import { addCounter, buildStateOf, chainEnemyLinks, colorShiftOf, counterOf, chainShieldOf, nextChainNo, registerBuildModule, setBuildState, setCounter, talismanFired, type BuildProgress, type LinkContext } from './build';
-import { BUILD_SOURCES, COUNTER_TALISMANS, RELICS } from './buildIds';
+import { BUILD_SOURCES, COUNTER_TALISMANS, FUSIONS, RELICS } from './buildIds';
+import { kindOf } from './enemies/kinds';
+import { frostWaveCold } from './fusions';
 import { buildHitAll, enemiesInCircle, shadowHitAll } from './buildHits';
 import type { Params } from './params';
 import type { World } from './world';
@@ -203,14 +205,29 @@ registerBuildModule({
   onChainEnd: (w, end) => {
     const state = buildStateOf<WaveState>(w, COUNTER_TALISMANS.shockwave);
     if (state) setBuildState(w, COUNTER_TALISMANS.shockwave, undefined);
+    // Task 46 «Ледяная волна»: the wave's bodies the release fixed from the highlight (absent without the fusion).
+    const ice = buildStateOf<WaveState>(w, FUSIONS.frostWave);
+    if (ice) setBuildState(w, FUSIONS.frostWave, undefined);
     if (end.links < shockwaveLinksOf(w.params)) return;
     const at = { x: w.hero.x, y: w.hero.y };
     w.events.push({ type: 'wave', x: at.x, y: at.y, r: SHOCKWAVE_RADIUS });
     talismanFired(w, COUNTER_TALISMANS.shockwave);
     // Touching the body, not the reaper, no ×2 on a frozen one (buildHits.ts); every kill is the player's (`wave`). Fixed at
     // the release: those bodies still on the arena, wherever they stand now (one that walked in is not struck).
-    const targets = state ? state.fixed.flatMap(id => w.enemies.filter(e => e.id === id)) : enemiesInCircle(w, at, SHOCKWAVE_RADIUS);
+    const fixed = ice ?? state;
+    const targets = fixed ? fixed.fixed.flatMap(id => w.enemies.filter(e => e.id === id)) : enemiesInCircle(w, at, SHOCKWAVE_RADIUS);
     buildHitAll(w, targets, SHOCKWAVE_DAMAGE, BUILD_SOURCES.wave);
+    // Task 46 «Ледяная волна»: the survivors freeze as from the cold consumable — max(their cold, 3 s), brittle (not the Reaper).
+    const cold = frostWaveCold(w);
+    if (!cold || cold.time <= 0) return;
+    let frozen = 0;
+    for (const e of targets) {
+      if (!w.enemies.includes(e) || kindOf(e).immune) continue;
+      e.chill = Math.max(e.chill ?? 0, cold.time);
+      if (cold.brittle) e.brittle = true;
+      frozen++;
+    }
+    if (frozen) talismanFired(w, FUSIONS.frostWave, frozen);
   },
   progress: w => {
     const links = chainLinks(w), max = shockwaveLinksOf(w.params);

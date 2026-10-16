@@ -41,15 +41,14 @@
 import { buildStateOf, chainEnemyLinks, registerBuildModule, setBuildState, talismanFired } from './build';
 import { BUILD_SOURCES, FUSIONS, HAMMERS } from './buildIds';
 import { buildHit, buildHitAll, enemiesInCircle, enemiesNearPath } from './buildHits';
-import { fireMinLinks, fireOn, planChain, returnFixedOn, returnStrike, startReturnRun } from './chain';
+import { BLAST_DAMAGE, BLAST_RADIUS, endBlastMinLinks, fireMinLinks, fireOn, planChain, returnFixedOn, returnStrike, startReturnRun } from './chain';
 import { eliteAffixes } from './elites';
 import { kindOf } from './enemies/kinds';
 import { dist, inWater, overCliff, type Vec } from './geometry';
 import { frostPassPath } from './frostPass';
-import type { Params } from './params';
-import { boomerangFull } from './fusions';
+import { blastPlatesOn, boomerangFull, endBlastOf, hunterBlastOn } from './fusions';
 import { RETURN_RADIUS, returnPowerFor, returnRoute, returnTargets, returnWaypoints, traceTo, type ReturnFixed } from './returnRun';
-import type { Enemy, HeroMove, World } from './world';
+import { damageEnemy, type Enemy, type HeroMove, type World } from './world';
 
 export { RETURN_RADIUS };
 // Task 31: the fire's threshold lives in chain.ts (the highlight `planChain(...).fire` reads it; chain.ts does not import this file).
@@ -67,9 +66,8 @@ export const FIRE_STEP = 0.4;
 export const FIRE_DAMAGE = 1;
 /** Game seconds before the fire may hurt the same enemy again. */
 export const FIRE_PAUSE = 1;
-/** «Взрыв на конце»: radius and damage. */
-export const BLAST_RADIUS = 1.5;
-export const BLAST_DAMAGE = 1;
+/** «Взрыв на конце»: radius and damage (task 46: in chain.ts — the highlight of «Подрыв» reads them). */
+export { BLAST_DAMAGE, BLAST_RADIUS } from './chain';
 /** «Режущий проход»: reach from the path line (plus the body radius) and damage. */
 export const CUT_RADIUS = 0.5;
 export const CUT_DAMAGE = 1;
@@ -272,14 +270,16 @@ registerBuildModule({
  * passed fallen (as «Пятое звено»), the survivor at the end; crystals, braziers, buttons, the door and loot do not count.
  * The panel key `endBlastMinLinks` (12.10.2026; default 3, a run forces 3). A journal without the key — recorded before
  * the key — plays the old path: `END_BLAST_LEGACY_MIN_LINKS` 1, the blast on any chain with a last enemy link (a last link
- * means at least one link reached).
+ * means at least one link reached). Task 46: they live in chain.ts (the highlight of «Подрыв» reads them).
  */
-export const END_BLAST_LEGACY_MIN_LINKS = 1;
-export function endBlastMinLinks(params: Params): number { return params.endBlastMinLinks ?? END_BLAST_LEGACY_MIN_LINKS; }
+export { END_BLAST_LEGACY_MIN_LINKS, endBlastMinLinks } from './chain';
 
 registerBuildModule({
   id: HAMMERS.blast,
   onChainEnd: (world, end) => {
+    // Task 46 «Подрыв»: the bodies and the kind of blast the release fixed (absent without the fusion).
+    const fixed = buildStateOf<HunterBlastState>(world, FUSIONS.hunterBlast);
+    if (fixed) setBuildState(world, FUSIONS.hunterBlast, undefined);
     const last = end.last;
     if (!last || end.links < endBlastMinLinks(world.params)) return;
     // Task 29, the rank of the field «Конец»: a chain whose seal struck or whose pierce ran (forms in the kit) has no blast.
@@ -287,6 +287,7 @@ registerBuildModule({
     // Decision 17: a surviving last link — around the survivor where it stands now.
     const survivor = last.killed ? undefined : world.enemies.find(e => e.id === last.id);
     const at = survivor ? { x: survivor.x, y: survivor.y } : { x: last.x, y: last.y };
+    if (hunterBlastOn(world)) { hunterBlast(world, at, last.elite === true, fixed); return; }
     world.events.push({ type: 'hammer', kind: 'blast', x: at.x, y: at.y, r: BLAST_RADIUS });
     buildHitAll(world, enemiesInCircle(world, at, BLAST_RADIUS), BLAST_DAMAGE, BUILD_SOURCES.hammerBlast);
   },
@@ -296,6 +297,31 @@ registerBuildModule({
     return links === null ? null : { value: Math.min(links, max), max };
   },
 });
+
+/**
+ * Task 46 «Подрыв» (`World.build['fusion-hunter-blast']`, set at the release from the highlight, removed at the dash's end): the
+ * bodies of the end blast and whether it detonates (the last link an elite or tough) — chain.ts `planChain(...).blast`.
+ */
+export interface HunterBlastState { ids: number[]; detonate: boolean }
+
+/**
+ * Task 46 «Подрыв»: the end blast with the fusion in the kit — the fixed bodies still on the arena (wherever they stand now), the
+ * numbers of `endBlastOf`: a detonation — radius ×1.5, hit 1 + 3, 2 plates off an elite (a boss's armour 1); otherwise the plain
+ * blast. No fixed bodies (the highlight showed no blast at this end) — the bodies in the circle now, a detonation only on an elite.
+ */
+function hunterBlast(world: World, at: Vec, elite: boolean, fixed: HunterBlastState | undefined): void {
+  const blast = endBlastOf(world, fixed ? fixed.detonate : elite, BLAST_RADIUS, BLAST_DAMAGE);
+  world.events.push({ type: 'hammer', kind: 'blast', x: at.x, y: at.y, r: blast.radius, ...blast.detonate ? { detonate: true as const } : {} });
+  const targets = fixed ? fixed.ids.flatMap(id => world.enemies.filter(e => e.id === id)) : enemiesInCircle(world, at, blast.radius);
+  let struck = 0;
+  for (const e of targets) {
+    if (world.status !== 'playing') break;
+    if (!world.enemies.includes(e)) continue;
+    struck++;
+    damageEnemy(world, e, blast.damage, { source: BUILD_SOURCES.hammerBlast, credited: true, plates: blastPlatesOn(blast, e) });
+  }
+  if (blast.detonate) talismanFired(world, FUSIONS.hunterBlast, struck);
+}
 
 // ---- «Режущий проход» ----
 

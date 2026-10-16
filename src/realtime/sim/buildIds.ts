@@ -66,8 +66,8 @@ export const RELIC_IDS: readonly RelicId[] = Object.values(RELICS);
 export const OATH_HUNGER = 'oath-hunger';
 
 /**
- * Task 29 (form of the field «Путь», sandbox only): «Наледь» — the dash's path freezes the enemies that enter it for 2 s
- * (sim/frostPass.ts). Kept in `Loadout.talismans` / `Kit.talismans`; not in the run's catalogue (`RT_TALISMANS`).
+ * Task 29 (form of the field «Путь»): «Наледь» — the dash's path freezes the enemies that enter it for 2 s (sim/frostPass.ts).
+ * Kept in `Loadout.talismans` / `Kit.talismans`; task 30: a form of the run's catalogue (run/rtTalismans.ts `RT_FORMS`).
  */
 export const FROST_PASS = 'frost-pass';
 
@@ -123,6 +123,8 @@ export const FORM_FIELD: Readonly<Record<string, FormField>> = {
   [HAMMERS.fire]: 'path', [HAMMERS.cut]: 'path', [HAMMERS.return]: 'path', [FROST_PASS]: 'path',
   // Task 44: a fusion takes the field of its form part.
   'fusion-ice-seal': 'end', 'fusion-spear': 'end', 'fusion-boomerang': 'path',
+  // Task 46.
+  'fusion-brand': 'path', 'fusion-hunter-blast': 'end', 'fusion-frost-wave': 'path',
 };
 
 /**
@@ -138,6 +140,12 @@ export const FUSIONS = {
   spear: 'fusion-spear',
   /** «Бумеранг» = «Возврат» + «Добивание»: the second pass of «Возврат» at full power when the last enemy link died. */
   boomerang: 'fusion-boomerang',
+  /** Task 46: «Клеймо» = «Огненный проход» + «Призма»: the lit path paints the bodies along it in the chain's colour. */
+  brand: 'fusion-brand',
+  /** Task 46: «Подрыв» = «Взрыв на конце» + «Охотник на элит»: the last link an elite or tough — a wider, stronger blast. */
+  hunterBlast: 'fusion-hunter-blast',
+  /** Task 46: «Ледяная волна» = «Наледь» + «Ударная волна»: the wave strikes as before and freezes its survivors. */
+  frostWave: 'fusion-frost-wave',
 } as const;
 export type FusionId = typeof FUSIONS[keyof typeof FUSIONS];
 export const FUSION_IDS: readonly FusionId[] = Object.values(FUSIONS);
@@ -148,7 +156,20 @@ export const FUSION_RECIPES: readonly FusionRecipe[] = [
   { fusion: FUSIONS.iceSeal, form: FORMS.seal, counter: COUNTER_TALISMANS.frostEdge },
   { fusion: FUSIONS.spear, form: FORMS.pierce, counter: COUNTER_TALISMANS.longArm },
   { fusion: FUSIONS.boomerang, form: HAMMERS.return, counter: COUNTER_TALISMANS.finisher },
+  { fusion: FUSIONS.brand, form: HAMMERS.fire, counter: COUNTER_TALISMANS.prism },
+  { fusion: FUSIONS.hunterBlast, form: HAMMERS.blast, counter: COUNTER_TALISMANS.eliteHunter },
+  { fusion: FUSIONS.frostWave, form: FROST_PASS, counter: COUNTER_TALISMANS.shockwave },
 ];
+/** Task 46: the fusions of task 46 — a kit with one of them plays the slot rule of `kitOf` (task 44's fusions keep the old kit). */
+export const FUSIONS_V2: readonly string[] = [FUSIONS.brand, FUSIONS.hunterBlast, FUSIONS.frostWave];
+/**
+ * Task 46 (design 16.10.2026, section 5): the hammers and fusions a fusion never stands with — a hammer of the loadout it excludes
+ * leaves the kit (`kitOf`); the run's catalogue keeps them out of one build (run/rtTalismans.ts `excludes`).
+ */
+export const FUSION_EXCLUDES: Readonly<Record<string, readonly string[]>> = {
+  [FUSIONS.boomerang]: [HAMMERS.blast, FUSIONS.hunterBlast],
+  [FUSIONS.hunterBlast]: [HAMMERS.return, FUSIONS.boomerang],
+};
 /** The recipe of a fusion. */
 export const fusionRecipe = (fusion: string): FusionRecipe | undefined => FUSION_RECIPES.find(r => r.fusion === fusion);
 /** The recipe a half belongs to: its partner and the fusion; undefined — not a half of a recipe. */

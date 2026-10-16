@@ -533,6 +533,19 @@ export interface Params {
   fusionSpearPlates: number;
   fusionIceTime: number;
   fusionIceBrittle: boolean;
+  /**
+   * Task 46 «Сплавы v2» (sim/fusions.ts; docs/realtime-prototype.md, section 9ц): read only while the kit holds the fusion's id (a
+   * journal without them plays these defaults). «Клеймо»: bodies within `fusionBrandReach` (1, plus the body radius) of the lit path
+   * take the chain's colour. «Подрыв»: the last link an elite or tough — the end blast's radius × `fusionBlastFactor` (1.5), its hit
+   * 1 + `fusionBlastPower` (3), `fusionBlastPlates` (2) plates off an elite (a boss's armour — 1). «Ледяная волна»: the wave's
+   * survivors freeze max(their cold, `fusionWaveTime` 3 s), brittle while `fusionWaveBrittle`.
+   */
+  fusionBrandReach: number;
+  fusionBlastFactor: number;
+  fusionBlastPower: number;
+  fusionBlastPlates: number;
+  fusionWaveTime: number;
+  fusionWaveBrittle: boolean;
   wolfRushPack: number;
   wolfHowl: number;
   wolfRushSpeed: number;
@@ -1264,6 +1277,12 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   fusionSpearPlates: 2,
   fusionIceTime: 3,
   fusionIceBrittle: true,
+  fusionBrandReach: 1,
+  fusionBlastFactor: 1.5,
+  fusionBlastPower: 3,
+  fusionBlastPlates: 2,
+  fusionWaveTime: 3,
+  fusionWaveBrittle: true,
   wolfRushPack: 3,
   wolfHowl: 0.6,
   wolfRushSpeed: 6,
@@ -1630,7 +1649,9 @@ export const PARAM_DEFS: readonly ParamDef[] = [
     options: [{ value: '', label: 'нет' }, { value: 'hero-anchor', label: 'Якорь у героя' }, { value: 'whetstone', label: 'Точильный камень' }, { value: 'millstone-shard', label: 'Осколок жернова' },
       { value: 'hourglass', label: 'Песочные часы' }, { value: 'nimble-paws', label: 'Ловкие лапы' }, { value: 'ash-ward', label: 'Пепельный оберег' },
       // Task 44: the fusions (each with its parts, kit.ts `kitOf`).
-      { value: 'fusion-ice-seal', label: 'Сплав: Ледяная печать' }, { value: 'fusion-spear', label: 'Сплав: Копьё' }, { value: 'fusion-boomerang', label: 'Сплав: Бумеранг' }] },
+      { value: 'fusion-ice-seal', label: 'Сплав: Ледяная печать' }, { value: 'fusion-spear', label: 'Сплав: Копьё' }, { value: 'fusion-boomerang', label: 'Сплав: Бумеранг' },
+      // Task 46.
+      { value: 'fusion-brand', label: 'Сплав: Клеймо' }, { value: 'fusion-hunter-blast', label: 'Сплав: Подрыв' }, { value: 'fusion-frost-wave', label: 'Сплав: Ледяная волна' }] },
   n('endBlastMinLinks', 'Талисманы', '«Взрыв на конце»: звеньев от', 1, 6, 1, 5, '', 'Молот срабатывает, если проход дошёл до стольких вражеских звеньев (погибшие по пути и выживший на конце считаются). В походе — 3.'),
   n('fireMinLinks', 'Талисманы', '«Огненный проход»: звеньев от', 1, 6, 1, 5, '', 'Путь прохода загорается, когда проход дошёл до стольких вражеских звеньев (погибшие по пути и выживший на конце считаются), — весь путь от начала разом. В походе — 3.'),
   { kind: 'bool', key: 'returnFixed', group: 'Талисманы', label: '«Возврат»: путь и тела при отпускании', stage: 5,
@@ -1721,6 +1742,12 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('fusionSpearPlates', 'Сплавы', '«Копьё»: пластин с элиты', 1, 4, 1, 5, '', 'Пробой «Копья» снимает с элиты столько пластин вместо одной.'),
   n('fusionIceTime', 'Сплавы', '«Ледяная печать»: заморозка', 0.5, 10, 0.5, 5, 'с', 'Выжившие внутри кольца замерзают на наибольшее из оков «Печати» и этого числа.'),
   { kind: 'bool', key: 'fusionIceBrittle', group: 'Сплавы', label: '«Ледяная печать»: хрупкость ×2', stage: 5, hint: 'Замёрзшие печатью хрупки, как от холода-расходника: следующий удар цепи ×2.' },
+  n('fusionBrandReach', 'Сплавы', '«Клеймо»: полоса краски от пути', 0, 3, 0.1, 5, 'ед.', 'Задача 46. Только с «Клеймом» в ките: путь загорелся — тела в полосе (плюс радиус тела) принимают цвет цепи.'),
+  n('fusionBlastFactor', 'Сплавы', '«Подрыв»: радиус взрыва ×', 1, 3, 0.05, 5, '×', 'Последнее звено — элита или крепкий: радиус «Взрыва на конце» умножается.'),
+  n('fusionBlastPower', 'Сплавы', '«Подрыв»: удар сверх 1', 0, 6, 1, 5, '', 'Удар подрыва — 1 и это число.'),
+  n('fusionBlastPlates', 'Сплавы', '«Подрыв»: пластин с элиты', 1, 4, 1, 5, '', 'Броня босса (ядра, рыцарь, самострел) — 1 пластина.'),
+  n('fusionWaveTime', 'Сплавы', '«Ледяная волна»: заморозка', 0.5, 10, 0.5, 5, 'с', 'Выжившие после удара волны замерзают на наибольшее из своего холода и этого числа.'),
+  { kind: 'bool', key: 'fusionWaveBrittle', group: 'Сплавы', label: '«Ледяная волна»: хрупкость ×2', stage: 5, hint: 'Замёрзшие волной хрупки, как от холода-расходника: следующий удар цепи ×2.' },
   n('wolfRushPack', 'Волк', 'Бросок: волков в кольце', 1, 8, 1, 5),
   n('wolfHowl', 'Волк', 'Вой перед броском', 0, 3, 0.05, 5, 'с', 'Круг вокруг героя. Направление броска фиксируется в конце воя.'),
   n('wolfRushSpeed', 'Волк', 'Бросок: скорость', 0.5, 20, 0.25, 5, 'ед/с', 'По прямой; вода и терновник не замедляют, стена и обрыв останавливают.'),

@@ -4,6 +4,8 @@ import { createRtRun, resolveArena, rtAvailableNodes, rtChooseTalisman, rtEnterN
 import { RT_RUN_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
 import { FUSION_RECIPES, fusionOfHalf, fusionRecipe } from '../src/realtime/sim/buildIds';
 import { closeNode, ok, seedOf, takeGift } from '../src/realtime/run/runFight.testkit';
+import { replay, type Journal } from '../src/realtime/sim/simulation';
+import { gameWait } from './realtimeFrames';
 
 /**
  * Task 44 «Сплавы» in the sandbox (docs/realtime-prototype.md, section 9ц): «Ледяная печать» chosen in the panel's menu «Песочница:
@@ -187,8 +189,10 @@ async function expectFusedColumn(page: Page, fusion: string): Promise<void> {
   const row = page.getByTestId(`build-${fusion}`);
   await expect(row.locator('svg.rt-fusion-icon')).toHaveCount(1);
   // Design 16.10.2026: the name whole («Копьё», «Бумеранг», «Лёд. печать») — not cut, not over the icon.
+  // The icon's flash and the arrival of a taken item scale its box: measure once they are over.
+  await expect(page.locator('.rt-build-arrive, .rt-build-flash')).toHaveCount(0);
   const name = row.locator('b');
-  await expect(name).toHaveText({ 'fusion-ice-seal': 'Лёд. печать', 'fusion-spear': 'Копьё', 'fusion-boomerang': 'Бумеранг' }[fusion]!);
+  await expect(name).toHaveText({ 'fusion-ice-seal': 'Лёд. печать', 'fusion-spear': 'Копьё', 'fusion-boomerang': 'Бумеранг', 'fusion-brand': 'Клеймо', 'fusion-hunter-blast': 'Подрыв', 'fusion-frost-wave': 'Ледяная волна' }[fusion]!);
   expect(await name.evaluate(el => el.scrollWidth <= el.clientWidth + 1), 'the name is not cut').toBe(true);
   const icon = (await row.locator('.rt-build-icon').boundingBox())!, text = (await name.boundingBox())!, box = (await row.boundingBox())!;
   expect(text.y, 'the name under the icon').toBeGreaterThanOrEqual(icon.y + icon.height - 1);
@@ -243,5 +247,246 @@ test('task 44 view: the highlight of each fusion — «Копьё» writes «−
     if (full) await page.screenshot({ path: 'artifacts/realtime-fusion-boomerang-plan.png' });
     await page.mouse.up();
   }
+  expect(errors).toEqual([]);
+});
+
+// ---- Task 46, the view (ui; docs/design-notes/task-46-fusions-v2.md, 9 and 11) ----
+
+/** The journal of the fight replays in Node (no view at all) to the hash the page has. */
+async function sameHash(page: Page): Promise<void> {
+  const recorded = await page.evaluate(() => { const rt = (window as any).__realtime; return { journal: rt.journal(), hash: rt.hash() }; }) as { journal: Journal; hash: string };
+  expect(replay(recorded.journal).hash()).toBe(recorded.hash);
+}
+const placeAt = (page: Page, x: number, y: number, color: number, hp: number, elite = false): Promise<number> =>
+  page.evaluate(([x, y, color, hp, elite]) => (window as any).__realtime.place(x, y, color, hp, 'basic', elite), [x, y, color, hp, elite] as const);
+/** Chain colour 0 bodies of 0 HP in a row on the hero's axis (y 5.5), 1.4 apart from x 5.4: returns their points. */
+async function rowOf(page: Page, n: number): Promise<[number, number][]> {
+  const pts: [number, number][] = [];
+  for (let i = 0; i < n; i++) { pts.push([5.4 + 1.4 * i, 5.5]); await placeAt(page, 5.4 + 1.4 * i, 5.5, 0, 0); }
+  return pts;
+}
+/** The dash after the release has ended (no move, no chain) and a little game time more (the end's hooks, the fade). */
+async function dashOver(page: Page): Promise<void> {
+  await expect.poll(async () => { const s = await snap(page); return !s.move && s.chain.length === 0; }, { timeout: 15_000 }).toBe(true);
+  await gameWait(page, 0.6);
+}
+const enemy = async (page: Page, id: number): Promise<any> => (await snap(page)).enemies.find((e: any) => e.id === id);
+
+test('task 46 view: «Ледяная волна» — the wave circle and the frost signs round the end before the release; after it the survivors stand frozen, brittle', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = collectErrors(page);
+  await sandboxWith(page, 'fusion-frost-wave', { x: 4, y: 5.5 }, [['counterWindow', true]]);
+  await expectFusedColumn(page, 'fusion-frost-wave');
+  const pts = await rowOf(page, 4);
+  const a = await placeAt(page, 10.8, 6.6, 1, 3), b = await placeAt(page, 10.8, 4.4, 1, 3), c = await placeAt(page, 9, 7, 1, 0);
+  // Three links: the wave threshold (4) is not reached - no circle, no signs.
+  await drawOver(page, pts.slice(0, 3));
+  await expect.poll(async () => (await snap(page)).chain.length).toBe(3);
+  expect((await snap(page)).fusionShown.waveRadius).toBe(0);
+  // The fourth link: the circle round the end, the survivors with the snowflake (white rim: brittle), the weak one with the cross.
+  const at = await screen(page, pts[3][0], pts[3][1]);
+  await page.mouse.move(at.x, at.y, { steps: 5 });
+  await expect.poll(async () => (await snap(page)).fusionShown.waveRadius).toBe(2);
+  const shown = (await snap(page)).fusionShown;
+  expect(shown.waveIce).toBe(2);
+  expect(shown.waveBrittle).toBe(2);
+  expect(shown.waveKills).toBe(1);
+  expect((await snap(page)).enemies.every((e: any) => e.chill === 0), 'nothing frozen before the release').toBe(true);
+  await page.screenshot({ path: 'artifacts/realtime-fusion-wave-plan.png' });
+  await page.mouse.up();
+  await dashOver(page);
+  const left = [await enemy(page, a), await enemy(page, b)];
+  for (const e of left) { expect(e, 'the survivor stays').toBeTruthy(); expect(e.chill).toBeGreaterThan(0); expect(e.brittle).toBe(true); }
+  expect(await enemy(page, c), 'the weak one died of the wave').toBeUndefined();
+  expect(left[0].hp, 'the strong one lost 1 HP').toBe(2);
+  await page.screenshot({ path: 'artifacts/realtime-fusion-wave-frozen.png' });
+  await sameHash(page);
+  expect(errors).toEqual([]);
+});
+
+test('task 46 view: «Подрыв» — a chain ending on an armoured elite shows the wide circle with the thick rim and «4», marks on the bodies, «−2 пластины»; ending on a plain body — the small circle and «1»', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = collectErrors(page);
+  await sandboxWith(page, 'fusion-hunter-blast', { x: 4, y: 5.5 }, [['eliteArmor', true]]);
+  await expectFusedColumn(page, 'fusion-hunter-blast');
+  const pts = await rowOf(page, 3);
+  const elite = await placeAt(page, 9.6, 5.5, 0, 3, true);
+  // 2.0 from the elite: out of the plain blast (1.5), inside the detonation (2.25); a tough body at 2.1.
+  const near = await placeAt(page, 11.6, 5.5, 1, 0), tough = await placeAt(page, 9.6, 7.6, 1, 3);
+  const before = (await enemy(page, elite)).armor.plates;
+  expect(before).toBeGreaterThanOrEqual(2);
+  await drawOver(page, [...pts, [9.6, 5.5]]);
+  await expect.poll(async () => (await snap(page)).chain.length).toBe(4);
+  await expect.poll(async () => (await snap(page)).fusionShown.blastRadius).toBeCloseTo(2.25, 5);
+  const shown = (await snap(page)).fusionShown;
+  expect(shown.blastDetonate).toBe(1);
+  expect(shown.blastNumber).toBe(4);
+  expect(shown.blastMarks, 'the elite, the near body, the tough one').toBe(3);
+  expect(shown.blastPlates).toBe(2);
+  await page.screenshot({ path: 'artifacts/realtime-fusion-blast-plan.png' });
+  await page.mouse.up();
+  await dashOver(page);
+  expect((await snap(page)).fusionShown.detonations, 'the detonation flashed').toBe(1);
+  expect(await enemy(page, near), 'the body at 2.0 is hit by the detonation').toBeUndefined();
+  expect(await enemy(page, tough), 'the tough body dies of 4').toBeUndefined();
+  // The chain's own strike took one plate, the detonation two.
+  expect((await enemy(page, elite)).armor.plates, 'the elite lost 1 + 2 plates').toBe(before - 3);
+  await sameHash(page);
+
+  // The chain ends on a plain body: the plain blast - the small circle, the hit 1.
+  await sandboxWith(page, 'fusion-hunter-blast', { x: 4, y: 5.5 });
+  const row3 = await rowOf(page, 3);
+  await drawOver(page, row3);
+  await expect.poll(async () => (await snap(page)).fusionShown.blastRadius).toBeCloseTo(1.5, 5);
+  const plain = (await snap(page)).fusionShown;
+  expect(plain.blastDetonate).toBe(0);
+  expect(plain.blastNumber).toBe(1);
+  await page.screenshot({ path: 'artifacts/realtime-fusion-blast-plain.png' });
+  await page.mouse.up();
+  await dashOver(page);
+  await sameHash(page);
+  expect(errors).toEqual([]);
+});
+
+test('task 46 view: «Клеймо» — rings of paint on the bodies by the lit path (none short of the fire); after the dash they have the chain colour; a second chain through them is taken', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = collectErrors(page);
+  await sandboxWith(page, 'fusion-brand', { x: 4, y: 5.5 }, [['fireMinLinks', 3]]);
+  await expectFusedColumn(page, 'fusion-brand');
+  const pts = await rowOf(page, 3);
+  // Two bodies of another colour beside the path (within the strip), one far from it.
+  // HP 0: the second chain kills them link after link (a body of more HP would stand and end the chain).
+  const a = await placeAt(page, 6.8, 6.4, 1, 0), b = await placeAt(page, 7.7, 6.5, 1, 0), far = await placeAt(page, 6.8, 9, 1, 0);
+  await drawOver(page, pts.slice(0, 2));
+  await expect.poll(async () => (await snap(page)).chain.length).toBe(2);
+  expect((await snap(page)).fusionShown.paint, 'two links: the fire does not light - no rings').toBe(0);
+  const at = await screen(page, pts[2][0], pts[2][1]);
+  await page.mouse.move(at.x, at.y, { steps: 5 });
+  await expect.poll(async () => (await snap(page)).fusionShown.paint).toBe(2);
+  await page.screenshot({ path: 'artifacts/realtime-fusion-brand-plan.png' });
+  await page.mouse.up();
+  await dashOver(page);
+  expect((await snap(page)).fusionShown.paintFlashes, 'the paint flashed').toBe(1);
+  expect((await enemy(page, a)).color, 'painted').toBe(0);
+  expect((await enemy(page, b)).color, 'painted').toBe(0);
+  expect((await enemy(page, far)).color, 'out of the strip').toBe(1);
+  await page.screenshot({ path: 'artifacts/realtime-fusion-brand-painted.png' });
+  // The player's problem: the next chain runs through the painted bodies (without the fusion they are the wrong colour).
+  // (The bodies were shoved a little by the dash: draw over where they stand now.)
+  const [pa, pb] = [await enemy(page, a), await enemy(page, b)];
+  await drawOver(page, [[pa.x, pa.y], [pb.x, pb.y]]);
+  await expect.poll(async () => (await snap(page)).chain, { message: 'the painted bodies join one chain' }).toEqual([a, b]);
+  await page.mouse.up();
+  await dashOver(page);
+  await sameHash(page);
+  expect(errors).toEqual([]);
+});
+
+test('task 46 view: the build column with two fusions - «Путь» and «Конец» - one row each, the icons drawn, the names whole', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/?sandbox=1&arena=1');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
+  await page.evaluate(() => (window as any).__realtime.useBuild({ talismans: ['fusion-frost-wave', 'fusion-hunter-blast'] }));
+  await gameWait(page, 1);
+  for (const f of ['fusion-frost-wave', 'fusion-hunter-blast']) await expectFusedColumn(page, f);
+  const ids = (await snap(page)).buildItems.map((i: { id: string }) => i.id);
+  expect(ids.filter((id: string) => id.startsWith('fusion-'))).toHaveLength(2);
+  // A quiet field for the shot.
+  await page.evaluate(() => {
+    const rt = (window as any).__realtime;
+    for (const [key, value] of [['enemySpeed', 0], ['baseIntervalMin', 1000], ['baseIntervalMax', 1000], ['baseFloor', 0], ['contactDamage', 0]] as const) rt.setParam(key, value);
+    rt.clear(false);
+  });
+  await page.mouse.move(0, 0);
+  await page.screenshot({ path: 'artifacts/realtime-fusion-column-two-full.png' });
+  expect(errors).toEqual([]);
+});
+
+test('task 46 view: a run - the cards show the recipe of each new fusion; a rest with the pair offers «Сплав», the fusion appears in the column', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors = collectErrors(page);
+  const names: Record<string, string> = { 'fusion-brand': 'Клеймо', 'fusion-hunter-blast': 'Подрыв', 'fusion-frost-wave': 'Ледяная волна' };
+  for (const fusion of Object.keys(names)) {
+    let card: RtRunState | null = null;
+    for (let k = 1; k <= 120 && !card; k++) card = walk(k, run => run.pending?.kind === 'talisman' && run.pending.options.some(id => rtFusionRecipe(run, id)?.fusion === fusion));
+    expect(card, `a talisman screen with a half of ${fusion}`).not.toBeNull();
+    const half = (card!.pending as { options: string[] }).options.find(id => rtFusionRecipe(card!, id)?.fusion === fusion)!;
+    await openRun(page, card!);
+    await expect(page.getByTestId(`recipe-${half}`)).toContainText(`→ «${names[fusion]}»`);
+    await page.mouse.move(0, 0);
+    await page.screenshot({ path: `artifacts/realtime-fusion-card-${fusion.replace('fusion-', '')}.png` });
+  }
+  // A rest with a pair of a new fusion.
+  let rest: RtRunState | null = null;
+  for (let k = 1; k <= 160 && !rest; k++) rest = walk(k, run => run.pending?.kind === 'rest' && rtFusionsReady(run).some(f => f in names));
+  expect(rest, 'a rest with a pair of a new fusion').not.toBeNull();
+  const fusion = rtFusionsReady(rest!).find(f => f in names)!;
+  await openRun(page, rest!);
+  const option = page.getByTestId(`rest-fuse-${fusion}`);
+  await expect(option).toBeEnabled();
+  await expect(option.locator('.rt-fuse-icon')).toHaveCount(3);
+  await page.mouse.move(0, 0);
+  await page.screenshot({ path: `artifacts/realtime-fusion-rest-${fusion.replace('fusion-', '')}.png` });
+  await option.click();
+  await expect(page.getByTestId('fusion-anim')).toHaveAttribute('data-fusion', fusion);
+  await page.waitForTimeout(650);
+  await page.screenshot({ path: `artifacts/realtime-fusion-made-${fusion.replace('fusion-', '')}.png` });
+  await expect(page.getByTestId('fusion-anim')).toHaveCount(0, { timeout: 3000 });
+  expect((await runState(page)).talismans).toContain(fusion);
+  expect(errors).toEqual([]);
+});
+
+test('task 46 view: «Тряска и вспышки» 0 % - the detonation has no flash and no shake, the blast still hits (the hash is the page hash)', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = collectErrors(page);
+  await page.goto('/?sandbox=1');
+  await page.evaluate(() => localStorage.clear());
+  await page.goto('/?sandbox=1&arena=1&seed=77');
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
+  await page.evaluate(() => localStorage.setItem('ashen-oath-realtime-fx', '0'));
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
+  await page.evaluate(() => (window as any).__realtime.useBuild({ talismans: ['fusion-hunter-blast'] }));
+  await page.evaluate(() => {
+    const rt = (window as any).__realtime;
+    for (const [key, value] of [['enemySpeed', 0], ['speedSpread', 0], ['baseIntervalMin', 1000], ['baseIntervalMax', 1000], ['baseFloor', 0], ['contactDamage', 0], ['eliteArmor', true]] as const) rt.setParam(key, value);
+    rt.clear(false);
+    rt.teleport(4, 5.5);
+  });
+  expect((await snap(page)).juice.level).toBe(0);
+  const pts = await rowOf(page, 3);
+  const elite = await placeAt(page, 9.6, 5.5, 0, 3, true), near = await placeAt(page, 11.6, 5.5, 1, 0);
+  const shakes = (await snap(page)).juice.shakeFrames;
+  await drawOver(page, [...pts, [9.6, 5.5]]);
+  await expect.poll(async () => (await snap(page)).fusionShown.blastDetonate).toBe(1);
+  await page.mouse.up();
+  await dashOver(page);
+  expect(await enemy(page, near), 'the blast still hits').toBeUndefined();
+  expect(await enemy(page, elite)).toBeTruthy();
+  const j = (await snap(page)).juice;
+  expect((await snap(page)).fusionShown.detonations, 'no detonation flash at 0 %').toBe(0);
+  expect(j.shakeFrames - shakes, 'no shake at 0 %').toBe(0);
+  await sameHash(page);
+  expect(errors).toEqual([]);
+});
+
+test('task 46 view: «Подрыв» on an elite of 2 plates that is the last link - the words say «−1 пластина» (the dash took one, the blast takes the other); after the dash 0 plates', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = collectErrors(page);
+  await sandboxWith(page, 'fusion-hunter-blast', { x: 4, y: 5.5 }, [['eliteArmor', true], ['elitePlates', 2]]);
+  const pts = await rowOf(page, 3);
+  const elite = await placeAt(page, 9.6, 5.5, 0, 3, true);
+  expect((await enemy(page, elite)).armor.plates).toBe(2);
+  await drawOver(page, [...pts, [9.6, 5.5]]);
+  await expect.poll(async () => (await snap(page)).chain.length).toBe(4);
+  await expect.poll(async () => (await snap(page)).fusionShown.blastDetonate).toBe(1);
+  expect((await snap(page)).fusionShown.blastPlates).toBe(1);
+  await page.screenshot({ path: 'artifacts/realtime-fusion-blast-plan-1plate.png' });
+  await page.mouse.up();
+  await dashOver(page);
+  expect((await enemy(page, elite)).armor.plates).toBe(0);
+  await sameHash(page);
   expect(errors).toEqual([]);
 });

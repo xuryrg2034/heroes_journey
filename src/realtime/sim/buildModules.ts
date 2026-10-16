@@ -10,3 +10,5 @@ import './relics';
 import './forms';
 // Task 29: the sandbox form «Наледь» (after the relics: its frost lies after the hammer's fire in a tick).
 import './frostPass';
+// Task 46: the fusions of the dash's end (after the hammers: the paint of «Клеймо» comes after the end blast).
+import './fusionEnds';
