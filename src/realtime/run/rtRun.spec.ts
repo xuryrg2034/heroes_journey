@@ -32,7 +32,7 @@ import { arenaCandidates, arenaNewKinds, ARENA_POOLS, ARENA_POOLS_BEFORE_MIX, or
 import { arenaTemplate } from '../sim/arenas';
 import { rtHp, RT_RUN_HP } from './hpScale';
 import { RT_TASK17_OFF,
-  arenaPreview, arenaSeed, createRtRun, nodeArenas, GIFT_POOL, rtMapNodes, parseRtRun, resolveArena, rtArenaLoadout, RT_MILLSTONE_MAX_HP_PRICE, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtItemRefusal, rtChooseGift, rtChooseGiftPick,
+  arenaPreview, arenaSeed, createRtRun, nodeArenas, GIFT_POOL, rtMapNodes, parseRtRun, resolveArena, rtArenaLoadout, RT_MILLSTONE_MAX_HP_PRICE, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtItemRefusal, rtChooseGift, rtChooseGiftPick, rtChooseHabit,
   rtChooseHammer, rtChooseTalisman, rtEnterNode, rtHammerOptions, rtEventView, rtGiftOptions, rtGiftView, rtNode, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun, rtItemHintDue, rtRunParams,
   type RtRunState, type RtRunStep,
 } from './rtRun';
@@ -93,6 +93,8 @@ const outcomeOf = (run: RtRunState, sim: Simulation) => {
 };
 /** Takes the first gift button that is on (and the first of its own choice, if it has one), or passes the gift by. */
 function takeGift(run: RtRunState, prefer?: (kind: string) => boolean): RtRunState {
+  // Task 50: «Без повадки» first when the row is open — the routes of before.
+  if (rtGiftView(run)?.habit && !rtGiftView(run)!.habit!.chosen) run = ok(rtChooseHabit(run, null), 'habit');
   const view = rtGiftView(run)!, on = view.options.filter(entry => entry.available), first = on.find(entry => prefer?.(entry.option.kind)) ?? on[0];
   let next = ok(rtChooseGift(run, first ? first.index : null), 'gift');
   const open = rtGiftView(next);
@@ -284,7 +286,8 @@ check('the start gift: its usual buttons (consumables, energy, resources, maximu
   assert(items.every(item => withItems.items[item] === items.filter(other => other === item).length) && withItems.openItems.length === new Set(items).size, 'two consumables: in hand and open');
   const kinds = new Set<string>();
   for (const seed of SEEDS) {
-    const run = createRtRun(seed, { gift: 'full', garrison: false }), full = rtGiftView(run)!;
+    // The archetype row (task 50) is off here: this check is about the buttons' own choices; the row has its own checks (knacks.spec.ts, tests/realtime-habits.spec.ts).
+    const run = createRtRun(seed, { gift: 'full', garrison: false, habits: false }), full = rtGiftView(run)!;
     for (const entry of full.options) {
       kinds.add(entry.option.kind);
       // «Тихий лес» has no analogue (no anger); a deal or an oath is on while the pool has its talisman.
@@ -1104,7 +1107,7 @@ check('talismans from the merchant (price by rarity; not bought — gone), from 
   // The gift: a deal pays its price and gives its talisman; an oath is taken.
   let dealt = 0, sworn = 0;
   for (let k = 1; k <= 30; k++) {
-    const run0 = createRtRun(seedOf32(k + 1700), { gift: 'full', garrison: false }), view = rtGiftView(run0)!;
+    const run0 = createRtRun(seedOf32(k + 1700), { gift: 'full', garrison: false, habits: false }), view = rtGiftView(run0)!;
     const deal = view.options.find(entry => entry.option.kind === 'deal' && entry.available), oath = view.options.find(entry => entry.option.kind === 'oath' && entry.available);
     if (deal) {
       let taken = ok(rtChooseGift(run0, deal.index), 'deal');

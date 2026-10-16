@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
 import { gameWait, untilFrame } from './realtimeFrames';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
 
@@ -329,6 +329,7 @@ test('task 28: the Jailer in a run — the bar only in its fight; bombs sever th
   await page.reload();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
   await page.getByTestId('run-new').click();
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   const state = (): Promise<any> => page.evaluate(() => (window as any).__realtime.run.state());
   const bar = page.getByTestId('boss-bar');
@@ -349,7 +350,7 @@ test('task 28: the Jailer in a run — the bar only in its fight; bombs sever th
       continue;
     }
     if (pending) {
-      await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
+      await page.locator('[data-action="habit"][data-habit="none"]:not([disabled]), [data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
       continue;
     }
     const node = page.locator('[data-status="available"]').first();

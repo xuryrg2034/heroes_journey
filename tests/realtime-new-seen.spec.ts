@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
 
 /**
  * П8 «Новое на карте» (docs/realtime-slice.md, «Новое на карте»; docs/realtime-engagement-research.md): with real input at
@@ -31,6 +31,7 @@ async function freshRun(page: Page): Promise<void> {
   await page.reload();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
   await page.getByTestId('run-new').click();
+  await skipHabit(page);
   await page.getByTestId('gift-0').click();
   const pick = page.locator('[data-action="gift-pick"]').first();
   if (await pick.count()) await pick.click();

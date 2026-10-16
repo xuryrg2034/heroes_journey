@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
 
 /**
  * Tasks 36–37 «Мета v1» (design 15.10.2026, docs/design-notes/tasks-36-37-meta.md): the run-end screen — the experience, the
@@ -27,6 +27,7 @@ async function openRun(page: Page, meta?: object): Promise<void> {
 async function newRun(page: Page): Promise<void> {
   await page.getByTestId('run-new').click();
   await expect(page.getByTestId('run-gift')).toBeVisible();
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await expect(page.getByTestId('run-gift')).toBeHidden();
 }
@@ -174,6 +175,7 @@ test('tasks 36–37: a run that crosses 60 opens «Охотник» — three ca
   expect(run.locked).not.toContain('elite-hunter');
   expect(run.locked).toContain('return-pass');
   // The same start from «Новый поход» on the map (design 16.10.2026): the choice of maps over the run screen, no camp screen.
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await expect(page.getByTestId('run-gift')).toBeHidden();
   await page.getByTestId('run-reset').click();

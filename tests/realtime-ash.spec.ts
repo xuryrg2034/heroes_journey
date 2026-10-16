@@ -1,5 +1,5 @@
 import { type Locator, type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
 import { createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtEnterNode, serializeRtRun, type RtAshLevel, type RtRunState } from '../src/realtime/run/rtRun';
 import { RT_PROFILE_STORAGE_KEY, RT_PROFILE_VERSION, RT_RUN_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
 import { runRow } from '../src/realtime/run/arenaPools';
@@ -124,6 +124,7 @@ test('task 18: no choice before a won run; the final won in the page opens «И�
   await expect(page.getByTestId('ash-3')).toHaveAttribute('aria-pressed', 'true');
 
   await page.getByTestId('run-new').click();
+  await skipHabit(page);
   await page.getByTestId('gift-0').click();
   const pick = page.locator('[data-action="gift-pick"]').first();
   if (await pick.count()) await pick.click();
@@ -149,6 +150,7 @@ test('task 18: no choice before a won run; the final won in the page opens «И�
   expect((await runState(page)).ash).toBe(3);
   await page.evaluate(([key]) => { const p = JSON.parse(localStorage.getItem(key)!); delete p.ash; localStorage.setItem(key, JSON.stringify(p)); }, [RT_PROFILE_STORAGE_KEY] as const);
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), seedOf(7));
+  await skipHabit(page);
   await page.getByTestId('gift-0').click();
   if (await pick.count()) await pick.click();
   await expect(page.getByTestId('run-map')).toBeVisible();

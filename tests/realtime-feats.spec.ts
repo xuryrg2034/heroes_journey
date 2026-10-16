@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
 import { gameWait, untilFrame } from './realtimeFrames';
 import { rtFeatKinds, rtNode, rtNodeFeat, type RtRunState } from '../src/realtime/run/rtRun';
 import { RT_PROFILE_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
@@ -45,6 +45,7 @@ async function viewer(page: Page, jailer: boolean): Promise<void> {
 /** A new run of seed k (the run hook, as `?seed=`), its gift taken by clicks; the card of `nodeId` opened by a click. */
 async function runCard(page: Page, k: number, nodeId: string): Promise<void> {
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), seedOf(k));
+  await skipHabit(page);
   await page.getByTestId('gift-0').click();
   const pick = page.locator('[data-action="gift-pick"]').first();
   if (await pick.count()) await pick.click();

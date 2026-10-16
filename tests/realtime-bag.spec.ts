@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
 import { untilFrame } from './realtimeFrames';
 
 /**
@@ -118,6 +118,7 @@ test('the bag in the run: row 1\'s door has no sack; a row-2 fight has it, a fil
   await page.reload();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), 10);
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   // Row 1: the goals open the door — no bag, no sack.
   await page.getByTestId('node-r5c0').click();

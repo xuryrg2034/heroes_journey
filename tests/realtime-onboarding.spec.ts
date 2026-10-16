@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
 import { readFileSync } from 'node:fs';
 import { gameWait, untilFrame } from './realtimeFrames';
 
@@ -48,6 +48,7 @@ async function freshViewer(page: Page, errors: string[], url = '/'): Promise<voi
 /** A seeded run to the first battle of the map (the gift's first button), the arena open. */
 async function startFight(page: Page): Promise<void> {
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await page.getByTestId('node-r5c0').click();
   await page.getByTestId('run-enter').click();
@@ -453,6 +454,7 @@ test('the toggle «Подсказки» off hides the labels and marks NOTHING (
   };
   // Fight 1: the toggle off on the gear of the map — the goblin stands, no label; the lever is pulled with it off: nothing marked.
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await gearOpen(page);
   await page.getByTestId('view-hints').uncheck();
@@ -468,6 +470,7 @@ test('the toggle «Подсказки» off hides the labels and marks NOTHING (
 
   // Fight 2: on again — the label at the lever is there (the pull of fight 1 did not take it away); one real pull marks b9.
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await gearOpen(page);
   await page.getByTestId('view-hints').check();
@@ -481,6 +484,7 @@ test('the toggle «Подсказки» off hides the labels and marks NOTHING (
 
   // «Обучение»: the memory is empty, the label comes again in the next fight.
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await gearOpen(page);
   await page.getByTestId('prologue-start').click();
@@ -514,6 +518,7 @@ test('the slot pulse follows the toggle «Подсказки»: off — no pulse
   };
   // Off: no pulse, the use marks nothing.
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await gearOpen(page);
   await page.getByTestId('view-hints').uncheck();
@@ -579,6 +584,7 @@ test('task 15 (design 14.10.2026): no line Э2 under the map header — on the f
   const errors: string[] = [];
   await freshViewer(page, errors);
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await expect(page.getByTestId('run-map')).toBeVisible();
   await expect(page.getByTestId('line-resources')).toHaveCount(0);

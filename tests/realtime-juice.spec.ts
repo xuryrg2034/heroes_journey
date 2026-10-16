@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
 import { untilFrame } from './realtimeFrames';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
 
@@ -188,6 +188,7 @@ test('task 35 С3: resources gained on the run screen fly to the header number, 
   const total = async (): Promise<number> => Number(await page.getByTestId('run-resources').locator('b').textContent());
   const start = await total();
   // The gift of resources: the tokens fly from the button to the number, which counts up to the new total.
+  await skipHabit(page);
   await page.getByTestId('run-gift').locator('button', { hasText: 'ресурс' }).first().click();
   // Read in the page's frame the flight starts in: the number still shows the old total while the tokens fly.
   const started = await (await page.waitForFunction(() => {

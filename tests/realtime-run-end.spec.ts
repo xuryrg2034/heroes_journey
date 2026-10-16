@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
 import {
   createRtRun, resolveArena, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtItemRefusal, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtChooseTalisman, rtDieChoose,
   rtEnterNode, rtEventView, rtGiftView, rtNode, rtRestHeal, rtShopLeave, serializeRtRun, type RtRunState, type RtRunStep,
@@ -75,6 +75,7 @@ test('П6 defeat: the end screen says the killer, the row and rows left, the Jai
   await page.reload();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
   await page.evaluate(() => (window as any).__realtime.run.newRun(13));
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await page.locator('[data-status="available"][data-type="battle"]').first().click();
   await page.getByTestId('run-enter').click();
