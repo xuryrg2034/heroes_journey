@@ -297,6 +297,12 @@ export interface Params {
   fireTicks: number;
   /** Sandbox only: consumables of each kind an arena of the sandbox starts with (a run carries its own). */
   sandboxItems: number;
+  /**
+   * Task 41 «Три зелья» (elites.ts `potionHandFull`): at most this many healing potions in hand — a healing loot is not picked up
+   * while the hand holds this many (it stays on the floor; the chain refuses it, `handFull`). 0 — no cap (the default; a journal
+   * without the key plays as before). A run with the flag `potionCap` passes its cap (`rtArenaParams`).
+   */
+  potionCap: number;
   // Elites (stage 2 of the transition, step 3, docs/realtime-slice.md, section 7)
   /** HP of an elite: the enemy's HP × this (a weak one, 0 HP, gets 1). */
   eliteHpFactor: number;
@@ -1078,6 +1084,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   fireInterval: 1.5,
   fireTicks: 3,
   sandboxItems: 3,
+  // Task 41: no cap on healing potions by default (a run passes its own).
+  potionCap: 0,
   // Баланс: section 7 — HP ×2, art ×1.25, touch +1, loot 50% a consumable; random elites 3% / 12%, at most 2 / 4.
   eliteHpFactor: 2,
   eliteDamageBonus: 1,
@@ -1485,6 +1493,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('fireInterval', 'Расходники', 'Огонь: раз в', 0.1, 5, 0.1, 5, 'с'),
   n('fireTicks', 'Расходники', 'Огонь: сколько раз', 1, 10, 1, 5),
   n('sandboxItems', 'Расходники', 'Песочница: расходников каждого вида на старте арены', 0, 9, 1, 5, '', 'Только песочница: в походе количество переносится между аренами.'),
+  n('potionCap', 'Расходники', 'Зелий лечения в руке: не больше', 0, 9, 1, 5, '', 'Задача 41. При полной руке зелье-добыча не подбирается и лежит до конца боя; цепь его не берёт («рука полна»). 0 — без предела. В новом походе — 3.'),
   n('eliteHpFactor', 'Элиты', 'HP элиты', 1, 5, 0.5, 5, '×', 'Слабый враг (0 HP) — 1.'),
   n('eliteDamageBonus', 'Элиты', 'Урон элиты герою: прибавка', 0, 5, 1, 5, '', 'К любому урону элиты герою: касание, стрела, рывок, взрыв сапёра-элиты, иглы дикобраза-элиты.'),
   n('eliteArtScale', 'Элиты', 'Рисунок элиты', 1, 2, 0.05, 5, '×', 'Рисунок, край для R и круг нажатия; тело то же.'),

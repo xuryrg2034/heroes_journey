@@ -33,6 +33,9 @@ import { battleOption, forestEvent } from '../forest/forestEvents';
 import type { ItemKind } from '../forest/types';
 import type { PrologueRecord, RunRecord } from './schema';
 import { closeNode, outcomeOf, quiet, seedOf, takeGift } from '../run/runFight.testkit';
+import { walkRun } from '../run/metaWalk.testkit';
+import { rtChooseFind } from '../run/rtRun';
+import { handFullLines } from './report';
 import { TelemetryBuffer, memoryJournalStore, TLM_INDEX_KEY, TLM_PREFIX, TLM_RUN_META_KEY, TLM_SESSION_KEY, TLM_TESTER_KEY, type KeyValueStore } from './buffer';
 import { playLoopFight } from './loopFight.testkit';
 import { createFightObserver, EventCursor } from './observe';
@@ -593,6 +596,34 @@ async function main(): Promise<void> {
     const r2 = await latest(7102);
     assert(r2.gentle === undefined && r2.startPotion === undefined && r2.secondWindOn === undefined && r2.startItems === undefined && r2.secondWind === undefined, 'the old run');
     assert(checkRecord({ ...r1, startPotion: false }) === 'run startPotion' && checkRecord({ ...r1, secondWindOn: 1 }) === 'run secondWindOn', 'the flags are checked');
+    rec.dispose();
+  });
+
+  await check('task 41: a find closed with a full hand counts its refused healing (`items.capRefused`), the record carries `potionCap`; a run without the cap counts nothing; the report\'s lines', async () => {
+    const local = fake();
+    const rec = new RtRecorder({ sandbox: false, paramsStorage: 'p', params: rtRunParams(quiet()), observer: createFightObserver, local, sessionStore: sessionFake(), channel: null, sinkPollMs: 0, buffer: { storage: local, journals: memoryJournalStore() } });
+    const latest = async (seed: number): Promise<RunRecord> => { await new Promise(r => setTimeout(r, 10)); return (await rec.buffer.all()).filter((r): r is RunRecord => r.kind === 'run' && r.seed === seed).pop()!; };
+    const records: RunRecord[] = [];
+    for (const cap of [3, 0]) {
+      // The first find of a walk (the fights made up), the hand set to 3 healing potions as its finds and fights could leave it.
+      let atFind: RtRunState | null = null;
+      for (let k = 1; !atFind && k <= 20; k++) walkRun({ k, create: { gift: 'mini', potionCap: cap }, each: s => { if (!atFind && s.pending?.kind === 'find') atFind = structuredClone(s); } });
+      const run = structuredClone(atFind!);
+      run.items.healing = 3;
+      rec.runStarted(null, run);
+      const step = rtChooseFind(run, 'bomb');
+      assert(step.ok, 'the bomb is taken');
+      rec.runStep(run, step);
+      const r = await latest(run.seed);
+      assert(checkRecord(r) === null, `the record: ${checkRecord(r)}`);
+      if (cap) assert(r.potionCap === 3 && r.items?.capRefused === 1 && r.items.floorLeft === undefined, `with the cap: ${JSON.stringify({ cap: r.potionCap, items: r.items })}`);
+      else assert(r.potionCap === undefined && r.items?.capRefused === undefined, `without the cap: ${JSON.stringify({ cap: r.potionCap, items: r.items })}`);
+      if (cap) assert(checkRecord({ ...r, potionCap: 0 }) === 'run potionCap' && checkRecord({ ...r, potionCap: 1.5 }) === 'run potionCap', 'a bad cap is refused');
+      records.push(r);
+    }
+    const lines = handFullLines(records);
+    assert(lines.includes('Походов с пределом зелий: 1 (предел 3)') && lines.includes('Отказов «Рука полна» (выбор лечения, показанный недоступным, и лишнее зелье награды): 1, в 1 походах'), lines);
+    assert(handFullLines(records.slice(1)).startsWith('Походов с пределом зелий нет'), 'no capped run');
     rec.dispose();
   });
 

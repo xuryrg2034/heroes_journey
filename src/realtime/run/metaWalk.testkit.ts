@@ -7,8 +7,9 @@
  * The walk's choices depend only on the seed index and the step, so a run of the same seed and options walks the same way.
  */
 import { RESOURCE_KINDS } from '../forest/resources';
+import type { ItemKind } from '../forest/types';
 import {
-  createRtRun, resolveArena, rtAvailableNodes, rtCasinoLeave, rtCasinoPlay, rtCasinoView, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick,
+  createRtRun, resolveArena, rtAvailableNodes, rtCasinoLeave, rtCasinoPlay, rtCasinoView, rtChooseEventOption, rtChooseFind, rtItemRefusal, rtChooseGift, rtChooseGiftPick,
   rtChooseHammer, rtChooseTalisman, rtHammerRerollView, rtRerollHammers, rtEnterNode, rtEventView, rtGiftView, rtNode, rtRerollView, rtRerollTalismans, rtRestCraft, rtRestFinish, rtRestHeal,
   rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun, rtEnterGarrison, type RtArenaOutcome, type RtRunState, type RtRunStep,
 } from './rtRun';
@@ -133,10 +134,17 @@ export function walkRun(options: WalkOptions): Walk {
         else run = seen(recipe && step % 2 === 1 ? ok(rtRestCraft(run, recipe.resource), 'craft') : ok(rtRestHeal(run), 'heal'));
         break;
       }
-      case 'find': run = seen(ok(rtChooseFind(run, pending.options[step % pending.options.length]), 'find')); break;
+      case 'find': {
+        // Task 41: the walk's pick, or the next one the hand can take (a full hand refuses the healing one).
+        const n = pending.options.length, at = [0, 1, 2].map(d => (step + d) % n).find(i => !rtItemRefusal(run, pending.options[i])) ?? step % n;
+        run = seen(ok(rtChooseFind(run, pending.options[at]), 'find')); break;
+      }
       case 'gift': {
         const view = rtGiftView(run)!;
-        if (view.chosen !== null) { run = seen(ok(rtChooseGiftPick(run, view.picks[step % view.picks.length]), 'gift pick')); break; }
+        if (view.chosen !== null) {
+          const n = view.picks.length, at = [0, 1, 2].map(d => (step + d) % n).find(i => !rtItemRefusal(run, view.picks[i] as ItemKind)) ?? step % n;
+          run = seen(ok(rtChooseGiftPick(run, view.picks[at]), 'gift pick')); break;
+        }
         const open = view.options.filter(entry => entry.available);
         run = seen(ok(rtChooseGift(run, open.length ? open[(k + step) % open.length].index : null), 'gift'));
         break;
@@ -157,6 +165,7 @@ export function walkRun(options: WalkOptions): Walk {
 /** The walks of the byte-for-byte reference (meta.reference.ts): 24 seeds, both gifts, feats on every third, the circle on some. */
 export const REFERENCE_WALKS = (): WalkOptions[] => Array.from({ length: 24 }, (_, i) => {
   const k = i + 1;
-  // Task 30: the reference predates the forms — its runs are created without them (`forms: false`, as a save before it).
-  return { k, create: { gift: k % 2 ? 'full' : 'mini', ...k % 3 === 0 ? { feats: true } : {}, ...k % 4 === 0 ? { schedule: [] } : {}, forms: false }, ...k % 5 === 0 ? { loseAt: (_run: RtRunState, type: string) => type === 'checkpoint' } : {} };
+  // Task 30: the reference predates the forms — its runs are created without them (`forms: false`, as a save before it); task 41:
+  // without the cap of healing potions (`potionCap: 0`).
+  return { k, create: { gift: k % 2 ? 'full' : 'mini', ...k % 3 === 0 ? { feats: true } : {}, ...k % 4 === 0 ? { schedule: [] } : {}, forms: false, potionCap: 0 }, ...k % 5 === 0 ? { loseAt: (_run: RtRunState, type: string) => type === 'checkpoint' } : {} };
 });

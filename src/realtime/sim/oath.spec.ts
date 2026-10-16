@@ -31,7 +31,7 @@ import { doorPayout, greedLine, purseResources } from './purse';
 import { Simulation, replay } from './simulation';
 import { killEnemy, type WorldEvent } from './world';
 import {
-  arenaPreview, createRtRun, migrateRun, parseRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick,
+  arenaPreview, createRtRun, migrateRun, parseRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtItemRefusal, rtChooseGift, rtChooseGiftPick,
   rtChooseHammer, rtChooseTalisman, rtEnterNode, rtEventView, rtGiftView, rtGuaranteedElite, rtNode, rtOathNode, rtOathOffer, rtOathPreview, rtOathText, rtRestHeal, rtRunParams, rtShopLeave,
   serializeRtRun, RT_OATH_IDS, RT_OATH_IDS_BEFORE, RT_RUN_FORCED, RT_RUN_VERSION, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
@@ -431,7 +431,7 @@ function takeGift(run: RtRunState): RtRunState {
 function closeNode(run: RtRunState): RtRunState {
   const pending = run.pending;
   if (pending?.kind === 'battle') return ok(resolveArena(run, { nodeId: pending.nodeId, won: true, hp: run.hp, kills: 0, damage: 0, time: 1 }), 'fake win');
-  if (pending?.kind === 'find') return ok(rtChooseFind(run, pending.options[0]), 'find');
+  if (pending?.kind === 'find') return ok(rtChooseFind(run, pending.options.find(item => !rtItemRefusal(run, item)) ?? pending.options[0]), 'find');
   if (pending?.kind === 'rest') return ok(rtRestHeal(run), 'rest');
   if (pending?.kind === 'shop') return ok(rtShopLeave(run), 'shop');
   if (pending?.kind === 'talisman') return ok(rtChooseTalisman(run, null), 'talisman');

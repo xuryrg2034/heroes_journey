@@ -22,7 +22,7 @@ import {
 } from '../sim/rosters';
 import { MIXED_ROSTER_ARENAS, rosterMet, RUN_ARENAS, runRow } from './arenaPools';
 import { RT_TASK17_OFF,
-  arenaPreview, createRtRun, parseRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtChooseTalisman, rtEnterNode,
+  arenaPreview, createRtRun, parseRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtItemRefusal, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtChooseTalisman, rtEnterNode,
   rtEventView, rtGiftView, rtNode, rtRestHeal, rtShopLeave, serializeRtRun, RT_RUN_FORCED, RT_RUN_VERSION, type RtRunState, type RtRunStep,
 } from './rtRun';
 import saveBeforeMix from '../../../tests/fixtures/rt-run-save-before-mix.json';
@@ -77,7 +77,7 @@ function walk(seed: number, k: number, mix = true): Played[] {
     } else if (pending?.kind === 'hammer') run = ok(rtChooseTalisman(ok(rtChooseHammer(run, null), 'refuse hammer'), null), 'refuse');
     else if (pending?.kind === 'talisman') run = ok(rtChooseTalisman(run, null), 'refuse');
     else if (pending?.kind === 'rest') run = ok(rtRestHeal(run), 'rest');
-    else if (pending?.kind === 'find') run = ok(rtChooseFind(run, pending.options[0]), 'find');
+    else if (pending?.kind === 'find') run = ok(rtChooseFind(run, pending.options.find(item => !rtItemRefusal(run, item)) ?? pending.options[0]), 'find');
     else if (pending?.kind === 'shop') run = ok(rtShopLeave(run), 'shop');
     else if (pending?.kind === 'event') run = ok(rtChooseEventOption(run, rtEventView(run)!.options.find(option => option.available)!.id), 'event');
     else {

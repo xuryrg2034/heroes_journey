@@ -1,7 +1,7 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
 import {
-  createRtRun, resolveArena, rtAvailableNodes, rtCasinoLeave, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtChooseTalisman, rtDieChoose, rtEnterNode,
+  createRtRun, resolveArena, rtAvailableNodes, rtCasinoLeave, rtChooseFind, rtItemRefusal, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtChooseTalisman, rtDieChoose, rtEnterNode,
   rtEventView, rtGiftView, rtRestHeal, rtShopLeave, rtChooseEventOption, serializeRtRun, parseRtRun, rtCasinoNode, RT_CASINO_TITLE, type RtRunState, type RtRunStep,
 } from '../src/realtime/run/rtRun';
 
@@ -36,7 +36,7 @@ function stepOf(run: RtRunState, stop: (run: RtRunState) => boolean, circle: boo
   if (p?.kind === 'talisman') return ok(rtChooseTalisman(run, null));
   if (p?.kind === 'hammer') return ok(rtChooseHammer(run, null));
   if (p?.kind === 'die') return ok(rtDieChoose(run, false));
-  if (p?.kind === 'find') return ok(rtChooseFind(run, p.options[0]));
+  if (p?.kind === 'find') return ok(rtChooseFind(run, p.options.find(item => !rtItemRefusal(run, item)) ?? p.options[0]));
   if (p?.kind === 'rest') return ok(rtRestHeal(run));
   if (p?.kind === 'shop') return ok(rtShopLeave(run));
   if (p?.kind === 'event') return ok(rtChooseEventOption(run, rtEventView(run)!.options.find(option => option.safe && option.available)!.id));

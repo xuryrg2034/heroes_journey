@@ -391,6 +391,11 @@ export type WorldEvent =
   | { type: 'item'; kind: ItemKind; x: number; y: number; radius: number; targets: number }
   /** Stage 2, step 3: an elite dropped its loot (`dropped`) or the hero picked it up. */
   | { type: 'loot'; objectId: number; loot: ItemKind | ResourceKind; x: number; y: number; picked: boolean }
+  /**
+   * Task 41 «Три зелья» (`Params.potionCap`): the hero touched a healing loot with a full hand — it stays on the floor. Every tick of
+   * the touch (the telemetry counts each loot once).
+   */
+  | { type: 'lootRefused'; objectId: number; loot: ItemKind }
   /** Stage 2, step 3: a newcomer became an elite (a random elite). */
   | { type: 'elite'; enemyId: number }
   /** Stage 2, step 3: «Пепельный оберег» saved the hero from a lethal hit (1 HP left) and crumbled. */

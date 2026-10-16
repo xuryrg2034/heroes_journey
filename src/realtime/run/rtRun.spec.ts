@@ -32,7 +32,7 @@ import { arenaCandidates, arenaNewKinds, ARENA_POOLS, ARENA_POOLS_BEFORE_MIX, or
 import { arenaTemplate } from '../sim/arenas';
 import { rtHp, RT_RUN_HP } from './hpScale';
 import { RT_TASK17_OFF,
-  arenaPreview, arenaSeed, createRtRun, nodeArenas, GIFT_POOL, rtMapNodes, parseRtRun, resolveArena, rtArenaLoadout, RT_MILLSTONE_MAX_HP_PRICE, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick,
+  arenaPreview, arenaSeed, createRtRun, nodeArenas, GIFT_POOL, rtMapNodes, parseRtRun, resolveArena, rtArenaLoadout, RT_MILLSTONE_MAX_HP_PRICE, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtItemRefusal, rtChooseGift, rtChooseGiftPick,
   rtChooseHammer, rtChooseTalisman, rtEnterNode, rtHammerOptions, rtEventView, rtGiftOptions, rtGiftView, rtNode, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun, rtItemHintDue, rtRunParams,
   type RtRunState, type RtRunStep,
 } from './rtRun';
@@ -457,7 +457,7 @@ function arenaPath(seed: number, k: number, mix: boolean, gentle = false): { pat
     } else if (pending?.kind === 'hammer') run = ok(rtChooseTalisman(ok(rtChooseHammer(run, null), 'refuse hammer'), null), 'refuse');
     else if (pending?.kind === 'talisman') run = ok(rtChooseTalisman(run, null), 'refuse');
     else if (pending?.kind === 'rest') run = ok(rtRestHeal(run), 'rest');
-    else if (pending?.kind === 'find') run = ok(rtChooseFind(run, pending.options[0]), 'find');
+    else if (pending?.kind === 'find') run = ok(rtChooseFind(run, pending.options.find(item => !rtItemRefusal(run, item)) ?? pending.options[0]), 'find');
     else if (pending?.kind === 'shop') run = ok(rtShopLeave(run), 'shop');
     else if (pending?.kind === 'event') run = ok(rtChooseEventOption(run, rtEventView(run)!.options.find(option => option.available)!.id), 'event');
     else {
@@ -678,7 +678,7 @@ check('rest and merchant through real visits (HP and resources prepared on enter
         run = ok(rtShopLeave(run), 'leave'); shopped = true;
         continue;
       }
-      if (run.pending?.kind === 'find') { run = ok(rtChooseFind(run, run.pending.options[0]), 'find'); continue; }
+      if (run.pending?.kind === 'find') { run = ok(rtChooseFind(run, run.pending.options.find(item => !rtItemRefusal(run, item)) ?? run.pending.options[0]), 'find'); continue; }
       if (run.pending?.kind === 'talisman') { run = ok(rtChooseTalisman(run, null), 'talisman'); continue; }
       if (run.pending?.kind === 'hammer') { run = ok(rtChooseHammer(run, null), 'hammer'); continue; }
       if (run.pending?.kind === 'event') {
@@ -774,7 +774,7 @@ function openNode(salt: number, type: 'find' | 'shop' | 'rest' | 'event', prepar
       const pending = run.pending;
       if (pending?.kind === type) return prepare(run);
       if (pending?.kind === 'battle') { const sim = startArena(run); winArena(sim); run = ok(resolveArena(run, outcomeOf(run, sim)), 'resolve'); continue; }
-      if (pending?.kind === 'find') { run = ok(rtChooseFind(run, pending.options[0]), 'find'); continue; }
+      if (pending?.kind === 'find') { run = ok(rtChooseFind(run, pending.options.find(item => !rtItemRefusal(run, item)) ?? pending.options[0]), 'find'); continue; }
       if (pending?.kind === 'rest') { run = ok(rtRestHeal(run), 'rest'); continue; }
       if (pending?.kind === 'shop') { run = ok(rtShopLeave(run), 'shop'); continue; }
       if (pending?.kind === 'talisman') { run = ok(rtChooseTalisman(run, null), 'talisman'); continue; }
@@ -801,7 +801,7 @@ const seedOf32 = (k: number): number => Math.imul(k, 2654435761) >>> 0;
 /** One step past an open non-battle node: a find takes its first option, a rest heals, a merchant is left, an event takes its safe option, a talisman choice is refused. */
 function nextArenaStep(run: RtRunState): RtRunState {
   const pending = run.pending;
-  if (pending?.kind === 'find') return ok(rtChooseFind(run, pending.options[0]), 'find');
+  if (pending?.kind === 'find') return ok(rtChooseFind(run, pending.options.find(item => !rtItemRefusal(run, item)) ?? pending.options[0]), 'find');
   if (pending?.kind === 'rest') return ok(rtRestHeal(run), 'rest');
   if (pending?.kind === 'shop') return ok(rtShopLeave(run), 'shop');
   if (pending?.kind === 'talisman') return ok(rtChooseTalisman(run, null), 'talisman');

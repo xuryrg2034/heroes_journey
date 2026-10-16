@@ -21,7 +21,7 @@ import type { World } from '../sim/world';
 import { rtTalisman } from '../run/rtTalismans';
 import { runRow } from '../run/arenaPools';
 import { rtGarrisonNodeId } from '../run/garrison';
-import { rtEventView, rtFightArc, rtGiftView, rtLevel, rtNode, rtRestView, rtScheduleMet, rtShopView, type RtRunState, type RtRunStep } from '../run/rtRun';
+import { rtEventView, rtFightArc, rtGiftView, rtHandFullOffers, rtLevel, rtNode, rtRestView, rtScheduleMet, rtShopView, type RtRunState, type RtRunStep } from '../run/rtRun';
 import type { GiftOption } from '../forest/runGift';
 import { ITEM_KINDS } from '../forest/items';
 import { RESOURCE_KINDS } from '../forest/resources';
@@ -345,7 +345,7 @@ interface OpenFight {
   /** The consumables in hand when the run fight began (the run's own count). */
   itemsIn?: Record<string, number>;
   /** Set when the fight ended with a result: the hand at the end and the consumables used; the next run step takes it once. */
-  itemsOut?: { end: Record<string, number>; used: Record<string, number> };
+  itemsOut?: { end: Record<string, number>; used: Record<string, number>; capLeft: number };
   done: boolean;
   /** `pagehide` cut the fight (its stash key): a page restored from the back-forward cache records it on. */
   hidden?: string;
@@ -562,7 +562,7 @@ export class RtRecorder {
     // Task 16 telemetry: the view's count of first meetings in the fight; the feat's summary for the run step that feeds it back.
     if (f.novelty) body.summary.novelty = f.novelty;
     f.feat = body.summary.feat ?? null;
-    if (f.itemsIn && world.kit && (outcome === 'victory' || outcome === 'defeat')) f.itemsOut = { end: { ...world.kit.items }, used: { ...body.summary.abilities.items } };
+    if (f.itemsIn && world.kit && (outcome === 'victory' || outcome === 'defeat')) f.itemsOut = { end: { ...world.kit.items }, used: { ...body.summary.abilities.items }, capLeft: body.summary.abilities.capLeft };
     // Task 20: what a won run fight gives the run's resources (main.ts `recordRunArena` passes the same: the kit's materials, the bag).
     if (f.ctx.runState && outcome === 'victory') f.resourcesOut = { loot: { ...world.kit?.materials ?? {} }, bag: { ...bagPayout(world) ?? {} } as Record<string, number> };
     if (f.run !== SANDBOX_RUN && this.meta?.key === f.run) {
@@ -697,7 +697,7 @@ export class RtRecorder {
     const meta = this.metaFor(run), runParams = JSON.parse(JSON.stringify(this.options.params)) as Params;
     const record: RunRecord = {
       ...this.header(runRecordId(this.session, meta.key), 'run', meta.key, paramsHash(runParams)),
-      seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, ...meta.hints?.length ? { hints: meta.hints } : {}, ...meta.items ? { items: meta.items } : {}, ...meta.gentle ? { gentle: true as const } : {}, ...meta.startPotion ? { startPotion: true as const } : {}, ...meta.secondWindOn ? { secondWindOn: true as const } : {}, ...meta.startItems ? { startItems: meta.startItems } : {}, ...meta.secondWind ? { secondWind: meta.secondWind } : {}, ...meta.mapHeals?.length ? { mapHeals: meta.mapHeals } : {}, /* task 18: the run's own level */ ...run.ash ? { ash: run.ash } : {}, /* task 26: living elements of the snapshot (affix types apart) */ ...run.schedule ? { schedule: { start: run.schedule.seen.filter(id => !id.startsWith('affix:')).length } } : {},
+      seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, ...meta.hints?.length ? { hints: meta.hints } : {}, ...meta.items ? { items: meta.items } : {}, ...meta.gentle ? { gentle: true as const } : {}, ...meta.startPotion ? { startPotion: true as const } : {}, ...meta.secondWindOn ? { secondWindOn: true as const } : {}, ...meta.startItems ? { startItems: meta.startItems } : {}, ...meta.secondWind ? { secondWind: meta.secondWind } : {}, ...meta.mapHeals?.length ? { mapHeals: meta.mapHeals } : {}, /* task 18: the run's own level */ ...run.ash ? { ash: run.ash } : {}, /* task 41: the cap of healing potions */ ...run.potionCap ? { potionCap: run.potionCap } : {}, /* task 26: living elements of the snapshot (affix types apart) */ ...run.schedule ? { schedule: { start: run.schedule.seen.filter(id => !id.startsWith('affix:')).length } } : {},
       ...meta.featsOn ? { featsOn: true as const } : {}, ...meta.feats?.length ? { feats: meta.feats } : {}, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun, ...meta.viewerRunApprox ? { viewerRunApprox: true as const } : {} } : {}, ...meta.firsts?.length ? { firsts: meta.firsts } : {}, ...meta.resources ? { resources: meta.resources } : {}, ...meta.fx ? { fx: meta.fx } : {}, ...meta.metaTlm ?? {}, ...runLevels(run), runParams,
     };
     void this.put([JSON.parse(JSON.stringify(record)) as RunRecord]);
@@ -994,6 +994,12 @@ export class RtRecorder {
         items.left[kind] = after.items[kind];
       }
     }
+    // Task 41 «Три зелья»: healing refused for a full hand — the screen this step closed showed it refused (the hand before the step),
+    // a reward's healing beyond the cap; and the healing loot the fight left on the floor.
+    const closed = !!before.pending && (after.pending?.kind !== before.pending.kind || after.result !== null || after.currentNodeId !== before.currentNodeId);
+    const refused = (closed ? rtHandFullOffers(before) : 0) + step.events.reduce((n, e) => n + (e.type === 'items-capped' ? e.items.length : 0), 0);
+    if (refused) items.capRefused = (items.capRefused ?? 0) + refused;
+    if (own?.itemsOut?.capLeft) items.floorLeft = (items.floorLeft ?? 0) + own.itemsOut.capLeft;
     if (own) own.itemsOut = undefined;
   }
 

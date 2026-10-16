@@ -45,7 +45,8 @@
  *   enemies on the arena per tick (average, maximum).
  * - movement: path of the hero in arena units (walk, dash, jump, knockback; a `teleport` command is not a path);
  *   game seconds standing (the hero did not move in the tick), in water (his centre), in thorns.
- * - abilities: `jump` and `spin` events, `item` events by kind.
+ * - abilities: `jump` and `spin` events, `item` events by kind; task 41: healing loot refused with a full hand (`lootRefused`) and
+ *   still on the floor at the end (`capLeft`).
  * - raised touches (package «Урон имеет значение»): a `hit` whose source is the striker kind's touch (`hitSource`) while the
  *   sim says its touch is raised (`touchRaised`, read after the tick: the touch is the last step of a tick).
  * - elites: an enemy with `elite` is seen from the start or from the first look at it as an elite (a newcomer becoming one);
@@ -211,6 +212,8 @@ export function createFightObserver(start: World): FightObserver {
   if (start.bag) s.bag.appeared = true;
   /** «Перебор»: the source of the last hit on the hero (a lost fight names its killing blow). */
   let lastHitSource: string | null = null;
+  // Task 41: the healing loot the hero touched with a full hand (`lootRefused`), once each.
+  const capRefused = new Set<number>();
   /** Task 20: the lit busts in order (one per `slot.bustExits` entry), the move before this look, the entry the blast's hit counts for. */
   const busts: BustWatch[] = [];
   let prevMove: HeroMove | null = start.move, bustHurt: SlotBustExit | null = null;
@@ -329,6 +332,7 @@ export function createFightObserver(start: World): FightObserver {
           else if (ev.inWindow) s.elites.lateWindowKills++;
           return;
         case 'loot': if (ev.picked) s.elites.loot.picked++; else s.elites.loot.dropped++; return;
+        case 'lootRefused': capRefused.add(ev.objectId); return;
         case 'crystal': s.chain.crystals++; return;
         // «Смена цвета»: the dash reached the link that freed the colour (a shift by length, not through a crystal).
         case 'colorShift': s.chain.colorShifts++; return;
@@ -620,6 +624,8 @@ export function createFightObserver(start: World): FightObserver {
       out.tempo.toDoor = w.status === 'victory' ? end : null;
       out.build.active = (w.kit?.talismans ?? []).filter(id => !FIRING.has(id));
       out.elites.aliveAtEnd = w.enemies.filter(e => elites.has(e.id)).length;
+      // Task 41: the refused healing loot still lying (picked up later with room in the hand — gone from the arena).
+      out.abilities.capLeft = [...capRefused].filter(id => w.objects.some(o => o.id === id)).length;
       // Casino stage 1: a spin still shown when the fight ended (the door, a defeat) never acts.
       out.slot.cancelled = w.status !== 'playing' && w.slot?.goblin?.spin ? 1 : 0;
       // «Перебор»: the bust's blow was the last hit of a lost fight (the second wind or the ward kept him up otherwise).

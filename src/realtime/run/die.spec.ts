@@ -26,7 +26,7 @@ import { defaultParams, type Params } from '../sim/params';
 import { doorPayout, purseResources, type PurseDoor } from '../sim/purse';
 import { Simulation, replay } from '../sim/simulation';
 import {
-  createRtRun, migrateRun, parseRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick,
+  createRtRun, migrateRun, parseRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtItemRefusal, rtChooseGift, rtChooseGiftPick,
   rtChooseHammer, rtChooseTalisman, rtDieChoose, rtDieFace, rtDieMult, rtDieView, rtEnterNode, rtEventView, rtGiftView, rtNode, rtRestHeal, rtRunParams, rtShopLeave,
   serializeRtRun, DIE_HIGH_MULT, DIE_LOW_MULT, RT_RUN_FORCED, RT_RUN_VERSION, type RtArenaOutcome, type RtRunState, type RtRunStep,
 } from './rtRun';
@@ -116,7 +116,7 @@ function closeNode(run: RtRunState): RtRunState {
   const pending = run.pending;
   if (pending?.kind === 'battle') return ok(resolveArena(run, { nodeId: pending.nodeId, won: true, hp: run.hp, kills: 0, damage: 0, time: 1 }), 'fake win');
   if (pending?.kind === 'die') return ok(rtDieChoose(run, false), 'take');
-  if (pending?.kind === 'find') return ok(rtChooseFind(run, pending.options[0]), 'find');
+  if (pending?.kind === 'find') return ok(rtChooseFind(run, pending.options.find(item => !rtItemRefusal(run, item)) ?? pending.options[0]), 'find');
   if (pending?.kind === 'rest') return ok(rtRestHeal(run), 'rest');
   if (pending?.kind === 'shop') return ok(rtShopLeave(run), 'shop');
   if (pending?.kind === 'talisman') return ok(rtChooseTalisman(run, null), 'talisman');

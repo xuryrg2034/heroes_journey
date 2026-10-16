@@ -224,6 +224,8 @@ export function rtArenaParams(run: RtArenaRules | RtRunState, params: Params): P
   // (task 33) and «Возврат» fixed at the release as its highlight shows it (task 29: the shadow is the run); without it — the
   // values of `RUN_FORCED` (all off).
   if (rules.forms) Object.assign(out, RT_FORMS_PARAMS);
+  // Task 41 «Три зелья»: a run with the cap plays it in the fight (a healing loot stays on the floor with a full hand).
+  if (rules.potionCap) out.potionCap = rules.potionCap;
   // Task 17 «Пологий вход»: the row's invulnerability after a hit and the tough touch from row 3 (`rtRowGrace`).
   if (rules.gentleRow !== undefined) {
     out.invulnerability = rtRowGrace(rules.gentleRow);
@@ -235,12 +237,12 @@ export function rtArenaParams(run: RtArenaRules | RtRunState, params: Params): P
  * Task 17: what of the run decides the params of its open battle (`rtArenaParams`): the flag `markedGoals` and, for a run
  * with `gentleEntry`, the run row of the open battle node (`gentleRow`; absent — an older run, or no battle open).
  */
-export interface RtArenaRules { markedGoals?: true; gentleRow?: number; shortFuse?: true; forms?: true }
+export interface RtArenaRules { markedGoals?: true; gentleRow?: number; shortFuse?: true; forms?: true; potionCap?: number }
 export function rtArenaRules(run: RtRunState): RtArenaRules {
   const pending = run.pending, node = pending?.kind === 'battle' ? rtNode(run, pending.nodeId) : undefined;
   // Task 38: a garrison fight has no gentle row (the invulnerability 0.5 s and the tough touch from its row 1).
   const gentle = run.gentleEntry && node && !rtGarrisonNodeId(node.id);
-  return { ...run.markedGoals ? { markedGoals: true as const } : {}, ...gentle ? { gentleRow: runRow(node.row) } : {}, ...run.shortFuse ? { shortFuse: true as const } : {}, ...run.forms ? { forms: true as const } : {} };
+  return { ...run.markedGoals ? { markedGoals: true as const } : {}, ...gentle ? { gentleRow: runRow(node.row) } : {}, ...run.shortFuse ? { shortFuse: true as const } : {}, ...run.forms ? { forms: true as const } : {}, ...run.potionCap ? { potionCap: run.potionCap } : {} };
 }
 /**
  * Task 30: the rules a fight of a run with the flag `forms` plays over `RUN_FORCED` (design 15.10.2026): the counters' window —
@@ -600,6 +602,13 @@ export interface RtRunState {
    */
   moat?: true;
   /**
+   * Task 41 «Три зелья» (design 16.10.2026, docs/design-notes/task-41-prisoner-potions.md): at most this many healing potions in hand
+   * (`RT_POTION_CAP`) — a healing choice of a find, the merchant, the gift or a rest's craft is refused with a full hand
+   * (`rtItemRefusal`), a reward's healing beyond it does not join (`items-capped`), the fights play it (`Params.potionCap`). A hand
+   * above it keeps what it holds. Set when a run is created; absent — a run saved before it: no cap, byte for byte as before.
+   */
+  potionCap?: number;
+  /**
    * Task 40 «Повозка»: what «В гарнизон» sent to the camp — `n` resources (0 … `RT_CART_MAX`, out of the run's stock at once) of
    * `before` (the stock then). Carried 100 % at any end, within the carry's cap (run/rtMeta.ts `rtCarry`). Set only for a run with
    * the cart (`moat` and the camp); absent — no cart (every run without the camp, byte for byte as before).
@@ -694,6 +703,8 @@ export type RtRunEvent =
   | { type: 'find-offered'; nodeId: string; options: ItemKind[] }
   /** Consumables gained (a find, a craft, a purchase, the gift, an event, an arena's loot) and those it opened. */
   | { type: 'items-gained'; items: ItemKind[]; opened: ItemKind[] }
+  /** Task 41 «Три зелья»: healing of a reward that did not join — the hand was full (`RtRunState.potionCap`). */
+  | { type: 'items-capped'; items: ItemKind[] }
   | { type: 'rest-crafted'; nodeId: string; resource: ResourceKind; item: ItemKind }
   | { type: 'talisman-offered'; nodeId: string; options: RtTalismanOption[] }
   | { type: 'talisman-taken'; id: RtTalismanId }
@@ -819,7 +830,7 @@ export interface RtArenaOutcome {
  * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
  * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
  */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; garrison?: boolean; moat?: boolean } = {}): RtRunState {
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; garrison?: boolean; moat?: boolean; potionCap?: number } = {}): RtRunState {
   const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
   // Task 12 (13.10.2026): the goal layouts of the `marked` arenas, as the mix — on as `RT_RUN_FORCED` says unless the option says.
   const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
@@ -849,8 +860,10 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   // Task 40 «Гарнизон, шаг 1б» (16.10.2026): «Ров», the keymaster and the cart — only with the garrison, by `RT_GARRISON_MOAT_ON`
   // (on with the ui view, 16.10.2026) unless the option says.
   const moat = garrison && (options.moat ?? RT_GARRISON_MOAT_ON);
+  // Task 41 «Три зелья» (16.10.2026): the cap of healing potions, `RT_POTION_CAP` unless the option says (0 — none, as a save before it).
+  const potionCap = Math.max(0, Math.floor(options.potionCap ?? RT_POTION_CAP));
   const run: RtRunState = {
-    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...locked ? { locked, heroId: RT_HERO_ID } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...locked ? { locked, heroId: RT_HERO_ID } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...potionCap ? { potionCap } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
@@ -876,7 +889,11 @@ export const emptyItemCounts = (): Record<ItemKind, number> => ({ frost: 0, bomb
  */
 export const GIFT_POOL: TalismanPool = turnPool({ taken: [], gone: [] });
 /** Consumables join the run: counted and opened (as a find, a craft, a purchase, the gift, an event of the turn-based run). */
-function gainItems(run: RtRunState, items: readonly ItemKind[], events: RtRunEvent[]): void {
+function gainItems(run: RtRunState, given: readonly ItemKind[], events: RtRunEvent[]): void {
+  // Task 41 «Три зелья»: healing beyond the cap does not join (a reward counts in it too; a hand above it keeps what it holds).
+  let room = run.potionCap ? Math.max(0, run.potionCap - run.items.healing) : Infinity;
+  const items = given.filter(item => item !== 'healing' || room-- > 0), capped = given.length - items.length;
+  if (capped) events.push({ type: 'items-capped', items: Array<ItemKind>(capped).fill('healing') });
   if (!items.length) return;
   const opened = [...new Set(items)].filter(item => !run.openItems.includes(item));
   for (const item of items) run.items[item]++;
@@ -884,6 +901,39 @@ function gainItems(run: RtRunState, items: readonly ItemKind[], events: RtRunEve
   // Iteration 2.1: the kinds blink on the panel of the next arena.
   run.itemsNew = [...new Set([...run.itemsNew ?? [], ...items])];
   events.push({ type: 'items-gained', items: [...items], opened });
+}
+/** Баланс (task 41 «Три зелья», design 16.10.2026): the most healing potions in hand of a new run (`RtRunState.potionCap`). */
+export const RT_POTION_CAP = 3;
+/** Task 41: the cap of the run's healing potions (null — none: a run saved before task 41). */
+export const rtPotionCap = (run: Pick<RtRunState, 'potionCap'>): number | null => run.potionCap ?? null;
+/** Task 41: the hand holds the cap of healing potions or more (the view's frame «полна» of the item button between the fights). */
+export const rtHandFull = (run: Pick<RtRunState, 'potionCap' | 'items'>): boolean => !!run.potionCap && run.items.healing >= run.potionCap;
+/** Task 41: why the hand cannot take a consumable now — `handFull` (a healing potion with a full hand). */
+export type RtItemRefusal = 'handFull';
+/** The words at the place of a refused choice. */
+export const RT_ITEM_REFUSAL_TEXT: Readonly<Record<RtItemRefusal, string>> = { handFull: 'Рука полна' };
+/**
+ * Task 41: the refusal of one consumable a choice offers (a find's option, a merchant's good, a rest's recipe, the gift's pick);
+ * null — it can be taken. The option stays on the screen (the offers of `forest/` never change).
+ */
+export function rtItemRefusal(run: Pick<RtRunState, 'potionCap' | 'items'>, item: ItemKind): RtItemRefusal | null {
+  return item === 'healing' && rtHandFull(run) ? 'handFull' : null;
+}
+/**
+ * Task 41 (telemetry `RunItems.capRefused`): the healing choices the open screen shows refused for a full hand — the find's options,
+ * the merchant's goods not sold, the rest's recipes, the gift's buttons and picks.
+ */
+export function rtHandFullOffers(run: RtRunState): number {
+  const pending = run.pending;
+  if (!rtHandFull(run) || !pending) return 0;
+  if (pending.kind === 'find') return pending.options.filter(item => item === 'healing').length;
+  if (pending.kind === 'shop') return rtShopView(run)?.goods.filter(good => good.handFull).length ?? 0;
+  if (pending.kind === 'rest') return rtRestView(run)?.recipes.filter(recipe => recipe.handFull).length ?? 0;
+  if (pending.kind === 'gift') {
+    const view = rtGiftView(run);
+    return (view?.options.filter(entry => entry.handFull).length ?? 0) + (view?.picks.filter(pick => pick === 'healing').length ?? 0);
+  }
+  return 0;
 }
 /** Баланс (interface): the start hint of the consumables shows on at most this many arenas of a run. */
 export const RT_ITEM_HINT_ARENAS = 3;
@@ -2163,7 +2213,11 @@ export function rtRestHealValue(node: ForestMapNode, run?: Pick<RtRunState, 'tal
   return rtHp(node.content.heal) + (run?.talismans.includes('dew-flask') ? RT_DEW_FLASK_HEAL : 0);
 }
 /** One recipe of the rest (the turn-based craft: CRAFT_COST of a resource make one consumable; a closed one opens). */
-export interface RtRecipeView { resource: ResourceKind; item: ItemKind; have: number; cost: number; available: boolean; opens: boolean }
+export interface RtRecipeView {
+  resource: ResourceKind; item: ItemKind; have: number; cost: number; available: boolean; opens: boolean;
+  /** Task 41: a healing recipe with a full hand — not available («Рука полна»). */
+  handFull?: true;
+}
 export interface RtRestView {
   nodeId: string;
   /** Healing: HP it restores now, its value before the clamp; gone once crafting began. */
@@ -2179,8 +2233,8 @@ export function rtRestView(run: RtRunState): RtRestView | null {
   const value = rtRestHealValue(node, run), crafting = pending.crafted.length > 0;
   return { nodeId: node.id, heal: { amount: Math.max(0, Math.min(value, run.maxHp - run.hp)), value, available: !crafting },
     recipes: RESOURCE_KINDS.map(resource => {
-      const have = run.materials[resource], item = RESOURCES[resource].crafts;
-      return { resource, item, have, cost: CRAFT_COST, available: have >= CRAFT_COST, opens: !run.openItems.includes(item) };
+      const have = run.materials[resource], item = RESOURCES[resource].crafts, full = !!rtItemRefusal(run, item);
+      return { resource, item, have, cost: CRAFT_COST, available: have >= CRAFT_COST && !full, opens: !run.openItems.includes(item), ...full ? { handFull: true as const } : {} };
     }),
     crafted: [...pending.crafted], canFinish: crafting };
 }
@@ -2203,6 +2257,7 @@ export function rtRestCraft(current: RtRunState, resource: ResourceKind): RtRunS
   if (!view) return fail('Сейчас нет привала.');
   const recipe = view.recipes.find(entry => entry.resource === resource);
   if (!recipe) return fail('Такого рецепта нет.');
+  if (recipe.handFull) return fail(RT_ITEM_REFUSAL_TEXT.handFull);
   if (!recipe.available) return fail(`Нужно ${CRAFT_COST} «${RESOURCES[resource].label}», есть ${recipe.have}.`);
   const run = structuredClone(current), pending = run.pending as Extract<RtRunPending, { kind: 'rest' }>;
   run.materials[resource] -= CRAFT_COST;
@@ -2225,6 +2280,8 @@ export function rtChooseFind(current: RtRunState, item: ItemKind): RtRunStep {
   const pending = current.pending;
   if (pending?.kind !== 'find') return fail('Сейчас нет находки.');
   if (!pending.options.includes(item)) return fail('Этого предмета нет среди находок.');
+  // Task 41: the healing option with a full hand stays shown and is refused (`rtItemRefusal`).
+  if (rtItemRefusal(current, item)) return fail(RT_ITEM_REFUSAL_TEXT.handFull);
   const run = structuredClone(current), events: RtRunEvent[] = [];
   gainItems(run, [item], events);
   completeNode(run, rtNode(run, pending.nodeId)!, events); return { ok: true, run, events };
@@ -2241,6 +2298,8 @@ export interface RtShopGood {
   sold?: boolean;
   /** Task 30 «одна форма на поле»: the form of the same field the run holds that this talisman replaces when bought. */
   replaces?: RtTalismanId;
+  /** Task 41: a healing potion with a full hand — not available, `reason` «Рука полна». */
+  handFull?: true;
 }
 export interface RtShopView { nodeId: string; goods: RtShopGood[]; total: number; materials: Record<ResourceKind, number>; healed: number; hardenings: number }
 /**
@@ -2253,9 +2312,10 @@ export function rtShopView(run: RtRunState): RtShopView | null {
   const total = stockTotal(run.materials), healed = pending.bought.filter(entry => entry.good === 'heal').length;
   const short = (price: number) => total < price ? `Нужно ресурсов: ${price}, есть ${total}` : '';
   const goods: RtShopGood[] = pending.stock.items.map((item, slot) => {
-    const price = shopPrice('item'), sold = pending.bought.some(entry => entry.good === 'item' && entry.slot === slot), reason = sold ? 'Куплено' : short(price);
+    const price = shopPrice('item'), sold = pending.bought.some(entry => entry.good === 'item' && entry.slot === slot), full = !sold && !!rtItemRefusal(run, item);
+    const reason = sold ? 'Куплено' : full ? RT_ITEM_REFUSAL_TEXT.handFull : short(price);
     return { id: `item:${slot}`, good: 'item', item, label: ITEM_TITLES[item], text: `расходник «${ITEM_TITLES[item]}»${run.openItems.includes(item) ? '' : ' (откроется в походе)'}`,
-      price, fullPrice: price, available: !reason, reason, sold, ...run.openItems.includes(item) ? {} : { opens: true } };
+      price, fullPrice: price, available: !reason, reason, sold, ...run.openItems.includes(item) ? {} : { opens: true }, ...full ? { handFull: true as const } : {} };
   });
   // Task 30: a run with forms shows the counters by their chain window (`rtTalismanShown`) and what a form would replace.
   const talisman = pending.stock.talisman ? rtTalismanShown(pending.stock.talisman, !!run.forms) : undefined;
@@ -2605,7 +2665,8 @@ export function rtGiftDone(seed: number, gift: RunGift | undefined, locked: read
 }
 export interface RtGiftView {
   kind: GiftKind;
-  options: { index: number; option: GiftOption; available: boolean; reason: string }[];
+  /** Task 41: `handFull` — a button of consumables that are all healing, with a full hand (refused, «Рука полна»). */
+  options: { index: number; option: GiftOption; available: boolean; reason: string; handFull?: true }[];
   canSkip: boolean;
   /** The button taken whose own choice is open (a consumable of three), or null. */
   chosen: number | null;
@@ -2619,7 +2680,9 @@ export function rtGiftView(run: RtRunState): RtGiftView | null {
     const gap = giftOptionGap(option);
     // A deal or an oath with nothing left to give cannot be taken (as the turn-based gift).
     const empty = option.kind === 'deal' ? (option.reward.kind === 'pick-talisman' ? !option.reward.talismans.length : !option.reward.talisman) : option.kind === 'oath' && !option.oath;
-    return { index, option, available: !gap && !empty, reason: gap ? 'Недоступно в этом походе' : empty ? 'Талисманов не осталось' : '' };
+    // Task 41: a button of healing only, with a full hand (a pick of three is refused pick by pick, `rtItemRefusal`).
+    const full = option.kind === 'items' && option.items.length > 0 && option.items.every(item => rtItemRefusal(run, item));
+    return { index, option, available: !gap && !empty && !full, reason: gap ? 'Недоступно в этом походе' : empty ? 'Талисманов не осталось' : full ? RT_ITEM_REFUSAL_TEXT.handFull : '', ...full ? { handFull: true as const } : {} };
   });
   const chosen = run.gift.chosen ?? null;
   return { kind: run.gift.kind, options, canSkip: !options.some(entry => entry.available), chosen, picks: chosen === null ? [] : giftPicks(all[chosen]).map(String) };
@@ -2671,6 +2734,8 @@ export function rtChooseGiftPick(current: RtRunState, pick: string): RtRunStep {
   const view = rtGiftView(current);
   if (!view || view.chosen === null) return fail('Сейчас нечего выбирать.');
   if (!view.picks.includes(pick)) return fail('Этого варианта нет среди предложенных.');
+  // Task 41: a consumable pick with a full hand (healing) stays shown and is refused.
+  if (view.options[view.chosen].option.kind === 'pick-item' && rtItemRefusal(current, pick as ItemKind)) return fail(RT_ITEM_REFUSAL_TEXT.handFull);
   const run = structuredClone(current), events: RtRunEvent[] = [{ type: 'gift-chosen', index: view.chosen }];
   run.gift!.pick = pick as RunGift['pick'];
   applyGift(run, view.options[view.chosen].option, pick, events);
@@ -2974,6 +3039,8 @@ function checkRun(value: unknown): RtRunState | null {
   // Task 40: a flag, only with the garrison; the cart only in a run with it and the camp, once in the garrison (n of 0 … the
   // cart's most, not above the stock it was taken from).
   if (value.moat !== undefined && !(value.moat === true && value.garrison === true)) return null;
+  // Task 41: the cap of healing potions, a whole number from 1; absent — a save before it (no cap).
+  if (value.potionCap !== undefined && !(isCount(value.potionCap) && value.potionCap >= 1)) return null;
   if (value.cart !== undefined && !(value.moat === true && value.hearth !== undefined && value.garrisonLevel !== undefined && isRecord(value.cart)
     && Object.keys(value.cart).length === 2 && isCount(value.cart.n) && isCount(value.cart.before) && value.cart.n <= RT_CART_MAX && value.cart.n <= value.cart.before)) return null;
   const garrisonStreams = value.garrisonLevel === undefined ? null : validGarrisonLevel(value);

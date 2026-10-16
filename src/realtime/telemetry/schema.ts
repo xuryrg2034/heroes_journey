@@ -230,7 +230,17 @@ export interface RunMapSign { nodeId: string; signed: string[]; chosenSigned: bo
  * in a fight, paid for an event), `left` — in the hand now (at the end for an ended run; for a lost one, at the end of the
  * lost fight). A kind that did not move is absent from `gained` and `used`.
  */
-export interface RunItems { gained: Record<string, number>; used: Record<string, number>; left: Record<string, number> }
+export interface RunItems {
+  gained: Record<string, number>; used: Record<string, number>; left: Record<string, number>;
+  /**
+   * Task 41 «Три зелья» (from 16.10.2026; absent — none, or an older record): healing potions the run did not take because the hand
+   * was full — the healing choices a screen showed refused when it closed (`rtHandFullOffers`) and a reward's healing beyond the cap
+   * (`items-capped`).
+   */
+  capRefused?: number;
+  /** Task 41: healing loot left on the floor of the run's fights for a full hand (`FightSummary.abilities.capLeft`). */
+  floorLeft?: number;
+}
 
 /**
  * Task 17 «Пологий вход» (from 13.10.2026): the run's second wind (`RtRunState.secondWindSpent`) — the node, its run row and
@@ -341,6 +351,8 @@ export interface RunRecord extends RtHeader {
   gentle?: true;
   /** Task 17: the run's own flags of the start potion (`RtRunState.startPotion`) and the second wind (`RtRunState.secondWind`). */
   startPotion?: true;
+  /** Task 41 «Три зелья» (from 16.10.2026): the run's cap of healing potions (`RtRunState.potionCap`); absent — no cap, or an older record. */
+  potionCap?: number;
   secondWindOn?: true;
   /**
    * Task 17 (from 13.10.2026): consumables in hand when the run was created, by kind (only those above 0) — the start potion
@@ -623,6 +635,8 @@ export function checkRecord(value: unknown): string | null {
       }
       // Task 18 (14.10.2026): optional — the level of «Испытание», 1–5.
       if (r.ash !== undefined && !(Number.isInteger(r.ash) && (r.ash as number) >= 1 && (r.ash as number) <= 5)) return 'run ash';
+      // Task 41 (16.10.2026): optional — the cap of healing potions, a whole number from 1.
+      if (r.potionCap !== undefined && !(Number.isInteger(r.potionCap) && (r.potionCap as number) >= 1)) return 'run potionCap';
       // Task 15 (14.10.2026): optional — the map heals bought.
       if (r.mapHeals !== undefined && !(Array.isArray(r.mapHeals) && r.mapHeals.every(h => {
         const o = h as Record<string, unknown> | null;
@@ -859,7 +873,11 @@ export interface FightSummary {
   tempo: { toGoals: number | null; afterGoals: number | null; toDoor: number | null; enemies: AvgMax; inView?: AvgMax };
   /** Path in arena units; seconds standing, in water, in thorns. */
   movement: { path: number; idle: number; water: number; thorns: number };
-  abilities: { jumps: number; spins: number; items: Record<string, number> };
+  /**
+   * `capLeft` — task 41 «Три зелья» (from 16.10.2026; absent in older records — `withSummaryDefaults` reads 0): healing loot the hero
+   * touched with a full hand (`lootRefused`, `Params.potionCap`) still on the floor at the end of the fight.
+   */
+  abilities: { jumps: number; spins: number; items: Record<string, number>; capLeft: number };
   /** Casino «Котёл» (from 11.10.2026; absent in older records — read them through `withSummaryDefaults`). */
   purse: PurseSummary;
   /** Casino «Ставка клятвы» (from 11.10.2026; absent in older records — `withSummaryDefaults`): the oath of the fight. */
@@ -1186,7 +1204,7 @@ export function emptyFightSummary(): FightSummary {
     build: { fired: {}, active: [] },
     tempo: { toGoals: null, afterGoals: null, toDoor: null, enemies: { avg: 0, max: 0 } },
     movement: { path: 0, idle: 0, water: 0, thorns: 0 },
-    abilities: { jumps: 0, spins: 0, items: {} },
+    abilities: { jumps: 0, spins: 0, items: {}, capLeft: 0 },
     purse: { on: false, cauldron: 0, embers: [], heat: [], totals: [], crystals: 0, killEmbers: {}, resources: null, exitStep: null, exitBy: null },
     oath: { id: null, kept: null, brokenTick: null, metTick: null, mult: null },
     secondWind: null,

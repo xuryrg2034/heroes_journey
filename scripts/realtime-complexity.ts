@@ -19,7 +19,7 @@
  */
 import { execSync } from 'node:child_process';
 import {
-  createRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtCasinoLeave, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick,
+  createRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtCasinoLeave, rtChooseEventOption, rtChooseFind, rtItemRefusal, rtChooseGift, rtChooseGiftPick,
   rtChooseHammer, rtChooseTalisman, rtEnterNode, rtEventView, rtGiftView, rtNode, rtRestHeal, rtScheduleMet, rtShopLeave, type RtRunState, type RtRunStep,
 } from '../src/realtime/run/rtRun';
 import { runRow } from '../src/realtime/run/arenaPools';
@@ -90,7 +90,7 @@ function walk(mode: 'now' | 'schedule', seed: number, runNo: number, met: Set<st
       }
       case 'talisman': run = ok(rtChooseTalisman(run, pending.options[0] ?? null)); break;
       case 'hammer': run = ok(rtChooseHammer(run, pending.options[0])); break;
-      case 'find': run = ok(rtChooseFind(run, pending.options[0])); break;
+      case 'find': run = ok(rtChooseFind(run, pending.options.find(item => !rtItemRefusal(run, item)) ?? pending.options[0])); break;
       case 'rest': run = ok(rtRestHeal(run)); break;
       case 'shop': run = ok(rtShopLeave(run)); break;
       case 'casino': run = ok(rtCasinoLeave(run)); break;

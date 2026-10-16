@@ -27,7 +27,7 @@ import { toughHpMaxOf } from '../sim/spawn';
 import type { Enemy, World } from '../sim/world';
 import { ARENA_POOLS, RUN_ARENAS, runRow } from './arenaPools';
 import {
-  createRtRun, parseRtRun, resolveArena, rtArenaLoadout, rtArenaParams, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseHammer, rtChooseTalisman, rtEnterNode,
+  createRtRun, parseRtRun, resolveArena, rtArenaLoadout, rtArenaParams, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtItemRefusal, rtChooseHammer, rtChooseTalisman, rtEnterNode,
   rtEventView, rtNode, rtRestHeal, rtRunParams, rtShopLeave, rtToughHp, serializeRtRun, RT_RUN_FORCED, type RtRunState, type RtRunStep,
 } from './rtRun';
 import { quiet, takeGift } from './runFight.testkit';
@@ -88,7 +88,7 @@ function walk(seed: number, k: number, markedGoals?: boolean): Fight[] {
     } else if (pending?.kind === 'hammer') run = ok(rtChooseTalisman(ok(rtChooseHammer(run, null), 'refuse hammer'), null), 'refuse');
     else if (pending?.kind === 'talisman') run = ok(rtChooseTalisman(run, null), 'refuse');
     else if (pending?.kind === 'rest') run = ok(rtRestHeal(run), 'rest');
-    else if (pending?.kind === 'find') run = ok(rtChooseFind(run, pending.options[0]), 'find');
+    else if (pending?.kind === 'find') run = ok(rtChooseFind(run, pending.options.find(item => !rtItemRefusal(run, item)) ?? pending.options[0]), 'find');
     else if (pending?.kind === 'shop') run = ok(rtShopLeave(run), 'shop');
     else if (pending?.kind === 'event') run = ok(rtChooseEventOption(run, rtEventView(run)!.options.find(option => option.available)!.id), 'event');
     else if (pending) throw new Error(`unexpected screen ${pending.kind}`);
