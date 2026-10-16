@@ -27,8 +27,12 @@ import { GUARD, HANDLER } from '../sim/enemies/garrison';
 import { pickArena, runRow, type ArenaPoolEntry } from './arenaPools';
 import { RT_TALISMANS, rtTalismanEligible, type RtTalismanId, type RtTalismanPool } from './rtTalismans';
 
-/** A new run continues into the garrison after the forest final (`RtRunState.garrison`). Off until the ui session's view (design 16.10.2026): a run created with `garrison: true` plays it. */
-export const RT_GARRISON_ON = false;
+/**
+ * A new run continues into the garrison after the forest final (`RtRunState.garrison`). On by design decision B (16.10.2026, v65): one
+ * unexplained Playwright failure (53/54) before the rebase, four clean repeats after it; a new failure is a regression. A run created
+ * with `garrison: false` (old-route tests) or saved without the flag ends at the forest final.
+ */
+export const RT_GARRISON_ON = true;
 const textHash = (text: string): number => [...text].reduce((hash, ch) => Math.imul(hash ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5);
 /** The salt of the garrison's seed (its map, its streams, its arena seeds). */
 export const GARRISON_SALT = textHash('garrison-map');
