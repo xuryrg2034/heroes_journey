@@ -15,7 +15,7 @@ import { characterSprite, hasCharacterArt, type CharacterArtId } from '../art/ch
 import type { ArenaLayout } from '../sim/arenas';
 import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainAnchors, chainColor, colorGroups, colorJoin, colorShiftIds, colorShiftLeft, colorlessLink, enemyAnchors, forkAnchorOf, heroAnchorOn, jumpLanding, linkPoint, loopCandidates, loopOn, nextCandidates, nextObjectCandidates, planChain, sameColor, twinsNextColor, type ChainPlan } from '../sim/chain';
 import { FROST_PASS_LIFE, FROST_PASS_RADIUS, frostPassPoints, frostPassPreview } from '../sim/frostPass';
-import { drawAlienRing, drawForkMark, drawFrostPoint, drawFrostPreview, drawReturnRoute, drawTwinLine } from './formsView';
+import { drawAlienRing, drawForkMark, drawFrostPoint, drawFrostPreview, drawIceMark, drawReturnPower, drawReturnRoute, drawTwinLine } from './formsView';
 import { enemyArtScale } from '../sim/enemies/kinds';
 import { BOAR_ART_SCALE, archerLine, archerMark, lynxLine, lynxStunned, quillsUp, quillsWarning, sapperFuse, shamanBeam, shieldUp, wolfHowl, wolfRushLine } from '../sim/enemies/index';
 import { brittleNow } from '../sim/items';
@@ -33,7 +33,7 @@ import { shieldFails } from '../sim/guard';
 import { NO_COLOR, SECOND_WIND_HP, doorOpen, focusGuarded, touchDistance, type ChainLink, type Enemy, type EnemyKind, type World, type WorldEvent } from '../sim/world';
 import { itemHealOf, linkRadiusOf } from '../sim/build';
 import { FIRE_LIFE, FIRE_RADIUS, FIRE_STEP, firePassPreview, hammerFirePoints, returnRunOf } from '../sim/hammers';
-import { COUNTER_TALISMANS, FROST_PASS, HAMMERS, RELICS } from '../sim/buildIds';
+import { COUNTER_TALISMANS, FROST_PASS, FUSIONS, HAMMERS, RELICS } from '../sim/buildIds';
 import { fireTextOf } from './buildColumn';
 import { findLoopHint, type LoopHintFigure } from './loopHint';
 // Casino stage 1: «Однорукий гоблин» (the idol, the reels, the odds line; the arrow marks are drawn in `drawSignals`).
@@ -544,6 +544,14 @@ export class RealtimeRenderer {
    * so far (fixed at a release, a run that reached its end).
    */
   readonly pierceShown = { arrow: 0, marks: 0, end: 0, releases: 0, ends: 0 };
+  /**
+   * Task 44 «Сплавы»: what the drawn chain's highlight showed of the fusions in the last frame (tests read it): `spearPlates` — the
+   * plates a «Копьё» hit takes, written over a corridor elite (0 — none); `ice` — bodies inside a «Ледяная печать» ring with the
+   * frost sign; `backPower` — the power badge of «Бумеранг»'s second pass (-1 — none), `backFull` — it goes with the full power.
+   */
+  readonly fusionShown = { spearPlates: 0, ice: 0, backPower: -1, backFull: 0 };
+  /** Task 44 «Бумеранг»: the power number on its badge. */
+  private backPowerLabel: Text | null = null;
   /** The experiment `loopHint`: the figure found at the last search (the view recomputes it every few frames, never in the sim). */
   private hintFigure: LoopHintFigure | null = null;
   private hintFrame = 0;
@@ -2824,6 +2832,8 @@ export class RealtimeRenderer {
     for (const label of this.depthLabels) label.visible = false;
     this.linkDepthShown.labels = [];
     this.pierceShown.arrow = 0; this.pierceShown.marks = 0; this.pierceShown.end = 0;
+    this.fusionShown.spearPlates = 0; this.fusionShown.ice = 0; this.fusionShown.backPower = -1; this.fusionShown.backFull = 0;
+    if (this.backPowerLabel) this.backPowerLabel.visible = false;
     this.signals.quillBadges = 0;
     this.eliteShown.planPlates = 0;
     this.bossShown.severPips = 0;
@@ -2986,6 +2996,23 @@ export class RealtimeRenderer {
         }
         fs.returnHits++;
       }
+      // Task 44 «Бумеранг»: the second pass's power on a badge at the way's end (the chain's start) — the chain's colour and a lemon
+      // rim when it goes with the full power (the last link dies), dim when with the half.
+      if (world.kit?.talismans.includes(FUSIONS.boomerang)) {
+        const end = plan.back.route[plan.back.route.length - 1], full = !!plan.back.full;
+        const label = this.backPowerLabel ??= (() => {
+          const text = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 17, fontWeight: 'bold', fill: 0xffffff, stroke: { color: NAVY, width: 4 } } });
+          text.anchor.set(0.5, 0.5);
+          this.root.addChild(text);
+          return text;
+        })();
+        const at = drawReturnPower(g, end.x * UNIT, end.y * UNIT, 1.1 * UNIT * 0.3, ink, full);
+        label.text = `↺ ${plan.back.power}`;
+        label.alpha = full ? 1 : 0.75;
+        label.position.set(at.x, at.y);
+        label.visible = true;
+        this.fusionShown.backPower = plan.back.power; this.fusionShown.backFull = full ? 1 : 0;
+      }
     }
     const anchor = chainAnchor(world);
     this.drawLoop(g, world, plan.seal, ink);
@@ -3055,6 +3082,7 @@ export class RealtimeRenderer {
         g.circle(bx, by, r * 0.32).fill(ELITE_LEMON).stroke({ color: NAVY, width: 2 });
         g.roundRect(bx - s * 0.8, by - s, s * 1.6, s * 2, s * 0.5).fill(NAVY);
         const label = this.plateLabel(this.eliteShown.planPlates++);
+        label.text = '−1 пластина';
         label.position.set(x, y - R - (armed > 0 ? 36 : 14));
         label.visible = true;
         continue;
@@ -3161,6 +3189,10 @@ export class RealtimeRenderer {
         g.circle(bx, by, r * 0.32).fill(ELITE_LEMON).stroke({ color: NAVY, width: 2 });
         g.roundRect(bx - s * 0.8, by - s, s * 1.6, s * 2, s * 0.5).fill(NAVY);
         const label = this.plateLabel(this.eliteShown.planPlates++);
+        // Task 44 «Копьё»: a hit takes `pierce.plates` plates (the dash's `pierceHit` gives the same number).
+        const plates = pierce.plates ?? 1;
+        label.text = plates > 1 ? `−${plates} пластины` : '−1 пластина';
+        if (plates > 1) this.fusionShown.spearPlates = plates;
         label.position.set(x, y - R - 14);
         label.visible = true;
       } else if (o.killed) {
@@ -3243,6 +3275,9 @@ export class RealtimeRenderer {
           label.position.set(cx, cy);
           label.visible = true;
         }
+        // Task 44 «Ледяная печать»: a survivor of the strike freezes (`seal.hold` s, brittle) — the cold's ring and a snowflake badge
+        // at its lower right (the strike's mark stays at the upper right).
+        if (seal.ice?.ids.includes(id)) { drawIceMark(g, x, y, r, seal.ice.brittle); this.fusionShown.ice++; }
       }
       return;
     }

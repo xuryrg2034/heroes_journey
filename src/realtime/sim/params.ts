@@ -522,6 +522,17 @@ export interface Params {
   pierceTurn: number;
   pierceLength: number;
   pierceCorridor: number;
+  /**
+   * Task 44 «Сплавы» (sim/fusions.ts; docs/realtime-prototype.md, section 9ц): the numbers of the fusions, read only while the kit
+   * holds the fusion's id — a journal without them plays these defaults, a fight without a fusion never reads them.
+   * «Копьё»: the pierce's length × `fusionSpearFactor` (2) and `fusionSpearPlates` (2) plates off an elite instead of one.
+   * «Ледяная печать»: the survivors inside the ring freeze for max(the seal's hold, `fusionIceTime` 3 s), brittle (×`frostFactor`
+   * on the next chain hit) while `fusionIceBrittle`.
+   */
+  fusionSpearFactor: number;
+  fusionSpearPlates: number;
+  fusionIceTime: number;
+  fusionIceBrittle: boolean;
   wolfRushPack: number;
   wolfHowl: number;
   wolfRushSpeed: number;
@@ -1249,6 +1260,10 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   pierceTurn: 25,
   pierceLength: 1.875,
   pierceCorridor: 0.5,
+  fusionSpearFactor: 2,
+  fusionSpearPlates: 2,
+  fusionIceTime: 3,
+  fusionIceBrittle: true,
   wolfRushPack: 3,
   wolfHowl: 0.6,
   wolfRushSpeed: 6,
@@ -1613,7 +1628,9 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   { kind: 'choice', key: 'sandboxTalismans', group: 'Талисманы', label: 'Песочница: талисман на старте арены', stage: 5,
     hint: 'Только песочница (со следующей арены); в походе действуют талисманы похода. «Якорь у героя» — и переключатель «Якорь у героя» группы «Цепь».',
     options: [{ value: '', label: 'нет' }, { value: 'hero-anchor', label: 'Якорь у героя' }, { value: 'whetstone', label: 'Точильный камень' }, { value: 'millstone-shard', label: 'Осколок жернова' },
-      { value: 'hourglass', label: 'Песочные часы' }, { value: 'nimble-paws', label: 'Ловкие лапы' }, { value: 'ash-ward', label: 'Пепельный оберег' }] },
+      { value: 'hourglass', label: 'Песочные часы' }, { value: 'nimble-paws', label: 'Ловкие лапы' }, { value: 'ash-ward', label: 'Пепельный оберег' },
+      // Task 44: the fusions (each with its parts, kit.ts `kitOf`).
+      { value: 'fusion-ice-seal', label: 'Сплав: Ледяная печать' }, { value: 'fusion-spear', label: 'Сплав: Копьё' }, { value: 'fusion-boomerang', label: 'Сплав: Бумеранг' }] },
   n('endBlastMinLinks', 'Талисманы', '«Взрыв на конце»: звеньев от', 1, 6, 1, 5, '', 'Молот срабатывает, если проход дошёл до стольких вражеских звеньев (погибшие по пути и выживший на конце считаются). В походе — 3.'),
   n('fireMinLinks', 'Талисманы', '«Огненный проход»: звеньев от', 1, 6, 1, 5, '', 'Путь прохода загорается, когда проход дошёл до стольких вражеских звеньев (погибшие по пути и выживший на конце считаются), — весь путь от начала разом. В походе — 3.'),
   { kind: 'bool', key: 'returnFixed', group: 'Талисманы', label: '«Возврат»: путь и тела при отпускании', stage: 5,
@@ -1700,6 +1717,10 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('pierceTurn', 'Прямая', 'Поворот хвоста не больше', 0, 60, 1, 5, '°', 'Каждый поворот хвоста (последние 3 вражеских звена и предметы между ними). Отрезок герой → первое звено не считается.'),
   n('pierceLength', 'Прямая', 'Длина пробоя', 0.5, 5, 0.125, 5, 'ед.', 'От последнего звена по линии; препятствие, край и обрыв обрезают.'),
   n('pierceCorridor', 'Прямая', 'Коридор: от линии не дальше', 0.1, 1.5, 0.05, 5, 'ед.', 'До центра тела.'),
+  n('fusionSpearFactor', 'Сплавы', '«Копьё»: длина пробоя ×', 1, 4, 0.25, 5, '×', 'Задача 44. Только с «Копьём» в ките: длина «Прямой» умножается (R на неё не влияет).'),
+  n('fusionSpearPlates', 'Сплавы', '«Копьё»: пластин с элиты', 1, 4, 1, 5, '', 'Пробой «Копья» снимает с элиты столько пластин вместо одной.'),
+  n('fusionIceTime', 'Сплавы', '«Ледяная печать»: заморозка', 0.5, 10, 0.5, 5, 'с', 'Выжившие внутри кольца замерзают на наибольшее из оков «Печати» и этого числа.'),
+  { kind: 'bool', key: 'fusionIceBrittle', group: 'Сплавы', label: '«Ледяная печать»: хрупкость ×2', stage: 5, hint: 'Замёрзшие печатью хрупки, как от холода-расходника: следующий удар цепи ×2.' },
   n('wolfRushPack', 'Волк', 'Бросок: волков в кольце', 1, 8, 1, 5),
   n('wolfHowl', 'Волк', 'Вой перед броском', 0, 3, 0.05, 5, 'с', 'Круг вокруг героя. Направление броска фиксируется в конце воя.'),
   n('wolfRushSpeed', 'Волк', 'Бросок: скорость', 0.5, 20, 0.25, 5, 'ед/с', 'По прямой; вода и терновник не замедляют, стена и обрыв останавливают.'),

@@ -43,7 +43,7 @@ import { ChainAudio } from './audio';
 import { chainFeel, QUIET_GAIN } from './chainFeel';
 import { FX_LEVELS, HEAVY_SEMIS, fxLevelOf, type FxLevel } from './juice';
 import type { MetaSound } from './metaEnd';
-type MetaSoundKind = MetaSound | 'buy' | 'open' | 'heal';
+type MetaSoundKind = MetaSound | 'buy' | 'open' | 'heal' | 'fuse';
 import { DebugPanel, formatTime } from './debugPanel';
 import { loadFx, loadHintsOn, loadLinkDepth, loadParams, loadRoleBadges, loadSandboxBuild, loadNewOnMap, loadSessionClock, loadSound, PARAMS_STORAGE_KEY, saveFx, saveHintsOn, saveLinkDepth, saveNewOnMap, saveParams, saveRoleBadges, saveSandboxBuild, saveSessionClock, saveSound, type SoundSetting } from './paramStorage';
 import { SessionClock } from './session';
@@ -1677,7 +1677,9 @@ async function boot(): Promise<void> {
         /** Loop research, step 2: the loop's state and what the view drew of it (render.ts `loopShown`). */
         loop: { closed: w.chainClosed ?? null, shown: { ...renderer.loopShown }, hintText: hintReason ? REFUSAL_TEXT[hintReason] : null },
         /** Loop research, step 3 («Прямая»): the drawn chain's pierce (its end and bodies; null — none) and what the view drew of it. */
-        pierce: { plan: (() => { const pc = w.chain.length ? planChain(w).pierce : undefined; return pc ? { to: { ...pc.to }, length: pc.length, power: pc.power, bodies: pc.bodies.map(b => ({ id: b.id, killed: b.outcome.killed })) } : null; })(), shown: { ...renderer.pierceShown } },
+        pierce: { plan: (() => { const pc = w.chain.length ? planChain(w).pierce : undefined; return pc ? { to: { ...pc.to }, length: pc.length, power: pc.power, ...pc.plates ? { plates: pc.plates } : {}, bodies: pc.bodies.map(b => ({ id: b.id, killed: b.outcome.killed, ...b.outcome.platesAfter !== undefined ? { platesAfter: b.outcome.platesAfter } : {} })) } : null; })(), shown: { ...renderer.pierceShown } },
+        /** Task 44 «Сплавы»: what the highlight showed of the fusions (render.ts `fusionShown`). */
+        fusionShown: { ...renderer.fusionShown },
         /** Phase B (Д5): icons in the build column (visible), their ids and progress texts; icon flashes and texts at the hero so far. */
         buildColumn: buildColumn.el.hidden ? 0 : buildColumn.count,
         buildFolded: buildColumn.folded,

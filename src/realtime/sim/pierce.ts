@@ -19,6 +19,7 @@ import { dcos, dhypot } from './detMath';
 import { kindOf } from './enemies/kinds';
 import { FORMS } from './buildIds';
 import { hasTalisman } from './kit';
+import { pierceLengthFactor } from './fusions';
 import { blockedAt, type ArenaShape, type Vec } from './geometry';
 import { heroRadius, type Params } from './params';
 import type { ChainLink, Enemy, World } from './world';
@@ -130,6 +131,8 @@ export function pierceShape(world: World, links: readonly ChainLink[], point: (l
     corners.push({ x: p.x, y: p.y, enemy: link.kind === 'enemy' });
   }
   const nums = pierceNumbers(world.params);
+  // Task 44 «Копьё»: the pierce `fusionSpearFactor` times as long (fusions.ts; 1 without it).
+  nums.length *= pierceLengthFactor(world);
   const axis = pierceAxis(corners, pierceTurnCos(nums.turn));
   if (!axis) return null;
   const length = pierceCut(axis, nums.length, heroRadius(world.params), world.arena);

@@ -116,7 +116,7 @@ function basePlates(world: World): number {
  * (every source but the chain, whose link is struck once a dash): one firing — the same tick, source and firing id — takes
  * plates once. Returns the plates taken.
  */
-export function stripPlates(world: World, e: Enemy, cause: { source: string; firing?: number }, guard = true): number {
+export function stripPlates(world: World, e: Enemy, cause: { source: string; firing?: number; plates?: number }, guard = true): number {
   const a = e.armor;
   if (!a || a.plates <= 0) return 0;
   e.hurtFlash = Math.max(world.params.hitFlash, 0.01);
@@ -125,7 +125,8 @@ export function stripPlates(world: World, e: Enemy, cause: { source: string; fir
     if (a.hit === key) return 0;
     a.hit = key;
   }
-  const removed = Math.min(a.plates, Math.max(1, PLATES_BY_SOURCE[cause.source] ?? 1));
+  // Task 44 «Копьё»: the cause may name its plates (`plates`); otherwise the source's.
+  const removed = Math.min(a.plates, Math.max(1, cause.plates ?? PLATES_BY_SOURCE[cause.source] ?? 1));
   a.plates -= removed;
   // Casino «Котёл»: the count of stripped plates (only the elite's first `max` pay embers; absent while the cauldron is off).
   if (world.params.purse) a.stripped = (a.stripped ?? 0) + removed;

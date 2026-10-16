@@ -929,6 +929,26 @@ export function handFullLines(runs: readonly RunRecord[]): string {
   ].join('\n');
 }
 
+/**
+ * Task 44 «Сплавы» (`RunRecord.fusions`, from 16.10.2026): of the runs with the flag — those with a pair collected, with a fusion made,
+ * the rows of the fusions, the rests closed with a pair ready, and the victories with a fusion and without.
+ */
+export function fusionsSection(runs: readonly RunRecord[]): string {
+  const on = runs.filter(r => r.fusions);
+  if (!on.length) return 'Походов со сплавами нет (`RunRecord.fusions`, с 16.10.2026).';
+  const share = (n: number): string => `${n} из ${on.length} (${Math.round(n / on.length * 100)} %)`;
+  const paired = on.filter(r => r.fusions!.paired.length), made = on.filter(r => r.fusions!.made.length);
+  const rows = made.flatMap(r => r.fusions!.made.map(m => `${m.fusion} — ряд ${m.row}`));
+  const won = (list: readonly RunRecord[]): string => `${list.filter(r => r.outcome === 'victory').length} из ${list.length}`;
+  const declined = on.reduce((n, r) => n + r.fusions!.declined.length, 0);
+  return [
+    `Походов со сплавами: ${on.length}. Взята половина рецепта: ${share(on.filter(r => r.fusions!.halves.length).length)}.`,
+    `Пара собрана: ${share(paired.length)}. Сплав сделан: ${share(made.length)}.`,
+    `Сплавы: ${rows.length ? rows.join('; ') : 'нет'}. Привалов с готовой парой, закрытых лечением или крафтом: ${declined}.`,
+    `Победы: со сплавом ${won(made)}, без сплава ${won(on.filter(r => !r.fusions!.made.length))}.`,
+  ].join('\n');
+}
+
 // ---- Task 20 «Ресурсы похода» (RunRecord.resources, from 14.10.2026) ----
 const RESOURCE_SOURCE_TITLES: Record<string, string> = { gift: 'дар', event: 'события', casino: 'игорный круг', loot: 'добыча элит', bag: 'котомка', feat: 'подвиги', merchant: 'торговец', other: 'прочее' };
 const RESOURCE_SINK_TITLES: Record<string, string> = { craft: 'крафт', healMap: 'лечение на карте', merchant: 'торговец', event: 'события', casino: 'игорный круг', reroll: 'переброс', cart: 'Повозка', other: 'прочее' };
@@ -1086,6 +1106,7 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Босс', '', bossSection(fights), '',
     // Task 40 «Гарнизон, шаг 1б»: the survival through both levels, the garrison's fights and the cart.
     '## Гарнизон', '', garrisonSection(runs, runFights), '',
+    '## Сплавы', '', fusionsSection(runs), '',
     '## Элиты', '', ELITE_LEGEND, '', table(ELITE_HEAD, eliteRows(runFights, sandbox)), '',
     '## Однорукий гоблин', '', SLOT_LEGEND, '', table(SLOT_HEAD, [slotRow('походы', runFights), slotRow('песочница', sandbox)].filter((r): r is (string | number)[] => !!r)), '',
     // Task 20: how the hero left the lit idol's circle.

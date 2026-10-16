@@ -31,9 +31,11 @@ import { behaviorOf, enemyArtRadius, kindOf } from './enemies/kinds';
 import { adoptChainColor, chameleonOpen, eliteDeath, pickLoot, platesOf, potionHandFull, stripPlates, trailAt } from './elites';
 import { curseKill, takeChest } from './chest';
 import { hasTalisman } from './kit';
-import { afterLinkPowerOf, anchorsOf, buildActive, chainShieldOf, colorRuleOf, colorShiftOf, crystalEveryOf, endShadowOf, focusMaxOf, hasHook, jumpCostOf, linkGainOf, linkPowerOf, linkRadiusOf, nextChainNo, runHook, type ChainAnchor, type ChainEnd, type LinkContext } from './build';
-import { FORMS, HAMMERS } from './buildIds';
-import { returnPowerOf, returnRoute, returnTargets, traceTo } from './returnRun';
+import { afterLinkPowerOf, anchorsOf, buildActive, chainShieldOf, colorRuleOf, colorShiftOf, crystalEveryOf, endShadowOf, focusMaxOf, hasHook, jumpCostOf, linkGainOf, linkPowerOf, linkRadiusOf, nextChainNo, runHook, talismanFired, type ChainAnchor, type ChainEnd, type LinkContext } from './build';
+import { FORMS, FUSIONS, HAMMERS } from './buildIds';
+// Task 44 «Сплавы»: the fusions' pure rules (the highlight and the dash read the same ones).
+import { boomerangFull, iceSealCold, piercePlates } from './fusions';
+import { returnPowerFor, returnRoute, returnTargets, traceTo } from './returnRun';
 import { colorlessCore, endsFight } from './enemies/jailer';
 import { blockedAt, cliffAt, dist, inThorns, lineOfSight, overCliff, pushOutOfObstacles, type Vec } from './geometry';
 import { heroRadius, type Params } from './params';
@@ -206,6 +208,8 @@ export interface ReturnPreview {
    * `Params.returnWaveFixed` the release fixes them (talismansRt.ts). Absent — no module acts at this end.
    */
   ends?: Record<string, number[]>;
+  /** Task 44 «Бумеранг»: the run goes with the full power (the last enemy link dies). Absent — the half. */
+  full?: true;
 }
 
 /**
@@ -216,6 +220,8 @@ export interface PiercePreview {
   from: Vec; to: Vec; length: number; ux: number; uy: number; power: number;
   bodies: { id: number; t: number; outcome: StrikeOutcome }[];
   kills: number;
+  /** Task 44 «Копьё»: plates a hit takes off an elite (`fusionSpearPlates`); absent — 1 (no «Копьё»). The bodies' `platesAfter` count them. */
+  plates?: number;
 }
 
 /**
@@ -227,7 +233,14 @@ export interface PlanOptions { pierce?: boolean; back?: boolean }
 export const NO_PIERCE: Readonly<PlanOptions> = Object.freeze({ pierce: false, back: false });
 
 /** Loop research, step 2: a closed chain's ring now and who is inside it (`sealPreview`). */
-export interface SealPreview { kind: LoopKind; ring: Vec[]; inside: number[]; links: number; damage: number; hold: number }
+export interface SealPreview {
+  kind: LoopKind; ring: Vec[]; inside: number[]; links: number; damage: number; hold: number;
+  /**
+   * Task 44 «Ледяная печать»: the bodies inside the seal's strike leaves alive (the frost sign of the view) — frozen `hold` seconds,
+   * brittle (`brittle`, ×`frostFactor` on the next chain hit). Absent without the fusion.
+   */
+  ice?: { ids: number[]; brittle: boolean };
+}
 
 export function findEnemy(world: World, id: number): Enemy | undefined {
   return world.enemies.find(e => e.id === id);
@@ -321,8 +334,10 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   const pierceEmbers = purse && pierce ? pierce.bodies.reduce((sum, b) => sum + linkEmbers(findEnemy(world, b.id)!, b.outcome), 0) : 0;
   const cheque = purse ? planCheque(purse.struck, purse.crystals, seal ? seal.inside.length : null, door, pierceEmbers) : null;
   // Task 29, item 5: the return run of the drawn chain (the hammer «Возврат»).
+  // Task 44 «Бумеранг»: the last enemy link the dash reaches dies (a chain ending on a survivor — the old half).
+  const lastEnemy = [...out].reverse().find(l => l.link.kind === 'enemy' && l.outcome);
   let back = options.back !== false && links === world.chain && returnOn(world)
-    ? planReturn(world, out, endsOnSurvivor ? stopPower : power, pierce, seal) : null;
+    ? planReturn(world, out, endsOnSurvivor ? stopPower : power, pierce, seal, !endsOnSurvivor && !!lastEnemy?.outcome?.killed) : null;
   // Task 28: the return run after a chain that ended the fight strikes nobody; one that kills the core — nobody after it.
   if (back) {
     const at = over ? -1 : back.hits.findIndex(h => h.outcome.killed && endsFight(world, findEnemy(world, h.id)!));
@@ -378,7 +393,7 @@ function fightEndsBeforeRun(_world: World, door: boolean): boolean { return door
  * the pierce runs on to its end), the way back from where he ends (pushed out of obstacles, as `finishMove`), and the hits on
  * the world after the first pass. Null — no run: the chain ends in the open door, or the way back is empty.
  */
-function planReturn(world: World, out: readonly LinkPlan[], endPower: number, pierce: PiercePreview | null, seal: SealPreview | null): ReturnPreview | null {
+function planReturn(world: World, out: readonly LinkPlan[], endPower: number, pierce: PiercePreview | null, seal: SealPreview | null, lastKilled = false): ReturnPreview | null {
   let at: Vec = { x: world.hero.x, y: world.hero.y }, stop = at, door = false;
   const trace: Vec[] = [{ ...at }], struck = new Map<number, StrikeOutcome>();
   for (const { link, outcome } of out) {
@@ -426,7 +441,7 @@ function planReturn(world: World, out: readonly LinkPlan[], endPower: number, pi
   // run). A journal without the key — the old shadow.
   const ended = world.params.returnShadowEnd ? endShadowOf(world, { links: struck.size, at: end }, enemies) : null;
   const after = ended ? ended.enemies : enemies, ends = ended && Object.keys(ended.struck).length ? ended.struck : null;
-  const path = [end, ...route], shadow: World = { ...world, enemies: after }, power = returnPowerOf(endPower);
+  const full = boomerangFull(world, lastKilled), path = [end, ...route], shadow: World = { ...world, enemies: after }, power = returnPowerFor(world, endPower, lastKilled);
   const hits: ReturnPreview['hits'] = [];
   let left = power;
   for (const { e, at: touch } of returnTargets(shadow, path, [])) {
@@ -435,7 +450,7 @@ function planReturn(world: World, out: readonly LinkPlan[], endPower: number, pi
     left = outcome.powerAfter;
     hits.push({ id: e.id, at: touch, outcome });
   }
-  return { route: path, power, hits, kills: hits.filter(h => h.outcome.killed).length, ...ends ? { ends } : {} };
+  return { route: path, power, hits, kills: hits.filter(h => h.outcome.killed).length, ...ends ? { ends } : {}, ...full ? { full: true as const } : {} };
 }
 
 /**
@@ -448,11 +463,15 @@ function planPierce(world: World, links: readonly ChainLink[], out: readonly Lin
   if (!last || last.link.kind !== 'enemy' || !last.outcome?.killed || power < 1) return null;
   const shape = pierceShape(world, links, l => linkPoint(world, l));
   if (!shape) return null;
+  // Task 44 «Копьё»: a hit takes this many plates (the same number `pierceHit` gives `stripPlates`).
+  const plates = piercePlates(world);
   const bodies = shape.bodies.flatMap(b => {
     const e = findEnemy(world, b.id);
-    return e ? [{ id: b.id, t: b.t, outcome: strike(power, e.hp, chainFactor(world, e), 0, platesOf(e)) }] : [];
+    if (!e) return [];
+    const outcome = strike(power, e.hp, chainFactor(world, e), 0, platesOf(e));
+    return [{ id: b.id, t: b.t, outcome: outcome.plate && plates > 1 ? { ...outcome, platesAfter: Math.max(0, platesOf(e) - plates) } : outcome }];
   });
-  return { from: shape.from, to: shape.to, length: shape.length, ux: shape.ux, uy: shape.uy, power, bodies, kills: bodies.filter(b => b.outcome.killed).length };
+  return { from: shape.from, to: shape.to, length: shape.length, ux: shape.ux, uy: shape.uy, power, bodies, kills: bodies.filter(b => b.outcome.killed).length, ...plates > 1 ? { plates } : {} };
 }
 
 // ---- Loop research, step 2: the loop («Печать», docs/realtime-loop-research.md, sections 3.1–3.4) ----
@@ -477,8 +496,11 @@ export function sealPreview(world: World, kind: LoopKind): SealPreview | null {
   if (world.chain.some(l => !linkPoint(world, l))) return null;
   const links = chainEnemyCount(world);
   if (links < loopMinOf(world.params, kind)) return null;
-  const ring = loopRing(world, kind);
-  return { kind, ring, inside: enemiesInside(world, ring, world.chain).map(e => e.id), links, damage: sealDamage(links), hold: sealHoldOf(world.params, links) };
+  const ring = loopRing(world, kind), inside = enemiesInside(world, ring, world.chain), damage = sealDamage(links), hold = sealHoldOf(world.params, links);
+  // Task 44 «Ледяная печать»: the survivors of the strike (a plated body loses a plate, not HP) freeze max(hold, 3 s), brittle.
+  const cold = iceSealCold(world, hold);
+  const ice = cold ? { ids: inside.filter(e => platesOf(e) > 0 || e.hp > damage).map(e => e.id), brittle: cold.brittle } : null;
+  return { kind, ring, inside: inside.map(e => e.id), links, damage, hold: cold ? cold.time : hold, ...ice ? { ice } : {} };
 }
 
 /**
@@ -1188,7 +1210,7 @@ export function releaseChain(world: World): boolean {
   if (!links.length || world.status !== 'playing' || world.move) return false;
   world.move = { ...newMove('dash', { x: world.hero.x, y: world.hero.y }, null, world.params.dashSpeed), links };
   if (seal) {
-    world.move.seal = { kind: seal.kind, links: seal.links, ring: seal.ring, inside: seal.inside, damage: seal.damage, hold: seal.hold };
+    world.move.seal = { kind: seal.kind, links: seal.links, ring: seal.ring, inside: seal.inside, damage: seal.damage, hold: seal.hold, ...seal.ice ? { ice: true as const, ...seal.ice.brittle ? { brittle: true as const } : {} } : {} };
     world.events.push({ type: 'seal', phase: 'release', kind: seal.kind, points: seal.ring.map(q => ({ x: q.x, y: q.y })), inside: [...seal.inside], links: seal.links });
   }
   if (pierce) fixPierce(world, world.move, pierce);
@@ -1233,7 +1255,11 @@ function fixPierce(world: World, move: HeroMove, pierce: PiercePreview): void {
   move.pierce = {
     from: { ...pierce.from }, to: { ...pierce.to }, length: pierce.length, bodies: pierce.bodies.map(b => ({ id: b.id, t: b.t })),
     ...brittle.length ? { brittle } : {}, ...world.params.eliteArmor ? { firing: nextFiring(world) } : {}, hits: 0, kills: 0,
+    // Task 44 «Копьё»: the plates a hit takes, fixed with the plan (absent — 1).
+    ...pierce.plates ? { plates: pierce.plates } : {},
   };
+  // Task 44: «Копьё» struck — its longer pierce runs.
+  if (world.kit?.talismans.includes(FUSIONS.spear)) talismanFired(world, FUSIONS.spear);
   world.events.push({ type: 'pierce', phase: 'release', from: { ...pierce.from }, to: { ...pierce.to }, bodies: pierce.bodies.map(b => b.id), power: pierce.power });
 }
 
@@ -1272,7 +1298,7 @@ function pierceHit(world: World, move: HeroMove, id: number): void {
   delete enemy.brittle;
   if (pierce.brittle) { pierce.brittle = pierce.brittle.filter(x => x !== id); if (!pierce.brittle.length) delete pierce.brittle; }
   pierce.hits++;
-  const cause = { source: PIERCE_SOURCE, credited: true, ...pierce.firing !== undefined ? { firing: pierce.firing } : {} };
+  const cause = { source: PIERCE_SOURCE, credited: true, ...pierce.firing !== undefined ? { firing: pierce.firing } : {}, ...pierce.plates ? { plates: pierce.plates } : {} };
   if (outcome.plate) stripPlates(world, enemy, cause);
   else { damageEnemy(world, enemy, outcome.damage, cause); if (outcome.killed) pierce.kills++; }
   if (!pierce.stopped && world.params.hitstop) { pierce.stopped = true; world.hitstop = Math.max(world.hitstop, PIERCE_HITSTOP); }

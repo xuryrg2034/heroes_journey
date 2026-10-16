@@ -16,6 +16,7 @@ import { dhypot } from './detMath';
 import { bodyRadiusOf } from './enemies/kinds';
 import { dist, type Vec } from './geometry';
 import type { Enemy, World } from './world';
+import { boomerangFull } from './fusions';
 
 /** «Возврат»: reach from the way back (plus the body radius). */
 export const RETURN_RADIUS = 0.5;
@@ -50,6 +51,14 @@ export function returnRoute(trace: readonly Vec[], hero: Vec): Vec[] {
 
 /** Power of the run: ⌊power left at the end of the dash ÷ 2⌋, at least 1. */
 export const returnPowerOf = (endPower: number): number => Math.max(1, Math.floor(endPower / 2));
+
+/**
+ * Task 44 «Бумеранг» (fusions.ts): the run's power — the dash's power at its end (at least 1) with the fusion in the kit when the
+ * last enemy link the dash reached died (`lastKilled`); otherwise `returnPowerOf`. The highlight and the run call it.
+ */
+export function returnPowerFor(world: World, endPower: number, lastKilled: boolean): number {
+  return boomerangFull(world, lastKilled) ? Math.max(1, endPower) : returnPowerOf(endPower);
+}
 
 /** Where along the path (segment index + share of it) the body of `e` first comes within `reach` + its radius. */
 export function firstTouch(world: World, path: readonly Vec[], e: Enemy, reach: number): number {

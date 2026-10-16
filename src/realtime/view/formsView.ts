@@ -79,6 +79,33 @@ export function drawFrostPoint(g: Graphics, x: number, y: number, R: number, k: 
 }
 
 /**
+ * Task 44 «Ледяная печать»: a body the seal's strike leaves alive freezes — the cold's ring round it (`r` — its drawn radius) and a
+ * snowflake badge at its lower right; `brittle` — the badge's rim white (the next chain hit ×2).
+ */
+export function drawIceMark(g: Graphics, x: number, y: number, r: number, brittle: boolean): void {
+  g.circle(x, y, r + 7).stroke({ color: NAVY, width: 6, alpha: 0.5 }).circle(x, y, r + 7).stroke({ color: FORM_ICE, width: 3, alpha: 0.95 });
+  const cx = x + r * 0.72, cy = y + r * 0.72, s = r * 0.46;
+  g.circle(cx, cy, s).fill(FORM_ICE).stroke({ color: brittle ? 0xffffff : NAVY, width: 2 });
+  for (let i = 0; i < 3; i++) {
+    const t = i * Math.PI / 3 + Math.PI / 2, l = s * 0.7;
+    g.moveTo(cx - Math.cos(t) * l, cy - Math.sin(t) * l).lineTo(cx + Math.cos(t) * l, cy + Math.sin(t) * l);
+  }
+  g.stroke({ color: NAVY, width: 2.2, cap: 'round' });
+}
+
+/**
+ * Task 44 «Бумеранг»: the power badge of the second pass beside the way's end (`x`, `y`, pixels: the chain's start, where the hero
+ * stands — the badge to the left of it, clear of the chain counter over the hero) — a navy pill (not round: a body is round) framed
+ * in the chain's `ink`, with a lemon outline when the pass goes with the full power, dim when with the half. Returns where the text goes.
+ */
+export function drawReturnPower(g: Graphics, x: number, y: number, R: number, ink: number, full: boolean): { x: number; y: number } {
+  const r = Math.max(12, R), w = r * 2.8, h = r * 1.5, cx = x - r * 3.4, cy = y;
+  if (full) g.roundRect(cx - w / 2 - 3, cy - h / 2 - 3, w + 6, h + 6, h / 2 + 3).fill({ color: 0xffff66, alpha: 0.95 });
+  g.roundRect(cx - w / 2, cy - h / 2, w, h, h / 2).fill({ color: NAVY, alpha: full ? 0.95 : 0.75 }).stroke({ color: ink, width: 3, alpha: full ? 1 : 0.6 });
+  return { x: cx, y: cy };
+}
+
+/**
  * «Возврат»: the way back (`pts`, pixels: from the dash's end to the chain's start) — a navy under-line, dashes of the chain's
  * `ink` and an arrow head every `every` px pointing along the way; `alpha` — dimmer while the run goes. Returns the arrows drawn.
  */

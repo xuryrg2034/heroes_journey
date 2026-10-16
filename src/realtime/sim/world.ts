@@ -288,6 +288,8 @@ export interface PierceMove {
   brittle?: number[];
   /** The firing id of its plate strips (absent while the elites' armour is off). */
   firing?: number;
+  /** Task 44 «Копьё»: plates a hit takes off an elite (absent — 1). */
+  plates?: number;
   /** Where the run began (absent until the last link died on the ground). */
   start?: Vec;
   /** Bodies struck and killed so far. */
@@ -312,6 +314,9 @@ export interface SealMove {
   damage: number;
   /** Game seconds a survivor is held (the cold without the ×2). */
   hold: number;
+  /** Task 44 «Ледяная печать»: the survivors freeze `hold` seconds (no shorter cold cut), `brittle` — ×`frostFactor` too. Absent otherwise. */
+  ice?: true;
+  brittle?: true;
 }
 
 export interface Hero {

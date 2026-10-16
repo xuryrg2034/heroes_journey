@@ -17,7 +17,7 @@ import { rosterTitle } from '../sim/rosters';
 import { rtHp } from '../run/hpScale';
 import {
   arenaPreview, createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtEnterNode,
-  rtChooseTalisman, rtRerollTalismans, rtRerollView, rtHammerRerollView, rtRerollHammers, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtFoughtJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtHandFull, rtItemRefusal, rtPotionCap, RT_ITEM_REFUSAL_TEXT, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
+  rtChooseTalisman, rtRerollTalismans, rtRerollView, rtHammerRerollView, rtRerollHammers, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtFoughtJailer, rtRestCraft, rtRestFinish, rtRestFuse, rtRestHeal, rtRestView, rtFusionRecipe, rtFusionsReady, rtHandFull, rtItemRefusal, rtPotionCap, RT_ITEM_REFUSAL_TEXT, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
   rtOathPreview, rtOathStakeOn, rtArenaRules, RT_SECOND_WIND_LAST_ROW, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
   rtCasinoView, rtCasinoPlay, rtCasinoLeave, rtCasinoNode, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE,
   healOffer, healOnMap, healVisible, rtResourceTotal, rtNodeFeat, RT_HEAL_MAP_GAIN, rtAsh, rtAshOptions, rtAshTitle, rtRunWon, isRtAshLevel, rtScheduleMet, RT_JAILER_SEVERED_SLOTS, rtFormReplaces, rtFormSlotField,
@@ -27,7 +27,8 @@ import {
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
 import { GIFT_HP_PRICE, GIFT_MAX_HP_PRICE } from '../forest/runGift';
 import { RT_RARITY_NAME, rtHammer, rtTalisman, rtTalismanShown, rtTalismanText } from '../run/rtTalismans';
-import { FORM_FIELD_TITLES } from '../sim/buildIds';
+import { FORM_FIELD_TITLES, fusionRecipe, isFusionId, type FusionId } from '../sim/buildIds';
+import { labelOf } from './buildColumn';
 import { createRtProfileStore, createRtRunStore } from '../run/rtRunStorage';
 import { rtRunEndLines } from '../run/rtRunEnd';
 import type { HeroStart } from '../sim/world';
@@ -134,7 +135,7 @@ export interface RunHost {
    * none). `sound` plays the meta's sounds by the run's sound setting.
    */
   meta?: {
-    sound(kind: MetaSound | 'buy' | 'open' | 'heal'): void;
+    sound(kind: MetaSound | 'buy' | 'open' | 'heal' | 'fuse'): void;
     /** Telemetry (core's recorder): the meta of an ended or abandoned run — before the next run starts; the camp's map, purchases, clicks. */
     end?(run: RtRunState, end: RtMetaEnd): void;
     map?(run: RtRunState, chosen: number): void;
@@ -271,14 +272,31 @@ const talismanName = (id: string, run?: Pick<RtRunState, 'forms'> | null): strin
  * (section 5: «цена видна так же явно, как плюс»); a talisman of a rarity — the rarity and the rule. Task 30: a form — its field;
  * with `run` (forms) the counters' chain window and the form the option replaces («заменит …», `rtFormReplaces`).
  */
-function talismanCardLines(id: string, run?: Pick<RtRunState, 'forms' | 'talismans'> | null): string {
+/** Task 44: milliseconds the fusion's animation lasts (`playFusion`; CSS `.rt-fuse-anim`). */
+const FUSE_TIME = 1100;
+/** Task 44: a part's name — a talisman's (with the counters' chain window) or the hammer's («Возврат»). */
+const partName = (id: string, run?: Pick<RtRunState, 'forms'> | null): string => rtTalismanShown(id, !!run?.forms)?.name ?? rtHammer(id)?.name ?? id;
+/**
+ * Task 44 «Сплавы» (design 16.10.2026, docs/design-notes/task-44-fusions.md, 4): the recipe line of a half's card — «Сплав: с „…“ →
+ * „…“» (`rtFusionRecipe`: a run with fusions, both parts available); the run holds the partner — «· пара есть». Empty — no recipe.
+ */
+function recipeHtml(run: RtRunState | null | undefined, id: string): string {
+  const of = run ? rtFusionRecipe(run, id) : null;
+  if (!run || !of) return '';
+  const held = run.talismans.includes(of.partner) || run.hammer === of.partner;
+  return `<small class="rt-run-recipe" data-testid="recipe-${id}">Сплав: с «${escapeHtml(partName(of.partner, run))}» → «${escapeHtml(partName(of.fusion, run))}»${held ? ' · пара есть' : ''}</small>`;
+}
+/** Task 44: an item's icon as the build column draws it (a drawn SVG, or its sign). */
+const itemIcon = (id: string): string => { const label = labelOf(id); return `<i class="rt-fuse-icon">${label.svg ?? escapeHtml(label.glyph)}</i>`; };
+
+function talismanCardLines(id: string, run?: RtRunState | null): string {
   const def = rtTalismanShown(id, !!run?.forms);
   if (!def) return '';
   if (def.price) return `<small>Плюс: ${escapeHtml(def.effect)}</small><small class="rt-run-reason rt-run-price" data-testid="price-${id}">Цена: ${escapeHtml(def.price)}</small>`;
   const rarity = def.rarity === 'common' || def.rarity === 'uncommon' || def.rarity === 'rare' ? `${RT_RARITY_NAME[def.rarity]} · `
     : def.rarity === 'form' && def.field ? `форма · ${FORM_FIELD_TITLES[def.field].toLowerCase()} · ` : '';
   const replaces = run ? rtFormReplaces(run, id) : null;
-  return `<small>${escapeHtml(rarity + def.effect)}</small>${replaces ? `<small class="rt-run-reason" data-testid="replaces-${id}">Заменит «${escapeHtml(talismanName(replaces, run))}»</small>` : ''}`;
+  return `<small>${escapeHtml(rarity + def.effect)}</small>${replaces ? `<small class="rt-run-reason" data-testid="replaces-${id}">Заменит «${escapeHtml(talismanName(replaces, run))}»</small>` : ''}${recipeHtml(run, id)}`;
 }
 
 /** Task 41 «Три зелья»: the words at a choice the hand cannot take — «Рука полна» (always, not a hint: why the choice is off). */
@@ -534,7 +552,28 @@ export class RunView {
     this.host.runStep?.(before, step, { realSeconds });
     if (step.events.some(event => event.type === 'battle-ready')) this.enterArena();
     else this.draw();
+    const made = step.events.find(event => event.type === 'fusion-made');
+    if (made && made.type === 'fusion-made') this.playFusion(made.parts, made.fusion);
     return '';
+  }
+
+  /** Task 44: fusion animations started so far (tests read it). */
+  fusionsShown = 0;
+  /**
+   * Task 44 «Сплавы» (design 16.10.2026, 4: «короткая анимация слияния двух иконок в одну, звук — без длинной сцены»): over the map,
+   * the two parts' icons slide together and fade while the fusion's icon grows in its place (`FUSE_TIME` ms), then all goes. The
+   * meta's sound «fuse» by the run's sound setting.
+   */
+  private playFusion(parts: readonly string[], fusion: string): void {
+    this.fusionsShown++;
+    this.host.meta?.sound('fuse');
+    const box = document.createElement('div');
+    box.className = 'rt-fuse-anim';
+    box.setAttribute('data-testid', 'fusion-anim');
+    box.dataset.fusion = fusion;
+    box.innerHTML = `<span class="rt-fuse-a">${itemIcon(parts[0] ?? '')}</span><span class="rt-fuse-b">${itemIcon(parts[1] ?? '')}</span><span class="rt-fuse-c">${itemIcon(fusion)}</span>`;
+    this.el.appendChild(box);
+    window.setTimeout(() => box.remove(), FUSE_TIME);
   }
 
   /**
@@ -657,6 +696,9 @@ export class RunView {
       // Task 30 «одна форма на поле»: the form of the same field left.
       if (event.type === 'form-replaced') parts.push(`«${talismanName(event.id, this.run)}» заменена`);
       if (event.type === 'hammer-taken') parts.push(`Молот «${rtHammer(event.id)?.name ?? event.id}»`);
+      // Task 44 «Сплавы»: the pair collected (the next rest offers it) and the fusion made.
+      if (event.type === 'fusion-paired') parts.push(`Пара собрана: сплав «${partName(event.fusion, this.run)}» — на привале`);
+      if (event.type === 'fusion-made') parts.push(`Сплав «${partName(event.fusion, this.run)}»`);
       if (event.type === 'ward-crumbled') parts.push('Пепельный оберег рассыпался');
       if (event.type === 'casino-played') parts.push(event.text);
       // Task 15: the map heal; task 16: the feat's resources (at the door, or instead of a talisman choice when too few were left).
@@ -721,6 +763,7 @@ export class RunView {
     if (action === 'die-skip') { this.landDie(); return; }
     if (action === 'die-close') { this.closeDie(); return; }
     if (action === 'rest-heal') { this.apply(rtRestHeal(run)); return; }
+    if (action === 'rest-fuse') { const fusion = target.dataset.fusion; if (isFusionId(fusion)) this.apply(rtRestFuse(run, fusion)); return; }
     if (action === 'rest-craft') { this.apply(rtRestCraft(run, target.dataset.resource as ResourceKind)); return; }
     if (action === 'rest-finish') { this.apply(rtRestFinish(run)); return; }
     if (action === 'find') { this.apply(rtChooseFind(run, target.dataset.item as ItemKind)); return; }
@@ -1019,9 +1062,20 @@ export class RunView {
     // Phase B: the hammer first (⚒), then the talismans; a relic is marked ◆ — the rule and the price in the tooltip (the
     // header is narrow: names only).
     const hammer = run.hammer ? rtHammer(run.hammer) : undefined;
+    // Task 44 «Сплавы»: both parts of a recipe held — a soft mark on both (a dotted underline, «⚭»), the title says «сплав на привале».
+    const paired = new Map<string, FusionId>();
+    for (const fusion of rtFusionsReady(run)) { const r = fusionRecipe(fusion)!; paired.set(r.form, fusion); paired.set(r.counter, fusion); }
+    const pairMark = (id: string): { cls: string; title: string; test: string; sign: string } => {
+      const fusion = paired.get(id);
+      return fusion ? { cls: ' class="rt-run-pair"', title: ` · Сплав на привале: «${partName(fusion, run)}»`, test: ` data-testid="run-pair-${id}"`, sign: ' ⚭' } : { cls: '', title: '', test: '', sign: '' };
+    };
+    const hp = hammer ? pairMark(hammer.id) : null;
     const talismans = [
-      ...hammer ? [`<span data-testid="run-hammer-slot" title="Молот: ${escapeHtml(hammer.effect)}">⚒ ${escapeHtml(hammer.name)}</span>`] : [],
-      ...run.talismans.map(id => `<span title="${escapeHtml(rtTalismanText(id, !!run.forms))}"${rtTalisman(id)?.rarity === 'relic' ? ` data-testid="run-relic-${id}"` : ''}>${rtTalisman(id)?.rarity === 'relic' ? '◆ ' : ''}${escapeHtml(talismanName(id, run))}${id === 'ash-ward' && run.wardSpent ? ' (рассыпался)' : ''}</span>`),
+      ...hammer && hp ? [`<span${hp.cls} data-testid="run-hammer-slot" title="Молот: ${escapeHtml(hammer.effect + hp.title)}">⚒ ${escapeHtml(hammer.name)}${hp.sign}</span>`] : [],
+      ...run.talismans.map(id => {
+        const m = pairMark(id);
+        return `<span${m.cls}${m.test} title="${escapeHtml(rtTalismanText(id, !!run.forms) + m.title)}"${rtTalisman(id)?.rarity === 'relic' ? ` data-testid="run-relic-${id}"` : ''}>${rtTalisman(id)?.rarity === 'relic' ? '◆ ' : ''}${escapeHtml(talismanName(id, run))}${id === 'ash-ward' && run.wardSpent ? ' (рассыпался)' : ''}${m.sign}</span>`;
+      }),
     ].join(', ');
     const reset = this.confirmReset
       ? `<span class="rt-run-confirm">Бросить поход? <button data-action="new-run" data-testid="run-reset-confirm">Да, новый</button><button data-action="cancel-reset">Нет</button></span>`
@@ -1285,9 +1339,13 @@ export class RunView {
       const recipes = view.recipes.map(recipe => `<button class="rt-run-choice" data-action="rest-craft" data-resource="${recipe.resource}" data-testid="craft-${recipe.resource}" ${recipe.available ? '' : 'disabled'}>`
         + `<b>Крафт: ${escapeHtml(ITEM_TITLES[recipe.item])}</b><small>${recipe.cost} «${escapeHtml(RESOURCES[recipe.resource].label)}» (есть ${recipe.have})${recipe.opens ? ' · откроется в походе' : ''}</small>`
         + `${recipe.handFull ? handFullHtml(`craft-${recipe.resource}`) : ''}</button>`).join('');
-      return card(`<h2>Привал</h2><p>Лечение или крафт: первый рецепт отменяет лечение этого привала.${view.crafted.length ? ` Сделано: ${view.crafted.map(item => ITEM_TITLES[item]).join(', ')}.` : ''}</p>`
+      // Task 44 «Сплавы»: both parts held — «Сплав: „…“» with the parts' icons → the fusion's; it takes the rest (no heal, no craft).
+      const fusions = view.fusions.map(f => `<button class="rt-run-choice rt-run-fuse" data-action="rest-fuse" data-fusion="${f.fusion}" data-testid="rest-fuse-${f.fusion}" ${f.available ? '' : 'disabled'}>`
+        + `<span class="rt-fuse-recipe">${itemIcon(f.form)}<em>+</em>${itemIcon(f.counter)}<em>→</em>${itemIcon(f.fusion)}</span><b>Сплав: «${escapeHtml(partName(f.fusion, run))}»</b>`
+        + `<small>${f.available ? `«${escapeHtml(partName(f.form, run))}» и «${escapeHtml(partName(f.counter, run))}» станут одним; привал уйдёт на сплав` : 'выбран крафт'}</small></button>`).join('');
+      return card(`<h2>Привал</h2><p>${fusions ? 'Лечение, крафт или сплав: сплав занимает привал, первый рецепт отменяет лечение и сплав.' : 'Лечение или крафт: первый рецепт отменяет лечение этого привала.'}${view.crafted.length ? ` Сделано: ${view.crafted.map(item => ITEM_TITLES[item]).join(', ')}.` : ''}</p>`
         + `<div class="rt-run-choices"><button class="rt-run-choice" data-action="rest-heal" data-testid="rest-heal" ${view.heal.available ? '' : 'disabled'}><b>Лечение +${view.heal.amount} HP</b>`
-        + `<small>${!view.heal.available ? 'выбран крафт' : view.heal.amount < view.heal.value ? `не выше максимума (лечит до ${view.heal.value})` : `лечит до ${view.heal.value} HP`}</small></button>${recipes}</div>`
+        + `<small>${!view.heal.available ? 'выбран крафт' : view.heal.amount < view.heal.value ? `лечит до ${view.heal.value} HP, не выше максимума` : `лечит до ${view.heal.value} HP`}</small></button>${fusions}${recipes}</div>`
         + (view.canFinish ? `<button class="rt-other" data-action="rest-finish" data-testid="rest-finish">К карте</button>` : ''), 'run-rest');
     }
     if (pending.kind === 'outskirts') {
@@ -1306,7 +1364,7 @@ export class RunView {
       // Phase B (Т2): the Jailer's first screen — a hammer 3 of 4; one hammer a run, it acts on every later arena.
       const fresh = this.newOffers(`hammer:${pending.nodeId}:${pending.options.join(',')}`, pending.options);
       const options = pending.options.map(id => `<button class="rt-run-choice" data-action="hammer" data-option="${id}" data-testid="hammer-${id}"><b>⚒ ${escapeHtml(rtHammer(id)?.name ?? id)}${newSign(fresh, id)}</b>`
-        + `<small>${escapeHtml(rtHammer(id)?.effect ?? '')}</small></button>`).join('');
+        + `<small>${escapeHtml(rtHammer(id)?.effect ?? '')}</small>${recipeHtml(run, id)}</button>`).join('');
       // Task 37 «Правка» (Ерофей): one free reroll for both of the Jailer's screens.
       const hr = rtHammerRerollView(run);
       const hammerReroll = hr ? `<button class="rt-other" data-action="hammer-reroll" data-testid="hammer-reroll" ${hr.available ? '' : 'disabled'}>Перебросить — бесплатно</button>`
@@ -1351,7 +1409,7 @@ export class RunView {
       const goods = view.goods.map(good => `<button class="rt-run-choice" data-action="shop-buy" data-good="${good.id}" data-testid="shop-${good.id}" ${good.available ? '' : 'disabled'}>`
         + `<b>${good.label} — ${good.price === 0 ? 'даром' : `${good.price} рес.`}</b><small>${escapeHtml(good.text)}${good.reason ? ` · ${escapeHtml(good.reason)}` : ''}</small>`
         // Task 30 «одна форма на поле»: the form of the same field the purchase replaces.
-        + `${good.replaces ? `<small class="rt-run-reason" data-testid="replaces-${good.replaces}">Заменит «${escapeHtml(talismanName(good.replaces, run))}»</small>` : ''}</button>`).join('');
+        + `${good.replaces ? `<small class="rt-run-reason" data-testid="replaces-${good.replaces}">Заменит «${escapeHtml(talismanName(good.replaces, run))}»</small>` : ''}${good.talisman ? recipeHtml(run, good.talisman) : ''}</button>`).join('');
       // Task 15: the header has one number; the merchant names the kinds (he takes from the most numerous).
       const kinds = resourceKindsText(run.materials);
       return card(`<h2>Торговец</h2><p data-testid="shop-resources">Ресурсов: ${view.total}${kinds ? ` (${kinds})` : ''}.</p><div class="rt-run-choices">${goods}</div>`

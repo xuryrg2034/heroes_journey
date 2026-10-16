@@ -121,7 +121,55 @@ export const FORM_FIELD: Readonly<Record<string, FormField>> = {
   [FORMS.seal]: 'end', [FORMS.pierce]: 'end', [HAMMERS.blast]: 'end',
   [FORMS.fork]: 'link', [FORMS.alien]: 'link', [FORMS.twins]: 'link', 'hero-anchor': 'link',
   [HAMMERS.fire]: 'path', [HAMMERS.cut]: 'path', [HAMMERS.return]: 'path', [FROST_PASS]: 'path',
+  // Task 44: a fusion takes the field of its form part.
+  'fusion-ice-seal': 'end', 'fusion-spear': 'end', 'fusion-boomerang': 'path',
 };
+
+/**
+ * Task 44 «Сплавы» (docs/design-notes/task-44-fusions.md; docs/realtime-prototype.md, section 9ц): a form (or the hammer «Возврат»)
+ * and a counter talisman make one item with a new rule of the chain. A fusion keeps the rules of both parts: a kit holding the
+ * fusion's id holds its parts too (kit.ts `kitOf`, `expandFusions`); its own rule acts while the kit holds its id (sim/fusions.ts).
+ * A journal without a fusion id plays the old path.
+ */
+export const FUSIONS = {
+  /** «Ледяная печать» = «Печать» + «Иней на клинке»: the survivors inside the ring freeze as from the cold consumable. */
+  iceSeal: 'fusion-ice-seal',
+  /** «Копьё» = «Прямая» + «Длинная рука»: the pierce twice as long, 2 plates off an elite instead of one. */
+  spear: 'fusion-spear',
+  /** «Бумеранг» = «Возврат» + «Добивание»: the second pass of «Возврат» at full power when the last enemy link died. */
+  boomerang: 'fusion-boomerang',
+} as const;
+export type FusionId = typeof FUSIONS[keyof typeof FUSIONS];
+export const FUSION_IDS: readonly FusionId[] = Object.values(FUSIONS);
+export const isFusionId = (value: unknown): value is FusionId => typeof value === 'string' && (FUSION_IDS as readonly string[]).includes(value);
+/** A recipe: the form part (its field is the fusion's) and the counter part. */
+export interface FusionRecipe { fusion: FusionId; form: string; counter: string }
+export const FUSION_RECIPES: readonly FusionRecipe[] = [
+  { fusion: FUSIONS.iceSeal, form: FORMS.seal, counter: COUNTER_TALISMANS.frostEdge },
+  { fusion: FUSIONS.spear, form: FORMS.pierce, counter: COUNTER_TALISMANS.longArm },
+  { fusion: FUSIONS.boomerang, form: HAMMERS.return, counter: COUNTER_TALISMANS.finisher },
+];
+/** The recipe of a fusion. */
+export const fusionRecipe = (fusion: string): FusionRecipe | undefined => FUSION_RECIPES.find(r => r.fusion === fusion);
+/** The recipe a half belongs to: its partner and the fusion; undefined — not a half of a recipe. */
+export function fusionOfHalf(id: string): { partner: string; fusion: FusionId } | undefined {
+  const r = FUSION_RECIPES.find(x => x.form === id || x.counter === id);
+  return r ? { partner: r.form === id ? r.counter : r.form, fusion: r.fusion } : undefined;
+}
+/**
+ * The talismans with every fusion's parts added after it (each id once, the order of the list kept): what a kit holds. A list
+ * without a fusion comes back as it is.
+ */
+export function expandFusions(ids: readonly string[]): string[] {
+  if (!ids.some(isFusionId)) return [...ids];
+  const out: string[] = [];
+  for (const id of ids) {
+    if (!out.includes(id)) out.push(id);
+    const r = fusionRecipe(id);
+    if (r) for (const part of [r.form, r.counter]) if (!out.includes(part)) out.push(part);
+  }
+  return out;
+}
 
 /**
  * Rank inside the field «Конец» (task 29, item 6), per chain: of the forms whose rule holds on the chain only the first acts —
