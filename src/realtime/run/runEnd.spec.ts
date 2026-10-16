@@ -76,6 +76,65 @@ check('the killer of an elite\'s touch: its kind, «-элита» (the basic ene
   });
 });
 
+check('task 40: the killer of a garrison touch — «стражник», «псарь», «пёс», «Ключник», «Кастелян»; a hound in its frenzy — «пёс» too (a real death)', () => {
+  const cases: { kind: string; text: string }[] = [
+    { kind: 'guard', text: 'Сразил: стражник' }, { kind: 'hound', text: 'Сразил: пёс' }, { kind: 'keymaster', text: 'Сразил: Ключник' }, { kind: 'castellan', text: 'Сразил: Кастелян' },
+  ];
+  cases.forEach((c, i) => {
+    const run = newRun(21 + i);
+    // The hero keeps at the body (the keymaster backs off to 4–5 from him): a teleport next to it every half second.
+    const { outcome, sim } = playFight(run, { chains: [], k: 21 + i, finish: (fight, seen) => {
+      touchOn(fight);
+      const hero = fight.world.hero;
+      const id = fight.command({ t: 'place', x: hero.x + 0.45, y: hero.y, color: 0, hp: 2, kind: c.kind }) as number;
+      for (let n = 0; n < 240 && fight.world.status === 'playing'; n++) {
+        const e = fight.world.enemies.find(x => x.id === id)!;
+        fight.command({ t: 'teleport', x: e.x - 0.45, y: e.y });
+        ticks(fight, 30, seen);
+      }
+    } });
+    assert(sim.world.status === 'defeat', `${c.kind}: the hero fell`);
+    assert(same(outcome.death, { source: c.kind, enemy: c.kind }), `${c.kind}: ${JSON.stringify(outcome.death)}`);
+    const after = ok(resolveArena(run, outcome), 'lost');
+    assert(lines(after)[0] === c.text, `${c.kind}: ${lines(after)[0]}`);
+    assert(serializeRtRun(parseRtRun(serializeRtRun(after))!) === serializeRtRun(after), `${c.kind}: the save with the death reads back`);
+  });
+  // The dog handler at the hero; its hounds held by the cold (a frozen body does not touch): only the handler's touch kills.
+  const handlerRun = newRun(26);
+  const byHandler = playFight(handlerRun, { chains: [], k: 26, finish: (sim, seen) => {
+    touchOn(sim);
+    const hero = sim.world.hero;
+    const id = sim.command({ t: 'place', x: hero.x + 0.45, y: hero.y, color: 0, hp: 1, kind: 'handler' }) as number;
+    ticks(sim, 1, seen);
+    for (const hound of sim.world.enemies.filter(e => e.kind === 'hound')) sim.command({ t: 'chill', id: hound.id, seconds: 600 });
+    for (let n = 0; n < 240 && sim.world.status === 'playing'; n++) {
+      const e = sim.world.enemies.find(x => x.id === id)!;
+      sim.command({ t: 'teleport', x: e.x - 0.45, y: e.y });
+      ticks(sim, 30, seen);
+    }
+  } });
+  assert(same(byHandler.outcome.death, { source: 'handler', enemy: 'handler' }), `the handler: ${JSON.stringify(byHandler.outcome.death)}`);
+  assert(lines(ok(resolveArena(handlerRun, byHandler.outcome), 'lost'))[0] === 'Сразил: псарь', 'the line of the handler');
+  // A hound in its frenzy: the dog handler dies by a bomb, its hounds run mad and the nearest body is the hero.
+  const mad = newRun(27);
+  let frenzied = false;
+  const byMad = playFight(mad, { chains: [], k: 27, finish: (sim, seen) => {
+    const hero = sim.world.hero;
+    sim.command({ t: 'param', key: 'houndFrenzy', value: 60 });
+    const handler = sim.command({ t: 'place', x: hero.x + 3, y: hero.y, color: 0, hp: 1, kind: 'handler' }) as number;
+    ticks(sim, 2, seen);
+    assert(sim.world.enemies.filter(e => e.kind === 'hound').length === 2, 'two hounds at the handler');
+    sim.command({ t: 'items', kind: 'bomb', count: 1 });
+    const h = sim.world.enemies.find(e => e.id === handler)!;
+    sim.command({ t: 'item', kind: 'bomb', x: h.x, y: h.y });
+    touchOn(sim);
+    ticks(sim, 60 * 120, w => { seen(w); if (w.events.some(ev => ev.type === 'hit' && ev.source === 'hound' && (w.enemies.find(e => e.id === ev.enemyId)?.vars.fz ?? 0) > 0)) frenzied = true; });
+  } });
+  assert(frenzied && byMad.sim.world.status === 'defeat', 'a frenzied hound hit the hero, the hero fell');
+  assert(same(byMad.outcome.death, { source: 'hound', enemy: 'hound' }), JSON.stringify(byMad.outcome.death));
+  assert(lines(ok(resolveArena(mad, byMad.outcome), 'lost'))[0] === 'Сразил: пёс', 'the frenzied hound is «пёс»');
+});
+
 check('the killer of an ability: an archer\'s arrow; a sapper\'s blast (the sapper is gone before its blast hits)', () => {
   // Archers at a distance: nothing touches (the quiet field), only arrows hurt.
   const archers = newRun(11);

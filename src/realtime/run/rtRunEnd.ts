@@ -29,7 +29,7 @@ export const RT_KIND_TITLES: Readonly<Record<string, string>> = {
   basic: 'обычный', wolf: 'волк', boar: 'кабан', reaper: 'жнец', shield: 'щитоносец', archer: 'лучник', sapper: 'сапёр', porcupine: 'дикобраз', lynx: 'рысь', shaman: 'шаман',
   // Task 28 «Тюремщик в походе»: the boss and its part (a touch of either may kill in the run's Jailer fight).
   jailer: 'Тюремщик', 'jailer-weight': 'гиря Тюремщика',
-  // Tasks 38–40 «Гарнизон» (the report's names; their touches are not in `RT_DEATH_TOUCH`: the end screen's killer line is design's call).
+  // Tasks 38–40 «Гарнизон» (the report's and the killer line's names; task 40: their touches are in `RT_DEATH_TOUCH`).
   guard: 'стражник', handler: 'псарь', hound: 'пёс', castellan: 'Кастелян', keymaster: 'Ключник',
 };
 
@@ -44,8 +44,12 @@ export const RT_DEATH_ABILITY: Readonly<Record<string, string>> = {
   // Task 28: the Jailer's moves.
   flail: 'кистень Тюремщика', throw: 'бросок гири',
 };
-/** The touch sources (each kind's `hitSource`): the line names the striker's kind, its elite mark, armour and affixes. */
-export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper'];
+/**
+ * The touch sources (each kind's `hitSource`): the line names the striker's kind, its elite mark, armour and affixes. Task 40 (design
+ * 16.10.2026, spec section 10): the garrison's touches too — the guard, the dog handler, the hound (on its leash or in its frenzy: the
+ * same body, «пёс»), the keymaster, the Castellan.
+ */
+export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper', 'guard', 'handler', 'hound', 'keymaster', 'castellan'];
 
 /** Drafts sent to design 12.10.2026 (pending approval). */
 export const RT_RUN_END_TEXT = {
