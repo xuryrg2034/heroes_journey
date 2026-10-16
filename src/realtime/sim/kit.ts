@@ -140,6 +140,17 @@ export interface Loadout {
    * row 8 once «Ров» was played (the keymaster). Absent — the template's start enemies as they are.
    */
   deep?: boolean;
+  /**
+   * Task 43 «Гарнизон, шаг 2», part Г: the middle guard of the first this many start formations of the arena stands as a knight
+   * (sim/rosters.ts `withKnights`, at most `MAX_KNIGHTS`; world.ts `createWorld`) — the run gives it to «Галерея» and the hard
+   * «Караульня» once «Ристалище» was played (run/garrison.ts `garrisonKnights`). Absent — the template's start enemies as they are.
+   */
+  knights?: number;
+  /**
+   * Task 43, part Г: the arena's crossbowmen stand too (`ArenaTemplate.boltEnemies`; world.ts `createWorld`) — the run gives it to
+   * «Галерея» and «Караульня» from garrison row 8 once «Бойницы» was played (run/garrison.ts `garrisonBolts`). Absent — none.
+   */
+  bolts?: boolean;
 }
 
 /**
@@ -216,6 +227,10 @@ export interface Kit {
   walkScale?: number;
   /** Task 40: the deep start enemies stood (absent — no: kits before hash as before). */
   deep?: true;
+  /** Task 43, part Г: knights stood in the start formations (absent — none: kits before hash as before). */
+  knights?: number;
+  /** Task 43, part Г: the arena's crossbowmen stood (absent — no: kits before hash as before). */
+  bolts?: true;
 }
 
 /** Баланс (design answer to step 3, «пустые» исходы событий): «злость» — this many more enemies in the first wave. */
@@ -232,6 +247,8 @@ export const MAX_COLORS = 5;
 /** Package «Урон имеет значение»: an armoured elite has at most this many plates; a tough newcomer at most this HP. */
 export const MAX_PLATES = 6;
 export const MAX_TOUGH_HP = 4;
+/** Task 43, part Г (design 16.10.2026, task-43 spec 5): at most this many knights in the start formations of a fight. */
+export const MAX_KNIGHTS = 2;
 /** Task 18: the bounds of `Loadout.floorScale` and `Loadout.phaseScale` (outside them, or 1 — absent). */
 export const SCALE_MIN = 0.25;
 export const SCALE_MAX = 4;
@@ -299,6 +316,9 @@ export function kitOf(loadout: Loadout): Kit {
     ...scale(loadout.walkScale) !== undefined ? { walkScale: scale(loadout.walkScale)! } : {},
     // Task 40: absent unless the run gives it (kits before hash as before).
     ...loadout.deep === true ? { deep: true as const } : {},
+    // Task 43, part Г: absent unless the run gives them (kits before hash as before).
+    ...count(loadout.knights) >= 1 ? { knights: Math.min(MAX_KNIGHTS, count(loadout.knights)) } : {},
+    ...loadout.bolts === true ? { bolts: true as const } : {},
   };
 }
 /** A kit with nothing (test setup on a world without a loadout). */

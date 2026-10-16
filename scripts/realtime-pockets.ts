@@ -8,19 +8,24 @@
  * end near the hero and how many stand still far from him (flow field with and without
  * the density penalty). Last — the cost per step with 60 enemies.
  *
- * Run: `npm run realtime:pockets` (add `--straight` to see the old straight-line walk too).
+ * Run: `npm run realtime:pockets` (add `--straight` to see the old straight-line walk too; `--garrison` — the garrison's arenas).
  * Uses the real simulation step `update` of src/realtime/sim/world.ts with fixed seeds (the crowd runs use seeds 1–3,
  * so the report repeats exactly); the last table times a whole tick (`Simulation.tick`: the hero step and `update`).
  */
 import { ARENAS as PROTOTYPE_ARENAS, SLICE_ARENAS, TERRAIN_ARENAS, markedCount, markedGoalArena, type ArenaLayout } from '../src/realtime/sim/arenas';
 import { BEHAVIOR_ARENAS } from '../src/realtime/sim/arenasStage3';
 import { CAMERA_ARENAS } from '../src/realtime/sim/arenasCamera';
+import { GARRISON_ARENAS } from '../src/realtime/sim/arenasGarrison';
 // The prototype arenas 1–3, the slice arenas 4–10 (stage 2 of the transition, steps 2 and 4) and the terrain samples of
 // stage 3a, step 1 (river, cliff, thorns, braziers, gorge).
 const LAYOUTS: readonly ArenaLayout[] = [...PROTOTYPE_ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS, ...BEHAVIOR_ARENAS, ...CAMERA_ARENAS];
 // Task 12 (13.10.2026): the goal layouts of the `marked` arenas (a horde or a leader, `Params.markedGoals`) — their posts are
 // start spots too, as the marked posts of the old layouts.
-const ARENAS: readonly ArenaLayout[] = [...LAYOUTS, ...LAYOUTS.filter(a => a.markedGoal).map(a => ({ ...markedGoalArena(a, true), name: `${a.name} (атаман или орда)` }))];
+// Task 43, part Г: `--garrison` — the garrison's arenas instead (the full Castellan's out: its moat splits the arena by design, only
+// the chain crosses it). The default report stays as it was.
+const GARRISON = process.argv.includes('--garrison');
+const ARENAS: readonly ArenaLayout[] = GARRISON ? GARRISON_ARENAS.filter(a => !a.castellanFull)
+  : [...LAYOUTS, ...LAYOUTS.filter(a => a.markedGoal).map(a => ({ ...markedGoalArena(a, true), name: `${a.name} (атаман или орда)` }))];
 import { type Vec, blockedAt, dist, setFlowClock } from '../src/realtime/sim/geometry';
 import { defaultParams, enemyBodyRadius, heroRadius, type Params } from '../src/realtime/sim/params';
 import { Simulation } from '../src/realtime/sim/simulation';

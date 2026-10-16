@@ -36,6 +36,7 @@ import { bagAppear, bagDoor, bagHurt, bagKill, type BagWorld } from './bag';
 import { featCheck, featExit, type FeatKind, type FeatWorld } from './feat';
 // Casino stage 1, item 2 («Ставка клятвы», oath.ts): the oath of the fight, its checks and the door.
 import { oathDoor, oathForfeit, oathHurt, startOath, type OathId, type OathState } from './oath';
+import { withKnights } from './rosters';
 import { spawnEnemy, spawnReaper, toughHpMaxOf, updateSpawning, type QueuedSpawn, type SpawnMarker } from './spawn';
 // К7 «Проклятый сундук» (chest.ts): the chest of «Застава», its touch, the curse on the touch.
 import { curseTouch, placeChest, touchChest, type CurseState } from './chest';
@@ -754,7 +755,10 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   // Task 12: with `markedGoals` on, a template's goal layout (its enemies, summary and horde) — the world plays it throughout.
   const marked = markedGoalArena(template, params.markedGoals);
   // Task 40: a deep fight (`Loadout.deep`) stands the template's deep enemies too, after its own (absent — the template as it is).
-  const arena = loadout?.deep === true && marked.deepEnemies?.length ? { ...marked, enemies: [...marked.enemies, ...marked.deepEnemies] } : marked;
+  const deep = loadout?.deep === true && marked.deepEnemies?.length ? { ...marked, enemies: [...marked.enemies, ...marked.deepEnemies] } : marked;
+  // Task 43, part Г: the run's crossbowmen (`Loadout.bolts`) after them, and its knights in the start formations (`Loadout.knights`).
+  const bolted = loadout?.bolts === true && deep.boltEnemies?.length ? { ...deep, enemies: [...deep.enemies, ...deep.boltEnemies] } : deep;
+  const arena = withKnights(bolted, kitOf({ knights: loadout?.knights }).knights ?? 0);
   // Task 27 «Каркас босса»: a boss arena plays the frame — a copy of the values with it on (the given object stays as it is).
   if (arena.bossFrame && !params.bossFrame) params = { ...copyParams(params), bossFrame: true };
   // Task 28: a boss arena's death of the boss ends the fight — on when the values have the key off (absent: an older journal, as it was).

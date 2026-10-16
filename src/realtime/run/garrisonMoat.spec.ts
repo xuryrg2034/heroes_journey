@@ -32,9 +32,12 @@ function assert(condition: unknown, message: string): asserts condition { if (!c
 
 /** The camp's flags of a meta run (any one makes the camp: `hearth` is kept only with `locked`). */
 const CAMP = { locked: [] as string[], hearth: { jailerRerolls: 1 } };
-/** A run with the garrison; task 40's moat parts pass the flag `moat` explicitly (they hold whatever `RT_GARRISON_MOAT_ON` is; on with the ui view). */
+/**
+ * A run with the garrison; task 40's moat parts pass the flag `moat` explicitly (they hold whatever `RT_GARRISON_MOAT_ON` is; on with
+ * the ui view). Task 43: the pools of step 1б — `step2: false` (step 2's pools: garrisonStep2.spec.ts).
+ */
 const garrisonWalk = (k: number, extra: Partial<WalkOptions> = {}, create: WalkOptions['create'] = {}): Walk =>
-  walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, moat: true, ...create }, ...extra });
+  walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, moat: true, step2: false, ...create }, ...extra });
 /** The fights a walk entered: node, garrison row, arena, the loadout's `deep`. */
 interface Fight { nodeId: string; row: number; arena: string; deep: boolean; type: string }
 function fightsOf(k: number, create: WalkOptions['create'] = {}): { walk: Walk; fights: Fight[] } {

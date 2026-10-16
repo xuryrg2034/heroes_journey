@@ -224,6 +224,11 @@ export interface ArenaTemplate extends ArenaShape {
    */
   deepEnemies?: StartEnemy[];
   /**
+   * Task 43 «Гарнизон, шаг 2», part Г: the crossbowmen that stand too when the run gives `Loadout.bolts` («Галерея» and «Караульня»
+   * from garrison row 8 once «Бойницы» was played) — after `enemies` and the deep ones. Omitted — none; without `bolts` never read.
+   */
+  boltEnemies?: StartEnemy[];
+  /**
    * Task 43 «Кастелян полный»: the arena of the full Castellan (the grate, its levers `gateLevers`, the moat; enemies/garrison.ts
    * `fullOn`) — the world gets a copy of the values with `Params.castellanFull` on. Omitted — the Castellan v0.
    */

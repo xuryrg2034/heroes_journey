@@ -18,6 +18,9 @@
  * once it is within reach. A fight over the limit counts as lost (`timeouts`). It prints the date and HEAD, and the share of deaths
  * among the runs that reached the Jailer (л5), the forest's final (л10) and the Castellan (г10) — the bosses' walls side by side.
  * `--moat` — the runs take «Ров» and the keymaster (the flag `RT_GARRISON_MOAT_ON` is off until the ui view).
+ * `--step2 off` (task 43, part Г) — the runs play the garrison of step 1б (`step2: false`); absent — by the game's flag
+ * (`RT_GARRISON_STEP2_ON`). `--garrison-only` — only the pass «гарнизон». Each pass ends with a table of the garrison's fights by arena
+ * (with the loadout's knights `+рN`, crossbowmen `+арб`, deep `+глуб`): fights, deaths, median damage.
  * `--castellan <set>` (task 40, pass 3, design 16.10.2026: the Castellan's sweep) — only the pass «гарнизон», the Castellan's fight
  * played with the set's numbers (`CASTELLAN_SETS`) put on by the SCRIPT into the world it plays (no command, no Params key: the game
  * keeps its numbers; such a fight does not replay from a journal), and a line of the Castellan's fights: deaths among the reachers,
@@ -39,6 +42,8 @@ const option = (name: string, fallback: string): string => { const at = args.ind
 const SEEDS = Number(option('--seeds', '300')), LIMIT = Number(option('--limit', '240')), VERBOSE = args.includes('--verbose');
 /** Task 40: `--moat` — the runs take «Ров» (`moat: true`) whatever `RT_GARRISON_MOAT_ON` says (off until the ui view). */
 const MOAT = args.includes('--moat');
+/** Task 43: `--step2 off` — the garrison of step 1б; `--garrison-only` — the pass «гарнизон» alone. */
+const STEP2_OFF = option('--step2', 'on') === 'off', GARRISON_ONLY = args.includes('--garrison-only');
 
 /**
  * Task 40, pass 3: the Castellan's sets of the sweep — the knobs that matter most, put on by the script only. `plates` — the core's
@@ -104,8 +109,10 @@ const castellanFights: { won: boolean; time: number; source: string | null; hpIn
 const jailerFights: { won: boolean; time: number }[] = [];
 const jailerArena = (id: string): boolean => (JAILER_RUN_ARENAS as readonly string[]).includes(id);
 
-interface Tally { reached: Map<string, number>; deaths: Map<string, number>; damage: Map<string, number[]>; outcomes: Record<string, number>; fights: number; timeouts: number; runs: number }
-const tally = (): Tally => ({ reached: new Map(), deaths: new Map(), damage: new Map(), outcomes: { victory: 0, defeat: 0, open: 0 }, fights: 0, timeouts: 0, runs: 0 });
+interface Tally { reached: Map<string, number>; deaths: Map<string, number>; damage: Map<string, number[]>; outcomes: Record<string, number>; fights: number; timeouts: number; runs: number;
+  /** Task 43: the garrison's fights by arena and loadout: deaths and damage of each. */
+  arenas: Map<string, { deaths: number; damage: number[] }> }
+const tally = (): Tally => ({ reached: new Map(), deaths: new Map(), damage: new Map(), outcomes: { victory: 0, defeat: 0, open: 0 }, fights: 0, timeouts: 0, runs: 0, arenas: new Map() });
 /** The level and run row of a node id («л N» / «г N»). */
 const keyOf = (run: RtRunState, id: string): string => `${rtGarrisonNodeId(id) ? 'г' : 'л'} ${runRow(rtNode(run, id)!.row)}`;
 const bump = (map: Map<string, number>, key: string): void => { map.set(key, (map.get(key) ?? 0) + 1); };
@@ -133,6 +140,12 @@ function fight(run: RtRunState, t: Tally): RtArenaOutcome {
   if (castellan) castellanFights.push({ won: w.status === 'victory', time: w.time, source: w.status === 'defeat' ? lastSource ?? 'timeout' : null, hpIn: run.hp });
   const key = keyOf(run, pending.nodeId);
   t.damage.set(key, [...t.damage.get(key) ?? [], w.stats.damageTaken]);
+  if (rtGarrisonNodeId(pending.nodeId)) {
+    const tag = `${pending.arena}${loadout.knights ? ` +р${loadout.knights}` : ''}${loadout.bolts ? ' +арб' : ''}${loadout.deep ? ' +глуб' : ''}`;
+    const entry = t.arenas.get(tag) ?? { deaths: 0, damage: [] };
+    entry.damage.push(w.stats.damageTaken); if (w.status !== 'victory') entry.deaths++;
+    t.arenas.set(tag, entry);
+  }
   if (VERBOSE) console.log(`  ${pending.nodeId} ${pending.arena}${pending.roster ? `/${pending.roster}` : ''}: ${w.status}, HP ${run.hp} → ${w.hero.hp}, урон ${w.stats.damageTaken}, ${w.time.toFixed(1)} с, цели ${w.greedStart?.toFixed(1) ?? '—'}`);
   return outcomeOf(run, w);
 }
@@ -167,7 +180,7 @@ function tuneCastellan(w: World, set: CastellanSet, first: boolean): void {
 function pass(real: (run: RtRunState) => boolean): Tally {
   const t = tally();
   for (let k = 1; k <= SEEDS; k++) {
-    const run = walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, ...MOAT ? { moat: true } : {} }, fight: state => (real(state) ? fight(state, t) : null) }).run;
+    const run = walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, ...MOAT ? { moat: true } : {}, ...STEP2_OFF ? { step2: false } : {} }, fight: state => (real(state) ? fight(state, t) : null) }).run;
     t.runs++;
     const keys = new Set([...run.visited, ...run.result ? [run.result.nodeId] : []].map(id => keyOf(run, id)));
     // A run in the garrison passed every row of the forest.
@@ -196,6 +209,13 @@ function print(title: string, t: Tally, levels: readonly string[]): void {
   const wall = (key: string, title: string): string => { const r = t.reached.get(key) ?? 0, d = t.deaths.get(key) ?? 0; return `${title} ${d} из ${r}${r ? ` (${Math.round(100 * d / r)}%)` : ''}`; };
   console.log(`Доля смертей среди дошедших: ${levels.includes('л') ? `${wall('л 5', 'Тюремщик (л5)')}, ${wall('л 10', 'финал леса (л10)')}, ` : ''}${wall('г 10', 'Кастелян (г10)')}.`);
   console.log('');
+  // Task 43: the garrison's fights by arena (and the loadout's knights, crossbowmen, deep enemies).
+  console.log('| Арена гарнизона | Боёв | Смертей | Доля | Урон за бой, мед. |');
+  console.log('| --- | --- | --- | --- | --- |');
+  for (const [tag, entry] of [...t.arenas].sort((a, b) => a[0].localeCompare(b[0]))) {
+    console.log(`| ${tag} | ${entry.damage.length} | ${entry.deaths} | ${Math.round(100 * entry.deaths / entry.damage.length)}% | ${f1(median(entry.damage))} |`);
+  }
+  console.log('');
 }
 
 const started = Date.now();
@@ -209,11 +229,11 @@ if (SET) {
   console.log(`| ${SET_NAME}${BOSS_AIM ? ' (в ядро)' : ''} | ${lost.length} из ${castellanFights.length} (${castellanFights.length ? Math.round(100 * lost.length / castellanFights.length) : 0}%) | ${castellanFights.length ? f1(median(castellanFights.map(f => f.time))) : '—'} | ${top || '—'} | ${garrison.outcomes.victory} | ${castellanFights.length ? f1(median(castellanFights.map(f => f.hpIn))) : '—'} | ${castellanFights.filter(f => f.won).length ? f1(median(castellanFights.filter(f => f.won).map(f => f.time))) : '—'} | ${lost.length ? f1(median(lost.map(f => f.time))) : '—'} |`);
   process.exit(0);
 }
-const whole = pass(() => true), garrison = pass(run => !!run.garrisonLevel);
+const whole = GARRISON_ONLY ? null : pass(() => true), garrison = pass(run => !!run.garrisonLevel);
 if (BOSS_AIM) console.log('Бот целит в ядро босса (`--boss-aim`): Тюремщик, Кастелян; у финала леса ядра нет.\n');
 const head = (() => { try { return execSync('git rev-parse --short HEAD').toString().trim(); } catch { return '?'; } })();
-console.log(`Задача 40, часть Е: кривая выживания бота через лес и гарнизон, ${SEEDS} seed, предел боя ${LIMIT} с, «Ров» ${MOAT ? 'вкл.' : 'по флагу игры'} (эвристика, жадный бот), ${new Date().toISOString().slice(0, 10)}, HEAD ${head}, ${Math.round((Date.now() - started) / 1000)} с.\n`);
-print('Весь поход: все бои настоящие', whole, ['л', 'г']);
+console.log(`Задача 40, часть Е: кривая выживания бота через лес и гарнизон, ${SEEDS} seed, предел боя ${LIMIT} с, «Ров» ${MOAT ? 'вкл.' : 'по флагу игры'}, шаг 2 ${STEP2_OFF ? 'выкл.' : 'по флагу игры'} (эвристика, жадный бот), ${new Date().toISOString().slice(0, 10)}, HEAD ${head}, ${Math.round((Date.now() - started) / 1000)} с.\n`);
+if (whole) print('Весь поход: все бои настоящие', whole, ['л', 'г']);
 print('Гарнизон от «Предместья»: бои леса выиграны обходом, бои гарнизона настоящие', garrison, ['г']);
 // Task 43: the Jailer's fights of both passes (the second plays the forest by the walk: only the first's count).
 const jl = jailerFights.filter(f => !f.won).length;
