@@ -901,7 +901,13 @@ export interface FightSummary {
 }
 
 /** Task 40: the garrison's numbers of a fight (`FightSummary.garrison`). */
-export interface GarrisonSummary { shackles: number; shackleCuts: number; firstShackleCut: number | null; frenzyHits: number; frenzyDamage: number }
+export interface GarrisonSummary {
+  shackles: number; shackleCuts: number; firstShackleCut: number | null; frenzyHits: number; frenzyDamage: number;
+  /** Task 41 (from 16.10.2026; older records — 0): prisoners' riots (`frenzy` `start` with `riot`) and their kills (source `riot`, also in `chain.frenzyKills`). */
+  riots: number; riotKills: number;
+  /** Task 41: HP the hero lost to the touches of rioting prisoners (the striker in its riot after the tick; older records — 0). */
+  riotDamage: number;
+}
 
 /**
  * Task 16 «Подвиги» of one fight (sim/feat.ts `featResult`, read from the world at the end): its kind and N, done, the game second
@@ -1195,7 +1201,7 @@ export function emptyFightSummary(): FightSummary {
     feat: null,
     death: null,
     boss: null,
-    garrison: { shackles: 0, shackleCuts: 0, firstShackleCut: null, frenzyHits: 0, frenzyDamage: 0 },
+    garrison: { shackles: 0, shackleCuts: 0, firstShackleCut: null, frenzyHits: 0, frenzyDamage: 0, riots: 0, riotKills: 0, riotDamage: 0 },
   };
 }
 

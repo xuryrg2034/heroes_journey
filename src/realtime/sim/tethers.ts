@@ -133,8 +133,9 @@ export function cutTethers(world: World, cuts: readonly number[]): void {
     const holder = enemyAt(world, tether.holder), held = enemyAt(world, tether.held);
     const at = holder && held ? { x: (holder.x + held.x) / 2, y: (holder.y + held.y) / 2 } : held ?? holder ?? { x: 0, y: 0 };
     world.events.push({ type: 'tether', action: 'cut', holder: tether.holder, held: tether.held, x: at.x, y: at.y, ...kindMark(tether) });
-    // A leash cut looses its hound (its frenzy); a shackle cut only frees the prisoner (task 40).
-    if (tether.kind === 'leash') loose(held);
+    // A leash cut looses its hound (its frenzy); a shackle cut frees the prisoner (task 40) — with `prisonerRiot` (task 41) it riots
+    // (enemies/garrison.ts `riotStep`). The keymaster's death never sets it loose (dropTethers, settleTethers: just free).
+    if (tether.kind === 'leash' || world.params.prisonerRiot) loose(held);
     if (holder && held) behaviorOf(holder).onTetherCut?.(world, holder, held);
   }
 }

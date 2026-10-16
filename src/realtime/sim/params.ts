@@ -931,6 +931,14 @@ export interface Params {
   shackleRange: number;
   /** Task 40: prisoners a keymaster holds at most (journals without the key: 2). */
   shackleMax: number;
+  /**
+   * Task 41 «Узник на воле» (design 16.10.2026, docs/design-notes/task-41-prisoner-potions.md, 2): a shackle cut by the dash sets
+   * its prisoner loose by the law of a loosed hound — `houndFrenzy` s of riot (`vars.fz`): it runs at the nearest body and bites an
+   * enemy it touches for `houndFrenzyDamage` (not the player's kills, source `riot`); then a plain enemy again. The keymaster's death
+   * frees its prisoners without a riot; a rioting body is no keymaster's target. Journals without the key: off (a cut only frees the
+   * prisoner, as task 40). The sandbox and the run: on (`RT_RUN_FORCED`).
+   */
+  prisonerRiot: boolean;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -1335,6 +1343,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   shacklePeriod: 6,
   shackleRange: 4,
   shackleMax: 2,
+  // Task 41 «Узник на воле»: on in the sandbox (and the run, `RT_RUN_FORCED`); journals without the key — off.
+  prisonerRiot: true,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -1780,6 +1790,9 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('shacklePeriod', 'Гарнизон', 'Кандалы: раз в', 1, 20, 0.5, 5, 'с', 'Первые кандалы — через 3 с после появления Ключника.'),
   n('shackleRange', 'Гарнизон', 'Кандалы: дальность', 1, 8, 0.25, 5, 'ед.'),
   n('shackleMax', 'Гарнизон', 'Кандалы: узников на Ключника', 1, 5, 1, 5),
+  // Task 41 «Узник на воле» (enemies/garrison.ts `riotStep`).
+  { kind: 'bool', key: 'prisonerRiot', group: 'Гарнизон', label: 'Узник срывается после рубки', stage: 5,
+    hint: 'Кандалы, разрубленные цепью, спускают узника: как сорвавшийся пёс, он бежит к ближайшему телу и кусает врагов (убийства не засчитываются игроку), потом — обычный враг. Смерть Ключника освобождает узника без срыва. В походе включено.' },
 ];
 
 const MAX_PHASES = 8;

@@ -92,7 +92,7 @@ import { featResult } from '../sim/feat';
 import type { Command } from '../sim/commands';
 import { WOLF_RUSH } from '../sim/enemies/wolf';
 import { BOSS_CLEAR, JAILER } from '../sim/enemies/jailer';
-import { houndFrenzied } from '../sim/enemies/garrison';
+import { houndFrenzied, prisonerRioting } from '../sim/enemies/garrison';
 import { kindOf } from '../sim/enemies/kinds';
 import { dist, inThorns, inWater } from '../sim/geometry';
 import { heroRadius } from '../sim/params';
@@ -280,6 +280,8 @@ export function createFightObserver(start: World): FightObserver {
           if (striker && ev.source === kindOf(striker).hitSource && touchRaised(world, striker)) { s.damage.raisedTouches.hits++; s.damage.raisedTouches.damage += ev.damage; }
           // Task 40: a frenzied hound's touch (the striker in its frenzy after the tick: the touch is the tick's last step).
           if (ev.source === 'hound' && striker && houndFrenzied(striker)) { s.garrison.frenzyHits++; s.garrison.frenzyDamage += ev.damage; }
+          // Task 41: a rioting prisoner's touch on the hero (any kind but the hound: its touch is the hound's field above).
+          if (striker && prisonerRioting(striker)) s.garrison.riotDamage += ev.damage;
           return;
         }
         case 'kill': {
@@ -292,7 +294,9 @@ export function createFightObserver(start: World): FightObserver {
           }
           if (ev.source === 'slot') s.slot.kills++;
           // Task 38: a kill of a loosed hound's frenzy (not the player's).
-          if (ev.source === 'hound') s.chain.frenzyKills++;
+          // Task 41: a rioting prisoner's kill (`riot`) counts with the hounds' frenzy, and apart.
+          if (ev.source === 'hound' || ev.source === 'riot') s.chain.frenzyKills++;
+          if (ev.source === 'riot') s.garrison.riotKills++;
           else if (ev.source === 'slot-bust') s.slot.bustKills++;
           // Task 14 «Котомка у двери»: the player's kills after the bag appeared.
           if (bagOpen && ev.credited) s.bag.killsAfterGoals++;
@@ -333,6 +337,8 @@ export function createFightObserver(start: World): FightObserver {
         // «Смена цвета»: the dash reached the link that freed the colour (a shift by length, not through a crystal).
         case 'colorShift': s.chain.colorShifts++; return;
         // Task 38: a tether the dash cut at its end.
+        // Task 41: a prisoner's riot began (a cut shackle set it loose).
+        case 'frenzy': if (ev.action === 'start' && ev.riot) s.garrison.riots++; return;
         case 'tether':
           if (ev.action === 'cut') s.chain.cuts++;
           // Task 40: the keymaster's shackles — put on, cut (the game second of the first cut).

@@ -20,7 +20,7 @@ import { createFightObserver } from '../telemetry/observe';
 import { analyzeJournal } from '../telemetry/report';
 import { withSummaryDefaults, type FightSummary } from '../telemetry/schema';
 import { chainAnchor, enemyRefusal, nextCandidates, planChain } from './chain';
-import { HANDLER, HOUND, KEYMASTER, SHACKLE_FIRST } from './enemies/garrison';
+import { HANDLER, HOUND, KEYMASTER, prisonerRioting, RIOT_SOURCE, SHACKLE_FIRST } from './enemies/garrison';
 import type { Vec } from './geometry';
 import { hashWorld, worldState } from './hash';
 import { defaultParams, type Params } from './params';
@@ -132,8 +132,8 @@ check('targets: a plain enemy, a guard or a dog handler — never an elite, a ho
 });
 
 /** A keymaster with one prisoner 2.5 to its side, both standing; the hero 5 off, facing the shackle's middle. */
-function prisoner(k = 1): { sim: Simulation; km: Enemy; pr: Enemy } {
-  const { sim, km, others } = keeper(k, [{ x: 0, y: 2.5 }]);
+function prisoner(k = 1, extra: Partial<Params> = {}): { sim: Simulation; km: Enemy; pr: Enemy } {
+  const { sim, km, others } = keeper(k, [{ x: 0, y: 2.5 }], extra);
   ticks(sim, ticksOf(SHACKLE_FIRST + 0.1));
   const pr = others[0];
   assert(shackled(sim.world, pr), `seed ${k}: the prisoner is shackled`);
@@ -343,6 +343,122 @@ check('«Ров» has two walkways: plain enemies born across the moat cross it 
     assert(kms.length === 2 && kms.every(e => dist(e, w.hero) >= 4 - 0.05 && dist(e, w.hero) <= 5 + 0.05), `seed ${k}: 4–5 from the hero (${kms.map(e => dist(e, w.hero).toFixed(2))})`);
     assert(replays(sim), `seed ${k}: replay`);
   }
+});
+
+/** Cuts the prisoner's shackle with a chain of two plain links across its middle; ticks until the dash ends. Returns the events. */
+function cutShackle(sim: Simulation, km: Enemy, pr: Enemy): WorldEvent[] {
+  const mx = (km.x + pr.x) / 2, my = (km.y + pr.y) / 2;
+  const a = place(sim, { x: mx - 0.9, y: my }, 0, 'basic', 0), b = place(sim, { x: mx + 0.9, y: my }, 0, 'basic', 0);
+  sim.command({ t: 'teleport', x: mx - 2.2, y: my });
+  draw(sim, [a, b]);
+  assert(JSON.stringify(sorted(planChain(sim.world).cuts)) === JSON.stringify([pr.id]), 'the highlight cuts the shackle');
+  sim.command({ t: 'release' });
+  return settle(sim);
+}
+type FrenzyEvent = Extract<WorldEvent, { type: 'frenzy' }>;
+const frenzyOf = (events: readonly WorldEvent[]): FrenzyEvent[] => events.filter((e): e is FrenzyEvent => e.type === 'frenzy');
+
+check('task 41: a cut shackle sets the prisoner loose — it riots by the hound\'s law and bites an enemy; the kill is not the player\'s (4 seeds)', () => {
+  for (const k of [1, 2, 3, 4]) {
+    const { sim, km, pr } = prisoner(k), w = sim.world;
+    assert(w.params.prisonerRiot === true, 'the sandbox default: on');
+    const events = cutShackle(sim, km, pr);
+    ticks(sim, 1, events);
+    const start = frenzyOf(events).find(e => e.action === 'start' && e.id === pr.id);
+    assert(start?.riot === true && (pr.vars.fz ?? 0) > 0 && prisonerRioting(pr), `seed ${k}: the prisoner riots (${JSON.stringify(start)}, fz ${pr.vars.fz})`);
+    // A weak victim at its side, held by the cold; the hero far off.
+    const victim = place(sim, { x: pr.x + 0.6, y: pr.y }, 0, 'basic', 3);
+    sim.command({ t: 'chill', id: victim.id, seconds: 10 });
+    sim.command({ t: 'teleport', x: 18, y: 1 });
+    const kills = w.stats.kills, score = w.stats.score;
+    const after = ticks(sim, ticksOf(1));
+    const bite = frenzyOf(after).find(e => e.action === 'bite' && e.id === pr.id && e.target === victim.id);
+    const kill = after.find((e): e is Extract<WorldEvent, { type: 'kill' }> => e.type === 'kill' && e.enemyId === victim.id);
+    assert(bite?.riot && kill?.source === RIOT_SOURCE && kill.credited === false && !w.enemies.includes(victim), `seed ${k}: bitten to death by the prisoner (${JSON.stringify(kill)})`);
+    assert(w.stats.kills === kills && w.stats.score === score, `seed ${k}: no kills, no score for the player`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
+check('task 41: the summary counts riots and the prisoner\'s kills (`garrison.riots`, `riotKills`, also in `chain.frenzyKills`), read from the replay of the journal', () => {
+  const { sim, km, pr } = prisoner(5);
+  cutShackle(sim, km, pr);
+  ticks(sim, 1);
+  const victim = place(sim, { x: pr.x + 0.6, y: pr.y }, 0, 'basic', 3);
+  sim.command({ t: 'chill', id: victim.id, seconds: 10 });
+  ticks(sim, ticksOf(1));
+  const replayed = analyzeJournal(JSON.parse(JSON.stringify(sim.exportJournal()!)) as Journal).summary;
+  assert(replayed.garrison.riots === 1 && replayed.garrison.riotKills === 1 && replayed.chain.frenzyKills === 1, `the summary: ${JSON.stringify(replayed.garrison)}, frenzy kills ${replayed.chain.frenzyKills}`);
+  const old = withSummaryDefaults({ garrison: { shackles: 1 } });
+  assert(old.garrison.riots === 0 && old.garrison.riotKills === 0 && old.garrison.riotDamage === 0, 'an old summary reads no riot');
+});
+
+check('task 41: a rioting prisoner that touches the hero hurts him — `garrison.riotDamage` in the replay summary (the hound field untouched)', () => {
+  for (const k of [1, 3]) {
+    const { sim, km, pr } = prisoner(k), w = sim.world;
+    cutShackle(sim, km, pr);
+    ticks(sim, 1);
+    assert(prisonerRioting(pr), `seed ${k}: the prisoner riots`);
+    // The hero is the nearest body, at its side; touches hurt now.
+    sim.command({ t: 'param', key: 'contactDamage', value: 1 });
+    sim.command({ t: 'teleport', x: pr.x + 0.45, y: pr.y });
+    const hp = w.hero.hp, events = ticks(sim, ticksOf(2));
+    const hits = events.filter((e): e is Extract<WorldEvent, { type: 'hit' }> => e.type === 'hit' && e.enemyId === pr.id);
+    assert(hits.length > 0 && w.hero.hp < hp, `seed ${k}: the prisoner hit the hero (${hits.length})`);
+    const replayed = analyzeJournal(JSON.parse(JSON.stringify(sim.exportJournal()!)) as Journal).summary;
+    const want = hits.reduce((a, e) => a + e.damage, 0);
+    assert(replayed.garrison.riotDamage === want && replayed.garrison.frenzyDamage === 0, `seed ${k}: riotDamage ${replayed.garrison.riotDamage} / ${want}, frenzyDamage ${replayed.garrison.frenzyDamage}`);
+  }
+});
+
+check('task 41: the riot ends after houndFrenzy s — a plain enemy again (the next chain takes it); while it riots no keymaster shackles it', () => {
+  const { sim, km, pr } = prisoner(2), w = sim.world;
+  sim.command({ t: 'param', key: 'houndFrenzy', value: 8 });
+  sim.command({ t: 'param', key: 'shacklePeriod', value: 1 });
+  const events = cutShackle(sim, km, pr);
+  ticks(sim, ticksOf(7), events);
+  assert((pr.vars.fz ?? 0) > 0 && !shackled(w, pr), `the rioting prisoner stays free though the keymaster is ready (${pr.vars.fz}, ${JSON.stringify(w.tethers)})`);
+  ticks(sim, ticksOf(1.2), events);
+  assert(pr.vars.fz === undefined && frenzyOf(events).some(e => e.action === 'end' && e.id === pr.id && e.riot), 'the riot ended');
+  if (!shackled(w, pr)) {
+    sim.command({ t: 'teleport', x: pr.x - 1.2, y: pr.y });
+    draw(sim, [pr]);
+    assert(JSON.stringify(chainIds(w)) === JSON.stringify([pr.id]), `a plain enemy: the chain takes it (${chainIds(w)})`);
+    sim.command({ t: 'cancel' });
+  }
+});
+
+check('task 41: the keymaster\'s death frees its prisoner without a riot', () => {
+  for (const k of [1, 3]) {
+    const { sim, km, pr } = prisoner(k), w = sim.world;
+    sim.command({ t: 'teleport', x: km.x + 1.2, y: km.y - 0.6 });
+    draw(sim, [km]);
+    sim.command({ t: 'release' });
+    const events = settle(sim);
+    ticks(sim, ticksOf(1), events);
+    assert(!w.enemies.includes(km) && !shackled(w, pr), `seed ${k}: the keymaster dead, the prisoner free`);
+    assert(pr.vars.fz === undefined && pr.vars.loose === undefined && !frenzyOf(events).some(e => e.id === pr.id), `seed ${k}: no riot (${JSON.stringify(pr.vars)})`);
+  }
+  // Outside a move: a bomb kills the keymaster — its shackles go at once, the prisoner is free, no riot.
+  const { sim, km, pr } = prisoner(2), w = sim.world;
+  sim.command({ t: 'items', kind: 'bomb', count: 1 });
+  sim.command({ t: 'teleport', x: km.x - 2, y: km.y });
+  sim.command({ t: 'item', kind: 'bomb', x: km.x, y: km.y });
+  const events = ticks(sim, ticksOf(1));
+  assert(!w.enemies.includes(km) && !shackled(w, pr), 'the bomb killed the keymaster, the prisoner is free');
+  assert(pr.vars.fz === undefined && pr.vars.loose === undefined && !frenzyOf(events).some(e => e.id === pr.id), `no riot after the bomb (${JSON.stringify(pr.vars)})`);
+});
+
+check('task 41: `prisonerRiot` off — a cut frees the prisoner without a riot (task 40); a journal without the key plays the world of `false`', () => {
+  const { sim, km, pr } = prisoner(4, { prisonerRiot: false }), w = sim.world;
+  const events = cutShackle(sim, km, pr);
+  ticks(sim, ticksOf(1), events);
+  assert(!shackled(w, pr) && pr.vars.fz === undefined && pr.vars.loose === undefined && !frenzyOf(events).length, 'free, no riot');
+  const journal = JSON.parse(JSON.stringify(sim.exportJournal()!)) as Journal, without = JSON.parse(JSON.stringify(journal)) as Journal;
+  delete (without.params as Partial<Params>).prisonerRiot;
+  const a = replay(journal), b = replay(without);
+  const strip = (x: unknown): string => { const st = x as Record<string, unknown>; const { params: _p, ...rest } = st; void _p; return JSON.stringify(rest); };
+  assert(strip(worldState(a.world)) === strip(worldState(b.world)) && a.hash() === sim.hash(), 'the same world without the key');
 });
 
 check('a journal without the new keys plays the old world (a forest fight and a «Псарня» fight with chains: the leashes as before)', () => {
