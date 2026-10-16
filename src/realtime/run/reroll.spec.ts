@@ -50,7 +50,7 @@ function walkSaves(k: number): string[] {
   // here play the test field, not the marked arenas) — the walk keeps a run without it, so the bytes compare as before.
   // Task 15 (14.10.2026): the same for the flag `healMap` (one more field; the walk buys no map heal).
   // Task 28 (15.10.2026): the same for the flag `jailer` (one more field, and the Jailer's node plays its pool as the fixture's).
-  let run: RtRunState = takeGift(createRtRun(seedOf(k), { gift: 'mini', markedGoals: false, ...RT_TASK17_OFF, healMap: false, shortFuse: false, jailer: false, forms: false }));
+  let run: RtRunState = takeGift(createRtRun(seedOf(k), { gift: 'mini', markedGoals: false, ...RT_TASK17_OFF, healMap: false, shortFuse: false, jailer: false, forms: false, garrison: false }));
   const saves = [serializeRtRun(run)];
   for (let step = 0; step < 160 && !run.result; step++) {
     const p = run.pending;
@@ -72,7 +72,7 @@ function walkSaves(k: number): string[] {
  * of `source` is open; an event takes its battle when it can. Other offers on the way are refused. Null — none on the way.
  */
 function walkTo(k: number, source: 'hard' | 'event' | 'oath'): RtRunState | null {
-  let run = takeGift(createRtRun(seedOf(k), { gift: 'mini' }));
+  let run = takeGift(createRtRun(seedOf(k), { gift: 'mini', garrison: false }));
   for (let step = 0; step < 160 && !run.result; step++) {
     const p = run.pending;
     if (p?.kind === 'talisman' && p.source === source && p.options.length) return run;

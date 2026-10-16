@@ -53,7 +53,7 @@ function takeChest(sim: Simulation, seen: (w: World) => void): void {
 
 /** The run of seed `k` walked (hard nodes first; other fights won on the plain test field) until a «Застава» battle is open. */
 function toHardBattle(k: number): RtRunState | null {
-  let run = takeGift(createRtRun(seedOf(k), { gift: 'mini' }));
+  let run = takeGift(createRtRun(seedOf(k), { gift: 'mini', garrison: false }));
   for (let step = 0; step < 160 && !run.result; step++) {
     const p = run.pending;
     if (p?.kind === 'battle' && p.battle === 'hard') return run;
@@ -187,7 +187,7 @@ function walkSaves(k: number, chestField = true, events = true): string[] {
   // here play the test field, not the marked arenas) — the walk keeps a run without it, so the bytes compare as before.
   // Task 15 (14.10.2026): the same for the flag `healMap` (one more field; the walk buys no map heal).
   // Task 28 (15.10.2026): the same for the flag `jailer` (one more field, and the Jailer's node plays its pool as the fixture's).
-  let run: RtRunState = takeGift(createRtRun(seedOf(k), { gift: 'mini', markedGoals: false, ...RT_TASK17_OFF, healMap: false, shortFuse: false, jailer: false, forms: false }));
+  let run: RtRunState = takeGift(createRtRun(seedOf(k), { gift: 'mini', markedGoals: false, ...RT_TASK17_OFF, healMap: false, shortFuse: false, jailer: false, forms: false, garrison: false }));
   const saves = [serializeRtRun(run)];
   for (let step = 0; step < 160 && !run.result; step++) {
     const p = run.pending;

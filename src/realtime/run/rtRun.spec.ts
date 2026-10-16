@@ -106,7 +106,7 @@ interface Walk { run: RtRunState; arenas: string[]; hards: string[]; finals: str
 
 function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = {}): Walk {
   // Task 30: the walk checks the hammer screen and the old pools — a run without forms (`forms: false`, as a save before it).
-  let run = createRtRun(seed, { gift: options.gift ?? 'mini', forms: false });
+  let run = createRtRun(seed, { gift: options.gift ?? 'mini', forms: false, garrison: false });
   const walk: Walk = { run, arenas: [], hards: [], finals: [], rowArenas: [], outOfRow: [], events: [], saves: 0, replays: 0, previews: 0, finds: 0, crafts: 0, bought: 0, offers: [], hammers: 0 };
   const save = () => { const loaded = roundTrip(run); assert(loaded && same(loaded, run), `save of seed ${seed} does not load back`); walk.saves++; };
   for (let step = 0; step < 200 && !run.result; step++) {
@@ -284,7 +284,7 @@ check('the start gift: its usual buttons (consumables, energy, resources, maximu
   assert(items.every(item => withItems.items[item] === items.filter(other => other === item).length) && withItems.openItems.length === new Set(items).size, 'two consumables: in hand and open');
   const kinds = new Set<string>();
   for (const seed of SEEDS) {
-    const run = createRtRun(seed, { gift: 'full' }), full = rtGiftView(run)!;
+    const run = createRtRun(seed, { gift: 'full', garrison: false }), full = rtGiftView(run)!;
     for (const entry of full.options) {
       kinds.add(entry.option.kind);
       // «Тихий лес» has no analogue (no anger); a deal or an oath is on while the pool has its talisman.
@@ -309,7 +309,7 @@ check('the full gift is the turn-based roll (design answer to step 3): four butt
   let maxHpDeals = 0;
   const drawn = new Map<string, number>();
   for (let k = 1; k <= 500; k++) {
-    const seed = Math.imul(k, 2654435761) >>> 0, run = createRtRun(seed, { gift: 'full' }), view = rtGiftView(run)!, rolled = rollGift(seed, 'full', GIFT_POOL).options;
+    const seed = Math.imul(k, 2654435761) >>> 0, run = createRtRun(seed, { gift: 'full', garrison: false }), view = rtGiftView(run)!, rolled = rollGift(seed, 'full', GIFT_POOL).options;
     // The buttons, the deal's price and reward kind are the turn-based roll's; only the talismans are drawn again.
     const shape = (option: GiftOption) => option.kind === 'deal' ? `deal:${option.price}:${option.reward.kind}` : option.kind === 'oath' ? 'oath' : JSON.stringify(option);
     assert(same(view.options.map(entry => shape(entry.option)), rolled.map(shape)) && view.options.length === 4, `seed ${seed}: the roll's buttons`);
@@ -330,7 +330,7 @@ check('the full gift is the turn-based roll (design answer to step 3): four butt
   console.log(`   gift talismans (500 full gifts): ${[...drawn].map(([id, n]) => `${id} ${n}`).join(', ')}`);
   assert(RT_COUNTER_TALISMANS.filter(def => def.rarity !== 'rare').every(def => drawn.has(def.id)), 'every common and uncommon counter talisman comes in the gift');
   assert(maxHpDeals > 0, 'deals for the maximum came');
-  assert(rtGiftOptions(SEEDS[0], createRtRun(SEEDS[0], { gift: 'mini' }).gift!).length === 2, 'the mini gift is as rolled');
+  assert(rtGiftOptions(SEEDS[0], createRtRun(SEEDS[0], { gift: 'mini', garrison: false }).gift!).length === 2, 'the mini gift is as rolled');
 });
 
 let walks: Walk[] = [];
@@ -441,7 +441,7 @@ interface PathArena { row: number; type: string; arena: string }
  * off — the pools before it, the reference measures below). The Jailer's node plays its pool as before task 28 (`jailer: false`), its hammer screen as before task 30 (`forms: false`).
  */
 function arenaPath(seed: number, k: number, mix: boolean, gentle = false): { path: PathArena[]; previews: number } {
-  let run = createRtRun(seed, { gift: 'mini', rosterMix: mix, ...gentle ? {} : RT_TASK17_OFF, jailer: false, forms: false });
+  let run = createRtRun(seed, { gift: 'mini', rosterMix: mix, ...gentle ? {} : RT_TASK17_OFF, jailer: false, forms: false, garrison: false });
   const path: PathArena[] = [];
   let previews = 0;
   for (let step = 0; step < 200 && !run.result; step++) {
@@ -590,7 +590,7 @@ check('the final arena «Последний рубеж»: a save at it loads bac
 
 check('a lost arena ends the run: nothing more to enter, the save keeps the end, the profile keeps the gift mark', () => {
   const seed = SEEDS[3];
-  let run = ok(rtChooseGift(createRtRun(seed, { gift: 'mini' }), 1), 'gift');
+  let run = ok(rtChooseGift(createRtRun(seed, { gift: 'mini', garrison: false }), 1), 'gift');
   run = ok(rtEnterNode(run, rtAvailableNodes(run)[0].id), 'enter');
   const sim = startArena(run);
   loseArena(sim);
@@ -604,7 +604,7 @@ check('a lost arena ends the run: nothing more to enter, the save keeps the end,
 });
 
 check('a reload in the middle of an arena starts the same arena again from the start; malformed saves read as no run', () => {
-  let run = ok(rtChooseGift(createRtRun(SEEDS[4], { gift: 'mini' }), 1), 'gift');
+  let run = ok(rtChooseGift(createRtRun(SEEDS[4], { gift: 'mini', garrison: false }), 1), 'gift');
   run = ok(rtEnterNode(run, rtAvailableNodes(run)[1 % rtAvailableNodes(run).length].id), 'enter');
   const first = startArena(run);
   for (let i = 0; i < 200; i++) first.tick();
@@ -632,7 +632,7 @@ check('a reload in the middle of an arena starts the same arena again from the s
 });
 
 check('a run arena replays from its journal: the starting HP is part of it', () => {
-  let run = ok(rtChooseGift(createRtRun(SEEDS[5], { gift: 'mini' }), 1), 'gift');
+  let run = ok(rtChooseGift(createRtRun(SEEDS[5], { gift: 'mini', garrison: false }), 1), 'gift');
   run = ok(rtEnterNode(run, rtAvailableNodes(run)[0].id), 'enter');
   const hurt = { ...run, hp: 4 };
   const sim = startArena(hurt);
@@ -653,7 +653,7 @@ check('rest and merchant through real visits (HP and resources prepared on enter
   let rested = false, shopped = false;
   for (let k = 0; k < 40 && !(rested && shopped); k++) {
     const seed = Math.imul(k + 101, 2654435761) >>> 0;
-    let run = ok(rtChooseGift(createRtRun(seed, { gift: 'mini' }), 1), 'gift');
+    let run = ok(rtChooseGift(createRtRun(seed, { gift: 'mini', garrison: false }), 1), 'gift');
     for (let step = 0; step < 40 && !run.result; step++) {
       if (run.pending?.kind === 'battle') {
         const sim = startArena(run); winArena(sim);
@@ -697,7 +697,7 @@ check('the reward battle of an event is an arena of the node\'s row; its victory
   // it: the test puts it on a real entered event node (setup), then plays the arena through commands.
   let base: RtRunState | null = null;
   for (let k = 0; k < 40 && !base; k++) {
-    let run = ok(rtChooseGift(createRtRun(Math.imul(k + 201, 2654435761) >>> 0, { gift: 'mini' }), 1), 'gift');
+    let run = ok(rtChooseGift(createRtRun(Math.imul(k + 201, 2654435761) >>> 0, { gift: 'mini', garrison: false }), 1), 'gift');
     for (let step = 0; step < 12 && !base && !run.result; step++) {
       if (run.pending?.kind === 'battle') { const sim = startArena(run); winArena(sim); run = ok(resolveArena(run, outcomeOf(run, sim)), 'resolve'); continue; }
       if (run.pending?.kind === 'event') { base = run; break; }
@@ -740,7 +740,7 @@ check('the reward battle of an event is an arena of the node\'s row; its victory
 check('the risk threshold of events is scaled: an option that may lose HP needs 6 HP (2 × 3)', () => {
   let found = false;
   for (let k = 0; k < 60 && !found; k++) {
-    let run = ok(rtChooseGift(createRtRun(Math.imul(k + 301, 2654435761) >>> 0, { gift: 'mini' }), 1), 'gift');
+    let run = ok(rtChooseGift(createRtRun(Math.imul(k + 301, 2654435761) >>> 0, { gift: 'mini', garrison: false }), 1), 'gift');
     for (let step = 0; step < 12 && !found && !run.result; step++) {
       if (run.pending?.kind === 'battle') { const sim = startArena(run); winArena(sim); run = ok(resolveArena(run, outcomeOf(run, sim)), 'resolve'); continue; }
       if (run.pending?.kind === 'event') {
@@ -769,7 +769,7 @@ check('the risk threshold of events is scaled: an option that may lose HP needs 
  */
 function openNode(salt: number, type: 'find' | 'shop' | 'rest' | 'event', prepare: (run: RtRunState) => RtRunState = run => run): RtRunState | null {
   for (let k = 0; k < 60; k++) {
-    let run = ok(rtChooseGift(createRtRun(Math.imul(k + salt, 2654435761) >>> 0, { gift: 'mini' }), 1), 'gift');
+    let run = ok(rtChooseGift(createRtRun(Math.imul(k + salt, 2654435761) >>> 0, { gift: 'mini', garrison: false }), 1), 'gift');
     for (let step = 0; step < 40 && !run.result; step++) {
       const pending = run.pending;
       if (pending?.kind === type) return prepare(run);
@@ -926,7 +926,7 @@ check('elites in the run: random ones from run row 3 (a run without the gentle e
   }
   assert(low > 0 && high > 0, `rows below 3: ${low}, from 3: ${high}`);
   // The loot: an elite placed on a run arena, killed by a bomb of the run, its loot walked onto — into the run.
-  let run = nextArena(takeGift(createRtRun(SEEDS[7], { gift: 'mini' })));
+  let run = nextArena(takeGift(createRtRun(SEEDS[7], { gift: 'mini', garrison: false })));
   run = { ...run, items: { ...run.items, bomb: 1 }, openItems: ['bomb'] }; // setup: a bomb in hand, open
   const sim = startArena(run), w = sim.world;
   sim.command({ t: 'teleport', x: 3, y: 5 });
@@ -1001,7 +1001,7 @@ check('talismans in the run: taken at a hard battle, the merchant, an event, the
   // A hard battle: a real one on a walk, its offer through the commands.
   let atHard: RtRunState | null = null;
   for (let k = 0; k < 40 && !atHard; k++) {
-    let run = takeGift(createRtRun(seedOf32(k + 1200), { gift: 'mini' }));
+    let run = takeGift(createRtRun(seedOf32(k + 1200), { gift: 'mini', garrison: false }));
     for (let step = 0; step < 40 && !atHard && !run.result; step++) {
       const pending = run.pending;
       if (pending?.kind === 'battle') {
@@ -1042,11 +1042,11 @@ check('talismans in the run: taken at a hard battle, the merchant, an event, the
   const noHeal = ok(rtRestHeal({ ...atRest, restNoHeal: true }), 'rest without heal');
   assert(noHeal.hp === 2 && !noHeal.restNoHeal && node.type === 'rest', 'the price is paid by one rest');
   // Phase B, 5а: the new «Клятва голода» adds no energy at the start of an arena — only the banked energy (up to 7).
-  const oathRun = nextArena({ ...takeGift(createRtRun(seedOf32(1401), { gift: 'mini' })), talismans: ['oath-hunger'], energy: 6 });
+  const oathRun = nextArena({ ...takeGift(createRtRun(seedOf32(1401), { gift: 'mini', garrison: false })), talismans: ['oath-hunger'], energy: 6 });
   assert(rtArenaLoadout(oathRun).energy === 6 && rtArenaLoadout({ ...oathRun, energy: 1 }).energy === 1, 'no oath energy');
   assert(startArena({ ...oathRun, energy: 0 }).world.energy === 0 && startArena(oathRun).world.energy === 6, 'the arena starts with the banked energy only');
   // The ward: whole until it saves the hero; the arena reports it, the run lets it crumble (the next loadout has none).
-  let warded = nextArena({ ...takeGift(createRtRun(seedOf32(1402), { gift: 'mini' })), talismans: ['ash-ward'], hp: 1 });
+  let warded = nextArena({ ...takeGift(createRtRun(seedOf32(1402), { gift: 'mini', garrison: false })), talismans: ['ash-ward'], hp: 1 });
   assert(rtArenaLoadout(warded).ward === true, 'ward whole');
   const sim = startArena(warded);
   sim.command({ t: 'param', key: 'contactDamage', value: 3 });
@@ -1104,7 +1104,7 @@ check('talismans from the merchant (price by rarity; not bought — gone), from 
   // The gift: a deal pays its price and gives its talisman; an oath is taken.
   let dealt = 0, sworn = 0;
   for (let k = 1; k <= 30; k++) {
-    const run0 = createRtRun(seedOf32(k + 1700), { gift: 'full' }), view = rtGiftView(run0)!;
+    const run0 = createRtRun(seedOf32(k + 1700), { gift: 'full', garrison: false }), view = rtGiftView(run0)!;
     const deal = view.options.find(entry => entry.option.kind === 'deal' && entry.available), oath = view.options.find(entry => entry.option.kind === 'oath' && entry.available);
     if (deal) {
       let taken = ok(rtChooseGift(run0, deal.index), 'deal');
@@ -1131,7 +1131,7 @@ check('a run ignores the sandbox stand-ins of its rules (review finding B): a sa
   assert(!params.heroAnchor && !params.eliteSandbox && params.sandboxTalismans === '' && !params.shieldFollowsHero && saved.heroAnchor && saved.shieldFollowsHero, 'the run copy has them off (iteration 2.1: «щит следит за героем» too), the saved panel is untouched');
   let checked = 0;
   for (let k = 1; k <= 4; k++) {
-    const run = nextArena(takeGift(createRtRun(seedOf32(k + 1800), { gift: 'mini' })));
+    const run = nextArena(takeGift(createRtRun(seedOf32(k + 1800), { gift: 'mini', garrison: false })));
     const node = rtNode(run, (run.pending as { nodeId: string }).nodeId)!;
     assert(runRow(node.row) === 1 && !rtArenaLoadout(run).randomElites, 'a row-1 arena, no random elites in its loadout');
     const sim = startArena(run, params), w = sim.world;
@@ -1238,7 +1238,7 @@ check('event prices «злость» and «подкрепление раньше
 check('a malformed save reads as no run: arena, open node, result, gift, picks, battles, event choices, attempts', () => {
   // Real states to tamper with: a run at an open battle, one at an open event with an attempt, one that ended.
   // A full gift whose off buttons exist (deals and oaths until talismans): the tampered choice below takes one of them.
-  const atBattle = (() => { const run = takeGift(createRtRun(SEEDS[6], { gift: 'full' }), kind => kind === 'resources' || kind === 'max-hp'); return ok(rtEnterNode(run, rtAvailableNodes(run)[0].id), 'enter'); })();
+  const atBattle = (() => { const run = takeGift(createRtRun(SEEDS[6], { gift: 'full', garrison: false }), kind => kind === 'resources' || kind === 'max-hp'); return ok(rtEnterNode(run, rtAvailableNodes(run)[0].id), 'enter'); })();
   assert(atBattle.pending?.kind === 'battle' && same(roundTrip(atBattle), atBattle), 'the untouched open battle loads');
   const ended = walks.find(walk => walk.run.battles.length && walk.run.eventChoices.length)!.run;
   assert(same(roundTrip(ended), ended), 'the untouched ended run loads');
@@ -1282,7 +1282,7 @@ check('a malformed save reads as no run: arena, open node, result, gift, picks, 
   // Escalation attempts: a real open «Гнездо дикобразов» with an attempt, then out-of-range indexes.
   let nest: RtRunState | null = null;
   for (let k = 0; k < 80 && !nest; k++) {
-    let run = ok(rtChooseGift(createRtRun(Math.imul(k + 401, 2654435761) >>> 0, { gift: 'mini' }), 1), 'gift');
+    let run = ok(rtChooseGift(createRtRun(Math.imul(k + 401, 2654435761) >>> 0, { gift: 'mini', garrison: false }), 1), 'gift');
     for (let step = 0; step < 12 && !nest && !run.result; step++) {
       if (run.pending?.kind === 'battle') { const sim = startArena(run); winArena(sim); run = ok(resolveArena(run, outcomeOf(run, sim)), 'resolve'); continue; }
       if (run.pending?.kind === 'event') { if (rtEventView(run)!.event.id === 'porcupine-nest') nest = ok(rtChooseEventOption(run, 'search'), 'search'); break; }
@@ -1356,7 +1356,7 @@ function playNoticed(run: RtRunState, useOne: boolean): RtRunState {
 check('consumables noticed (iteration 2.1): gained kinds wait for the next arena; the start hint comes with an item in hand, at most on 3 arenas, never after one was used; saved strictly', () => {
   let checked = 0;
   for (let k = 1; k <= 6 && checked < 2; k++) {
-    let run = createRtRun(seedOf32(k + 2100), { gift: 'mini' });
+    let run = createRtRun(seedOf32(k + 2100), { gift: 'mini', garrison: false });
     // The mini gift's «2 расходника»: they are new for the first arena, and the hint is due.
     run = takeGift(run, kind => kind === 'items');
     const gained = ITEM_KINDS.filter(kind => run.items[kind] > 0);
@@ -1375,7 +1375,7 @@ check('consumables noticed (iteration 2.1): gained kinds wait for the next arena
     }
     assert(run.itemHints === 3, `hints ${run.itemHints}`);
     // Another run: an item used on the first arena ends the hints for the run.
-    let used = takeGift(createRtRun(seedOf32(k + 2100), { gift: 'mini' }), kind => kind === 'items');
+    let used = takeGift(createRtRun(seedOf32(k + 2100), { gift: 'mini', garrison: false }), kind => kind === 'items');
     used = playNoticed(nextArena(used), true);
     assert(used.itemUsed === true && used.itemHints === 1 && !rtItemHintDue(nextArena(used)), 'used: no more hints');
     // Strict save: a hint count out of 1–3, a stray flag, an unknown or not open new kind — no run.
@@ -1395,7 +1395,7 @@ check('a run arena heals rtHp(3) = 9 with the healing consumable whatever the sa
   let checked = 0;
   for (let k = 1; k <= 3; k++) {
     // A run with a healing consumable in hand, its first arena with the saved panel as the page builds it.
-    let run = nextArena(takeGift(createRtRun(seedOf32(k + 2300), { gift: 'mini' })));
+    let run = nextArena(takeGift(createRtRun(seedOf32(k + 2300), { gift: 'mini', garrison: false })));
     run = { ...run, hp: 2, items: { ...run.items, healing: 1 }, openItems: run.openItems.includes('healing') ? run.openItems : [...run.openItems, 'healing'] };
     const sim = startArena(run, rtRunParams(saved)), w = sim.world;
     assert(sim.command({ t: 'item', kind: 'healing', x: w.hero.x, y: w.hero.y }) === true, 'healing used');
@@ -1417,7 +1417,7 @@ check('a run arena heals rtHp(3) = 9 with the healing consumable whatever the sa
  */
 function walkUntil(seed: number, prefer: string, stop: (run: RtRunState) => boolean, gift: 'mini' | 'full' = 'full'): RtRunState | null {
   // Task 30: phase B's sources — a run without forms (the hammer screen, the old pools).
-  let run = createRtRun(seed, { gift, forms: false });
+  let run = createRtRun(seed, { gift, forms: false, garrison: false });
   for (let step = 0; step < 120 && !run.result; step++) {
     if (stop(run)) return run;
     const pending = run.pending;
@@ -1526,7 +1526,7 @@ function measureSources(runs: number) {
     for (const id of new Set(ids)) if (id) at(id).offered++;
   };
   for (let k = 1; k <= runs; k++) {
-    let run = createRtRun(seedOf32(k), { gift: 'full', forms: false }); // task 30: the measure of phase B — a run without forms
+    let run = createRtRun(seedOf32(k), { gift: 'full', forms: false, garrison: false }); // task 30: the measure of phase B — a run without forms
     for (let step = 0; step < 200 && !run.result; step++) {
       const pending = run.pending, pick = <T,>(list: readonly T[]) => list[(k + step) % list.length];
       if (pending?.kind === 'gift') {

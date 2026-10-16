@@ -79,7 +79,7 @@ function winFight(run: RtRunState, plan: WalkPlan, step: number): RtRunState {
  * back, other screens closed simply (an event's safe option, talismans refused, the die taken). Every save on the way.
  */
 function walk(k: number, plan: WalkPlan): Walk {
-  let run = takeGift(createRtRun(seedOf(k), { gift: 'mini' }));
+  let run = takeGift(createRtRun(seedOf(k), { gift: 'mini', garrison: false }));
   const saves = [serializeRtRun(run)];
   let circles = 0, eligible = 0, eligibleNoStock = 0, circleAt = -1;
   for (let step = 0; step < 200 && !run.result; step++) {
@@ -155,7 +155,7 @@ check('the 8 whole runs of the reroll fixture (real fights, code of 7ae55fc, re-
     // here play the test field, not the marked arenas) — the walk keeps a run without it, so the bytes compare as before.
     // Task 15 (14.10.2026): the same for the flag `healMap` (one more field; the walk buys no map heal).
     // Task 28 (15.10.2026): the same for the flag `jailer` (one more field, and the Jailer's node plays its pool as the fixture's).
-    let run: RtRunState = takeGift(createRtRun(seedOf(k), { gift: 'mini', markedGoals: false, ...RT_TASK17_OFF, healMap: false, shortFuse: false, jailer: false, forms: false }));
+    let run: RtRunState = takeGift(createRtRun(seedOf(k), { gift: 'mini', markedGoals: false, ...RT_TASK17_OFF, healMap: false, shortFuse: false, jailer: false, forms: false, garrison: false }));
     const saves = [serializeRtRun(run)];
     for (let step = 0; step < 160 && !run.result; step++) {
       const p = run.pending;
@@ -203,7 +203,7 @@ check('0 resources: no circle on a node whose roll would stand it — the ordina
   let n = 0;
   for (let k = 1; k <= 120; k++) {
     // Fights pick up nothing; the start gift's resource buttons are not taken (the walk passes it by when it can).
-    let run = createRtRun(seedOf(k), { gift: 'mini' });
+    let run = createRtRun(seedOf(k), { gift: 'mini', garrison: false });
     run = takeGift(run);
     for (let step = 0; step < 200 && !run.result; step++) {
       const p = run.pending;

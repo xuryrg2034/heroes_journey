@@ -63,7 +63,7 @@ interface Played { row: number; type: string; arena: string; roster?: string; ru
  */
 function walk(seed: number, k: number, mix = true): Played[] {
   // A run before the mix is also before the gentle entry (task 17, 13.10.2026) and the Jailer's fight (task 28): its pools are the old ones.
-  let run = createRtRun(seed, { gift: 'mini', rosterMix: mix, ...mix ? {} : { ...RT_TASK17_OFF, jailer: false, forms: false } });
+  let run = createRtRun(seed, { gift: 'mini', garrison: false, rosterMix: mix, ...mix ? {} : { ...RT_TASK17_OFF, jailer: false, forms: false } });
   const played: Played[] = [];
   for (let step = 0; step < 200 && !run.result; step++) {
     const pending = run.pending;
