@@ -31,7 +31,7 @@ import { GARRISON_ARENAS } from '../sim/arenasGarrison';
 import { canSpin } from '../sim/abilities';
 import { ITEM_REFUSAL_TEXT, itemRefusal } from '../sim/items';
 import { SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
-import { ENERGY_MAX, JUMP_REFUSAL_TEXT, REFUSAL_TEXT, canJump, colorShiftIds, colorShiftLeft, colorShiftOf, hoverRefusal, jumpCostOf, jumpRefusal, planChain, type JumpRefusal, type Refusal } from '../sim/chain';
+import { ENERGY_MAX, JUMP_REFUSAL_TEXT, REFUSAL_TEXT, canJump, colorShiftIds, colorShiftLeft, colorShiftOf, hoverRefusal, jumpCostOf, jumpDownOpen, jumpRefusal, planChain, type JumpRefusal, type Refusal } from '../sim/chain';
 import type { Command } from '../sim/commands';
 import { inThorns, inWater, overCliff, setFlowClock, type Vec } from '../sim/geometry';
 import { crowdLifetime, defaultParams, type ParamKey, type Params } from '../sim/params';
@@ -1426,7 +1426,9 @@ async function boot(): Promise<void> {
     }
     focusBar.classList.toggle('rt-focus-on', w.focusing);
     energyText.textContent = `⚡ ${w.energy.toFixed(1)} / ${ENERGY_MAX}`;
-    energyText.classList.toggle('rt-ready', w.energy >= jumpCostOf(w));
+    // Task 43: from the full Castellan's gallery the jump down costs 0 (`jumpDownOpen`) — the price shown is the one paid.
+    const jumpPrice = jumpDownOpen(w) ? 0 : jumpCostOf(w);
+    energyText.classList.toggle('rt-ready', w.energy >= jumpPrice);
     const goal = goalProgress(w);
     // Casino «Котёл»: with the cauldron on the score line shows the cauldron instead of the score.
     scoreText.textContent = w.params.purse ? `котёл ${w.purse?.cauldron ?? 0}` : `очки ${w.stats.score}`;
@@ -1443,8 +1445,8 @@ async function boot(): Promise<void> {
     eliteBadge.hidden = eliteCount === 0;
     if (eliteCount) eliteBadge.textContent = `Элита ×${eliteCount}`;
     actionBar.update({
-      energy: w.energy, jumpCost: jumpCostOf(w), spinCost: params.spinCost,
-      jumpReady: w.status === 'playing' && !w.move && w.energy >= jumpCostOf(w), spinReady: canSpin(w),
+      energy: w.energy, jumpCost: jumpPrice, spinCost: params.spinCost,
+      jumpReady: w.status === 'playing' && !w.move && w.energy >= jumpPrice, spinReady: canSpin(w),
       counts: w.kit?.items ?? { frost: 0, bomb: 0, healing: 0, fire: 0 },
       aiming: ui.jumpMode ? 'jump' : itemAim !== null ? SLOT_ITEMS[itemAim] : null,
       healingFull: potionHandFull(w),
@@ -1705,6 +1707,8 @@ async function boot(): Promise<void> {
         tethers: { list: (w.tethers ?? []).map(t => ({ ...t })), ...renderer.tetherShown },
         /** Task 38: the hounds in frenzy drawn, the Castellan's lunge lanes, «Караул!» calls shown. */
         garrison: { ...renderer.garrisonShown },
+        /** Task 43: the full Castellan's court and the bolts (render.ts `courtShown`). */
+        court: { ...renderer.courtShown },
         /** Task 28: the boss bar of the HUD (`BossBar.shown`) and the names of the boss's moves on screen now. */
         bossBar: bossBar.shown(),
         bossNames: bossLabels.map(l => l.spec.text),

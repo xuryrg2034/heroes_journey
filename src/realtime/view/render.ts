@@ -48,7 +48,9 @@ import { bustBlink } from './bustBlink';
 import { dashCheque } from '../sim/purse';
 import { chainFeel, DashLinks, QUIET_LINKS } from './chainFeel';
 import { FX_DEFAULT, FlashGate, HEAVY_LINE, shardCount, shardLife, type FxLevel } from './juice';
-import { CASTELLAN, GUARD, HANDLER, HOUND, KEYMASTER, castellanMove, houndFrenzied, prisonerRioting } from '../sim/enemies/garrison';
+import { CASTELLAN, GUARD, HANDLER, HOUND, KEYMASTER, LEVER_COOLDOWN, STAND, castellanGrate, castellanMove, gateLeverLeft, gateLeverReady, houndFrenzied, prisonerRioting } from '../sim/enemies/garrison';
+import { CROSSBOW, crossbowLine } from '../sim/enemies/crossbow';
+import { drawBoltLine, drawGateLever, drawGrate } from './courtView';
 import { tetherCrossing } from '../sim/tethers';
 import { castellanMarks, drawFallenShackle, drawFrenzy, drawLeash, drawLock, drawShackle, drawSnap, guardMarks, handlerMarks, houndMarks, keymasterMarks } from './garrisonView';
 import { fifthLinkFiresAt } from '../sim/talismansRt';
@@ -150,6 +152,8 @@ const GARRISON_ART: Readonly<Record<string, { id: CharacterArtId; size: number }
   [HOUND]: { id: 'garrison-hound', size: 2.9 }, [CASTELLAN]: { id: 'castellan', size: 4.2 },
   // Task 40: the keymaster.
   [KEYMASTER]: { id: 'garrison-keymaster', size: 3.4 },
+  // Task 43: the crossbowman and the Castellan's crossbow on its stand.
+  [CROSSBOW]: { id: 'garrison-crossbowman', size: 3.4 }, [STAND]: { id: 'garrison-crossbow', size: 3.6 },
 };
 /** Task 40: the prisoner's padlock — its width (body radii) and its gap over the drawing's top (radii). */
 const LOCK_SIZE = 0.95, LOCK_GAP = 0.15;
@@ -417,6 +421,16 @@ export class RealtimeRenderer {
   readonly tetherShown = { lines: 0, cut: 0, marks: 0, snaps: 0, shackles: 0, locks: 0, drops: 0 };
   /** Task 38 (tests read it): frenzied hounds drawn in the last frame, the Castellan's lunge lanes, «Караул!» calls shown so far. */
   readonly garrisonShown = { frenzy: 0, lunges: 0, calls: 0, riots: 0 };
+  /**
+   * Task 43 «Гарнизон, шаг 2а» (tests read it): last frame — `levers` of the grate drawn, `leversReady` of them lit; `grate` — the
+   * grate drawn (0/1), `grateOpen` — raised, `despair` — the keys hang on it, `count` — the countdown over it («5»…«1», '' — none);
+   * `bolts` — bolt lines drawn (the crossbowman's and the stand's windups); totals — `shots` (bolts seen flying), `unlinks` (links
+   * the falling grate cut off the drawn chain).
+   */
+  readonly courtShown = { levers: 0, leversReady: 0, grate: 0, grateOpen: 0, despair: 0, count: '', edgeCount: '', bolts: 0, shots: 0, unlinks: 0 };
+  /** Task 43: the countdown over the raised grate, and by the core's goal arrow while the core is off screen. */
+  private grateLabel: Text | null = null;
+  private edgeCountLabel: Text | null = null;
   /** Task 38: a frenzied hound's last drawn point (its streaks show its way). */
   private readonly houndAt = new Map<number, { x: number; y: number }>();
   /** Task 38: the snaps of cut tethers — the halves recoil and fade (real seconds left). */
@@ -767,7 +781,7 @@ export class RealtimeRenderer {
    * tick and ignores input while `bossIntroOn()`. No boss view, no core — no glide.
    */
   startBossIntro(world: World): void {
-    const keep = this.bossKeep(world);
+    const keep = this.bossKeep(world, false);
     this.intro = null;
     if (!keep) return;
     const b = this.bounds(), box = keep.box;
@@ -811,7 +825,7 @@ export class RealtimeRenderer {
    * Task 38 (design smoke v65): in a boss fight the camera keeps the core's drawing (the Jailer's, the Castellan's: art above the
    * disc) in view as far as the hero stays in it; null — no boss view or the core is gone.
    */
-  private bossKeep(world: World): CameraKeep | null {
+  private bossKeep(world: World, follow = true): CameraKeep | null {
     if (!this.bossView) return null;
     const core = world.enemies.find(e => (e.kind === JAILER || e.kind === CASTELLAN) && e.partOf === undefined);
     if (!core) return null;
@@ -819,10 +833,22 @@ export class RealtimeRenderer {
     const up = core.kind === JAILER ? r * (JAILER_ART - JAILER_FEET) : r * (art - 1), half = (r * art) / 2, pad = BOSS_KEEP_PAD;
     // The hero's box reaches down over the action bar (`edgeInset.bottom`): the hero stays above it, not under it.
     const h = world.hero, below = this.edgeInset.bottom / (UNIT * this.scale);
-    return {
-      box: { x0: core.x - half - pad, x1: core.x + half + pad, y0: core.y - up - pad, y1: core.y + r + pad },
-      hero: { x0: h.x - HERO_KEEP.side, x1: h.x + HERO_KEEP.side, y0: h.y - HERO_KEEP.up, y1: h.y + HERO_KEEP.down + below },
-    };
+    const box = { x0: core.x - half - pad, x1: core.x + half + pad, y0: core.y - up - pad, y1: core.y + r + pad };
+    // Task 43 «Кастелян полный»: the whole gallery behind the moat — the core, its hounds, the crossbow on its stand (their drawings) —
+    // as far as the hero allows (no zoom-out: design 16.10.2026, the camera rule of v65 D2).
+    const edge = world.arena.castellanFull ? world.arena.galleryEdge : undefined;
+    if (edge !== undefined) for (const e of world.enemies) {
+      if (e.y >= edge || e === core) continue;
+      const art = GARRISON_ART[e.kind]?.size ?? 2, eh = (r * art) / 2;
+      box.x0 = Math.min(box.x0, e.x - eh - pad); box.x1 = Math.max(box.x1, e.x + eh + pad);
+      box.y0 = Math.min(box.y0, e.y - r * (art - 1) - pad); box.y1 = Math.max(box.y1, e.y + r + pad);
+    }
+    const hero = { x0: h.x - HERO_KEEP.side, x1: h.x + HERO_KEEP.side, y0: h.y - HERO_KEEP.up, y1: h.y + HERO_KEEP.down + below };
+    // Task 43: the gallery and the hero do not fit together (the hero deep in the yard, by the south lever) — the camera follows the
+    // hero alone: chasing the gallery half-way only pushed the yard's south (a lever) under the action bar; the core's goal arrow
+    // (with the grate's countdown) shows where it is. The boss's opening glide still starts on the whole gallery (`follow` false).
+    if (edge !== undefined && follow && Math.max(box.y1, hero.y1) - Math.min(box.y0, hero.y0) > this.bounds().viewH) return null;
+    return { box, hero };
   }
 
   /** Is the arena point in the view (grown by `margin` units). */
@@ -874,6 +900,25 @@ export class RealtimeRenderer {
     }
     Object.assign(this.edgeShown, counts);
     this.eliteShown.edgeArrows = this.edgeArrows.filter(a => a.kind === 'goal').length;
+    // Task 43: the grate is up and the core is off screen (the hero by a far lever) — the countdown stands by the core's goal arrow
+    // too: the window is seen wherever the hero is.
+    const grate = castellanGrate(world), goal = this.edgeArrows.find(a => a.kind === 'goal');
+    this.courtShown.edgeCount = '';
+    if (this.edgeCountLabel) this.edgeCountLabel.visible = false;
+    if (grate?.open && goal && !this.camera.sees({ x: grate.x, y: grate.y }, b, 0.5)) {
+      const label = this.edgeCountLabel ??= (() => {
+        const text = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 24, fontWeight: 'bold', fill: 0xfff2c4, stroke: { color: NAVY, width: 5 } } });
+        text.anchor.set(0.5, 0.5);
+        this.app.stage.addChild(text);
+        return text;
+      })();
+      this.courtShown.edgeCount = String(Math.max(1, Math.ceil(grate.left - 1e-6)));
+      label.text = this.courtShown.edgeCount;
+      label.style.fill = grate.left <= 1.5 ? 0xff8a6a : 0xfff2c4;
+      // Beside the arrow, towards the centre of the view.
+      label.position.set(goal.x - Math.cos(goal.angle) * 30, goal.y - Math.sin(goal.angle) * 30);
+      label.visible = true;
+    }
   }
 
   /** Pixels at each side of the window taken by HUD elements the pointers must not sit under (measured by main.ts). */
@@ -1300,6 +1345,16 @@ export class RealtimeRenderer {
       stripHead(g, mv.from.x * UNIT, mv.from.y * UNIT, dx / len, dy / len, len * UNIT, w, 1);
       this.garrisonShown.lunges++;
     }
+    // Task 43: the bolt's line of the crossbowman and of the Castellan's stand — fixed at the windup's start, a thin dashed line of
+    // the threat colour from the crossbow to the wall (the first body on it takes the bolt).
+    this.courtShown.bolts = 0;
+    for (const e of world.enemies) {
+      if (e.kind !== CROSSBOW && e.kind !== STAND) continue;
+      const line = crossbowLine(world, e);
+      if (!line) continue;
+      drawBoltLine(g, line.x0 * UNIT, line.y0 * UNIT, line.x1 * UNIT, line.y1 * UNIT, line.half * UNIT, line.progress);
+      this.courtShown.bolts++;
+    }
     for (const e of world.enemies) {
       const rush = wolfRushLine(world, e);
       if (!rush || rush.len <= 0) continue;
@@ -1332,6 +1387,37 @@ export class RealtimeRenderer {
     this.visibleLanes = lanes;
     this.visiblePackLines = packs;
     this.rushLaneCount = rushes;
+  }
+
+  /**
+   * Task 43 «Кастелян полный» (design 16.10.2026, spec 4): the grate over the core on the gallery (over the core's drawing, under the
+   * plates and the chain) — down; raised while a lever's or the despair's window holds it, with the countdown over it («5»…«1»,
+   * whole seconds — design 16.10.2026); the keys on its post once the Castellan threw them. No full Castellan — nothing.
+   */
+  private drawCourt(world: World): void {
+    const shown = this.courtShown, grate = castellanGrate(world);
+    shown.grate = 0; shown.grateOpen = 0; shown.despair = 0; shown.count = '';
+    if (this.grateLabel) this.grateLabel.visible = false;
+    if (!grate) return;
+    const g = this.signalLayer, r = enemyDrawRadius(world.params) * UNIT, X = grate.x * UNIT, Y = grate.y * UNIT;
+    const w = r * 3.4, h = r * 4.6;
+    // Raised fully while open; the last 0.3 s it falls (so the drop is seen coming with the «1»).
+    const raise = grate.open ? Math.min(1, grate.left / 0.3) : 0;
+    drawGrate(g, X, Y, w, h, raise, grate.despair);
+    shown.grate = 1; shown.despair = grate.despair ? 1 : 0;
+    if (!grate.open) return;
+    shown.grateOpen = 1;
+    const label = this.grateLabel ??= (() => {
+      const text = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 30, fontWeight: 'bold', fill: 0xfff2c4, stroke: { color: NAVY, width: 6 } } });
+      text.anchor.set(0.5, 1);
+      this.root.addChild(text);
+      return text;
+    })();
+    shown.count = String(Math.max(1, Math.ceil(grate.left - 1e-6)));
+    label.text = shown.count;
+    label.style.fill = grate.left <= 1.5 ? 0xff8a6a : 0xfff2c4;
+    label.position.set(X, Y - h * 0.65 - 12);
+    label.visible = true;
   }
 
   /**
@@ -1984,6 +2070,7 @@ export class RealtimeRenderer {
   /** Buttons (stone plates, sunk and green when pressed) and the door (barred, glowing when open). */
   private drawObjects(world: World): void {
     const g = this.objectLayer.clear(), R = OBJECT_RADIUS * UNIT, pulse = 0.5 + 0.5 * Math.sin(this.clock * 4);
+    this.courtShown.levers = 0; this.courtShown.leversReady = 0;
     let lit = 0, out = 0, chests = 0;
     for (const o of world.objects) {
       const x = o.x * UNIT, y = o.y * UNIT;
@@ -2004,6 +2091,14 @@ export class RealtimeRenderer {
           const total = Math.max(0.01, world.params.brazierCooldown), k = Math.max(0, Math.min(1, o.out / total));
           g.arc(x, y, R * 1.2, -Math.PI / 2, -Math.PI / 2 + (1 - k) * Math.PI * 2).stroke({ color: ASH, width: 3, alpha: 0.8 });
         }
+        continue;
+      }
+      // Task 43: a lever of the full Castellan's grate — the goblin lever's look without its idol (courtView.ts).
+      if (o.kind === 'lever' && o.gate) {
+        const ready = gateLeverReady(world, o);
+        drawGateLever(g, x, y, R, ready, gateLeverLeft(world, o), LEVER_COOLDOWN, this.clock);
+        this.courtShown.levers++;
+        if (ready) this.courtShown.leversReady++;
         continue;
       }
       // Casino stage 1: the goblin's lever is drawn with its idol (slotView.ts).
@@ -2444,6 +2539,28 @@ export class RealtimeRenderer {
       if (ev.type === 'partSevered') {
         const c = this.bossChainsSeen.get(ev.id);
         if (c) { this.chainBreaks.push({ ...c, until: this.clock + CHAIN_BREAK_LIFE }); this.bossShown.breaks++; }
+        continue;
+      }
+      // Task 43: a bolt flies — a white streak along its line to the body it hit (or to the wall) that fades (~0.2 s).
+      if (ev.type === 'bolt') {
+        if (ev.action === 'shot') {
+          const target = ev.hit === 'hero' ? world.hero : ev.hit === 'enemy' ? world.enemies.find(e => e.id === ev.target) : undefined;
+          const to = target ? { x: target.x, y: target.y } : { x: ev.x1, y: ev.y1 };
+          this.pierceFlash({ x: ev.x0, y: ev.y0 }, to);
+          this.courtShown.shots++;
+        }
+        continue;
+      }
+      // Task 43: the grate fell on the drawn chain — the core's link and those after it dropped out: a white ring flashes on each.
+      if (ev.type === 'grate') {
+        if (ev.action === 'unlink') for (const id of ev.dropped ?? []) {
+          const e = world.enemies.find(x => x.id === id);
+          if (!e) continue;
+          const gr = new Graphics().circle(e.x * UNIT, e.y * UNIT, enemyDrawRadius(world.params) * UNIT + 6).stroke({ color: 0xffffff, width: 5, alpha: 0.9 });
+          this.fxLayer.addChild(gr);
+          this.bursts.push({ g: gr, life: 0.3, total: 0.3 });
+          this.courtShown.unlinks++;
+        }
         continue;
       }
       // Task 38: a tether cut by the dash snaps — its halves recoil from the cut point and fade (the sound — main.ts).
@@ -3496,6 +3613,7 @@ export class RealtimeRenderer {
     this.drawRipples(world);
     this.syncEnemies(world);
     this.drawSignals(world);
+    this.drawCourt(world);
     this.drawForms(world);
     this.drawBadges(world);
     this.drawElites(world);
