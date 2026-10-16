@@ -136,8 +136,9 @@ export const rtRunKey = (run: RtRunState): string => `${run.seed}:${run.result?.
  * The run row the run reached on the level it is on (0 — none). Task 38: in the garrison — the garrison's row (its nodes only), the
  * level `rtRunLevel` 2; elsewhere the forest's, as before.
  */
-export function rtRunDepth(run: RtRunState): number {
-  const garrison = rtLevel(run) === 2;
+export function rtRunDepth(run: RtRunState): number { return levelDepth(run, rtLevel(run) === 2); }
+/** The run row the run reached among the nodes of a level (the garrison's, `g:…`, or the forest's); 0 — none. */
+function levelDepth(run: RtRunState, garrison: boolean): number {
   const ids = [...run.visited, ...run.pending && 'nodeId' in run.pending && run.pending.nodeId ? [run.pending.nodeId] : [], ...run.result ? [run.result.nodeId] : []]
     .filter(id => rtGarrisonNodeId(id) === garrison);
   return Math.max(0, runRow(Math.max(0, ...ids.map(id => rtNode(run, id)?.row ?? 0))));
@@ -153,10 +154,16 @@ export function rtRunWonLevel(run: RtRunState): 0 | 1 | 2 {
   if (won(run)) return rtRunLevel(run) === 2 ? 2 : 1;
   return rtForestCleared(run) ? 1 : 0;
 }
-/** Task 38: the run's depth as the record keeps it: its row and, in the garrison, `level` 2; task 40 — the level it passed. */
+/**
+ * Task 38: the run's depth as the record keeps it: its row and, in the garrison, `level` 2; task 40 — the level it passed. A run in
+ * the garrison that entered no garrison node yet (abandoned on its map: row 0) is no garrison depth — its depth stays the forest's
+ * (its final row, level 1), so it beats a forest record only where a won forest final does (task 40, found by ui 16.10.2026: «Лес
+ * пройден — новый рекорд» over «прежний: лес пройден»).
+ */
 const runDepthOf = (run: RtRunState): { row: number; level?: 2; wonLevel?: 1 | 2 } => {
-  const passed = rtRunWonLevel(run);
-  return { row: rtRunDepth(run), ...rtRunLevel(run) === 2 ? { level: 2 as const } : {}, ...passed ? { wonLevel: passed } : {} };
+  const passed = rtRunWonLevel(run), garrisonRow = rtRunLevel(run) === 2 ? rtRunDepth(run) : 0;
+  const row = garrisonRow > 0 ? garrisonRow : levelDepth(run, false);
+  return { row, ...garrisonRow > 0 ? { level: 2 as const } : {}, ...passed ? { wonLevel: passed } : {} };
 };
 
 /** The run's XP before its quest: the parts and the base (before «Испытание»). */

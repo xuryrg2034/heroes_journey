@@ -17,7 +17,7 @@ import { runRow } from './arenaPools';
 import { GARRISON_DEEP_ROW, GARRISON_MOAT_ARENA, garrisonArenaChoices, RT_GARRISON_MOAT_ON, rtGarrisonNodeId } from './garrison';
 import { ok, seedOf, walkRun, type Walk, type WalkOptions } from './metaWalk.testkit';
 import {
-  createRtRun, parseRtRun, rtArenaLoadout, rtCartView, rtEnterGarrison, rtNode, serializeRtRun, RT_CART_KEEP, RT_CART_MAX, type RtRunState,
+  createRtRun, parseRtRun, rtArenaLoadout, rtAvailableNodes, rtCartView, rtEnterGarrison, rtEnterNode, rtNode, serializeRtRun, RT_CART_KEEP, RT_CART_MAX, type RtRunState,
 } from './rtRun';
 import { parseRtMeta, rtApplyMeta, rtCarry, rtRunWonLevel, RT_CARRY_FLOOR } from './rtMeta';
 import { checkRecord, runKey, runRecordId, sessionKey, type RunRecord } from '../telemetry/schema';
@@ -185,6 +185,22 @@ check('the record (flag of the moat off and on): the Castellan won → wonLevel 
   assert(forestWin.result?.outcome === 'victory', 'a forest run won');
   const again = rtApplyMeta(legacy, forestWin).end;
   assert(!again.record.beaten && again.record.after.level === 2 && again.record.after.wonLevel === 1 && again.record.after.won, `not beaten (${JSON.stringify(again.record)})`);
+});
+
+check('a run abandoned on the map of the garrison before any garrison node: its depth is the forest one (row 10, no level), no «новый рекорд» over «лес пройден»; a forest record of row 8 it beats (5 seeds)', () => {
+  for (const [k, moat] of [[1, false], [2, true], [3, false], [4, false], [5, true]] as const) {
+    const at = toOutskirts(k, { moat }), entered = ok(rtEnterGarrison(at), 'garrison');
+    assert(entered.garrisonLevel && entered.visited.every(id => !rtGarrisonNodeId(id)) && entered.result === null, `seed ${k}: on the map of the garrison, no garrison node`);
+    const forestPassed = parseRtMeta({ heroes: { cat: { xp: 0, packs: [], record: { row: 10, won: true, xp: 100 } } } });
+    const end = rtApplyMeta(forestPassed, entered).end;
+    assert(!end.record.beaten && end.record.after.level === undefined && end.record.after.row === 10 && end.record.after.wonLevel === 1, `seed ${k}: not beaten (${JSON.stringify(end.record)})`);
+    const row8 = parseRtMeta({ heroes: { cat: { xp: 0, packs: [], record: { row: 8, won: false, xp: 30 } } } });
+    const beat = rtApplyMeta(row8, entered).end;
+    assert(beat.record.beaten && beat.record.after.level === undefined && beat.record.after.row === 10 && beat.record.after.wonLevel === 1, `seed ${k}: beats row 8 as the forest final (${JSON.stringify(beat.record)})`);
+    // One garrison node entered: the garrison row 1 — a garrison record.
+    const first = ok(rtEnterNode(entered, rtAvailableNodes(entered)[0].id), 'enter');
+    assert(rtApplyMeta(forestPassed, first).end.record.after.level === 2, `seed ${k}: a garrison node makes it the garrison record`);
+  }
 });
 
 check('telemetry: the run record\'s level, levelCleared and cart pass checkRecord (malformed refused); the report\'s curve «л N» / «г N», deaths, the cart', () => {
