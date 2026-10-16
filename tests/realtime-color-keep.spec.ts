@@ -1,5 +1,6 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
+import { untilFrame } from './realtimeFrames';
 
 /**
  * Task 10 «Свобода цвета держится», the view (design 13.10.2026): with `colorShiftKeep` the rainbow ring stands on the LAST enemy
@@ -187,6 +188,49 @@ test('task 39 (log analysis 15.10.2026): the held still pointer resting by the 3
   await page.mouse.move(at[3].x, at[3].y, { steps: 2 });
   await expect.poll(async () => (await chain()).length).toBe(4);
   expect((await chain()).at(-1)).toBe(ids[3]);
+  await page.mouse.up();
+  expect(errors).toEqual([]);
+});
+
+test('task 42 (log analysis 16.10.2026): a press on an enemy touching the hero, the pointer slid onto the hero and held 1 s with a hair of movement — the chain is empty in every frame; back on the enemy — it is taken', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.goto('/?sandbox=1');
+  await page.evaluate(() => localStorage.clear());
+  await page.goto('/?sandbox=1&arena=1&seed=77');
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
+  expect(await page.evaluate(() => (window as any).__realtime.params.holdHeroLink)).toBe(true);
+  const { body, id, onHero } = await page.evaluate(() => {
+    const rt = (window as any).__realtime;
+    for (const [k, v] of [['maxEnemies', 0], ['enemySpeed', 0], ['wolfSpeed', 0], ['speedSpread', 0], ['baseIntervalMin', 1000], ['baseIntervalMax', 1000], ['baseFloor', 0], ['contactDamage', 0], ['hitstop', false]] as const) rt.setParam(k, v);
+    rt.clear(false);
+    rt.teleport(4.2, 3.6);
+    // An enemy touching the hero (0.62 off its centre); the hero point: in the hero's circle (0.28 < 0.42), in the enemy's press circle.
+    rt.place(4.82, 3.6, 0, 0, 'basic');
+    return { body: rt.toScreen(4.82, 3.6) as { x: number; y: number }, id: rt.snapshot().enemies[0].id as number, onHero: rt.toScreen(4.48, 3.6) as { x: number; y: number } };
+  });
+  const chain = async (): Promise<number[]> => (await snap(page)).chain as number[];
+  await page.mouse.move(body.x, body.y);
+  await page.mouse.down();
+  await expect.poll(chain).toEqual([id]);
+  await page.mouse.move(onHero.x, onHero.y, { steps: 2 });
+  await expect.poll(async () => (await chain()).length).toBe(0);
+  // 1 s of game time read every frame in the page, while the hand trembles a pixel on the hero (pointer events in the same spot).
+  const watch = untilFrame(page, (s, _arg: null, late) => {
+    const st = (window as any).__heroHold ??= { frames: 0, taken: 0 };
+    st.frames++; if (s.chain.length) st.taken++;
+    return late ? { frames: st.frames as number, taken: st.taken as number } : undefined;
+  }, null, 1);
+  for (let i = 0; i < 10; i++) {
+    await page.mouse.move(onHero.x + (i % 2 ? 1 : -1), onHero.y + (i % 3 === 0 ? 1 : 0));
+    await page.waitForTimeout(80);
+  }
+  const held = await watch;
+  expect(held.frames).toBeGreaterThan(20);
+  expect(held.taken).toBe(0);
+  expect(await chain()).toEqual([]);
+  await page.mouse.move(body.x, body.y, { steps: 2 });
+  await expect.poll(chain).toEqual([id]);
   await page.mouse.up();
   expect(errors).toEqual([]);
 });
