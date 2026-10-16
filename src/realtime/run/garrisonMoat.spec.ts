@@ -180,6 +180,11 @@ check('the record (flag of the moat off and on): the Castellan won → wonLevel 
   // A record of task 38 (the garrison's row, `won: false`): the forest was passed to get there.
   const legacy = parseRtMeta({ heroes: { cat: { xp: 0, packs: [], record: { row: 5, won: false, xp: 40, level: 2 } } } });
   assert(legacy?.heroes.cat?.record?.wonLevel === 1, `a garrison record of task 38 reads as the forest passed (${JSON.stringify(legacy?.heroes.cat?.record)})`);
+  // One name, one meaning: «beaten» reads the level passed, not `won` — a forest won again does not beat a record that passed it.
+  const forestWin = walkRun({ k: 2 }).run;
+  assert(forestWin.result?.outcome === 'victory', 'a forest run won');
+  const again = rtApplyMeta(legacy, forestWin).end;
+  assert(!again.record.beaten && again.record.after.level === 2 && again.record.after.wonLevel === 1 && again.record.after.won, `not beaten (${JSON.stringify(again.record)})`);
 });
 
 check('telemetry: the run record\'s level, levelCleared and cart pass checkRecord (malformed refused); the report\'s curve «л N» / «г N», deaths, the cart', () => {

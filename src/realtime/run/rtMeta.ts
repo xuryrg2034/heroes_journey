@@ -61,9 +61,10 @@ export const RT_NPC_EVENTS: Readonly<Record<'herb' | 'smith', { event: string; o
 
 /**
  * The depth record: the farthest run row (of its level), the victory, the best XP of a run. Task 38: `level` — 2 when the farthest
- * row is the garrison's; absent — the forest (every record before it). Task 40 (design 16.10.2026, 5): `wonLevel` — the level the
- * record passed (1 — the forest, 2 — the garrison; absent — none); `won` — it passed one (`wonLevel` ≥ 1; a record saved before it
- * with `won: true` reads as `wonLevel: 1`).
+ * row is the garrison's; absent — the forest (every record before it). Task 40 (design 16.10.2026, 5 and 10) — one name, one meaning:
+ * `wonLevel` — the level the record passed (1 — the forest, 2 — the garrison; absent — none); `won` — at least the forest passed
+ * (`wonLevel` ≥ 1; kept for the profile's format: a record saved before it with `won: true` reads as `wonLevel: 1`). Every logic of
+ * the record (beaten, the first win, the record's line) reads `wonLevel` (`rtWonLevelOf`), never `won`.
  */
 export interface RtDepthRecord { row: number; won: boolean; xp: number; level?: 2; wonLevel?: 1 | 2 }
 /**
@@ -269,8 +270,10 @@ export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState): { me
   const best: { row: number; level?: 2; wonLevel?: 1 | 2 } = !old || farther ? depth
     : { row: old.row, ...old.level ? { level: old.level } : {}, ...oldPassed ? { wonLevel: oldPassed as 1 | 2 } : {} };
   const passed = Math.max(oldPassed, best.wonLevel ?? 0) as 0 | 1 | 2;
-  const record: RtDepthRecord = { row: best.row, won: (old?.won ?? false) || win || passed > 0, xp: Math.max(old?.xp ?? 0, gained), ...best.level ? { level: best.level } : {}, ...passed ? { wonLevel: passed } : {} };
-  const beaten = old ? farther || (win && !old.won) : farther;
+  // `won` — at least the forest passed (the same as `wonLevel` ≥ 1).
+  const record: RtDepthRecord = { row: best.row, won: passed > 0, xp: Math.max(old?.xp ?? 0, gained), ...best.level ? { level: best.level } : {}, ...passed ? { wonLevel: passed } : {} };
+  // Beaten — farther by (the level passed, the level, the row); a first win is farther by the level passed.
+  const beaten = farther;
   hero.record = record;
   meta.heroes[heroId] = hero;
   // The carry and the quest's stock (outside the cap).
@@ -284,7 +287,7 @@ export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState): { me
     const unmet = (['herb', 'smith'] as const).find(npc => !hearth.met[npc]);
     if (unmet && hearth.quiet >= RT_HEARTH_FALLBACK_RUNS) { hearth.met[unmet] = true; hearth.self = { ...hearth.self, [unmet]: true }; hearth.quiet = 0; }
   }
-  hearth.last = { won: win, row, beaten, ...rtDeathCause(run) ? { cause: rtDeathCause(run) } : {}, ...quest ? { quest: questDone } : {}, ...win && !old?.won ? { firstWin: true as const } : {}, ...pack ? { pack: true as const } : {} };
+  hearth.last = { won: win, row, beaten, ...rtDeathCause(run) ? { cause: rtDeathCause(run) } : {}, ...quest ? { quest: questDone } : {}, ...win && !oldPassed ? { firstWin: true as const } : {}, ...pack ? { pack: true as const } : {} };
   hearth.quest = rtNextQuest(run.seed, hearth, record);
   meta.hearth = hearth;
   const end: RtMetaEnd = {
