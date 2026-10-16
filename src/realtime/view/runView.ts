@@ -33,6 +33,7 @@ import { rtRunEndLines } from '../run/rtRunEnd';
 import type { HeroStart } from '../sim/world';
 import { RT_NODE_TYPES } from './nodeTypes';
 import { cardRules, nodeDangers } from './nodeCard';
+import { rtNodeEnemies } from '../run/nodeEnemies';
 import type { SessionClock } from './session';
 import { NEW_SIGN, newKindsOfArena, type NewSeenStore } from './newSeen';
 import { dieLine, ScreenLines, stakeLine, type HintStore } from './hints';
@@ -1142,7 +1143,9 @@ export class RunView {
    */
   private dangersHtml(run: RtRunState, node: ForestMapNode | undefined, arena: string, roster: string | undefined, newKinds: readonly string[] = [], met?: ReadonlySet<string>): string {
     // Task 17: the rules the fight of this node will play (`cardRules` — the conditions of `rtArenaLoadout`): the card equals the fight.
-    const lines = nodeDangers({ arena, roster, newKinds, ...met ? { met } : {}, ...cardRules(run, node) });
+    // Task 43, part Г: a garrison node — its fight's own start (`rtNodeEnemies`: the world the fight starts with) and the additions.
+    const garrison = node ? rtNodeEnemies(run, node) : null;
+    const lines = nodeDangers({ arena, roster, newKinds, ...met ? { met } : {}, ...garrison ? { garrison } : {}, ...cardRules(run, node) });
     if (!lines.length) return '';
     const items = lines.map(line => {
       const sign = line.newKinds?.length || line.newTerrain?.length ? ` <span class="rt-new-sign" data-testid="run-new-sign">${NEW_SIGN}</span>` : '';

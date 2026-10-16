@@ -6,7 +6,8 @@ import { walkRun } from '../src/realtime/run/metaWalk.testkit';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
 import { RT_RUN_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
 import { rtRunDepth } from '../src/realtime/run/rtMeta';
-import { rtCartView, rtLevel } from '../src/realtime/run/rtRun';
+import { rtAvailableNodes, rtCartView, rtLevel, rtNode } from '../src/realtime/run/rtRun';
+import { rtNodeEnemies } from '../src/realtime/run/nodeEnemies';
 
 /**
  * Task 38 «Гарнизон, шаг 1а» — the view (design 15.10.2026, docs/design-notes/task-38-garrison-step1.md): the leash on the field
@@ -461,5 +462,30 @@ test('task 41 view: «Ров» — a chain across the shackle; after the dash th
   await expect.poll(async () => (await snap(page)).enemies.filter((e: { id: number }) => prey.includes(e.id)).length, { timeout: 5_000 }).toBeLessThan(prey.length);
   // The flash is short: gone within its 1.2 s.
   await expect.poll(async () => (await labelsOf(page)).some(l => l.id === 'riot'), { timeout: 5_000 }).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+test(`task 43 Г view: a garrison node's card on the map — «Враги:» names the kinds standing at the fight's start (counted) and the newcomers; «Усиление:» names the node's additions (a knight in the line, crossbowmen behind)`, async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = collectErrors(page);
+  // A walk to a map with an available garrison node whose fight has a knight and crossbowmen («Галерея» of the «Бойницы» branch).
+  let at: { run: RtRunState; node: string } | null = null;
+  for (let k = 1; k <= 12 && !at; k++) walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true }, each: state => {
+    if (at || state.pending) return;
+    for (const node of rtAvailableNodes(state)) { const g = rtNodeEnemies(state, node); if (g && g.knights > 0 && g.bolts) { at = { run: structuredClone(state), node: node.id }; return; } }
+  } });
+  expect(at, 'a garrison node with a knight and crossbowmen').not.toBeNull();
+  const g = rtNodeEnemies(at!.run, rtNode(at!.run, at!.node)!)!;
+  await loadRun(page, at!.run);
+  await page.getByTestId(`node-${at!.node}`).click();
+  const enemies = page.getByTestId('run-danger-enemies'), extras = page.getByTestId('run-danger-extras');
+  await expect(enemies).toContainText('рыцарь');
+  await expect(enemies).toContainText('арбалетчики ×');
+  await expect(enemies).toContainText('подходят: обычные');
+  await expect(enemies).not.toContainText('Враги: обычные');
+  await expect(extras).toHaveText(/Усиление: .*рыцарь в строю.*арбалетчики сзади/);
+  expect(g.start.length).toBeGreaterThan(1);
+  await page.mouse.move(0, 0);
+  await page.screenshot({ path: 'artifacts/realtime-garrison-node-card.png' });
   expect(errors).toEqual([]);
 });

@@ -52,7 +52,33 @@ function cardSchedule(run: RtRunState, node: ForestMapNode, battle: RtBattleKind
 /** The kinds in the plural, the card's enemy line («Враги: обычные, волки»); a kind without a row is left out. */
 export const KIND_PLURAL: Readonly<Record<string, string>> = {
   basic: 'обычные', wolf: 'волки', boar: 'кабаны', reaper: 'жнец', shield: 'щитоносцы', archer: 'лучники', sapper: 'сапёры', porcupine: 'дикобразы', lynx: 'рыси', shaman: 'шаманы',
+  // Task 43 (the garrison; the kinds with a small letter — task 40; the Castellan is a name).
+  guard: 'стражники', handler: 'псари', hound: 'псы', keymaster: 'ключники', crossbow: 'арбалетчики', knight: 'рыцари', castellan: 'Кастелян', 'castellan-crossbow': 'арбалеты на станке',
 };
+/** Task 43: a garrison kind standing once at the fight's start (the card counts the start: «псарь, псы ×2»). */
+export const KIND_ONE: Readonly<Record<string, string>> = {
+  basic: 'обычный', guard: 'стражник', handler: 'псарь', hound: 'пёс', keymaster: 'ключник', crossbow: 'арбалетчик', knight: 'рыцарь', castellan: 'Кастелян', 'castellan-crossbow': 'арбалет на станке',
+};
+
+/**
+ * Task 43, part Г (design 16.10.2026): a garrison node's enemies line from the start of its own fight (`rtNodeEnemies`, run/
+ * nodeEnemies.ts) — the kinds standing, counted («псарь, псы ×2, стражники ×2, рыцарь, арбалетчики ×2»), then the newcomers
+ * («подходят: обычные, стражники»); and the line of the node's loadout additions («рыцарь в строю, арбалетчики сзади, ключник в
+ * глубине»). Null — nothing to say.
+ */
+export function garrisonEnemiesText(g: GarrisonEnemies): { enemies: string; extras: string | null; kinds: string[] } {
+  const start = g.start.filter(s => KIND_PLURAL[s.kind]).map(s => (s.count === 1 ? KIND_ONE[s.kind] ?? KIND_PLURAL[s.kind] : `${KIND_PLURAL[s.kind]} ×${s.count}`));
+  const comers = [...new Set(['basic', ...g.newcomers])].filter(kind => KIND_PLURAL[kind]).map(kind => KIND_PLURAL[kind]);
+  const extras = [
+    ...g.knights > 0 ? [g.knights === 1 ? 'рыцарь в строю' : `${g.knights} ${few(g.knights) ? 'рыцаря' : 'рыцарей'} в строю`] : [],
+    ...g.bolts ? ['арбалетчики сзади'] : [],
+    ...g.deep ? ['ключник в глубине'] : [],
+  ];
+  const kinds = [...new Set([...g.start.map(s => s.kind), 'basic', ...g.newcomers])].filter(kind => KIND_PLURAL[kind]);
+  return { enemies: `${start.join(', ')}${start.length ? ' · ' : ''}подходят: ${comers.join(', ')}`, extras: extras.length ? extras.join(', ') : null, kinds };
+}
+/** The part of `RtNodeEnemies` (run/nodeEnemies.ts) the card reads. */
+export interface GarrisonEnemies { start: readonly { kind: string; count: number }[]; newcomers: readonly string[]; knights: number; bolts: boolean; deep: boolean }
 
 /** The terrain words, in this order: the zones of the template (river, cliff, thorns), then the pond among the obstacles. */
 const TERRAIN_WORD: Readonly<Record<TerrainKind | 'pond', string>> = { river: 'река', cliff: 'обрыв', thorns: 'терновник', pond: 'пруд' };
@@ -97,10 +123,15 @@ export interface NodeDangerInput {
    * schedule, the toggle «Новое на карте» off, a node not available).
    */
   met?: ReadonlySet<string>;
+  /**
+   * Task 43, part Г: a garrison node's fight at its start (`rtNodeEnemies`) — the enemies line counts it, the line «Усиление»
+   * names the loadout additions. Absent — a forest node: the line from the arena's kinds, as before.
+   */
+  garrison?: GarrisonEnemies;
 }
 
 export interface NodeDangerLine {
-  id: 'goal' | 'enemies' | 'elites' | 'terrain';
+  id: 'goal' | 'enemies' | 'extras' | 'elites' | 'terrain';
   label: string;
   text: string;
   /** The enemies' line: kinds the viewer has not met. */
@@ -135,7 +166,12 @@ export function nodeDangers(input: NodeDangerInput): NodeDangerLine[] {
   // `basic` first, then the kinds in the order of the plural table (stable across arenas).
   const order = Object.keys(KIND_PLURAL);
   kinds.sort((a, b) => order.indexOf(a) - order.indexOf(b));
-  if (kinds.length) {
+  if (input.garrison) {
+    // Task 43, part Г: the garrison counts its fight's start and names the newcomers; the additions on a line of their own.
+    const g = garrisonEnemiesText(input.garrison), fresh = g.kinds.filter(kind => input.newKinds?.includes(kind));
+    lines.push({ id: 'enemies', label: 'Враги', text: g.enemies, ...fresh.length ? { newKinds: fresh } : {} });
+    if (g.extras) lines.push({ id: 'extras', label: 'Усиление', text: g.extras });
+  } else if (kinds.length) {
     const fresh = kinds.filter(kind => input.newKinds?.includes(kind));
     lines.push({ id: 'enemies', label: 'Враги', text: kinds.map(kind => KIND_PLURAL[kind]).join(', '), ...fresh.length ? { newKinds: fresh } : {} });
   }
