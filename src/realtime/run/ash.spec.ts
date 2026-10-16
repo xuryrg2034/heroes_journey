@@ -66,11 +66,11 @@ function diffKeys(a: object, b: object): string[] {
   return [...new Set([...Object.keys(ra), ...Object.keys(rb)])].filter(key => JSON.stringify(ra[key]) !== JSON.stringify(rb[key])).sort();
 }
 
-check('the choice\'s data: levels 0 … VII (task 45, step 1: VIII waits for the fifth colour\'s view) with marks, titles «Испытание I–VII» (none for 0) and a line of at most 6 words; no «Пепел» in the texts', () => {
+check('the choice\'s data: levels 0 … VIII (task 45: VIII since the fifth colour\'s view) with marks, titles «Испытание I–VIII» (none for 0) and a line of at most 6 words; no «Пепел» in the texts', () => {
   const options = rtAshOptions();
-  assert(same(options.map(o => o.level), [0, 1, 2, 3, 4, 5, 6, 7]) && same(options.map(o => o.label), ['0', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII']), JSON.stringify(options));
+  assert(same(options.map(o => o.level), [0, 1, 2, 3, 4, 5, 6, 7, 8]) && same(options.map(o => o.label), ['0', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII']), JSON.stringify(options));
   assert(rtAshTitle(0) === '' && rtAshTitle(3) === 'Испытание III' && rtAshTitle(5) === 'Испытание V' && rtAshTitle(8) === 'Испытание VIII', 'titles');
-  assert(same(options.slice(6).map(o => o.text), ['Фокус короче на четверть', 'Враги быстрее на десятую']), 'the lines of VI and VII (design 16.10.2026)');
+  assert(same(options.slice(6).map(o => o.text), ['Фокус короче на четверть', 'Враги быстрее на десятую', 'Пятый цвет на аренах']), 'the lines of VI, VII and VIII (design 16.10.2026)');
   for (const o of options) {
     const words = o.text.split(/\s+/).filter(Boolean).length;
     assert(words >= 1 && words <= 6 && !/пеп[её]л/i.test(o.text + o.title), `level ${o.level}: «${o.text}» (${words} words)`);
@@ -354,10 +354,10 @@ check('the profile: the choice is closed until an unseeded run is won (a seeded 
   store.endRun({ reachedJailer: true, seeded: false, won: rtRunWon(won) });
   assert(store.ashOpen() && store.ashChoice() === 0, 'open after the first unseeded win');
   assert(store.chooseAsh(3) && store.ashChoice() === 3 && createRtProfileStore(storage).ashChoice() === 3, 'remembered');
-  // Task 45, step 1: VII is offered, VIII not yet (the fifth colour's view); a stored VIII reads as the highest offered.
-  assert(store.chooseAsh(7) && store.ashChoice() === 7 && !store.chooseAsh(8) && store.ashChoice() === 7, 'VII yes, VIII not yet');
+  // Task 45: VII and VIII are offered (VIII since the fifth colour's view); a stored VIII reads as VIII.
+  assert(store.chooseAsh(7) && store.ashChoice() === 7 && store.chooseAsh(8) && store.ashChoice() === 8, 'VII and VIII');
   const eight = memory(); eight.data.set(RT_PROFILE_STORAGE_KEY, '{"version":1,"giftFull":false,"won":true,"ash":8}');
-  assert(createRtProfileStore(eight).ashChoice() === 7, 'a stored VIII — VII');
+  assert(createRtProfileStore(eight).ashChoice() === 8, 'a stored VIII — VIII');
   assert(store.chooseAsh(3) && store.ashChoice() === 3, 'back to III');
   store.endRun({ reachedJailer: false, seeded: false, won: false });
   assert(store.ashOpen() && store.ashChoice() === 3, 'a later defeat keeps it');

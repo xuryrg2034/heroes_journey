@@ -317,10 +317,10 @@ export const RT_START_POTIONS = 1;
 export type RtAshLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 export const RT_ASH_MAX = 8;
 /**
- * Task 45, step 1: the highest level the choice offers (`rtAshOptions`, `chooseAsh`). VIII waits for the view of the fifth colour
- * (step 2, ui) — then this becomes `RT_ASH_MAX`. A run of VIII is played by the simulation already (tests, bots).
+ * Task 45: the highest level the choice offers (`rtAshOptions`, `chooseAsh`) — all of them since the view of the fifth colour
+ * (step 2, ui: mauve `a86a9a`, the five-facet crystal).
  */
-export const RT_ASH_OPEN: RtAshLevel = 7;
+export const RT_ASH_OPEN: RtAshLevel = RT_ASH_MAX;
 /** The levels from which each change acts. */
 export const RT_ASH_NO_START_HELP = 1;
 export const RT_ASH_TABLES = 2;
