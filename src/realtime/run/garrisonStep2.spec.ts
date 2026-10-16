@@ -2,7 +2,7 @@
  * Task 43 «Гарнизон, шаг 2», part Г (design 16.10.2026, docs/design-notes/task-43-garrison-step2.md, 6; docs/realtime-slice.md,
  * «Гарнизон, шаг 2»): the garrison's pools of a run with the flag `step2` — «Ристалище» (the knight's own arena, rows 3–4), the
  * branches split («Ров» and the keymaster on `den`, «Бойницы» and the crossbowman on `camp`), the knights in the start formations of
- * «Караульня» and «Плац» after «Ристалище» (`Loadout.knights`, at most 2), the crossbowmen of «Галерея» and «Караульня» from row 8
+ * «Галерея» and the hard «Караульня» (from row 6) after «Ристалище» (`Loadout.knights`, one), the crossbowmen of «Галерея» and «Караульня» from row 8
  * after «Бойницы» (`Loadout.bolts`). Node only: `npm run test:realtime-garrison-step2`.
  *
  * Whole runs walked by the run's own commands (metaWalk.testkit.ts), the branch steered by the walk's node pick; the fights with
@@ -76,8 +76,10 @@ check('the rule by rows (the choices of a node of each branch after a history): 
     assert(!garrisonBolts(arena, 7, [GARRISON_LOOPHOLES_ARENA]) && garrisonBolts(arena, 8, [GARRISON_LOOPHOLES_ARENA]) && !garrisonBolts(arena, 9, [GARRISON_MOAT_ARENA]), `${arena}: bolts from row 8 after «Бойницы»`);
   }
   assert(!garrisonBolts(GARRISON_MOAT_ARENA, 9, [GARRISON_LOOPHOLES_ARENA]) && !garrisonBolts(YARD_ARENA.id, 9, [GARRISON_LOOPHOLES_ARENA]), 'no bolts elsewhere');
-  assert(garrisonKnights(GUARDROOM_ARENA.id, 'checkpoint', [GARRISON_ARMORY_ARENA]) === 1 && garrisonKnights(GUARDROOM_ARENA.id, 'hard', [GARRISON_ARMORY_ARENA]) === 2
-    && garrisonKnights(YARD_ARENA.id, 'battle', [GARRISON_ARMORY_ARENA]) === 1 && garrisonKnights(GUARDROOM_ARENA.id, 'hard', ['g-yard']) === 0 && garrisonKnights(GALLERY_ARENA.id, 'battle', [GARRISON_ARMORY_ARENA]) === 0, 'the knights by arena');
+  const armory = [GARRISON_ARMORY_ARENA];
+  assert(garrisonKnights(GUARDROOM_ARENA.id, 'checkpoint', 5, armory) === 0 && garrisonKnights(GUARDROOM_ARENA.id, 'hard', 4, armory) === 0 && garrisonKnights(GUARDROOM_ARENA.id, 'hard', 6, armory) === 1
+    && garrisonKnights(GALLERY_ARENA.id, 'battle', 4, armory) === 1 && garrisonKnights(GALLERY_ARENA.id, 'breakthrough', 9, armory) === 1 && garrisonKnights(YARD_ARENA.id, 'battle', 3, armory) === 0
+    && garrisonKnights(GALLERY_ARENA.id, 'battle', 6, ['g-yard']) === 0 && garrisonKnights(GUARDROOM_ARENA.id, 'hard', 7, ['g-yard']) === 0, 'the knights by arena');
 });
 
 check('the default of the game: a new run with «Ров» takes `step2` (`RT_GARRISON_STEP2_ON`); without «Ров» — no flag; a save with `step2` and no `moat` is no run', () => {
@@ -121,18 +123,16 @@ check('a new enemy first on its own arena, one novelty a fight: the first fight 
   assert(knightRuns >= 35 && armoryEarly >= 12, JSON.stringify({ knightRuns, armoryEarly }));
 });
 
-check('the knights (`Loadout.knights`): only «Плац» and «Караульня», only after «Ристалище», 1 at the checkpoint, at most 2; the crossbowmen (`Loadout.bolts`): only «Галерея» and «Караульня» from row 8 after «Бойницы»', () => {
-  let knights = 0, hardTwo = 0, bolts = 0;
+check('the knights (`Loadout.knights`): one, only in «Галерея» and the hard «Караульня» from row 6, only after «Ристалище», never at the checkpoint; the crossbowmen (`Loadout.bolts`): only «Галерея» and «Караульня» from row 8 after «Бойницы»', () => {
+  let gallery = 0, hard = 0, bolts = 0;
   for (const [i, { fights }] of RUNS.entries()) {
     const before: string[] = [];
     for (const f of fights) {
       const n = f.loadout.knights ?? 0;
       if (n) {
-        knights++;
-        assert(n <= MAX_KNIGHTS && (f.arena === GUARDROOM_ARENA.id || f.arena === YARD_ARENA.id) && before.includes(GARRISON_ARMORY_ARENA), `run ${i + 1}: knights ${n} at ${f.nodeId} ${f.arena}`);
-        if (f.type === 'checkpoint') assert(n === 1, `run ${i + 1}: the checkpoint's knights ${n}`);
-        if (f.type === 'hard' && n === 2) hardTwo++;
-      } else assert(!(before.includes(GARRISON_ARMORY_ARENA) && f.arena === GUARDROOM_ARENA.id), `run ${i + 1}: «Караульня» without knights after «Ристалище» (${f.nodeId})`);
+        assert(n === 1 && before.includes(GARRISON_ARMORY_ARENA) && (f.arena === GALLERY_ARENA.id || (f.arena === GUARDROOM_ARENA.id && f.type === 'hard' && f.row >= 6)), `run ${i + 1}: knights ${n} at ${f.nodeId} ${f.arena}`);
+        if (f.arena === GALLERY_ARENA.id) gallery++; else hard++;
+      } else assert(!(before.includes(GARRISON_ARMORY_ARENA) && (f.arena === GALLERY_ARENA.id || (f.arena === GUARDROOM_ARENA.id && f.type === 'hard' && f.row >= 6))), `run ${i + 1}: no knight after «Ристалище» (${f.nodeId} ${f.arena})`);
       if (f.loadout.bolts) {
         bolts++;
         assert(f.row >= GARRISON_BOLT_ROW && (f.arena === GUARDROOM_ARENA.id || f.arena === GALLERY_ARENA.id) && before.includes(GARRISON_LOOPHOLES_ARENA) && f.branch === 'camp', `run ${i + 1}: bolts at ${f.nodeId} ${f.arena}`);
@@ -140,10 +140,10 @@ check('the knights (`Loadout.knights`): only «Плац» and «Караульн
       before.push(f.arena);
     }
   }
-  assert(knights >= 30 && hardTwo >= 1 && bolts >= 8, JSON.stringify({ knights, hardTwo, bolts }));
+  assert(gallery >= 15 && hard >= 3 && bolts >= 8, JSON.stringify({ gallery, hard, bolts }));
 });
 
-check('the worlds of those fights (the arena, the run\'s params, loadout and seed; journalled commands): a knight in place of the middle guard of a start line, at most 2; two crossbowmen more; each replays from its journal', () => {
+check('the worlds of those fights (the arena, the run\'s params, loadout and seed; journalled commands): a knight in place of the middle guard of a start line; two crossbowmen more; each replays from its journal', () => {
   let worlds = 0, knightWorlds = 0, boltWorlds = 0;
   for (const { fights } of RUNS.slice(0, 16)) for (const f of fights) {
     if (!f.loadout.knights && !f.loadout.bolts) continue;

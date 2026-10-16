@@ -131,8 +131,8 @@ export interface Loadout {
   deep?: boolean;
   /**
    * Task 43 «Гарнизон, шаг 2», part Г: the middle guard of the first this many start formations of the arena stands as a knight
-   * (sim/rosters.ts `withKnights`, at most `MAX_KNIGHTS`; world.ts `createWorld`) — the run gives it to «Плац» and «Караульня» once
-   * «Ристалище» was played (run/garrison.ts `garrisonKnights`). Absent — the template's start enemies as they are.
+   * (sim/rosters.ts `withKnights`, at most `MAX_KNIGHTS`; world.ts `createWorld`) — the run gives it to «Галерея» and the hard
+   * «Караульня» once «Ристалище» was played (run/garrison.ts `garrisonKnights`). Absent — the template's start enemies as they are.
    */
   knights?: number;
   /**

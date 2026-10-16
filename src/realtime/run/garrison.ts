@@ -47,7 +47,7 @@ export const RT_GARRISON_ON = true;
 export const RT_GARRISON_MOAT_ON = true;
 /**
  * Task 43 «Гарнизон, шаг 2», part Г: a new run with «Ров» takes the arenas of step 2 (`RtRunState.step2`): «Ристалище» and the
- * knight, «Бойницы» and the crossbowman on the branch without «Ров», the knights in the formations, the crossbowmen deep. A run saved
+ * knight, «Бойницы» and the crossbowman on the branch without «Ров», the knights in the start lines, the crossbowmen deep. A run saved
  * before it (no flag) plays the garrison of step 1б to its end, its pools byte for byte.
  */
 export const RT_GARRISON_STEP2_ON = true;
@@ -114,12 +114,10 @@ export const GARRISON_HARD_ARENA = GUARDROOM_ARENA.id;
 export const GARRISON_FINAL_ARENA = CASTELLAN_ARENA.id;
 /**
  * Task 43, part Г (design 16.10.2026, task-43 spec 6): the pools of a run of step 2 (`RtRunState.step2`) — «Ристалище» on rows 3–4
- * (the knight's own arena) on the trails, «Плац» on rows 1–4 (design answer 4: its line takes a knight once «Ристалище» was played); the branches of rows 6–9 split: `den` (the left one) — «Ров» on rows 6–9 (the keymaster),
+ * (the knight's own arena) on the trails; the branches of rows 6–9 split: `den` (the left one) — «Ров» on rows 6–9 (the keymaster),
  * `camp` (the right one) — «Бойницы» on rows 6–7 (the crossbowman). Each kind is met only on its branch.
  */
-export const GARRISON_STEP2_TRAIL_POOLS: readonly ArenaPoolEntry[] = [
-  ...GARRISON_POOLS.map(entry => (entry.arena === YARD_ARENA.id ? { arena: YARD_ARENA.id, rows: [1, 4] as const } : entry)), { arena: ARMORY_ARENA.id, rows: [3, 4] },
-];
+export const GARRISON_STEP2_TRAIL_POOLS: readonly ArenaPoolEntry[] = [...GARRISON_POOLS, { arena: ARMORY_ARENA.id, rows: [3, 4] }];
 /** Task 43: the branch with «Ров» (the other one has «Бойницы»). */
 export const GARRISON_MOAT_BRANCH: MapBranch = 'den';
 export const GARRISON_STEP2_POOLS: Readonly<Record<MapBranch, readonly ArenaPoolEntry[]>> = {
@@ -228,18 +226,22 @@ export const GARRISON_BOLT_ROW = GARRISON_DEEP_ROW;
 export function garrisonBolts(arena: string, row: number, history: readonly string[]): boolean {
   return row >= GARRISON_BOLT_ROW && (arena === GALLERY_ARENA.id || arena === GUARDROOM_ARENA.id) && history.includes(LOOPHOLES_ARENA.id);
 }
-/** Баланс (task 43, part Г): knights in the start formations of «Караульня» — the checkpoint (row 5) and the hard nodes from row 6; of «Плац». */
-export const GARRISON_KNIGHTS_CHECKPOINT = 1;
-export const GARRISON_KNIGHTS_HARD = 2;
-export const GARRISON_KNIGHTS_YARD = 1;
 /**
- * Task 43, part Г: knights in the start formations of the fight of `arena` (node `type`) after `history` (`Loadout.knights`; 0 — none):
- * «Караульня» and «Плац» once «Ристалище» was played («a new enemy first on its own arena»). Only a run of step 2 asks.
+ * Баланс (task 43, part Г; design decision 16.10.2026 after the bot's curve): a knight in the start line of «Галерея» (rows 4–9) and
+ * of «Караульня» on the hard nodes from this garrison row; none at the checkpoint (row 5: every path plays it).
  */
-export function garrisonKnights(arena: string, type: ForestMapNode['type'], history: readonly string[]): number {
+export const GARRISON_KNIGHT_HARD_ROW = 6;
+export const GARRISON_KNIGHTS_GALLERY = 1;
+export const GARRISON_KNIGHTS_HARD = 1;
+/**
+ * Task 43, part Г: knights in the start formations of the fight of `arena` (node `type`, garrison row `row`) after `history`
+ * (`Loadout.knights`; 0 — none): «Галерея» and the hard «Караульня» from `GARRISON_KNIGHT_HARD_ROW`, once «Ристалище» was played («a
+ * new enemy first on its own arena»). Only a run of step 2 asks.
+ */
+export function garrisonKnights(arena: string, type: ForestMapNode['type'], row: number, history: readonly string[]): number {
   if (!history.includes(ARMORY_ARENA.id)) return 0;
-  if (arena === GUARDROOM_ARENA.id) return type === 'checkpoint' ? GARRISON_KNIGHTS_CHECKPOINT : GARRISON_KNIGHTS_HARD;
-  return arena === YARD_ARENA.id ? GARRISON_KNIGHTS_YARD : 0;
+  if (arena === GUARDROOM_ARENA.id) return type === 'hard' && row >= GARRISON_KNIGHT_HARD_ROW ? GARRISON_KNIGHTS_HARD : 0;
+  return arena === GALLERY_ARENA.id ? GARRISON_KNIGHTS_GALLERY : 0;
 }
 
 // ---------- The forest final's reward ----------

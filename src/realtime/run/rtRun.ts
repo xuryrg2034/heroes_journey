@@ -1074,7 +1074,7 @@ export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}):
     // Task 40: a deep fight of a run with «Ров» (its deep enemies: the second keymaster, the keymaster in «Галерея», «Караульня»).
     const before = run.picks.flatMap(pick => pick.arena && rtGarrisonNodeId(pick.nodeId) && pick.nodeId !== node.id ? [pick.arena] : []);
     // Task 43: a run of step 2 — the knights in the formations and the crossbowmen (absent: as before).
-    const step2 = run.step2 ? { knights: garrisonKnights(pending.arena, node.type, before), bolts: garrisonBolts(pending.arena, runRow(node.row), before) } : undefined;
+    const step2 = run.step2 ? { knights: garrisonKnights(pending.arena, node.type, runRow(node.row), before), bolts: garrisonBolts(pending.arena, runRow(node.row), before) } : undefined;
     garrisonKit(kit, node, pending.battle, !!run.moat && garrisonDeep(pending.arena, runRow(node.row), before), step2);
     return kit;
   }

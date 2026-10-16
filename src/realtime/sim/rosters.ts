@@ -222,7 +222,7 @@ export function withRoster(template: ArenaTemplate, id: string): RosterArena {
 /**
  * Task 43 «Гарнизон, шаг 2», part Г (`Loadout.knights`, world.ts `createWorld`): the template with a knight in place of the middle
  * guard of each of its first `n` start formations (by the formation's number; the knight keeps the guard's place, colour and
- * formation, its HP is its kind's). The run gives it to «Плац» and «Караульня» once the knight was met on «Ристалище». `n` 0 (or no
+ * formation, its HP is its kind's). The run gives it to «Галерея» and the hard «Караульня» once the knight was met on «Ристалище». `n` 0 (or no
  * formation) — the template as it is.
  */
 export function withKnights<T extends ArenaTemplate>(template: T, n: number): T {
