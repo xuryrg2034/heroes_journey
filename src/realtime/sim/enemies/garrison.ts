@@ -548,12 +548,19 @@ registerBehavior({
   },
   step(world, e, dt) {
     if (e.knock > 0) return false;
-    const hero = world.hero, d = dist(e, hero);
-    if (d > KEYMASTER_FAR) return false;
+    const hero = world.hero, d = dist(e, hero), bank = world.arena.keymasterBank;
+    if (d > KEYMASTER_FAR) {
+      if (bank === undefined) return false;
+      // «Ров»: its own walk straight at the hero, held at its bank (never through a walkway).
+      walkTo(world, e, hero, walkStep(world, e, dt), KEYMASTER_FAR);
+      e.y = Math.min(e.y, bank);
+      return true;
+    }
     if (d >= KEYMASTER_NEAR) return true;
     // Too close: it backs off from the hero (off walls, trees and cliffs).
     const away = { x: e.x + (e.x - hero.x) / Math.max(d, 1e-6), y: e.y + (e.y - hero.y) / Math.max(d, 1e-6) };
     walkTo(world, e, away, walkStep(world, e, dt));
+    if (bank !== undefined) e.y = Math.min(e.y, bank);
     return true;
   },
   onTetherCut(world, holder) {

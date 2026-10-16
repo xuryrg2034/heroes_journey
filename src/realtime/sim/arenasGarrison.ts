@@ -146,30 +146,35 @@ export const CASTELLAN_ARENA: ArenaTemplate = registerArena({
 });
 
 /**
- * Task 40 «Ров» (design 16.10.2026, docs/design-notes/task-40-garrison-step1b.md, 3; garrison rows 6–9): kill 25. A cliff strip
- * across the middle (the forest's law М2: nobody walks it, the chain and the jump fly over, a body pushed into it falls); the hero
- * below it, the door at the right edge on his bank (not under the action bar), the keymaster and plain enemies across it. The keymaster's first meeting («a new enemy first on its own
- * arena»). A deep fight (garrison rows 8–9, `Loadout.deep`): a second keymaster and a dog handler with two hounds across the moat.
- * The arena turns the shackles on for itself (`shackles`), as the garrison's laws.
+ * Task 40 «Ров» (design 16.10.2026, docs/design-notes/task-40-garrison-step1b.md, 3 and 10; garrison rows 6–9): kill 25. A cliff
+ * strip across the middle (the forest's law М2: nobody walks it, the chain and the jump fly over, a body pushed into it falls) with
+ * two stone walkways 2 units wide, one at each side wall (design decision 16.10.2026: a strip of the full width made a static fight —
+ * the enemies piled at its edge): the plain enemies come through them. The hero below the moat, the door at the right edge of his
+ * bank (not under the action bar); the keymaster and plain enemies across it. The keymasters keep their bank (`keymasterBank`: they
+ * never come below y 3.6, so never through a walkway). The keymaster's first meeting («a new enemy first on its own arena»). A deep
+ * fight (garrison rows 8–9, `Loadout.deep`): a second keymaster and a dog handler with two hounds across the moat. The arena turns
+ * the shackles on for itself (`shackles`), as the garrison's laws.
  */
 export const MOAT_ARENA: ArenaTemplate = registerArena({
   id: 'g-moat',
   name: 'Ров',
-  summary: 'Убей цепью 25 врагов. За рвом Ключник надевает кандалы: узник не берётся в цепь, пока цепь не пройдёт поперёк кандалов. Дверь справа, на твоём берегу.',
+  summary: 'Убей цепью 25 врагов. За рвом Ключник надевает кандалы: узник не берётся в цепь, пока цепь не пройдёт поперёк кандалов. Враги идут по мосткам у стен. Дверь справа внизу.',
   goal: 'kills',
   width: 16,
   height: 10,
   heroStart: { x: 8, y: 7.6 },
   obstacles: [wall(1.5, 7.4, 2, 1), wall(12.5, 7.4, 2, 1), tree(4.2, 1.6), tree(11.8, 1.6)],
-  terrain: [zone('cliff', polygon(0, 4.3, 3, 4.15, 5.5, 4.4, 8, 4.2, 10.5, 4.4, 13, 4.15, 16, 4.3, 16, 5.5, 13, 5.65, 10.5, 5.4, 8, 5.6, 5.5, 5.4, 3, 5.65, 0, 5.5))],
+  // The cliff from x 2 to 14: the walkways x 0–2 and 14–16 at the side walls.
+  terrain: [zone('cliff', polygon(2, 4.3, 3, 4.15, 5.5, 4.4, 8, 4.2, 10.5, 4.4, 13, 4.15, 14, 4.3, 14, 5.5, 13, 5.65, 10.5, 5.4, 8, 5.6, 5.5, 5.4, 3, 5.65, 2, 5.5))],
   buttons: [],
-  door: { x: 15.3, y: 6.5 },
+  door: { x: 15.3, y: 8.8 },
+  keymasterBank: 3.6,
   enemies: [
     { x: 8, y: 2.6, color: 1, kind: KEYMASTER },
     { x: 5.6, y: 3.3, color: 0 }, { x: 6.6, y: 2.6, color: 2 }, { x: 10.4, y: 3.3, color: 0 },
     { x: 9.4, y: 2.2, color: 3 }, { x: 2.8, y: 3.2, color: 1 }, { x: 13.2, y: 3.2, color: 2 },
   ],
-  deepEnemies: [{ x: 13.8, y: 1.8, color: 3, kind: KEYMASTER }, { x: 2.4, y: 1.8, color: 1, kind: HANDLER }],
+  deepEnemies: [{ x: 12.6, y: 1.8, color: 3, kind: KEYMASTER }, { x: 2.4, y: 1.8, color: 1, kind: HANDLER }],
   phaseOverride: NO_PACKS,
   killGoal: 25,
   garrison: true,

@@ -223,6 +223,12 @@ export interface ArenaTemplate extends ArenaShape {
    * «Галерея» and «Караульня» from row 8 once «Ров» was played) — after `enemies`. Omitted — none; without `deep` never read.
    */
   deepEnemies?: StartEnemy[];
+  /**
+   * Task 40 «Ров»: the keymasters of this arena keep their bank across the moat — they never come below this y (their own walk, no
+   * flow field: straight at the hero to `KEYMASTER_FAR`, back off inside `KEYMASTER_NEAR`, then held at the bank). Read only by the
+   * keymaster's behaviour (no keymaster before task 40). Omitted — the keymaster walks as anywhere.
+   */
+  keymasterBank?: number;
 }
 
 /**

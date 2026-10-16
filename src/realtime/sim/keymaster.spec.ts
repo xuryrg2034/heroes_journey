@@ -323,6 +323,28 @@ check('a deep «Ров» (rows 8–9): two keymasters and a dog handler with its
   assert(run.shackles > 0 && replays(run.sim), `the deep fight shackles and replays (${run.shackles})`);
 });
 
+check('«Ров» has two walkways: plain enemies born across the moat cross it to the hero (real ticks, 4 seeds); the keymasters keep their bank, 4–5 from the standing hero', () => {
+  for (const k of [1, 2, 3, 4]) {
+    const p = defaultParams(); p.heroHp = 999; p.contactDamage = 0;
+    const sim = new Simulation({ arena: 'g-moat', params: p, seed: seedOf(k), record: true, loadout: { deep: true } }), w = sim.world;
+    const across = new Set<number>(), crossed = new Set<number>();
+    let bankKept = true;
+    for (let i = 0; i < ticksOf(25); i++) {
+      sim.tick(); w.events.length = 0;
+      for (const e of w.enemies) {
+        if (e.kind === KEYMASTER) { if (e.y > 3.6 + 0.05) bankKept = false; continue; }
+        if (e.y < 4.1) across.add(e.id);
+        else if (e.y > 5.7 && across.has(e.id)) crossed.add(e.id);
+      }
+    }
+    assert(crossed.size >= 3, `seed ${k}: enemies born across the moat came over (${crossed.size} of ${across.size})`);
+    assert(bankKept, `seed ${k}: the keymasters stayed on their bank`);
+    const kms = w.enemies.filter(e => e.kind === KEYMASTER);
+    assert(kms.length === 2 && kms.every(e => dist(e, w.hero) >= 4 - 0.05 && dist(e, w.hero) <= 5 + 0.05), `seed ${k}: 4–5 from the hero (${kms.map(e => dist(e, w.hero).toFixed(2))})`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
 check('a journal without the new keys plays the old world (a forest fight and a «Псарня» fight with chains: the leashes as before)', () => {
   for (const [k, arena] of [[1, 'kills'], [2, 'kills'], [1, 'g-kennel'], [2, 'g-kennel']] as const) {
     const sim = new Simulation({ arena, params: defaultParams(), seed: seedOf(k), record: true });
