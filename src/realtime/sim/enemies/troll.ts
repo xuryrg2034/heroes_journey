@@ -4,7 +4,7 @@
  * arena «Берлога тролля», sim/arenasBoss.ts, turns it on for itself); without it the four kinds are plain enemies that walk to the hero.
  *
  * **The body.** The core (`troll`, colourless with `jailerColorless`, HP `trollHp`, `trollPlates` boss plates) sits in the mouth of
- * its den: its body is ×`TROLL_BODY_SCALE`, held at its spot by its own step every tick (no walk, no knockback, mass `PINNED_MASS`).
+ * its den: its body is common (`TROLL_BODY_SCALE` 1; the view draws it large), held at its spot by its own step every tick (no walk, no knockback, mass `PINNED_MASS`).
  * Its parts — the club (`troll-club`, HP 4, a plate), the rock (`troll-rock`, HP 3) and the tail (`troll-tail`, HP 4, a plate) — are
  * enemies of the common body with the colours the seed rolls (three of the fight's palette, not a stream: `partColors`), held at
  * their spots (a club or a rock lies where it struck for a while). A part that dies (any cause) is severed: its move never starts
@@ -24,7 +24,7 @@
  * **The moves** (the conductor — the group step: the stream `behavior:troll`, one draw only when two or more moves are open; a move
  * used `EVENT_MAX` times in a row is left out, one passed over `MISSED_MAX` times is taken). They rest `MOVE_GAP` s between them, the
  * first comes `FIRST_MOVE_DELAY` s into the fight, the first use of a part's move winds up ×`FIRST_WINDUP_FACTOR`; phase 3 — the
- * parts' windups ×`PHASE3_WINDUP`. A strike due while a move of the hero runs waits for its end (the highlight stays what the dash does).
+ * club's and the rock's windups ×`PHASE3_WINDUP` (not the tail's: design 16.10.2026, spec 24.4). A strike due while a move of the hero runs waits for its end (the highlight stays what the dash does).
  * - «Удар дубиной» (`club`, the club in hand, the hero within `CLUB_REACH` of the core): a lane `CLUB_LENGTH` × `CLUB_WIDTH` from the
  *   core's edge to the hero (fixed at the windup's start); −`CLUB_DAMAGE` to the hero whose body touches it, −2 to every enemy in it
  *   (not the boss; not the player's). The club lies at the lane's end `CLUB_LIE` s; the window opens.
@@ -84,8 +84,11 @@ export const TROLL_SNORE_REGROW = 1;
 export const TROLL_ROAR_PERIOD = 20;
 /** The crowd's factor the arena «Берлога тролля» puts (`Params.trollCrowd` when the values hold 1). */
 export const TROLL_CROWD = 0.6;
-/** The core's body and art: × the common size (design 5: ×2, held at its spot; question В9). */
-export const TROLL_BODY_SCALE = 2;
+/**
+ * The core's body and art: × the common size. Design 16.10.2026 (spec 24.2, question В9): ×1 — the body ×2 was shifted up to 0.79 off
+ * its spot by the hero's parting; the drawing is large in the view (as the Jailer's), the body of the simulation is common.
+ */
+export const TROLL_BODY_SCALE = 1;
 /** The core and its parts barely yield when bodies push apart (they are held at their spots). */
 const PINNED_MASS = 100;
 export const CLUB_HP = 4;
@@ -281,14 +284,15 @@ function pickMove(world: World, v: Record<string, number>, open: readonly PartMo
   return chosen;
 }
 
-/** A move begins its windup (a part's: ×`FIRST_WINDUP_FACTOR` the first time in the fight, ×`PHASE3_WINDUP` in phase 3). */
+/** A move begins its windup (a part's: ×`FIRST_WINDUP_FACTOR` the first time in the fight; the club's and the rock's ×`PHASE3_WINDUP` in phase 3). */
 function beginMove(world: World, core: Enemy, move: Exclude<TrollMoveId, 'snore'>): void {
   const v = core.vars, hero = world.hero;
   let windup = ROAR_WINDUP;
   if (move !== 'roar') {
     const first = !v[USED[move]];
     v[USED[move]] = 1;
-    const k = (first ? FIRST_WINDUP_FACTOR : 1) * (v.phase === 3 ? PHASE3_WINDUP : 1);
+    // Phase 3 speeds the club and the rock up, never the tail (its ring's worst point — a landing on a severed part — needs the time).
+    const k = (first ? FIRST_WINDUP_FACTOR : 1) * (v.phase === 3 && move !== 'tail' ? PHASE3_WINDUP : 1);
     windup = move === 'club' ? CLUB_WINDUP * k : move === 'rock' ? ROCK_WINDUP * k + ROCK_FLIGHT : TAIL_WINDUP * k;
   } else v.ro = roarPeriodOf(world);
   if (move === 'club') {

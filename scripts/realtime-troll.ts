@@ -20,7 +20,7 @@ import '../src/realtime/sim/arenasBoss';
 import { defaultParams, type Params } from '../src/realtime/sim/params';
 import { Simulation } from '../src/realtime/sim/simulation';
 import type { World, WorldEvent } from '../src/realtime/sim/world';
-import { TROLL } from '../src/realtime/sim/enemies/troll';
+import { TROLL, TROLL_BODY_SCALE } from '../src/realtime/sim/enemies/troll';
 import { bodyRadiusOf } from '../src/realtime/sim/enemies/kinds';
 import { heroRadius } from '../src/realtime/sim/params';
 import { JAILER } from '../src/realtime/sim/enemies/jailer';
@@ -56,12 +56,15 @@ interface Fight {
   won: boolean; time: number; timeout: boolean; killer: string | null; damage: Record<string, number>; parts: string[]; windows: Record<string, [number, number]>; blocks: number; slept: number; woken: number; wolves: number; phase: number;
   /** The body ×2 (question В9): the core's and the parts' shift off their spots at a tick's end (max, sum, ticks), the hero's centre in the core's body, his body over it. */
   shift: { core: number; coreSum: number; part: number; ticks: number; inside: number; overlap: number };
+  /** The core's touches on the hero: in the first 0.5 s after a move of the hero ended (a landing), otherwise; the hero's distance to the core then. */
+  coreTouch: { landing: number; other: number; dist: number[] };
 }
 
 /** One fight by the bot (the boss aim at the Troll and the Jailer); the Troll's events counted. */
 function fight(run: RtRunState, extra: Partial<Params> = {}): Fight {
   const params = Object.assign(rtArenaParams(run, rtRunParams(defaultParams())), extra);
-  const f: Fight = { won: false, time: 0, timeout: false, killer: null, damage: {}, parts: [], windows: {}, blocks: 0, slept: 0, woken: 0, wolves: 0, phase: 1, shift: { core: 0, coreSum: 0, part: 0, ticks: 0, inside: 0, overlap: 0 } };
+  const f: Fight = { won: false, time: 0, timeout: false, killer: null, damage: {}, parts: [], windows: {}, blocks: 0, slept: 0, woken: 0, wolves: 0, phase: 1, shift: { core: 0, coreSum: 0, part: 0, ticks: 0, inside: 0, overlap: 0 }, coreTouch: { landing: 0, other: 0, dist: [] } };
+  let moving = false, landed = -Infinity;
   const kinds = new Map<number, string>(), wolves = new Set<number>();
   let open: { source: string; hit: boolean } | null = null, last: string | null = null;
   const seen = (w: World): void => {
@@ -75,7 +78,14 @@ function fight(run: RtRunState, extra: Partial<Params> = {}): Fight {
       if (!w.move && hd < r) s.inside++;
       if (!w.move && hd < r + heroRadius(w.params)) s.overlap++;
     }
+    if (moving && !w.move) landed = w.time;
+    moving = !!w.move;
     for (const ev of w.events as WorldEvent[]) {
+      if (ev.type === 'hit' && ev.source === 'touch' && kinds.get(ev.enemyId) === TROLL) {
+        const core = w.enemies.find(e => e.id === ev.enemyId);
+        if (w.time - landed <= 0.5 + 1e-9) f.coreTouch.landing++; else f.coreTouch.other++;
+        if (core) f.coreTouch.dist.push(Math.hypot(w.hero.x - core.x, w.hero.y - core.y));
+      }
       // A touch is named by its striker's kind (the Troll's own bodies apart from the crowd).
       if (ev.type === 'hit') { const src = ev.source === 'touch' ? `touch:${kinds.get(ev.enemyId) ?? '?'}` : ev.source; f.damage[src] = (f.damage[src] ?? 0) + ev.damage; last = src; }
       else if (ev.type === 'partSevered') f.parts.push(kinds.get(ev.id) ?? '?');
@@ -93,7 +103,7 @@ function fight(run: RtRunState, extra: Partial<Params> = {}): Fight {
       }
     }
   };
-  const played = botFight(run, { params, loadout: rtArenaLoadout(run), limit: LIMIT, aim: [TROLL, JAILER], seen });
+  const played = botFight(run, { params, loadout: rtArenaLoadout(run), limit: LIMIT, aim: [TROLL, JAILER, 'castellan'], seen });
   const w = played.sim.world;
   f.won = w.status === 'victory'; f.time = w.time; f.timeout = played.timeout; f.killer = f.won ? null : played.timeout ? 'timeout' : last ?? played.lastSource;
   f.wolves = wolves.size;
@@ -141,6 +151,8 @@ if (STAND) {
     ...SET_NAME ? [] : [
       { title: '«Последний рубеж» (тот же узел)', fights: Array.from({ length: SEEDS }, (_, i) => fight(openRun(i + 1, 'boss', FINAL_ARENA))) },
       { title: 'Тюремщик (узел ряда 5)', fights: Array.from({ length: SEEDS }, (_, i) => fight(openRun(i + 1, 'checkpoint', 'jailer'))) },
+      // The full Castellan (the run's params play `castellanFull`) on the same den node: the loadout of the forest's row 10.
+      { title: 'Кастелян полный (тот же узел, кит леса ряда 10)', fights: Array.from({ length: SEEDS }, (_, i) => fight(openRun(i + 1, 'boss', 'g-castellan'))) },
     ],
   ];
   console.log('| Бой | Смертей | Бой, с, мед. (победа / поражение) | По таймеру | Чем убит |');
@@ -169,6 +181,8 @@ if (STAND) {
   for (const f of troll) for (const [src, [n, hit]] of Object.entries(f.windows)) { const c = win[src] ??= [0, 0]; c[0] += n; c[1] += hit; }
   console.log(`Окна (открыто / с попаданием): ${Object.entries(win).map(([s, [n, hit]]) => `${s} ${n} / ${hit}`).join(', ') || 'нет'}; «звон» вне окна — ${troll.reduce((s, f) => s + f.blocks, 0)}.`);
   const sh = troll.reduce((a, f) => ({ core: Math.max(a.core, f.shift.core), coreSum: a.coreSum + f.shift.coreSum, part: Math.max(a.part, f.shift.part), ticks: a.ticks + f.shift.ticks, inside: a.inside + f.shift.inside, overlap: a.overlap + f.shift.overlap }), { core: 0, coreSum: 0, part: 0, ticks: 0, inside: 0, overlap: 0 });
-  console.log(`Тело ×2 (В9): сдвиг ядра с места в конце такта — наиб. ${sh.core.toFixed(3)} ед., ср. ${(sh.coreSum / Math.max(1, sh.ticks)).toFixed(4)} ед.; частей (в руке) — наиб. ${sh.part.toFixed(3)} ед.; центр героя в теле ядра — ${sh.inside} тактов из ${sh.ticks}, тело героя на теле ядра — ${sh.overlap} (${pct(sh.overlap, sh.ticks)}).`);
+  console.log(`Тело ядра ×${TROLL_BODY_SCALE} (В9): сдвиг ядра с места в конце такта — наиб. ${sh.core.toFixed(3)} ед., ср. ${(sh.coreSum / Math.max(1, sh.ticks)).toFixed(4)} ед.; частей (в руке) — наиб. ${sh.part.toFixed(3)} ед.; центр героя в теле ядра — ${sh.inside} тактов из ${sh.ticks}, тело героя на теле ядра — ${sh.overlap} (${pct(sh.overlap, sh.ticks)}).`);
+  const ct = troll.reduce((a, f) => ({ landing: a.landing + f.coreTouch.landing, other: a.other + f.coreTouch.other, dist: [...a.dist, ...f.coreTouch.dist] }), { landing: 0, other: 0, dist: [] as number[] });
+  console.log(`Касания ядра: ${ct.landing + ct.other}, из них в первые 0,5 с после конца перемещения героя (посадка) — ${ct.landing} (${pct(ct.landing, ct.landing + ct.other)}); расстояние героя до центра ядра при касании, мед. ${f1(median(ct.dist))}.`);
   console.log(`«Храп»: выспался ${troll.reduce((s, f) => s + f.slept, 0)}, прерван ${troll.reduce((s, f) => s + f.woken, 0)}; волков «Рыка» — ${troll.reduce((s, f) => s + f.wolves, 0)} (${f1(troll.reduce((s, f) => s + f.wolves, 0) / troll.length)} на бой); фаза 3 — ${pct(troll.filter(f => f.phase >= 3).length, troll.length)} боёв.`);
 }

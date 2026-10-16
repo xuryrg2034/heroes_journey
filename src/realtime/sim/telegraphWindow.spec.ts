@@ -78,12 +78,12 @@ const THREATS: readonly Threat[] = [
   // circle of 1.6 around the knight, the worst point its centre (conservative: the hero never stands closer than a touch).
   { id: 'knight-charge', source: KNIGHT, title: 'рыцарь: рывок', window: p => p.knightChargeWindup, exit: p => KNIGHT_LANE_WIDTH / 2 + heroRadius(p) },
   { id: 'knight-swing', source: KNIGHT, title: 'рыцарь: размах', window: p => p.knightSwingWindup, exit: p => p.knightSwingRadius + heroRadius(p) },
-  // Task 48 (the Troll, design 7): the shortest windups — phase 3's ×0.8 (the first of a fight is ×1.5). «Удар дубиной» — a lane of
+  // Task 48 (the Troll, design 7): the shortest windups — phase 3's ×0.8 for the club and the rock (the tail is not sped up, spec 24.4; the first of a fight is ×1.5). «Удар дубиной» — a lane of
   // 4.5 × 1.6, the way out sideways from its axis; «Бросок камня» — the circle of 1.2 on the hero, its windup and the flight 0.4;
   // «Хвост метёт» — the ring 1.2–3.2 around the core, the worst point its inner edge (inside 1.2 is the core's body and touch).
   { id: 'troll-club', source: TROLL_CLUB, move: 'club', title: 'Тролль: удар дубиной', window: () => CLUB_WINDUP * TROLL_PHASE3_WINDUP, exit: p => CLUB_WIDTH / 2 + heroRadius(p) },
   { id: 'troll-rock', source: TROLL_ROCK, move: 'rock', title: 'Тролль: бросок камня', window: () => ROCK_WINDUP * TROLL_PHASE3_WINDUP + ROCK_FLIGHT, exit: p => ROCK_RADIUS + heroRadius(p) },
-  { id: 'troll-tail', source: TROLL_TAIL, move: 'tail', title: 'Тролль: хвост метёт', window: () => TAIL_WINDUP * TROLL_PHASE3_WINDUP, exit: p => TAIL_OUTER + heroRadius(p) - TAIL_INNER },
+  { id: 'troll-tail', source: TROLL_TAIL, move: 'tail', title: 'Тролль: хвост метёт', window: () => TAIL_WINDUP, exit: p => TAIL_OUTER + heroRadius(p) - TAIL_INNER },
 ];
 
 /** Task 27: the Jailer's moves without a hit on the hero, and why. */

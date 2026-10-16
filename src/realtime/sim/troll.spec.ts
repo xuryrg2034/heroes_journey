@@ -83,7 +83,7 @@ const strikes = (events: readonly WorldEvent[], move: string): Ev<'bossMove'>[] 
 const replays = (sim: Simulation): boolean => replay(JSON.parse(JSON.stringify(sim.exportJournal()!))).hash() === sim.hash();
 const freeze = (sim: Simulation, e: Enemy, seconds = 600): void => { sim.command({ t: 'chill', id: e.id, seconds }); };
 /** Beside the core, off the tail's knot and the braziers: the core is a link of one (within R of its edge). */
-const BESIDE: Vec = { x: 11.2, y: 4.3 };
+const BESIDE: Vec = { x: 11.4, y: 4.2 };
 
 /** The club's window: the rock frozen (the club's move alone), the hero in the club's reach until «Удар дубиной» strikes; then beside the core. */
 function clubWindow(d: Den, out: WorldEvent[] = [], source = 'club'): WorldEvent[] {
@@ -118,9 +118,9 @@ check('outside a window the core is refused (`outOfWindow`, «вне окна»)
     ticks(sim, ticksOf(5), events);
     const fire = windowEvents(events, 'block').filter(e => e.source === 'fire');
     assert(fire.length === 3 && !of(events, 'enemyHit').some(e => e.enemyId === core.id), `seed ${k}: the fire is blocked three times (${fire.length})`);
-    // The cutting dash past the core (its path 1.0 from the centre: the body of 0.64 within the cut's 0.5).
-    sim.command({ t: 'teleport', x: 10.3, y: 1.2 });
-    const links = [11.3, 12.5, 13.7].map(x => place(sim, { x, y: 1.2 }, 0, 0));
+    // The cutting dash past the core (its path 0.7 from the centre: the body of 0.32 within the cut's 0.5).
+    sim.command({ t: 'teleport', x: 10.3, y: 1.5 });
+    const links = [11.3, 12.5, 13.7].map(x => place(sim, { x, y: 1.5 }, 0, 0));
     draw(sim, links);
     assert(w.chain.length === 3, `seed ${k}: the chain past the core (${w.chain.length})`);
     sim.command({ t: 'release' });
@@ -169,7 +169,7 @@ check('«Возврат»: the return run passes the struck core by — the high
       assert(!!w.params.trollWindow === window, `seed ${k}: the key ${window}`);
       clubWindow(d);
       // The core, then a weak link behind it: the dash takes the core's plate on its way, kills the link; the run comes back past the core.
-      sim.command({ t: 'teleport', x: 12.6, y: 4.5 });
+      sim.command({ t: 'teleport', x: 12.5, y: 4.3 });
       const behind = place(sim, { x: 13.2, y: 1 }, 0, 0);
       draw(sim, [core, behind]);
       assert(w.chain.length === 2, `seed ${k}: the chain core → behind (${w.chain.length})`);
@@ -219,9 +219,9 @@ check('the hit is held for the hero: a burning tick on the core while a chain to
         settle(sim, events);
         assert(windowEvents(events, 'hit').map(e => e.source).join() === 'chain', `seed ${k}: the window's hit — the chain (${JSON.stringify(windowEvents(events, 'hit'))})`);
       } else {
-        // Three weak links past the core (1.0 from its centre): the return run comes back along them and strikes it.
-        sim.command({ t: 'teleport', x: 10.3, y: 1.2 });
-        const links = [11.3, 12.5, 13.7].map(x => place(sim, { x, y: 1.2 }, 0, 0));
+        // Three weak links past the core (0.7 from its centre): the return run comes back along them and strikes it.
+        sim.command({ t: 'teleport', x: 10.3, y: 1.5 });
+        const links = [11.3, 12.5, 13.7].map(x => place(sim, { x, y: 1.5 }, 0, 0));
         ticks(sim, ticksOf(0.3));
         draw(sim, links);
         const plan = planChain(w);
@@ -241,8 +241,8 @@ check('the window ends while the core is in the drawn chain: the core and the li
     for (const hold of [true, false]) {
       const d = den(k), { sim, w, core } = d;
       clubWindow(d);
-      sim.command({ t: 'teleport', x: 12, y: 6.4 });
-      const before = place(sim, { x: 12.5, y: 4.6 }, 0, 0), behind = place(sim, { x: 13.2, y: 1 }, 0, 0);
+      sim.command({ t: 'teleport', x: 12.3, y: 6 });
+      const before = place(sim, { x: 12.6, y: 4.2 }, 0, 0), behind = place(sim, { x: 13.2, y: 1 }, 0, 0);
       draw(sim, [before, core, behind]);
       const drawn = w.chain.map(l => l.id);
       assert(drawn.length === 3 && drawn[1] === core.id, `seed ${k}: the chain holds the core (${drawn})`);
@@ -421,10 +421,11 @@ check('the core\'s death ends the fight: the crowd and the parts die with it (no
   }
 });
 
-check('the worst point «посадка на месте отрубленной части» in the tail\'s ring: the club severed while «Хвост метёт» winds up — the hero lands ≈1.6 from the core and walks out before the strike', () => {
+check('the worst point «посадка на месте отрубленной части» in the tail\'s ring: the club severed while «Хвост метёт» winds up — the hero lands ≈1.6 from the core and walks out before the strike, in phase 2 and in phase 3 (the tail is not sped up there)', () => {
   let measured = 0;
-  for (const k of SEEDS) {
-    const d = den(k), { sim, w, core, club } = d;
+  for (const k of SEEDS) for (const phase3 of [false, true]) {
+    // Phase 3: 3 plates — the rock severed leaves 2 (phases 2 and 3 at once).
+    const d = den(k, phase3 ? { trollPlates: 3 } : {}), { sim, w, core, club } = d;
     // The club frozen all along: it stays in hand (the tail's move alone in phase 2).
     freeze(sim, club);
     severRock(d);
@@ -443,7 +444,7 @@ check('the worst point «посадка на месте отрубленной �
       if (tails < 2) ticks(sim, ticksOf(1.5));
       sim.command({ t: 'teleport', x: 12, y: 5.6 });
     }
-    assert(tails === 2 && core.vars.mv === 3, `seed ${k}: the second tail winds up`);
+    assert(tails === 2 && core.vars.mv === 3 && core.vars.phase === (phase3 ? 3 : 2), `seed ${k}, phase 3 ${phase3}: the second tail winds up (phase ${core.vars.phase})`);
     const due = w.time + core.vars.t;
     // Sever the club: four weak links of its colour (HP 4) from the hero at the ring's edge.
     sim.command({ t: 'teleport', x: 8.2, y: 6.4 });
@@ -454,7 +455,7 @@ check('the worst point «посадка на месте отрубленной �
     settle(sim);
     const hero = w.hero, dx = hero.x - core.x, dy = hero.y - core.y, d0 = Math.sqrt(dx * dx + dy * dy), left = due - w.time;
     const need = 0.2 + (TAIL_OUTER + heroRadius(w.params) - d0) / w.params.heroSpeed;
-    console.log(`   seed ${k}: посадка в ${d0.toFixed(2)} от ядра (кольцо 1,2–3,2), до удара ${left.toFixed(2)} с, нужно ${need.toFixed(2)} с`);
+    console.log(`   seed ${k}, Ф${phase3 ? 3 : 2}: посадка в ${d0.toFixed(2)} от ядра (кольцо 1,2–3,2), до удара ${left.toFixed(2)} с, нужно ${need.toFixed(2)} с`);
     assert(!w.enemies.includes(club) && d0 < TAIL_OUTER, `seed ${k}: landed in the ring`);
     sim.command({ t: 'walk', x: dx / d0, y: dy / d0 });
     const out = ticks(sim, ticksOf(left + 0.3));
@@ -463,7 +464,7 @@ check('the worst point «посадка на месте отрубленной �
     void CLUB_LIE;
     assert(replays(sim), `seed ${k}: replay`);
   }
-  assert(measured === SEEDS.length, 'measured');
+  assert(measured === SEEDS.length * 2, 'measured');
 });
 
 check('a strike due while the hero\'s dash runs waits for its end (the highlight stays what the dash does); then it strikes and opens the window', () => {
@@ -539,7 +540,7 @@ check('the view\'s read of «Удар дубиной»: a lane 4.5 × 1.6 from t
   ticks(sim, ticksOf(4), [], (_w, ev) => starts(ev, 'club').length > 0);
   const move = trollMove(w)!;
   const r = core.vars.ax - core.x, len = Math.hypot(move.to!.x - move.from!.x, move.to!.y - move.from!.y);
-  assert(move.move === 'club' && Math.abs(len - 4.5) < 1e-6 && Math.abs(move.from!.y - core.y - 0.64) < 0.01 && Math.abs(r) < 1e-6 && move.width === 1.6, `the lane: ${JSON.stringify(move)}`);
+  assert(move.move === 'club' && Math.abs(len - 4.5) < 1e-6 && Math.abs(move.from!.y - core.y - 0.32) < 0.01 && Math.abs(r) < 1e-6 && move.width === 1.6, `the lane: ${JSON.stringify(move)}`);
 });
 
 check('a world without the key (`trollWindow` absent, as an older journal): the core is open always — a chain takes it outside any window', () => {
