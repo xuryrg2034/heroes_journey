@@ -41,6 +41,9 @@ import { ELITE_TEST_ARENA, playEliteFight } from '../src/realtime/telemetry/elit
 import { CHEST_TEST_ARENA, playChestFight } from '../src/realtime/telemetry/chestFight.testkit';
 import { DEATH_TEST_ARENA, playDeathFight } from '../src/realtime/telemetry/deathFight.testkit';
 import { Simulation } from '../src/realtime/sim/simulation';
+import { registerArena } from '../src/realtime/sim/arenas';
+import type { Command } from '../src/realtime/sim/commands';
+import { fightObserver } from '../src/realtime/telemetry/observe';
 import { defaultParams } from '../src/realtime/sim/params';
 import {
   canonicalJson, checkRecord, emptyFightSummary, fightKey, fightRecordId, journalPartId, packJournal, paramsHash, prologueRecordId, runRecordId, withSummaryDefaults, RT_TELEMETRY_SCHEMA, SANDBOX_RUN,
@@ -48,6 +51,12 @@ import {
 } from '../src/realtime/telemetry/schema';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
+/** Task 34: an open field for the «Смена цвета» fight (the hero at the left, nothing in the way). */
+const SHIFT_TEST_ARENA = 'report-shift-field';
+registerArena({
+  id: SHIFT_TEST_ARENA, name: 'Поле смены цвета', summary: 'Тест отчёта: смена цвета', goal: 'kills', width: 26, height: 12,
+  heroStart: { x: 1.5, y: 6 }, obstacles: [], buttons: [], door: { x: 25.3, y: 6 }, enemies: [], killGoal: 999,
+});
 let checks = 0;
 async function check(name: string, run: () => void | Promise<void>): Promise<void> { await run(); checks++; console.log(`ok - ${name}`); }
 
@@ -197,6 +206,32 @@ async function main(): Promise<void> {
     (spoiled[0] as FightRecord).endHash = '0123456789abcdef';
     const bad = await analyzeRecords(collectRecords([{ name: 'spoiled.json', text: JSON.stringify(spoiled) }]));
     assert(bad.fights[0].hashOk === false && !bad.fights[0].panelReset, 'a spoiled hash is still an error');
+  });
+
+  await check('task 34: «Смена цвета» shifts and bodies of another colour passed by on a free chain — «Смен цвета / пропусков» in the fight row and the sandbox table; the browser summary agrees', async () => {
+    const p = { ...defaultParams(), baseFloor: 0, baseIntervalMin: 1e6, baseIntervalMax: 1e6, maxEnemies: 0, reaperEnabled: false, enemySpeed: 0, speedSpread: 0, contactDamage: 0, heroHp: 40, hitstop: false, survivorKnockback: false, crystals: false, colorShiftLinks: 6 };
+    const sim = new Simulation({ arena: SHIFT_TEST_ARENA, params: p, seed: 34, record: true }), w = sim.world, observer = fightObserver(w);
+    const cmd = (c: Command): void => { sim.command(c); observer.command(c, w); };
+    cmd({ t: 'clear', keepMarked: false });
+    const six = Array.from({ length: 6 }, (_, i) => ({ x: 2.7 + 1.2 * i, y: 6 }));
+    for (const q of six) cmd({ t: 'place', x: q.x, y: q.y, color: 0, hp: 0, kind: 'basic' });
+    cmd({ t: 'place', x: 9.5, y: 6, color: 1, hp: 0, kind: 'basic' });
+    cmd({ t: 'place', x: 10.3, y: 6, color: 0, hp: 0, kind: 'basic' });
+    cmd({ t: 'begin', x: six[0].x, y: six[0].y });
+    for (const q of six.slice(1)) cmd({ t: 'drag', x: q.x, y: q.y, mode: 'full' });
+    // A swipe from the 6th through the red to the blue: the red is passed by (the colour is free).
+    cmd({ t: 'sweep', fx: 8.7, fy: 6, x: 10.3, y: 6 });
+    cmd({ t: 'release' });
+    for (let i = 0; i < 600 && (w.move || i === 0); i++) { sim.tick(); observer.tick(w); w.events.length = 0; }
+    const summary = observer.summary();
+    assert(summary.chain.colorShifts === 1 && summary.chain.shiftSkips === 1, `the live summary: shifts ${summary.chain.colorShifts}, skips ${summary.chain.shiftSkips}`);
+    const shiftSet = collectRecords([{ name: 'shift.json', text: JSON.stringify(await sandboxRecords(sim, summary, SHIFT_TEST_ARENA, 'sshift')) }]);
+    const shift = await analyzeRecords(shiftSet), entry = shift.fights[0];
+    assert(entry && entry.hashOk && !entry.summaryDiff.length, `replayed with the same hash and summary (${entry?.error ?? entry?.summaryDiff.join('; ')})`);
+    const md2 = reportMarkdown(shiftSet, shift, { now: new Date('2026-10-15T12:00:00Z'), source: 'shift' });
+    assert(md2.includes('Смен цвета / пропусков'), 'the column is there');
+    const rows = md2.split('\n').filter(l => l.includes('Поле смены цвета') || l.includes(`\`${entry.record.fight}\``));
+    assert(rows.length >= 2 && rows.every(l => l.includes('| 1 / 1 |')), `the cells: ${rows.join(' / ')}`);
   });
 
   await check('a sandbox fight with the loop: the report shows seals (empty share), close attempts, unseals, inside median / total, step backs with re-adds, seal kills; the browser summary agrees', async () => {

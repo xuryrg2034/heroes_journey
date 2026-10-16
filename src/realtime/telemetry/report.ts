@@ -302,14 +302,15 @@ const LOOP_HEAD = ['Печати (пустых) / попыток', 'Внутри
  * survivor — counts and shares of the chains of some fights.
  */
 function chainShareCells(list: readonly FightSummary[]): string[] {
-  if (!list.length) return ['—', '—', '—'];
-  let count = 0, tough = 0, survivor = 0;
+  if (!list.length) return ['—', '—', '—', '—'];
+  let count = 0, tough = 0, survivor = 0, shifts = 0, skips = 0;
   const draw: number[] = [];
-  for (const s of list) { count += s.chain.count; tough += s.chain.toughNotFirst ?? 0; survivor += s.chain.survivorEnds; draw.push(...s.chain.drawTime ?? []); }
+  for (const s of list) { count += s.chain.count; tough += s.chain.toughNotFirst ?? 0; survivor += s.chain.survivorEnds; draw.push(...s.chain.drawTime ?? []); shifts += s.chain.colorShifts ?? 0; skips += s.chain.shiftSkips ?? 0; }
   // П1: real seconds from the first link to the release, median per released chain (a record of an older build has none: «—»).
-  return [`${tough} (${pct(tough, count)})`, `${survivor} (${pct(survivor, count)})`, draw.length ? n2(median(draw)) : '—'];
+  // Task 34: «Смена цвета» shifts the dashes reached / bodies of another colour a swipe or the held pointer passed by on a free chain.
+  return [`${tough} (${pct(tough, count)})`, `${survivor} (${pct(survivor, count)})`, draw.length ? n2(median(draw)) : '—', `${shifts} / ${skips}`];
 }
-const CHAIN_SHARE_HEAD = ['Крепкий не первым', 'На выжившем', 'Рисование мед., с'];
+const CHAIN_SHARE_HEAD = ['Крепкий не первым', 'На выжившем', 'Рисование мед., с', 'Смен цвета / пропусков'];
 
 function fightRows(entries: readonly FightEntry[]): (string | number)[][] {
   return entries.map(e => {
