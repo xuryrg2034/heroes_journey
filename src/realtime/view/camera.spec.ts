@@ -3,7 +3,7 @@
  * `npm run test:realtime-camera`. The camera is a view: these checks read no simulation state except through the edge
  * markers, and the last one proves that a fight played with the camera's pointer mapping replays to the same hash.
  */
-import { ARROW_CLASH, CAMERA, Camera, edgeArrow, placeEdgeArrows, type CameraBounds } from './camera';
+import { ARROW_CLASH, CAMERA, Camera, edgeArrow, placeEdgeArrows, type CameraBounds, type CameraKeep } from './camera';
 import { collectEdgeMarkers } from './edgeMarkers';
 import { BIG_CLEARING_ARENA } from '../sim/arenasCamera';
 import { LYNX_STUN, LYNX_WALK, LYNX_WINDUP } from '../sim/enemies/lynx';
@@ -22,6 +22,28 @@ const small: CameraBounds = { ...VIEW, arenaW: 16, arenaH: 10 };
 const step = (cam: Camera, seconds: number, hero: { x: number; y: number }, b: CameraBounds, lead: { x: number; y: number } | null = null, frozen = false): void => {
   for (let t = 0; t < seconds; t += 1 / 60) cam.update(1 / 60, hero, lead, frozen, b);
 };
+
+check('task 38 (smoke v65): a boss view keeps the boss\'s box in view as far as the hero stays in it; the hero first', () => {
+  // «Двор кастеляна» 20×14 in a boss view of 11.4 units: the hero at the south gate, the Castellan's drawing at the north wall.
+  const b: CameraBounds = { viewW: 23, viewH: 11.4, arenaW: 20, arenaH: 14 };
+  const keepOf = (hy: number, top: number, bottom: number): CameraKeep => ({ hero: { x0: 9.3, x1: 10.7, y0: hy - 1, y1: hy + 0.7 }, box: { x0: 9, x1: 11, y0: top, y1: bottom } });
+  const cam = new Camera();
+  cam.snap({ x: 10, y: 11.5 }, b);
+  assert(cam.y - b.viewH / 2 > 2, 'without keep the north wall is out of view');
+  const keep = keepOf(11.5, 1.1, 3.3);
+  cam.snap({ x: 10, y: 11.5 }, b, keep);
+  assert(cam.y - b.viewH / 2 <= 1.1 + 1e-9 && cam.y + b.viewH / 2 >= 12.2 - 1e-9, `both in view: ${cam.y}`);
+  // Followed without keep the view drops the wall; with keep it comes back to the box (the smoothing: ~1e-5 left after 2 s).
+  step(cam, 2, { x: 10, y: 11.5 }, b);
+  assert(cam.y - b.viewH / 2 > 2, 'followed without keep: the wall out of view');
+  for (let t = 0; t < 2; t += 1 / 60) cam.update(1 / 60, { x: 10, y: 11.5 }, null, false, b, keep);
+  assert(cam.y - b.viewH / 2 <= 1.1 + 1e-3, 'kept while following');
+  // A box that does not fit with the hero: the hero stays in view, the view leans to the box as far as he allows.
+  const far = keepOf(13, -2, 0);
+  cam.snap({ x: 10, y: 13 }, { ...b, arenaH: 30 }, far);
+  assert(cam.y + b.viewH / 2 >= 13.7 - 1e-9, 'the hero first');
+  assert(near(cam.y, 13.7 - b.viewH / 2), 'as near the box as the hero allows');
+});
 
 check('an arena not larger than the view: the camera stands in its centre whatever the hero does', () => {
   const cam = new Camera();

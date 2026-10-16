@@ -583,7 +583,11 @@ async function boot(): Promise<void> {
     dragging = false;
     stopAim();
     relayout();
-    renderer.snapCamera(world().hero);
+    renderer.snapCamera(world().hero, world());
+    // Design smoke v65 (D2): a boss fight opens on the boss; the camera glides to the hero while the fight holds its first tick. The
+    // tick runs first (an ordinary tick, no command): the arena's own setup is in it — the Castellan takes his plates and leashes.
+    if (bossBand) sim.tick();
+    renderer.startBossIntro(world());
   };
   const start = (index: number, seed = nextSeed(fixedSeed)): void => {
     arenaIndex = Math.max(0, Math.min(SANDBOX_ARENAS.length - 1, index));
@@ -690,7 +694,8 @@ async function boot(): Promise<void> {
   again.addEventListener('click', () => restart());
   other.addEventListener('click', showMenu);
 
-  const running = (): boolean => !paused && !menuOpen && !runScreenOpen && !transitionKind() && world().status === 'playing';
+  // Design smoke v65 (D2): the boss's glide holds the fight (no input) as the pause does.
+  const running = (): boolean => !paused && !menuOpen && !runScreenOpen && !transitionKind() && !renderer.bossIntroOn() && world().status === 'playing';
 
   // The run (stage 2): the map screen over the arena; a battle node starts its arena here with the run's HP.
   // П7 «Часы сессии»: the viewer's session clock (the view only); heartbeat while the tab is visible, so only a hidden or
@@ -877,12 +882,12 @@ async function boot(): Promise<void> {
     openButton.hidden = panel.open;
     // The band of the one-row HUD plate (its CSS min-height, not its live height: a wrapped chain row must not rescale the arena).
     const hudStyle = getComputedStyle(hud);
-    renderer.layout(window.innerWidth - panelWidth, window.innerHeight, (parseFloat(hudStyle.top) || 0) + (parseFloat(hudStyle.minHeight) || 0) + 4 + (bossBand ? BOSS_BAND : 0));
+    renderer.layout(window.innerWidth - panelWidth, window.innerHeight, (parseFloat(hudStyle.top) || 0) + (parseFloat(hudStyle.minHeight) || 0) + 4 + (bossBand ? BOSS_BAND : 0), bossBand);
     measureEdgeInset();
   };
   window.addEventListener('resize', relayout);
   relayout();
-  renderer.snapCamera(world().hero);
+  renderer.snapCamera(world().hero, world());
 
   // Hero walking (iteration 2): WASD and arrows by physical key code, so any keyboard layout works.
   const held = new Set<string>();
@@ -917,6 +922,8 @@ async function boot(): Promise<void> {
       if (!control) { event.preventDefault(); held.add(event.code); }
       return;
     }
+    // Design smoke v65 (D2): the boss's glide ignores the keys (as the fight's start it is not yet).
+    if (renderer.bossIntroOn()) return;
     const ended = world().status !== 'playing';
     if (!sandbox) {
       // The run: no arena menu, no restart (a lost arena ends the run); Enter on a finished arena goes on.
@@ -1153,10 +1160,12 @@ async function boot(): Promise<void> {
     const live = !paused && !menuOpen && !runScreenOpen;
     const axis = (minus: string[], plus: string[]): number => (plus.some(k => held.has(k)) ? 1 : 0) - (minus.some(k => held.has(k)) ? 1 : 0);
     const walkX = axis(['KeyA', 'ArrowLeft'], ['KeyD', 'ArrowRight']), walkY = axis(['KeyW', 'ArrowUp'], ['KeyS', 'ArrowDown']);
+    // Design smoke v65 (D2): the boss's glide holds the fight's first tick — no ticks, no walk (keys held through it walk after it).
+    const intro = renderer.bossIntroOn();
     // Walking is a command too, journalled only when the held keys change.
-    if (walkX !== world().input.x || walkY !== world().input.y) command({ t: 'walk', x: walkX, y: walkY });
+    if (!intro && (walkX !== world().input.x || walkY !== world().input.y)) command({ t: 'walk', x: walkX, y: walkY });
     // Real time → whole fixed ticks (focus and the finisher make a tick cost more real time; the hit-stop freezes ticks).
-    ticksPerFrame = live ? sim.advance(realDt) : 0;
+    ticksPerFrame = live && !intro ? sim.advance(realDt) : 0;
     const w = world();
     // Camera: the view moved since the last frame, so the pointer's arena point is mapped again; a chain being drawn
     // holds the camera still (the world must not slide under the pointer).
@@ -1515,7 +1524,7 @@ async function boot(): Promise<void> {
     if (runView) { runView.el.hidden = true; runScreenOpen = false; }
     dragging = false; stopAim();
     relayout();
-    renderer.snapCamera(world().hero);
+    renderer.snapCamera(world().hero, world());
     await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
   };
 

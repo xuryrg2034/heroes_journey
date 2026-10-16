@@ -3,6 +3,7 @@ import { test, expect } from './realtimeTest';
 import { gameWait, untilFrame } from './realtimeFrames';
 import { serializeRtRun, type RtRunState } from '../src/realtime/run/rtRun';
 import { walkRun } from '../src/realtime/run/metaWalk.testkit';
+import { replay, type Journal } from '../src/realtime/sim/simulation';
 import { RT_RUN_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
 import { rtRunDepth } from '../src/realtime/run/rtMeta';
 import { rtLevel } from '../src/realtime/run/rtRun';
@@ -175,3 +176,72 @@ test('task 38 view: the depth record names the garrison — a meta run walked to
   await page.screenshot({ path: 'artifacts/realtime-garrison-record-camp.png' });
   expect(errors).toEqual([]);
 });
+
+/**
+ * Design smoke v65 (D2, design 16.10.2026): a boss fight opens on the boss — his drawing whole under the HUD plate and the boss bar —
+ * and the camera glides to the hero in 1.2 s; the fight holds its first tick meanwhile (time 0, input ignored); the scale is the
+ * fights' own. The page's clock is Playwright's (`page.clock`): the glide's start frame is held for the shot, then the clock runs.
+ */
+const T0 = Date.parse('2026-10-16T12:00:00Z');
+// The fights' scale of an arena larger than 16×10 at 1280×720 (render.ts `fitScale`: the reference 16×10 in the window, margin 12).
+const FIGHT_SCALE = Math.min((1280 - 24) / (16 * 72), (720 - 24) / (10 * 72));
+const sees = (page: Page, kind: string, up: number) => page.evaluate(([k, up]) => {
+  const rt = (window as any).__realtime, sn = rt.snapshot(), cam = rt.camera(), boss = sn.enemies.find((e: any) => e.kind === k && e.partOf === null);
+  // The drawing: the art box over the disc (render.ts: the Castellan 4.2 radii, feet at the disc's bottom — 3.2 up; the Jailer 5.4, feet 1.0 — 4.4 up).
+  const r = 0.4 * 72 * cam.scale, at = rt.toScreen(boss.x, boss.y), hero = rt.toScreen(sn.hero.x, sn.hero.y);
+  return { top: at.y - r * up, bottom: at.y + r, left: at.x - r * 2.2, right: at.x + r * 2.2, hero, heroFeet: hero.y + 0.5 * 72 * cam.scale, scale: cam.scale, intro: cam.intro, time: sn.time, commands: rt.journal().commands.length };
+}, [kind, up] as const);
+
+for (const [arena, kind, title, up] of [[24, 'castellan', 'Двор кастеляна', 3.2], [19, 'jailer', 'Тюремщик', 4.4]] as const) {
+  test(`smoke v65 (D2): «${title}» opens on the boss (whole under the boss bar), glides to the hero in 1.2 s holding the first tick (input ignored), then the fights' scale; the journal replays in Node to the page's hash`, async ({ page }) => {
+    test.setTimeout(60_000);
+    const errors = collectErrors(page);
+    await page.clock.install({ time: T0 });
+    await page.clock.pauseAt(T0 + 1000);
+    await page.goto(`/?sandbox=1&arena=${arena}`);
+    await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
+    await page.clock.runFor(50);
+    // The glide's start: the boss's drawing whole between the boss bar and the action bar, the fight at 0:00.
+    const start = await sees(page, kind, up);
+    expect(start.intro, 'the glide is on').toBeGreaterThan(1.0);
+    // The fight holds its first tick (the arena's setup — the Castellan's plates and leashes — is in it): the clock shows 0:00.
+    expect(start.time).toBeLessThan(0.02);
+    await expect(page.getByTestId('boss-bar')).toBeVisible();
+    const bar = (await page.getByTestId('boss-bar').boundingBox())!, plate = (await page.locator('.rt-hud').boundingBox())!, actions = (await page.getByTestId('action-bar').boundingBox())!;
+    expect(start.top, 'the boss\'s head below the boss bar').toBeGreaterThan(bar.y + bar.height);
+    expect(start.top, 'the boss\'s head below the HUD plate').toBeGreaterThan(plate.y + plate.height);
+    expect(start.bottom, 'the boss above the action bar').toBeLessThan(actions.y);
+    expect(start.scale).toBeCloseTo(FIGHT_SCALE, 4);
+    await page.screenshot({ path: `artifacts/realtime-boss-intro-${kind}-start.png` });
+    // Input in the glide is ignored: a click on the arena, a walk key held and released, the spin and an item key — no command.
+    await page.mouse.click(640, 400);
+    await page.keyboard.down('KeyD');
+    await page.clock.runFor(100);
+    await page.keyboard.up('KeyD');
+    await page.keyboard.press('KeyQ');
+    await page.keyboard.press('Digit2');
+    await page.clock.runFor(450);
+    const mid = await sees(page, kind, up);
+    expect(mid.intro, 'still gliding').toBeGreaterThan(0);
+    expect(mid.time, 'the fight holds its first tick').toBe(start.time);
+    expect(mid.commands, 'no command in the glide').toBe(start.commands);
+    // The glide ends at the hero: the fights' scale, the hero above the action bar; the fight's clock starts.
+    await page.clock.runFor(800);
+    const end = await sees(page, kind, up);
+    expect(end.intro).toBe(0);
+    expect(end.scale).toBeCloseTo(FIGHT_SCALE, 4);
+    expect(end.heroFeet, 'the hero above the action bar').toBeLessThan(actions.y);
+    expect(end.hero.y).toBeGreaterThan(bar.y + bar.height);
+    await page.clock.resume();
+    await page.screenshot({ path: `artifacts/realtime-boss-intro-${kind}-hero.png` });
+    // A short fight after the glide (a walk), then the browser's journal replays in Node — no glide there — to the same hash.
+    await page.keyboard.down('KeyD');
+    await gameWait(page, 0.4);
+    await page.keyboard.up('KeyD');
+    await gameWait(page, 0.2);
+    const recorded = await page.evaluate(() => { const rt = (window as any).__realtime; return { journal: rt.journal(), hash: rt.hash() }; }) as { journal: Journal; hash: string };
+    expect(recorded.journal.commands.some(c => c.cmd.t === 'walk'), 'the walk after the glide is journalled').toBe(true);
+    expect(replay(recorded.journal).hash()).toBe(recorded.hash);
+    expect(errors).toEqual([]);
+  });
+}
