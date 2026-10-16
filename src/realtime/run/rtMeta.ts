@@ -259,10 +259,18 @@ const presentNpcs = (hearth: RtHearthMeta): RtHearthNpc[] => RT_HEARTH_NPCS.filt
 /** The quest the next run gets: one NPC present by the stream `hearth-quest` of the ended run's seed; the owl's by the record. */
 export function rtNextQuest(seed: number, hearth: RtHearthMeta, record: RtDepthRecord | undefined): RtQuest {
   const npcs = presentNpcs(hearth), npc = npcs[mixSeed(mixSeed(seed >>> 0, HEARTH_QUEST_SALT), 0) % npcs.length];
-  // Task 38: a record of the garrison has passed the forest — «Дальше».
-  const id: RtQuestId = npc === 'herb' ? 'herb-flasks' : npc === 'smith' ? 'smith-sever' : !record?.level && (record?.row ?? 0) >= RT_FOREST_LAST_ROW ? 'owl-forest' : 'owl-farther';
+  const id: RtQuestId = npc === 'herb' ? 'herb-flasks' : npc === 'smith' ? 'smith-sever' : owlQuestId(record);
   return { npc, id };
 }
+/** The owl's quest by a depth record: at the forest's last row (not a garrison record) «Пройди лес», else «Дальше». Task 38: a record of the garrison has passed the forest — «Дальше». */
+const owlQuestId = (record: RtDepthRecord | undefined): RtQuestId => (!record?.level && (record?.row ?? 0) >= RT_FOREST_LAST_ROW ? 'owl-forest' : 'owl-farther');
+/**
+ * Task 49 (design answer 3, spec section 17): the owl's quest reads the record of the run's hero — the camp shows it by the chosen hero
+ * (it changes when the hero is changed), the run fixes it at its start (`rtHearthStartOf`), its end checks it by its hero
+ * (`rtQuestDone`). Марфа's and Ерофей's quests do not depend on the hero. The stored quest (`hearth.quest`, picked at the end of the
+ * run before by the ended run's hero) keeps its NPC; for the cat with no change of hero the id is the stored one.
+ */
+export const rtQuestFor = (quest: RtQuest, record: RtDepthRecord | undefined): RtQuest => (quest.npc === 'owl' ? { npc: 'owl', id: owlQuestId(record) } : { ...quest });
 
 /**
  * The meta after `run` (a run without a given seed, finished or abandoned): the new `meta` and what the end screen shows. The
@@ -349,11 +357,12 @@ export interface RtHearthView {
   last?: RtHearthLast;
   lines: Record<string, number>;
 }
-export function rtHearthView(meta: RtMeta | undefined, seen: readonly string[] | undefined): RtHearthView {
+export function rtHearthView(meta: RtMeta | undefined, seen: readonly string[] | undefined, hero: RtHeroId = rtHeroChoice(meta)): RtHearthView {
   const hearth = meta?.hearth ?? emptyHearth();
+  // Task 49: the quest as the hero `hero` (default — the chosen one) would carry it (`rtQuestFor`).
   return {
     stock: hearth.stock, levels: { ...hearth.levels }, met: { herb: !!hearth.met.herb, smith: !!hearth.met.smith }, self: { ...hearth.self },
-    seen: SCHEDULE_KINDS.filter(kind => seen?.includes(kind)), ...hearth.quest ? { quest: { ...hearth.quest } } : {}, ...hearth.last ? { last: { ...hearth.last } } : {}, lines: { ...hearth.lines },
+    seen: SCHEDULE_KINDS.filter(kind => seen?.includes(kind)), ...hearth.quest ? { quest: rtQuestFor(hearth.quest, meta?.heroes[hero]?.record) } : {}, ...hearth.last ? { last: { ...hearth.last } } : {}, lines: { ...hearth.lines },
   };
 }
 /** Why a purchase is refused: too little stock (`need`, `have`), the NPC not in the camp, or the level not the next one (or locked). */
@@ -389,14 +398,15 @@ export function rtHearthItems(seed: number, count: number): ItemKind[] {
   for (let k = 0; k < count && left.length; k++) out.push(left.splice(mixSeed(mixSeed(seed >>> 0, HEARTH_HERB_SALT), k) % left.length, 1)[0]);
   return out;
 }
-export function rtHearthStartOf(meta: RtMeta | undefined, seed: number): RtHearthStart {
+/** Task 49: `hero` — the hero of the run being started (default — the chosen one): the owl's quest by its record (`rtQuestFor`). */
+export function rtHearthStartOf(meta: RtMeta | undefined, seed: number, hero: RtHeroId = rtHeroChoice(meta)): RtHearthStart {
   const hearth = meta?.hearth;
   if (!hearth) return { flags: {} };
   const { owl, herb, smith } = hearth.levels;
   const maps = owl > 0 ? rtHearthMaps(seed, owl + 1) : undefined, items = herb > 0 && hearth.met.herb ? rtHearthItems(seed, herb) : undefined;
   const flags: RtHearthFlags = {
     ...maps ? { maps: maps.length as 2 | 3 } : {}, ...smith >= 1 && hearth.met.smith ? { jailerRerolls: 1 } : {}, ...smith >= 2 && hearth.met.smith ? { hammerAll: true as const } : {},
-    ...hearth.quest ? { quest: { ...hearth.quest } } : {},
+    ...hearth.quest ? { quest: rtQuestFor(hearth.quest, meta?.heroes[hero]?.record) } : {},
   };
   return { ...maps ? { maps } : {}, ...items ? { items } : {}, flags };
 }

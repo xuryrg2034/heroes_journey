@@ -11,6 +11,7 @@
  * - the packs are each hero's own (her order «Иней» first; 14 items locked at her start; the cat's packs untouched by her runs);
  * - Ведунья is freed by the first win over the Jailer in a meta run (any hero; the row and the viewer's run kept), not by a seeded run,
  *   not twice; `endRunMeta` frees her too; only a freed hero is chosen;
+ * - Неясыть's «дальше прежнего» by the run's hero (the camp shows the chosen hero's, the run fixes it at its start); the cat's as before;
  * - «Испытание» is the hero's own: hers opens with her win, the cat's open one stays; the levels chosen apart;
  * - an old profile reads as before; the telemetry fields pass the schema.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
@@ -184,6 +185,39 @@ check('«Испытание» is the hero\'s own: hers opens with her win (one w
   assert(won3.result?.outcome === 'victory' && lost5.result?.outcome === 'defeat', 'the walks');
   const after3 = rtApplyMeta(undefined, won3).meta, after5 = rtApplyMeta(after3, lost5).meta;
   assert(after3.heroes.toad!.ashBest === 3 && after5.heroes.toad!.ashBest === 3 && after3.heroes.cat === undefined, 'the mark only on a win, her own');
+});
+
+check('Неясыть\'s «дальше прежнего» is the run\'s hero\'s: the camp shows it by the chosen hero, the run fixes it at its start, its end checks it by that hero; the cat\'s quests as before', () => {
+  // The cat with no change of hero: the camp's quest and the run's are the stored one (the end of the run before picked it), 12 runs.
+  {
+    const storage = memoryStorage(), store = createRtProfileStore(storage);
+    for (let k = 1; k <= 12; k++) {
+      const start = store.hearthStart(seedOf(k)), stored = store.load().meta?.hearth?.quest;
+      assert(same(store.hearth().quest, stored) && same(start.flags.quest, stored), `seed ${k}: the cat's quest is the stored one`);
+      const walk = walkRun({ k, create: { gift: 'full', garrison: false, locked: store.locked(), hearth: start.flags }, ...k % 4 === 0 ? { loseAt: (_r: RtRunState, type: string) => type === 'boss' } : {} });
+      assert(same(walk.run.hearth?.quest, stored), 'the run carries it');
+      store.endRunMeta(walk.run);
+    }
+  }
+  // The cat passed the forest (his record: row 10) and freed Ведунья (no record): the owl's quest by the chosen hero.
+  for (let k = 1; k <= 40; k++) {
+    const storage = memoryStorage(), store = createRtProfileStore(storage);
+    const cat = walkRun({ k, create: { gift: 'full', garrison: false, locked: store.locked() } });
+    store.endRunMeta(cat.run);
+    if (cat.run.result?.outcome !== 'victory' || store.load().meta?.hearth?.quest?.npc !== 'owl') continue;
+    assert(store.hearth().quest?.id === 'owl-forest' && store.hearth(RT_TOAD_ID).quest?.id === 'owl-farther', 'the camp: the cat — «Пройди лес», Ведунья — «Дальше»');
+    assert(store.chooseHero(RT_TOAD_ID) && store.hearth().quest?.id === 'owl-farther', 'the chosen hero changes the quest shown');
+    const start = store.hearthStart(seedOf(k + 100));
+    assert(start.flags.quest?.id === 'owl-farther' && store.hearthStart(seedOf(k + 100), RT_HERO_ID).flags.quest?.id === 'owl-forest', 'the run\'s start fixes it by its hero');
+    // Her run fights 3 battles and dies: «Дальше» of her own (no record) is done; the cat's «Пройди лес» would not be.
+    const toad = walkRun({ k: k + 100, create: { gift: 'full', garrison: false, hero: RT_TOAD_ID, locked: store.locked(), hearth: start.flags }, loseAt: (run: RtRunState) => run.battles.length >= 3 });
+    assert(same(toad.run.hearth?.quest, { npc: 'owl', id: 'owl-farther' }) && toad.run.result?.outcome === 'defeat', 'her run carries «Дальше»');
+    const end = store.endRunMeta(toad.run)!;
+    assert(end.hero === RT_TOAD_ID && end.quest?.id === 'owl-farther' && end.quest.done, `checked by her record: ${JSON.stringify(end.quest)}`);
+    assert(store.chooseHero(RT_HERO_ID) && store.hearth().quest?.npc === store.load().meta!.hearth!.quest!.npc, 'back to the cat');
+    return;
+  }
+  throw new Error('no seed gave the owl\'s quest after a won forest');
 });
 
 check('an old profile (the cat only) reads as before; the run\'s telemetry fields pass the schema', () => {

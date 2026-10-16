@@ -167,14 +167,14 @@ export interface RtProfileStore {
    * carry and quest join the meta once; a second call for the same run returns the same result. Null — a run with a given seed.
    */
   endRunMeta(run: RtRunState): RtMetaEnd | null;
-  /** Task 37: the camp as the screen shows it. */
-  hearth(): RtHearthView;
+  /** Task 37: the camp as the screen shows it. Task 49: the owl's quest by `hero`'s record (absent — the chosen hero). */
+  hearth(hero?: RtHeroId): RtHearthView;
   /** Task 37: buy an NPC's next level (1 or 2; prices `RT_HEARTH_PRICES`); refused with the price and the stock. */
   buyHearth(npc: RtHearthNpc, level: number): RtHearthBuy;
   /** Task 37: a line `npc:key` was shown — its count +1 (the view cycles a key's lines by it). */
   markLine(id: string): boolean;
   /** Task 37: what the camp gives the next run of `seed` (the view shows the choices; `rtHearthFlagsWith` makes the run's flags). */
-  hearthStart(seed: number): RtHearthStart;
+  hearthStart(seed: number, hero?: RtHeroId): RtHearthStart;
   /** Task 36: the items a new meta run keeps locked (`createRtRun(seed, { locked })`). Task 49: of `hero` (absent — the chosen one). */
   locked(hero?: RtHeroId): string[];
   /** Task 36: «✦ новое» — the item was opened by a pack and not offered yet. Task 49: to `hero` (absent — the chosen one). */
@@ -197,7 +197,7 @@ export interface RtProfileStore {
 }
 
 /** Task 37: the camp's start for a loaded profile (`rtHearthStartOf` over its meta). */
-export const rtHearthStart = (profile: RtProfile, seed: number): RtHearthStart => rtHearthStartOf(profile.meta, seed);
+export const rtHearthStart = (profile: RtProfile, seed: number, hero?: RtHeroId): RtHearthStart => rtHearthStartOf(profile.meta, seed, heroOf(profile, hero));
 /** Task 36: «✦ новое» for a loaded profile. Task 49: to `hero` (absent — the chosen one). */
 export const rtIsNewOffer = (profile: RtProfile, id: string, hero?: RtHeroId): boolean => rtMetaNewOffer(profile.meta, id, heroOf(profile, hero));
 
@@ -262,7 +262,7 @@ export function createRtProfileStore(storage: RunStorage | null = browserStorage
       write({ ...profile, meta });
       return end;
     },
-    hearth: () => { const profile = read(); return rtHearthView(profile.meta, profile.seen); },
+    hearth: hero => { const profile = read(); return rtHearthView(profile.meta, profile.seen, heroOf(profile, hero)); },
     buyHearth: (npc, level) => {
       const profile = read(), { result, meta } = rtHearthBuy(profile.meta, npc, level);
       if (meta) write({ ...profile, meta });
@@ -274,7 +274,7 @@ export function createRtProfileStore(storage: RunStorage | null = browserStorage
       if (!meta.hearth) return false;
       return write({ ...profile, meta: { ...meta, hearth: { ...meta.hearth, lines: { ...meta.hearth.lines, [id]: (meta.hearth.lines[id] ?? 0) + 1 } } } });
     },
-    hearthStart: seed => rtHearthStartOf(read().meta, seed),
+    hearthStart: (seed, hero) => { const profile = read(); return rtHearthStartOf(profile.meta, seed, heroOf(profile, hero)); },
     locked: hero => { const profile = read(); return rtMetaLocked(profile.meta, heroOf(profile, hero)); },
     isNewOffer: (id, hero) => { const profile = read(); return rtMetaNewOffer(profile.meta, id, heroOf(profile, hero)); },
     markOffered: (ids, hero) => {
