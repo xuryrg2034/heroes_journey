@@ -1487,6 +1487,9 @@ function pairFits(run: FusionRun, partner: RtTalismanId, screen: RtFusionScreen,
   if (!rtTalismanEligible(partner, talismanPool(run), others)) return false;
   if (!isRtForm(partner)) return screen !== 'form';
   const field = rtFormField(partner);
+  // Task 46 (design decision 9): no form that would replace a form half of a recipe whose pair the run holds already.
+  const replaced = run.talismans.find(id => rtFormField(id) === field), of = replaced ? fusionOfHalf(replaced) : undefined;
+  if (of && run.talismans.includes(of.partner)) return false;
   return rtFormPool(run).includes(partner) && !run.talismans.some(id => isRtFusion(id) && rtFormField(id) === field);
 }
 /**

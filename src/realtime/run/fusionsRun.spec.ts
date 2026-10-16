@@ -17,7 +17,8 @@ import {
   rtFusionsReady, rtRestFuse, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun, type RtRunEvent, type RtRunState, type RtRunStep,
 } from './rtRun';
 import { isRtForm, rtTalisman } from './rtTalismans';
-import { COUNTER_TALISMANS as CT, FORMS, FUSIONS, FUSION_RECIPES, HAMMERS, fusionOfHalf, type FusionId } from '../sim/buildIds';
+import { COUNTER_TALISMANS as CT, FORMS, FROST_PASS, FUSIONS, FUSION_RECIPES, HAMMERS, RELICS as RL, fusionOfHalf, type FusionId } from '../sim/buildIds';
+import { RT_META_PACKS, rtLockedAfter } from './metaCatalog';
 import { kitOf } from '../sim/kit';
 import { PART_ARC } from './schedule';
 import { assert, closeNode, ok, same, seedOf, takeGift } from './runFight.testkit';
@@ -207,7 +208,8 @@ await check('the rest: both parts held — «Сплав» beside the heal; the f
     // The next arena after a fusion: its kit holds the fusion and its parts (a hammer part in the hammer slot).
     for (const fusion of FUSION_RECIPES.map(r => r.fusion).filter(f => end.talismans.includes(f))) {
       const r = FUSION_RECIPES.find(x => x.fusion === fusion)!, kit = kitOf(rtArenaLoadout(end));
-      assert(kit.talismans.includes(fusion) && kit.talismans.includes(r.counter) && (r.form === HAMMERS.return ? kit.hammer === HAMMERS.return : kit.talismans.includes(r.form)), `${fusion}: the kit ${kit.talismans} ${kit.hammer}`);
+      // A hammer part in the slot or (task 46: «Взрыв на конце» beside a hammer of «Путь») among the talismans.
+      assert(kit.talismans.includes(fusion) && kit.talismans.includes(r.counter) && (kit.hammer === r.form || kit.talismans.includes(r.form)), `${fusion}: the kit ${kit.talismans} ${kit.hammer}`);
       after++;
     }
     if (!fuse) {
@@ -261,6 +263,28 @@ await check('the meta: a recipe with a locked part, or a form a first run never 
   assert(rtFusionRecipe(none, FORMS.pierce) === null && rtFusionPair({ ...none, talismans: [FORMS.pierce] }, 'r6c1', 'hard', ['whetstone']) === null, 'no flag — nothing');
 });
 
+await check('task 46, the meta: a first run sees «Ледяная волна», not «Клеймо» or «Подрыв»; «Подрыв» from 60 XP, «Клеймо» from 360; a recipe never unlocks', () => {
+  const opened = (xp: number): string[] => RT_META_PACKS.filter(pack => pack.at <= xp).map(pack => pack.id);
+  const recipes = (run: RtRunState): string[] => [FROST_PASS, HAMMERS.blast, HAMMERS.fire].flatMap(id => rtFusionRecipe(run, id)?.fusion ?? []);
+  // A first run of a newcomer (the viewer's snapshot without the Jailer's weight, every pack locked).
+  const first = createRtRun(seedOf(11), { gift: 'mini', schedule: [], locked: rtLockedAfter(opened(0)) });
+  assert(recipes(first).join() === FUSIONS.frostWave && rtFusionRecipe(first, CT.shockwave)?.fusion === FUSIONS.frostWave, `a first run: ${recipes(first)}`);
+  const at = (xp: number): string[] => recipes(createRtRun(seedOf(11), { gift: 'mini', locked: rtLockedAfter(opened(xp)) }));
+  assert(!at(59).includes(FUSIONS.hunterBlast) && at(60).includes(FUSIONS.hunterBlast), `«Подрыв» from 60: ${at(59)} / ${at(60)}`);
+  assert(!at(359).includes(FUSIONS.brand) && at(360).includes(FUSIONS.brand), `«Клеймо» from 360: ${at(359)} / ${at(360)}`);
+  assert(at(0).includes(FUSIONS.frostWave), '«Ледяная волна» from the start');
+});
+
+await check('task 46, the guarantee: «Взрыв на конце» never with «Возврат» or «Бумеранг»; no form that would replace a form half whose pair is held (decision 9)', () => {
+  const run = createRtRun(seedOf(13), { gift: 'mini' }), pool = ['whetstone', 'dew-flask', 'hourglass'];
+  assert(rtFusionPair({ ...run, talismans: [CT.eliteHunter] }, 'r6c1', 'hard', pool) === HAMMERS.blast, 'the pair of «Охотник на элит»');
+  assert(rtFusionPair({ ...run, talismans: [CT.eliteHunter, HAMMERS.return] }, 'r6c1', 'hard', pool) === CT.finisher, 'not with «Возврат» (its own pair instead)');
+  assert(rtFusionPair({ ...run, talismans: [CT.eliteHunter, FUSIONS.boomerang] }, 'r6c1', 'hard', pool) === null, 'not with «Бумеранг»');
+  // «Наледь» and «Ударная волна» held (the pair of «Ледяная волна»), «Призма» taken: «Огненный проход» would replace «Наледь».
+  assert(rtFusionPair({ ...run, talismans: [FROST_PASS, CT.shockwave, CT.prism] }, 'r6c1', 'hard', pool) === null, 'no fire over a held pair');
+  assert(rtFusionPair({ ...run, talismans: [FROST_PASS, CT.prism] }, 'r6c1', 'hard', pool) === HAMMERS.fire, 'the fire over a lone half (it replaces it, the screen says so)');
+});
+
 await check('saves: malformed flags and fusions without the flag read as no run; a run with fusions reads back', () => {
   const run = createRtRun(seedOf(5), { gift: 'mini' });
   reload(run);
@@ -273,7 +297,7 @@ await check('saves: malformed flags and fusions without the flag read as no run;
   bad({ ...noFlag, talismans: [FUSIONS.iceSeal] }, 'a fusion without the flag');
   assert(parseRtRun(JSON.stringify({ ...noFlag, talismans: ['whetstone'] })), 'control: the run without the flag reads');
   assert(parseRtRun(JSON.stringify({ ...run, fusionShown: [FORMS.pierce] })), 'control: a spent guarantee reads');
-  assert(rtTalisman(FUSIONS.spear)?.rarity === 'fusion' && rtTalisman(FUSIONS.boomerang)?.excludes?.length === 2, 'the catalogue');
+  assert(rtTalisman(FUSIONS.spear)?.rarity === 'fusion' && [RL.swiftFeet, HAMMERS.blast, FUSIONS.hunterBlast].every(id => rtTalisman(FUSIONS.boomerang)?.excludes?.includes(id)), 'the catalogue');
 });
 
 await check('telemetry: the run record\'s `fusions` — the halves, the pairs, the fusion made; the report\'s section counts them', async () => {

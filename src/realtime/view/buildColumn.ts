@@ -75,6 +75,10 @@ export const BUILD_LABELS: Readonly<Record<string, Label>> = {
   [U.iceSeal]: { short: 'Лёд. печать', glyph: '◎', title: 'Ледяная печать', svg: fusionIconSvg('iceSeal') },
   [U.spear]: { short: 'Копьё', glyph: '↗', title: 'Копьё', svg: fusionIconSvg('spear') },
   [U.boomerang]: { short: 'Бумеранг', glyph: '↺', title: 'Бумеранг', svg: fusionIconSvg('boomerang') },
+  // Task 46 — the three fusions of the dash's end; «Ледяная волна» wraps to two lines (the row's word is not cut).
+  [U.brand]: { short: 'Клеймо', glyph: '♨', title: 'Клеймо', svg: fusionIconSvg('brand') },
+  [U.hunterBlast]: { short: 'Подрыв', glyph: '✹', title: 'Подрыв', svg: fusionIconSvg('hunterBlast') },
+  [U.frostWave]: { short: 'Ледяная волна', glyph: '❄', title: 'Ледяная волна', svg: fusionIconSvg('frostWave') },
   // The view's test module (buildTestModule.ts; sandbox hook only).
   'view-test-counter': { short: 'Тест', glyph: 'T', title: 'Тестовый счётчик (песочница)' },
 };
@@ -107,6 +111,9 @@ export const FIRE_TEXT: Readonly<Record<string, string>> = {
   [U.iceSeal]: 'Лёд',
   [U.spear]: 'Копьё',
   [U.boomerang]: 'Полная сила',
+  [U.brand]: 'Цвет цепи',
+  [U.hunterBlast]: 'Подрыв',
+  [U.frostWave]: 'Мороз',
 };
 
 /**

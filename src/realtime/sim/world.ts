@@ -430,14 +430,16 @@ export type WorldEvent =
   | { type: 'enemySignal'; enemyId: number; signal: string; x: number; y: number }
   | { type: 'defeat' }
   /** Phase B (build.ts `talismanFired`): an item of the build triggered — a flash of its icon, a short text at the hero. */
-  | { type: 'talismanFired'; id: string }
+  | { type: 'talismanFired'; id: string; /** Task 46: the bodies a fusion acted on (painted, struck by «Подрыв», frozen) — telemetry `build.fusionBodies`. */ bodies?: number }
+  /** Task 46 «Клеймо»: the bodies the end of the dash painted and their new colour (the view: a short flash). */
+  | { type: 'paint'; ids: number[]; color: number }
   /**
    * Phase B, Т2: a hammer acted — `fire` laid, the end `blast`, a `cut`, the `return` run; at a point, with a circle if any.
    * Task 31 (`Params.fireMinLinks`): `fire` comes in the tick the dash reaches the threshold, at the start of the chain, and
    * `flare` holds the places of the points of the path that lit at once then (the view's flash); without the key — at the
    * release, no `flare`.
    */
-  | { type: 'hammer'; kind: HammerEventKind; x: number; y: number; r?: number; flare?: Vec[] }
+  | { type: 'hammer'; kind: HammerEventKind; x: number; y: number; r?: number; flare?: Vec[]; /** Task 46: the end blast is «Подрыв». */ detonate?: true }
   /** Phase B, Т1 («Ударная волна»): a wave of radius `r` around the hero at the end of the dash. */
   | { type: 'wave'; x: number; y: number; r: number }
   /**
@@ -1441,6 +1443,8 @@ export function secondWindRecovering(world: World): boolean {
  */
 export interface KillCause {
   source: string; credited: boolean; fall?: boolean;
+  /** Task 44/46: plates a hit takes off an armoured body (elites.ts `stripPlates`; «Копьё», «Подрыв»); absent — the source's. */
+  plates?: number;
 
   /**
    * Package «Урон имеет значение» (elites.ts `stripPlates`): which firing of the source this is (a blast's id) — one firing

@@ -889,7 +889,14 @@ export interface FightSummary {
     bossClear: number;
   };
   /** Fires of each talisman, hammer, relic, oath (`talismanFired`, `hammer`); `active` — constant modifiers without fires. */
-  build: { fired: Record<string, number>; active: string[] };
+  build: {
+    fired: Record<string, number>; active: string[];
+    /**
+     * Task 46 (from 16.10.2026; absent in older records — `withSummaryDefaults` gives `{}`): the bodies the fusions of the dash's end
+     * acted on, by fusion id — painted («Клеймо»), struck by a detonation («Подрыв»), frozen («Ледяная волна»).
+     */
+    fusionBodies?: Record<string, number>;
+  };
   /** Game seconds to the goals, after the goals, to the door (null — not reached); enemies on the arena and in view. */
   tempo: { toGoals: number | null; afterGoals: number | null; toDoor: number | null; enemies: AvgMax; inView?: AvgMax };
   /** Path in arena units; seconds standing, in water, in thorns. */
@@ -1267,7 +1274,7 @@ export function emptyFightSummary(): FightSummary {
     },
     slot: { appeared: 0, appearAfterGoals: null, pulls: 0, links: [], outcomes: {}, effects: 0, cancelled: 0, damage: { volley: 0, rain: 0 }, kills: 0, risky: 0, busts: 0, bustDamage: 0, bustDeaths: 0, safeFromChains: 0, appearTime: null, bustBlasts: 0, bustInside: 0, bustSpared: 0, bustKills: 0, safe: [], triples: 0, bustExits: [] },
     kills: { chain: 0, tools: {}, enemies: 0, bossClear: 0 },
-    build: { fired: {}, active: [] },
+    build: { fired: {}, active: [], fusionBodies: {} },
     tempo: { toGoals: null, afterGoals: null, toDoor: null, enemies: { avg: 0, max: 0 } },
     movement: { path: 0, idle: 0, water: 0, thorns: 0 },
     abilities: { jumps: 0, spins: 0, items: {}, capLeft: 0 },

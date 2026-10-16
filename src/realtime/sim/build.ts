@@ -19,7 +19,7 @@
  * - **Order.** Modules run in the order they registered (sim/buildModules.ts: talismans, hammers, relics; then tests).
  * - No transcendental `Math.*` (detMath.ts); no new random streams.
  */
-import type { ReturnPreview, StrikeOutcome } from './chain';
+import type { FusionRelease, ReturnPreview, StrikeOutcome } from './chain';
 import type { Vec } from './geometry';
 import { COLOR_RULE_RANK, COUNTER_TALISMANS, HAMMER_IDS, OATH_HUNGER, RELIC_IDS } from './buildIds';
 import { MILLSTONE_STEP, NIMBLE_PAWS_DISCOUNT, hasTalisman } from './kit';
@@ -156,7 +156,7 @@ export interface BuildModule {
   /** The arena started (end of `createWorld`: the kit, the start enemies are there). */
   onArenaStart?(world: World): void;
   /** A chain was released (the dash starts); `chain` — its number on the arena; cancelled chains are not counted. */
-  onRelease?(world: World, release: { chain: number; links: readonly ChainLink[]; start: Vec; back?: ReturnPreview }): void;
+  onRelease?(world: World, release: { chain: number; links: readonly ChainLink[]; start: Vec; back?: ReturnPreview; /** Task 46: the fusions' end the release fixes (chain.ts `planChain`). */ fusion?: FusionRelease }): void;
   /** The dash struck an enemy link (after the hit: HP, power, kill applied; `outcome` null — a fallen link passed). */
   onLink?(world: World, link: LinkContext, outcome: StrikeOutcome | null): void;
   /** The chain killed (after `onLink` of that link). */
@@ -405,7 +405,7 @@ export function setBuildState(world: World, id: string, state: unknown): void {
 }
 
 /** The view's signal that an item triggered (a flash of its icon, a short text at the hero; track Д5). */
-export function talismanFired(world: World, id: string): void { world.events.push({ type: 'talismanFired', id }); }
+export function talismanFired(world: World, id: string, bodies?: number): void { world.events.push({ type: 'talismanFired', id, ...bodies !== undefined ? { bodies } : {} }); }
 
 // ---- Task 29, field «Звено»: anchors and colour (pure hooks; without a form — the old rule, nothing computed) ----
 

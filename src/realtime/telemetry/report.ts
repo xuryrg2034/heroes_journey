@@ -935,7 +935,7 @@ export function handFullLines(runs: readonly RunRecord[]): string {
  * Task 44 «Сплавы» (`RunRecord.fusions`, from 16.10.2026): of the runs with the flag — those with a pair collected, with a fusion made,
  * the rows of the fusions, the rests closed with a pair ready, and the victories with a fusion and without.
  */
-export function fusionsSection(runs: readonly RunRecord[]): string {
+export function fusionsSection(runs: readonly RunRecord[], entries: readonly FightEntry[] = []): string {
   const on = runs.filter(r => r.fusions);
   if (!on.length) return 'Походов со сплавами нет (`RunRecord.fusions`, с 16.10.2026).';
   const share = (n: number): string => `${n} из ${on.length} (${Math.round(n / on.length * 100)} %)`;
@@ -943,11 +943,21 @@ export function fusionsSection(runs: readonly RunRecord[]): string {
   const rows = made.flatMap(r => r.fusions!.made.map(m => `${m.fusion} — ряд ${m.row}`));
   const won = (list: readonly RunRecord[]): string => `${list.filter(r => r.outcome === 'victory').length} из ${list.length}`;
   const declined = on.reduce((n, r) => n + r.fusions!.declined.length, 0);
+  const firsts = on.filter(r => r.viewerRun === 1);
+  const bodies = ['fusion-brand', 'fusion-hunter-blast', 'fusion-frost-wave'].flatMap(id => {
+    const fights = entries.flatMap(e => (e.analysis?.summary && e.analysis.summary.build.active.includes(id) ? [e.analysis.summary] : []));
+    if (!fights.length) return [];
+    const n = fights.reduce((sum, s) => sum + (s.build.fusionBodies?.[id] ?? 0), 0);
+    return [`${id} — ${(n / fights.length).toFixed(1)} (${fights.length} боёв)`];
+  });
   return [
     `Походов со сплавами: ${on.length}. Взята половина рецепта: ${share(on.filter(r => r.fusions!.halves.length).length)}.`,
     `Пара собрана: ${share(paired.length)}. Сплав сделан: ${share(made.length)}.`,
     `Сплавы: ${rows.length ? rows.join('; ') : 'нет'}. Привалов с готовой парой, закрытых лечением или крафтом: ${declined}.`,
     `Победы: со сплавом ${won(made)}, без сплава ${won(on.filter(r => !r.fusions!.made.length))}.`,
+    // Task 46: the newcomer's recipe — «Ледяная волна» made in the viewer's first runs.
+    `Первые походы зрителя (viewerRun 1): ${firsts.length}, из них с «Ледяной волной» — ${firsts.filter(r => r.fusions!.made.some(m => m.fusion === 'fusion-frost-wave')).length}.`,
+    `Тела на бой по сплаву (FightSummary.build.fusionBodies; бои, где сплав в сборке): ${bodies.length ? bodies.join('; ') : 'нет данных'}.`,
   ].join('\n');
 }
 
@@ -1108,7 +1118,7 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Босс', '', bossSection(fights), '',
     // Task 40 «Гарнизон, шаг 1б»: the survival through both levels, the garrison's fights and the cart.
     '## Гарнизон', '', garrisonSection(runs, runFights), '',
-    '## Сплавы', '', fusionsSection(runs), '',
+    '## Сплавы', '', fusionsSection(runs, fights), '',
     '## Элиты', '', ELITE_LEGEND, '', table(ELITE_HEAD, eliteRows(runFights, sandbox)), '',
     '## Однорукий гоблин', '', SLOT_LEGEND, '', table(SLOT_HEAD, [slotRow('походы', runFights), slotRow('песочница', sandbox)].filter((r): r is (string | number)[] => !!r)), '',
     // Task 20: how the hero left the lit idol's circle.

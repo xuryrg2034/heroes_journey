@@ -51,6 +51,7 @@
     "test:realtime-loop": "tsx src/realtime/sim/loop.spec.ts",
     "test:realtime-pierce": "tsx src/realtime/sim/pierce.spec.ts",
     "test:realtime-fusions": "tsx src/realtime/sim/fusions.spec.ts",
+    "test:realtime-fusions-v2": "tsx src/realtime/sim/fusionsV2.spec.ts",
     "test:realtime-forms": "tsx src/realtime/sim/forms.spec.ts",
     "test:realtime-form-pairs": "tsx src/realtime/sim/formPairs.spec.ts",
     "test:realtime-spawn-hold": "tsx src/realtime/sim/spawnHold.spec.ts",
