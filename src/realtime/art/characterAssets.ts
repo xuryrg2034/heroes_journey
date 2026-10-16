@@ -13,6 +13,8 @@ export const CHARACTER_ART_IDS = [
   'garrison-guard', 'garrison-houndmaster', 'garrison-hound', 'castellan',
   // Task 40 «Гарнизон, шаг 1б»: the keymaster (the drawn silhouette stays the fallback).
   'garrison-keymaster',
+  // Task 43 «Гарнизон, шаг 2»: the knight (the drawn silhouette stays the fallback).
+  'garrison-knight',
 ] as const;
 
 export type CharacterArtId = typeof CHARACTER_ART_IDS[number];

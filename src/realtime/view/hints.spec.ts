@@ -114,6 +114,8 @@ check('labels (task 6, 12.10.2026): the three of the run stand at their object a
   assert(ids(world({ enemies: [armoured] })).join() === 'b6', 'armoured, in view');
   assert(ids(world({ enemies: [armoured] }), () => false).length === 0, 'armoured, out of view');
   assert(ids(world({ enemies: [{ ...armoured, armor: undefined }] })).length === 0, 'a plain enemy');
+  assert(ids(world({ enemies: [{ ...armoured, kind: 'knight' }] })).length === 0, 'task 43: a knight in armour is no elite — no «Пластина» label');
+  assert(ids(world({ enemies: [{ ...armoured, kind: 'knight' }, { ...armoured, id: 98, x: 18, y: 2 }] })).join() === 'b6', 'task 43: the far elite still gets the label past a knight');
   assert(ids(world({ enemies: [{ ...armoured, armor: { plates: 0, max: 2 } }] })).length === 0, 'plates gone (the window): no label');
   const far = { ...armoured, id: 100, x: 18, y: 2 }, near = { ...armoured, id: 101, x: 5, y: 6 };
   const two = detectLabels(world({ enemies: [far, near] }), seen).filter(l => l.id === 'b6');

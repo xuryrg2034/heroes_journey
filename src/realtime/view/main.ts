@@ -1705,6 +1705,8 @@ async function boot(): Promise<void> {
         tethers: { list: (w.tethers ?? []).map(t => ({ ...t })), ...renderer.tetherShown },
         /** Task 38: the hounds in frenzy drawn, the Castellan's lunge lanes, «Караул!» calls shown. */
         garrison: { ...renderer.garrisonShown },
+        /** Task 43: the knight — plate pips, «Рывок» lanes and «Размах» circles drawn in the frame; the sheds and swing hits seen. */
+        knight: { ...renderer.knightShown },
         /** Task 28: the boss bar of the HUD (`BossBar.shown`) and the names of the boss's moves on screen now. */
         bossBar: bossBar.shown(),
         bossNames: bossLabels.map(l => l.spec.text),
