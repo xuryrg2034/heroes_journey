@@ -39,9 +39,11 @@ import { RT_TALISMANS, rtTalismanEligible, type RtTalismanId, type RtTalismanPoo
 export const RT_GARRISON_ON = true;
 /**
  * Task 40 «Гарнизон, шаг 1б»: a new run with the garrison takes «Ров», the keymaster and the cart (`RtRunState.moat`). A run saved
- * before it (no flag) plays the garrison of step 1а to its end.
+ * before it (no flag) plays the garrison of step 1а to its end. Off until the ui session's view of the shackles and the cart (design
+ * decision 16.10.2026, task-40 spec section 10): ui turns it on with the view. «Гарнизон пройден» (`wonLevel`) and the garrison's
+ * telemetry do not depend on it — they act for every run with the garrison.
  */
-export const RT_GARRISON_MOAT_ON = true;
+export const RT_GARRISON_MOAT_ON = false;
 const textHash = (text: string): number => [...text].reduce((hash, ch) => Math.imul(hash ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5);
 /** The salt of the garrison's seed (its map, its streams, its arena seeds). */
 export const GARRISON_SALT = textHash('garrison-map');

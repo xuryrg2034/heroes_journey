@@ -14,7 +14,7 @@
  */
 import { stockTotal } from '../forest/merchant';
 import { runRow } from './arenaPools';
-import { GARRISON_DEEP_ROW, GARRISON_MOAT_ARENA, garrisonArenaChoices, rtGarrisonNodeId } from './garrison';
+import { GARRISON_DEEP_ROW, GARRISON_MOAT_ARENA, garrisonArenaChoices, RT_GARRISON_MOAT_ON, rtGarrisonNodeId } from './garrison';
 import { ok, seedOf, walkRun, type Walk, type WalkOptions } from './metaWalk.testkit';
 import {
   createRtRun, parseRtRun, rtArenaLoadout, rtCartView, rtEnterGarrison, rtNode, serializeRtRun, RT_CART_KEEP, RT_CART_MAX, type RtRunState,
@@ -32,8 +32,9 @@ function assert(condition: unknown, message: string): asserts condition { if (!c
 
 /** The camp's flags of a meta run (any one makes the camp: `hearth` is kept only with `locked`). */
 const CAMP = { locked: [] as string[], hearth: { jailerRerolls: 1 } };
+/** A run with the garrison; task 40's moat parts pass the flag `moat` explicitly (`RT_GARRISON_MOAT_ON` is off until the ui view). */
 const garrisonWalk = (k: number, extra: Partial<WalkOptions> = {}, create: WalkOptions['create'] = {}): Walk =>
-  walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, ...create }, ...extra });
+  walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, moat: true, ...create }, ...extra });
 /** The fights a walk entered: node, garrison row, arena, the loadout's `deep`. */
 interface Fight { nodeId: string; row: number; arena: string; deep: boolean; type: string }
 function fightsOf(k: number, create: WalkOptions['create'] = {}): { walk: Walk; fights: Fight[] } {
@@ -155,9 +156,11 @@ check('the carry with the cart: a death in the garrison carries the cart 100 % a
   assert(rtCarry(forest).cart === undefined, 'a forest run has no cart');
 });
 
-check('the record: the Castellan won → wonLevel 2 («Гарнизон пройден»), beats any row; an old `won: true` reads as wonLevel 1; a later garrison death does not beat it', () => {
-  for (const k of [1, 2, 3]) {
-    const won = garrisonWalk(k).run, lost = garrisonWalk(k, { loseAt: run => !!run.garrisonLevel && run.visited.filter(rtGarrisonNodeId).length >= 4 }).run;
+check('the record (flag of the moat off and on): the Castellan won → wonLevel 2 («Гарнизон пройден»), beats any row; an old `won: true` reads as wonLevel 1; a later garrison death does not beat it', () => {
+  // «Гарнизон пройден» acts for every run with the garrison — with «Ров» and without it (the flag of the moat off: the game now).
+  for (const [k, moat] of [[1, false], [2, true], [3, false], [4, true]] as const) {
+    const won = garrisonWalk(k, {}, { moat }).run, lost = garrisonWalk(k, { loseAt: run => !!run.garrisonLevel && run.visited.filter(rtGarrisonNodeId).length >= 4 }, { moat }).run;
+    assert(!!won.moat === moat && !!lost.moat === moat, `seed ${k}: the flag of the moat ${moat}`);
     assert(rtRunWonLevel(won) === 2 && rtRunWonLevel(lost) === 1 && rtRunWonLevel(walkRun({ k, loseAt: (_r, type) => type === 'boss' }).run) === 0, `seed ${k}: the levels passed`);
     // An old profile: the forest won, the record row 10 (`won: true`, no `wonLevel`).
     const old = parseRtMeta({ heroes: { cat: { xp: 0, packs: [], record: { row: 10, won: true, xp: 100 } } } });
@@ -215,8 +218,20 @@ check('telemetry: the run record\'s level, levelCleared and cart pass checkRecor
   assert(record.level === 2 && record.levelCleared === 1 && record.cart?.n === step.run.cart.n && record.cart.before === step.run.cart.before && cartSpent === step.run.cart.n,
     `the run record: ${JSON.stringify({ level: record.level, levelCleared: record.levelCleared, cart: record.cart, spent: record.resources?.spent })}`);
   assert(checkRecord(record) === null, `the record passes (${checkRecord(record)})`);
+  // The flag of the moat off (the game now): a run in the garrison still gets its level and the level passed; no cart.
+  const plainAt = toOutskirts(6, { ...CAMP, moat: false }), plainStep = rtEnterGarrison(plainAt);
+  assert(plainStep.ok && !plainStep.run.moat && plainStep.run.cart === undefined, 'no cart without the moat');
+  rec.runStarted(null, plainAt);
+  rec.runStep(plainAt, plainStep);
+  await new Promise(resolve => setTimeout(resolve, 20));
+  const plain = (await rec.buffer.all()).filter((r): r is RunRecord => r.kind === 'run' && r.seed === plainAt.seed).pop()!;
+  assert(plain.level === 2 && plain.levelCleared === 1 && plain.cart === undefined && !plain.resources?.spent.cart, `without the moat: ${JSON.stringify({ level: plain.level, levelCleared: plain.levelCleared, cart: plain.cart })}`);
   rec.dispose();
-  checks++; console.log('ok - telemetry: the recorder writes the run level, the level passed, the cart, and the deposit under the sink `cart`');
+  checks++; console.log('ok - telemetry: the recorder writes the run level and the level passed (with the moat flag off too), the cart and the deposit under the sink `cart`');
 }
+check('the default of the game: a new run takes `moat` by `RT_GARRISON_MOAT_ON` (off until the ui view: the garrison without «Ров» and the cart)', () => {
+  const run = createRtRun(seedOf(1));
+  assert(run.garrison === true && run.moat === (RT_GARRISON_MOAT_ON ? true : undefined), JSON.stringify({ on: RT_GARRISON_MOAT_ON, garrison: run.garrison, moat: run.moat }));
+});
 
 console.log(`garrison moat: ${checks} checks passed`);
