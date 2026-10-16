@@ -1387,9 +1387,9 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   crossbowFar: 7,
   // Task 43 «Кастелян полный»: off by default (v0); the run turns it on, the sandbox has its own arena.
   castellanFull: false,
-  // Task 43: the full Castellan's numbers (design 16.10.2026: 5 plates; the crowd and «Караул!» — the grid; the defaults wait for the pick).
-  castellanPlates: 4,
-  castellanCrowd: 1,
+  // Task 43: the full Castellan's numbers (the design's pick 16.10.2026 by the bot grid: 5 plates, the yard crowd ×0.5, «Караул!» every 15 s).
+  castellanPlates: 5,
+  castellanCrowd: 0.5,
   castellanGuardPeriod: 15,
 });
 
