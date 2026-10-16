@@ -18,7 +18,7 @@
  * - every fight replays from its journal; a world without the key plays the old path (the core open).
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
-import './arenasBoss';
+import { TROLL_BACK } from './arenasBoss';
 import { HAMMERS } from './buildIds';
 import { enemyRefusal, planChain, REFUSAL_TEXT } from './chain';
 import {
@@ -118,9 +118,9 @@ check('outside a window the core is refused (`outOfWindow`, «вне окна»)
     ticks(sim, ticksOf(5), events);
     const fire = windowEvents(events, 'block').filter(e => e.source === 'fire');
     assert(fire.length === 3 && !of(events, 'enemyHit').some(e => e.enemyId === core.id), `seed ${k}: the fire is blocked three times (${fire.length})`);
-    // The cutting dash past the core (its path 0.7 from the centre: the body of 0.32 within the cut's 0.5).
-    sim.command({ t: 'teleport', x: 10.3, y: 1.5 });
-    const links = [11.3, 12.5, 13.7].map(x => place(sim, { x, y: 1.5 }, 0, 0));
+    // The cutting dash past the core (its path 0.65 from the centre: the body of 0.32 within the cut's 0.5), northwards beside it.
+    sim.command({ t: 'teleport', x: 12.65, y: 6 });
+    const links = [4.9, 3.7, 2.5].map(y => place(sim, { x: 12.65, y }, 0, 0));
     draw(sim, links);
     assert(w.chain.length === 3, `seed ${k}: the chain past the core (${w.chain.length})`);
     sim.command({ t: 'release' });
@@ -170,7 +170,7 @@ check('«Возврат»: the return run passes the struck core by — the high
       clubWindow(d);
       // The core, then a weak link behind it: the dash takes the core's plate on its way, kills the link; the run comes back past the core.
       sim.command({ t: 'teleport', x: 12.5, y: 4.3 });
-      const behind = place(sim, { x: 13.2, y: 1 }, 0, 0);
+      const behind = place(sim, { x: 12.95, y: 1.92 }, 0, 0);
       draw(sim, [core, behind]);
       assert(w.chain.length === 2, `seed ${k}: the chain core → behind (${w.chain.length})`);
       const plan = planChain(w);
@@ -219,9 +219,9 @@ check('the hit is held for the hero: a burning tick on the core while a chain to
         settle(sim, events);
         assert(windowEvents(events, 'hit').map(e => e.source).join() === 'chain', `seed ${k}: the window's hit — the chain (${JSON.stringify(windowEvents(events, 'hit'))})`);
       } else {
-        // Three weak links past the core (0.7 from its centre): the return run comes back along them and strikes it.
-        sim.command({ t: 'teleport', x: 10.3, y: 1.5 });
-        const links = [11.3, 12.5, 13.7].map(x => place(sim, { x, y: 1.5 }, 0, 0));
+        // Three weak links up to the core's side (0.65 from its centre): the return run comes back along them and strikes it first.
+        sim.command({ t: 'teleport', x: 12.65, y: 6 });
+        const links = [4.9, 3.7, 2.5].map(y => place(sim, { x: 12.65, y }, 0, 0));
         ticks(sim, ticksOf(0.3));
         draw(sim, links);
         const plan = planChain(w);
@@ -242,7 +242,7 @@ check('the window ends while the core is in the drawn chain: the core and the li
       const d = den(k), { sim, w, core } = d;
       clubWindow(d);
       sim.command({ t: 'teleport', x: 12.3, y: 6 });
-      const before = place(sim, { x: 12.6, y: 4.2 }, 0, 0), behind = place(sim, { x: 13.2, y: 1 }, 0, 0);
+      const before = place(sim, { x: 12.6, y: 4.2 }, 0, 0), behind = place(sim, { x: 12.95, y: 1.92 }, 0, 0);
       draw(sim, [before, core, behind]);
       const drawn = w.chain.map(l => l.id);
       assert(drawn.length === 3 && drawn[1] === core.id, `seed ${k}: the chain holds the core (${drawn})`);
@@ -516,8 +516,8 @@ check('«Печать» (sandbox `loopEnabled`): a ring of four links round the 
       const d = den(k, { loopEnabled: true }), { sim, w, core } = d;
       if (open) clubWindow(d); else { freeze(sim, d.club); freeze(sim, d.rock); }
       // The ring: four weak links round the core (the club, the rock and the tail's knot stay outside), closed on the first.
-      sim.command({ t: 'teleport', x: 10.3, y: 0.6 });
-      const links = [[11, 1], [13, 1], [13, 3.2], [11, 3.2]].map(([x, y]) => place(sim, { x, y }, 0, 0));
+      sim.command({ t: 'teleport', x: 10.8, y: 1.95 });
+      const links = [[11.2, 1.95], [12.8, 1.95], [12.8, 3], [11.2, 3]].map(([x, y]) => place(sim, { x, y }, 0, 0));
       draw(sim, [...links, links[0]]);
       const plan = planChain(w), seal = plan.seal;
       assert(w.chain.length === 4 && w.chainClosed && seal, `seed ${k}: the ring closed (${w.chain.length}, ${w.chainClosed})`);
@@ -528,6 +528,29 @@ check('«Печать» (sandbox `loopEnabled`): a ring of four links round the 
       assert(core.armor?.plates === (open ? 4 : 5) && core.hp === 4, `seed ${k}, open ${open}: plates ${core.armor?.plates}`);
       const hits = windowEvents(events, 'hit');
       assert(open ? hits.length === 1 && hits[0].source === 'seal' : !hits.length && !windowEvents(events, 'block').length, `seed ${k}, open ${open}: the seal's one hit or no try (${JSON.stringify(hits)})`);
+      assert(replays(sim), `seed ${k}: replay`);
+    }
+  }
+});
+
+check('no place at the Troll\'s back: the hero walking north through him, or jumping behind him, never stands between his body and the den\'s back wall', () => {
+  for (const k of SEEDS) {
+    for (const x of [11.4, 12, 12.6]) {
+      const d = den(k), { sim, w, core } = d;
+      freeze(sim, d.club); freeze(sim, d.rock);
+      const limit = TROLL_BACK + heroRadius(w.params) - 1e-6;
+      sim.command({ t: 'teleport', x, y: 5 });
+      sim.command({ t: 'walk', x: 0, y: -1 });
+      let least = Infinity;
+      for (let i = 0; i < ticksOf(3); i++) { sim.tick(); w.events.length = 0; least = Math.min(least, w.hero.y); }
+      assert(least >= limit && least > core.y - 0.6, `seed ${k}, x ${x}: walked up to y ${least.toFixed(2)} (the back at ${TROLL_BACK})`);
+      // A jump towards the back: refused, or it lands off the wall (never behind the body).
+      sim.command({ t: 'walk', x: 0, y: 0 });
+      sim.command({ t: 'teleport', x, y: 3.4 });
+      sim.command({ t: 'energy', value: 7 });
+      sim.command({ t: 'jump', x, y: 0.6 });
+      settle(sim);
+      assert(w.hero.y >= limit, `seed ${k}, x ${x}: the jump landed at y ${w.hero.y.toFixed(2)}`);
       assert(replays(sim), `seed ${k}: replay`);
     }
   }

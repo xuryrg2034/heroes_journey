@@ -10,6 +10,9 @@ import { JAILER, JAILER_ARENA_HP, JAILER_WEIGHT } from './enemies/jailer';
 import { TROLL, TROLL_CLUB, TROLL_ROCK, TROLL_TAIL } from './enemies/troll';
 import { pond, tree, wall } from './geometry';
 
+/** Task 48: the den's back wall reaches y = this (the core at 2.2, its body 0.32: a hero's body of 0.28 cannot stand between). */
+export const TROLL_BACK = 1.6;
+
 /**
  * «Тюремщик» — the layout of «Застава» (20×14: the yard on the brink, gates of 2 units north and south, the door on top), its
  * enemies replaced by the Jailer: the core (colour 1, marked — the goal) in the west of the yard, the cliff behind it, and its
@@ -75,6 +78,8 @@ export const TROLL_ARENA: ArenaTemplate = registerArena({
   obstacles: [
     wall(7.5, 0, 1.5, 3),
     wall(15, 0, 1.5, 3),
+    // The den's back (design smoke 16.10.2026, spec 24.7): rock behind the Troll down to his body's edge — no place at his back.
+    wall(9, 0, 6, TROLL_BACK),
     pond(5.5, 9.5, 2.4),
     tree(3.5, 4),
     tree(20.5, 4.5),
