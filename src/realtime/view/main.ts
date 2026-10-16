@@ -31,7 +31,7 @@ import { GARRISON_ARENAS } from '../sim/arenasGarrison';
 import { canSpin } from '../sim/abilities';
 import { ITEM_REFUSAL_TEXT, itemRefusal } from '../sim/items';
 import { SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
-import { ENERGY_MAX, JUMP_REFUSAL_TEXT, REFUSAL_TEXT, canJump, colorShiftIds, colorShiftLeft, colorShiftOf, hoverRefusal, jumpCostOf, jumpRefusal, planChain, type JumpRefusal, type Refusal } from '../sim/chain';
+import { ENERGY_MAX, JUMP_REFUSAL_TEXT, REFUSAL_TEXT, canJump, colorShiftIds, colorShiftLeft, colorShiftOf, hoverRefusal, jumpCostOf, jumpDownOpen, jumpRefusal, planChain, type JumpRefusal, type Refusal } from '../sim/chain';
 import type { Command } from '../sim/commands';
 import { inThorns, inWater, overCliff, setFlowClock, type Vec } from '../sim/geometry';
 import { crowdLifetime, defaultParams, type ParamKey, type Params } from '../sim/params';
@@ -312,6 +312,10 @@ async function boot(): Promise<void> {
   const arenaList = el('div', 'rt-arenas');
   // The camera sample's button has its own test id: the menu counts of the older tests (`arena-*`) stay as they were.
   const camera0 = DIGIT_ARENAS + TERRAIN_ARENAS.length + BEHAVIOR_ARENAS.length, boss0 = camera0 + CAMERA_ARENAS.length, garrison0 = boss0 + BOSS_ARENAS.length;
+  // The menu shows before the art has loaded (`loadCharacterArt`): a pick made meanwhile is kept and played once the game is ready
+  // (before, the click reached `start` before it existed and was lost — more art, task 43, made the wait longer).
+  let earlyPick: number | null = null;
+  let pick = (i: number): void => { earlyPick = i; };
   SANDBOX_ARENAS.forEach((arena, i) => {
     // Stage 3a: the terrain samples under their own heading (sandbox only, not in the run).
     if (i === DIGIT_ARENAS) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Местность этапа 3а — образцы (только песочница)'));
@@ -322,7 +326,7 @@ async function boot(): Promise<void> {
     // Task 38: the garrison's arenas under their own heading, test ids `garrison-arena-N`. Task 40: «Ров» and the keymaster.
     if (i === garrison0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Гарнизон — строй, поводки, Кастелян, кандалы'));
     const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span data-summary="${i}">${markedGoalArena(arena, params.markedGoals).summary}</span>`, i >= garrison0 ? `garrison-arena-${i - garrison0 + 1}` : i >= boss0 ? `boss-arena-${i - boss0 + 1}` : i >= camera0 ? `camera-arena-${i - camera0 + 1}` : `arena-${i + 1}`);
-    b.addEventListener('click', () => start(i));
+    b.addEventListener('click', () => pick(i));
     arenaList.appendChild(b);
   });
   const questions = el('details', 'rt-questions');
@@ -603,6 +607,7 @@ async function boot(): Promise<void> {
     arenaIndex = Math.max(0, Math.min(SANDBOX_ARENAS.length - 1, index));
     startArena(SANDBOX_ARENAS[arenaIndex], seed);
   };
+  pick = i => start(i);
   const restart = (seed?: number): void => { if (sandbox) { recorder?.leaveFight('restart'); start(arenaIndex, seed); } };
   /** Telemetry: where the fight starting now is — the open battle node of the run (its row and roster), or the sandbox. */
   const fightContext = (): FightContext => {
@@ -1426,7 +1431,9 @@ async function boot(): Promise<void> {
     }
     focusBar.classList.toggle('rt-focus-on', w.focusing);
     energyText.textContent = `⚡ ${w.energy.toFixed(1)} / ${ENERGY_MAX}`;
-    energyText.classList.toggle('rt-ready', w.energy >= jumpCostOf(w));
+    // Task 43: from the full Castellan's gallery the jump down costs 0 (`jumpDownOpen`) — the price shown is the one paid.
+    const jumpPrice = jumpDownOpen(w) ? 0 : jumpCostOf(w);
+    energyText.classList.toggle('rt-ready', w.energy >= jumpPrice);
     const goal = goalProgress(w);
     // Casino «Котёл»: with the cauldron on the score line shows the cauldron instead of the score.
     scoreText.textContent = w.params.purse ? `котёл ${w.purse?.cauldron ?? 0}` : `очки ${w.stats.score}`;
@@ -1443,8 +1450,8 @@ async function boot(): Promise<void> {
     eliteBadge.hidden = eliteCount === 0;
     if (eliteCount) eliteBadge.textContent = `Элита ×${eliteCount}`;
     actionBar.update({
-      energy: w.energy, jumpCost: jumpCostOf(w), spinCost: params.spinCost,
-      jumpReady: w.status === 'playing' && !w.move && w.energy >= jumpCostOf(w), spinReady: canSpin(w),
+      energy: w.energy, jumpCost: jumpPrice, spinCost: params.spinCost,
+      jumpReady: w.status === 'playing' && !w.move && w.energy >= jumpPrice, spinReady: canSpin(w),
       counts: w.kit?.items ?? { frost: 0, bomb: 0, healing: 0, fire: 0 },
       aiming: ui.jumpMode ? 'jump' : itemAim !== null ? SLOT_ITEMS[itemAim] : null,
       healingFull: potionHandFull(w),
@@ -1559,6 +1566,7 @@ async function boot(): Promise<void> {
   // `?arena=N` (1–18) skips the menu: handy for manual tuning.
   const fromUrl = Number(urlParams.get('arena'));
   if (sandbox && fromUrl >= 1 && fromUrl <= SANDBOX_ARENAS.length) start(fromUrl - 1);
+  if (sandbox && earlyPick !== null) start(earlyPick);
   // A viewer without the key «пролог пройден» starts in the prologue (the run map stays hidden until it ends).
   if (prologueDue) startPrologue('first', prologueEntry ?? 1);
 
@@ -1707,6 +1715,10 @@ async function boot(): Promise<void> {
         tethers: { list: (w.tethers ?? []).map(t => ({ ...t })), ...renderer.tetherShown },
         /** Task 38: the hounds in frenzy drawn, the Castellan's lunge lanes, «Караул!» calls shown. */
         garrison: { ...renderer.garrisonShown },
+        /** Task 43: the full Castellan's court and the bolts (render.ts `courtShown`). */
+        court: { ...renderer.courtShown },
+        /** Task 43: the knight — plate pips, «Рывок» lanes and «Размах» circles drawn in the frame; the sheds and swing hits seen. */
+        knight: { ...renderer.knightShown },
         /** Task 28: the boss bar of the HUD (`BossBar.shown`) and the names of the boss's moves on screen now. */
         bossBar: bossBar.shown(),
         bossNames: bossLabels.map(l => l.spec.text),

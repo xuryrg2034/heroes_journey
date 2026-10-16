@@ -18,6 +18,7 @@ import { CHEST_CURSE_KILLS, CHEST_CURSE_TOUCH } from '../sim/chest';
 import { OBJECT_RADIUS } from '../sim/chain';
 import { leverOf } from '../sim/slot';
 import { BUILD_SOURCES } from '../sim/buildIds';
+import { KNIGHT } from '../sim/enemies/garrison';
 
 /** The three labels of the run (the ids are the v1 hints' Б6, Б8, Б9: the memory and the run record keep their keys). */
 export type LabelId = 'b6' | 'b8' | 'b9';
@@ -65,7 +66,8 @@ export function detectLabels(w: World, onScreen: (p: Vec) => boolean): LabelSpec
   const out: LabelSpec[] = [];
   let elite: typeof w.enemies[number] | null = null, best = Infinity;
   for (const e of w.enemies) {
-    if (!e.armor || e.armor.plates <= 0 || !onScreen(e)) continue;
+    // Task 43: the knight in armour is not an elite (one name — one meaning): no «Пластина» label over it either.
+    if (e.kind === KNIGHT || !e.armor || e.armor.plates <= 0 || !onScreen(e)) continue;
     const d = (e.x - w.hero.x) ** 2 + (e.y - w.hero.y) ** 2;
     if (d < best) { best = d; elite = e; }
   }

@@ -197,3 +197,14 @@ export function castellanMarks(ctx: GraphicsContext, r: number): void {
     w * 0.18, top - r * 0.1, w * 0.18, top + r * 0.05, w * 0.55, top + r * 0.05, w * 0.55, top - r * 0.1, w, top - r * 0.1, w, top + r * 0.35]).fill(0xc8a56b).stroke({ color: NAVY, width: 3, join: 'round' });
   for (const s of [-1, 1]) ctx.ellipse(s * r * 0.95, -r * 0.2, r * 0.32, r * 0.24).fill(STEEL).stroke({ color: NAVY, width: 3 });
 }
+
+/** Task 43: the knight's stand-in — broad pauldrons, a great helm with a slit and a blue plume, a sword at the side. */
+export function knightMarks(ctx: GraphicsContext, r: number): void {
+  for (const s of [-1, 1]) ctx.ellipse(s * r * 0.98, -r * 0.2, r * 0.4, r * 0.32).fill(STEEL).stroke({ color: NAVY, width: 3 });
+  ctx.poly([r * 0.12, -r * 1.4, r * 0.62, -r * 1.95, r * 0.5, -r * 1.3]).fill(0x3d6fa8).stroke({ color: NAVY, width: 3, join: 'round' });
+  ctx.roundRect(-r * 0.5, -r * 1.5, r, r * 0.95, r * 0.2).fill(STEEL).stroke({ color: NAVY, width: 3 });
+  ctx.moveTo(-r * 0.34, -r * 1.05).lineTo(r * 0.34, -r * 1.05).stroke({ color: NAVY, width: 4, cap: 'round' });
+  ctx.moveTo(-r * 1.3, r * 0.75).lineTo(-r * 1.3, -r * 0.55).stroke({ color: NAVY, width: 7, cap: 'round' });
+  ctx.moveTo(-r * 1.3, r * 0.75).lineTo(-r * 1.3, -r * 0.55).stroke({ color: STEEL, width: 3.5, cap: 'round' });
+  ctx.moveTo(-r * 1.5, r * 0.55).lineTo(-r * 1.1, r * 0.55).stroke({ color: 0xc8a56b, width: 4, cap: 'round' });
+}

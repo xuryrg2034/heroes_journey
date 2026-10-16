@@ -274,6 +274,8 @@ test('the sandbox menu lists the camera sample under its heading (⇧8); the but
   await expect(button).toContainText('Большая поляна');
   await expect(button.locator('kbd')).toHaveText('⇧8');
   await button.click();
+  // The arena boots after the click (the art loads first: task 43 added two pictures) — wait for the hook before reading it.
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
   await expect.poll(async () => (await snap(page)).arena).toBe('big-clearing');
   await page.keyboard.press('KeyM');
   await page.keyboard.press('Shift+Digit8');
