@@ -138,3 +138,4 @@ NOT smooth plastic surfaces, NOT excessive gradients.
 - `public/art/characters/garrison-hound.png` — Пёс.
 - `public/art/characters/castellan.png` — Кастелян (босс).
 - `public/art/camp/outskirts.png` — фон экрана «Предместье», 1280×720, непрозрачный.
+- `public/art/characters/garrison-keymaster.png` — Ключник (задача 40, `docs/design-notes/task-40-garrison-step1b.md`); `check-art.mjs` 16.10.2026: PASS, 1207×1310. Подключение в вид — задача ui.
