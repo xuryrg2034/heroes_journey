@@ -12,7 +12,7 @@
  */
 import type { Graphics } from 'pixi.js';
 import { eliteArmorView } from '../sim/elites';
-import { KNIGHT, knightSwing } from '../sim/enemies/garrison';
+import { KNIGHT, knightOffensive, knightSwing } from '../sim/enemies/garrison';
 import type { Enemy, World, WorldEvent } from '../sim/world';
 import { drawPlatePips } from './eliteView';
 
@@ -35,7 +35,7 @@ interface Fx { kind: 'shed' | 'swing'; x: number; y: number; r: number; born: nu
 
 export class KnightView {
   /** What the last frame drew and what the events brought (the test's snapshot). */
-  readonly shown = { pips: 0, filled: 0, lanes: 0, swings: 0, sheds: 0, hits: 0 };
+  readonly shown = { pips: 0, filled: 0, lanes: 0, swings: 0, sheds: 0, hits: 0, marks: 0 };
   private fx: Fx[] = [];
   /** `unit` — arena pixels per unit (render.ts `UNIT`). */
   constructor(private readonly unit: number) {}
@@ -52,7 +52,7 @@ export class KnightView {
   }
 
   /** The counters of the frame start from zero (`sheds` and `hits` count events and stay). */
-  beginFrame(): void { this.shown.pips = 0; this.shown.filled = 0; this.shown.lanes = 0; this.shown.swings = 0; }
+  beginFrame(): void { this.shown.pips = 0; this.shown.filled = 0; this.shown.lanes = 0; this.shown.swings = 0; this.shown.marks = 0; }
 
   /** «Размах»: the hatched circle round each winding-up knight, filling clockwise with the windup — the threat look of the sapper's blast. */
   drawSwing(g: Graphics, world: World, sees: (e: Enemy) => boolean): void {
@@ -85,6 +85,7 @@ export class KnightView {
     for (const e of world.enemies) {
       if (e.kind !== KNIGHT || !sees(e)) continue;
       const a = eliteArmorView(e);
+      if (knightOffensive(e)) { this.drawOffensiveMark(g, e, clock, r, art); continue; }
       if (!a) continue;
       const d = drawPlatePips(g, e.x * this.unit, e.y * this.unit, r * Math.max(1.4, art - 1), a, 0, px);
       this.shown.pips += d.pips; this.shown.filled += d.filled;
@@ -107,5 +108,19 @@ export class KnightView {
         g.poly([...pt(-w, -h), ...pt(w * 0.8, -h * 0.8), ...pt(w, h), ...pt(-w * 0.6, h)]).fill({ color: STEEL, alpha: 1 - k * k }).stroke({ color: NAVY, width: 2.5, alpha: 1 - k * k, join: 'round' });
       }
     }
+  }
+
+  /**
+   * Design 16.10.2026 (task 43, acceptance): the knight on the offensive keeps the shed's red glint while it lives — its helmet's
+   * visor slit glows red (on the art: 0.159 of the drawing's height from its top, the middle; the stand-in: over the disc) and a thin
+   * red ring runs round its feet. The art is not changed.
+   */
+  private drawOffensiveMark(g: Graphics, e: Enemy, clock: number, r: number, art: number): void {
+    const x = e.x * this.unit, y = e.y * this.unit, glow = 0.75 + 0.25 * Math.sin(clock * 6 + e.id);
+    const vy = art > 2 ? y + r * (1 - art + 0.159 * art) : y - r * 0.35, vw = r * 0.55, vh = Math.max(3, r * 0.13);
+    g.ellipse(x, vy, vw * 1.1, vh * 3).fill({ color: RED, alpha: 0.4 * glow });
+    g.roundRect(x - vw / 2, vy - vh / 2, vw, vh, vh / 2).fill({ color: RED, alpha: glow }).stroke({ color: NAVY, width: 1.2, alpha: 0.8 });
+    g.circle(x, y, r + 3).stroke({ color: RED, width: 2.5, alpha: 0.85 });
+    this.shown.marks++;
   }
 }
