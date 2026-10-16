@@ -236,10 +236,11 @@ export const GARRISON_KNIGHTS_HARD = 1;
 /**
  * Task 43, part Г: knights in the start formations of the fight of `arena` (node `type`, garrison row `row`) after `history`
  * (`Loadout.knights`; 0 — none): «Галерея» and the hard «Караульня» from `GARRISON_KNIGHT_HARD_ROW`, once «Ристалище» was played («a
- * new enemy first on its own arena»). Only a run of step 2 asks.
+ * new enemy first on its own arena»); never in a deep fight (`garrisonDeep`: the keymaster there — design decision 16.10.2026 after
+ * the bot's curve, «Галерея» with both 53 % deaths). Only a run of step 2 asks.
  */
 export function garrisonKnights(arena: string, type: ForestMapNode['type'], row: number, history: readonly string[]): number {
-  if (!history.includes(ARMORY_ARENA.id)) return 0;
+  if (!history.includes(ARMORY_ARENA.id) || garrisonDeep(arena, row, history)) return 0;
   if (arena === GUARDROOM_ARENA.id) return type === 'hard' && row >= GARRISON_KNIGHT_HARD_ROW ? GARRISON_KNIGHTS_HARD : 0;
   return arena === GALLERY_ARENA.id ? GARRISON_KNIGHTS_GALLERY : 0;
 }

@@ -80,7 +80,9 @@ check('the rule by rows (the choices of a node of each branch after a history): 
   const armory = [GARRISON_ARMORY_ARENA];
   assert(garrisonKnights(GUARDROOM_ARENA.id, 'checkpoint', 5, armory) === 0 && garrisonKnights(GUARDROOM_ARENA.id, 'hard', 4, armory) === 0 && garrisonKnights(GUARDROOM_ARENA.id, 'hard', 6, armory) === 1
     && garrisonKnights(GALLERY_ARENA.id, 'battle', 4, armory) === 1 && garrisonKnights(GALLERY_ARENA.id, 'breakthrough', 9, armory) === 1 && garrisonKnights(YARD_ARENA.id, 'battle', 3, armory) === 0
-    && garrisonKnights(GALLERY_ARENA.id, 'battle', 6, ['g-yard']) === 0 && garrisonKnights(GUARDROOM_ARENA.id, 'hard', 7, ['g-yard']) === 0, 'the knights by arena');
+    && garrisonKnights(GALLERY_ARENA.id, 'battle', 6, ['g-yard']) === 0 && garrisonKnights(GUARDROOM_ARENA.id, 'hard', 7, ['g-yard']) === 0
+    && garrisonKnights(GALLERY_ARENA.id, 'battle', 8, [...armory, GARRISON_MOAT_ARENA]) === 0 && garrisonKnights(GUARDROOM_ARENA.id, 'hard', 9, [...armory, GARRISON_MOAT_ARENA]) === 0
+    && garrisonKnights(GALLERY_ARENA.id, 'battle', 7, [...armory, GARRISON_MOAT_ARENA]) === 1 && garrisonKnights(GALLERY_ARENA.id, 'battle', 8, [...armory, GARRISON_LOOPHOLES_ARENA]) === 1, 'the knights by arena (none where the deep keymaster stands)');
 });
 
 check('the default of the game: a new run with «Ров» takes `step2` (`RT_GARRISON_STEP2_ON`); without «Ров» — no flag; a save with `step2` and no `moat` is no run', () => {
@@ -124,16 +126,16 @@ check('a new enemy first on its own arena, one novelty a fight: the first fight 
   assert(knightRuns >= 35 && armoryEarly >= 12, JSON.stringify({ knightRuns, armoryEarly }));
 });
 
-check('the knights (`Loadout.knights`): one, only in «Галерея» and the hard «Караульня» from row 6, only after «Ристалище», never at the checkpoint; the crossbowmen (`Loadout.bolts`): only «Галерея» and «Караульня» from row 8 after «Бойницы»', () => {
+check('the knights (`Loadout.knights`): one, only in «Галерея» and the hard «Караульня» from row 6, only after «Ристалище», never at the checkpoint nor in a deep fight; the crossbowmen (`Loadout.bolts`): only «Галерея» and «Караульня» from row 8 after «Бойницы»', () => {
   let gallery = 0, hard = 0, bolts = 0;
   for (const [i, { fights }] of RUNS.entries()) {
     const before: string[] = [];
     for (const f of fights) {
       const n = f.loadout.knights ?? 0;
       if (n) {
-        assert(n === 1 && before.includes(GARRISON_ARMORY_ARENA) && (f.arena === GALLERY_ARENA.id || (f.arena === GUARDROOM_ARENA.id && f.type === 'hard' && f.row >= 6)), `run ${i + 1}: knights ${n} at ${f.nodeId} ${f.arena}`);
+        assert(n === 1 && !f.loadout.deep && before.includes(GARRISON_ARMORY_ARENA) && (f.arena === GALLERY_ARENA.id || (f.arena === GUARDROOM_ARENA.id && f.type === 'hard' && f.row >= 6)), `run ${i + 1}: knights ${n} at ${f.nodeId} ${f.arena}`);
         if (f.arena === GALLERY_ARENA.id) gallery++; else hard++;
-      } else assert(!(before.includes(GARRISON_ARMORY_ARENA) && (f.arena === GALLERY_ARENA.id || (f.arena === GUARDROOM_ARENA.id && f.type === 'hard' && f.row >= 6))), `run ${i + 1}: no knight after «Ристалище» (${f.nodeId} ${f.arena})`);
+      } else assert(f.loadout.deep || !(before.includes(GARRISON_ARMORY_ARENA) && (f.arena === GALLERY_ARENA.id || (f.arena === GUARDROOM_ARENA.id && f.type === 'hard' && f.row >= 6))), `run ${i + 1}: no knight after «Ристалище» (${f.nodeId} ${f.arena})`);
       if (f.loadout.bolts) {
         bolts++;
         assert(f.row >= GARRISON_BOLT_ROW && (f.arena === GUARDROOM_ARENA.id || f.arena === GALLERY_ARENA.id) && before.includes(GARRISON_LOOPHOLES_ARENA) && f.branch === 'camp', `run ${i + 1}: bolts at ${f.nodeId} ${f.arena}`);
