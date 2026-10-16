@@ -74,11 +74,17 @@ export interface RtDepthRecord { row: number; won: boolean; xp: number; level?: 
 export const rtWonLevelOf = (d: { won?: boolean; wonLevel?: number; level?: number }): number => d.wonLevel ?? (d.won || d.level === 2 ? 1 : 0);
 /**
  * Task 38: the depth `a` (level, row) is farther than `b` — the level first, then the row. Task 40: the level passed comes first
- * (`wonLevel`: «Гарнизон пройден» beats any row), then the level, then the row.
+ * (`wonLevel`: «Гарнизон пройден» beats any row), then the level, then the row — only on a level not passed yet.
  */
-export const rtDepthBeyond = (a: { level?: number; row: number; won?: boolean; wonLevel?: number }, b: { level?: number; row: number; won?: boolean; wonLevel?: number }): boolean =>
-  rtWonLevelOf(a) !== rtWonLevelOf(b) ? rtWonLevelOf(a) > rtWonLevelOf(b)
-    : (a.level ?? 1) !== (b.level ?? 1) ? (a.level ?? 1) > (b.level ?? 1) : a.row > b.row;
+export function rtDepthBeyond(a: { level?: number; row: number; won?: boolean; wonLevel?: number }, b: { level?: number; row: number; won?: boolean; wonLevel?: number }): boolean {
+  const passed = rtWonLevelOf(a), other = rtWonLevelOf(b), level = a.level ?? 1, otherLevel = b.level ?? 1;
+  if (passed !== other) return passed > other;
+  if (level !== otherLevel) return level > otherLevel;
+  // Design smoke v67, З1 (task-40 spec section 11): the rows of a level already passed do not count — a forest row beyond a record
+  // that has passed the forest is no new record (the line «лес пройден» is the same).
+  if (level <= passed) return false;
+  return a.row > b.row;
+}
 export interface RtHeroMeta { xp: number; packs: string[]; record?: RtDepthRecord }
 /** The death cause the camp's lines read (design lines v1): the Jailer's fight, the final, the fire trail, a touch, an arrow, a blast. */
 export type RtDeathCause = 'crowd' | 'archer' | 'sapper' | 'jailer' | 'final' | 'fire' | 'other';

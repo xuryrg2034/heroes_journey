@@ -187,13 +187,20 @@ check('the record (flag of the moat off and on): the Castellan won → wonLevel 
   assert(!again.record.beaten && again.record.after.level === 2 && again.record.after.wonLevel === 1 && again.record.after.won, `not beaten (${JSON.stringify(again.record)})`);
 });
 
-check('a run abandoned on the map of the garrison before any garrison node: its depth is the forest one (row 10, no level), no «новый рекорд» over «лес пройден»; a forest record of row 8 it beats (5 seeds)', () => {
+check('a run abandoned on the map of the garrison before any garrison node: its depth is the forest one (row 10, no level), no «новый рекорд» over «лес пройден» ({ row 10 } and { row 9 } won, З1); a forest record of row 8 it beats (5 seeds)', () => {
   for (const [k, moat] of [[1, false], [2, true], [3, false], [4, false], [5, true]] as const) {
     const at = toOutskirts(k, { moat }), entered = ok(rtEnterGarrison(at), 'garrison');
     assert(entered.garrisonLevel && entered.visited.every(id => !rtGarrisonNodeId(id)) && entered.result === null, `seed ${k}: on the map of the garrison, no garrison node`);
     const forestPassed = parseRtMeta({ heroes: { cat: { xp: 0, packs: [], record: { row: 10, won: true, xp: 100 } } } });
     const end = rtApplyMeta(forestPassed, entered).end;
     assert(!end.record.beaten && end.record.after.level === undefined && end.record.after.row === 10 && end.record.after.wonLevel === 1, `seed ${k}: not beaten (${JSON.stringify(end.record)})`);
+    // Design smoke v67, З1: a record that passed the forest on row 9 ({ row 9, won: true }) — the forest's row 10 of the abandoned run
+    // is no new record (the rows of a level passed do not count); a won forest final over it neither.
+    const row9won = parseRtMeta({ heroes: { cat: { xp: 0, packs: [], record: { row: 9, won: true, xp: 100 } } } });
+    const z1 = rtApplyMeta(row9won, entered).end;
+    assert(!z1.record.beaten && z1.record.after.level === undefined && z1.record.after.wonLevel === 1, `seed ${k}: З1 — not beaten (${JSON.stringify(z1.record)})`);
+    const forestWin = walkRun({ k }).run;
+    if (forestWin.result?.outcome === 'victory') assert(!rtApplyMeta(row9won, forestWin).end.record.beaten, `seed ${k}: a forest won again over { row 9, won: true } — not beaten`);
     const row8 = parseRtMeta({ heroes: { cat: { xp: 0, packs: [], record: { row: 8, won: false, xp: 30 } } } });
     const beat = rtApplyMeta(row8, entered).end;
     assert(beat.record.beaten && beat.record.after.level === undefined && beat.record.after.row === 10 && beat.record.after.wonLevel === 1, `seed ${k}: beats row 8 as the forest final (${JSON.stringify(beat.record)})`);
