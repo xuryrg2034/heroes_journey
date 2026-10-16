@@ -4,7 +4,7 @@
  * real fight of the Simulation with the run's params (`rtRunParams`: slot, cursed chest, the bag, feats) played by a greedy bot
  * through journal commands (chains through `planChain`, walking along a flow field, consumables).
  *
- * Usage: npm run realtime:economy -- [--runs N] [--from K] [--max-links N] [--exit-at-goals] [--gentle on|off] [--feats on|off] [--schedule off|new] [--workers W] [--json FILE]
+ * Usage: npm run realtime:economy -- [--runs N] [--from K] [--garrison on|off] [--bot garrison|economy] [--mortal] [--max-links N] [--exit-at-goals] [--gentle on|off] [--feats on|off] [--schedule off|new] [--workers W] [--json FILE]
  *   seeds `Math.imul(k, 2654435761) >>> 0`, k = from … from + runs − 1 (default 1 … 300). Deterministic for a given seed range
  *   (workers only split the range).
  *
@@ -32,28 +32,48 @@
  * - Update 16.10.2026 (design: drop the dead sections): the run plays no cauldron, no die and no oath stake (`RT_RUN_FORCED`:
  *   `purse`, `doorDie`, `oathStake` off), so their sections (the payout and its cap, the oath, the rate, the calibration
  *   criteria), the cauldron rows and the oath policies (`--oath`) are gone; a fight with any of them on stops the script.
+ * - Update 16.10.2026 (design, task 40: the audit with the garrison, the camp and the cart): `--garrison on` (default) — a run of
+ *   the meta as the camp makes it (`locked: []` — every pack open, so the pools are a given seed's; the camp's flags `hearth`:
+ *   «Два пути» `maps: 2` with the first map, Марфа's start consumable `rtHearthItems(seed, 1)`), the forest and on into the
+ *   garrison («Ров», the keymaster; «Повозка» on «Предместье» with its default «оставить 6»). Every fight is a real fight of the
+ *   bot of the garrison measures (scripts/garrisonBot.ts, as `npm run realtime:garrison-curve`) with the boss-aim policy on a fight
+ *   with a boss core (the Jailer, the Castellan; design 16.10.2026, the measure of a boss fight) and the greedy chain elsewhere (the
+ *   forest's final «Последний рубеж» has no core: «убей 40»); after the goals it stays for the bag and the feat as the economy bot
+ *   (HP ≥ 4, at most 45 s). As the economy bot, the hero cannot fall (`BUFFER`; «погиб бы» counted, the run's HP after a fight at
+ *   least 1; a fight over 240 s — the run is left out as stuck). `--mortal` — the hero's real HP: a defeat (or a fight over 240 s)
+ *   ends the run, as the curve; the garrison's tables are then of the runs that got there alive. `--bot economy` — the economy
+ *   bot above through both levels instead (no boss-aim; the hero cannot fall): the strong end of the two bots. The tables
+ *   are printed for each level (the forest — every run; the garrison — the runs that entered it), then «Повозка и вынос» (section 8:
+ *   the stock at «Предместье», the cart, the carry `rtCarry` and its cap) and HP (section 9). `--garrison off` — the forest only
+ *   with the economy bot above (the audit of 16.10.2026, its numbers).
  */
 import { spawn } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 import { cpus } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { arenaNewKinds, runRow } from '../src/realtime/run/arenaPools';
+import { GARRISON_FINAL_ARENA, rtGarrisonNodeId } from '../src/realtime/run/garrison';
+import { rtCarry, rtHearthItems } from '../src/realtime/run/rtMeta';
+import { outcomeOf } from '../src/realtime/run/runFight.testkit';
 import {
   createRtRun, RT_TASK17_OFF, resolveArena, rtArenaLoadout, rtAvailableNodes, rtCasinoLeave, rtCasinoPlay, rtCasinoView, rtChooseEventOption, rtChooseFind,
   rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtChooseTalisman, rtEnterNode, rtEventView, rtGiftView, rtNode,
   rtRerollTalismans, rtRerollView, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtArenaParams, rtRunParams, rtShopBuy, rtShopLeave, rtShopView, healOffer, healOnMap,
+  rtEnterGarrison, RT_CART_KEEP, RT_CART_MAX,
   type RtArenaOutcome, type RtRunState, type RtRunStep,
 } from '../src/realtime/run/rtRun';
 import { RESOURCE_KINDS } from '../src/realtime/forest/resources';
 import { stockTotal } from '../src/realtime/forest/merchant';
 import type { ItemKind, ResourceKind } from '../src/realtime/forest/types';
 import { BAG_STEPS, bagPayout } from '../src/realtime/sim/bag';
-import { chainAnchor, linkPoint, nextCandidates, nextObjectCandidates, planChain } from '../src/realtime/sim/chain';
+import { chainAnchor, nextCandidates, nextObjectCandidates, planChain } from '../src/realtime/sim/chain';
+import { JAILER } from '../src/realtime/sim/enemies/jailer';
 import { featOutcome, featProgress, type FeatKind } from '../src/realtime/sim/feat';
 import { dist, FlowField, type Vec } from '../src/realtime/sim/geometry';
 import { defaultParams, heroRadius } from '../src/realtime/sim/params';
 import { Simulation } from '../src/realtime/sim/simulation';
 import type { ArenaObject, ChainLink, Enemy, World } from '../src/realtime/sim/world';
+import { botFight } from './garrisonBot';
 
 // ---------- Arguments ----------
 
@@ -75,11 +95,22 @@ const SCHEDULE = (option('--schedule') ?? 'off') === 'new';
 const FEATS = (option('--feats') ?? 'on') !== 'off';
 /** Game seconds the bot stays after the goals at most (the bag, the feat, errands). */
 const STAY_AFTER_GOALS = 45;
+/** Update 16.10.2026 (task 40): `--garrison on` (default) — the meta run through the forest and the garrison; `off` — the forest only. */
+const GARRISON = (option('--garrison') ?? 'on') !== 'off';
+/** The garrison bot's fight limit in game seconds (scripts/realtime-garrison-curve.ts `--limit`). */
+const LIMIT = 240;
+/** The boss cores the garrison bot aims at (the boss-aim policy). */
+const BOSS_CORES: readonly string[] = [JAILER, 'castellan'];
+/** `--garrison on`: `--bot garrison` (default) — the garrison bot; `economy` — the economy bot of the forest's audit through both levels. */
+const GARRISON_BOT = GARRISON && (option('--bot') ?? 'garrison') !== 'economy';
+/** `--garrison on --mortal` (the garrison bot): the hero's real HP — a defeat ends the run (default: the hero cannot fall). */
+const MORTAL = GARRISON_BOT && args.includes('--mortal');
+/** «погиб бы» — the hero cannot fall; with `--mortal` the deaths are real. */
+const DIE = MORTAL ? 'погиб' : 'погиб бы';
 
 const seedOf = (k: number): number => Math.imul(k, 2654435761) >>> 0;
 const PARAMS = rtRunParams(defaultParams());
 const BUFFER = 1000;
-const TICK = 1 / 60;
 
 // ---------- Records ----------
 
@@ -96,9 +127,12 @@ interface FightRecord {
   featKind: FeatKind | null; featDone: boolean; featReward: 'resources' | 'talisman' | null; featPaid: number;
   /** The Jailer's weight severed in the fight. */
   severed: boolean;
+  /** `--garrison on`: the fight went over the limit (lost). */
+  timeout?: boolean;
 }
-interface RunRecord {
-  k: number; seed: number; result: string; lastRow: number;
+/** One level's part of a run (the forest; with `--garrison on` the garrison too). */
+interface LevelRecord {
+  lastRow: number;
   gain: Record<string, number>; spend: Record<string, number>; rowStart: Record<number, number>;
   fights: FightRecord[]; circle: boolean; circleGames: number; circleWins: number; firstDeathRow: number | null;
   /** Task 17: the run row of the first fight whose arena brings the porcupine (null — never met). */
@@ -106,7 +140,26 @@ interface RunRecord {
   rerollBy: Record<string, number>; shopBy: Record<string, number>; endTotal: number;
   /** Update 15.10.2026: map heals bought (task 15) and the HP they gave. */
   mapHeals: number; mapHealHp: number;
+  /** Update 16.10.2026: HP the rests' «Отдых» gave. */
+  restHp: number;
 }
+interface RunRecord extends LevelRecord {
+  k: number; seed: number; result: string;
+  /** `--garrison on`: the garrison's part (absent — the run did not enter it) and the run's end. */
+  garrison?: LevelRecord;
+  end?: RunEnd;
+}
+/** `--garrison on`: the run's end — the level and node of the death, HP at the levels' ends, the cart and the carry (`rtCarry`). */
+interface RunEnd {
+  deathAt: string | null; maxHp: number;
+  /** HP after the forest's final (before «Предместье» heals it to full) and at the Castellan's fight (after a map heal on its card). */
+  hpForestEnd: number | null; hpCastellan: number | null;
+  /** The stock at «Предместье» and what the cart took (null — not reached). */
+  cartStock: number | null; cart: number | null;
+  /** The carry: resources carried, the cap, the stock at the end, the carry before the cap. */
+  carry: number; carryCap: number; resources: number; carryUncapped: number;
+}
+const newLevel = (): LevelRecord => ({ lastRow: 0, gain: {}, spend: {}, rowStart: {}, fights: [], circle: false, circleGames: 0, circleWins: 0, firstDeathRow: null, porcupineRow: null, rerollBy: {}, shopBy: {}, endTotal: 0, mapHeals: 0, mapHealHp: 0, restHp: 0 });
 
 const add = (into: Record<string, number>, key: string, n: number): void => { if (n) into[key] = (into[key] ?? 0) + n; };
 const total = (run: RtRunState): number => stockTotal(run.materials);
@@ -365,16 +418,74 @@ function playFight(run: RtRunState): FightResult {
   };
 }
 
+/**
+ * `--garrison on`: the open battle played by the garrison bot (scripts/garrisonBot.ts) with the run's HP (no buffer: a death is
+ * real); the outcome as main.ts reads a finished fight (`outcomeOf`) with the arena's kinds, elite, affixes and the severed weight.
+ */
+function playGarrisonFight(run: RtRunState): FightResult {
+  const pending = run.pending;
+  if (pending?.kind !== 'battle') throw new Error('no battle');
+  const params = rtArenaParams(run, PARAMS), loadout = rtArenaLoadout(run);
+  if (params.purse || params.doorDie) throw new Error(`fight ${pending.arena}: the cauldron or the die is on`);
+  const eliteLoot = new Set<number>(), kinds = new Set<string>(), affixSeen = new Set<string>();
+  let lootElite = 0, lootSlot = 0, lootItems = 0, slot = false, pulls = 0, chest = false, chestLifted = false, chains = 0, links = 0;
+  let heals = 0, healLoot = 0, severed = false, eliteSeen = false;
+  const seen = (w: World): void => {
+    for (const e of w.enemies) { kinds.add(e.kind); if (e.elite) { eliteSeen = true; for (const a of e.affixes ?? []) affixSeen.add(a); } }
+    for (const ev of w.events) {
+      if (ev.type === 'loot') {
+        if (!ev.picked) eliteLoot.add(ev.objectId);
+        else if (isResource(ev.loot)) { if (eliteLoot.has(ev.objectId)) lootElite++; else lootSlot++; }
+        else { lootItems++; if (ev.loot === 'healing') healLoot++; }
+      } else if (ev.type === 'slot') { if (ev.action === 'appear') slot = true; if (ev.action === 'pull') pulls++; }
+      else if (ev.type === 'chest') chest = true;
+      else if (ev.type === 'curseLifted') chestLifted = true;
+      else if (ev.type === 'partSevered') severed = true;
+      else if (ev.type === 'chainEnd' && ev.kills > 0) { chains++; links += ev.kills; }
+      else if (ev.type === 'item' && ev.kind === 'healing') heals++;
+    }
+  };
+  // The economy bot's stay after the goals: while the bag is not full or the feat not done, HP ≥ 4, at most 45 s («на арене» — to its N).
+  const stay = (w: World): boolean => {
+    const feat = featProgress(w), since = w.time - (w.greedStart ?? w.time);
+    const bagDue = !!w.bag && w.bag.step < BAG_STEPS, featDue = !!feat && !feat.done;
+    const limit = featDue && feat!.kind === 'arena' ? Math.max(STAY_AFTER_GOALS, feat!.target - (w.greedStart ?? 0) + 1) : STAY_AFTER_GOALS;
+    return !EXIT_AT_GOALS && (bagDue || featDue) && w.hero.hp - buffer >= 4 && since <= limit;
+  };
+  const buffer = MORTAL ? 0 : BUFFER;
+  let minHp = run.hp;
+  const watch = (w: World): void => { seen(w); minHp = Math.min(minHp, w.hero.hp - buffer); };
+  const played = botFight(run, { params, loadout, limit: LIMIT, aim: BOSS_CORES, stay, seen: watch, buffer }), w = played.sim.world;
+  if (w.oath) throw new Error(`fight ${pending.arena}: an oath is on`);
+  if (!MORTAL && played.timeout) throw new StuckFight(`fight ${pending.arena} seed ${pending.seed}: over ${LIMIT} s`);
+  if (!MORTAL && w.status !== 'victory') throw new Error(`fight ${pending.arena} seed ${pending.seed}: ${w.status} at ${w.time.toFixed(1)} s`);
+  const outcome: RtArenaOutcome = {
+    ...outcomeOf(run, w), ...MORTAL ? {} : { hp: Math.max(1, Math.min(run.maxHp, w.hero.hp - buffer)) }, kinds: [...kinds].sort(), ...eliteSeen ? { elite: true } : {}, ...affixSeen.size ? { affixes: [...affixSeen].sort() } : {}, ...severed ? { severed: true } : {},
+  };
+  const bagPaid = Object.values(bagPayout(w) ?? {}).reduce((a, b) => a + (b ?? 0), 0), featNow = featProgress(w);
+  return {
+    outcome,
+    record: { arena: pending.arena,
+      lootElite, lootSlot, lootItems, slotRight: !!w.kit && !!loadout.slot, slot, pulls, chains, links, bestChain: w.stats.bestChain, chest, chestLifted, damage: w.stats.damageTaken, wouldDie: MORTAL ? w.status !== 'victory' : minHp <= 0, time: w.endTime ?? w.time, fbGoals: false, fbDoor: false, exitBy: 'none', hpIn: run.hp, heals, healLoot,
+      bagStep: w.bag ? w.bag.step : null, bagPaid: w.status === 'victory' ? bagPaid : 0, featKind: featNow?.kind ?? null, featDone: !!featNow?.done, featReward: pending.feat ? ('talisman' in pending.feat.reward ? 'talisman' : 'resources') : null, featPaid: 0, severed, ...played.timeout ? { timeout: true } : {} },
+  };
+}
+
 // ---------- The run walker ----------
 
 function walkRun(k: number): RunRecord {
   const seed = seedOf(k);
-  // Update 16.10.2026: the forest only — the garrison after the forest final (task 38, on by default) is not measured.
-  let run = createRtRun(seed, { gift: 'full', feats: FEATS, garrison: false, ...GENTLE ? {} : RT_TASK17_OFF, ...SCHEDULE ? { schedule: [] } : {} });
-  const rec: RunRecord = { k, seed, result: 'none', lastRow: 0, gain: {}, spend: {}, rowStart: {}, fights: [], circle: false, circleGames: 0, circleWins: 0, firstDeathRow: null, porcupineRow: null, rerollBy: {}, shopBy: {}, endTotal: 0, mapHeals: 0, mapHealHp: 0 };
+  // Update 16.10.2026: `--garrison off` — the forest only (the garrison after the forest final is not measured); `on` — the meta
+  // run with the camp's flags (the cart on «Предместье») through the forest and the garrison.
+  const meta = GARRISON ? { garrison: true, locked: [], hearth: { maps: 2 as const, startItems: rtHearthItems(seed, 1) } } : { garrison: false };
+  let run = createRtRun(seed, { gift: 'full', feats: FEATS, ...meta, ...GENTLE ? {} : RT_TASK17_OFF, ...SCHEDULE ? { schedule: [] } : {} });
+  const rec: RunRecord = { k, seed, result: 'none', ...newLevel() };
+  /** The level the walk accounts to: the forest, then (`--garrison on`, after «Предместье») the garrison. */
+  let cur: LevelRecord = rec;
+  let hpForestEnd: number | null = null, hpCastellan: number | null = null, cartStock: number | null = null, cart: number | null = null;
   /** Signed per-kind change from `before` to `after`: gains to `gainKey`, losses to `spendKey`. */
   const account = (before: Record<ResourceKind, number>, after: RtRunState, gainKey: string, spendKey: string): void => {
-    for (const kind of RESOURCE_KINDS) { const d = after.materials[kind] - before[kind]; if (d > 0) add(rec.gain, gainKey, d); else if (d < 0) add(rec.spend, spendKey, -d); }
+    for (const kind of RESOURCE_KINDS) { const d = after.materials[kind] - before[kind]; if (d > 0) add(cur.gain, gainKey, d); else if (d < 0) add(cur.spend, spendKey, -d); }
   };
   let eventAttempts = 0;
 
@@ -386,12 +497,12 @@ function walkRun(k: number): RunRecord {
       const rest = nodes.find(n => n.type === 'rest'), shop = nodes.find(n => n.type === 'shop');
       const node = run.hp <= run.maxHp * 0.5 && rest ? rest : total(run) >= 6 && shop ? shop : nodes[hash(seed, step) % nodes.length];
       const row = runRow(node.row);
-      if (rec.rowStart[row] === undefined) rec.rowStart[row] = total(run);
-      rec.lastRow = Math.max(rec.lastRow, row);
+      if (cur.rowStart[row] === undefined) cur.rowStart[row] = total(run);
+      cur.lastRow = Math.max(cur.lastRow, row);
       const before = materials(run);
       run = ok(rtEnterNode(run, node.id, null, { goblinCircle: !!PARAMS.goblinCircle }), 'enter');
       account(before, run, 'other', 'other');
-      if (run.pending?.kind === 'casino') rec.circle = true;
+      if (run.pending?.kind === 'casino') cur.circle = true;
       eventAttempts = 0;
       continue;
     }
@@ -410,26 +521,29 @@ function walkRun(k: number): RunRecord {
         while (run.hp <= run.maxHp * 0.5 && healOffer(run).ok) {
           const hp0 = run.hp, t0 = total(run);
           run = ok(healOnMap(run), 'heal on map');
-          rec.mapHeals++; rec.mapHealHp += run.hp - hp0; add(rec.spend, 'heal-map', t0 - total(run));
+          cur.mapHeals++; cur.mapHealHp += run.hp - hp0; add(cur.spend, 'heal-map', t0 - total(run));
         }
         const healed = materials(run);
         for (const kind of RESOURCE_KINDS) before[kind] = healed[kind];
         const node = rtNode(run, pending.nodeId)!, row = runRow(node.row);
         let fought: FightResult;
-        try { fought = playFight(run); } catch (error) { if (error instanceof StuckFight) { rec.result = 'stuck'; return rec; } throw error; }
+        if (GARRISON && pending.arena === GARRISON_FINAL_ARENA) hpCastellan = run.hp;
+        try { fought = GARRISON_BOT ? playGarrisonFight(run) : playFight(run); } catch (error) { if (error instanceof StuckFight) { rec.result = 'stuck'; return rec; } throw error; }
         const fight: FightRecord = { ...fought.record, row, battle: pending.battle };
-        if (fight.wouldDie && rec.firstDeathRow === null) rec.firstDeathRow = row;
-        rec.fights.push(fight);
+        if (fight.wouldDie && cur.firstDeathRow === null) cur.firstDeathRow = row;
+        cur.fights.push(fight);
         // The porcupine is met where the arena brings it — not where the run takes it out (task 17: a gentle run's final, `withoutKinds`).
-        if (rec.porcupineRow === null && arenaNewKinds(pending.arena).includes('porcupine') && !(rtArenaLoadout(run).withoutKinds ?? []).includes('porcupine')) rec.porcupineRow = row;
+        if (cur.porcupineRow === null && arenaNewKinds(pending.arena).includes('porcupine') && !(rtArenaLoadout(run).withoutKinds ?? []).includes('porcupine')) cur.porcupineRow = row;
         run = ok(resolveArena(run, fought.outcome), 'resolve');
+        if (node.type === 'boss' && !rtGarrisonNodeId(node.id) && fought.outcome.won) hpForestEnd = run.hp;
         // Loot picked up on the arena: elite loot and the goblin's 🍲 (resources only), then the door: the bag and a done feat's
-        // resources (update 15.10.2026); anything else the door paid is «Прочее».
-        add(rec.gain, 'elite-loot', fight.lootElite); add(rec.gain, 'slot', fight.lootSlot);
+        // resources (update 15.10.2026); anything else the door paid is «Прочее». A defeat (`--garrison on`) brings nothing back.
+        if (!fought.outcome.won) break;
+        add(cur.gain, 'elite-loot', fight.lootElite); add(cur.gain, 'slot', fight.lootSlot);
         const delta = total(run) - stockTotal(before) - fight.lootElite - fight.lootSlot;
         fight.featPaid = pending.feat && fight.featDone && 'resources' in pending.feat.reward ? pending.feat.reward.resources : 0;
-        add(rec.gain, 'bag', fight.bagPaid); add(rec.gain, 'feat', fight.featPaid);
-        add(rec.gain, 'other', delta - fight.bagPaid - fight.featPaid);
+        add(cur.gain, 'bag', fight.bagPaid); add(cur.gain, 'feat', fight.featPaid);
+        add(cur.gain, 'other', delta - fight.bagPaid - fight.featPaid);
         break;
       }
       case 'talisman': {
@@ -437,7 +551,7 @@ function walkRun(k: number): RunRecord {
         if (reroll?.available && reroll.rerolls === 0 && reroll.total >= 3) {
           run = ok(rtRerollTalismans(run), 'reroll');
           const spent = stockTotal(before) - total(run);
-          add(rec.spend, 'reroll', spent); add(rec.rerollBy, pending.source, spent);
+          add(cur.spend, 'reroll', spent); add(cur.rerollBy, pending.source, spent);
           break;
         }
         const options = (run.pending as Extract<RtRunState['pending'], { kind: 'talisman' }>).options;
@@ -454,7 +568,7 @@ function walkRun(k: number): RunRecord {
           for (const recipe of recipes.slice(0, 2)) run = ok(rtRestCraft(run, recipe.resource), 'craft');
           run = ok(rtRestFinish(run), 'rest finish');
           account(before, run, 'other', 'craft');
-        } else run = ok(rtRestHeal(run), 'rest');
+        } else { const hp0 = run.hp; run = ok(rtRestHeal(run), 'rest'); cur.restHp += run.hp - hp0; }
         break;
       }
       case 'shop': {
@@ -465,7 +579,7 @@ function walkRun(k: number): RunRecord {
           if (!good) break;
           const t0 = total(run);
           run = ok(rtShopBuy(run, good.id), 'buy');
-          add(rec.shopBy, good.good, t0 - total(run));
+          add(cur.shopBy, good.good, t0 - total(run));
         }
         run = ok(rtShopLeave(run), 'shop leave');
         account(before, run, 'other', 'merchant');
@@ -486,16 +600,33 @@ function walkRun(k: number): RunRecord {
         if (dice.available) {
           run = ok(rtCasinoPlay(run, 'dice'), 'dice');
           const game = run.casino!.games[run.casino!.games.length - 1];
-          add(rec.spend, 'circle', 1); add(rec.gain, 'circle', game.gain.length);
-          rec.circleGames++; if (game.gain.length) rec.circleWins++;
+          add(cur.spend, 'circle', 1); add(cur.gain, 'circle', game.gain.length);
+          cur.circleGames++; if (game.gain.length) cur.circleWins++;
         } else run = ok(rtCasinoLeave(run), 'casino leave');
+        break;
+      }
+      // Task 40: «Предместье» — «В гарнизон» with the cart's default («оставить 6»); the forest's part ends with the stock here.
+      case 'outskirts': {
+        cur.endTotal = cartStock = total(run);
+        run = ok(rtEnterGarrison(run), 'garrison');
+        cart = run.cart?.n ?? 0;
+        cur = rec.garrison = newLevel();
         break;
       }
       default: throw new Error(`run ${k}: pending ${(pending as { kind: string }).kind}`);
     }
   }
   rec.result = run.result?.outcome ?? 'unfinished';
-  rec.endTotal = total(run);
+  cur.endTotal = total(run);
+  if (GARRISON) {
+    const carry = rtCarry(run), resources = carry.resources, sent = carry.cart ?? 0;
+    const uncapped = carry.share === 1 ? sent + resources : sent + Math.max(Math.floor(resources * 0.5), Math.min(resources, 6));
+    const node = run.result?.outcome === 'defeat' ? rtNode(run, run.result.nodeId) : undefined;
+    rec.end = {
+      deathAt: node ? `${rtGarrisonNodeId(node.id) ? 'г' : 'л'} ${runRow(node.row)}` : null, maxHp: run.maxHp, hpForestEnd, hpCastellan, cartStock, cart,
+      carry: carry.n, carryCap: carry.cap, resources, carryUncapped: uncapped,
+    };
+  }
   return rec;
 }
 
@@ -508,7 +639,7 @@ async function collect(): Promise<RunRecord[]> {
     const from = FROM + w * per, count = Math.min(per, FROM + RUNS - from);
     if (count <= 0) break;
     jobs.push(new Promise((resolve, reject) => {
-      const child = spawn(process.execPath, [...process.execArgv, script, '--child', '--from', String(from), '--runs', String(count), '--max-links', String(MAX_LINKS), '--gentle', GENTLE ? 'on' : 'off', '--feats', FEATS ? 'on' : 'off', '--schedule', SCHEDULE ? 'new' : 'off', ...EXIT_AT_GOALS ? ['--exit-at-goals'] : []], { stdio: ['ignore', 'pipe', 'inherit'] });
+      const child = spawn(process.execPath, [...process.execArgv, script, '--child', '--from', String(from), '--runs', String(count), '--garrison', GARRISON ? 'on' : 'off', ...MORTAL ? ['--mortal'] : [], '--bot', GARRISON_BOT ? 'garrison' : 'economy', '--max-links', String(MAX_LINKS), '--gentle', GENTLE ? 'on' : 'off', '--feats', FEATS ? 'on' : 'off', '--schedule', SCHEDULE ? 'new' : 'off', ...EXIT_AT_GOALS ? ['--exit-at-goals'] : []], { stdio: ['ignore', 'pipe', 'inherit'] });
       let out = '';
       child.stdout.on('data', chunk => { out += chunk; });
       child.on('close', code => code === 0 ? resolve(JSON.parse(out) as RunRecord[]) : reject(new Error(`worker ${w} exited ${code}`)));
@@ -528,15 +659,19 @@ const pct = (a: number, b: number): string => b ? `${Math.round(100 * a / b)} %`
 const stat = (xs: number[]): string => `${f1(mean(xs))} | ${f1(q(xs, 0.5))} | ${f1(q(xs, 0.1))} | ${f1(q(xs, 0.9))}`;
 const BANDS: [string, number, number][] = [['1–3', 1, 3], ['4–6', 4, 6], ['7–10', 7, 10]];
 
-function report(runs: RunRecord[], title: string): void {
+/** A level's part of the runs with the run's index and result (the forest's — «victory» once the run reached «Предместье»). */
+type LevelView = LevelRecord & { k: number; result: string };
+
+function report(runs: LevelView[], title: string): void {
   console.log(`\n### ${title}: ${runs.length} походов (k = ${runs[0]?.k}…${runs[runs.length - 1]?.k})`);
   const fights = runs.flatMap(r => r.fights), won = runs.filter(r => r.result === 'victory').length;
   const died = runs.filter(r => r.firstDeathRow !== null);
-  console.log(`Итог: дошли до конца ${won} из ${runs.length}; боёв ${fights.length} (${f1(fights.length / runs.length)} за поход); «погиб бы» хотя бы раз — ${pct(died.length, runs.length)} походов (первый раз: медиана ряда ${f0(q(died.map(r => r.firstDeathRow!), 0.5))}); боёв «погиб бы» ${pct(fights.filter(f => f.wouldDie).length, fights.length)}.`);
-  console.log(`Запасные ходы бота: команда целей ${fights.filter(f => f.fbGoals).length}, телепорт к двери ${fights.filter(f => f.fbDoor).length}. Время боя: медиана ${f0(q(fights.map(f => f.time), 0.5))} с, p90 ${f0(q(fights.map(f => f.time), 0.9))} с. Выход: цепью в дверь ${pct(fights.filter(f => f.exitBy === 'chain').length, fights.length)}, ходьбой ${pct(fights.filter(f => f.exitBy === 'walk').length, fights.length)}.`);
+  console.log(`Итог: дошли до конца ${won} из ${runs.length}; боёв ${fights.length} (${f1(fights.length / runs.length)} за поход); «${DIE}» хотя бы раз — ${pct(died.length, runs.length)} походов (первый раз: медиана ряда ${f0(q(died.map(r => r.firstDeathRow!), 0.5))}); боёв «${DIE}» ${pct(fights.filter(f => f.wouldDie).length, fights.length)}.`);
+  if (GARRISON_BOT) console.log(`Бой бота гарнизона за пределом ${LIMIT} с${MORTAL ? ' (поражение)' : ''}: ${fights.filter(f => f.timeout).length}. Время боя: медиана ${f0(q(fights.map(f => f.time), 0.5))} с, p90 ${f0(q(fights.map(f => f.time), 0.9))} с.`);
+  else console.log(`Запасные ходы бота: команда целей ${fights.filter(f => f.fbGoals).length}, телепорт к двери ${fights.filter(f => f.fbDoor).length}. Время боя: медиана ${f0(q(fights.map(f => f.time), 0.5))} с, p90 ${f0(q(fights.map(f => f.time), 0.9))} с. Выход: цепью в дверь ${pct(fights.filter(f => f.exitBy === 'chain').length, fights.length)}, ходьбой ${pct(fights.filter(f => f.exitBy === 'walk').length, fights.length)}.`);
   console.log(`Цепи бота: ${f1(mean(fights.map(f => f.chains)))} за бой, вражеских звеньев в цепи в среднем ${f1(fights.reduce((s, f) => s + f.links, 0) / Math.max(1, fights.reduce((s, f) => s + f.chains, 0)))}; самая длинная цепь боя (убийств): медиана ${f0(q(fights.map(f => f.bestChain), 0.5))}, p90 ${f0(q(fights.map(f => f.bestChain), 0.9))}.`);
 
-  const per = (pick: (r: RunRecord) => number): number[] => runs.map(pick);
+  const per = (pick: (r: LevelView) => number): number[] => runs.map(pick);
   console.log('\n1. Получено ресурсов за поход, по источникам\n');
   console.log('| Источник | Среднее | Медиана | p10 | p90 |');
   console.log('| --- | --- | --- | --- | --- |');
@@ -581,8 +716,8 @@ function report(runs: RunRecord[], title: string): void {
   for (const r of runs) porc.set(String(r.porcupineRow ?? '—'), (porc.get(String(r.porcupineRow ?? '—')) ?? 0) + 1);
   console.log(`\nДикобраз впервые (ряд первого боя на арене с ним; «—» — не встречен): ${[...porc].sort().map(([row, n]) => `${row}: ${n}`).join(', ')} из ${runs.length}.`);
   // Task 17 «Пологий вход» (13.10.2026): the curve by run row.
-  console.log(`\n6. По рядам (задача 17; вход ${GENTLE ? 'пологий' : 'прежний'}; урон — HP за бой, «погиб бы» — бой, где настоящее HP дошло до 0)\n`);
-  console.log('| Ряд | Боёв | Урон: среднее | медиана | p90 | «Погиб бы» | HP в начале боя, медиана | Лечений выпито за бой | Лечения из добычи за бой |');
+  console.log(`\n6. По рядам (задача 17; вход ${GENTLE ? 'пологий' : 'прежний'}; урон — HP за бой, «${DIE}» — бой, где ${MORTAL ? 'герой пал или вышло время' : 'настоящее HP дошло до 0'})\n`);
+  console.log(`| Ряд | Боёв | Урон: среднее | медиана | p90 | «${MORTAL ? 'Погиб' : 'Погиб бы'}» | HP в начале боя, медиана | Лечений выпито за бой | Лечения из добычи за бой |`);
   console.log('| --- | --- | --- | --- | --- | --- | --- | --- | --- |');
   for (let row = 1; row <= 10; row++) {
     const fs = fights.filter(f => f.row === row);
@@ -606,14 +741,61 @@ function report(runs: RunRecord[], title: string): void {
   console.log(`Лечение на карте: ${f1(mean(per(r => r.mapHeals)))} покупок за поход (походов с покупкой ${pct(runs.filter(r => r.mapHeals > 0).length, runs.length)}), HP за поход ${f1(mean(per(r => r.mapHealHp)))}, ресурсов ${f1(mean(per(r => r.spend['heal-map'] ?? 0)))}. Тюремщик: гиря отрублена в ${pct(fights.filter(f => f.severed).length, fights.filter(f => f.arena.startsWith('jailer')).length)} боёв с ним.`);
 }
 
+/** `--garrison on`: where the runs ended, each level's tables, the cart and the carry (section 8), HP (section 9). */
+function garrisonReport(runs: RunRecord[]): void {
+  const ends = runs.map(r => r.end!), inG = runs.filter(r => r.garrison);
+  const deaths = new Map<string, number>();
+  for (const e of ends) if (e.deathAt) deaths.set(e.deathAt, (deaths.get(e.deathAt) ?? 0) + 1);
+  const order = (key: string): number => (key.startsWith('г') ? 100 : 0) + Number(key.slice(2));
+  console.log(`\nИтог: ${runs.length} походов; побед (Кастелян) ${runs.filter(r => r.result === 'victory').length}, поражений ${runs.filter(r => r.result === 'defeat').length}, не закончено ${runs.filter(r => r.result !== 'victory' && r.result !== 'defeat').length}; дошли до «Предместья» ${inG.length}.`);
+  console.log(`Смерти по рядам (л — лес, г — гарнизон): ${[...deaths].sort((a, b) => order(a[0]) - order(b[0])).map(([key, n]) => `${key}: ${n}`).join(', ') || '—'}.`);
+  report(runs.map(r => ({ ...r, result: r.garrison ? 'victory' : r.result })), 'Лес (все походы; «до конца» — до «Предместья»)');
+  if (inG.length) report(inG.map(r => ({ ...r.garrison!, k: r.k, result: r.result })), 'Гарнизон (походы, дошедшие до «Предместья»; «до конца» — Кастелян побеждён)');
+  const per = (list: RunRecord[], pick: (e: RunEnd) => number): number[] => list.map(r => pick(r.end!));
+  const gained = (l: LevelRecord): number => Object.values(l.gain).reduce((a, b) => a + b, 0), spent = (l: LevelRecord): number => Object.values(l.spend).reduce((a, b) => a + b, 0);
+  console.log('\n8. Повозка и вынос (за поход)\n');
+  console.log('| Величина | Походов | Среднее | Медиана | p10 | p90 |');
+  console.log('| --- | --- | --- | --- | --- | --- |');
+  const row = (name: string, xs: number[]): void => console.log(`| ${name} | ${xs.length} | ${stat(xs)} |`);
+  row('Лес: получено', runs.map(r => gained(r)));
+  row('Лес: потрачено', runs.map(r => spent(r)));
+  row('На руках у «Предместья»', per(inG, e => e.cartStock!));
+  row('Повозка взяла', per(inG, e => e.cart!));
+  row('Гарнизон: на руках при входе (после Повозки)', per(inG, e => e.cartStock! - e.cart!));
+  row('Гарнизон: получено', inG.map(r => gained(r.garrison!)));
+  row('Гарнизон: потрачено', inG.map(r => spent(r.garrison!)));
+  row('На руках в конце похода (дошедшие до гарнизона)', per(inG, e => e.resources));
+  row('Вынос, дошедшие до гарнизона (потолок 40)', per(inG, e => e.carry));
+  row('Вынос без потолка, дошедшие до гарнизона', per(inG, e => e.carryUncapped));
+  const forestOnly = runs.filter(r => !r.garrison);
+  row('Вынос, павшие в лесу (потолок 20)', per(forestOnly, e => e.carry));
+  const capHit = (list: RunRecord[]): string => `${pct(list.filter(r => r.end!.carryUncapped >= r.end!.carryCap).length, list.length)} (выше потолка ${pct(list.filter(r => r.end!.carryUncapped > r.end!.carryCap).length, list.length)})`;
+  const won = inG.filter(r => r.result === 'victory'), lost = inG.filter(r => r.result !== 'victory');
+  console.log(`\nПотолок выноса достигнут: павшие в лесу — ${capHit(forestOnly)} из ${forestOnly.length}; дошедшие до гарнизона — ${capHit(inG)} из ${inG.length} (победа над Кастеляном — ${capHit(won)} из ${won.length}, павшие в гарнизоне — ${capHit(lost)} из ${lost.length}).`);
+  const full = inG.filter(r => r.end!.cart === RT_CART_MAX), none = inG.filter(r => r.end!.cart === 0);
+  console.log(`Повозка: взяла ${RT_CART_MAX} (её наибольшее) в ${pct(full.length, inG.length)} походов, 0 — в ${pct(none.length, inG.length)}; на руках у «Предместья» больше ${RT_CART_MAX + RT_CART_KEEP} (остаток сверх «оставить ${RT_CART_KEEP}» не влез) — ${pct(inG.filter(r => r.end!.cartStock! > RT_CART_MAX + RT_CART_KEEP).length, inG.length)}. Доля Повозки в выносе дошедших до гарнизона: ${pct(inG.reduce((a, r) => a + r.end!.cart!, 0), inG.reduce((a, r) => a + r.end!.carry, 0))}.`);
+  console.log('\n9. HP (из максимума; лечение добычей за бой — в разделах 6 обоих уровней)\n');
+  console.log('| Точка | Походов | Медиана | p10 | p90 | Максимум HP, медиана |');
+  console.log('| --- | --- | --- | --- | --- | --- |');
+  const hp = (name: string, list: RunRecord[], pick: (e: RunEnd) => number | null): void => {
+    const xs = list.flatMap(r => { const v = pick(r.end!); return v === null ? [] : [v]; });
+    console.log(`| ${name} | ${xs.length} | ${f1(q(xs, 0.5))} | ${f1(q(xs, 0.1))} | ${f1(q(xs, 0.9))} | ${f1(q(list.map(r => r.end!.maxHp), 0.5))} |`);
+  };
+  hp('После финала леса (до «Предместья», оно лечит до полного)', inG, e => e.hpForestEnd);
+  hp('Вход в бой с Кастеляном (после лечения на карте)', runs.filter(r => r.end!.hpCastellan !== null), e => e.hpCastellan);
+  const fightsG = inG.flatMap(r => r.garrison!.fights), fightsF = runs.flatMap(r => r.fights);
+  console.log(`\nЛечение добычей за бой: лес ${f1(mean(fightsF.map(f => f.healLoot)))}, гарнизон ${f1(mean(fightsG.map(f => f.healLoot)))}; выпито за бой: лес ${f1(mean(fightsF.map(f => f.heals)))}, гарнизон ${f1(mean(fightsG.map(f => f.heals)))}. Лечение HP за поход (лес / гарнизон): на карте ${f1(mean(runs.map(r => r.mapHealHp)))} / ${f1(mean(inG.map(r => r.garrison!.mapHealHp)))}, привал ${f1(mean(runs.map(r => r.restHp)))} / ${f1(mean(inG.map(r => r.garrison!.restHp)))}.`);
+}
+
 async function main(): Promise<void> {
   if (CHILD) { process.stdout.write(JSON.stringify(Array.from({ length: RUNS }, (_, i) => walkRun(FROM + i)))); return; }
   const t0 = Date.now();
-  console.log(`Аудит экономики похода (эвристика бота): seed k = ${FROM}…${FROM + RUNS - 1}, звеньев в цепи не больше ${MAX_LINKS >= 99 ? '— (жадный)' : MAX_LINKS}${EXIT_AT_GOALS ? ', к двери сразу после целей' : ''}, вход ${GENTLE ? 'пологий (задача 17)' : 'прежний'}, подвиги ${FEATS ? 'есть' : 'нет'}${SCHEDULE ? ', расписание леса: новый зритель (задача 26)' : ''}, воркеров ${WORKERS}`);
+  console.log(`Аудит экономики похода (эвристика бота): seed k = ${FROM}…${FROM + RUNS - 1}, ${GARRISON ? `лес и гарнизон (мета: лагерь, Повозка «оставить ${RT_CART_KEEP}»), ${GARRISON_BOT ? `бот гарнизона (в ядро у босса, после целей — котомка и подвиг), бой до ${LIMIT} с, ${MORTAL ? 'герой смертен' : 'герой не падает (+1000 HP)'}` : 'бот аудита экономики, герой не падает (+1000 HP)'}` : 'только лес'}, звеньев в цепи не больше ${MAX_LINKS >= 99 ? '— (жадный)' : MAX_LINKS}${EXIT_AT_GOALS ? ', к двери сразу после целей' : ''}, вход ${GENTLE ? 'пологий (задача 17)' : 'прежний'}, подвиги ${FEATS ? 'есть' : 'нет'}${SCHEDULE ? ', расписание леса: новый зритель (задача 26)' : ''}, воркеров ${WORKERS}`);
   const collected = await collect(), stuck = collected.filter(r => r.result === 'stuck');
   if (stuck.length) console.log(`\nБот застрял в бою (время вышло) в ${stuck.length} походах — они не в таблицах: k = ${stuck.map(r => r.k).join(', ')}`);
   const runs = collected.filter(r => r.result !== 'stuck');
-  report(runs, 'Походы');
+  if (!GARRISON) report(runs, 'Походы');
+  else garrisonReport(runs);
   if (JSON_OUT) writeFileSync(JSON_OUT, JSON.stringify(runs));
   console.log(`\n${((Date.now() - t0) / 1000).toFixed(0)} с`);
 }

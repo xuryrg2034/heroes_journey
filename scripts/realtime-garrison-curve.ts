@@ -12,7 +12,7 @@
  * - «весь поход» — every fight real, from the forest's row 1;
  * - «гарнизон» — the forest's fights made up by the walk (won, as `walkRun` feeds them), the garrison's real from «Предместье» (full
  *   HP): the garrison's own curve from its entry, which the forest's curve from its start can be set against.
- * The fight bot (seeds `Math.imul(k, 2654435761) >>> 0`): the greedy chain of the field measures (scripts/loopBot.ts `playChain`:
+ * The fight bot (scripts/garrisonBot.ts; seeds `Math.imul(k, 2654435761) >>> 0`): the greedy chain of the field measures (scripts/loopBot.ts `playChain`:
  * nearest first, nearest next, buttons and crystals too) every 0.75 s, a walk by a pattern, a spin every 6.7 s, a jump every 8.3 s,
  * a healing potion at 5 HP or lower; after the goals it walks the grid path to the door, still chaining, and chains into the door
  * once it is within reach. A fight over the limit counts as lost (`timeouts`). It prints the date and HEAD, and the share of deaths
@@ -24,17 +24,14 @@
  * the median game time of the fight, the deaths by the killing blow's source.
  */
 import { execSync } from 'node:child_process';
-import { canJump, nextCandidates } from '../src/realtime/sim/chain';
-import { blockedAt, type Vec } from '../src/realtime/sim/geometry';
-import { defaultParams, heroRadius } from '../src/realtime/sim/params';
-import { Simulation } from '../src/realtime/sim/simulation';
-import type { Enemy, World } from '../src/realtime/sim/world';
+import { defaultParams } from '../src/realtime/sim/params';
+import type { World } from '../src/realtime/sim/world';
 import { runRow } from '../src/realtime/run/arenaPools';
 import { rtGarrisonNodeId } from '../src/realtime/run/garrison';
 import { walkRun } from '../src/realtime/run/metaWalk.testkit';
 import { outcomeOf } from '../src/realtime/run/runFight.testkit';
 import { rtArenaLoadout, rtArenaParams, rtNode, rtRunParams, type RtArenaOutcome, type RtRunState } from '../src/realtime/run/rtRun';
-import { playChain } from './loopBot';
+import { botFight } from './garrisonBot';
 
 const args = process.argv.slice(2);
 const option = (name: string, fallback: string): string => { const at = args.indexOf(name); return at >= 0 ? args[at + 1] : fallback; };
@@ -78,8 +75,9 @@ const CASTELLAN_SETS: Readonly<Record<string, CastellanSet>> = {
 /**
  * `--boss-aim`: in a fight with a boss core (the Castellan, the Jailer — `BOSS_CORES`) the bot hunts the boss — it walks at the core
  * and, when the core is a candidate, chains straight into it; else its greedy chain goes towards the core (each next link the one
- * nearest the core). Without it the bot plays the boss as any fight (its greedy chain never aims at the core: the first sweep,
- * 16.10.2026). The forest's final «Последний рубеж» has no core (its goal is kills): there the bot plays as without the flag.
+ * nearest the core; scripts/garrisonBot.ts `aimAtCore`). Without it the bot plays the boss as any fight (its greedy chain never aims
+ * at the core: the first sweep, 16.10.2026). The forest's final «Последний рубеж» has no core (its goal is kills): there the bot plays
+ * as without the flag.
  */
 const BOSS_CORES: readonly string[] = ['castellan', 'jailer'];
 const BOSS_AIM = args.includes('--boss-aim');
@@ -87,33 +85,6 @@ const SET_NAME = option('--castellan', ''), SET = SET_NAME ? CASTELLAN_SETS[SET_
 if (SET_NAME && !SET) throw new Error(`no set ${SET_NAME}: ${Object.keys(CASTELLAN_SETS).join(', ')}`);
 /** The Castellan's fights of the sweep: their outcome, game time and the killing blow's source. */
 const castellanFights: { won: boolean; time: number; source: string | null; hpIn: number }[] = [];
-/** The bot drinks a healing potion at this HP or lower. */
-const HEAL_AT = 5;
-
-const fields = new Map<string, Map<string, number>>();
-const STEPS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
-/** One step of a breadth-first path on a 0.25 grid to `goal` (scripts/realtime-ash-final.ts). */
-function stepToward(w: World, goal: Vec): Vec {
-  const a = w.arena, s = 0.25, r = heroRadius(w.params) + 0.05, g = (v: number) => Math.round(v / s), key = `${a.id}:${g(goal.x)},${g(goal.y)}`;
-  let field = fields.get(key);
-  if (!field) {
-    field = new Map([[`${g(goal.x)},${g(goal.y)}`, 0]]);
-    const queue: [number, number][] = [[g(goal.x), g(goal.y)]];
-    for (let i = 0; i < queue.length; i++) {
-      const [x, y] = queue[i], d = field.get(`${x},${y}`)!;
-      for (const [dx, dy] of STEPS) {
-        const nx = x + dx, ny = y + dy, k = `${nx},${ny}`;
-        if (nx < 0 || ny < 0 || nx * s > a.width || ny * s > a.height || field.has(k) || blockedAt({ x: nx * s, y: ny * s }, r, a)) continue;
-        field.set(k, d + (dx && dy ? Math.SQRT2 : 1)); queue.push([nx, ny]);
-      }
-    }
-    fields.set(key, field);
-  }
-  const hx = g(w.hero.x), hy = g(w.hero.y);
-  let best: Vec | null = null, bestD = field.get(`${hx},${hy}`) ?? Infinity;
-  for (const [dx, dy] of STEPS) { const d = field.get(`${hx + dx},${hy + dy}`); if (d !== undefined && d < bestD) { bestD = d; best = { x: dx, y: dy }; } }
-  return best ?? { x: goal.x - w.hero.x, y: goal.y - w.hero.y };
-}
 
 interface Tally { reached: Map<string, number>; deaths: Map<string, number>; damage: Map<string, number[]>; outcomes: Record<string, number>; fights: number; timeouts: number; runs: number }
 const tally = (): Tally => ({ reached: new Map(), deaths: new Map(), damage: new Map(), outcomes: { victory: 0, defeat: 0, open: 0 }, fights: 0, timeouts: 0, runs: 0 });
@@ -129,32 +100,11 @@ function fight(run: RtRunState, t: Tally): RtArenaOutcome {
   if (castellan?.touch === false) params.toughTouch = false;
   const loadout = rtArenaLoadout(run);
   if (castellan?.floor !== undefined) loadout.floorScale = castellan.floor;
-  const sim = new Simulation({ arena: pending.arena, ...pending.roster !== undefined ? { roster: pending.roster } : {}, params, seed: pending.seed,
-    hero: { hp: run.hp, maxHp: run.maxHp }, loadout });
-  const w = sim.world;
   t.fights++;
-  let lastSource: string | null = null;
-  for (let tick = 0; tick < LIMIT * 60 && w.status === 'playing'; tick++) {
-    const leaving = w.greedStart !== null;
-    if (tick % 30 === 0 && !w.move) {
-      if (leaving) { const d = stepToward(w, w.arena.door); sim.command({ t: 'walk', x: d.x, y: d.y }); }
-      else if (tick % 60 === 0) { const [x, y] = [[1, 0], [0, 1], [-1, 0], [0, -1], [1, 1], [-1, -1]][(tick / 60) % 6]; sim.command({ t: 'walk', x, y }); }
-    }
-    // Leaving: a chain straight into the open door when it is within reach (it wins), else the greedy chain clears the way.
-    if (leaving && tick % 15 === 5 && !w.move && !w.chain.length) {
-      sim.command({ t: 'begin', x: w.arena.door.x, y: w.arena.door.y });
-      if (w.chain.some(l => l.kind === 'object')) sim.command({ t: 'release' }); else if (w.chain.length) sim.command({ t: 'cancel' });
-    }
-    if (tick % 45 === 20) { if (BOSS_AIM && w.enemies.some(e => BOSS_CORES.includes(e.kind))) aimAtCore(sim); else playChain(sim); }
-    if (tick % 400 === 200) sim.command({ t: 'spin' });
-    if (tick % 500 === 300 && canJump(w)) sim.command({ t: 'jump', x: w.hero.x + 2, y: w.hero.y - 1 });
-    if (tick % 10 === 0 && w.hero.hp <= HEAL_AT && (w.kit?.items.healing ?? 0) > 0) sim.command({ t: 'item', kind: 'healing', x: w.hero.x, y: w.hero.y });
-    sim.tick();
-    if (castellan) tuneCastellan(w, castellan, tick === 0);
-    for (const ev of w.events) if (ev.type === 'hit') lastSource = ev.source;
-    w.events.length = 0;
-  }
-  if (w.status === 'playing') { t.timeouts++; w.status = 'defeat'; }
+  const played = botFight(run, { params, loadout, limit: LIMIT, ...BOSS_AIM ? { aim: BOSS_CORES } : {},
+    ...castellan ? { afterTick: (world: World, tick: number) => tuneCastellan(world, castellan, tick === 0) } : {} });
+  const w = played.sim.world, lastSource = played.lastSource;
+  if (played.timeout) t.timeouts++;
   if (castellan) castellanFights.push({ won: w.status === 'victory', time: w.time, source: w.status === 'defeat' ? lastSource ?? 'timeout' : null, hpIn: run.hp });
   const key = keyOf(run, pending.nodeId);
   t.damage.set(key, [...t.damage.get(key) ?? [], w.stats.damageTaken]);
@@ -186,26 +136,6 @@ function tuneCastellan(w: World, set: CastellanSet, first: boolean): void {
       }
     }
   }
-}
-
-/** `--boss-aim`: a walk at the core and a chain into it (or towards it). */
-function aimAtCore(sim: Simulation): void {
-  const w = sim.world, core = w.enemies.find(e => BOSS_CORES.includes(e.kind));
-  if (!core || w.move || w.chain.length || w.status !== 'playing' || w.greedStart !== null) { playChain(sim); return; }
-  const d = Math.sqrt((core.x - w.hero.x) ** 2 + (core.y - w.hero.y) ** 2) || 1;
-  sim.command({ t: 'walk', x: (core.x - w.hero.x) / d, y: (core.y - w.hero.y) / d });
-  const byCore = (list: Enemy[]): Enemy[] => list.sort((a, b) => ((a.x - core.x) ** 2 + (a.y - core.y) ** 2) - ((b.x - core.x) ** 2 + (b.y - core.y) ** 2));
-  const first = byCore(nextCandidates(w))[0];
-  if (!first) return;
-  sim.command({ t: 'begin', x: first.x, y: first.y });
-  for (let n = 0; n < 8 && first.id !== core.id; n++) {
-    const next = byCore(nextCandidates(w))[0];
-    if (!next) break;
-    const before = w.chain.length;
-    sim.command({ t: 'drag', x: next.x, y: next.y, mode: 'full' });
-    if (w.chain.length <= before || next.id === core.id) break;
-  }
-  sim.command({ t: 'release' });
 }
 
 /** One pass: every seed walked, the fights of `real` played by the bot. */
