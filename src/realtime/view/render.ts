@@ -59,6 +59,8 @@ import { LINK_DEPTH_SHOWN, linkDepths, type LinkDepth } from '../sim/linkDepth';
 import { CHEST_CURSE_KILLS, cursed } from '../sim/chest';
 import { FLAIL_RADIUS, JAILER, JAILER_WEIGHT, jailerCore, jailerMove, jailerShieldUp, type JailerMoveId } from '../sim/enemies/jailer';
 import { CHAIN_BREAK_LIFE, drawFlailArc, drawFlailChain, drawSeverPip, drawWeight, drawWhistleMark } from './jailerView';
+import { TROLL, TROLL_ROCK, trollCore } from '../sim/enemies/troll';
+import { TROLL_ART, TROLL_ART_ASPECT, TROLL_FEET, TrollView, buildCore, buildPartArt, coreBadgeAt, corePips, isTrollKind, partBadgeAt, partOutward, posePartArt, type CoreArt, type SignTools } from './trollView';
 
 /**
  * Phase B (Т5, design 10.10.2026): the chain colours of the real-time view. Red, green and blue are those of the turn-based
@@ -349,6 +351,9 @@ interface EnemyView {
   colorless: boolean;
   /** Porcupine (iteration 2.1): the raised crown of quills and the lowered quills lying flat (one of them shown). */
   quills: { up: Graphics; down: Graphics } | null;
+  /** Task 48: the Troll's drawing (the core) or the weapon behind a part's disc (`trollView.ts`). */
+  trollArt?: CoreArt;
+  weapon?: Container;
 }
 
 /** A killed enemy: spins and shrinks for `deathDuration` (design answer 22); one that fell into a cliff also darkens. */
@@ -438,6 +443,14 @@ export class RealtimeRenderer {
    * keymaster's iron chains, `locks` — the prisoners' padlocks.
    */
   readonly tetherShown = { lines: 0, cut: 0, marks: 0, snaps: 0, shackles: 0, locks: 0, drops: 0 };
+  /** Task 48: the Troll's view — his drawing, window, signs, tail and effects (`trollView.ts`). */
+  private readonly troll = new TrollView(UNIT, chainInk);
+  /** Task 48 (tests read it): the Troll's frame — the glow, the count, the sign and its fill, the tail, the severed parts, the sparks of «звон». */
+  get trollShown(): TrollView['shown'] { return this.troll.shown; }
+  /** The real seconds of the frame being drawn (the Troll's pieces fall by it). */
+  private frameDt = 0;
+  /** The boar's strip, its head and the hatched circle — the Troll's signs are drawn with the same tools (`trollView.ts`). */
+  private readonly signTools: SignTools = { strip: threatStrip, head: stripHead, hatchCircle };
   /** Task 43: the knight's view — plate pips, lanes and swing circles of the frame, the sheds and swing hits seen. */
   private readonly knight = new KnightView(UNIT);
   get knightShown(): KnightView['shown'] { return this.knight.shown; }
@@ -733,7 +746,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.overlay, this.prologueLayer, this.fxLayer, this.snapLayer, this.shardLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.troll.layer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.overlay, this.prologueLayer, this.fxLayer, this.snapLayer, this.shardLayer, this.flash);
     this.heroRoot.addChild(this.reachLayer, this.reachMask, this.heroLayer);
     this.app.stage.addChild(this.root, this.viewBorder, this.heroRoot, this.edgeLayer);
     this.initShards();
@@ -886,10 +899,11 @@ export class RealtimeRenderer {
    */
   private bossKeep(world: World, follow = true): CameraKeep | null {
     if (!this.bossView) return null;
-    const core = world.enemies.find(e => (e.kind === JAILER || e.kind === CASTELLAN) && e.partOf === undefined);
+    const core = world.enemies.find(e => (e.kind === JAILER || e.kind === CASTELLAN || e.kind === TROLL) && e.partOf === undefined);
     if (!core) return null;
-    const r = enemyDrawRadius(world.params), art = core.kind === JAILER ? JAILER_ART : GARRISON_ART[CASTELLAN].size;
-    const up = core.kind === JAILER ? r * (JAILER_ART - JAILER_FEET) : r * (art - 1), half = (r * art) / 2, pad = BOSS_KEEP_PAD;
+    const troll = core.kind === TROLL, r = enemyDrawRadius(world.params), art = troll ? TROLL_ART : core.kind === JAILER ? JAILER_ART : GARRISON_ART[CASTELLAN].size;
+    // The Troll: his drawing's top, and sideways as far as the paws' weapons (the club and the rock stand 1.5 units from him).
+    const up = troll ? r * (TROLL_ART * TROLL_ART_ASPECT - TROLL_FEET) : core.kind === JAILER ? r * (JAILER_ART - JAILER_FEET) : r * (art - 1), half = troll ? Math.max((r * art) / 2, 2) : (r * art) / 2, pad = BOSS_KEEP_PAD;
     // The hero's box reaches down over the action bar (`edgeInset.bottom`): the hero stays above it, not under it.
     const h = world.hero, below = this.edgeInset.bottom / (UNIT * this.scale);
     const box = { x0: core.x - half - pad, x1: core.x + half + pad, y0: core.y - up - pad, y1: core.y + r + pad };
@@ -962,6 +976,9 @@ export class RealtimeRenderer {
     // Task 43: the grate is up and the core is off screen (the hero by a far lever) — the countdown stands by the core's goal arrow
     // too: the window is seen wherever the hero is.
     const grate = castellanGrate(world), goal = this.edgeArrows.find(a => a.kind === 'goal');
+    // Task 48: the Troll's window by the core's goal arrow while the core is off screen.
+    const tc = trollCore(world);
+    this.troll.drawEdge(world, goal, !tc || this.camera.sees({ x: tc.x, y: tc.y }, b, 0.5), this.app.stage);
     this.courtShown.edgeCount = '';
     if (this.edgeCountLabel) this.edgeCountLabel.visible = false;
     if (grate?.open && goal && !this.camera.sees({ x: grate.x, y: grate.y }, b, 0.5)) {
@@ -1193,7 +1210,7 @@ export class RealtimeRenderer {
     for (const sx of [-1, 1]) ctx.poly([sx * r * 0.32, r * 0.55, sx * r * 0.72, r * 0.98, sx * r * 0.78, r * 0.42, sx * r * 0.52, r * 0.5]).fill(BONE).stroke({ color: NAVY, width: 2.5, join: 'round' });
   }
 
-  private buildEnemyBody(e: Enemy, look: EnemyLook, colorless: boolean): { body: Container; grey: Sprite | null; hpLabel: Text | null; exclaim: Text | null; quills: { up: Graphics; down: Graphics } | null } {
+  private buildEnemyBody(e: Enemy, look: EnemyLook, colorless: boolean): { body: Container; grey: Sprite | null; hpLabel: Text | null; exclaim: Text | null; quills: { up: Graphics; down: Graphics } | null; trollArt?: CoreArt; weapon?: Container } {
     const body = new Container();
     // Iteration 2.1: the porcupine's quills behind its disc (raised or lowered each frame).
     const quills = e.kind === 'porcupine' ? this.quillGraphics() : null;
@@ -1235,8 +1252,12 @@ export class RealtimeRenderer {
       if (!colorless) drawSigil(plaque.context, e.color, r * 0.22, NAVY, belt);
       body.addChild(plaque);
     }
+    // Task 48: the Troll — his large drawing over the grey disc (the feet at its bottom); a part — its weapon behind its colour disc.
+    let trollArt: CoreArt | undefined, weapon: Container | undefined;
+    if (e.kind === TROLL) { trollArt = buildCore(r); body.addChild(trollArt.root); }
+    else if (isTrollKind(e.kind)) { weapon = buildPartArt(e.kind, r) ?? undefined; if (weapon) body.addChildAt(weapon, 0); }
     let hpLabel: Text | null = null;
-    if (e.hp > 0 && (e.leader || e.kind === JAILER || e.kind === JAILER_WEIGHT)) {
+    if (e.hp > 0 && (e.leader || e.kind === JAILER || e.kind === JAILER_WEIGHT || isTrollKind(e.kind))) {
       // Task 12: the leader's HP — the number a chain must beat: the HP badge's place (top right, clear of the face), half as large
       // again, a gold rim and a bright number. Task 27: the Jailer's core and weight wear the same plaque.
       // Task 27: the Jailer's plaque by its head, clear of the shield arc; the weight's stands outside the ball, away from the
@@ -1260,7 +1281,7 @@ export class RealtimeRenderer {
       body.addChild(exclaim);
     }
     if (e.kind === 'boar') body.scale.set(BOAR_SCALE);
-    return { body, grey, hpLabel, exclaim, quills };
+    return { body, grey, hpLabel, exclaim, quills, ...trollArt ? { trollArt } : {}, ...weapon ? { weapon } : {} };
   }
 
   private syncEnemies(world: World): void {
@@ -1271,6 +1292,7 @@ export class RealtimeRenderer {
     const color = world.chain.length ? chainColor(world) : null;
     const mode = world.params.dimMode, strength = world.params.dimStrength;
     let dimmed = 0, colorlessShown = 0;
+    const air = this.troll.rockInAir(world);
     for (const e of world.enemies) {
       seen.add(e.id);
       let view = this.enemyViews.get(e.id);
@@ -1282,9 +1304,9 @@ export class RealtimeRenderer {
         this.enemyViews.delete(e.id); view = undefined;
       }
       if (!view) {
-        const root = new Container(), { body, grey, hpLabel, exclaim, quills } = this.buildEnemyBody(e, look, colorless);
+        const root = new Container(), { body, grey, hpLabel, exclaim, quills, trollArt, weapon } = this.buildEnemyBody(e, look, colorless);
         root.addChild(body); this.enemyLayer.addChild(root);
-        view = { root, body, grey, hpLabel, exclaim, hp: e.hp, look, color: e.color, colorless, quills };
+        view = { root, body, grey, hpLabel, exclaim, hp: e.hp, look, color: e.color, colorless, quills, ...trollArt ? { trollArt } : {}, ...weapon ? { weapon } : {} };
         this.enemyViews.set(e.id, view);
       }
       if (view.hpLabel && view.hp !== e.hp) { view.hpLabel.text = String(e.hp); view.hp = e.hp; }
@@ -1294,6 +1316,19 @@ export class RealtimeRenderer {
         const R = BASE_ENEMY_RADIUS * UNIT;
         if (e.kind === JAILER_WEIGHT) { const u = weightOutward(world, e); view.hpLabel.parent.position.set(u.x * R * WEIGHT_BADGE, u.y * R * WEIGHT_BADGE); }
         else view.hpLabel.parent.position.set(R * 1.65, this.bossPipsBelow.get(e.id) ? R * 1.8 : -R * (JAILER_ART - JAILER_FEET + 0.55));
+      }
+      // Task 48: the Troll's plaque by his head, a part's outside it on the line from the core (the weight's way); a part's weapon is
+      // posed (the club's head along its lane while it lies; the rock is hidden while it flies); the core's drawing is synced.
+      if (isTrollKind(e.kind)) {
+        const R = BASE_ENEMY_RADIUS * UNIT;
+        if (e.kind === TROLL) {
+          if (view.hpLabel?.parent) { const at = coreBadgeAt(R); view.hpLabel.parent.position.set(at.x, at.y); }
+          this.troll.syncCore(view.trollArt ?? null, world, this.clock, enemyDrawRadius(world.params) * UNIT, view.root.visible);
+        } else {
+          const core = world.enemies.find(c => c.id === e.partOf);
+          if (view.hpLabel?.parent && core) { const at = partBadgeAt(e.kind, partOutward(core, e), R); view.hpLabel.parent.position.set(at.x, at.y); }
+          if (view.weapon) { posePartArt(view.weapon, e.kind, e, core, e.kind === TROLL_ROCK && !!air); this.troll.shown.weapons++; }
+        }
       }
       // Strike: a short lunge towards the hero.
       let ox = 0, oy = 0;
@@ -1411,6 +1446,8 @@ export class RealtimeRenderer {
       this.knight.shown.lanes++;
     }
     this.knight.drawSwing(g, world, e => this.sees(e, 3));
+    // Task 48: the Troll's signs — the club's strip, the rock's circle, the tail's ring, the lairs' circles (the sim's `trollMove`).
+    this.troll.drawSigns(g, world, this.signTools, p => this.sees(p, 6));
     this.garrisonShown.lunges = 0;
     for (const e of world.enemies) {
       if (e.kind !== CASTELLAN) continue;
@@ -1723,6 +1760,7 @@ export class RealtimeRenderer {
     }
     this.archerMarksSeen = marks;
     this.drawBoss(world, g);
+    this.drawTroll(world, g);
     Object.assign(this.signals, counts);
     // Casino stage 1 («Однорукий гоблин»): the arrows of the rain and the volley — the archer's mark (a hatched threat circle
     // filling until the arrow falls); the fall flashes on its `land` event (`handleEvents`).
@@ -1901,6 +1939,28 @@ export class RealtimeRenderer {
     }
     this.chainBreaks = this.chainBreaks.filter(b => b.until > this.clock);
     for (const b of this.chainBreaks) drawFlailChain(cg, b.x0, b.y0, b.x1, b.y1, b.sag, px, 1 - (b.until - this.clock) / CHAIN_BREAK_LIFE);
+  }
+
+  /**
+   * Task 48 «Тролль» (docs/design-notes/task-48-troll.md, 16): the tail's line under the enemies (`bossLayer`), the plate pips of the
+   * core (under his right foot) and of the club and the tail (on the line from the core, beside their HP plaques), and over them
+   * the snore's arc, the rock in the air and the effects (`trollView.ts`).
+   */
+  private drawTroll(world: World, g: Graphics): void {
+    const r = enemyDrawRadius(world.params) * UNIT, px = 1 / Math.max(0.1, this.scale), core = trollCore(world);
+    this.troll.drawTail(this.bossLayer, world, r, this.clock);
+    if (core) {
+      this.bossCoreAt = { x: core.x, y: core.y };
+      const armor = eliteArmorView(core);
+      if (armor && this.sees(core, 1.5)) { const at = corePips(core.x * UNIT, core.y * UNIT, r); drawPlatePips(g, at.x, at.y, at.R, armor, 0, px, true); }
+      for (const part of world.enemies) {
+        const pa = part.partOf === core.id && part.kind !== TROLL ? eliteArmorView(part) : null;
+        if (!pa || !this.sees(part, 1.5)) continue;
+        const u = partOutward(core, part), badge = partBadgeAt(part.kind, u, r), n = u.y > 0 ? { x: u.y, y: -u.x } : { x: -u.y, y: u.x }, side = n.x < 0 ? -1 : 1;
+        drawPlatePips(g, part.x * UNIT + badge.x + n.x * side * r * 0.95, part.y * UNIT + badge.y + n.y * side * r * 0.95, 0, pa, 0, px);
+      }
+    }
+    this.troll.drawOver(g, world, this.clock, this.frameDt, r, this.signTools);
   }
 
   /** Task 29 «Наледь»: the cold the dash left on the arena — under the enemies, fading with its life (`FROST_PASS_LIFE`). */
@@ -2639,6 +2699,8 @@ export class RealtimeRenderer {
     for (const [at, ev] of world.events.entries()) {
       // Task 27: the Jailer. A move hit — its sign flashes where it stood; a part severed — its chain falls; the core lost a
       // plate after the dash — «−1 пластина» over it, as an elite's.
+      // Task 48: the Troll's events (his moves' hits flash the sign, «звон», the severed parts fall, a plate that grew back) — the rest are the Jailer's.
+      if ((ev.type === 'bossMove' || ev.type === 'trollWindow' || ev.type === 'partSevered' || ev.type === 'bossPlate') && this.troll.onEvent(ev, world, this.clock, enemyDrawRadius(world.params) * UNIT)) continue;
       if (ev.type === 'bossMove') {
         const m = ev.stage === 'hit' ? this.bossMovesSeen.get(ev.id) : undefined;
         if (m) { this.bossFlashes.push({ ...m, until: this.clock + 0.3 }); this.bossShown.hits++; }
@@ -3363,7 +3425,9 @@ export class RealtimeRenderer {
         // blinks as an empty lemon ring over the core (no text).
         const core = lp.severs && linked ? jailerCore(world, linked) : undefined, armor = core && core !== linked ? eliteArmorView(core) : null;
         const lit = Math.floor(this.clock * 4) % 2 === 0;
-        if (core && armor && drawSeverPip(g, core.x * UNIT, core.y * UNIT, bossPipRadius(core, r, this.bossPipsBelow.get(core.id) ?? false), armor, 1 / Math.max(0.1, this.scale), lit, this.bossPipsBelow.get(core.id) ?? false)) { this.bossShown.severPips++; if (lit) this.bossShown.severLit++; }
+        // Task 48: the Troll's plate row stands under his right foot (`corePips`), the Jailer's over his head or under his feet.
+        const tp = core?.kind === TROLL ? corePips(core.x * UNIT, core.y * UNIT, r) : null;
+        if (core && armor && drawSeverPip(g, tp ? tp.x : core.x * UNIT, tp ? tp.y : core.y * UNIT, tp ? tp.R : bossPipRadius(core, r, this.bossPipsBelow.get(core.id) ?? false), armor, 1 / Math.max(0.1, this.scale), lit, tp ? true : this.bossPipsBelow.get(core.id) ?? false)) { this.bossShown.severPips++; if (lit) this.bossShown.severLit++; }
       } else {
         g.circle(x, y, r + 4).stroke({ color: 0xffa040, width: 4 });
         g.circle(cx, cy, r * 0.32).fill(0xffa040).stroke({ color: NAVY, width: 2 });
@@ -3912,6 +3976,7 @@ export class RealtimeRenderer {
   /** Draws the current world. Consumes world.events (render-only effects). */
   render(world: World, realDt: number, ui: RenderUi = { pointer: null, jumpMode: false }): void {
     this.clock += realDt;
+    this.frameDt = realDt;
     this.updateCamera(world, realDt, ui);
     this.applyShake(realDt);
     this.handleEvents(world);
@@ -3926,6 +3991,7 @@ export class RealtimeRenderer {
     this.drawObjects(world);
     this.drawMarkers(world);
     this.drawTrails(world);
+    this.troll.beginFrame();
     this.drawLanes(world);
     this.drawRipples(world);
     this.syncEnemies(world);
@@ -3954,6 +4020,8 @@ export class RealtimeRenderer {
     this.drawPurseCaption(world);
     this.drawCheque(world, realDt);
     this.drawEdgeMarkers(world);
+    // Task 48: the core's plates and the parts' places of this frame (the next frame's events compare against them).
+    this.troll.note(world, enemyDrawRadius(world.params) * UNIT);
   }
 
   /** Water stays water: bodies wading in the pond get two widening rings (walking there is slower). */
@@ -3991,6 +4059,7 @@ export class RealtimeRenderer {
 
   resetEffects(): void {
     this.snaps = []; this.drops = []; this.snapLayer.clear(); this.houndAt.clear();
+    this.troll.reset();
     this.intro = null; this.openedOnBoss = false;
     this.shakeLeft = 0;
     this.flashLeft = 0;

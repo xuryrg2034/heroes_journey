@@ -1302,6 +1302,8 @@ async function boot(): Promise<void> {
         else if (ev.type === 'finisher') audio.finisher(soundVolume());
         // Task 38: a tether cut by the dash snaps.
         else if (ev.type === 'tether' && ev.action === 'cut') audio.snap(soundVolume());
+        // Task 48: the Troll's club falls — a dull thud (the one tone of his fight; no sound for «звон» — a dash strikes many bodies).
+        else if (ev.type === 'bossMove' && ev.move === 'club' && ev.stage === 'hit') audio.thud(soundVolume());
         // Task 47, С4: the hammers — the fire's crackle, the end's pop, the cut's swish (one a frame: a dash cuts many), the bell
         // backwards of «Возврат».
         else if (ev.type === 'hammer') {
@@ -1754,6 +1756,14 @@ async function boot(): Promise<void> {
         court: { ...renderer.courtShown },
         /** Task 43: the knight — plate pips, «Рывок» lanes and «Размах» circles drawn in the frame; the sheds and swing hits seen. */
         knight: { ...renderer.knightShown },
+        /**
+         * Task 48 «Тролль» (render.ts `trollShown`): `core` — his drawing this frame, `asleep` («Храп»), `glow` (a window is open), `count` (the whole
+         * seconds over him, '' — none) and `edgeCount` (by his goal arrow, off screen); `sign` (the move's sign now: club, rock, tail, roar) and its fill
+         * `signProgress`, the signs by shape (`strips`, `circles`, `rings`, `gateMarks`), `snoreArc` (its fill, 0 — none); `tail` (his tail's line),
+         * `weapons` (the parts' drawings), `flight` (the rock in the air); since the fight began — `hits` (signs flashed), `sparks` («звон»), `severed`,
+         * `tailFalls`, `unlinks` (white rings of links dropped with the window), `crumbles` (a struck snore's arc), `regrows`, `opens`.
+         */
+        troll: { ...renderer.trollShown },
         /** Task 28: the boss bar of the HUD (`BossBar.shown`) and the names of the boss's moves on screen now. */
         bossBar: bossBar.shown(),
         bossNames: bossLabels.map(l => l.spec.text),

@@ -158,7 +158,7 @@ check('task 17: the gentle tables on the card — row 3 no elites, row 4 they co
 });
 
 check(`task 43 Г: a garrison node's card counts its own fight's start (every kind named, «×N» for more than one), names the newcomers, and has the line «Усиление» exactly when the node has additions (knights, crossbowmen, the deep keymaster); forest nodes keep their line`, () => {
-  let cards = 0, extras = 0, knights = 0, bolts = 0, deep = 0, forest = 0;
+  let cards = 0, extras = 0, knights = 0, bolts = 0, deep = 0, forest = 0, troll = 0;
   for (let k = 1; k <= 10; k++) {
     walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true }, each: state => {
       for (const node of rtAvailableNodes(state)) {
@@ -166,6 +166,8 @@ check(`task 43 Г: a garrison node's card counts its own fight's start (every ki
         const g = rtNodeEnemies(state, node), pick = arenaPreview(state, node);
         if (!pick) continue;
         const lines = Object.fromEntries(nodeDangers({ arena: pick.arena, roster: pick.roster, ...g ? { garrison: g } : {}, ...cardRules(state, node) }).map(line => [line.id, line.text]));
+        // Task 48: the Troll's fight (a forest node: `rtNodeEnemies` answers for the garrison only) is counted by its start from the arena's template.
+        if (!g && pick.arena === 'troll') { troll++; assert(!lines.extras && lines.enemies === 'Тролль, дубина, камень, хвост · подходят: обычные', `troll: ${lines.enemies}`); continue; }
         if (!g) { forest++; assert(!lines.extras && !(lines.enemies ?? '').includes('подходят'), `forest ${pick.arena}: ${lines.enemies}`); continue; }
         cards++;
         for (const s of g.start) {

@@ -54,10 +54,13 @@ export const KIND_PLURAL: Readonly<Record<string, string>> = {
   basic: 'обычные', wolf: 'волки', boar: 'кабаны', reaper: 'жнец', shield: 'щитоносцы', archer: 'лучники', sapper: 'сапёры', porcupine: 'дикобразы', lynx: 'рыси', shaman: 'шаманы',
   // Task 43 (the garrison; the kinds with a small letter — task 40; the Castellan is a name).
   guard: 'стражники', handler: 'псари', hound: 'псы', keymaster: 'ключники', crossbow: 'арбалетчики', knight: 'рыцари', castellan: 'Кастелян', 'castellan-crossbow': 'арбалеты на станке',
+  // Task 48 (the Troll's fight at its start: the core and his three parts; the names the run-end lines use).
+  troll: 'Тролль', 'troll-club': 'дубины', 'troll-rock': 'камни', 'troll-tail': 'хвосты',
 };
 /** Task 43: a garrison kind standing once at the fight's start (the card counts the start: «псарь, псы ×2»). */
 export const KIND_ONE: Readonly<Record<string, string>> = {
   basic: 'обычный', guard: 'стражник', handler: 'псарь', hound: 'пёс', keymaster: 'ключник', crossbow: 'арбалетчик', knight: 'рыцарь', castellan: 'Кастелян', 'castellan-crossbow': 'арбалет на станке',
+  troll: 'Тролль', 'troll-club': 'дубина', 'troll-rock': 'камень', 'troll-tail': 'хвост',
 };
 
 /**
@@ -166,9 +169,17 @@ export function nodeDangers(input: NodeDangerInput): NodeDangerLine[] {
   // `basic` first, then the kinds in the order of the plural table (stable across arenas).
   const order = Object.keys(KIND_PLURAL);
   kinds.sort((a, b) => order.indexOf(a) - order.indexOf(b));
-  if (input.garrison) {
+  // Task 48: the Troll's fight (the den branch's boss) counts its start like the garrison's — the template's own enemies, read here (the
+  // sim's world for this fight is the template's start; `rtNodeEnemies` answers for garrison nodes only).
+  const start = template.troll ? template.enemies.reduce<{ kind: string; count: number }[]>((list, e) => {
+    const item = list.find(x => x.kind === (e.kind ?? 'basic'));
+    if (item) item.count++; else list.push({ kind: e.kind ?? 'basic', count: 1 });
+    return list;
+  }, []) : null;
+  const garrison = input.garrison ?? (start ? { start, newcomers: kinds.filter(kind => kind !== 'basic' && !start.some(item => item.kind === kind)), knights: 0, bolts: false, deep: false } : undefined);
+  if (garrison) {
     // Task 43, part Г: the garrison counts its fight's start and names the newcomers; the additions on a line of their own.
-    const g = garrisonEnemiesText(input.garrison), fresh = g.kinds.filter(kind => input.newKinds?.includes(kind));
+    const g = garrisonEnemiesText(garrison), fresh = g.kinds.filter(kind => input.newKinds?.includes(kind));
     lines.push({ id: 'enemies', label: 'Враги', text: g.enemies, ...fresh.length ? { newKinds: fresh } : {} });
     if (g.extras) lines.push({ id: 'extras', label: 'Усиление', text: g.extras });
   } else if (kinds.length) {

@@ -1,0 +1,180 @@
+/**
+ * Task 48 «Тролль», part ui (view/trollView.ts, bossBar.ts, worldLabels.ts, nodeCard.ts): the view of the forest's boss reads the sim.
+ * Node only: `npm run test:realtime-troll-view`. The view is driven frame by frame against a real world of the arena «Берлога тролля»
+ * (journalled commands: teleport, chill; the sim's own timers); it writes to real PixiJS `Graphics` without a renderer. What the player
+ * sees in a browser by real input — tests/realtime-troll.spec.ts.
+ * - the ring of «Хвост метёт» is cut by the rock walls (the scanlines and the hatching); the whole-second count; the part's line;
+ * - «Удар дубиной»: the strip fills with the windup, the hit flashes it, the window opens — the glow and the count «2», «1»;
+ * - a part severed — its drawing falls off (and the tail's line); «звон» — a spark, no text;
+ * - the boss bar: `trollHp` + `trollPlates` cells, the line at 2 plates, lit in phase 3; the HUD's goal names «Тролль»;
+ * - the names of the five moves at their first start; the node card's enemies line from the fight's start.
+ */
+// Node 20 has no global navigator; pixi.js reads it on load (nodeNavigator.testkit.ts). First import.
+import './nodeNavigator.testkit';
+import { Graphics, Text } from 'pixi.js';
+import { enemyRefusal } from '../sim/chain';
+import { PHASE3_PLATES, TAIL_INNER, TAIL_OUTER, TROLL, TROLL_CLUB, TROLL_ROCK, TROLL_TAIL, trollMove, trollState } from '../sim/enemies/troll';
+import { defaultParams, type Params } from '../sim/params';
+import { Simulation, SIM_DT } from '../sim/simulation';
+import { killEnemy, type Enemy, type World, type WorldEvent } from '../sim/world';
+import { bossBarState, goalLabelOf } from './bossBar';
+import { nodeDangers } from './nodeCard';
+import { bossMoveLabels, BOSS_MOVE_TEXT } from './worldLabels';
+import { TrollView, buildCore, partOutward, ringSpans, subtractInterval, wallsOf, windowCount, type SignTools } from './trollView';
+
+function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
+function check(name: string, run: () => void): void { run(); console.log(`ok - ${name}`); }
+const seedOf = (k: number): number => Math.imul(k, 2654435761) >>> 0;
+const U = 72, R = 28.8;
+
+/** Nothing comes but the Troll's own, the hero cannot fall, no touch. */
+function quiet(): Params {
+  const p = defaultParams();
+  p.baseFloor = 0; p.baseIntervalMin = 1e6; p.baseIntervalMax = 1e6; p.speedSpread = 0; p.contactDamage = 0; p.heroHp = 999; p.hitstop = false; p.enemySpeed = 0;
+  return p;
+}
+interface Den { sim: Simulation; w: World; core: Enemy; club: Enemy; rock: Enemy; tail: Enemy }
+function den(k = 1): Den {
+  const sim = new Simulation({ arena: 'troll', params: quiet(), seed: seedOf(k), record: true }), w = sim.world;
+  sim.command({ t: 'teleport', x: 12, y: 12 });
+  sim.tick(); w.events.splice(0);
+  const kind = (id: string): Enemy => w.enemies.find(e => e.kind === id)!;
+  return { sim, w, core: kind(TROLL), club: kind(TROLL_CLUB), rock: kind(TROLL_ROCK), tail: kind(TROLL_TAIL) };
+}
+
+/** The counts of the tools the signs draw with. */
+function tools(): SignTools & { calls: { strip: number; head: number; hatch: number } } {
+  const calls = { strip: 0, head: 0, hatch: 0 };
+  return { calls, strip: () => { calls.strip++; }, head: () => { calls.head++; }, hatchCircle: () => { calls.hatch++; } };
+}
+
+/** One frame of the view over the tick just played (what render.ts does, in its order); returns the events it saw. */
+function frame(view: TrollView, w: World, g: Graphics, tl: SignTools, art: ReturnType<typeof buildCore>, clock: number, events: readonly WorldEvent[]): void {
+  for (const ev of events) view.onEvent(ev, w, clock, R);
+  view.beginFrame();
+  g.clear();
+  view.drawSigns(g, w, tl, () => true);
+  view.syncCore(art, w, clock, R, true);
+  view.drawTail(g, w, R, clock);
+  view.drawOver(g, w, clock, SIM_DT, R, tl);
+  view.note(w, R);
+}
+
+check('the ring of «Хвост метёт» is cut by the rock walls; the count is whole seconds; a part stands on the line from the core', () => {
+  const { w } = den(), walls = wallsOf(w), c = { x: 12, y: 2.2 };
+  // The rock behind the Troll (y 0 … 1.6, x 9 … 15) covers the ring's top; a scanline at y 1.0 meets no free ring.
+  assert(walls.length >= 3, `the den's walls (${walls.length})`);
+  assert(ringSpans(c, TAIL_INNER, TAIL_OUTER, { x: 0, y: 1.0 }, { x: 1, y: 0 }, walls).length === 0, 'no ring inside the back rock');
+  // At the core's height the ring's two arms are cut by the mouth's side walls (x 7.5 … 9, 15 … 16.5): 9 … 10.8 and 13.2 … 15.
+  const arms = ringSpans(c, TAIL_INNER, TAIL_OUTER, { x: 0, y: 2.2 }, { x: 1, y: 0 }, walls).map(([a, b]) => [Math.round(a * 10) / 10, Math.round(b * 10) / 10]);
+  assert(JSON.stringify(arms) === JSON.stringify([[9, 10.8], [13.2, 15]]), `the arms at the core's height ${JSON.stringify(arms)}`);
+  // Below the rock (y 4) the ring is whole: one span across, the hole of the inner circle cut out of it only near the core.
+  const low = ringSpans(c, TAIL_INNER, TAIL_OUTER, { x: 0, y: 4.2 }, { x: 1, y: 0 }, walls);
+  assert(low.length === 1 && low[0][1] - low[0][0] > 4, `below the rock the ring is whole (${JSON.stringify(low)})`);
+  assert(JSON.stringify(subtractInterval([[0, 10]], [3, 4])) === '[[0,3],[4,10]]', 'an interval cut in two');
+  assert(windowCount(1.5) === '2' && windowCount(1) === '1' && windowCount(0.2) === '1' && windowCount(4) === '4', 'the count — whole seconds, never 0');
+  const out = partOutward({ x: 12, y: 2.2 }, { x: 10.5, y: 2.6 });
+  assert(out.x < -0.9 && out.y > 0 && Math.abs(Math.hypot(out.x, out.y) - 1) < 1e-9, 'the club stands left and down of the core');
+});
+
+check('«Удар дубиной»: the strip fills with the windup and flashes at the hit; the window glows and counts «2» → «1»; a closed core has no glow', () => {
+  for (const k of [1, 2, 3]) {
+    const d = den(k), { sim, w } = d, view = new TrollView(U, c => c), g = new Graphics(), tl = tools(), art = buildCore(R);
+    sim.command({ t: 'chill', id: d.rock.id, seconds: 600 });
+    sim.command({ t: 'teleport', x: 12, y: 6.5 });
+    let clock = 0, sawStrip = false, fill = 0, opened = false, countedTwo = false, countedOne = false, hitSeen = 0, flashed = false;
+    assert(enemyRefusal(w, d.core) === 'outOfWindow', `seed ${k}: closed before the blow`);
+    for (let i = 0; i < 60 * 14; i++) {
+      sim.tick(); clock += SIM_DT;
+      const events = w.events.splice(0);
+      frame(view, w, g, tl, art, clock, events);
+      const m = trollMove(w);
+      if (m?.move === 'club') { sawStrip ||= view.shown.strips === 1 && view.shown.sign === 'club'; fill = Math.max(fill, view.shown.signProgress); }
+      if (view.shown.hits > hitSeen) { hitSeen = view.shown.hits; flashed = true; }
+      if (view.shown.glow) { opened = true; countedTwo ||= view.shown.count === '2'; countedOne ||= view.shown.count === '1'; }
+      if (!trollState(w)?.window && opened) break;
+      if (!opened) assert(view.shown.glow === 0 && view.shown.count === '', `seed ${k}: a closed core has no glow and no count`);
+    }
+    assert(sawStrip && tl.calls.strip > 0 && tl.calls.head > 0, `seed ${k}: the strip was drawn (${tl.calls.strip})`);
+    assert(fill > 0.95, `seed ${k}: the strip filled to ${fill.toFixed(2)}`);
+    assert(flashed && opened && countedTwo && countedOne, `seed ${k}: flash ${flashed}, glow ${opened}, «2» ${countedTwo}, «1» ${countedOne}`);
+    assert(view.shown.opens === 1, `seed ${k}: one window (${view.shown.opens})`);
+  }
+});
+
+check('a severed part falls off with its weapon, the tail — with its line; a hit outside the window sparks, no text', () => {
+  const d = den(1), { w } = d, view = new TrollView(U, c => c), g = new Graphics(), tl = tools(), art = buildCore(R);
+  let clock = 0;
+  const tick = (): void => { d.sim.tick(); clock += SIM_DT; frame(view, w, g, tl, art, clock, w.events.splice(0)); };
+  tick(); tick();
+  assert(view.shown.tail === 1, 'the tail line is drawn');
+  // The tail's line falls when the tail is cut; its knot's drawing falls as a piece in the layer.
+  const pieces = (): number => view.layer.children.length;
+  const before = pieces();
+  killEnemy(w, d.tail, { source: 'chain', credited: true });
+  tick();
+  assert(view.shown.severed === 1 && view.shown.tailFalls === 1 && pieces() > before, `the knot and its line fall (${view.shown.severed}, ${view.shown.tailFalls}, ${pieces() - before})`);
+  for (let i = 0; i < 40; i++) tick();
+  assert(pieces() === before, `the fallen pieces are gone after 0.5 s (${pieces()} vs ${before})`);
+  // «Звон»: a hit of fire on the closed core — the sim blocks it; the view sparks.
+  d.sim.command({ t: 'chill', id: d.club.id, seconds: 600 }); d.sim.command({ t: 'chill', id: d.rock.id, seconds: 600 });
+  const sparks = view.shown.sparks;
+  frame(view, w, g, tl, art, clock, [{ type: 'trollWindow', action: 'block', id: d.core.id, source: 'fire', x: d.core.x, y: d.core.y }]);
+  assert(view.shown.sparks === sparks + 1, 'a spark for «звон»');
+  assert(!view.layer.children.some(c => c instanceof Text && c.visible), 'the spark has no text (no label is shown)');
+});
+
+check('a whole fight played in the view: every sign is drawn at its move (strip, circle, ring, lairs), the rock flies, the snore draws its arc and the sleeping drawing; nothing throws', () => {
+  const d = den(2), { sim, w } = d, view = new TrollView(U, c => c), g = new Graphics(), tl = tools(), art = buildCore(R);
+  const seen = new Set<string>(), spots: [number, number][] = [[12, 6.5], [12, 4.4], [9, 9], [15, 9]];
+  let clock = 0, flight = 0, arc = 0, asleep = 0, gates = 0, rings = 0;
+  for (let i = 0; i < 60 * 90 && w.status === 'playing'; i++) {
+    if (i % 180 === 0) { const [x, y] = spots[(i / 180) % spots.length]; sim.command({ t: 'teleport', x, y }); }
+    // The phases by the spec's times are long: the view is read in all three at once (the state the sim keeps in `vars`).
+    if (i === 60) d.core.vars.phase = 2;
+    if (i === 60 * 30) d.core.vars.phase = 3;
+    sim.tick(); clock += SIM_DT;
+    frame(view, w, g, tl, art, clock, w.events.splice(0));
+    if (view.shown.sign) seen.add(view.shown.sign);
+    flight += view.shown.flight; arc += view.shown.snoreArc > 0 ? 1 : 0; asleep += view.shown.asleep; gates += view.shown.gateMarks; rings += view.shown.rings;
+  }
+  assert(['club', 'rock', 'tail', 'roar'].every(m => seen.has(m)), `the signs drawn: ${[...seen].join(', ')}`);
+  assert(flight > 0 && arc > 0 && asleep > 0 && gates > 0 && rings > 0, `flight ${flight}, arc ${arc}, asleep ${asleep}, lairs ${gates}, rings ${rings}`);
+  assert(tl.calls.hatch > 0, 'the rock circle was hatched');
+});
+
+check('the boss bar: HP and plate cells, the line at 2 plates, lit in phase 3; the goal names the Troll', () => {
+  const d = den(1), s = bossBarState(d.w);
+  assert(s && s.hpMax === 2 && s.platesMax === 4 && s.hp === 2 && s.plates === 4, `the bar's cells (${JSON.stringify(s)})`);
+  assert(s.phaseAt === s.hpMax + PHASE3_PLATES && !s.phase2, `the line at ${s.phaseAt}, not lit`);
+  d.core.vars.phase = 2;
+  assert(!bossBarState(d.w)!.phase2, 'phase 2 does not light the line (it has none)');
+  d.core.vars.phase = 3;
+  assert(bossBarState(d.w)!.phase2, 'phase 3 lights the line');
+  assert(goalLabelOf(d.w, 'отмеченные') === 'Тролль', `the goal's name (${goalLabelOf(d.w, 'отмеченные')})`);
+});
+
+check('the five moves are named at their first start, at their signs; nothing else is written', () => {
+  const d = den(1), named = new Set<string>(), texts: string[] = [];
+  for (const move of ['club', 'rock', 'tail', 'roar', 'snore'] as const) {
+    d.core.vars.ax = 10; d.core.vars.ay = 7; d.core.vars.bx = 12; d.core.vars.by = 6;
+    d.w.events.push({ type: 'bossMove', id: d.core.id, move, stage: 'start' });
+    const labels = bossMoveLabels(d.w, named);
+    d.w.events.splice(0);
+    assert(labels.length === 1 && labels[0].text === BOSS_MOVE_TEXT[move], `${move}: ${JSON.stringify(labels.map(l => l.text))}`);
+    texts.push(labels[0].text);
+    // The second start of the same move in the fight is not named again.
+    d.w.events.push({ type: 'bossMove', id: d.core.id, move, stage: 'start' });
+    assert(bossMoveLabels(d.w, named).length === 0, `${move}: named once`);
+    d.w.events.splice(0);
+  }
+  assert(JSON.stringify(texts) === JSON.stringify(['Удар дубиной', 'Бросок камня', 'Хвост метёт', 'Рык', 'Храп']), texts.join(' | '));
+});
+
+check('the node card: «Враги» counts the fight\'s start — the Troll and his three parts, then who comes', () => {
+  const lines = nodeDangers({ arena: 'troll', row: 10, guaranteedElite: false });
+  const enemies = lines.find(l => l.id === 'enemies');
+  assert(enemies?.text === 'Тролль, дубина, камень, хвост · подходят: обычные', `the enemies line (${enemies?.text})`);
+});
+
+console.log('trollView.spec: done');
