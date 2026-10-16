@@ -143,3 +143,9 @@ NOT smooth plastic surfaces, NOT excessive gradients.
   - `public/art/characters/garrison-knight.png` — Рыцарь (две пластины лат, ведро-шлем, двуручный меч), 1094×1310;
   - `public/art/characters/garrison-crossbowman.png` — Арбалетчик, 1168×1310;
   - `public/art/characters/garrison-crossbow.png` — тяжёлый арбалет на станке (часть Кастеляна, предмет), 1310×1096.
+
+### Второй герой — Ведунья (16.10.2026)
+
+Набор для задачи 49 (`docs/design-notes/task-49-second-hero.md`, раздел 11), Codex `image_gen`, промпты — `artifacts/art-prompts/heroes.json`. Проверка `check-art.mjs` 16.10.2026: PASS для двух; глазами — стиль един с `player.png`, силуэт читается в малом размере. Подключение в вид — задача ui после ядра задачи 49 (`CHARACTER_ART_IDS`).
+- `public/art/characters/toad.png` — Ведунья, жаба-колдунья (герой): шляпа с рунами, бирюзовое кольцо в поднятой лапе, посох-коряга с угольком, 1310×1183.
+- `public/art/characters/jailer-cage.png` — пустая висячая клетка Тюремщика (предмет), 1196×1310. Верх цепи срезан краем кадра во всех трёх попытках генератора: вид дорисовывает цепь вверх линией или ставит клетку у края арены.
