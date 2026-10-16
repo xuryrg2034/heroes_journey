@@ -1,4 +1,4 @@
-import { type Page } from '@playwright/test';
+import { type Locator, type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
 import { createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtEnterNode, serializeRtRun, type RtAshLevel, type RtRunState } from '../src/realtime/run/rtRun';
 import { RT_PROFILE_STORAGE_KEY, RT_RUN_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
@@ -14,6 +14,26 @@ import { closeNode, ok, seedOf, takeGift } from '../src/realtime/run/runFight.te
  *   header says «Испытание III», the run has no gentle entry;
  * - the node card of an «Испытание IV» run on row 6 says the fight's 2 traits («2 особых свойства»).
  */
+/**
+ * Task 45 (core's report 16.10.2026: «VII» ran under the meta column, «Испытание:» was cut on the left): every level button and the
+ * head lie inside the end screen's card, and the point at each button's centre is that button (nothing covers it).
+ */
+async function expectAshFits(page: Page, screen: Locator): Promise<void> {
+  const box = (await screen.locator('.rt-card').boundingBox())!;
+  const head = (await screen.locator('.rt-ash-head').boundingBox())!;
+  expect(head.x, 'the head is not cut on the left').toBeGreaterThanOrEqual(box.x);
+  const levels = screen.locator('.rt-ash-level'), meta = screen.locator('.rt-meta');
+  const metaBox = await meta.count() ? await meta.boundingBox() : null;
+  for (let i = 0; i < await levels.count(); i++) {
+    const b = (await levels.nth(i).boundingBox())!;
+    expect(b.x, `level ${i} inside the card`).toBeGreaterThanOrEqual(box.x);
+    expect(b.x + b.width, `level ${i} inside the card`).toBeLessThanOrEqual(box.x + box.width);
+    if (metaBox) expect(b.x + b.width, `level ${i} left of the meta column`).toBeLessThanOrEqual(metaBox.x);
+    const hit = await page.evaluate(([x, y]) => (document.elementFromPoint(x, y) as HTMLElement | null)?.dataset.testid ?? null, [b.x + b.width / 2, b.y + b.height / 2] as const);
+    expect(hit, `level ${i} takes the click`).toBe(await levels.nth(i).getAttribute('data-testid'));
+  }
+}
+
 const runState = (page: Page): Promise<RtRunState> => page.evaluate(() => (window as any).__realtime.run.state());
 
 function collectErrors(page: Page): string[] {
@@ -73,6 +93,7 @@ test('task 18: no choice before a won run; the final won in the page opens «И�
   const choice = end.getByTestId('run-ash');
   await expect(choice).toBeVisible();
   await expect(choice).toHaveText('Испытание:0IIIIIIIVVVIVII'); // task 45, step 1: 0 … VII
+  await expectAshFits(page, end);
   await expect(end.getByTestId('ash-0')).toHaveAttribute('aria-pressed', 'true');
   await expect(end.getByTestId('run-ash-text')).toHaveText('Обычный поход');
   await expect(page.locator('body')).not.toContainText('Пепел');

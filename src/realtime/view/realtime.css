@@ -137,9 +137,11 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-res-token svg { display: block; }
 .rt-run-res.rt-res-tick b { color: #ffd88a; text-shadow: 0 0 10px #ffd88a; }
 /* Task 18: the choice of «Испытание» over «Новый поход»; the run's level by the map title. */
-.rt-ash { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 12px 0 0; }
-.rt-ash-head { color: var(--rt-muted); margin-right: 4px; }
-.rt-ash-level { min-width: 38px; padding: 4px 8px; font-family: 'Times New Roman', Times, serif; font-size: 16px; background: #1a2117; color: #d9cfa8; border: 1px solid #4a5038; cursor: pointer; }
+/* Task 45: up to nine levels (0 … VIII) in the end screen's ~300 px column — the head on its own line, the buttons share the
+   column's width (each 44 px at most), so the row never runs under the meta column. */
+.rt-ash { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px; margin: 12px 0 0; }
+.rt-ash-head { flex: 0 0 100%; text-align: center; color: var(--rt-muted); margin-bottom: 2px; }
+.rt-ash-level { flex: 1 1 0; min-width: 0; max-width: 44px; padding: 4px 0; font-family: 'Times New Roman', Times, serif; font-size: 15px; white-space: nowrap; background: #1a2117; color: #d9cfa8; border: 1px solid #4a5038; cursor: pointer; }
 .rt-ash-level.rt-on { background: #3d3423; color: var(--rt-gold); border-color: var(--rt-gold); }
 .rt-ash-text { text-align: center; margin: 6px 0 0; }
 .rt-run-ash { font-size: 12px; color: var(--rt-muted); letter-spacing: .02em; }
