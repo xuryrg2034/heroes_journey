@@ -1763,6 +1763,8 @@ export const RT_HABITS_ON = true;
 export const RT_KNACK_ROW = 2;
 /** The salt of a node's knack roll (`mixSeed(arenaSeed, «rt-knack»)`): no stream spent, a reload shows the same cards. */
 export const KNACK_SALT = [...'rt-knack'].reduce((hash, ch) => Math.imul(hash ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5);
+/** Task 50 (design §16, answer 7 (а)): the rare counter a knack screen of a run with «Стужа» may bring new, at weight 1. */
+export const RT_KNACK_COLD_RARE = 'frost-edge';
 /** A card of the knack screen: a counter to rank II (`hone`) or a new counter. */
 export interface RtKnackOption { id: RtTalismanId; hone?: true }
 /** Баланс (design 3.2, answer 1): cards on the knack screen (and «Пропустить»). */
@@ -1782,12 +1784,15 @@ export const rtKnackNode = (run: Pick<RtRunState, 'knacks'>, node: Pick<ForestMa
 export function rtKnackOptions(run: RtRunState, nodeId: string): RtKnackOption[] {
   const roll = mixSeed(arenaSeed(run, nodeId), KNACK_SALT), habit = run.habit ?? undefined, pool = talismanPool(run);
   const hone = RT_COUNTER_TALISMANS.filter(def => run.talismans.includes(def.id) && !run.honed?.includes(def.id)).map(def => def.id);
-  const fresh = RT_COUNTER_TALISMANS.filter(def => (def.rarity === 'common' || def.rarity === 'uncommon') && rtTalismanEligible(def.id, pool)).map(def => def.id);
+  // Task 50, design §16 answer 7 (а): with «Стужа» the rare «Иней на клинке» may come new too (in the catalogue's order), at weight 1 —
+  // without the archetype's ×3 (`plain`). Without «Стужа» the rare ones never come new here.
+  const plain = habit === 'cold' ? [RT_KNACK_COLD_RARE] : [];
+  const fresh = RT_COUNTER_TALISMANS.filter(def => (def.rarity === 'common' || def.rarity === 'uncommon' || plain.includes(def.id)) && rtTalismanEligible(def.id, pool)).map(def => def.id);
   const two = (list: readonly RtTalismanId[], hone: boolean): RtKnackOption[] => {
-    const first = rtWeightedPick(mixSeed(roll, 0), list, habit), left = list.filter(id => id !== first);
-    return [{ id: first, ...hone ? { hone: true as const } : {} }, ...left.length ? [{ id: rtWeightedPick(mixSeed(roll, 1), left, habit), ...hone ? { hone: true as const } : {} }] : []];
+    const first = rtWeightedPick(mixSeed(roll, 0), list, habit, plain), left = list.filter(id => id !== first);
+    return [{ id: first, ...hone ? { hone: true as const } : {} }, ...left.length ? [{ id: rtWeightedPick(mixSeed(roll, 1), left, habit, plain), ...hone ? { hone: true as const } : {} }] : []];
   };
-  if (hone.length && fresh.length) return [{ id: rtWeightedPick(mixSeed(roll, 0), hone, habit), hone: true }, { id: rtWeightedPick(mixSeed(roll, 1), fresh, habit) }];
+  if (hone.length && fresh.length) return [{ id: rtWeightedPick(mixSeed(roll, 0), hone, habit), hone: true }, { id: rtWeightedPick(mixSeed(roll, 1), fresh, habit, plain) }];
   return hone.length ? two(hone, true) : fresh.length ? two(fresh, false) : [];
 }
 /**
