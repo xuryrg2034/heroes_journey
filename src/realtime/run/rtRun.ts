@@ -1643,7 +1643,7 @@ function chooseArena(node: Pick<ForestMapNode, 'type' | 'row'>, history: readonl
   return pickArena(nodeArenas(node, history, mix, gentle), history, roll);
 }
 /** The battle kind a node plays (an event node plays its reward battle). */
-const battleKindOf = (node: Pick<ForestMapNode, 'type'>): RtBattleKind => node.type === 'boss' ? 'final' : node.type === 'hard' ? 'hard' : node.type === 'event' ? 'event' : 'battle';
+export const battleKindOf = (node: Pick<ForestMapNode, 'type'>): RtBattleKind => node.type === 'boss' ? 'final' : node.type === 'hard' ? 'hard' : node.type === 'event' ? 'event' : 'battle';
 /**
  * The arena of a battle node (or an event's reward battle) by one `pool` draw and the window of repeats. A node with one
  * arena (hard, boss) spends its draw too: every arena node takes one draw of the stream (so the k-th arena of a run is

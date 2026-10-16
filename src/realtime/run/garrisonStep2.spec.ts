@@ -16,7 +16,8 @@ import {
   RT_GARRISON_STEP2_ON, rtGarrisonNodeId,
 } from './garrison';
 import { walkRun, type Walk, type WalkOptions } from './metaWalk.testkit';
-import { createRtRun, parseRtRun, rtArenaLoadout, rtArenaParams, rtNode, serializeRtRun, type RtRunState } from './rtRun';
+import { createRtRun, parseRtRun, rtArenaLoadout, rtArenaParams, rtAvailableNodes, rtNode, rtRunParams, serializeRtRun, type RtRunState } from './rtRun';
+import { rtNodeEnemies, type RtNodeEnemies } from './nodeEnemies';
 import { nodePlace } from '../forest/mapGenerator';
 import { defaultParams } from '../sim/params';
 import { replay, Simulation } from '../sim/simulation';
@@ -203,6 +204,45 @@ check('a run without the flag (`step2: false`) plays the pools of step 1б byte 
   }
   // The digest of the same 30 walks on the base e617c56 (step 1б, before task 43 part Г): tmp probe, 16.10.2026.
   assert(textHash(lines.join('\n')) === 201939420, `digest ${textHash(lines.join('\n'))}`);
+});
+
+check('the node card (`rtNodeEnemies`): before entering, an available garrison node names the kinds its fight starts with — the knight iff the world starts with one, the crossbowmen and deep keymasters with their counts; forest nodes — null (16 runs, steered)', () => {
+  let compared = 0, knightCards = 0, boltCards = 0, deepCards = 0, forest = 0;
+  for (let k = 1; k <= 16; k++) {
+    const cards = new Map<string, RtNodeEnemies>();
+    walkRun({
+      k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true },
+      pickNode: (_run: RtRunState, ids: readonly string[]) => ids.find(id => bareNodeId(id).startsWith(k % 2 ? 'camp-' : 'den-')) ?? null,
+      each: state => {
+        const pending = state.pending;
+        if (!pending) {
+          for (const node of rtAvailableNodes(state)) {
+            const card = rtNodeEnemies(state, node);
+            if (!rtGarrisonNodeId(node.id)) { assert(card === null, `${node.id}: a forest node has no garrison card`); forest++; continue; }
+            if (card) cards.set(node.id, card);
+          }
+          return;
+        }
+        if (pending.kind !== 'battle' || !rtGarrisonNodeId(pending.nodeId) || !cards.has(pending.nodeId)) return;
+        const card = cards.get(pending.nodeId)!; cards.delete(pending.nodeId);
+        // The fight as the run starts it (main.ts: the arena, its roster, the node's seed, the run's params and loadout, the hero's HP), after its first tick (the hounds).
+        const loadout = rtArenaLoadout(state);
+        const sim = new Simulation({ arena: pending.arena, ...pending.roster !== undefined ? { roster: pending.roster } : {}, params: rtArenaParams(state, rtRunParams(defaultParams())), seed: pending.seed, loadout, hero: { hp: state.hp, maxHp: state.maxHp } });
+        sim.tick();
+        const world = sim.world;
+        const counts = new Map<string, number>();
+        for (const e of world.enemies) counts.set(e.kind, (counts.get(e.kind) ?? 0) + 1);
+        assert(card.arena === pending.arena && JSON.stringify(card.start) === JSON.stringify([...counts].map(([kind, count]) => ({ kind, count }))), `${pending.nodeId}: card ${JSON.stringify(card)} vs world ${JSON.stringify([...counts])}`);
+        assert((card.start.some(entry => entry.kind === KNIGHT)) === world.enemies.some(e => e.kind === KNIGHT), `${pending.nodeId}: a knight on the card iff in the fight`);
+        assert(card.knights === (loadout.knights ?? 0) && card.bolts === (loadout.bolts === true) && card.deep === (loadout.deep === true), `${pending.nodeId}: the card's additions are the fight's`);
+        compared++;
+        if (card.knights) knightCards++;
+        if (card.bolts) boltCards++;
+        if (card.deep) deepCards++;
+      },
+    });
+  }
+  assert(compared >= 60 && knightCards >= 5 && boltCards >= 2 && deepCards >= 2 && forest > 0, JSON.stringify({ compared, knightCards, boltCards, deepCards, forest }));
 });
 
 console.log(`garrison step 2: ${checks} checks passed`);
