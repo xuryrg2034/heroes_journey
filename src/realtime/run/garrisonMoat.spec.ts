@@ -32,7 +32,7 @@ function assert(condition: unknown, message: string): asserts condition { if (!c
 
 /** The camp's flags of a meta run (any one makes the camp: `hearth` is kept only with `locked`). */
 const CAMP = { locked: [] as string[], hearth: { jailerRerolls: 1 } };
-/** A run with the garrison; task 40's moat parts pass the flag `moat` explicitly (`RT_GARRISON_MOAT_ON` is off until the ui view). */
+/** A run with the garrison; task 40's moat parts pass the flag `moat` explicitly (they hold whatever `RT_GARRISON_MOAT_ON` is; on with the ui view). */
 const garrisonWalk = (k: number, extra: Partial<WalkOptions> = {}, create: WalkOptions['create'] = {}): Walk =>
   walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, moat: true, ...create }, ...extra });
 /** The fights a walk entered: node, garrison row, arena, the loadout's `deep`. */
@@ -250,7 +250,7 @@ check('telemetry: the run record\'s level, levelCleared and cart pass checkRecor
   rec.dispose();
   checks++; console.log('ok - telemetry: the recorder writes the run level and the level passed (with the moat flag off too), the cart and the deposit under the sink `cart`');
 }
-check('the default of the game: a new run takes `moat` by `RT_GARRISON_MOAT_ON` (off until the ui view: the garrison without «Ров» and the cart)', () => {
+check('the default of the game: a new run takes `moat` by `RT_GARRISON_MOAT_ON` (on with the ui view, 16.10.2026: «Ров», the keymaster and the cart)', () => {
   const run = createRtRun(seedOf(1));
   assert(run.garrison === true && run.moat === (RT_GARRISON_MOAT_ON ? true : undefined), JSON.stringify({ on: RT_GARRISON_MOAT_ON, garrison: run.garrison, moat: run.moat }));
 });

@@ -847,7 +847,7 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   // Task 38 «Гарнизон» (15.10.2026): its own flag, off unless the option says (design turns it on after the ui view).
   const garrison = options.garrison ?? RT_GARRISON_ON;
   // Task 40 «Гарнизон, шаг 1б» (16.10.2026): «Ров», the keymaster and the cart — only with the garrison, by `RT_GARRISON_MOAT_ON`
-  // (off until the ui view) unless the option says.
+  // (on with the ui view, 16.10.2026) unless the option says.
   const moat = garrison && (options.moat ?? RT_GARRISON_MOAT_ON);
   const run: RtRunState = {
     version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...locked ? { locked, heroId: RT_HERO_ID } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,

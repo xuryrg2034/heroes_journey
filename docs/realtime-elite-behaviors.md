@@ -315,7 +315,7 @@
 
 # Гарнизон, шаг 1б: Ключник и «Ров» (задача 40)
 
-Спека — [task-40-garrison-step1b.md](design-notes/task-40-garrison-step1b.md), разделы 2–3 (пользователь одобрил заранее). Статус 16.10.2026: реализовано в симуляции (`src/realtime/sim/enemies/garrison.ts` «Ключник», `src/realtime/sim/tethers.ts`, арена — `src/realtime/sim/arenasGarrison.ts`); поход — [realtime-slice.md](realtime-slice.md), «Гарнизон, шаг 1б». Вид кандалов и узника, подпись у места при первой встрече, арт Ключника — сессия ui и дизайн. Числа — гипотезы для плейтеста.
+Спека — [task-40-garrison-step1b.md](design-notes/task-40-garrison-step1b.md), разделы 2–3 (пользователь одобрил заранее). Статус 16.10.2026: реализовано в симуляции (`src/realtime/sim/enemies/garrison.ts` «Ключник», `src/realtime/sim/tethers.ts`, арена — `src/realtime/sim/arenasGarrison.ts`); поход — [realtime-slice.md](realtime-slice.md), «Гарнизон, шаг 1б». Вид кандалов и узника, подпись у места, Ключник — раздел «Вид (задача 40, ui)» ниже (арт Ключника — дизайн). Числа — гипотезы для плейтеста.
 
 ## Ключи
 
