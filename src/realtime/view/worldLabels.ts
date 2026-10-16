@@ -41,6 +41,8 @@ export const LABEL_TEXT = {
   elite: 'Пластина — 1 удар',
   /** Б9: the goblin's lever. */
   lever: 'Закончи цепь здесь',
+  /** Task 40: the keymaster's prisoner (design 16.10.2026: the rule in the label — the chain across the shackle first). */
+  shackle: 'В кандалах — сначала разруби',
 } as const;
 /** Б8: the price of the chest of «Застава», both numbers read from `sim/chest.ts`. */
 export const chestText = (): string => `+${CHEST_CURSE_TOUCH} урон касания, ${CHEST_CURSE_KILLS} убийств`;
@@ -107,6 +109,30 @@ export function bossMoveLabels(w: World, named: Set<string>): LabelSpec[] {
   }
   return out;
 }
+
+/** Arena units: how far under the prisoner's centre its label hangs (clear of its padlock over the drawing). */
+const SHACKLE_LIFT = 0.8;
+
+/**
+ * Task 40 «Ключник» (design 16.10.2026, docs/design-notes/task-40-garrison-step1b.md, 2): «В кандалах — сначала разруби» under the
+ * prisoner nearest to the hero in view — one label, no plate. The host shows it from the first shackle of the run (the event
+ * `tether` `shackle`; the sandbox — of the fight) until the player's dash cuts a shackle (`shackleCut`); a label of the view only,
+ * no Param, no journal. Null — no prisoner in view.
+ */
+export function shackleLabel(w: World, onScreen: (p: Vec) => boolean): LabelSpec | null {
+  let best: typeof w.enemies[number] | null = null, d = Infinity;
+  for (const t of w.tethers ?? []) {
+    if (t.kind !== 'shackle') continue;
+    const e = w.enemies.find(x => x.id === t.held);
+    if (!e || !onScreen(e)) continue;
+    const de = (e.x - w.hero.x) ** 2 + (e.y - w.hero.y) ** 2;
+    if (de < d) { d = de; best = e; }
+  }
+  return best ? { id: 'shackle', text: LABEL_TEXT.shackle, at: { x: best.x, y: best.y }, place: 'below', lift: SHACKLE_LIFT } : null;
+}
+/** Task 40: the frame's events — a shackle was put on (the label's start), the player's dash cut one (its end). */
+export const shackleMet = (w: World): boolean => w.events.some(ev => ev.type === 'tether' && ev.action === 'shackle');
+export const shackleCut = (w: World): boolean => w.events.some(ev => ev.type === 'tether' && ev.action === 'cut' && ev.kind === 'shackle');
 
 /** Which side of the label the tail sits on to point at `p` (stage px), or none when `p` is inside it. */
 export function tailSide(rect: Rect, p: Vec): 'left' | 'right' | 'up' | 'down' | null {

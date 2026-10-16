@@ -7,14 +7,16 @@
  * 2. a pack opened: the bar reaches the mark, the mark flashes, three cards turn over one by one (a silhouette → the item, its
  *    name on the card) with the reward sound — the meta's main moment, no text plate;
  * 3. the depth record — «Ряд 8 — новый рекорд» only when beaten (the old one small); task 38 — the garrison's «Гарнизон, ряд 2»;
- * 4. «В лагерь: +N» — the resources fly from the header's number to it and it counts up.
+ *    task 40 — «Гарнизон пройден» (the record's `wonLevel`);
+ * 4. «В лагерь: +N» — the resources fly from the header's number to it and it counts up; task 40 — «(Повозка +M)» beside it.
  * View only: the profile already holds the result (`MetaEnd`).
  */
 import { GARRISON_TITLE } from '../run/garrison';
 import { countUpValue } from './juice';
 import { metaItemCard, xpBar, xpPartLabel, type MetaEnd } from './metaModel';
 
-const ICON = '<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M10 2 L17 7 L14.5 17 L5.5 17 L3 7 Z" fill="#e3b45a" stroke="#1a2330" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 7 L10 9 L17 7 M10 9 L10 17" fill="none" stroke="#1a2330" stroke-width="1.2" stroke-linejoin="round"/></svg>';
+/** The stock's token (the carry line; task 40 — the cart's number on «Предместье»). */
+export const ICON = '<svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true"><path d="M10 2 L17 7 L14.5 17 L5.5 17 L3 7 Z" fill="#e3b45a" stroke="#1a2330" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 7 L10 9 L17 7 M10 9 L10 17" fill="none" stroke="#1a2330" stroke-width="1.2" stroke-linejoin="round"/></svg>';
 const esc = (s: string): string => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
 /** The sounds the block asks for (the host plays them by its sound setting). */
@@ -25,24 +27,28 @@ export interface MetaEndShown { xp: number; gain: number; bar: number; mark: boo
 
 /**
  * The record's depth in words: «ряд 8», «лес пройден». Task 38: a garrison record (`level` 2) — «Гарнизон, ряд 2» (the forest is
- * behind it; `won` is any victory of the profile, so the row speaks, not «пройден»); `forest` — a forest row next to a garrison
- * one says its level: «лес, ряд 9». A garrison record of row 0 (no garrison node yet) — «лес пройден».
+ * behind it); `forest` — a forest row next to a garrison one says its level: «лес, ряд 9». A garrison record of row 0 (no garrison
+ * node yet) — «лес пройден». Task 40: `passed` — the level the record passed (core's `wonLevel`: 0 none, 1 the forest, 2 the
+ * garrison — «гарнизон пройден»); never the profile's `won` (any victory).
  */
-export function rowWord(row: number, won: boolean, level?: number, forest = false): string {
+export function rowWord(row: number, passed: number, level?: number, forest = false): string {
+  if (passed >= 2) return `${GARRISON_TITLE.toLowerCase()} пройден`;
   if (level === 2) return row > 0 ? `${GARRISON_TITLE}, ряд ${row}` : 'лес пройден';
-  return won ? 'лес пройден' : forest ? `лес, ряд ${row}` : `ряд ${row}`;
+  return passed >= 1 ? 'лес пройден' : forest ? `лес, ряд ${row}` : `ряд ${row}`;
 }
+/** A record has a line: a row, a level passed or the garrison (smoke v62: row 0 of the forest — none). */
+const hasRecord = (r: { row: number; wonLevel?: number; level?: number }): boolean => r.row > 0 || !!r.wonLevel || !!r.level;
 
 /** The block: the experience, the bar, the record, the carry, the pack's cards face down. */
 function blockHtml(m: MetaEnd): string {
   const parts = m.xp.parts.filter(p => p.xp !== 0).map(p => `<li data-testid="meta-part-${p.id}"><span>${esc(xpPartLabel(p.id, p.n))}</span><b>+${p.xp}</b></li>`).join('');
   const bar = xpBar(m.xp.before, m.thresholds);
   const rec = m.record.after, before = m.record.before;
-  const word = rowWord(rec.row, rec.won, rec.level);
+  const word = rowWord(rec.row, rec.wonLevel ?? 0, rec.level);
   const record = m.record.beaten
-    ? `<p class="rt-meta-record rt-meta-beaten" data-testid="meta-record" data-beaten="true"><b>${esc(word[0].toUpperCase() + word.slice(1))} — новый рекорд</b>${before && (before.row > 0 || before.won || before.level) ? `<small>прежний: ${esc(rowWord(before.row, before.won, before.level, rec.level === 2))}</small>` : ''}</p>`
+    ? `<p class="rt-meta-record rt-meta-beaten" data-testid="meta-record" data-beaten="true"><b>${esc(word[0].toUpperCase() + word.slice(1))} — новый рекорд</b>${before && hasRecord(before) ? `<small>прежний: ${esc(rowWord(before.row, before.wonLevel ?? 0, before.level, rec.level === 2))}</small>` : ''}</p>`
     // Smoke v62: no record yet (row 0) — no line (a garrison record of row 0 has its line: «лес пройден»).
-    : rec.row > 0 || rec.won || rec.level ? `<p class="rt-meta-record" data-testid="meta-record" data-beaten="false"><small>Рекорд: ${esc(word)}</small></p>` : '';
+    : hasRecord(rec) ? `<p class="rt-meta-record" data-testid="meta-record" data-beaten="false"><small>Рекорд: ${esc(word)}</small></p>` : '';
   const quest = m.quest ? `<p class="rt-meta-quest${m.quest.done ? ' rt-done' : ''}" data-testid="meta-quest">Задание: ${m.quest.done ? `выполнено <b>+${m.quest.xp} опыта, +${m.quest.stock} запаса</b>` : 'не выполнено'}</p>` : '';
   const cards = m.pack ? `<div class="rt-pack" data-testid="meta-pack" data-pack="${esc(m.pack.id)}"><p class="rt-pack-title">${esc(m.pack.title)}</p><div class="rt-pack-cards">${m.pack.items.map((item, i) => {
     const c = metaItemCard(item);
@@ -55,7 +61,8 @@ function blockHtml(m: MetaEnd): string {
     + `<div class="rt-meta-bar" data-testid="meta-bar"><i class="rt-meta-fill" style="width:${(bar.k * 100).toFixed(1)}%"></i>`
     + `<span class="rt-meta-mark"${bar.to === null ? ' hidden' : ''}></span><em data-testid="meta-xp-now">${m.xp.before}${bar.to !== null ? ` / ${bar.to}` : ''}</em>${next}</div>`
     + record + quest + cards
-    + `<p class="rt-meta-carry" data-testid="meta-carry">В лагерь: <b>+0</b>${ICON}${m.carry.share < 1 && m.carry.resources > 0 ? `<small>${Math.round(m.carry.share * 100)} % из ${m.carry.resources}</small>` : ''}</p>`;
+    // Task 40 «Повозка»: what the cart sent at «Предместье» is inside N — named beside it (absent — no cart in the run).
+    + `<p class="rt-meta-carry" data-testid="meta-carry">В лагерь: <b>+0</b>${ICON}${m.carry.cart !== undefined ? `<span class="rt-meta-cart" data-testid="meta-carry-cart">(Повозка +${m.carry.cart})</span>` : ''}${m.carry.share < 1 && m.carry.resources > 0 ? `<small>${Math.round(m.carry.share * 100)} % из ${m.carry.resources}</small>` : ''}</p>`;
 }
 
 /** The run-end meta block of one ended run; `play` runs its animation once. */

@@ -112,8 +112,8 @@ export class HearthView {
     this.shown.npcs = here; this.shown.empty = HEARTH_PLACES.length - here.length; this.shown.bubble = this.bubble;
     const bar = xpBar(h.xp, h.thresholds);
     const next = h.nextPack ? `<div class="rt-hearth-next" data-testid="hearth-next" title="Следующий набор: ${esc(h.nextPack.title)}">${Array.from({ length: h.nextPack.size }, () => '<span class="rt-hearth-sil">?</span>').join('')}<small>${h.nextPack.at}</small></div>` : '';
-    // Smoke v62: no record yet (row 0) — no line. Task 38: a garrison record — «Гарнизон, ряд N».
-    const record = h.record && (h.record.row > 0 || h.record.won || h.record.level) ? `<p class="rt-hearth-record" data-testid="hearth-record">Рекорд: ${esc(rowWord(h.record.row, h.record.won, h.record.level))}</p>` : '';
+    // Smoke v62: no record yet (row 0) — no line. Task 38: a garrison record — «Гарнизон, ряд N». Task 40: «гарнизон пройден».
+    const record = h.record && (h.record.row > 0 || h.record.wonLevel || h.record.level) ? `<p class="rt-hearth-record" data-testid="hearth-record">Рекорд: ${esc(rowWord(h.record.row, h.record.wonLevel ?? 0, h.record.level))}</p>` : '';
     const go = this.host.runActive() ? '<button class="rt-again rt-hearth-go" data-action="back" data-testid="hearth-back">К походу</button>' : '<button class="rt-again rt-hearth-go" data-action="go" data-testid="hearth-go">В поход</button>';
     const center = `<div class="rt-hearth-fire-wrap">${FIRE_SVG}</div><div class="rt-hearth-glow"></div><div class="rt-hearth-center"><div class="rt-hearth-bar" data-testid="hearth-bar" title="Опыт героя"><i style="width:${(bar.k * 100).toFixed(1)}%"></i><em>${h.xp}${bar.to !== null ? ` / ${bar.to}` : ''}</em></div>${next}${record}${go}</div>`;
     const head = `<header class="rt-hearth-head"><b>Очаг</b><span class="rt-hearth-stock" data-testid="hearth-stock" title="Запас лагеря">${ICON}<b>${h.stock}</b></span></header>`;

@@ -6,7 +6,7 @@ import { walkRun } from '../src/realtime/run/metaWalk.testkit';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
 import { RT_RUN_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
 import { rtRunDepth } from '../src/realtime/run/rtMeta';
-import { rtLevel } from '../src/realtime/run/rtRun';
+import { rtCartView, rtLevel } from '../src/realtime/run/rtRun';
 
 /**
  * Task 38 «Гарнизон, шаг 1а» — the view (design 15.10.2026, docs/design-notes/task-38-garrison-step1.md): the leash on the field
@@ -245,3 +245,173 @@ for (const [arena, kind, title, up] of [[24, 'castellan', 'Двор кастел
     expect(errors).toEqual([]);
   });
 }
+
+/**
+ * Task 40 «Гарнизон, шаг 1б» — the view (design 16.10.2026, docs/design-notes/task-40-garrison-step1b.md): the keymaster's shackle
+ * (an iron chain, red with the cut mark while the drawn chain cuts it), the prisoner's padlock, the label «В кандалах — сначала
+ * разруби» from the first shackle until the player's dash cuts one; «Повозка» on «Предместье» («−», «+», «В гарнизон»); the run's
+ * end — «(Повозка +M)» in the carry line, «Гарнизон пройден — новый рекорд», the camp's «Рекорд: гарнизон пройден». Real input:
+ * the mouse and the run's buttons; the runs are walked in Node by their own commands (metaWalk.testkit.ts).
+ */
+const SHACKLE_TEXT = 'В кандалах — сначала разруби';
+const labelsOf = async (page: Page): Promise<{ id: string; text: string; top: number }[]> => (await snap(page)).onboarding.labels;
+
+test('task 40 view: «Ров» — the shackle is an iron chain with a padlock over the prisoner and the label under it; a chain across turns it red with the cut mark; the dash cuts it (a grey snap) and the label goes for the fight, a new shackle brings no label', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = collectErrors(page);
+  await openSandbox(page, '&arena=25');
+  await expect.poll(async () => (await snap(page)).arena).toBe('g-moat');
+  await quiet(page, { x: 5, y: 7.6 });
+  const place = (x: number, y: number, color: number, kind: string): Promise<number> =>
+    page.evaluate(([x, y, color, kind]) => (window as any).__realtime.place(x, y, color, 0, kind), [x, y, color, kind] as const);
+  const keymaster = await place(8, 2.4, 1, 'keymaster'), prisoner = await place(10.5, 2.4, 0, 'basic');
+  // No shackle yet (the first comes 3 s after the keymaster appears): no chain, no padlock, no label.
+  let sn = await snap(page);
+  expect(sn.tethers.shackles).toBe(0);
+  expect(sn.onboarding.labels.some((l: { id: string }) => l.id === 'shackle')).toBe(false);
+  await gameWait(page, 3.3);
+  sn = await snap(page);
+  expect(sn.tethers.list).toEqual([{ holder: keymaster, held: prisoner, kind: 'shackle' }]);
+  expect({ lines: sn.tethers.lines, shackles: sn.tethers.shackles, locks: sn.tethers.locks, cut: sn.tethers.cut }).toEqual({ lines: 1, shackles: 1, locks: 1, cut: 0 });
+  // The label under the prisoner (one, no plate).
+  await expect.poll(async () => (await labelsOf(page)).filter(l => l.id === 'shackle').map(l => l.text)).toEqual([SHACKLE_TEXT]);
+  const pe = sn.enemies.find((e: { id: number }) => e.id === prisoner);
+  const ps = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [pe.x, pe.y] as const);
+  const label = (await labelsOf(page)).find(l => l.id === 'shackle')!;
+  expect(label.top, 'the label under the prisoner (its padlock is over it)').toBeGreaterThan(ps.y);
+  await page.evaluate(() => (window as any).__realtime.teleport(9.25, 0.6));
+  await page.waitForTimeout(150);
+  await page.screenshot({ path: 'artifacts/realtime-keymaster-shackle.png' });
+  // A chain across the shackle's middle: the chain red with the cut mark while it is held.
+  const a = await place(9.25, 1.5, 2, 'basic'), b = await place(9.25, 3.3, 2, 'basic');
+  const at = async (id: number): Promise<{ x: number; y: number }> => { const e = (await snap(page)).enemies.find((x: { id: number }) => x.id === id); return page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [e.x, e.y] as const); };
+  const pa = await at(a), pb = await at(b);
+  await page.mouse.move(pa.x, pa.y);
+  await page.mouse.down();
+  await page.mouse.move(pb.x, pb.y, { steps: 6 });
+  await expect.poll(async () => (await snap(page)).chain).toEqual([a, b]);
+  await expect.poll(async () => { const t = (await snap(page)).tethers; return { cut: t.cut, marks: t.marks, shackles: t.shackles }; }).toEqual({ cut: 1, marks: 1, shackles: 1 });
+  await page.screenshot({ path: 'artifacts/realtime-keymaster-cut.png' });
+  await page.mouse.up();
+  // The dash cuts it: the snap, no padlock, the label gone.
+  await expect.poll(async () => (await snap(page)).tethers.list.length, { timeout: 5_000 }).toBe(0);
+  sn = await snap(page);
+  expect(sn.tethers.snaps).toBeGreaterThanOrEqual(1);
+  await expect.poll(async () => (await snap(page)).tethers.locks).toBe(0);
+  await expect.poll(async () => (await labelsOf(page)).some(l => l.id === 'shackle')).toBe(false);
+  // The keymaster shackles the freed body again `shacklePeriod` (6 s) later: the padlock is back, the label is not (cut once in the fight).
+  await page.evaluate(() => (window as any).__realtime.teleport(5, 0.6));
+  await expect.poll(async () => (await snap(page)).tethers.locks, { timeout: 20_000 }).toBe(1);
+  expect((await labelsOf(page)).some(l => l.id === 'shackle')).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+test('task 40 view: «Ров» as it plays — the keymasters across the moat shackle their neighbours; the shot shows the chains and the padlocks', async ({ page }) => {
+  test.setTimeout(60_000);
+  const errors = collectErrors(page);
+  await openSandbox(page, '&arena=25');
+  await expect.poll(async () => (await snap(page)).arena).toBe('g-moat');
+  await page.evaluate(() => (window as any).__realtime.setParam('contactDamage', 0));
+  await expect.poll(async () => (await snap(page)).tethers.locks, { timeout: 20_000 }).toBeGreaterThan(0);
+  await gameWait(page, 0.5);
+  await page.screenshot({ path: 'artifacts/realtime-keymaster-moat.png' });
+  const sn = await snap(page);
+  expect(sn.tethers.shackles).toBe(sn.tethers.list.filter((t: { kind: string }) => t.kind === 'shackle').length);
+  expect(errors).toEqual([]);
+});
+
+/** The camp's flags of a meta run (`hearth` is kept only with `locked`) and the profile of a viewer who passed the forest before. */
+const CAMP = { gift: 'full' as const, garrison: true, moat: true, locked: [] as string[], hearth: { jailerRerolls: 1 } };
+const FOREST_WON = { heroes: { cat: { xp: 40, packs: [], record: { row: 9, won: true, xp: 40 } } }, hearth: { stock: 3, levels: { owl: 0, herb: 0, smith: 0 }, met: { herb: false, smith: false }, lines: { 'owl:first': 2 }, quiet: 0 } };
+async function loadRun(page: Page, run: RtRunState): Promise<void> {
+  await page.goto('/');
+  await page.evaluate(([m, key, value]) => {
+    localStorage.clear(); localStorage.setItem('ashen-oath-realtime-prologue-done', '1');
+    localStorage.setItem('ashen-oath-rt-profile-v1', JSON.stringify({ version: 1, giftFull: false, runs: 3, won: true, meta: m }));
+    localStorage.setItem(key, value);
+  }, [FOREST_WON, RT_RUN_STORAGE_KEY, serializeRtRun(run)] as const);
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
+}
+
+test('task 40 view: «Повозка» on «Предместье» of a camp run — the default «оставить 6», «−» and «+» step by 1 within 0 … max, «В гарнизон» takes the number shown; the run\'s end says «(Повозка +M)» in the carry line', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = collectErrors(page);
+  let at: RtRunState | null = null;
+  walkRun({ k: 5, loot: 4, create: CAMP, each: state => { if (!at && state.pending?.kind === 'outskirts') at = structuredClone(state); } });
+  expect(at, 'the walk reached «Предместье»').not.toBeNull();
+  const view = rtCartView(at!)!;
+  expect(view, 'a camp run has the cart').not.toBeNull();
+  expect(view.max, 'the stock lets «−» and «+» move').toBeGreaterThan(view.deposit);
+  expect(view.deposit).toBeGreaterThan(0);
+  await loadRun(page, at!);
+  await expect(page.getByTestId('run-outskirts')).toBeVisible();
+  await expect(page.getByTestId('run-cart')).toBeVisible();
+  const value = page.getByTestId('run-cart-value'), keep = page.getByTestId('run-cart-keep');
+  await expect(value).toHaveText(String(view.deposit));
+  await expect(keep).toContainText(`с собой ${view.stock - view.deposit}`);
+  await page.waitForTimeout(1200);
+  await page.screenshot({ path: 'artifacts/realtime-garrison-cart.png' });
+  await page.getByTestId('run-cart-minus').click();
+  await expect(value).toHaveText(String(view.deposit - 1));
+  await page.getByTestId('run-cart-plus').click();
+  await page.getByTestId('run-cart-plus').click();
+  await expect(value).toHaveText(String(view.deposit + 1));
+  await expect(keep).toContainText(`с собой ${view.stock - view.deposit - 1}`);
+  // «+» stops at the most the cart takes (disabled there); «−» at 0.
+  for (let n = view.deposit + 1; n < view.max; n++) await page.getByTestId('run-cart-plus').click();
+  await expect(value).toHaveText(String(view.max));
+  await expect(page.getByTestId('run-cart-plus')).toBeDisabled();
+  for (let n = view.max; n > view.deposit + 1; n--) await page.getByTestId('run-cart-minus').click();
+  await expect(value).toHaveText(String(view.deposit + 1));
+  await page.getByTestId('run-garrison').click();
+  await expect(page.getByTestId('run-outskirts')).toBeHidden();
+  await expect(page.getByTestId('run-title')).toHaveText('Гарнизон');
+  const after = await page.evaluate(() => (window as any).__realtime.run.state()) as RtRunState;
+  expect(after.cart).toEqual({ n: view.deposit + 1, before: view.stock });
+  // «Новый поход» → «Да, новый»: the run settled — the carry line names the cart.
+  await page.getByTestId('run-reset').click();
+  await page.getByTestId('run-reset-confirm').click();
+  await expect(page.getByTestId('run-result-abandoned')).toBeVisible();
+  await expect(page.getByTestId('meta-carry-cart')).toHaveText(`(Повозка +${view.deposit + 1})`);
+  await page.waitForTimeout(2500);
+  await page.screenshot({ path: 'artifacts/realtime-garrison-cart-end.png' });
+  expect(errors).toEqual([]);
+});
+
+test('task 40 view: the garrison won — «Гарнизон пройден — новый рекорд» over «прежний: лес пройден», the carry with «(Повозка +M)»; the camp says «Рекорд: гарнизон пройден»', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = collectErrors(page);
+  const won = walkRun({ k: 5, loot: 4, create: CAMP }).run;
+  expect(won.result?.outcome, 'the walk won the Castellan').toBe('victory');
+  expect(rtLevel(won)).toBe(2);
+  expect(won.cart, 'the walk sent the cart').toBeDefined();
+  await loadRun(page, won);
+  const record = page.getByTestId('meta-record');
+  await expect(record).toHaveAttribute('data-beaten', 'true');
+  await expect(record).toContainText('Гарнизон пройден — новый рекорд');
+  await expect(record).toContainText('прежний: лес пройден');
+  await expect(page.getByTestId('meta-carry-cart')).toHaveText(`(Повозка +${won.cart!.n})`);
+  await page.screenshot({ path: 'artifacts/realtime-garrison-won.png' });
+  await page.getByTestId('run-to-hearth').click();
+  await expect(page.getByTestId('hearth-record')).toHaveText('Рекорд: гарнизон пройден');
+  await page.screenshot({ path: 'artifacts/realtime-garrison-won-camp.png' });
+  expect(errors).toEqual([]);
+});
+
+test('task 40 view: in a run, «Ров» (the run\'s first keymaster) — the label «В кандалах — сначала разруби» comes with the first shackle', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = collectErrors(page);
+  // A camp run walked in Node to its first «Ров» (garrison rows 6–9), the battle's screen open.
+  let moat: RtRunState | null = null;
+  for (let k = 1; k <= 12 && !moat; k++) walkRun({ k, create: CAMP, each: state => { if (!moat && state.pending?.kind === 'battle' && state.pending.arena === 'g-moat') moat = structuredClone(state); } });
+  expect(moat, 'a walk reached «Ров»').not.toBeNull();
+  await loadRun(page, moat!);
+  await page.getByTestId('run-battle').click();
+  await expect.poll(async () => (await snap(page)).arena).toBe('g-moat');
+  await page.evaluate(() => (window as any).__realtime.setParam('contactDamage', 0));
+  await expect.poll(async () => (await snap(page)).tethers.locks, { timeout: 20_000 }).toBeGreaterThan(0);
+  await expect.poll(async () => (await labelsOf(page)).filter(l => l.id === 'shackle').map(l => l.text)).toEqual([SHACKLE_TEXT]);
+  await page.screenshot({ path: 'artifacts/realtime-keymaster-run.png' });
+  expect(errors).toEqual([]);
+});

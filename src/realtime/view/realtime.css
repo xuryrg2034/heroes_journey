@@ -432,6 +432,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-meta-carry { margin: 0; display: flex; align-items: center; gap: 6px; font-size: 15px; color: #e5dcc0; }
 .rt-meta-carry b { font: 700 18px system-ui, sans-serif; color: #ffd88a; font-variant-numeric: tabular-nums; min-width: 34px; text-align: right; }
 .rt-meta-carry small { color: var(--rt-muted); font-size: 12px; }
+.rt-meta-cart { color: #e5dcc0; font-size: 14px; }
 .rt-meta-counting b { text-shadow: 0 0 10px #ffd88a; }
 .rt-pack { opacity: 0; transform: translateY(10px); transition: opacity .35s, transform .35s; }
 .rt-pack.rt-pack-in { opacity: 1; transform: none; }
@@ -534,6 +535,16 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-outskirts-bar { position: relative; width: 360px; height: 18px; background: #10140e; border: 2px solid #18232d; outline: 1px solid #8fa3b5; }
 .rt-outskirts-bar i { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(#e0806e, #b5473a); transition: width 1.1s ease-out; }
 .rt-outskirts-hp { margin: 0; font: 700 15px system-ui, sans-serif; color: #dfe6ec; font-variant-numeric: tabular-nums; }
+/* Task 40 «Повозка»: the number «в лагерь» between «−» and «+» over the cart, what stays with the hero under it. */
+.rt-cart { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.rt-cart-pick { display: flex; align-items: center; gap: 8px; color: #e5dcc0; font-size: 15px; }
+.rt-cart-head { margin-right: 4px; }
+.rt-cart-pick b { font: 700 22px system-ui, sans-serif; color: #ffd88a; font-variant-numeric: tabular-nums; min-width: 30px; text-align: right; }
+.rt-cart-step { width: 32px; height: 32px; padding: 0; border: 2px solid #18232d; outline: 1px solid #8fa3b5; background: #2a3440; color: #dfe6ec; font: 700 20px system-ui, sans-serif; line-height: 1; cursor: pointer; }
+.rt-cart-step:hover:not(:disabled) { background: #3a4756; }
+.rt-cart-step:disabled { opacity: .35; cursor: default; }
+.rt-cart-art { display: block; line-height: 0; }
+.rt-cart-keep { color: var(--rt-muted); font-size: 12px; }
 .rt-run:has(.rt-map-garrison) { background: radial-gradient(ellipse at 50% 40%, #1d2630, #0b0f14 75%); }
 .rt-map-garrison .rt-edge { stroke: #4b5a68; }
 .rt-map-garrison .rt-node circle { fill: #1c2530; stroke: #52626f; }

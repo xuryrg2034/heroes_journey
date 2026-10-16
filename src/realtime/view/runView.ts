@@ -21,7 +21,7 @@ import {
   rtOathPreview, rtOathStakeOn, rtArenaRules, RT_SECOND_WIND_LAST_ROW, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
   rtCasinoView, rtCasinoPlay, rtCasinoLeave, rtCasinoNode, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE,
   healOffer, healOnMap, healVisible, rtResourceTotal, rtNodeFeat, RT_HEAL_MAP_GAIN, rtAsh, rtAshOptions, rtAshTitle, rtRunWon, isRtAshLevel, rtScheduleMet, RT_JAILER_SEVERED_SLOTS, rtFormReplaces, rtFormSlotField,
-  rtEnterGarrison, rtLevel,
+  rtEnterGarrison, rtLevel, rtCartView, type RtCartView,
   type RtArenaOutcome, type RtArenaRules, type RtCasinoTable, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
@@ -44,7 +44,7 @@ import { FX_LEVELS, countUpTime, countUpValue, fxLevelOf, type FxLevel } from '.
 import { SECOND_WIND_HP } from '../sim/world';
 import { featCardLine } from './featView';
 import type { FirstMeetId } from './firstMeet';
-import { MetaEndView, type MetaSound } from './metaEnd';
+import { ICON as STOCK_ICON, MetaEndView, type MetaSound } from './metaEnd';
 import { HearthView } from './hearthView';
 import { ProfileMeta } from './metaSource';
 import { RunStart } from './runStart';
@@ -301,6 +301,20 @@ function giftText(option: GiftOption): string {
 /** B7 К9, К12: one roll of chance over the run screen (see `RunView.chanceRoll`). */
 interface ChanceRoll { kind: 'dice' | 'wheel'; title: string; faces?: [number, number]; outcome?: number; text: string; win: boolean; landed: boolean; timers: number[] }
 
+/** Task 40 «Повозка»: the cart's load — no sacks at 0, one to three by the deposit's share of the most the cart takes. */
+export const cartLoad = (n: number, max: number): number => (n <= 0 || max <= 0 ? 0 : Math.min(3, Math.ceil(3 * n / max)));
+/** Task 40 «Повозка» (a ui stand-in until the design's art): a wooden cart side on, `load` sacks (0–3) on it. */
+function cartSvg(load: number): string {
+  const sacks = [[54, 27, 16, 11], [99, 28, 14, 10], [77, 22, 18, 13]].slice(0, load)
+    .map(([x, y, rx, ry]) => `<ellipse cx="${x}" cy="${y}" rx="${rx}" ry="${ry}" fill="#c9a36a" stroke="#18232d" stroke-width="2.5"/><path d="M${x - rx * 0.4} ${y - ry * 0.7} q${rx * 0.4} ${ry * 0.35} ${rx * 0.8} 0" fill="none" stroke="#8a6a3c" stroke-width="2"/>`).join('');
+  const wheel = (x: number): string => `<circle cx="${x}" cy="64" r="16" fill="#3a2a20" stroke="#18232d" stroke-width="3"/>`
+    + `<path d="M${x - 14} 64 H${x + 14} M${x} 50 V78 M${x - 10} 54 L${x + 10} 74 M${x + 10} 54 L${x - 10} 74" stroke="#7a5232" stroke-width="2.5"/><circle cx="${x}" cy="64" r="4" fill="#a9b8c6" stroke="#18232d" stroke-width="2"/>`;
+  return `<svg viewBox="0 0 140 84" width="140" height="84" aria-hidden="true"><path d="M34 46 L4 30" stroke="#18232d" stroke-width="7" stroke-linecap="round"/><path d="M34 46 L4 30" stroke="#7a5232" stroke-width="3.5" stroke-linecap="round"/>`
+    + sacks
+    + `<path d="M26 32 L120 32 L113 60 L33 60 Z" fill="#7a5232" stroke="#18232d" stroke-width="3" stroke-linejoin="round"/><path d="M30 42 H117 M32 51 H115" stroke="#5a3a22" stroke-width="2"/>`
+    + wheel(48) + wheel(98) + '</svg>';
+}
+
 export class RunView {
   readonly el: HTMLDivElement;
   private run: RtRunState | null;
@@ -350,6 +364,8 @@ export class RunView {
   private abandoned: RtRunState | null = null;
   /** Task 38: «Предместье» just healed the hero — the bar fills from this HP once (a reload shows it full). */
   private outskirtsFrom: number | null = null;
+  /** Task 40 «Повозка»: the deposit «−» and «+» chose on «Предместье» (null — the default, `rtCartView`'s «оставить 6»). */
+  private cartN: number | null = null;
   private metaEnd: MetaEndView | null = null;
   readonly hearth: HearthView | null;
   /** Tasks 36–37: the one start of a new run with the camp's choices (the camp's «В поход» and «Новый поход»). */
@@ -499,6 +515,7 @@ export class RunView {
     if (this.run.pending?.kind === 'outskirts' && before?.pending?.kind !== 'outskirts') {
       const healed = step.events.find(ev => ev.type === 'healed');
       this.outskirtsFrom = healed && healed.type === 'healed' ? Math.max(0, this.run.hp - healed.amount) : null;
+      this.cartN = null;
       if (this.outskirtsFrom !== null && this.outskirtsFrom < this.run.hp) this.host.meta?.sound('heal');
     }
     if (this.run.result && !before?.result) {
@@ -602,6 +619,30 @@ export class RunView {
     this.host.startArena(pending.arena, pending.seed, { hp: this.run.hp, maxHp: this.run.maxHp }, label, rtArenaLoadout(this.run, this.host.loadoutOptions), { blink: arenaBlink(this.run), hint: rtItemHintDue(this.run) }, pending.roster, rtArenaRules(this.run));
   }
 
+  /** Task 40 «Повозка»: the deposit shown — the one «−» and «+» chose, within 0 … `max` (none chosen — the default). */
+  private cartValue(cart: RtCartView): number { return Math.max(0, Math.min(cart.max, this.cartN ?? cart.deposit)); }
+
+  /** The cart's block: «В лагерь» and the number between «−» and «+», the cart (its load by the share of `max`), what stays with the hero. */
+  private cartHtml(cart: RtCartView): string {
+    const n = this.cartValue(cart);
+    return `<div class="rt-cart" data-testid="run-cart" data-max="${cart.max}" data-stock="${cart.stock}">`
+      + `<div class="rt-cart-pick"><span class="rt-cart-head">В лагерь</span>`
+      + `<button class="rt-cart-step" data-action="cart-minus" data-testid="run-cart-minus" aria-label="Меньше в лагерь"${n <= 0 ? ' disabled' : ''}>−</button>`
+      + `<b data-testid="run-cart-value">${n}</b>${STOCK_ICON}`
+      + `<button class="rt-cart-step" data-action="cart-plus" data-testid="run-cart-plus" aria-label="Больше в лагерь"${n >= cart.max ? ' disabled' : ''}>+</button></div>`
+      + `<span class="rt-cart-art" data-testid="run-cart-art">${cartSvg(cartLoad(n, cart.max))}</span>`
+      + `<small class="rt-cart-keep" data-testid="run-cart-keep">Повозка · с собой ${cart.stock - n}</small></div>`;
+  }
+
+  /** «−» / «+»: the deposit by 1 within 0 … `max`; the block changes in place (the HP bar's fill is not drawn again). */
+  private stepCart(run: RtRunState | null, by: number): void {
+    const cart = run ? rtCartView(run) : null;
+    if (!cart) return;
+    this.cartN = Math.max(0, Math.min(cart.max, this.cartValue(cart) + by));
+    const block = this.el.querySelector<HTMLElement>('[data-testid="run-cart"]');
+    if (block) block.outerHTML = this.cartHtml(cart); else this.draw();
+  }
+
   private describe(events: RtRunEvent[]): string {
     const parts: string[] = [];
     for (const event of events) {
@@ -687,8 +728,9 @@ export class RunView {
     if (action === 'hammer-reroll') { this.apply(rtRerollHammers(run)); return; }
     if (action === 'hammer') { this.apply(rtChooseHammer(run, (target.dataset.option || null) as Parameters<typeof rtChooseHammer>[1])); return; }
     if (action === 'shop-leave') { this.apply(rtShopLeave(run)); return; }
-    // Task 38: «В гарнизон» from «Предместье» (a placeholder screen; its look is the ui session's).
-    if (action === 'garrison') { this.apply(rtEnterGarrison(run)); return; }
+    // Task 38: «В гарнизон» from «Предместье». Task 40: with the cart, the deposit «−» and «+» chose goes with it.
+    if (action === 'garrison') { const cart = rtCartView(run); this.apply(rtEnterGarrison(run, cart ? this.cartValue(cart) : undefined)); return; }
+    if (action === 'cart-minus' || action === 'cart-plus') { this.stepCart(run, action === 'cart-plus' ? 1 : -1); return; }
     if (action === 'shop-buy') { this.apply(rtShopBuy(run, target.dataset.good!)); return; }
     // B7 К9: the circle's tables (the outcome fixed at the click, then 1.2 s of rolling), «Уйти»; a click skips the roll.
     if (action === 'casino-play') { this.playCasino(run, target.dataset.table as RtCasinoTable); return; }
@@ -1236,11 +1278,13 @@ export class RunView {
     if (pending.kind === 'outskirts') {
       // Task 38 «Предместье» (design 15.10.2026, 1.1): a quiet place without enemies between the levels — its picture
       // (public/art/camp/outskirts.png; a cold dusk without it), the hero's HP bar filling to full (the heal's sound), «В гарнизон».
-      // No text plate. The cart (step 1б) — later.
+      // No text plate. Task 40 «Повозка» (a run with the camp, `rtCartView`): the cart, the number «в лагерь» over it with «−» and «+».
       const from = this.outskirtsFrom ?? run.hp, k = (hp: number): string => `${(100 * hp / Math.max(1, run.maxHp)).toFixed(1)}%`;
+      const cart = rtCartView(run);
       return `<div class="rt-overlay rt-outskirts" data-testid="run-outskirts" style="background-image:url('${new URL('art/camp/outskirts.png', document.baseURI).href}'), linear-gradient(#1c2430, #10151c)">`
         + `<div class="rt-outskirts-panel"><h2>Предместье</h2><div class="rt-outskirts-bar" data-testid="outskirts-bar"><i style="width:${k(from)}" data-to="${k(run.hp)}"></i></div>`
         + `<p class="rt-outskirts-hp" data-testid="outskirts-hp">HP ${run.hp} / ${run.maxHp}</p>`
+        + (cart ? this.cartHtml(cart) : '')
         + `<button class="rt-again" data-action="garrison" data-testid="run-garrison">В гарнизон</button></div></div>`;
     }
     if (pending.kind === 'hammer') {

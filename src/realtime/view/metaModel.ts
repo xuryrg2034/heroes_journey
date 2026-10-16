@@ -24,9 +24,13 @@ export interface MetaEnd {
   thresholds: number[];
   pack: MetaPack | null;
   nextPack: { id: string; title: string; at: number; size: number } | null;
-  /** Task 38: `level` 2 — the garrison's record (absent — the forest). */
-  record: { before: { row: number; won: boolean; level?: 2 } | null; after: { row: number; won: boolean; level?: 2 }; beaten: boolean };
-  carry: { n: number; share: number; cap: number; resources: number };
+  /**
+   * Task 38: `level` 2 — the garrison's record (absent — the forest). Task 40: `wonLevel` — the level it passed (1 the forest, 2 the
+   * garrison; absent — none): the record's words read it, never `won` (any victory of the profile).
+   */
+  record: { before: { row: number; won: boolean; level?: 2; wonLevel?: 1 | 2 } | null; after: { row: number; won: boolean; level?: 2; wonLevel?: 1 | 2 }; beaten: boolean };
+  /** Task 40: `cart` — what «Повозка» sent (inside `n`); absent — no cart in the run. */
+  carry: { n: number; share: number; cap: number; resources: number; cart?: number };
   stock: { before: number; after: number };
   quest?: { npc: NpcId; id: string; done: boolean; xp: number; stock: number };
 }
@@ -40,7 +44,8 @@ export interface HearthState {
   xp: number;
   thresholds: number[];
   nextPack: { id: string; title: string; at: number; size: number } | null;
-  record: { row: number; won: boolean; level?: 2 } | null;
+  /** Task 40: `wonLevel` — the level the record passed (1 the forest, 2 the garrison; absent — none). */
+  record: { row: number; won: boolean; level?: 2; wonLevel?: 1 | 2 } | null;
   /** The enemy kinds the viewer has met (the bestiary). */
   seen: string[];
   quest?: { npc: NpcId; id: string };

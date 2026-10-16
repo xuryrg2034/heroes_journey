@@ -61,7 +61,7 @@ import { rtFeatKinds, rtNode, rtRunBestChain } from '../run/rtRun';
 import { NewSeenStore } from './newSeen';
 import { HintStore, purseResultLine } from './hints';
 import { ITEM_PULSE_ID, setPulse } from './pulse';
-import { bossMoveLabels, BOSS_LABEL_LIFE, detectLabels, labelActions, LEVER_OVER_LINE, WorldLabelLayer, type LabelSpec } from './worldLabels';
+import { bossMoveLabels, BOSS_LABEL_LIFE, detectLabels, labelActions, LEVER_OVER_LINE, shackleCut, shackleLabel, shackleMet, WorldLabelLayer, type LabelSpec } from './worldLabels';
 import { prologueHandSpot, prologueJumpAim, prologueLoadout, prologueParams, prologueRoom, prologueRoute, prologueShieldLinks, prologueSpinReady } from '../run/prologue';
 import { RT_RUN_HP } from '../run/hpScale';
 import { HAND_IDLE, HandGuide, PROLOGUE_ROOM_COUNT, SHIELD_HAND_IDLE, PrologueStore, TITLE_SECONDS, prologueCarry, prologueEntryRoom, prologueGoalLine, prologueLabel, prologueSeed, roomTitle, type PrologueHooks, type PrologueLabelMemo, type RoomOutcome } from './prologueFlow';
@@ -319,8 +319,8 @@ async function boot(): Promise<void> {
     if (i === DIGIT_ARENAS + TERRAIN_ARENAS.length + BEHAVIOR_ARENAS.length) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Камера — арена больше экрана (только песочница)'));
     // Task 27: the boss arenas (the frame and the Jailer) under their own heading, test ids `boss-arena-N`.
     if (i === boss0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Босс — каркас и Тюремщик (только песочница)'));
-    // Task 38: the garrison's arenas under their own heading, test ids `garrison-arena-N`.
-    if (i === garrison0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Гарнизон — строй, поводки, Кастелян'));
+    // Task 38: the garrison's arenas under their own heading, test ids `garrison-arena-N`. Task 40: «Ров» and the keymaster.
+    if (i === garrison0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Гарнизон — строй, поводки, Кастелян, кандалы'));
     const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span data-summary="${i}">${markedGoalArena(arena, params.markedGoals).summary}</span>`, i >= garrison0 ? `garrison-arena-${i - garrison0 + 1}` : i >= boss0 ? `boss-arena-${i - boss0 + 1}` : i >= camera0 ? `camera-arena-${i - camera0 + 1}` : `arena-${i + 1}`);
     b.addEventListener('click', () => start(i));
     arenaList.appendChild(b);
@@ -469,6 +469,13 @@ async function boot(): Promise<void> {
    */
   const bossNamed = new Set<string>();
   let bossLabels: { spec: LabelSpec; life: number }[] = [];
+  /**
+   * Task 40: «В кандалах — сначала разруби» (worldLabels.ts `shackleLabel`) — once per run (the sandbox: per fight): it shows from the
+   * first shackle until the player's dash cuts one. `shackleKey` names the run or the fight; `shackleSeen` — the key whose first
+   * shackle came, `shackleDone` — the key whose shackle the player cut. The run's label follows «Подсказки»; view only, no save.
+   */
+  let fightNo = 0, shackleSeen: string | null = null, shackleDone: string | null = null;
+  const shackleKey = (): string => (sandbox ? `fight:${fightNo}` : `run:${runView?.state?.seed ?? ''}`);
   /** Task 28: the fight has a boss — the arena's band under the HUD keeps room for the boss bar (`relayout`). */
   let bossBand = false;
   const BOSS_BAND = BOSS_BAR_H + 8;
@@ -564,6 +571,7 @@ async function boot(): Promise<void> {
     pendingArrivals = sandbox && kit ? [...kit.talismans.filter(id => !!FORM_FIELD[id]), ...kit.hammer ? [kit.hammer] : []] : [];
     labelLayer.hideAll();
     bossNamed.clear(); bossLabels = [];
+    fightNo++;
     bossBar.reset();
     bossBand = !!bossBarState(world());
     if (!simParams) recorder?.beginFight(sim, fightContext());
@@ -1341,6 +1349,14 @@ async function boot(): Promise<void> {
         if (spec && renderer.sees(spec.at)) specs = [spec];
       }
       if (!runScreenOpen && !menuOpen) for (const l of bossLabels) if (renderer.sees(l.spec.at)) specs.push(l.spec);
+      // Task 40: the prisoner's label — from the run's (the fight's) first shackle until the player's dash cuts one.
+      const key = shackleKey();
+      if (shackleMet(w)) shackleSeen = key;
+      if (shackleCut(w)) shackleDone = key;
+      if (shackleSeen === key && shackleDone !== key && w.status === 'playing' && !runScreenOpen && !menuOpen && (sandbox || (hintsOn && !!runView?.arenaOpen))) {
+        const spec = shackleLabel(w, p => renderer.sees(p));
+        if (spec) specs.push(spec);
+      }
       if (specs.length) {
         const stageBox = stage.getBoundingClientRect();
         const barTop = actionBar.el.hidden ? stageBox.bottom : actionBar.el.getBoundingClientRect().top, top = Math.max(0, Math.max(hud.getBoundingClientRect().bottom, bossBar.el.hidden ? 0 : bossBar.el.getBoundingClientRect().bottom) - stageBox.top), bottom = Math.min(stageBox.height, barTop - stageBox.top);

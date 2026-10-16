@@ -48,9 +48,9 @@ import { bustBlink } from './bustBlink';
 import { dashCheque } from '../sim/purse';
 import { chainFeel, DashLinks, QUIET_LINKS } from './chainFeel';
 import { FX_DEFAULT, FlashGate, HEAVY_LINE, shardCount, shardLife, type FxLevel } from './juice';
-import { CASTELLAN, GUARD, HANDLER, HOUND, castellanMove, houndFrenzied } from '../sim/enemies/garrison';
+import { CASTELLAN, GUARD, HANDLER, HOUND, KEYMASTER, castellanMove, houndFrenzied } from '../sim/enemies/garrison';
 import { tetherCrossing } from '../sim/tethers';
-import { castellanMarks, drawFrenzy, drawLeash, drawSnap, guardMarks, handlerMarks, houndMarks } from './garrisonView';
+import { castellanMarks, drawFrenzy, drawLeash, drawLock, drawShackle, drawSnap, guardMarks, handlerMarks, houndMarks, keymasterMarks } from './garrisonView';
 import { fifthLinkFiresAt } from '../sim/talismansRt';
 import { LINK_DEPTH_SHOWN, linkDepths, type LinkDepth } from '../sim/linkDepth';
 import { CHEST_CURSE_KILLS, cursed } from '../sim/chest';
@@ -148,7 +148,11 @@ const NOTCH_GOLD = 0xffd36b;
 const GARRISON_ART: Readonly<Record<string, { id: CharacterArtId; size: number }>> = {
   [GUARD]: { id: 'garrison-guard', size: 3.4 }, [HANDLER]: { id: 'garrison-houndmaster', size: 3.4 },
   [HOUND]: { id: 'garrison-hound', size: 2.9 }, [CASTELLAN]: { id: 'castellan', size: 4.2 },
+  // Task 40: the keymaster.
+  [KEYMASTER]: { id: 'garrison-keymaster', size: 3.4 },
 };
+/** Task 40: the prisoner's padlock — its width (body radii) and its gap over the drawing's top (radii). */
+const LOCK_SIZE = 0.95, LOCK_GAP = 0.15;
 /** Task 38 (design smoke v65): the margin (units) round the boss's drawing the boss view keeps; the hero's drawn box round his centre. */
 const BOSS_KEEP_PAD = 0.25;
 const HERO_KEEP = { side: 0.7, up: 1.0, down: 0.7 } as const;
@@ -399,8 +403,11 @@ export class RealtimeRenderer {
    * the drawn chain (`severLit` — in its lit phase); the hit flashes, the cut chains and the «−1 пластина» words since the start.
    */
   readonly bossShown = { flail: 0, throw: 0, whistle: 0, chains: 0, severPips: 0, severLit: 0, hits: 0, breaks: 0, plates: 0, clears: 0, waves: 0, colorless: 0, coreRing: 0 };
-  /** Task 38: the tethers drawn in the last frame (the placeholder lines) and how many of them red (the drawn chain's cuts). */
-  readonly tetherShown = { lines: 0, cut: 0, marks: 0, snaps: 0 };
+  /**
+   * Task 38: the tethers drawn in the last frame and how many of them red (the drawn chain's cuts). Task 40: `shackles` — of them the
+   * keymaster's iron chains, `locks` — the prisoners' padlocks.
+   */
+  readonly tetherShown = { lines: 0, cut: 0, marks: 0, snaps: 0, shackles: 0, locks: 0 };
   /** Task 38 (tests read it): frenzied hounds drawn in the last frame, the Castellan's lunge lanes, «Караул!» calls shown so far. */
   readonly garrisonShown = { frenzy: 0, lunges: 0, calls: 0 };
   /** Task 38: a frenzied hound's last drawn point (its streaks show its way). */
@@ -1044,6 +1051,7 @@ export class RealtimeRenderer {
       else if (kind === HANDLER) handlerMarks(ctx, r);
       else if (kind === HOUND) houndMarks(ctx, r);
       else if (kind === CASTELLAN) castellanMarks(ctx, r);
+      else if (kind === KEYMASTER) keymasterMarks(ctx, r);
     }
     return ctx;
   }
@@ -1392,10 +1400,11 @@ export class RealtimeRenderer {
       if (b.bust) bustCircle(b.x, b.y, b.radius, b.timeLeft, b.total);
       else fuse(b.x, b.y, b.timeLeft, b.total);
     }
-    // Task 38 «Гарнизон» (tethers.ts): every tether a leash — a navy rope with links of the holder's colour. Red, thicker and with the
-    // cut mark where the dash crosses it while the drawn chain's dash would cut it (the plan's `cuts` — the list the release fixes;
-    // the mark on the first crossing of the dash's path, the same `tetherCrossing` the sim reads).
-    this.tetherShown.lines = 0; this.tetherShown.cut = 0; this.tetherShown.marks = 0;
+    // Task 38 «Гарнизон» (tethers.ts): a leash — a navy rope with links of the holder's colour. Red, thicker and with the cut mark
+    // where the dash crosses it while the drawn chain's dash would cut it (the plan's `cuts` — the list the release fixes; the mark on
+    // the first crossing of the dash's path, the same `tetherCrossing` the sim reads). Task 40: a shackle — an iron chain of cold grey
+    // (the same red and mark when cut) and a padlock over the prisoner's drawing (no candidate ring: chain.ts refuses it).
+    this.tetherShown.lines = 0; this.tetherShown.cut = 0; this.tetherShown.marks = 0; this.tetherShown.shackles = 0; this.tetherShown.locks = 0;
     if (world.tethers?.length) {
       const plan = world.chain.length && !world.move ? planChain(world) : null, cuts = plan?.cuts ?? [];
       const path: Vec[] = [{ x: world.hero.x, y: world.hero.y }];
@@ -1406,10 +1415,19 @@ export class RealtimeRenderer {
         const cut = cuts.includes(t.held);
         let at: Vec | null = null;
         if (cut) for (let i = 1; i < path.length && !at; i++) at = tetherCrossing(path[i - 1], path[i], a, b);
-        const ink = colorlessLink(world, a) || a.color === NO_COLOR ? COLORLESS : chainInk(a.color);
-        drawLeash(g, a.x * UNIT, a.y * UNIT, b.x * UNIT, b.y * UNIT, ink, cut, at ? { x: at.x * UNIT, y: at.y * UNIT } : null);
+        const mark = at ? { x: at.x * UNIT, y: at.y * UNIT } : null;
+        if (t.kind === 'shackle') { drawShackle(g, a.x * UNIT, a.y * UNIT, b.x * UNIT, b.y * UNIT, cut, mark); this.tetherShown.shackles++; }
+        else drawLeash(g, a.x * UNIT, a.y * UNIT, b.x * UNIT, b.y * UNIT, colorlessLink(world, a) || a.color === NO_COLOR ? COLORLESS : chainInk(a.color), cut, mark);
         this.tetherShown.lines++;
         if (cut) { this.tetherShown.cut++; if (at) this.tetherShown.marks++; }
+      }
+      // The padlocks over the chains: over the prisoner's drawing (its art's top, or the disc's).
+      for (const t of world.tethers) {
+        const b = t.kind === 'shackle' ? world.enemies.find(e => e.id === t.held) : undefined;
+        if (!b) continue;
+        const art = GARRISON_ART[b.kind], top = b.y * UNIT - (art && hasCharacterArt(art.id) ? r * (art.size - 1) : r), s = r * LOCK_SIZE;
+        drawLock(g, b.x * UNIT, top - r * LOCK_GAP - s * 0.56, s);
+        this.tetherShown.locks++;
       }
     }
     // Task 38: the hound's frenzy — a red jagged ring and streaks behind it (its way since the last frame).
@@ -2420,7 +2438,8 @@ export class RealtimeRenderer {
       if (ev.type === 'tether') {
         const a = world.enemies.find(e => e.id === ev.holder), b = world.enemies.find(e => e.id === ev.held);
         if (ev.action === 'cut' && a && b) {
-          const ink = colorlessLink(world, a) || a.color === NO_COLOR ? COLORLESS : chainInk(a.color);
+          // Task 40: a shackle's halves are its iron's grey.
+          const ink = ev.kind === 'shackle' ? STEEL : colorlessLink(world, a) || a.color === NO_COLOR ? COLORLESS : chainInk(a.color);
           this.snaps.push({ ax: a.x, ay: a.y, bx: b.x, by: b.y, px: ev.x, py: ev.y, ink, life: SNAP_LIFE });
           this.tetherShown.snaps++;
         }

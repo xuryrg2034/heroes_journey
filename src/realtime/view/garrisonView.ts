@@ -6,6 +6,10 @@
  * - the snap after the dash: the two halves recoil from the cut point and fade;
  * - the hound's frenzy: a red jagged ring that flickers round the body and two speed streaks behind it;
  * - the stand-in silhouettes of the guard, the dog handler, the hound and the Castellan (until the art comes).
+ * Task 40 «Гарнизон, шаг 1б» (design 16.10.2026, docs/design-notes/task-40-garrison-step1b.md, 2):
+ * - the shackle (the keymaster's tether): an iron chain of cold grey links, not a colour of the player's chain; a shackle the drawn
+ *   chain's dash will cut — red with the cut mark, as the leash;
+ * - the prisoner's padlock over its body; the keymaster's stand-in silhouette (a cap and a ring of keys).
  * Coordinates are arena pixels.
  */
 import type { Graphics, GraphicsContext } from 'pixi.js';
@@ -16,6 +20,8 @@ export const CUT_RED = 0xff3b30;
 export const FRENZY_RED = 0xe0302a;
 const STEEL = 0xa9b8c6;
 const LEATHER = 0x7a5232;
+/** Task 40: the padlock's dark iron. */
+const IRON = 0x5d6a77;
 
 /** A point on the leash `a → b` at share `t`, with a sag of `sag` px at the middle (the rope hangs; the cut reads on the chord). */
 function leashPoint(ax: number, ay: number, bx: number, by: number, t: number, sag: number): { x: number; y: number } {
@@ -40,6 +46,52 @@ export function drawLeash(g: Graphics, ax: number, ay: number, bx: number, by: n
     g.stroke({ color: ink, width: 2.5, alpha: 0.95, cap: 'round' });
   }
   if (cut) drawCutMark(g, at ?? { x: (ax + bx) / 2, y: (ay + by) / 2 }, Math.atan2(by - ay, bx - ax));
+}
+
+/** Task 40: an ellipse of `rx` × `ry` round (`x`, `y`) turned by `angle` (a chain's link), as a polygon. */
+function linkOval(x: number, y: number, rx: number, ry: number, angle: number): number[] {
+  const c = Math.cos(angle), s = Math.sin(angle), pts: number[] = [];
+  for (let i = 0; i < 12; i++) { const a = (i / 12) * Math.PI * 2, ex = Math.cos(a) * rx, ey = Math.sin(a) * ry; pts.push(x + ex * c - ey * s, y + ex * s + ey * c); }
+  return pts;
+}
+
+/**
+ * Task 40: the shackle from the keymaster (`ax`, `ay`) to its prisoner — an iron chain: flat links (grey ovals) and links seen edge
+ * on (short bars) by turns, on a navy line, hanging a little. `cut` — the drawn chain's dash will cut it: the leash's red chord and
+ * cut mark (the same sign).
+ */
+export function drawShackle(g: Graphics, ax: number, ay: number, bx: number, by: number, cut: boolean, at: { x: number; y: number } | null = null): void {
+  if (cut) { drawLeash(g, ax, ay, bx, by, STEEL, true, at); return; }
+  const len = Math.hypot(bx - ax, by - ay);
+  if (len < 1) return;
+  const sag = Math.min(6, len * 0.04), n = Math.max(3, Math.round(len / 11)), angle = Math.atan2(by - ay, bx - ax);
+  const pts: number[] = [];
+  for (let i = 0; i <= n; i++) { const p = leashPoint(ax, ay, bx, by, i / n, sag); pts.push(p.x, p.y); }
+  g.poly(pts, false).stroke({ color: NAVY, width: 3, alpha: 0.85, cap: 'round', join: 'round' });
+  const step = len / n;
+  for (let i = 0; i < n; i++) {
+    const p = leashPoint(ax, ay, bx, by, (i + 0.5) / n, sag);
+    if (i % 2 === 0) {
+      const oval = linkOval(p.x, p.y, step * 0.62, 3.6, angle);
+      g.poly(oval).stroke({ color: NAVY, width: 4.5 });
+      g.poly(oval).stroke({ color: STEEL, width: 2.2 });
+    } else {
+      const ux = Math.cos(angle) * step * 0.32, uy = Math.sin(angle) * step * 0.32;
+      g.moveTo(p.x - ux, p.y - uy).lineTo(p.x + ux, p.y + uy).stroke({ color: NAVY, width: 5.5, cap: 'round' });
+      g.moveTo(p.x - ux, p.y - uy).lineTo(p.x + ux, p.y + uy).stroke({ color: STEEL, width: 2.5, cap: 'round' });
+    }
+  }
+}
+
+/** Task 40: the prisoner's padlock, its body `s` px wide, centred at (`x`, `y`): a steel shackle over a dark iron body with a keyhole. */
+export function drawLock(g: Graphics, x: number, y: number, s: number): void {
+  const top = y - s * 0.18, h = s * 0.74, arc = s * 0.3;
+  g.moveTo(x - arc, top).arc(x, top, arc, Math.PI, 0).stroke({ color: NAVY, width: s * 0.26, cap: 'round' });
+  g.moveTo(x - arc, top).arc(x, top, arc, Math.PI, 0).stroke({ color: STEEL, width: s * 0.12, cap: 'round' });
+  g.roundRect(x - s / 2, top, s, h, s * 0.14).fill(IRON).stroke({ color: NAVY, width: 2.5 });
+  g.moveTo(x - s * 0.36, top + s * 0.12).lineTo(x + s * 0.36, top + s * 0.12).stroke({ color: STEEL, width: 1.5, alpha: 0.7 });
+  g.circle(x, top + h * 0.45, s * 0.1).fill(NAVY);
+  g.poly([x - s * 0.05, top + h * 0.5, x + s * 0.05, top + h * 0.5, x + s * 0.08, top + h * 0.78, x - s * 0.08, top + h * 0.78]).fill(NAVY);
 }
 
 /** The cut mark: two short slashes across the tether at `p` (the tether's direction `angle`), white on navy. */
@@ -102,6 +154,19 @@ export function houndMarks(ctx: GraphicsContext, r: number): void {
   for (const s of [-1, 1]) ctx.poly([s * r * 0.35, -r * 0.75, s * r * 0.9, -r * 0.55, s * r * 0.75, r * 0.05]).fill(0x3a2a20).stroke({ color: NAVY, width: 3, join: 'round' });
   ctx.ellipse(-r * 0.92, r * 0.12, r * 0.38, r * 0.26).fill(0xe8d7ad).stroke({ color: NAVY, width: 3 });
   ctx.circle(-r * 1.2, r * 0.06, r * 0.1).fill(NAVY);
+}
+/** Task 40: the keymaster's stand-in — a brown cap, a ring of big keys at one side and a shackle at the other. */
+export function keymasterMarks(ctx: GraphicsContext, r: number): void {
+  ctx.ellipse(0, -r * 0.86, r * 0.62, r * 0.3).fill(LEATHER).stroke({ color: NAVY, width: 3 });
+  ctx.circle(-r * 0.95, r * 0.05, r * 0.3).stroke({ color: NAVY, width: 5 });
+  ctx.circle(-r * 0.95, r * 0.05, r * 0.3).stroke({ color: 0xc8a56b, width: 2.5 });
+  for (const [dx, len] of [[-1.15, 0.75], [-0.85, 0.6]] as const) {
+    ctx.moveTo(r * dx, r * 0.3).lineTo(r * dx, r * (0.3 + len)).stroke({ color: NAVY, width: 5, cap: 'round' });
+    ctx.moveTo(r * dx, r * 0.3).lineTo(r * dx, r * (0.3 + len)).stroke({ color: STEEL, width: 2.5, cap: 'round' });
+    ctx.moveTo(r * dx, r * (0.15 + len)).lineTo(r * (dx + 0.18), r * (0.15 + len)).stroke({ color: STEEL, width: 2.5, cap: 'round' });
+  }
+  ctx.moveTo(r * 0.75, -r * 0.1).arc(r * 0.95, -r * 0.1, r * 0.2, Math.PI, Math.PI * 2.6).stroke({ color: NAVY, width: 5 });
+  ctx.moveTo(r * 0.75, -r * 0.1).arc(r * 0.95, -r * 0.1, r * 0.2, Math.PI, Math.PI * 2.6).stroke({ color: STEEL, width: 2.5 });
 }
 export function castellanMarks(ctx: GraphicsContext, r: number): void {
   // A crenellated crown of a tower and plate shoulders.

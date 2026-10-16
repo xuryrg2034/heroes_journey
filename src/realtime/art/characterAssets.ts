@@ -11,6 +11,8 @@ export const CHARACTER_ART_IDS = [
   'npc-owl', 'npc-herbalist', 'npc-smith',
   // Task 38 «Гарнизон, шаг 1а»: the guard, the dog handler, the hound and the Castellan (the drawn silhouettes stay the fallback).
   'garrison-guard', 'garrison-houndmaster', 'garrison-hound', 'castellan',
+  // Task 40 «Гарнизон, шаг 1б»: the keymaster (the drawn silhouette stays the fallback).
+  'garrison-keymaster',
 ] as const;
 
 export type CharacterArtId = typeof CHARACTER_ART_IDS[number];
