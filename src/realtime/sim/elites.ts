@@ -522,10 +522,23 @@ export function eliteDeath(world: World, e: Enemy, cause: KillCause): void {
 
 const isItemKind = (kind: string): kind is ItemKind => kind === 'frost' || kind === 'bomb' || kind === 'healing' || kind === 'fire';
 
-/** The hero picks the loot up: a consumable goes to his hand, a resource to the arena's take; it leaves the arena. */
+/**
+ * Task 41 «Три зелья»: the hand holds `Params.potionCap` healing potions or more (with `pending` more about to join it — the healing
+ * loot already in the drawn chain). False without the cap (0 or absent: a journal before it).
+ */
+export function potionHandFull(world: World, pending = 0): boolean {
+  const cap = world.params.potionCap ?? 0;
+  return cap > 0 && (world.kit?.items.healing ?? 0) + pending >= cap;
+}
+
+/**
+ * The hero picks the loot up: a consumable goes to his hand, a resource to the arena's take; it leaves the arena. Task 41: a healing
+ * loot with a full hand (`potionHandFull`) stays where it lies (`lootRefused`).
+ */
 export function pickLoot(world: World, object: ArenaObject): void {
   const index = world.objects.indexOf(object);
   if (index < 0 || object.kind !== 'loot' || !object.loot) return;
+  if (object.loot === 'healing' && potionHandFull(world)) { world.events.push({ type: 'lootRefused', objectId: object.id, loot: object.loot }); return; }
   world.objects.splice(index, 1);
   const kit = world.kit ??= emptyKit();
   if (isItemKind(object.loot)) kit.items[object.loot]++; else kit.materials[object.loot]++;

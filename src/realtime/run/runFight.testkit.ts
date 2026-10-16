@@ -16,7 +16,7 @@ import { featOutcome } from '../sim/feat';
 import { observeFightLuck, type RtLuckTally } from './rtLuck';
 import { RtDeathWatch, type RtDeath } from './rtRunEnd';
 import {
-  rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtChooseTalisman, rtDieChoose,
+  rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtItemRefusal, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtChooseTalisman, rtDieChoose,
   rtEnterNode, rtEventView, rtGiftView, rtNode, rtRestHeal, rtRunParams, rtShopLeave, type RtArenaOutcome, type RtRunState, type RtRunStep,
 } from './rtRun';
 
@@ -170,7 +170,7 @@ export function takeGift(run: RtRunState): RtRunState {
 export function closeNode(run: RtRunState, roll = false): RtRunState {
   const pending = run.pending;
   if (pending?.kind === 'die') return ok(rtDieChoose(run, roll), roll ? 'roll' : 'take');
-  if (pending?.kind === 'find') return ok(rtChooseFind(run, pending.options[0]), 'find');
+  if (pending?.kind === 'find') return ok(rtChooseFind(run, pending.options.find(item => !rtItemRefusal(run, item)) ?? pending.options[0]), 'find');
   if (pending?.kind === 'rest') return ok(rtRestHeal(run), 'rest');
   if (pending?.kind === 'shop') return ok(rtShopLeave(run), 'shop');
   if (pending?.kind === 'talisman') return ok(rtChooseTalisman(run, null), 'talisman');

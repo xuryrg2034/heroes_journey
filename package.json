@@ -91,6 +91,7 @@
     "test:realtime-garrison-run": "tsx src/realtime/run/garrisonRun.spec.ts",
     "test:realtime-keymaster": "tsx src/realtime/sim/keymaster.spec.ts",
     "test:realtime-garrison-moat": "tsx src/realtime/run/garrisonMoat.spec.ts",
+    "test:realtime-potion-cap": "tsx src/realtime/run/potionCap.spec.ts",
     "test:realtime-boss-clears": "tsx src/realtime/sim/bossClears.spec.ts",
     "test:realtime-jailer-run": "tsx src/realtime/run/jailerRun.spec.ts",
     "test:realtime-meta": "tsx src/realtime/run/meta.spec.ts",

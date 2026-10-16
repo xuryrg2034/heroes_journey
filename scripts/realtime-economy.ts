@@ -56,7 +56,7 @@ import { GARRISON_FINAL_ARENA, rtGarrisonNodeId } from '../src/realtime/run/garr
 import { rtCarry, rtHearthItems } from '../src/realtime/run/rtMeta';
 import { outcomeOf } from '../src/realtime/run/runFight.testkit';
 import {
-  createRtRun, RT_TASK17_OFF, resolveArena, rtArenaLoadout, rtAvailableNodes, rtCasinoLeave, rtCasinoPlay, rtCasinoView, rtChooseEventOption, rtChooseFind,
+  createRtRun, RT_TASK17_OFF, resolveArena, rtArenaLoadout, rtAvailableNodes, rtCasinoLeave, rtCasinoPlay, rtCasinoView, rtChooseEventOption, rtChooseFind, rtItemRefusal,
   rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtChooseTalisman, rtEnterNode, rtEventView, rtGiftView, rtNode,
   rtRerollTalismans, rtRerollView, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtArenaParams, rtRunParams, rtShopBuy, rtShopLeave, rtShopView, healOffer, healOnMap,
   rtEnterGarrison, RT_CART_KEEP, RT_CART_MAX,
@@ -560,7 +560,7 @@ function walkRun(k: number): RunRecord {
         break;
       }
       case 'hammer': run = ok(rtChooseHammer(run, pending.options[k % pending.options.length] ?? null), 'hammer'); break;
-      case 'find': run = ok(rtChooseFind(run, pending.options[0]), 'find'); break;
+      case 'find': run = ok(rtChooseFind(run, pending.options.find(item => !rtItemRefusal(run, item)) ?? pending.options[0]), 'find'); break;
       case 'rest': {
         const view = rtRestView(run)!;
         const recipes = view.recipes.filter(entry => entry.available);

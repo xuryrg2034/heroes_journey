@@ -903,6 +903,23 @@ function itemsSection(runs: readonly RunRecord[], entries: readonly FightEntry[]
     table(['Предмет', 'Выбор', 'Предложен', 'Взят', 'Отказ', 'Сработал'], list), '',
     '### Расходники в боях', '', table(['Расходник', 'Использован'], usedRows), '',
     '### Расходники по походам', '', itemRunTable(runs),
+    '', '### Рука полна (задача 41)', '', handFullLines(runs),
+  ].join('\n');
+}
+
+/**
+ * Task 41 «Три зелья»: the runs with the cap of healing potions (`RunRecord.potionCap`) — the healing refused for a full hand
+ * (`items.capRefused`: refused choices and a reward's excess) and the healing loot left on the floor of their fights (`items.floorLeft`).
+ */
+export function handFullLines(runs: readonly RunRecord[]): string {
+  const capped = runs.filter(r => r.potionCap);
+  if (!capped.length) return 'Походов с пределом зелий нет (`RunRecord.potionCap`, с 16.10.2026).';
+  const refused = capped.map(r => r.items?.capRefused ?? 0), floor = capped.map(r => r.items?.floorLeft ?? 0);
+  const sum = (xs: number[]): number => xs.reduce((a, b) => a + b, 0);
+  return [
+    `Походов с пределом зелий: ${capped.length} (предел ${[...new Set(capped.map(r => r.potionCap))].join(', ')}).`,
+    `Отказов «Рука полна» (выбор лечения, показанный недоступным, и лишнее зелье награды): ${sum(refused)}, в ${refused.filter(n => n > 0).length} походах.`,
+    `Зелий не подобрано в бою (рука полна, лежали до конца боя): ${sum(floor)}, в ${floor.filter(n => n > 0).length} походах.`,
   ].join('\n');
 }
 

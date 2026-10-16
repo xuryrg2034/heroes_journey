@@ -28,7 +28,7 @@
  */
 import { dcos, dhypot, dsin } from './detMath';
 import { behaviorOf, enemyArtRadius, kindOf } from './enemies/kinds';
-import { adoptChainColor, chameleonOpen, eliteDeath, pickLoot, platesOf, stripPlates, trailAt } from './elites';
+import { adoptChainColor, chameleonOpen, eliteDeath, pickLoot, platesOf, potionHandFull, stripPlates, trailAt } from './elites';
 import { curseKill, takeChest } from './chest';
 import { hasTalisman } from './kit';
 import { afterLinkPowerOf, anchorsOf, buildActive, chainShieldOf, colorRuleOf, colorShiftOf, crystalEveryOf, endShadowOf, focusMaxOf, hasHook, jumpCostOf, linkGainOf, linkPowerOf, linkRadiusOf, nextChainNo, runHook, type ChainAnchor, type ChainEnd, type LinkContext } from './build';
@@ -844,7 +844,7 @@ export function inChain(world: World, enemy: Enemy): number {
  * Why a target cannot be the next link (stage G): the checks of `canLink` / `canLinkObject` in their order, and the
  * text the pointer hint shows. One function decides both, so the hint never disagrees with the chain.
  */
-export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'unlit' | 'color' | 'far' | 'sight' | 'guarded' | 'crossed' | 'sealed' | 'lever' | 'shackled';
+export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'unlit' | 'color' | 'far' | 'sight' | 'guarded' | 'crossed' | 'sealed' | 'lever' | 'shackled' | 'handFull';
 export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   move: 'идёт проход',
   colorless: 'не берётся цепью',
@@ -867,6 +867,8 @@ export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   lever: 'рычаг не готов',
   // Task 40 «Ключник»: a prisoner in the keymaster's shackles (tethers.ts `shackled`) — no chain takes it until they are cut.
   shackled: 'в кандалах',
+  // Task 41 «Три зелья» (`Params.potionCap`): a healing loot while the hand is full.
+  handFull: 'рука полна',
 };
 
 /**
@@ -958,6 +960,8 @@ export function objectRefusal(world: World, object: ArenaObject, plan: ChainPlan
   if (object.kind === 'brazier' && object.out !== undefined) return 'unlit';
   // Casino stage 1 («Однорукий гоблин»): the lever is a target only while it is ready (slot.ts `leverReady`).
   if (object.kind === 'lever' && !leverReady(world, object)) return 'lever';
+  // Task 41 «Три зелья»: a healing loot while the hand (with the healing loot already in the chain) is full — the dash would not pick it up.
+  if (object.kind === 'loot' && object.loot === 'healing' && potionHandFull(world, world.chain.filter(l => l.kind === 'object' && findObject(world, l.id)?.loot === 'healing').length)) return 'handFull';
   return reachRefusal(world, object, OBJECT_RADIUS);
 }
 

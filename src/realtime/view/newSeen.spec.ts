@@ -7,7 +7,7 @@ import { AFFIX_CAPTIONS, arenaKinds, KIND_CAPTIONS, NEW_SEEN_KEY, newKindsOfAren
 import { Simulation } from '../sim/simulation';
 import { defaultParams, type Params } from '../sim/params';
 import { POOL_ROSTERS, ANCHOR_ROLES, ANCHOR_ARENAS } from '../sim/rosters';
-import { createRtRun, arenaPreview, isArenaNode, rtAvailableNodes, rtChooseGift, rtChooseGiftPick, rtEnterNode, rtGiftView, resolveArena, rtChooseTalisman, rtChooseHammer, rtChooseFind, rtRestHeal, rtShopLeave, rtChooseEventOption, rtEventView, type RtRunState, type RtRunStep } from '../run/rtRun';
+import { createRtRun, arenaPreview, isArenaNode, rtAvailableNodes, rtChooseGift, rtChooseGiftPick, rtEnterNode, rtGiftView, resolveArena, rtChooseTalisman, rtChooseHammer, rtChooseFind, rtItemRefusal, rtRestHeal, rtShopLeave, rtChooseEventOption, rtEventView, type RtRunState, type RtRunStep } from '../run/rtRun';
 import { RUN_ARENAS } from '../run/arenaPools';
 import { memoryJournalStore, type KeyValueStore } from '../telemetry/buffer';
 import { createFightObserver } from '../telemetry/observe';
@@ -101,7 +101,7 @@ function walk(seed: number, k: number, visit: (run: RtRunState) => void): void {
     else if (pending?.kind === 'hammer') run = ok(rtChooseTalisman(ok(rtChooseHammer(run, null)), null));
     else if (pending?.kind === 'talisman') run = ok(rtChooseTalisman(run, null));
     else if (pending?.kind === 'rest') run = ok(rtRestHeal(run));
-    else if (pending?.kind === 'find') run = ok(rtChooseFind(run, pending.options[0]));
+    else if (pending?.kind === 'find') run = ok(rtChooseFind(run, pending.options.find(item => !rtItemRefusal(run, item)) ?? pending.options[0]));
     else if (pending?.kind === 'shop') run = ok(rtShopLeave(run));
     else if (pending?.kind === 'event') run = ok(rtChooseEventOption(run, rtEventView(run)!.options.find(o => o.available)!.id));
     else {
