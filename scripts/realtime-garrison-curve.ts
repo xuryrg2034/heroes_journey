@@ -15,7 +15,9 @@
  * The fight bot (seeds `Math.imul(k, 2654435761) >>> 0`): the greedy chain of the field measures (scripts/loopBot.ts `playChain`:
  * nearest first, nearest next, buttons and crystals too) every 0.75 s, a walk by a pattern, a spin every 6.7 s, a jump every 8.3 s,
  * a healing potion at 5 HP or lower; after the goals it walks the grid path to the door, still chaining, and chains into the door
- * once it is within reach. A fight over the limit counts as lost (`timeouts`). It prints the date and HEAD.
+ * once it is within reach. A fight over the limit counts as lost (`timeouts`). It prints the date and HEAD, and the share of deaths
+ * among the runs that reached the Jailer (л5), the forest's final (л10) and the Castellan (г10) — the bosses' walls side by side.
+ * `--moat` — the runs take «Ров» and the keymaster (the flag `RT_GARRISON_MOAT_ON` is off until the ui view).
  */
 import { execSync } from 'node:child_process';
 import { canJump } from '../src/realtime/sim/chain';
@@ -33,6 +35,8 @@ import { playChain } from './loopBot';
 const args = process.argv.slice(2);
 const option = (name: string, fallback: string): string => { const at = args.indexOf(name); return at >= 0 ? args[at + 1] : fallback; };
 const SEEDS = Number(option('--seeds', '300')), LIMIT = Number(option('--limit', '240')), VERBOSE = args.includes('--verbose');
+/** Task 40: `--moat` — the runs take «Ров» (`moat: true`) whatever `RT_GARRISON_MOAT_ON` says (off until the ui view). */
+const MOAT = args.includes('--moat');
 /** The bot drinks a healing potion at this HP or lower. */
 const HEAL_AT = 5;
 
@@ -104,7 +108,7 @@ function fight(run: RtRunState, t: Tally): RtArenaOutcome {
 function pass(real: (run: RtRunState) => boolean): Tally {
   const t = tally();
   for (let k = 1; k <= SEEDS; k++) {
-    const run = walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true }, fight: state => (real(state) ? fight(state, t) : null) }).run;
+    const run = walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, ...MOAT ? { moat: true } : {} }, fight: state => (real(state) ? fight(state, t) : null) }).run;
     t.runs++;
     const keys = new Set([...run.visited, ...run.result ? [run.result.nodeId] : []].map(id => keyOf(run, id)));
     // A run in the garrison passed every row of the forest.
@@ -128,12 +132,16 @@ function print(title: string, t: Tally, levels: readonly string[]): void {
     const key = `${level} ${row}`, dmg = t.damage.get(key) ?? [];
     console.log(`| ${key} | ${t.reached.get(key) ?? 0} | ${pct(t.reached.get(key) ?? 0)} | ${t.deaths.get(key) ?? 0} | ${dmg.length} | ${dmg.length ? f1(median(dmg)) : '—'} |`);
   }
+  // The bosses' walls side by side (design 16.10.2026): the share of deaths among the runs that reached the Jailer (л5), the forest's
+  // final (л10) and the Castellan (г10).
+  const wall = (key: string, title: string): string => { const r = t.reached.get(key) ?? 0, d = t.deaths.get(key) ?? 0; return `${title} ${d} из ${r}${r ? ` (${Math.round(100 * d / r)}%)` : ''}`; };
+  console.log(`Доля смертей среди дошедших: ${levels.includes('л') ? `${wall('л 5', 'Тюремщик (л5)')}, ${wall('л 10', 'финал леса (л10)')}, ` : ''}${wall('г 10', 'Кастелян (г10)')}.`);
   console.log('');
 }
 
 const started = Date.now();
 const whole = pass(() => true), garrison = pass(run => !!run.garrisonLevel);
 const head = (() => { try { return execSync('git rev-parse --short HEAD').toString().trim(); } catch { return '?'; } })();
-console.log(`Задача 40, часть Е: кривая выживания бота через лес и гарнизон, ${SEEDS} seed, предел боя ${LIMIT} с (эвристика, жадный бот), ${new Date().toISOString().slice(0, 10)}, HEAD ${head}, ${Math.round((Date.now() - started) / 1000)} с.\n`);
+console.log(`Задача 40, часть Е: кривая выживания бота через лес и гарнизон, ${SEEDS} seed, предел боя ${LIMIT} с, «Ров» ${MOAT ? 'вкл.' : 'по флагу игры'} (эвристика, жадный бот), ${new Date().toISOString().slice(0, 10)}, HEAD ${head}, ${Math.round((Date.now() - started) / 1000)} с.\n`);
 print('Весь поход: все бои настоящие', whole, ['л', 'г']);
 print('Гарнизон от «Предместья»: бои леса выиграны обходом, бои гарнизона настоящие', garrison, ['г']);
