@@ -31,6 +31,8 @@ async function openJailer(page: Page, errors: string[]): Promise<void> {
   await expect(page.locator('#rt-app canvas')).toBeVisible();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
   await expect.poll(async () => (await snap(page)).arena).toBe('jailer');
+  // Design smoke v65 (D2): the fight opens on the boss and holds its first tick for the camera's glide — the test's setup comes after it.
+  await expect.poll(() => page.evaluate(() => (window as any).__realtime.camera().intro)).toBe(0);
 }
 
 /** No newcomers, nobody walks, touches do not hurt — journalled commands only, so the fight replays in Node. */

@@ -25,7 +25,7 @@ import { NewSeenStore, KIND_CAPTIONS, AFFIX_CAPTIONS } from './newSeen';
 import { ELITE_LEMON, PLAQUE_FADE, PLAQUE_LIFE, drawPlatePips, drawWindowPulse, plaqueText, platesWord } from './eliteView';
 import type { ItemKind } from '../sim/kit';
 import { areaContains, inWater, type Area, type TerrainZone, type Vec } from '../sim/geometry';
-import { Camera, CAMERA, placeEdgeArrows, type CameraBounds, type PlacedArrow } from './camera';
+import { Camera, CAMERA, placeEdgeArrows, type CameraBounds, type CameraKeep, type PlacedArrow } from './camera';
 import { collectEdgeMarkers } from './edgeMarkers';
 import { drawRoleGlyph, roleOf, type EnemyRole } from './roles';
 import { DEFAULT_PARAMS, enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from '../sim/params';
@@ -149,6 +149,9 @@ const GARRISON_ART: Readonly<Record<string, { id: CharacterArtId; size: number }
   [GUARD]: { id: 'garrison-guard', size: 3.4 }, [HANDLER]: { id: 'garrison-houndmaster', size: 3.4 },
   [HOUND]: { id: 'garrison-hound', size: 2.9 }, [CASTELLAN]: { id: 'castellan', size: 4.2 },
 };
+/** Task 38 (design smoke v65): the margin (units) round the boss's drawing the boss view keeps; the hero's drawn box round his centre. */
+const BOSS_KEEP_PAD = 0.25;
+const HERO_KEEP = { side: 0.7, up: 1.0, down: 0.7 } as const;
 /** Task 38: what stands in a tree's place in the garrison. */
 const GARRISON_PROPS = ['pillar', 'crate', 'barrel'] as const;
 /** Task 38: real seconds a cut tether's snap lasts. */
@@ -542,6 +545,12 @@ export class RealtimeRenderer {
   private freeH = 720;
   /** The top band of the window taken by the HUD plate: the view starts under it. */
   private freeTop = 0;
+  /** Design smoke v65 (D2): a fight with the boss bar — the boss kept in view as far as the hero allows; the fight opens on him. */
+  private bossView = false;
+  /** Design smoke v65 (D2): the glide from the boss to the hero at a boss fight's start (`CAMERA.bossIntro` s); null — none. */
+  private intro: { from: Vec; t: number } | null = null;
+  /** The fight opened on the boss: the bodies born with it are drawn whole at once (no pop-in held by the glide). */
+  private openedOnBoss = false;
   private readonly edgeLayer = new Graphics();
   /** Off-screen pointers drawn in the last frame, by kind (tests read it). */
   readonly edgeShown = { threat: 0, goal: 0, spawn: 0 };
@@ -688,8 +697,8 @@ export class RealtimeRenderer {
    * `CAMERA.refW/refH`) into the free part, as the whole arena was fitted before the camera: a 16×10 arena looks the same.
    * The view shows `freeWidth / (UNIT·scale)` units across; a larger arena scrolls under the camera.
    */
-  layout(freeWidth: number, height: number, top = 0): void {
-    this.freeW = freeWidth; this.freeH = height; this.freeTop = top;
+  layout(freeWidth: number, height: number, top = 0, boss = false): void {
+    this.freeW = freeWidth; this.freeH = height; this.freeTop = top; this.bossView = boss;
     this.fitScale();
     this.camera.clamp(this.bounds());
     this.placeRoot();
@@ -712,7 +721,9 @@ export class RealtimeRenderer {
   /** The view in units and the arena it stays inside. */
   private bounds(): CameraBounds {
     const k = UNIT * this.scale;
-    return { viewW: this.freeW / k, viewH: (this.freeH - this.freeTop) / k, arenaW: this.arena?.width ?? CAMERA.refW, arenaH: this.arena?.height ?? CAMERA.refH };
+    // Task 38 (smoke v65): a boss view may scroll the arena's bottom up over the action bar (the hero by the south gate stays above it).
+    const under = this.bossView ? this.edgeInset.bottom / k : 0;
+    return { viewW: this.freeW / k, viewH: (this.freeH - this.freeTop) / k, arenaW: this.arena?.width ?? CAMERA.refW, arenaH: (this.arena?.height ?? CAMERA.refH) + under };
   }
 
   /** The origin of the arena on screen from the camera: the camera's point is in the middle of the free area. */
@@ -727,22 +738,75 @@ export class RealtimeRenderer {
    * A new fight (restart, a run node): the camera stands on the hero at once. A hero moved inside a fight (the test hook
    * `teleport`) is not snapped to: the camera catches up smoothly.
    */
-  snapCamera(hero: Vec): void {
-    this.camera.snap(hero, this.bounds());
+  snapCamera(hero: Vec, world?: World): void {
+    // The boss's glide not begun yet keeps its start (the boot lays out and snaps again after the fight started).
+    if (this.intro && this.intro.t === 0) this.camera.place(this.intro.from, this.bounds());
+    else this.camera.snap(hero, this.bounds(), world ? this.bossKeep(world) : null);
     this.placeRoot();
   }
+
+  /**
+   * Design smoke v65 (D2): a boss fight (the boss bar) opens on the boss — the camera stands with his drawing in view under the plate
+   * and the bar, then glides to the hero in `CAMERA.bossIntro` s (ease-in-out). The view only: the host holds the fight's first
+   * tick and ignores input while `bossIntroOn()`. No boss view, no core — no glide.
+   */
+  startBossIntro(world: World): void {
+    const keep = this.bossKeep(world);
+    this.intro = null;
+    if (!keep) return;
+    const b = this.bounds(), box = keep.box;
+    // The box's middle, moved so that its top and then its bottom are in view (a box taller than the view shows its top).
+    const y = Math.min(box.y0 + b.viewH / 2, Math.max(box.y1 - b.viewH / 2, (box.y0 + box.y1) / 2));
+    this.camera.place({ x: (box.x0 + box.x1) / 2, y }, b);
+    this.intro = { from: { x: this.camera.x, y: this.camera.y }, t: 0 };
+    this.openedOnBoss = true;
+    this.placeRoot();
+  }
+
+  /** The boss's glide is on (the host holds the fight and ignores input). */
+  bossIntroOn(): boolean { return !!this.intro; }
 
   /** One camera step on the drawn hero; the pointer in stage pixels becomes an arena point again for the new view. */
   private updateCamera(world: World, dt: number, ui: RenderUi): void {
     const hero = world.hero;
+    if (this.intro) {
+      // The boss's glide: from the boss to where the camera would snap on the hero (with the boss kept as far as he allows).
+      const to = this.camera.target(hero, this.bounds(), this.bossKeep(world)), from = this.intro.from;
+      this.intro.t = Math.min(CAMERA.bossIntro, this.intro.t + dt);
+      const k = this.intro.t / CAMERA.bossIntro, e = k * k * (3 - 2 * k);
+      this.camera.x = from.x + (to.x - from.x) * e;
+      this.camera.y = from.y + (to.y - from.y) * e;
+      if (this.intro.t >= CAMERA.bossIntro) this.intro = null;
+      this.placeRoot();
+      if (ui.pointerScreen) ui.pointer = this.toArena(ui.pointerScreen.x, ui.pointerScreen.y);
+      return;
+    }
     let lead: Vec | null = null;
     if (ui.pointerScreen && ui.pointerOverStage !== false) {
       const p = this.toArena(ui.pointerScreen.x, ui.pointerScreen.y);
       lead = { x: p.x - hero.x, y: p.y - hero.y };
     }
-    this.camera.update(ui.cameraStill ? 0 : dt, hero, lead, !!ui.cameraFrozen && !world.move, this.bounds());
+    this.camera.update(ui.cameraStill ? 0 : dt, hero, lead, !!ui.cameraFrozen && !world.move, this.bounds(), this.bossKeep(world));
     this.placeRoot();
     if (ui.pointerScreen) ui.pointer = this.toArena(ui.pointerScreen.x, ui.pointerScreen.y);
+  }
+
+  /**
+   * Task 38 (design smoke v65): in a boss fight the camera keeps the core's drawing (the Jailer's, the Castellan's: art above the
+   * disc) in view as far as the hero stays in it; null — no boss view or the core is gone.
+   */
+  private bossKeep(world: World): CameraKeep | null {
+    if (!this.bossView) return null;
+    const core = world.enemies.find(e => (e.kind === JAILER || e.kind === CASTELLAN) && e.partOf === undefined);
+    if (!core) return null;
+    const r = enemyDrawRadius(world.params), art = core.kind === JAILER ? JAILER_ART : GARRISON_ART[CASTELLAN].size;
+    const up = core.kind === JAILER ? r * (JAILER_ART - JAILER_FEET) : r * (art - 1), half = (r * art) / 2, pad = BOSS_KEEP_PAD;
+    // The hero's box reaches down over the action bar (`edgeInset.bottom`): the hero stays above it, not under it.
+    const h = world.hero, below = this.edgeInset.bottom / (UNIT * this.scale);
+    return {
+      box: { x0: core.x - half - pad, x1: core.x + half + pad, y0: core.y - up - pad, y1: core.y + r + pad },
+      hero: { x0: h.x - HERO_KEEP.side, x1: h.x + HERO_KEEP.side, y0: h.y - HERO_KEEP.up, y1: h.y + HERO_KEEP.down + below },
+    };
   }
 
   /** Is the arena point in the view (grown by `margin` units). */
@@ -758,9 +822,10 @@ export class RealtimeRenderer {
   }
 
   /** Camera state for tests: its centre and the view in units. */
-  cameraState(): { x: number; y: number; viewW: number; viewH: number; scale: number } {
+  cameraState(): { x: number; y: number; viewW: number; viewH: number; scale: number; intro: number } {
     const b = this.bounds();
-    return { x: this.camera.x, y: this.camera.y, viewW: b.viewW, viewH: b.viewH, scale: this.scale };
+    // `intro` — real seconds left of the boss's glide (0 — none).
+    return { x: this.camera.x, y: this.camera.y, viewW: b.viewW, viewH: b.viewH, scale: this.scale, intro: this.intro ? CAMERA.bossIntro - this.intro.t : 0 };
   }
 
   /**
@@ -1110,7 +1175,8 @@ export class RealtimeRenderer {
         ox = dx / d * k; oy = dy / d * k;
       }
       view.root.position.set((e.x + ox) * UNIT, (e.y + oy) * UNIT);
-      const pop = Math.min(1, 0.35 + e.age / 0.2 * 0.65);
+      // Design smoke v65 (D2): a fight opened on the boss shows the bodies born with it whole (the glide holds their first tick).
+      const pop = this.openedOnBoss && e.age >= world.time - 1e-9 ? 1 : Math.min(1, 0.35 + e.age / 0.2 * 0.65);
       // Stage 2, step 3: an elite is drawn larger (its body stays); task 12 — a leader too (`enemyArtScale`, the sim's own scale).
       view.root.scale.set(scale * pop * enemyArtScale(world.params, e));
       view.root.zIndex = e.y;
@@ -3450,6 +3516,7 @@ export class RealtimeRenderer {
 
   resetEffects(): void {
     this.snaps = []; this.snapLayer.clear(); this.houndAt.clear();
+    this.intro = null; this.openedOnBoss = false;
     this.shakeLeft = 0;
     this.flashLeft = 0;
     this.flashGate.reset();

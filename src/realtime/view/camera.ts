@@ -18,6 +18,11 @@ export const CAMERA = {
   /** Reference view (units) the scale is fitted to: the whole 16×10 arena fits as before the camera. */
   refW: 16,
   refH: 10,
+  /**
+   * Design smoke v65 (D2): a boss fight opens on the boss — the camera glides from him to the hero in this many real seconds
+   * (ease-in-out); the game holds its first tick meanwhile. The scale stays the fights' own.
+   */
+  bossIntro: 1.2,
 } as const;
 
 /** The size of the view in units and the arena it must stay inside. */
@@ -27,14 +32,43 @@ export interface Vec2 { x: number; y: number }
 
 const clampAxis = (c: number, view: number, arena: number): number => (arena <= view ? arena / 2 : Math.max(view / 2, Math.min(arena - view / 2, c)));
 
+/** A box in arena units. */
+export interface Box { x0: number; y0: number; x1: number; y1: number }
+/** Task 38 (design smoke v65): keep `box` (the boss's drawing) in the view too, as far as the `hero` box stays in it. */
+export interface CameraKeep { hero: Box; box: Box }
+
+/**
+ * The centre `c` on one axis moved the least so that [lo, hi] is in the view of size `view`, as far as [hlo, hhi] (the hero)
+ * stays in it: the hero first — a box that does not fit with him is kept as near as he allows.
+ */
+const keepAxis = (c: number, view: number, hlo: number, hhi: number, lo: number, hi: number): number => {
+  const h = view / 2;
+  return Math.max(hhi - h, Math.min(hlo + h, Math.max(hi - h, Math.min(lo + h, c))));
+};
+const kept = (x: number, y: number, b: CameraBounds, keep: CameraKeep | null | undefined): Vec2 => (keep
+  ? { x: keepAxis(x, b.viewW, keep.hero.x0, keep.hero.x1, keep.box.x0, keep.box.x1), y: keepAxis(y, b.viewH, keep.hero.y0, keep.hero.y1, keep.box.y0, keep.box.y1) }
+  : { x, y });
+
 export class Camera {
   x = 0;
   y = 0;
 
-  /** Puts the camera on the hero at once (a new fight, a teleport): no lead, no dead zone. */
-  snap(hero: Vec2, b: CameraBounds): void {
-    this.x = clampAxis(hero.x, b.viewW, b.arenaW);
-    this.y = clampAxis(hero.y, b.viewH, b.arenaH);
+  /** Where `snap` puts the camera (it does not move it). */
+  target(hero: Vec2, b: CameraBounds, keep?: CameraKeep | null): Vec2 {
+    const t = kept(hero.x, hero.y, b, keep);
+    return { x: clampAxis(t.x, b.viewW, b.arenaW), y: clampAxis(t.y, b.viewH, b.arenaH) };
+  }
+
+  /** Puts the camera on the hero at once (a new fight, a teleport): no lead, no dead zone; `keep` — the boss in view too. */
+  snap(hero: Vec2, b: CameraBounds, keep?: CameraKeep | null): void {
+    const t = this.target(hero, b, keep);
+    this.x = t.x; this.y = t.y;
+  }
+
+  /** Puts the camera's centre at `p`, inside the arena. */
+  place(p: Vec2, b: CameraBounds): void {
+    this.x = clampAxis(p.x, b.viewW, b.arenaW);
+    this.y = clampAxis(p.y, b.viewH, b.arenaH);
   }
 
   /** Keeps the camera inside the arena after the view changed size (window resize, the debug panel). */
@@ -46,9 +80,9 @@ export class Camera {
   /**
    * One frame. `hero` — the drawn hero; `lead` — the hero→pointer vector in units (null — none); `dt` — real seconds
    * (0 on pause and in menus); `frozen` — the camera stands (a chain is being drawn: the world must not move under the
-   * pointer).
+   * pointer); `keep` — task 38: a box (the boss) kept in view as far as the hero stays in it.
    */
-  update(dt: number, hero: Vec2, lead: Vec2 | null, frozen: boolean, b: CameraBounds): void {
+  update(dt: number, hero: Vec2, lead: Vec2 | null, frozen: boolean, b: CameraBounds, keep?: CameraKeep | null): void {
     if (frozen || dt <= 0) { this.clamp(b); return; }
     const gx = hero.x + (lead ? Math.max(-CAMERA.leadMaxX, Math.min(CAMERA.leadMaxX, lead.x * CAMERA.lead)) : 0);
     const gy = hero.y + (lead ? Math.max(-CAMERA.leadMaxY, Math.min(CAMERA.leadMaxY, lead.y * CAMERA.lead)) : 0);
@@ -56,9 +90,10 @@ export class Camera {
     const hw = CAMERA.deadW / 2, hh = CAMERA.deadH / 2;
     const tx = gx > this.x + hw ? gx - hw : gx < this.x - hw ? gx + hw : this.x;
     const ty = gy > this.y + hh ? gy - hh : gy < this.y - hh ? gy + hh : this.y;
+    const { x: kx, y: ky } = kept(tx, ty, b, keep);
     const k = 1 - Math.exp(-dt / CAMERA.smooth);
-    this.x += (tx - this.x) * k;
-    this.y += (ty - this.y) * k;
+    this.x += (kx - this.x) * k;
+    this.y += (ky - this.y) * k;
     this.clamp(b);
   }
 
