@@ -1470,6 +1470,9 @@ export interface AshStat {
   /** Damage to the hero in the final fights (`last-stand`) of these runs, and how many of them were won. */
   finalDamage: number[];
   finalWon: number;
+  /** Task 48: the same for the den branch's final — the Troll's fights (`troll`), apart from «Последний рубеж». */
+  trollDamage: number[];
+  trollWon: number;
   /** Task 45: the median chain length of each ended fight with chains (`summary.chain.lengthMedian`). */
   chainMedian: number[];
 }
@@ -1480,20 +1483,22 @@ export function ashStats(runs: readonly RunRecord[], runFights: readonly FightEn
   return levels.map(ash => {
     const own = runs.filter(r => recordAsh(r) === ash);
     const fights = runFights.filter(e => e.run && recordAsh(e.run) === ash && (e.record.outcome === 'victory' || e.record.outcome === 'defeat'));
-    const finals = fights.filter(e => e.record.arena === 'last-stand');
+    const finals = fights.filter(e => e.record.arena === 'last-stand'), trolls = fights.filter(e => e.record.arena === 'troll');
     return {
       ash, runs: own.length, won: own.filter(r => r.outcome === 'victory').length, lost: own.filter(r => r.outcome === 'defeat').length,
       farRow: own.map(r => r.farRow), damage: fights.map(e => summary(e).damage.total),
       finalDamage: finals.map(e => summary(e).damage.total), finalWon: finals.filter(e => e.record.outcome === 'victory').length,
+      trollDamage: trolls.map(e => summary(e).damage.total), trollWon: trolls.filter(e => e.record.outcome === 'victory').length,
       chainMedian: fights.filter(e => summary(e).chain.count > 0).map(e => summary(e).chain.lengthMedian),
     };
   });
 }
-const ASH_HEAD = ['Испытание', 'Походов', 'Побед', 'Поражений', 'Дальний ряд мед.', 'Урон за бой мед.', 'Финалов (побед)', 'Урон в финале мед.', 'Цепь мед. (боёв)'];
-const ASH_LEGEND = 'Задача 18 «Испытание I–V» (с 14.10.2026): походы по ступени (`RunRecord.ash`; нет поля — 0, и записи до 14.10.2026). Ступень выбирают на «Новом походе» после первой победы. Бои — законченные победой или поражением; финал — «Последний рубеж». Задача 45 (с 16.10.2026): ступени VI–VIII; «Цепь мед.» — медиана по боям медианной длины цепи боя (`chain.lengthMedian`; в скобках — боёв с цепями): на VIII ожидается ниже. Эвристика, не оценка баланса.';
+const ASH_HEAD = ['Испытание', 'Походов', 'Побед', 'Поражений', 'Дальний ряд мед.', 'Урон за бой мед.', 'Финалов (побед)', 'Урон в финале мед.', 'Тролль (побед)', 'Урон у Тролля мед.', 'Цепь мед. (боёв)'];
+const ASH_LEGEND = 'Задача 18 «Испытание I–V» (с 14.10.2026): походы по ступени (`RunRecord.ash`; нет поля — 0, и записи до 14.10.2026). Ступень выбирают на «Новом походе» после первой победы. Бои — законченные победой или поражением; финал — «Последний рубеж» (с задачи 48 — финал ветки лагеря; бои Тролля, финала ветки логова, — в своих столбцах «Тролль»). Задача 45 (с 16.10.2026): ступени VI–VIII; «Цепь мед.» — медиана по боям медианной длины цепи боя (`chain.lengthMedian`; в скобках — боёв с цепями): на VIII ожидается ниже. Эвристика, не оценка баланса.';
 function ashRows(runs: readonly RunRecord[], runFights: readonly FightEntry[]): (string | number)[][] {
   return ashStats(runs, runFights).map(s => [ASH_MARKS[s.ash] ?? String(s.ash), s.runs, s.won, s.lost, s.farRow.length ? n1(median(s.farRow)) : '—',
     s.damage.length ? n1(median(s.damage)) : '—', `${s.finalDamage.length} (${s.finalWon})`, s.finalDamage.length ? n1(median(s.finalDamage)) : '—',
+    `${s.trollDamage.length} (${s.trollWon})`, s.trollDamage.length ? n1(median(s.trollDamage)) : '—',
     s.chainMedian.length ? `${n1(median(s.chainMedian))} (${s.chainMedian.length})` : '—']);
 }
 

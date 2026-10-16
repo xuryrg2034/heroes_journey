@@ -12,7 +12,10 @@
  *   the damage of his moves against the crowd's touches.
  * - `--set <name>` (`TROLL_SETS`): the Troll's keys put on the params of `--direct` (the fight replays from its journal): the plates 4 / 5 /
  *   6, the crowd 0.5 / 0.6 / 0.75, «Храп» without regrowth; the references are not played again.
- * The whole run with real fights (`--run`) waits for task 48б: until then the run's den boss plays «Последний рубеж».
+ * - `--run` (task 48б): the whole forest with real fights — a new run as the game makes it (the den branch's boss plays the Troll,
+ *   the camp's «Последний рубеж»), walked by the run's own commands (run/metaWalk.testkit.ts), each forest fight played by the same bot
+ *   with the run's params, loadout and HP; the builds are real, the sample of the finals small. Lines of the forest's finals by arena
+ *   and of the Jailer: reached, deaths, median time, the damage by source.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import { execSync } from 'node:child_process';
@@ -27,11 +30,14 @@ import { JAILER } from '../src/realtime/sim/enemies/jailer';
 import { FINAL_ARENA } from '../src/realtime/run/arenaPools';
 import { arenaSeed, battleKindOf, createRtRun, rtArenaLoadout, rtArenaParams, rtMapNodes, rtRunParams, type RtRunState } from '../src/realtime/run/rtRun';
 import { botFight } from './garrisonBot';
+import { walkRun } from '../src/realtime/run/metaWalk.testkit';
+import { outcomeOf } from '../src/realtime/run/runFight.testkit';
+import { rtGarrisonNodeId } from '../src/realtime/run/garrison';
 
 const args = process.argv.slice(2);
 const option = (name: string, fallback: string): string => { const at = args.indexOf(name); return at >= 0 ? args[at + 1] : fallback; };
 const SEEDS = Number(option('--seeds', '300')), LIMIT = Number(option('--limit', '240'));
-const STAND = args.includes('--stand'), SET_NAME = option('--set', '') || option('--keys', '');
+const RUN = args.includes('--run'), STAND = args.includes('--stand'), SET_NAME = option('--set', '') || option('--keys', '');
 const seedOf = (k: number): number => Math.imul(k, 2654435761) >>> 0;
 
 /** The grid of the design (spec 14): the Troll's keys over the run's params. */
@@ -124,7 +130,35 @@ let head = '?';
 try { head = execSync('git rev-parse --short HEAD').toString().trim(); } catch { /* not a repository */ }
 const date = new Date().toISOString().slice(0, 10);
 
-if (STAND) {
+if (RUN) {
+  // The whole forest: every forest fight real, the garrison's made up by the walk (the forest's finals and the Jailer are measured).
+  const fights = new Map<string, { won: boolean; time: number; damage: Record<string, number> }[]>();
+  for (let k = 1; k <= SEEDS; k++) {
+    walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini' }, fight: state => {
+      const pending = state.pending;
+      if (pending?.kind !== 'battle' || rtGarrisonNodeId(pending.nodeId)) return null;
+      const damage: Record<string, number> = {};
+      const played = botFight(state, { params: rtArenaParams(state, rtRunParams(defaultParams())), loadout: rtArenaLoadout(state), limit: LIMIT, aim: [TROLL, JAILER],
+        seen: w => { for (const ev of w.events) if (ev.type === 'hit') damage[ev.source] = (damage[ev.source] ?? 0) + ev.damage; } });
+      const w = played.sim.world;
+      if ([TROLL, FINAL_ARENA, 'jailer', 'jailer-yard'].includes(pending.arena)) {
+        const list = fights.get(pending.arena) ?? [];
+        list.push({ won: w.status === 'victory', time: w.time, damage });
+        fights.set(pending.arena, list);
+      }
+      return outcomeOf(state, w);
+    } });
+  }
+  console.log(`Задача 48 «Тролль», --run: весь лес настоящими боями (новый поход, ветка логова — Тролль, ветка лагеря — «Последний рубеж»), ${SEEDS} seed, предел ${LIMIT} с (эвристика), ${date}, HEAD ${head}.\n`);
+  console.log('| Бой | Дошли | Смертей | Бой, с, мед. | Урон приёмов, доля | Урон по источникам |');
+  console.log('| --- | --- | --- | --- | --- | --- |');
+  for (const [arena, list] of fights) {
+    const all: Record<string, number> = {};
+    for (const f of list) for (const [s, n] of Object.entries(f.damage)) all[s] = (all[s] ?? 0) + n;
+    const total = Object.values(all).reduce((a, b) => a + b, 0), moves = MOVE_SOURCES.reduce((a, s) => a + (all[s] ?? 0), 0), lost = list.filter(f => !f.won).length;
+    console.log(`| ${arena} | ${list.length} | ${lost} (${pct(lost, list.length)}) | ${f1(median(list.map(f => f.time)))} | ${arena === TROLL ? pct(moves, total) : '—'} | ${Object.entries(all).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([s, n]) => `${s} ${n}`).join(', ')} |`);
+  }
+} else if (STAND) {
   console.log(`Задача 48 «Тролль», --stand: стоящий герой 6 с у Тролля (12; 5,6), HP 999, параметры похода ряда 10, ${SEEDS} seed (эвристика), ${date}, HEAD ${head}.\n`);
   const totals: Record<string, number[]> = {};
   let moves = 0;
