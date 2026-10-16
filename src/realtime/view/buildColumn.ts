@@ -10,7 +10,7 @@
  */
 import { buildModules, moduleActive, type BuildProgress } from '../sim/build';
 import { COUNTER_TALISMANS as T, FORMS as F, FROST_PASS, FUSIONS as U, fusionRecipe, HAMMERS as H, OATH_HUNGER, RELICS as R, RELIC_IDS } from '../sim/buildIds';
-import { formIconSvg, fusionIconSvg } from './formIcons';
+import { formIconSvg, fusionIconSvg, hammerIconSvg } from './formIcons';
 import type { World } from '../sim/world';
 import { rtHammer, rtTalisman } from '../run/rtTalismans';
 
@@ -42,7 +42,8 @@ export const BUILD_LABELS: Readonly<Record<string, Label>> = {
   [T.longArm]: { short: 'Рука', glyph: '⇔', title: 'Длинная рука' },
   [T.frostEdge]: { short: 'Иней', glyph: '✱', title: 'Иней на клинке' },
   // Т2 — hammers.
-  [H.fire]: { short: 'Огн', glyph: '≈', title: 'Огненный проход' },
+  // Task 47 §1: a drawn icon — the dash's arrow with the consumable's fire behind it (the glyph stays for plain text).
+  [H.fire]: { short: 'Огн', glyph: '≈', title: 'Огненный проход', svg: hammerIconSvg('fire') },
   [H.blast]: { short: 'Взрв', glyph: '✺', title: 'Взрыв на конце' },
   [H.cut]: { short: 'Рез', glyph: '⟋', title: 'Режущий проход' },
   [H.return]: { short: 'Возв', glyph: '↺', title: 'Возврат' },

@@ -47,7 +47,7 @@ import { SLOT_BUST_SOURCE, goblinOf } from '../sim/slot';
 import { bustBlink } from './bustBlink';
 import { dashCheque } from '../sim/purse';
 import { chainFeel, DashLinks, QUIET_LINKS } from './chainFeel';
-import { FX_DEFAULT, FlashGate, HEAVY_LINE, shardCount, shardLife, type FxLevel } from './juice';
+import { FX_DEFAULT, FlashGate, HEAVY_LINE, LONG_ARM_FLASH, SPEED_LINES, SPEED_LINE_GAP, SPEED_LINE_LEN, SQUASH_TIME, shardCount, shardLife, squashScale, type FxLevel, type SquashKind } from './juice';
 import { CASTELLAN, GUARD, HANDLER, HOUND, KEYMASTER, KNIGHT, LEVER_COOLDOWN, STAND, castellanGrate, castellanMove, gateLeverLeft, gateLeverReady, houndFrenzied, knightLane, knightSwingRadius, prisonerRioting } from '../sim/enemies/garrison';
 import { CROSSBOW, crossbowLine } from '../sim/enemies/crossbow';
 import { drawBoltLine, drawGateLever, drawGrate } from './courtView';
@@ -379,12 +379,24 @@ function drawSigil(g: GraphicsContext, color: number, size: number, ink: number,
   else g.poly([0, y - s, s * 0.85, y, 0, y + s, -s * 0.85, y]).stroke({ color: ink, width: s * 0.35 });
 }
 
+/** The canvas's background; task 47 §2: the band over the view's top border is of it. */
+const CANVAS_BG = 0x10150f;
+
 /** П1 «Глубина звена»: render frames between two searches of the same drawn chain (design answer 11.10.2026). */
 export const LINK_DEPTH_FRAMES = 6;
 
 export class RealtimeRenderer {
   readonly app = new Application();
   private readonly root = new Container();
+  /**
+   * Task 47 §2 (design 16.10.2026, variant 1): the camera's border under the HUD plate. The world (bodies, objects, effects, the chain's
+   * highlight, its texts) is seen only in the view (`freeTop` down: under the plate and the boss bar) — above it a band of the canvas's
+   * own background covers it (`viewBorder`; the look of a mask, without the stencil's cost: a mask on the world halved the frame rate
+   * with 60 enemies). The hero stays over the border whole — his drawing, HP bar, ring R, power number, combo and curse counter are in
+   * `heroRoot`, drawn after the band with the world's transform: at the top edge his head shows through the plate as before.
+   */
+  private readonly heroRoot = new Container();
+  private readonly viewBorder = new Graphics();
   /** Floor and obstacles never change during a fight: drawn once into a cached texture. */
   private readonly staticLayer = new Container();
   private readonly floor = new Graphics();
@@ -665,9 +677,17 @@ export class RealtimeRenderer {
   private readonly flashGate = new FlashGate();
   /**
    * Task 35 (tests read it): С1 — full-screen flashes started and held back (the level 0 or the cap), frames with a shake offset
-   * and the largest offset, px; С2 — shards thrown so far, the count of the last kill's burst, shards flying now.
+   * and the largest offset, px; С2 — shards thrown so far, the count of the last kill's burst, shards flying now. Task 47 (pack 2): С7 `squashes` — squashes started, `squashMax` — the largest deviation of the hero's drawing scale from 1 drawn;
+   * С4 `speedLines` — frames with «Быстрые ноги»'s speed lines, `armFlashes` — «Длинная рука»'s brighter rings started, `armBright` — the
+   * ring brighter in the last frame (1/0).
    */
-  readonly juiceShown = { flashes: 0, flashesHeld: 0, shakeFrames: 0, shakeMax: 0, shards: 0, lastBurst: 0, shardsLive: 0, heavyLine: 0, notches: [] as number[] };
+  readonly juiceShown = { flashes: 0, flashesHeld: 0, shakeFrames: 0, shakeMax: 0, shards: 0, lastBurst: 0, shardsLive: 0, heavyLine: 0, notches: [] as number[], squashes: 0, squashMax: 0, speedLines: 0, armFlashes: 0, armBright: 0 };
+  /** Task 47, С7: the hero's squash on (its kind and real seconds into it); null — none. `wasDash` — the dash of the last frame. */
+  private squash: { kind: SquashKind; t: number } | null = null;
+  private wasDash = false;
+  /** Task 47, С4 «Длинная рука»: the view's clock until which the reach ring burns brighter; the reach of the last frame (units). */
+  private armUntil = 0;
+  private lastReach = 0;
   /** Task 35, С2: the shards of dead enemies — one pool of particles on one texture, tinted by the enemy's colour. */
   private readonly shardLayer = new ParticleContainer({ dynamicProperties: { position: true, rotation: true, vertex: true, color: true } });
   private readonly shards: { p: Particle; vx: number; vy: number; spin: number; life: number; total: number; delay: number; s: number }[] = [];
@@ -686,7 +706,7 @@ export class RealtimeRenderer {
   async init(host: HTMLElement): Promise<void> {
     await this.app.init({
       resizeTo: host,
-      background: 0x10150f,
+      background: CANVAS_BG,
       antialias: true,
       autoDensity: true,
       resolution: Math.min(window.devicePixelRatio || 1, 2),
@@ -694,15 +714,16 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.reachLayer, this.reachMask, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.heroLayer, this.overlay, this.prologueLayer, this.fxLayer, this.snapLayer, this.shardLayer, this.flash);
-    this.app.stage.addChild(this.root, this.edgeLayer);
+    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.overlay, this.prologueLayer, this.fxLayer, this.snapLayer, this.shardLayer, this.flash);
+    this.heroRoot.addChild(this.reachLayer, this.reachMask, this.heroLayer);
+    this.app.stage.addChild(this.root, this.viewBorder, this.heroRoot, this.edgeLayer);
     this.initShards();
     this.heroArt = makePlayer();
     this.heroLayer.addChild(this.heroRing, this.heroArt);
     this.comboText = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 46, fontWeight: 'bold', fill: 0xfff2c4, stroke: { color: 0x200c08, width: 7 } } });
     this.comboText.anchor.set(0.5, 1);
     this.comboText.visible = false;
-    this.root.addChild(this.comboText);
+    this.heroRoot.addChild(this.comboText);
   }
 
   /**
@@ -745,6 +766,7 @@ export class RealtimeRenderer {
    */
   layout(freeWidth: number, height: number, top = 0, boss = false): void {
     this.freeW = freeWidth; this.freeH = height; this.freeTop = top; this.bossView = boss;
+    this.viewBorder.clear().rect(0, 0, freeWidth, top).fill(CANVAS_BG);
     this.fitScale();
     this.camera.clamp(this.bounds());
     this.placeRoot();
@@ -762,6 +784,7 @@ export class RealtimeRenderer {
     if (!a || (a.width <= CAMERA.refW && a.height <= CAMERA.refH)) scale = Math.min(scale, (this.freeH - this.freeTop - margin * 2) / (CAMERA.refH * UNIT));
     this.scale = Math.max(0.1, scale);
     this.root.scale.set(this.scale);
+    this.heroRoot.scale.set(this.scale);
   }
 
   /** The view in units and the arena it stays inside. */
@@ -778,6 +801,7 @@ export class RealtimeRenderer {
     this.base.x = Math.round(this.freeW / 2 - this.camera.x * k);
     this.base.y = Math.round(this.freeTop + (this.freeH - this.freeTop) / 2 - this.camera.y * k);
     this.root.position.set(this.base.x, this.base.y);
+    this.heroRoot.position.set(this.base.x, this.base.y);
   }
 
   /**
@@ -2028,6 +2052,21 @@ export class RealtimeRenderer {
     }
     this.playerEffects.cutTrail = segments;
     if (segments) this.playerEffects.cutFrames++;
+    // Task 47, С4 «Быстрые ноги»: speed lines behind the dashing hero — pale streaks against his way (from the trail of the last
+    // 0.2 s); С1 scales their alpha, at 0 there are none.
+    const last = this.dashTrail.at(-1), first = this.dashTrail[0];
+    if (dashLike(world) && this.fxLevel > 0 && world.kit?.talismans.includes(RELICS.swiftFeet) && last && first) {
+      const dx = last.x - first.x, dy = last.y - first.y, d = Math.hypot(dx, dy);
+      if (d > 0.05) {
+        const ux = dx / d, uy = dy / d, nx = -uy, ny = ux, a = 0.7 * this.fxLevel / 100;
+        for (let i = 0; i < SPEED_LINES; i++) {
+          const off = (i - (SPEED_LINES - 1) / 2) * SPEED_LINE_GAP, len = SPEED_LINE_LEN * (i === (SPEED_LINES - 1) / 2 ? 1.25 : 1);
+          const x0 = world.hero.x - ux * 0.45 + nx * off, y0 = world.hero.y - uy * 0.45 + ny * off;
+          g.moveTo(x0 * UNIT, y0 * UNIT).lineTo((x0 - ux * len) * UNIT, (y0 - uy * len) * UNIT).stroke({ color: 0xeaf6ff, width: 2.5, alpha: a, cap: 'round' });
+        }
+        this.juiceShown.speedLines++;
+      }
+    }
   }
 
   /** Task 12: what the marked view drew in the last frame — the horde ring (its members), the reticles, the leaders' crowns (tests read it). */
@@ -2200,11 +2239,22 @@ export class RealtimeRenderer {
     this.curseShown.chests = chests;
   }
 
-  private drawHero(world: World): void {
+  private drawHero(world: World, dt: number): void {
     const hero = world.hero, art = this.heroArt;
     this.heroLayer.position.set(hero.x * UNIT, hero.y * UNIT);
+    // Task 47, С7: the dash starts — the hero stretches up; it ends — he squashes (the drawing only; С1 scales it, 0 — none).
+    const dash = dashLike(world);
+    if (dash !== this.wasDash && this.fxLevel > 0) { this.squash = { kind: dash ? 'start' : 'end', t: 0 }; this.juiceShown.squashes++; }
+    this.wasDash = dash;
+    let sq = { x: 1, y: 1 };
+    if (this.squash) {
+      sq = squashScale(this.squash.kind, this.squash.t, this.fxLevel);
+      this.juiceShown.squashMax = Math.max(this.juiceShown.squashMax, Math.abs(sq.x - 1), Math.abs(sq.y - 1));
+      this.squash.t += dt;
+      if (this.squash.t >= SQUASH_TIME) this.squash = null;
+    }
     if (art) {
-      art.scale.set(0.95);
+      art.scale.set(0.95 * sq.x, 0.95 * sq.y);
       art.alpha = hero.invulnerable > 0 && world.status === 'playing' ? (Math.floor(this.clock * 20) % 2 ? 0.4 : 1) : 1;
     }
     const flash = Math.max(world.params.hitFlash, 0.01), hurt = Math.min(1, hero.hurtFlash / flash);
@@ -2276,7 +2326,7 @@ export class RealtimeRenderer {
       this.curseText = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 15, fontWeight: 'bold', fill: CURSE, stroke: { color: CURSE_DARK, width: 4 } } });
       this.curseText.anchor.set(0.5, 0);
       this.curseText.visible = false;
-      this.root.addChild(this.curseText);
+      this.heroRoot.addChild(this.curseText);
     }
     const text = this.curseText, curse = world.curse, on = !!curse && cursed(world) && world.status === 'playing';
     text.visible = on;
@@ -2417,7 +2467,7 @@ export class RealtimeRenderer {
       this.powerText = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 34, fontWeight: 'bold', fill: POWER_WARM, stroke: { color: 0x200c08, width: 6 } } });
       this.powerText.anchor.set(0.5, 1);
       this.powerText.visible = false;
-      this.root.addChild(this.powerText);
+      this.heroRoot.addChild(this.powerText);
     }
     const text = this.powerText, move = world.move, plan = this.drawnPlan;
     let value: number | null = null, red = false, drawing = false;
@@ -2995,8 +3045,17 @@ export class RealtimeRenderer {
     this.heroReachShown = world.status === 'playing';
     // Phase B (Д5): the radius drawn (units) — «Длинная рука» and «Широкий круг» widen it (tests read it).
     this.heroReachRadius = linkRadiusOf(world);
+    // Task 47, С4 «Длинная рука»: the reach grew while a chain is drawn (the counters' window gave R ×1.5) — the rings burn brighter
+    // for `LONG_ARM_FLASH` s.
+    if (world.chain.length && this.lastReach > 0 && this.heroReachRadius > this.lastReach + 1e-9 && world.kit?.talismans.includes(COUNTER_TALISMANS.longArm)) {
+      this.armUntil = this.clock + LONG_ARM_FLASH;
+      this.juiceShown.armFlashes++;
+    }
+    this.lastReach = this.heroReachRadius;
+    const arm = Math.max(0, Math.min(1, (this.armUntil - this.clock) / LONG_ARM_FLASH));
+    this.juiceShown.armBright = arm > 0 ? 1 : 0;
     if (this.heroReachShown) {
-      rg.circle(hero.x * UNIT, hero.y * UNIT, this.heroReachRadius * UNIT).stroke({ color: 0xffffff, width: 1.25, alpha: 0.22 });
+      rg.circle(hero.x * UNIT, hero.y * UNIT, this.heroReachRadius * UNIT).stroke({ color: 0xffffff, width: 1.25 + 2 * arm, alpha: 0.22 + 0.6 * arm });
       reach++;
     }
     this.visibleReachCircles = reach;
@@ -3161,12 +3220,12 @@ export class RealtimeRenderer {
         // Task 33 «Близнецы»: the next colour — the tail to the pointer, the reach ring and a bead at the last link.
         const next = chainInk(twinNext), ax = anchor.x * UNIT, ay = anchor.y * UNIT;
         if (ui.pointer) for (const [w, c, a] of [[6, NAVY, 0.6], [3.5, next, 0.9]] as const) g.moveTo(ax, ay).lineTo(ui.pointer.x * UNIT, ui.pointer.y * UNIT).stroke({ color: c, width: w, alpha: a, cap: 'round' });
-        g.circle(ax, ay, linkRadiusOf(world) * UNIT).stroke({ color: next, width: 2, alpha: 0.6 });
+        g.circle(ax, ay, linkRadiusOf(world) * UNIT).stroke({ color: next, width: 2 + 2 * arm, alpha: 0.6 + 0.4 * arm });
         g.circle(ax, ay, 8).fill(next).stroke({ color: NAVY, width: 2.5 });
       } else {
         if (ui.pointer) g.moveTo(anchor.x * UNIT, anchor.y * UNIT).lineTo(ui.pointer.x * UNIT, ui.pointer.y * UNIT).stroke({ color: ink, width: 2, alpha: 0.45 });
         // Reach of the next link and the valid next links (outlined; `nextCandidates` already counts both anchors).
-        g.circle(anchor.x * UNIT, anchor.y * UNIT, linkRadiusOf(world) * UNIT).stroke({ color: ink, width: 1.5, alpha: 0.35 });
+        g.circle(anchor.x * UNIT, anchor.y * UNIT, linkRadiusOf(world) * UNIT).stroke({ color: ink, width: 1.5 + 2.5 * arm, alpha: 0.35 + 0.6 * arm });
       }
       this.visibleReachCircles = ++reach;
       // Stage G: the hero is a second anchor — his circle (always drawn faint) gets the chain color too.
@@ -3688,7 +3747,7 @@ export class RealtimeRenderer {
     this.drawChain(world, ui);
     this.drawPlayerFx(world, realDt);
     this.outlineLeft = Math.max(0, this.outlineLeft - realDt);
-    this.drawHero(world);
+    this.drawHero(world, realDt);
     this.drawCurseCounter(world);
     this.drawOverlay(world);
     // The power number first: the combo counter stands beside it while both show (task 8b).
@@ -3730,6 +3789,7 @@ export class RealtimeRenderer {
       if (ox !== 0 || oy !== 0) { this.juiceShown.shakeFrames++; this.juiceShown.shakeMax = Math.max(this.juiceShown.shakeMax, Math.hypot(ox, oy)); }
     }
     this.root.position.set(this.base.x + ox, this.base.y + oy);
+    this.heroRoot.position.set(this.base.x + ox, this.base.y + oy);
   }
 
   resetEffects(): void {
@@ -3755,6 +3815,7 @@ export class RealtimeRenderer {
     this.bursts.length = 0;
     this.dashTrail = [];
     this.cutSeen = false;
+    this.squash = null; this.wasDash = false; this.armUntil = 0; this.lastReach = 0;
     this.slotView.reset();
     this.bagView.reset();
     this.featDoor.reset();

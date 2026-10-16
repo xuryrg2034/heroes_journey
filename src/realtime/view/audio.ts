@@ -70,6 +70,41 @@ export class ChainAudio {
     this.tone(1568 * 2.76, 'sine', 0.25, volume * 0.18);
   }
 
+  /** Task 47, С4 «Огненный проход»: the fire laid — a crackle (short dry ticks at uneven steps) over a low whoomp. */
+  crackle(volume: number): void {
+    this.tone(140, 'sawtooth', 0.16, volume * 0.22);
+    for (const [i, f] of [2400, 1800, 3000, 2100, 2700].entries()) this.tone(f, 'square', 0.018, volume * 0.16, [0, 0.03, 0.05, 0.09, 0.12][i]);
+  }
+
+  /** Task 47, С4 «Взрыв на конце»: the end's blast — a pop (a short low thump and a click). */
+  pop(volume: number): void {
+    this.tone(170, 'sine', 0.13, volume * 0.8);
+    this.tone(1200, 'square', 0.025, volume * 0.25);
+  }
+
+  /** Task 47, С4 «Режущий проход»: a body cut — the swish of the blade (a high falling hiss). */
+  swish(volume: number): void {
+    this.tone(1700, 'sawtooth', 0.09, volume * 0.12);
+    this.tone(950, 'triangle', 0.07, volume * 0.14, 0.01);
+  }
+
+  /** Task 47, С4 «Возврат»: the run back — a bell played backwards (the ring swells, then stops). */
+  ringBack(volume: number): void {
+    this.swell(1318, 1318, 'sine', 0.32, volume * 0.45);
+    this.swell(1318 * 2.76, 1318 * 2.76, 'sine', 0.26, volume * 0.12, 0.06);
+  }
+
+  /** Task 47, С4 «Быстрые ноги»: the dash starts — a whistle (a rising swell). */
+  whistle(volume: number): void {
+    this.swell(900, 1900, 'sine', 0.2, volume * 0.3);
+  }
+
+  /** Task 47, С4 «Ударная волна»: the wave — a low hum, louder and longer with its strength (0.3–1, `juice.ts` `waveStrength`). */
+  hum(strength: number, volume: number): void {
+    this.tone(55, 'triangle', 0.25 + 0.4 * strength, volume * (0.35 + 0.55 * strength));
+    this.tone(82, 'sine', 0.2 + 0.3 * strength, volume * 0.4 * strength);
+  }
+
   /**
    * Tasks 36–37 «Мета v1»: the run-end and camp sounds — a soft tick as the experience counts, a bright ping when the bar reaches
    * a threshold, a paper flip per pack card and the reward chord on the last, coins for a purchase, the fire's low hum on opening.
@@ -145,6 +180,23 @@ export class ChainAudio {
     if (outcome === 'none') { for (let i = 0; i < 3; i++) this.tone(520 - 60 * i, 'square', 0.07, volume * 0.25, i * 0.1); return; }
     const notes = outcome === 'jackpot' || outcome.endsWith('3') ? 6 : 3;
     for (let i = 0; i < notes; i++) this.tone(990 * Math.pow(2, i / 12 * 2), 'triangle', 0.1, volume * 0.5, i * 0.06);
+  }
+
+  /** Task 47: a tone that swells to its end and stops (a reversed envelope), its pitch gliding `freq` → `to`. */
+  private swell(freq: number, to: number, type: OscillatorType, length: number, volume: number, delay = 0): void {
+    if (volume > 0) this.requested++;
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== 'running' || volume <= 0) return;
+    const t = ctx.currentTime + Math.max(0, delay), osc = ctx.createOscillator(), gain = ctx.createGain();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t);
+    osc.frequency.exponentialRampToValueAtTime(to, t + length);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume * 0.5), t + length);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + length + 0.02);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(t);
+    osc.stop(t + length + 0.04);
   }
 
   private tone(freq: number, type: OscillatorType, length: number, volume: number, delay = 0): void {
