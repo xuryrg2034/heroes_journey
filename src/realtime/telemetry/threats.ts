@@ -29,6 +29,10 @@
  *   body in the zone. Strike — `bossMove` `hit`: a `flail` / `throw` hit — hit, else shielded (in the zone) or dodged; the core died
  *   or the move was dropped (the weight severed) — interrupted.
  *
+ * - `bolt` (task 43, the law of the crossbow) — a crossbow's windup (`bolt` `aim`) with the hero's body on its fixed line. Strike —
+ *   `bolt` `shot`: the hero hit — hit; the bolt went to the hero but did not hurt (invulnerability, a shield) — shielded; it struck
+ *   another body first or the hero was off the line — dodged; the crossbow died before its shot or the fight ended — interrupted.
+ *
  * Outcomes: `hit` — a strike of this enemy by this source; `shielded` — the body in the zone on the strike tick but not
  * hurt (invulnerability, the chain's shield, a dash, a jump, the focus spare: decision 12); `dodged` — the body out of the
  * zone on the strike tick; `interrupted` — the enemy died, was knocked back, dropped its attack, or the fight ended (the
@@ -40,16 +44,17 @@ import { archerLine, archerMark } from '../sim/enemies/archer';
 import { WOLF_HOWL, WOLF_RUSH, wolfRushLength } from '../sim/enemies/wolf';
 import { LYNX_LEAP, LYNX_STUN, LYNX_WINDUP } from '../sim/enemies/lynx';
 import { inFlail, jailerMove, JAILER } from '../sim/enemies/jailer';
+import { BOLT_HALF } from '../sim/enemies/crossbow';
 import { blockedAt, cliffAt, dist, type Vec } from '../sim/geometry';
 import { bodyRadiusOf } from '../sim/enemies/kinds';
 import { heroRadius } from '../sim/params';
 import { SIM_DT } from '../sim/simulation';
-import { CONTACT_SLACK, enemyFrozen, touchDistanceOf, type Enemy, type World } from '../sim/world';
+import { CONTACT_SLACK, enemyFrozen, touchDistanceOf, type Enemy, type World, type WorldEvent } from '../sim/world';
 import { EventCursor } from './observe';
 import type { ThreatTally } from './schema';
 
-export type ThreatKind = 'archer' | 'boar' | 'wolf' | 'lynx' | 'sapper' | 'sapper-instant' | 'flail' | 'throw';
-export const THREAT_KINDS: readonly ThreatKind[] = ['archer', 'boar', 'wolf', 'lynx', 'sapper', 'sapper-instant', 'flail', 'throw'];
+export type ThreatKind = 'archer' | 'boar' | 'wolf' | 'lynx' | 'sapper' | 'sapper-instant' | 'flail' | 'throw' | 'bolt';
+export const THREAT_KINDS: readonly ThreatKind[] = ['archer', 'boar', 'wolf', 'lynx', 'sapper', 'sapper-instant', 'flail', 'throw', 'bolt'];
 export type ThreatOutcome = 'hit' | 'shielded' | 'dodged' | 'interrupted';
 export type CoverKind = 'wall' | 'cliff';
 
@@ -117,6 +122,10 @@ export class ThreatTracker {
   /** Task 28: the Jailer's moves of this tick (`bossMove`): begun and struck, by the core's id. */
   private bossStarts: { id: number; move: string }[] = [];
   private bossHits: { id: number; move: string }[] = [];
+  /** Task 43: the crossbows' windups and shots of this tick (`bolt`), and the open bolt warnings by the crossbow's id. */
+  private boltAims: Extract<WorldEvent, { type: 'bolt' }>[] = [];
+  private boltShots: Extract<WorldEvent, { type: 'bolt' }>[] = [];
+  private readonly boltOpen = new Map<number, Open>();
   /** Hits already explained by a warning of this tick. */
   private used = new Set<Hit>();
 
@@ -128,12 +137,13 @@ export class ThreatTracker {
   /** After a tick; `realDt` — the real seconds it stood for (`Simulation.nextTickCost()` before it). */
   tick(world: World, realDt: number = SIM_DT): void {
     this.real += realDt;
-    this.hits = []; this.kills.clear(); this.blasts = []; this.used.clear(); this.bossStarts = []; this.bossHits = [];
+    this.hits = []; this.kills.clear(); this.blasts = []; this.used.clear(); this.bossStarts = []; this.bossHits = []; this.boltAims = []; this.boltShots = [];
     this.cursor.read(world, ev => {
       if (ev.type === 'hit') this.hits.push({ enemyId: ev.enemyId, source: ev.source });
       else if (ev.type === 'bossMove') (ev.stage === 'start' ? this.bossStarts : this.bossHits).push({ id: ev.id, move: ev.move });
       else if (ev.type === 'kill') this.kills.set(ev.enemyId, ev.source ?? '');
       else if (ev.type === 'blast' && ev.source === 'blast') this.blasts.push({ x: ev.x, y: ev.y });
+      else if (ev.type === 'bolt') (ev.action === 'aim' ? this.boltAims : this.boltShots).push(ev);
     });
     this.enemies = new Map(world.enemies.map(e => [e.id, e]));
     // Exit times first: the strike tick counts too.
@@ -148,6 +158,7 @@ export class ThreatTracker {
     this.resolveWolves(world);
     this.resolveSappers(world);
     this.resolveBoss(world);
+    this.resolveBolts(world);
     if (world.status !== 'playing') for (const o of [...this.open]) this.close(o, world, 'interrupted', 'end');
     else this.openNew(world);
     this.wolfState = new Map(world.enemies.filter(e => e.kind === 'wolf').map(e => [e.id, e.vars.st ?? 0]));
@@ -443,6 +454,24 @@ export class ThreatTracker {
     if (m.move === 'throw') return w => dist(w.hero, at) <= r + hr;
     const dir = m.dir ?? 0;
     return w => inFlail(at, dir, w.hero, hr);
+  }
+
+  /** Task 43: the bolts — a shot closes its warning; a crossbow gone without its shot interrupts it; a new aim opens one. */
+  private resolveBolts(world: World): void {
+    for (const shot of this.boltShots) {
+      const o = this.boltOpen.get(shot.id);
+      if (!o) continue;
+      this.boltOpen.delete(shot.id);
+      if (shot.hit === 'hero' && (this.hitBy([shot.id], 'bolt') || this.hitBy([shot.id], 'castellan-bolt'))) this.close(o, world, 'hit');
+      else if (shot.hit === 'hero') this.close(o, world, 'shielded');
+      else this.close(o, world, 'dodged', shot.hit === 'enemy' ? 'body' : undefined);
+    }
+    for (const [id, o] of this.boltOpen) if (!this.enemies.has(id)) { this.boltOpen.delete(id); this.close(o, world, 'interrupted', 'dead'); }
+    for (const aim of this.boltAims) {
+      const r = BOLT_HALF + heroRadius(world.params), dx = aim.x1 - aim.x0, dy = aim.y1 - aim.y0, len = Math.hypot(dx, dy) || 1;
+      const zone = (w: World): boolean => rayDistance({ x: aim.x0, y: aim.y0 }, dx / len, dy / len, len, w.hero) <= r;
+      if (zone(world)) this.boltOpen.set(aim.id, this.add('bolt', [aim.id], world, zone));
+    }
   }
 
   private resolveBoss(world: World): void {

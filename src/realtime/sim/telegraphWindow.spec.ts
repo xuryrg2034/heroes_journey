@@ -19,6 +19,7 @@
 import { registeredEnemyKinds } from './enemies/kinds';
 import { FLAIL_RADIUS, JAILER, JAILER_HP, JAILER_MOVES, JAILER_WEIGHT, JAILER_WINDUP, THROW_RADIUS, WEIGHT_HP } from './enemies/jailer';
 import { CASTELLAN, LUNGE_WIDTH, LUNGE_WINDUP } from './enemies/garrison';
+import { BOLT_HALF } from './enemies/crossbow';
 import { registerArena } from './arenas';
 import { defaultParams, heroRadius, type Params } from './params';
 import { Simulation, SIM_DT } from './simulation';
@@ -50,6 +51,8 @@ interface Threat {
 const THREATS: readonly Threat[] = [
   { id: 'archer-mark', source: 'archer', title: 'лучник: метка', window: p => p.archerWindup, exit: p => p.archerMarkRadius + heroRadius(p) },
   { id: 'archer-line', source: 'archer', title: 'лучник: линия', window: p => p.archerWindup, exit: p => p.archerWidth / 2 + heroRadius(p) },
+  // Task 43: the law of the crossbow — the line fixed at the windup's start, `BOLT_HALF` each side.
+  { id: 'crossbow-bolt', source: 'crossbow', title: 'арбалетчик: болт', window: p => p.crossbowWindup, exit: p => BOLT_HALF + heroRadius(p) },
   { id: 'sapper-death', source: 'sapper', title: 'сапёр: фитиль после гибели', window: p => p.sapperFuse, exit: p => p.sapperRadius + heroRadius(p) },
   { id: 'sapper-touch', source: 'sapper', title: 'сапёр: фитиль от касания', window: p => p.sapperTouchFuse, exit: p => p.sapperRadius + heroRadius(p) },
   {

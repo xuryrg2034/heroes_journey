@@ -254,11 +254,14 @@ const SOURCE_TITLES: Record<string, string> = {
   // Task 28: the Jailer's moves.
   flail: 'кистень', throw: 'бросок гири',
   // Task 38–40: the garrison's touches and the Castellan's move (the frenzied hound's touch — `garrison.frenzyHits`, section «Гарнизон»).
+  bolt: 'болт арбалетчика', crossbow: 'касание арбалетчика',
   hound: 'касание пса', guard: 'касание стражника', handler: 'касание псаря', keymaster: 'касание ключника', castellan: 'касание Кастеляна', lunge: '«Спустить пса»',
 };
 const THREAT_TITLES: Record<string, string> = {
   archer: 'метка лучника', boar: 'полоса кабана', wolf: 'бросок стаи волков', lynx: 'прыжок рыси', sapper: 'фитиль и взрыв сапёра', 'sapper-instant': 'взрыв сапёра без предупреждения',
   flail: 'кистень Тюремщика', throw: 'бросок гири Тюремщика',
+  // Task 43: the law of the crossbow (the crossbowman, the Castellan's crossbow).
+  bolt: 'болт арбалета',
 };
 const OUTCOME_TITLES: Record<string, string> = { victory: 'победа', defeat: 'поражение', abandoned: 'брошен', open: 'не закончен', restart: 'заново', menu: 'выход в меню', unload: 'страница закрыта' };
 

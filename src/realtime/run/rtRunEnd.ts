@@ -32,6 +32,8 @@ export const RT_KIND_TITLES: Readonly<Record<string, string>> = {
   // Tasks 38–40 «Гарнизон» (the report's and the killer line's names; task 40: their touches are in `RT_DEATH_TOUCH`).
   // Design 16.10.2026 (task-40 spec, section 10): a capital only for a unique boss («Тюремщик», «Кастелян»); the kinds in lower case.
   guard: 'стражник', handler: 'псарь', hound: 'пёс', castellan: 'Кастелян', keymaster: 'ключник',
+  // Task 43 «Гарнизон, шаг 2».
+  crossbow: 'арбалетчик',
 };
 
 /**
@@ -46,13 +48,15 @@ export const RT_DEATH_ABILITY: Readonly<Record<string, string>> = {
   flail: 'кистень Тюремщика', throw: 'бросок гири',
   // Task 40 (design 16.10.2026, task-40 spec section 10): the Castellan's «Спустить пса» (a hound's touch outside it — «пёс»).
   lunge: 'рывок пса Кастеляна',
+  // Task 43: the crossbowman's bolt (a kind in lower case, task 40's rule).
+  bolt: 'болт арбалетчика',
 };
 /**
  * The touch sources (each kind's `hitSource`): the line names the striker's kind, its elite mark, armour and affixes. Task 40 (design
  * 16.10.2026, spec section 10): the garrison's touches too — the guard, the dog handler, the hound (on its leash or in its frenzy: the
  * same body, «пёс»), the keymaster, the Castellan.
  */
-export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper', 'guard', 'handler', 'hound', 'keymaster', 'castellan'];
+export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper', 'guard', 'handler', 'hound', 'keymaster', 'castellan', 'crossbow'];
 
 /** Drafts sent to design 12.10.2026 (pending approval). */
 export const RT_RUN_END_TEXT = {
