@@ -142,7 +142,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-ash { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px; margin: 12px 0 0; }
 .rt-ash-head { flex: 0 0 100%; text-align: center; color: var(--rt-muted); margin-bottom: 2px; }
 .rt-ash-level { flex: 1 1 0; min-width: 0; max-width: 44px; padding: 4px 0; font-family: 'Times New Roman', Times, serif; font-size: 15px; white-space: nowrap; background: #1a2117; color: #d9cfa8; border: 1px solid #4a5038; cursor: pointer; }
-.rt-ash-level.rt-on { background: #3d3423; color: var(--rt-gold); border-color: var(--rt-gold); }
+/* Design 16.10.2026: the chosen level's mark light (gold on dark gold was pale); the frame stays gold. */
+.rt-ash-level.rt-on { background: #3d3423; color: #fff2c4; font-weight: 700; border-color: var(--rt-gold); }
 .rt-ash-text { text-align: center; margin: 6px 0 0; }
 .rt-run-ash { font-size: 12px; color: var(--rt-muted); letter-spacing: .02em; }
 /* Task 15: the map heal by the HP; its reason as visible text. */
