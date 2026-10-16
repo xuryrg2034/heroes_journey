@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
 import { leaveResult } from './realtimeResult';
 
 /**
@@ -105,6 +105,7 @@ test('the result line «Лучшая цепь боя · похода · реко
 
   // Run 1 (seed 13). Fight 1: the viewer's first fight — nothing to beat, no flash.
   await page.evaluate(() => (window as any).__realtime.run.newRun(13));
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await fight(page, [3]);
   await expectLine(page, 'Лучшая цепь боя 3 · похода 3 · рекорд 3', null);
@@ -131,6 +132,7 @@ test('the result line «Лучшая цепь боя · похода · реко
 
   // Run 2 (seed 15). Fight 1: the first of the run, below the record — no flash.
   await page.evaluate(() => (window as any).__realtime.run.newRun(15));
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await fight(page, [2]);
   await expectLine(page, 'Лучшая цепь боя 2 · похода 2 · рекорд 5', null);

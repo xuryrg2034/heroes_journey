@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
 import { untilFrame } from './realtimeFrames';
 import { createRtRun, serializeRtRun, type RtRunState } from '../src/realtime/run/rtRun';
 import { walkRun } from '../src/realtime/run/metaWalk.testkit';
@@ -35,6 +35,7 @@ async function openRun(page: Page, errors: string[]): Promise<void> {
 async function newRun(page: Page): Promise<RunState> {
   await page.getByTestId('run-new').click();
   await expect(page.getByTestId('run-gift')).toBeVisible();
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await expect(page.getByTestId('run-gift')).toBeHidden();
   return runState(page);
@@ -261,7 +262,7 @@ test('run: two runs walk to the final arena — a new run by the schedule (its a
       }
       if (pending) {
         // A node screen: its first button that is on (the gift, a rest, a find, an event option, the merchant's «Уйти»).
-        await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
+        await page.locator('[data-action="habit"][data-habit="none"]:not([disabled]), [data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
         continue;
       }
       await enterFirstNode(page);
@@ -330,7 +331,7 @@ test('run: a consumable taken at a find goes to the next arena (HUD 2 ×1) and i
       continue;
     }
     if (pending) {
-      await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
+      await page.locator('[data-action="habit"][data-habit="none"]:not([disabled]), [data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
       continue;
     }
     const find = page.locator('[data-status="available"][data-type="find"]');
@@ -388,6 +389,7 @@ test('the sandbox opens by the anchor too: a changed #sandbox boots it (a publis
   await expect(page.getByTestId('run')).not.toContainText('#sandbox');
   await expect(page.locator('a[href="#sandbox"]')).toHaveCount(0);
   await page.evaluate(() => (window as any).__realtime.run.newRun(10));
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await expect(page.getByTestId('run-map')).toBeVisible();
   await expect(page.locator('.rt-run-head')).not.toContainText('seed');
@@ -412,6 +414,7 @@ test('run (iteration 2.1, task 6): consumables are noticed — the map says thei
   // The first run: the mini gift, its first button «2 расходника».
   await page.getByTestId('run-new').click();
   await expect(page.getByTestId('run-gift')).toBeVisible();
+  await skipHabit(page);
   await page.getByTestId('gift-0').click();
   await expect(page.getByTestId('run-gift')).toBeHidden();
   const items = (await page.evaluate(() => (window as any).__realtime.run.state())).items as Record<string, number>;
@@ -492,6 +495,7 @@ test('run (phase A, Т2): the node preview names its roster in one line; the car
     await page.reload();
     await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
     if (!saved) await page.getByTestId('run-new').click();
+    await skipHabit(page);
     await page.getByTestId('gift-0').click();
     const pick = page.locator('[data-action="gift-pick"]').first();
     if (await pick.count()) await pick.click();
@@ -533,7 +537,7 @@ async function walkStep(page: Page, prefer: string): Promise<void> {
     return;
   }
   if (state.pending) {
-    await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-action="talisman"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
+    await page.locator('[data-action="habit"][data-habit="none"]:not([disabled]), [data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-action="talisman"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
     return;
   }
   const preferred = page.locator(`[data-status="available"][data-type="${prefer}"]`);
@@ -865,6 +869,7 @@ test('run: in an iframe (the published artifact) «Песочница» and «�
   const app = () => page.frames().find(f => f !== page.mainFrame())!;
   await expect.poll(() => app()?.evaluate(() => !!(window as any).__realtime?.run).catch(() => false)).toBe(true);
   await frame.getByTestId('run-new').click();
+  await skipHabit(frame);
   await frame.getByTestId('gift-1').click();
   await expect(frame.getByTestId('run-map')).toBeVisible();
   const before = await app().evaluate(() => (window as any).__realtime.run.state());

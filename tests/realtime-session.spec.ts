@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
 import { leaveResult } from './realtimeResult';
 
 /**
@@ -27,6 +27,7 @@ async function freshRun(page: Page): Promise<void> {
   await page.reload();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
   await page.getByTestId('run-new').click();
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await expect(page.getByTestId('run-gift')).toBeHidden();
 }
@@ -44,6 +45,7 @@ test('the end screen says the time in the game and the runs of the session; a re
   // Smoke v62 (view): the abandoned run's end screen first; its «Новый поход» starts the new run.
   await expect(page.getByTestId('run-result-abandoned')).toBeVisible();
   await page.getByTestId('run-new').click();
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await expect(page.getByTestId('run-gift')).toBeHidden();
   await touchMap(page);

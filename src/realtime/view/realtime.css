@@ -211,6 +211,22 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-run-modal h2 { font-size: 30px; }
 .rt-run-choices { display: grid; gap: 8px; }
 .rt-run-choice { display: grid; gap: 3px; text-align: left; padding: 10px 14px; background: #262d21; border: 1px solid #4a4d39; color: var(--rt-ink); }
+/* Task 50 «Повадка»: the archetype row over the gift's buttons, the header's sign and the mark in an item card's corner. */
+.rt-run-choice { position: relative; }
+.rt-habits { display: grid; gap: 6px; margin: 4px 0 10px; }
+.rt-habit-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.rt-habit-card { display: grid; grid-template-columns: 34px 1fr; grid-template-rows: 34px 1fr; column-gap: 8px; row-gap: 6px; align-items: center; align-content: start; text-align: left; padding: 8px 10px; background: #262d21; border: 1px solid #4a4d39; color: var(--rt-ink); }
+.rt-habit-card svg { grid-row: 1; }
+.rt-habit-card b { font: 600 15px Georgia, serif; color: #f2dfb4; }
+.rt-habit-card small { color: #a7ad93; font-size: 11px; line-height: 1.25; grid-column: 1 / span 2; }
+.rt-habit-card:hover:not(:disabled), .rt-habit-none:hover:not(:disabled) { border-color: #c8a56b; background: #2d3526; }
+.rt-habit-card.rt-on, .rt-habit-none.rt-on { border-color: #ffd36b; background: #343a26; }
+.rt-habit-card:disabled:not(.rt-on), .rt-habit-none:disabled:not(.rt-on) { opacity: .45; cursor: default; }
+.rt-habit-card:disabled, .rt-habit-none:disabled { cursor: default; }
+.rt-habit-none { justify-self: start; padding: 4px 12px; background: transparent; border: 1px solid #4a4d39; color: #a7ad93; font-size: 12px; }
+.rt-run-habit { display: inline-flex; align-items: center; cursor: help; }
+.rt-run-choice:has(.rt-habit-mark) { padding-right: 44px; }
+.rt-habit-mark { position: absolute; top: 6px; right: 6px; display: inline-flex; font-style: normal; pointer-events: none; }
 .rt-run-choice:hover:not(:disabled) { border-color: #c8a56b; background: #2d3526; }
 .rt-run-choice:disabled { opacity: .55; cursor: default; }
 .rt-run-choice b { font: 600 16px Georgia, serif; color: #f2dfb4; }

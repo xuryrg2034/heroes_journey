@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
 import { leaveResult } from './realtimeResult';
 
 /**
@@ -101,6 +101,7 @@ test('the run-end block «Удача похода»: collapsed; the goblin\'s pu
   await page.reload();
   await ready(page);
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await page.getByTestId('node-r5c0').click();
   await page.getByTestId('run-enter').click();
@@ -167,6 +168,7 @@ test('a run without chance: the block says so', async ({ page }) => {
   await page.reload();
   await ready(page);
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), 13);
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await page.locator('[data-status="available"][data-type="battle"]').first().click();
   await page.getByTestId('run-enter').click();

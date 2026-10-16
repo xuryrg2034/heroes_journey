@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
 import { createRtRun, isArenaNode, resolveArena, rtAvailableNodes, rtEnterNode, rtGiftView, rtNode, rtShopView, RT_POTION_CAP, serializeRtRun, type RtRunState } from '../src/realtime/run/rtRun';
 import { RT_RUN_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
 import { closeNode, ok, seedOf, takeGift } from '../src/realtime/run/runFight.testkit';
@@ -294,6 +294,7 @@ test('task 41: three potions at the start gift — a mixed «расходник�
   await openRun(page, run);
   await expect(page.getByTestId('run-gift')).toBeVisible();
   await expect(page.getByTestId(`hand-full-gift-${pick.index}`)).toHaveCount(0);
+  await skipHabit(page);
   await page.getByTestId(`gift-${pick.index}`).click();
   await expect(page.getByTestId('gift-pick-healing')).toBeDisabled();
   await expect(page.getByTestId('hand-full-gift-pick-healing')).toHaveText(HAND_FULL);

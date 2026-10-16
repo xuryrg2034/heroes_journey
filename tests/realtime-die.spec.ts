@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
 import { leaveResult } from './realtimeResult';
 
 /**
@@ -38,6 +38,7 @@ test('task 5: a won run fight shows no «Котёл» row and no die — the res
   const errors: string[] = [];
   await openRun(page, errors);
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await page.getByTestId('node-r5c0').click();
   await page.getByTestId('run-enter').click();

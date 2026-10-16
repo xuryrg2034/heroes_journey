@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
 import { leaveResult } from './realtimeResult';
 
 /**
@@ -36,6 +36,7 @@ test('task 5: the run offers no «Зарок» — row 1 and row 2 cards say «�
   const errors: string[] = [];
   await openRun(page, errors);
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await page.getByTestId('node-r5c0').click();
   await expect(page.getByTestId('run-detail')).toBeVisible();

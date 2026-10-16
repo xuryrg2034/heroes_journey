@@ -51,13 +51,16 @@ function plainStates(k: number, create: WalkOptions['create'], extra: Partial<Wa
 
 // ---- Flags ----
 
-await check('the flags: a new run takes them from the constants (`knacks` on since the view of step 3, 16.10.2026), only with the forms, the archetype only with the gift `full`; a run with them off is the run of before', () => {
+await check('the flags: a new run takes them from the constants (`knacks` since the view of step 3, `habits` since the view of step 5, 16.10.2026), only with the forms, the archetype only with the gift `full`; a run with them off is the run of before', () => {
   assert(typeof RT_KNACKS_ON === 'boolean' && typeof RT_HABITS_ON === 'boolean', 'the constants are flags');
   for (let k = 1; k <= 8; k++) {
     const seed = seedOf(k), base = createRtRun(seed, { gift: 'full', knacks: false, habits: false });
     assert(!('knacks' in base) && !('habits' in base) && !('honed' in base) && !('habit' in base), `seed ${k}: no fields with the flags off`);
     assert(('knacks' in createRtRun(seed, { gift: 'full' })) === RT_KNACKS_ON, `seed ${k}: the constant decides the default`);
     assert(serializeRtRun(createRtRun(seed, { gift: 'full', knacks: false, habits: false })) === serializeRtRun(base), `seed ${k}: off — byte for byte`);
+    const dflt = createRtRun(seed, { gift: 'full' });
+    assert((dflt.habits === true) === RT_HABITS_ON && ('knacks' in dflt) === RT_KNACKS_ON && !('habit' in dflt), `seed ${k}: the constants decide the defaults; the archetype's choice is not made yet`);
+    assert(!('habits' in createRtRun(seed, { gift: 'mini' })), `seed ${k}: no archetype on the mini gift by default`);
     const on = createRtRun(seed, { gift: 'full', knacks: true, habits: true });
     assert(on.knacks === true && on.habits === true, 'on with the forms');
     assert(!createRtRun(seed, { gift: 'full', knacks: true, habits: true, forms: false }).knacks && !createRtRun(seed, { gift: 'full', habits: true, forms: false }).habits, 'never without the forms');
@@ -234,7 +237,7 @@ await check('saves: every case «похода нет» of the design (3.4) reads
 await check('«Без повадки» is the run without the flag, state for state (30 seeds of the gift `full`); the field leaves with the gift', () => {
   for (let k = 1; k <= 60; k += 2) {
     const create = { gift: 'full' as const, garrison: k % 3 === 0 };
-    const off = plainStates(k, create), on = plainStates(k, { ...create, habits: true }, { habit: null });
+    const off = plainStates(k, { ...create, habits: false }), on = plainStates(k, { ...create, habits: true }, { habit: null });
     assert(on.length === off.length && on.every((s, i) => s === off[i]), `seed ${k}: ${on.length} / ${off.length} states (first difference at ${on.findIndex((s, i) => s !== off[i])})`);
     const end = walk(k, { ...create, habits: true }, { habit: null }).run;
     assert(end.habits === true && !('habit' in end), `seed ${k}: «Без повадки» leaves no field`);
