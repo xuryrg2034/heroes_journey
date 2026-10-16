@@ -7,10 +7,13 @@
  * over the limit counts as lost. `stay` — the bot keeps fighting after the goals while it says so (scripts/realtime-economy.ts: the
  * bag and the feat, as its economy bot), then heads for the door for good. `aim` — the boss-aim policy (design 16.10.2026, docs/design-notes/task-40-garrison-step1b.md,
  * 12: the measure of a boss fight): with a core of these kinds on the arena the bot walks at it and chains into it (or towards it);
- * the full Castellan's grate down (task 43) — it walks to the nearest ready lever and pulls it first.
+ * the full Castellan's grate down (task 43) — it walks to the nearest ready lever and pulls it first. Task 48, the Troll (design 14):
+ * his window shut — a chain towards the nearest living part (each next link the one nearest the part, braziers too); the window
+ * open (or the rule off) — a chain into the core; no part left — it waits by the core with the greedy chain.
  */
-import { canJump, jumpDownOpen, nextCandidates, objectRefusal } from '../src/realtime/sim/chain';
+import { canJump, jumpDownOpen, nextCandidates, nextObjectCandidates, objectRefusal } from '../src/realtime/sim/chain';
 import { castellanGrate, gateLeverReady } from '../src/realtime/sim/enemies/garrison';
+import { TROLL, trollState } from '../src/realtime/sim/enemies/troll';
 import { blockedAt, type Vec } from '../src/realtime/sim/geometry';
 import { heroRadius, type Params } from '../src/realtime/sim/params';
 import { Simulation } from '../src/realtime/sim/simulation';
@@ -51,6 +54,8 @@ export function stepToward(w: World, goal: Vec): Vec {
 export function aimAtCore(sim: Simulation, kinds: readonly string[]): void {
   const w = sim.world, core = w.enemies.find(e => kinds.includes(e.kind));
   if (!core || w.move || w.chain.length || w.status !== 'playing' || w.greedStart !== null) { playChain(sim); return; }
+  // Task 48: the Troll — the core only in his window, else his parts.
+  if (core.kind === TROLL) { aimAtTroll(sim, core); return; }
   // Task 43: the full Castellan behind his grate — the bot goes to the nearest ready lever and pulls it (a chain of one link);
   // no lever ready — the greedy chain. With the grate up it hunts the core as below.
   const grate = castellanGrate(w);
@@ -84,6 +89,44 @@ export function aimAtCore(sim: Simulation, kinds: readonly string[]): void {
     if (w.chain.length <= before || next.id === core.id) break;
   }
   sim.command({ t: 'release' });
+}
+
+/**
+ * Task 48: a walk at `target` down to `TROLL_STANDOFF` of it (no nearer than that to the core `core`: his bodies touch) and a chain towards
+ * it (each next link — enemy or brazier — the one nearest it; it ends on it when it joins).
+ */
+const TROLL_STANDOFF = 1.9;
+function chainToward(sim: Simulation, target: Enemy, core: Enemy): void {
+  const w = sim.world, d = Math.sqrt((target.x - w.hero.x) ** 2 + (target.y - w.hero.y) ** 2) || 1;
+  const dc = Math.sqrt((core.x - w.hero.x) ** 2 + (core.y - w.hero.y) ** 2) || 1;
+  if (dc < TROLL_STANDOFF + 0.6) sim.command({ t: 'walk', x: (w.hero.x - core.x) / dc, y: (w.hero.y - core.y) / dc });
+  else if (d > TROLL_STANDOFF) sim.command({ t: 'walk', x: (target.x - w.hero.x) / d, y: (target.y - w.hero.y) / d });
+  else sim.command({ t: 'walk', x: 0, y: 0 });
+  const near = (p: Vec): number => (p.x - target.x) ** 2 + (p.y - target.y) ** 2;
+  const next = (): Vec & { id: number } | undefined => [...nextCandidates(w), ...nextObjectCandidates(w).filter(o => o.kind === 'brazier')].sort((a, b) => near(a) - near(b))[0];
+  const first = next();
+  if (!first) return;
+  sim.command({ t: 'begin', x: first.x, y: first.y });
+  for (let n = 0; n < 8 && w.chain.length && !w.chain.some(l => l.kind === 'enemy' && l.id === target.id); n++) {
+    const link = next();
+    if (!link) break;
+    const before = w.chain.length;
+    sim.command({ t: 'drag', x: link.x, y: link.y, mode: 'full' });
+    if (w.chain.length <= before) break;
+  }
+  if (w.chain.length) sim.command({ t: 'release' });
+}
+
+/** Task 48: the Troll's policy — his window open (or the rule off): into the core; shut: towards the nearest living part; none: wait by him. */
+function aimAtTroll(sim: Simulation, core: Enemy): void {
+  const w = sim.world, state = trollState(w);
+  if (!state?.rule || state.window?.open) { chainToward(sim, core, core); return; }
+  const dist2 = (e: Vec): number => (e.x - w.hero.x) ** 2 + (e.y - w.hero.y) ** 2;
+  const part = w.enemies.filter(e => e.partOf === core.id).sort((a, b) => dist2(a) - dist2(b))[0];
+  if (part) { chainToward(sim, part, core); return; }
+  const d = Math.sqrt(dist2(core)) || 1;
+  if (d > 3) sim.command({ t: 'walk', x: (core.x - w.hero.x) / d, y: (core.y - w.hero.y) / d });
+  playChain(sim);
 }
 
 export interface BotFightOptions {

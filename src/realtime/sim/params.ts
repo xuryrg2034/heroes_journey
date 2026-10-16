@@ -872,6 +872,29 @@ export interface Params {
    * The boss arenas put 5 (`ArenaTemplate.jailerHp`, world.ts `createWorld`: only when the given values hold the default).
    */
   jailerHp: number;
+  // ---- Task 48 «Тролль» (sim/enemies/troll.ts, sim/arenasBoss.ts `troll`; docs/realtime-elite-behaviors.md, «Тролль (задача 48)»). ----
+  /**
+   * The Troll's window (design 16.10.2026, docs/design-notes/task-48-troll.md, 6): with the frame on, the Troll's core is closed
+   * outside a window his own moves open — the chain refuses it (`outOfWindow`, «вне окна»), and no other source hurts it (fire, the
+   * cutting dash, blasts, the wave, the pierce, the seal, the return run, enemies: event `trollWindow` `block`); one hit per window
+   * (the first hit of any source acts, the window closes once the hero's move that struck it is over). Off by default and in journals
+   * without the key: the core is open always. The arena «Берлога тролля» turns it on for itself (`ArenaTemplate.troll`).
+   */
+  trollWindow: boolean;
+  /**
+   * Task 48, the Troll's numbers (read only on his arena; journals without a key play the defaults below): the core's HP and plates
+   * (the ceiling of «Храп»'s regrowth too), the window after «Удар дубиной» and after «Хвост метёт» (game s), «Храп»'s length (its
+   * window), the plates a «Храп» left alone regrows (0 — none), «Рык» every this many s in phase 2 and 3, the crowd's factor — its
+   * density floor and its top-up pace (the groups' interval ÷ it; the arena puts `TROLL_CROWD` when the values hold 1).
+   */
+  trollHp: number;
+  trollPlates: number;
+  trollWindowClub: number;
+  trollWindowTail: number;
+  trollSnore: number;
+  trollSnoreRegrow: number;
+  trollRoarPeriod: number;
+  trollCrowd: number;
   // ---- Task 33 «Цена „Близнецов“ и „Развилки“» (sim/forms.ts, chain.ts; docs/realtime-prototype.md, 9ф). ----
   /**
    * «Близнецы»: strict alternation (design 15.10.2026). While the chain goes by one colour of the pair, as before; once it took
@@ -1392,6 +1415,16 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   // Task 32 (enemies/jailer.ts): the old core by default; the boss arenas turn both on for themselves.
   jailerColorless: false,
   jailerHp: 2,
+  // Task 48 «Тролль» (enemies/troll.ts): the window off by default (the arena «Берлога тролля» turns it on); his numbers (hypotheses of the spec).
+  trollWindow: false,
+  trollHp: 4,
+  trollPlates: 5,
+  trollWindowClub: 1.5,
+  trollWindowTail: 1,
+  trollSnore: 4,
+  trollSnoreRegrow: 1,
+  trollRoarPeriod: 20,
+  trollCrowd: 1,
   // Task 33 (forms.ts): the sandbox's price of the forms; `RUN_FORCED` turns it off, a run with forms on (task 30, `RT_FORMS_PARAMS`).
   twinsAlternate: true,
   twinsNoShift: true,
@@ -1875,6 +1908,17 @@ export const PARAM_DEFS: readonly ParamDef[] = [
     hint: 'С «Близнецами» в сборке смена цвета не наступает, даже если «Смена цвета: после … звеньев» больше 0. В походе выключено.' },
   n('forkBranches', 'Талисманы', '«Развилка»: развилок за цепь', 0, 4, 1, 5, '', 'Сколько звеньев цепь может взять не от последнего звена (и не от героя с «Якорем»). Потом якорь — снова только последнее звено. 0 — без предела. В походе — 0.'),
   n('jailerHp', 'Босс', 'Тюремщик: HP ядра', 2, 10, 1, 5, '', 'HP ядра при появлении (новый бой). Арена «Тюремщик» ставит 5, если на панели значение по умолчанию (2).'),
+  // Task 48 «Тролль» (enemies/troll.ts, docs/realtime-elite-behaviors.md, «Тролль (задача 48)»).
+  { kind: 'bool', key: 'trollWindow', group: 'Тролль', label: 'Окно Тролля', stage: 5,
+    hint: 'Ядро Тролля закрыто вне окна: цепь его не берёт («вне окна»), огонь, взрывы, волна, прямая, печать и возврат его не ранят. Окно открывают «Удар дубиной» (1,5 с), «Хвост метёт» (1 с) и «Храп». Одно попадание за окно. Арена «Берлога тролля» включает правило сама.' },
+  n('trollHp', 'Тролль', 'Тролль: HP ядра', 1, 12, 1, 5, '', 'Со следующего запуска арены.'),
+  n('trollPlates', 'Тролль', 'Тролль: пластины ядра', 0, 10, 1, 5, '', 'И потолок отрастания «Храпа». Со следующего запуска арены.'),
+  n('trollWindowClub', 'Тролль', 'Окно после «Удара дубиной»', 0.2, 5, 0.1, 5, 'с'),
+  n('trollWindowTail', 'Тролль', 'Окно после «Хвост метёт»', 0.2, 5, 0.1, 5, 'с'),
+  n('trollSnore', 'Тролль', '«Храп»: длина', 1, 10, 0.5, 5, 'с', 'Всё это время окно открыто. Не задет — отрастает пластина.'),
+  n('trollSnoreRegrow', 'Тролль', '«Храп»: пластин за сон', 0, 3, 1, 5, '', '0 — «Храп» без отрастания.'),
+  n('trollRoarPeriod', 'Тролль', '«Рык»: раз в', 5, 60, 1, 5, 'с', 'Во второй и третьей фазе; первый — при входе во вторую.'),
+  n('trollCrowd', 'Тролль', 'Тролль: толпа', 0.25, 2, 0.05, 5, '×', 'Множитель плотности и темпа пополнения толпы. Арена «Берлога тролля» ставит 0,6, если на панели 1.'),
   // Task 38 «Гарнизон, шаг 1» (tethers.ts, enemies/garrison.ts, docs/realtime-elite-behaviors.md).
   { kind: 'bool', key: 'tethers', group: 'Гарнизон', label: 'Закон связи', stage: 5,
     hint: 'Поводок — линия между псарём (или Кастеляном) и псом, не звено. Отрезок прохода цепи, пересекающий поводок, рубит его после прохода; подсветка показывает те же поводки. Прыжок, ходьба, круговой удар и расходники не рубят. Сорвавшийся пёс в ярости кусает всех. В походе включено.' },

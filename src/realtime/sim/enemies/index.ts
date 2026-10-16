@@ -22,6 +22,8 @@ import './jailer';
 import './garrison';
 // Task 43 «Гарнизон, шаг 2»: the crossbowman (the law of the crossbow).
 import './crossbow';
+// Task 48 «Тролль»: the boss of the forest — his core and his three parts (`Params.bossFrame`, his window `Params.trollWindow`).
+import './troll';
 
 export { BOAR_ART_SCALE, type BoarState } from './boar';
 export { packmates, wolfHowl, wolfRushLine, wolfState, WOLF_RUSH } from './wolf';
@@ -35,4 +37,6 @@ export { JAILER, JAILER_MOVES, JAILER_WEIGHT, inJailerShield, jailerCore, jailer
 export { CASTELLAN, GUARD, HANDLER, HOUND, castellanMove, houndFrenzied } from './garrison';
 // Task 43: the knight for the view.
 export { KNIGHT, KNIGHT_LANE_WIDTH, knightLane, knightOffensive, knightState, knightSwing } from './garrison';
+// Task 48: the Troll for the view.
+export { TROLL, TROLL_CLUB, TROLL_MOVES, TROLL_ROCK, TROLL_TAIL, trollCore, trollMove, trollState, type TrollMoveId } from './troll';
 export * from './kinds';

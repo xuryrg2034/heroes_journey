@@ -25,7 +25,7 @@ import { AFFIX_IDS, potionHandFull } from '../sim/elites';
 import { enemyLimit, scaledFloor } from '../sim/spawn';
 import { BEHAVIOR_ARENAS } from '../sim/arenasStage3';
 import { CAMERA_ARENAS } from '../sim/arenasCamera';
-import { BOSS_ARENAS } from '../sim/arenasBoss';
+import { BOSS_ARENAS, FOREST_BOSS_ARENAS } from '../sim/arenasBoss';
 // Task 38: the garrison's arenas at the end of the sandbox menu (`?arena=20…24`).
 import { GARRISON_ARENAS } from '../sim/arenasGarrison';
 import { canSpin } from '../sim/abilities';
@@ -100,9 +100,10 @@ const NOTE_FLASH_MS = 1000;
  * Arenas of the sandbox menu, keys 1–9 and 0: the three prototype arenas and arenas 4–10 of the slice (stage 2, steps 2
  * and 4); then the terrain samples of stage 3a (river, cliff, thorns, braziers, gorge), keys ⇧1–⇧5, and the arenas of its
  * new enemies («Рысье логово», «Круг шамана»), keys ⇧6–⇧7; then the camera sample «Большая поляна» 24×15 (key ⇧8,
- * docs/realtime-stage3.md, section 11); then the boss arena «Тюремщик» (task 27, key ⇧9, `?arena=19`). `?arena=1…19` opens one at once.
+ * docs/realtime-stage3.md, section 11); then the boss arena «Тюремщик» (task 27, key ⇧9, `?arena=19`); the garrison's after it; at the end
+ * «Берлога тролля» (task 48, no key, `?arena=30`). `?arena=N` opens one at once.
  */
-const SANDBOX_ARENAS: readonly ArenaTemplate[] = [...ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS, ...BEHAVIOR_ARENAS, ...CAMERA_ARENAS, ...BOSS_ARENAS, ...GARRISON_ARENAS];
+const SANDBOX_ARENAS: readonly ArenaTemplate[] = [...ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS, ...BEHAVIOR_ARENAS, ...CAMERA_ARENAS, ...BOSS_ARENAS, ...GARRISON_ARENAS, ...FOREST_BOSS_ARENAS];
 /** Arenas on the plain digit keys (1–9, 0); the rest are on Shift + digit (stage 3a). */
 const DIGIT_ARENAS = ARENAS.length + SLICE_ARENAS.length;
 /** What an arena forces over the panel's phase table (stage 2): «стай волков и кабанов нет (доли 0)» and the like. */
@@ -311,7 +312,7 @@ async function boot(): Promise<void> {
   menuCard.append(...menuRunButton ? [menuRunButton] : [], el('h2', '', 'Выбери арену'));
   const arenaList = el('div', 'rt-arenas');
   // The camera sample's button has its own test id: the menu counts of the older tests (`arena-*`) stay as they were.
-  const camera0 = DIGIT_ARENAS + TERRAIN_ARENAS.length + BEHAVIOR_ARENAS.length, boss0 = camera0 + CAMERA_ARENAS.length, garrison0 = boss0 + BOSS_ARENAS.length;
+  const camera0 = DIGIT_ARENAS + TERRAIN_ARENAS.length + BEHAVIOR_ARENAS.length, boss0 = camera0 + CAMERA_ARENAS.length, garrison0 = boss0 + BOSS_ARENAS.length, forest0 = garrison0 + GARRISON_ARENAS.length;
   // The menu shows before the art has loaded (`loadCharacterArt`): a pick made meanwhile is kept and played once the game is ready
   // (before, the click reached `start` before it existed and was lost — more art, task 43, made the wait longer).
   let earlyPick: number | null = null;
@@ -325,7 +326,9 @@ async function boot(): Promise<void> {
     if (i === boss0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Босс — каркас и Тюремщик (только песочница)'));
     // Task 38: the garrison's arenas under their own heading, test ids `garrison-arena-N`. Task 40: «Ров» and the keymaster.
     if (i === garrison0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Гарнизон — строй, поводки, Кастелян, кандалы'));
-    const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span data-summary="${i}">${markedGoalArena(arena, params.markedGoals).summary}</span>`, i >= garrison0 ? `garrison-arena-${i - garrison0 + 1}` : i >= boss0 ? `boss-arena-${i - boss0 + 1}` : i >= camera0 ? `camera-arena-${i - camera0 + 1}` : `arena-${i + 1}`);
+    // Task 48: the Troll at the end of the menu (the numbers before stay), test id `boss-arena-2` (after the Jailer's).
+    if (i === forest0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Босс — Тролль (только песочница)'));
+    const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span data-summary="${i}">${markedGoalArena(arena, params.markedGoals).summary}</span>`, i >= forest0 ? `boss-arena-${BOSS_ARENAS.length + i - forest0 + 1}` : i >= garrison0 ? `garrison-arena-${i - garrison0 + 1}` : i >= boss0 ? `boss-arena-${i - boss0 + 1}` : i >= camera0 ? `camera-arena-${i - camera0 + 1}` : `arena-${i + 1}`);
     b.addEventListener('click', () => pick(i));
     arenaList.appendChild(b);
   });

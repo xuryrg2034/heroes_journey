@@ -415,15 +415,19 @@ function relocateMarker(world: World, m: SpawnMarker): void {
  * Density floor of the phase: when the arena thins out, the gap is queued at once (singles or a wolf pack, any color).
  * Т5: the floor and the limit grow with the arena's area (`scaledFloor`, `enemyLimit`; 16×10 — as before).
  */
-/** Task 43: the yard crowd's factor of the full Castellan's fight (`Params.castellanCrowd`), else (and without the key) 1. */
-function castellanCrowdOf(world: World): number {
+/**
+ * Task 43: the yard crowd's factor of the full Castellan's fight (`Params.castellanCrowd`); task 48: the crowd's factor of the Troll's
+ * fight (`Params.trollCrowd`); else (and without the key) 1.
+ */
+function crowdFactorOf(world: World): number {
+  if (world.arena.troll) return world.params.trollCrowd ?? 1;
   return world.arena.castellanFull ? world.params.castellanCrowd ?? 1 : 1;
 }
 
 function topUpToFloor(world: World): void {
   // Task 18 «Испытание V»: the run's factor of the floor (`Kit.floorScale`; absent — the floor as before), under the arena limit.
   // Task 43: the full Castellan's yard crowd (`Params.castellanCrowd`; 1 — no factor, the path of before).
-  const crowd = castellanCrowdOf(world), k = crowd === 1 ? world.kit?.floorScale : (world.kit?.floorScale ?? 1) * crowd;
+  const crowd = crowdFactorOf(world), k = crowd === 1 ? world.kit?.floorScale : (world.kit?.floorScale ?? 1) * crowd;
   const floor = Math.min(floorWithScale(world.pressure.phase.floor, world.arena, k), enemyLimit(world.params, world.arena));
   const present = (): number => world.enemies.filter(e => e.kind !== 'reaper').length + world.markers.length + world.queue.length;
   for (let guard = 0; guard < 200 && present() < floor; guard++) {
@@ -440,7 +444,7 @@ export function updateSpawning(world: World, dt: number): void {
     // Stage 2, step 3 (event modifier «подкрепление раньше»): before the goals the groups come EVENT_PACE_FACTOR times as often.
     const pace = kit?.earlyPace && world.stage === 'goals' ? 1 / EVENT_PACE_FACTOR : 1;
     // Task 43: the full Castellan's crowd tops up slower by its factor (the interval ÷ it).
-    const crowd = castellanCrowdOf(world);
+    const crowd = crowdFactorOf(world);
     world.groupTimer += rollGroupInterval(world.pressure.phase, rollRng(world)) * pace / crowd;
     rollGroup(world);
     // Stage 2, step 3 (event modifier «злость»): the first wave brings EVENT_EXTRA_ENEMIES more — singles of the arena's

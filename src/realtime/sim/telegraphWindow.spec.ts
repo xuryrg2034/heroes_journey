@@ -20,6 +20,10 @@ import { registeredEnemyKinds } from './enemies/kinds';
 import { FLAIL_RADIUS, JAILER, JAILER_HP, JAILER_MOVES, JAILER_WEIGHT, JAILER_WINDUP, THROW_RADIUS, WEIGHT_HP } from './enemies/jailer';
 import { CASTELLAN, KNIGHT, KNIGHT_LANE_WIDTH, LUNGE_WIDTH, LUNGE_WINDUP, PAIR_GAP, PHASE3_WINDUP, STAND } from './enemies/garrison';
 import { BOLT_HALF } from './enemies/crossbow';
+import {
+  CLUB_WIDTH, CLUB_WINDUP, PHASE3_WINDUP as TROLL_PHASE3_WINDUP, ROCK_FLIGHT, ROCK_RADIUS, ROCK_WINDUP, TAIL_INNER, TAIL_OUTER, TAIL_WINDUP, TROLL, TROLL_CLUB,
+  TROLL_MOVES, TROLL_ROCK, TROLL_TAIL,
+} from './enemies/troll';
 import { registerArena } from './arenas';
 import { defaultParams, heroRadius, type Params } from './params';
 import { Simulation, SIM_DT } from './simulation';
@@ -44,7 +48,7 @@ interface Threat {
   exit: (p: Params) => number;
   /** A recorded exception: why the window may be shorter (with the decision). */
   exception?: string;
-  /** Task 27: the boss's move it is (`JAILER_MOVES`); the Jailer plays in the sandbox — checked with the sandbox's values too. */
+  /** Task 27: the boss's move it is (`JAILER_MOVES`; task 48 — `TROLL_MOVES`); a boss of the sandbox — checked with the sandbox's values too. */
   move?: string;
 }
 
@@ -74,11 +78,20 @@ const THREATS: readonly Threat[] = [
   // circle of 1.6 around the knight, the worst point its centre (conservative: the hero never stands closer than a touch).
   { id: 'knight-charge', source: KNIGHT, title: 'рыцарь: рывок', window: p => p.knightChargeWindup, exit: p => KNIGHT_LANE_WIDTH / 2 + heroRadius(p) },
   { id: 'knight-swing', source: KNIGHT, title: 'рыцарь: размах', window: p => p.knightSwingWindup, exit: p => p.knightSwingRadius + heroRadius(p) },
+  // Task 48 (the Troll, design 7): the shortest windups — phase 3's ×0.8 (the first of a fight is ×1.5). «Удар дубиной» — a lane of
+  // 4.5 × 1.6, the way out sideways from its axis; «Бросок камня» — the circle of 1.2 on the hero, its windup and the flight 0.4;
+  // «Хвост метёт» — the ring 1.2–3.2 around the core, the worst point its inner edge (inside 1.2 is the core's body and touch).
+  { id: 'troll-club', source: TROLL_CLUB, move: 'club', title: 'Тролль: удар дубиной', window: () => CLUB_WINDUP * TROLL_PHASE3_WINDUP, exit: p => CLUB_WIDTH / 2 + heroRadius(p) },
+  { id: 'troll-rock', source: TROLL_ROCK, move: 'rock', title: 'Тролль: бросок камня', window: () => ROCK_WINDUP * TROLL_PHASE3_WINDUP + ROCK_FLIGHT, exit: p => ROCK_RADIUS + heroRadius(p) },
+  { id: 'troll-tail', source: TROLL_TAIL, move: 'tail', title: 'Тролль: хвост метёт', window: () => TAIL_WINDUP * TROLL_PHASE3_WINDUP, exit: p => TAIL_OUTER + heroRadius(p) - TAIL_INNER },
 ];
 
 /** Task 27: the Jailer's moves without a hit on the hero, and why. */
 const MOVES_OUTSIDE: Readonly<Record<string, string>> = {
   whistle: 'свисток: героя не бьёт — метки появления у ворот (враги выходят через обычную задержку метки)',
+  // Task 48: the Troll's core.
+  roar: 'рык Тролля: героя не бьёт — метки волков у нор (1 с)',
+  snore: 'храп Тролля: героя не бьёт — окно ядра, части не бьют',
 };
 
 /** Kinds without a zone-and-moment telegraph, and why. */
@@ -97,6 +110,8 @@ const OUTSIDE: Readonly<Record<string, string>> = {
   hound: 'касание, без телеграфа (ярость кусает врагов; рывок у Кастеляна — запись «Кастелян: спустить пса»)',
   // Task 40 «Гарнизон, шаг 1б».
   keymaster: 'касание, без телеграфа (кандалы держат врага, героя не бьют)',
+  // Task 48 «Тролль»: the core's own moves («Рык», «Храп») do not hit the hero — `MOVES_OUTSIDE`.
+  [TROLL]: 'касание, без телеграфа (рык и храп героя не бьют; удары — у частей)',
 };
 
 /** A run battle's params (the run's numbers, the short fuse of task 19). */
@@ -117,11 +132,12 @@ check('window ≥ reaction 0.2 s + the walk out of the worst point at the hero\'
   }
 });
 
-check('task 27: every move of the Jailer is a threat of the table or listed outside it with a reason; no record of an unknown move', () => {
+check('task 27: every move of the Jailer (task 48: of the Troll) is a threat of the table or listed outside it with a reason; no record of an unknown move', () => {
   const recorded = new Set([...THREATS.flatMap(t => t.move ? [t.move] : []), ...Object.keys(MOVES_OUTSIDE)]);
-  const missing = JAILER_MOVES.filter(m => !recorded.has(m));
-  assert(!missing.length, `the Jailer's moves with no record of their window: ${missing.join(', ')}`);
-  const stale = [...recorded].filter(m => !(JAILER_MOVES as readonly string[]).includes(m));
+  const moves: readonly string[] = [...JAILER_MOVES, ...TROLL_MOVES];
+  const missing = moves.filter(m => !recorded.has(m));
+  assert(!missing.length, `the bosses' moves with no record of their window: ${missing.join(', ')}`);
+  const stale = [...recorded].filter(m => !moves.includes(m));
   assert(!stale.length, `records of unknown moves: ${stale.join(', ')}`);
 });
 

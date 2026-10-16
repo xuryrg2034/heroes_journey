@@ -969,6 +969,23 @@ export interface BossSummary {
   diedAt: number | null; severedAt: number | null; moves: Record<string, number>;
   /** Task 43 (from 16.10.2026): the full Castellan's fight only (`castellan` — absent for the Jailer and older records). */
   castellan?: CastellanBossSummary;
+  /** Task 48 (from 16.10.2026): the Troll's fight only (`troll` — absent for the other bosses and older records). */
+  troll?: TrollBossSummary;
+}
+/**
+ * Task 48 «Тролль» (observe.ts): his windows by what opened them (`club`, `tail`, `snore`: opened, with the window's hit), the hits on
+ * his core that did not land (`trollWindow` `block`) by their source, «Храп» slept through (a plate regrown) and woken, the wolves of
+ * «Рык» (every wolf of his fight), his parts in the order severed with the game second (`kind`: `troll-club`, `troll-rock`,
+ * `troll-tail`), the phase reached, the core's drop-outs of the drawn chain (`unlinks`).
+ */
+export interface TrollBossSummary {
+  windows: Record<string, { opened: number; hit: number }>;
+  blocks: Record<string, number>;
+  snores: { slept: number; woken: number };
+  wolves: number;
+  parts: { kind: string; at: number }[];
+  phase: number;
+  unlinks: number;
 }
 /**
  * Task 43 «Кастелян полный» (observe.ts): the grate — raised by a lever (`raises`), seconds it stood open (any cause), the lever's

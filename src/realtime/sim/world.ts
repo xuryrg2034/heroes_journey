@@ -27,6 +27,8 @@ import { RngStreams } from './rng';
 import { dropShackleOf, shackled } from './tethers';
 // Task 41: the rioting prisoner (enemies/garrison.ts).
 import { riotStep } from './enemies/garrison';
+// Task 48: the Troll's window guards his core from every source (enemies/troll.ts).
+import { TROLL, TROLL_CROWD, trollWards } from './enemies/troll';
 // Casino stage 1 («Однорукий гоблин», slot.ts): the slot's state and step.
 import { goblinOf, placeArenaGoblin, updateSlot, type SlotOutcome, type SlotState, type SlotSymbol } from './slot';
 import { fallenEmbers, greedHurt, purseDoor, purseKill, type DoorExit, type PurseMove, type PurseWorld } from './purse';
@@ -511,7 +513,7 @@ export type WorldEvent =
    * a part died (`partSevered`: its id and spot; only while its core lives); after the dash the core lost plates to severed parts
    * (`bossPlate`: plates left) or entered a phase (`bossPhase`). The rules never read them.
    */
-  | { type: 'bossMove'; id: number; move: 'flail' | 'throw' | 'whistle'; stage: 'start' | 'hit' }
+  | { type: 'bossMove'; id: number; move: 'flail' | 'throw' | 'whistle' | 'club' | 'rock' | 'tail' | 'roar' | 'snore'; stage: 'start' | 'hit' }
   | { type: 'partSevered'; id: number; x: number; y: number }
   | { type: 'bossPlate'; id: number; plates: number }
   | { type: 'bossPhase'; id: number; phase: number }
@@ -537,6 +539,13 @@ export type WorldEvent =
    * The rules never read it.
    */
   | { type: 'grate'; action: 'lever' | 'up' | 'down' | 'keys' | 'unlink'; id: number; objectId?: number; x: number; y: number; dropped?: number[] }
+  /**
+   * Task 48 «Тролль» (enemies/troll.ts): the window of the Troll's core — `open` (a move opened it: `source` `club`, `tail`, `snore`),
+   * `hit` (the window's one hit landed: `source` — the damage's), `block` (a hit outside the window or after its hit: no damage),
+   * `close` (`source` — the window's), `unlink` (it closed while the core was in the drawn chain: the core and the links after it,
+   * `dropped`, left the chain). The rules never read them.
+   */
+  | { type: 'trollWindow'; action: 'open' | 'hit' | 'block' | 'close' | 'unlink'; id: number; source: string; x: number; y: number; dropped?: number[] }
   /** Task 43 (enemies/garrison.ts «Рыцарь»): the knight's last plate went with the pass — it sheds its armour (the offensive starts). */
   | { type: 'knightShed'; id: number; x: number; y: number }
   /**
@@ -772,6 +781,9 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   if (arena.shackles && !params.shackles) params = { ...copyParams(params), shackles: true };
   // Task 43: the full Castellan's arena plays its key on (the sandbox «Двор кастеляна (полный)»; a journal keeps the copy).
   if (arena.castellanFull && !params.castellanFull) params = { ...copyParams(params), castellanFull: true };
+  // Task 48: the Troll's arena plays his window and his crowd (when the values hold the old ones; a journal keeps the copy).
+  if (arena.troll && params.trollWindow === false) params = { ...copyParams(params), trollWindow: true };
+  if (arena.troll && params.trollCrowd === DEFAULT_PARAMS.trollCrowd) params = { ...copyParams(params), trollCrowd: TROLL_CROWD };
   const maxHp = start ? Math.max(1, Math.floor(start.maxHp)) : params.heroHp;
   const hp = start ? Math.max(1, Math.min(maxHp, Math.floor(start.hp))) : params.heroHp;
   // Stage 2, step 3 («Песочные часы»): the phase table starts later — the delay is the talisman's, read once at the start.
@@ -1473,6 +1485,8 @@ export function killEnemy(world: World, e: Enemy, cause: KillCause): void {
  */
 export function damageEnemy(world: World, e: Enemy, damage: number, cause: KillCause): void {
   if (damage <= 0 || kindOf(e).immune || !world.enemies.includes(e)) return;
+  // Task 48: the Troll's core outside his window (or its hit spent) is not hurt (event `trollWindow` `block`; nothing on other kinds).
+  if (e.kind === TROLL && trollWards(world, e, cause.source)) return;
   // Package «Урон имеет значение»: an armoured elite with plates loses plates, not HP (elites.ts — the one place of the rule).
   if (platesOf(e) > 0) { stripPlates(world, e, cause); return; }
   const killed = damage >= e.hp;
