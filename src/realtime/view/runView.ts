@@ -53,7 +53,7 @@ import { RunStart } from './runStart';
 import { rtHearthFlagsWith, rtRunKey, type RtHearthStart, type RtMetaEnd } from '../run/rtMeta';
 import type { HearthStart } from './metaModel';
 import { KIND_CAPTIONS } from './newSeen';
-import { END_STEP, endShown, endTotal, revealDelays, revealDone, revealShown, screenTier, type RewardTier } from './reveal';
+import { END_STEP, REVEAL_FADE, endShown, endTotal, revealDelays, revealDone, revealShown, screenTier, type RewardTier } from './reveal';
 import type { ItemKind as KitItem } from '../sim/kit';
 
 /** Task 47, С5: the chord of a reward screen by its tier (view/reveal.ts `screenTier`). */
@@ -404,6 +404,8 @@ export class RunView {
    */
   private endStage: { key: string; start: number; n: number; done: boolean; gate: boolean; timer: number } | null = null;
   private endBase: string | null = null;
+  /** Task 47: the slowdown of the staged screens — tests only (`__realtime.run.screenPace`); the times of С6 and С8 are multiplied by it (20 — a reveal of 10 s). In the game always 1; never stored. */
+  screenPace = 1;
   /** Task 47 (tests read it via `screensInfo`): chords by tier and the last one; screens revealed, run-ends staged, and the skips. */
   private readonly screenCount = { chords: [0, 0, 0], last: null as RewardTier | null, reveals: 0, revealSkips: 0, ends: 0, endSkips: 0 };
   readonly hearth: HearthView | null;
@@ -977,7 +979,7 @@ export class RunView {
   /** Task 47 (tests read it): the chords and the staged screens so far, and whether a reveal or a run-end is running now. */
   screensInfo(): { chords: number[]; last: RewardTier | null; reveal: { screens: number; skips: number; running: boolean; cards: number; shown: number }; end: { screens: number; skips: number; running: boolean; lines: number; shown: number } } {
     const c = this.screenCount, rv = this.reveal, es = this.endStage, now = performance.now();
-    const rt = rv ? (now - rv.start) / 1000 : 0, et = es ? (now - es.start) / 1000 : 0;
+    const rt = rv ? (now - rv.start) / 1000 / this.screenPace : 0, et = es ? (now - es.start) / 1000 / this.screenPace : 0;
     return {
       chords: [...c.chords], last: c.last,
       reveal: { screens: c.reveals, skips: c.revealSkips, running: !!rv && !rv.done && !revealDone(rv.n, rt), cards: rv?.n ?? 0, shown: rv ? (rv.done ? rv.n : revealShown(rv.n, rt)) : 0 },
@@ -1005,12 +1007,13 @@ export class RunView {
       }
       const rv = this.reveal;
       if (rv && !rv.done) {
-        const t = (performance.now() - rv.start) / 1000, delays = revealDelays(cards.length);
+        const t = (performance.now() - rv.start) / 1000 / this.screenPace, delays = revealDelays(cards.length);
         if (revealDone(cards.length, t)) rv.done = true;
         else cards.forEach((card, i) => {
           card.classList.add('rt-reveal-card');
-          card.style.animationDelay = `${(delays[i] - t).toFixed(3)}s`;
-          card.addEventListener('animationend', () => { card.classList.remove('rt-reveal-card'); card.style.animationDelay = ''; }, { once: true });
+          card.style.animationDelay = `${((delays[i] - t) * this.screenPace).toFixed(3)}s`;
+          if (this.screenPace !== 1) card.style.animationDuration = `${(REVEAL_FADE * this.screenPace).toFixed(3)}s`;
+          card.addEventListener('animationend', () => { card.classList.remove('rt-reveal-card'); card.style.animationDelay = ''; card.style.animationDuration = ''; }, { once: true });
         });
       }
     }
@@ -1022,16 +1025,17 @@ export class RunView {
       const n = this.endItems().length, gate = !!this.metaEnd && !this.metaEnd.shown.done;
       this.endStage = { key, start: performance.now(), n, done: !n && !gate, gate, timer: 0 };
       this.screenCount.ends++;
-      if (gate) this.endStage.timer = window.setTimeout(() => this.releaseMeta(), endTotal(n) * 1000 + 100);
+      if (gate) this.endStage.timer = window.setTimeout(() => this.releaseMeta(), endTotal(n) * 1000 * this.screenPace + 100);
     }
     const es = this.endStage;
     if (es && es.key === key && !es.done) {
-      const t = (performance.now() - es.start) / 1000, items = this.endItems();
+      const t = (performance.now() - es.start) / 1000 / this.screenPace, items = this.endItems();
       if (endShown(items.length, t) >= items.length) { if (!es.gate) es.done = true; }
       else items.forEach((group, i) => group.forEach(el => {
         el.classList.add('rt-end-line');
-        el.style.animationDelay = `${(i * END_STEP - t).toFixed(3)}s`;
-        el.addEventListener('animationend', () => { el.classList.remove('rt-end-line'); el.style.animationDelay = ''; }, { once: true });
+        el.style.animationDelay = `${((i * END_STEP - t) * this.screenPace).toFixed(3)}s`;
+        if (this.screenPace !== 1) el.style.animationDuration = `${(0.18 * this.screenPace).toFixed(3)}s`;
+        el.addEventListener('animationend', () => { el.classList.remove('rt-end-line'); el.style.animationDelay = ''; el.style.animationDuration = ''; }, { once: true });
       }));
     }
   }
@@ -1056,14 +1060,14 @@ export class RunView {
     const rv = this.reveal;
     if (rv && !rv.done) {
       rv.done = true; this.screenCount.revealSkips++;
-      for (const card of this.el.querySelectorAll<HTMLElement>('.rt-reveal-card')) { card.classList.remove('rt-reveal-card'); card.style.animationDelay = ''; }
+      for (const card of this.el.querySelectorAll<HTMLElement>('.rt-reveal-card')) { card.classList.remove('rt-reveal-card'); card.style.animationDelay = ''; card.style.animationDuration = ''; }
     }
     const es = this.endStage;
     if (es && (!es.done || es.gate)) {
       clearTimeout(es.timer);
       if (!es.done) this.screenCount.endSkips++;
       es.done = true; es.gate = false;
-      for (const el of this.el.querySelectorAll<HTMLElement>('.rt-end-line')) { el.classList.remove('rt-end-line'); el.style.animationDelay = ''; }
+      for (const el of this.el.querySelectorAll<HTMLElement>('.rt-end-line')) { el.classList.remove('rt-end-line'); el.style.animationDelay = ''; el.style.animationDuration = ''; }
       if (this.metaEnd) { this.metaEnd.el.classList.remove('rt-end-wait'); this.metaEnd.finish(); }
     }
   }

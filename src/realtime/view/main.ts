@@ -1855,6 +1855,8 @@ async function boot(): Promise<void> {
       resFly: () => ({ ...runView.resFly }),
       /** Task 47: the reward chords by tier, the card reveal (С6) and the run-end lines (С8) — counts, skips, what is running now. */
       screens: () => runView.screensInfo(),
+      /** Task 47, tests only: multiplies the times of the staged screens (С6, С8) by `k` — a slow reveal to act in the middle of it. */
+      screenPace: (k: number) => { runView.screenPace = k > 0 ? k : 1; },
       winArena: async () => {
         const w = world();
         if (!runView.arenaOpen || w.status !== 'playing') return false;

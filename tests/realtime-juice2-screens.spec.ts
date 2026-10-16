@@ -102,36 +102,38 @@ test('С5: a chord asks for tones when the sound is on', async ({ page }) => {
   expect(await page.evaluate(() => (window as any).__realtime.snapshot().sound.tones)).toBeGreaterThanOrEqual(before.tones + 2);
 });
 
-test('С6: the cards show one by one in half a second; a click on the bare screen shows them all and takes no card', async ({ page }) => {
+/** Tests only: the staged screens run `k` times slower (20 — a reveal of 10 s), so the middle of one is not a race with the clock. */
+const pace = (page: Page, k: number): Promise<void> => page.evaluate(k => (window as any).__realtime.run.screenPace(k), k);
+
+test('С6: the cards show one by one; a click on the bare screen shows them all and takes no card', async ({ page }) => {
   const errors = collectErrors(page);
   await openSave(page, fixture.hard);
   await expect(page.getByTestId('run-talisman')).toBeVisible();
-  const reroll = page.getByTestId('talisman-reroll');
-  // The screen of the load already played its reveal; each reroll opens a new one. The click must come inside the half second.
-  let skipped = false;
-  for (let attempt = 0; attempt < 3 && !skipped; attempt++) {
-    const before = (await screens(page)).reveal.skips;
-    const talismans = (await page.evaluate(() => (window as any).__realtime.run.state())).talismans;
-    await reroll.click();
-    const mid = await screens(page);
-    if (!mid.reveal.running) continue;
-    expect(mid.reveal.cards).toBe(3);
-    expect(mid.reveal.shown).toBeLessThan(3);
-    if (attempt === 0) await shot(page, 's6-mid');
-    await page.mouse.click(20, 400);
-    const after = await screens(page);
-    if (after.reveal.skips === before) continue;
-    skipped = true;
-    expect(after.reveal.running).toBe(false);
-    expect(after.reveal.shown).toBe(3);
-    expect(await opacities(page)).toEqual([1, 1, 1]);
-    // The press that showed the cards took none of them.
-    const state = await page.evaluate(() => (window as any).__realtime.run.state());
-    expect(state.talismans).toEqual(talismans);
-    expect(state.pending.kind).toBe('talisman');
-    await expect(page.getByTestId('run-talisman')).toBeVisible();
-  }
-  expect(skipped).toBe(true);
+  await pace(page, 20);
+  const talismans = (await page.evaluate(() => (window as any).__realtime.run.state())).talismans;
+  const before = (await screens(page)).reveal.skips;
+  // A reroll opens a new screen: its reveal is slow now.
+  await page.getByTestId('talisman-reroll').click();
+  const first = await screens(page);
+  expect(first.reveal.running).toBe(true);
+  expect(first.reveal.cards).toBe(3);
+  expect(first.reveal.shown).toBe(1);
+  const hidden = await opacities(page);
+  expect(hidden[0]).toBeGreaterThan(0);
+  expect(hidden[2]).toBe(0);
+  await expect.poll(async () => (await screens(page)).reveal.shown, { timeout: 8_000 }).toBe(2);
+  await shot(page, 's6-mid');
+  await page.mouse.click(20, 400);
+  const after = await screens(page);
+  expect(after.reveal.skips).toBe(before + 1);
+  expect(after.reveal.running).toBe(false);
+  expect(after.reveal.shown).toBe(3);
+  expect(await opacities(page)).toEqual([1, 1, 1]);
+  // The press that showed the cards took none of them.
+  const state = await page.evaluate(() => (window as any).__realtime.run.state());
+  expect(state.talismans).toEqual(talismans);
+  expect(state.pending.kind).toBe('talisman');
+  await expect(page.getByTestId('run-talisman')).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -139,17 +141,16 @@ test('С6: a key shows the cards at once; left alone the cards all show by thems
   await openSave(page, fixture.hard);
   await expect(page.getByTestId('run-talisman')).toBeVisible();
   const reroll = page.getByTestId('talisman-reroll');
-  let skipped = false;
-  for (let attempt = 0; attempt < 2 && !skipped; attempt++) {
-    const before = (await screens(page)).reveal.skips;
-    await reroll.click();
-    if (!(await screens(page)).reveal.running) continue;
-    await page.keyboard.press('x');
-    skipped = (await screens(page)).reveal.skips === before + 1;
-  }
-  expect(skipped).toBe(true);
+  await pace(page, 20);
+  const before = (await screens(page)).reveal.skips;
+  await reroll.click();
+  expect((await screens(page)).reveal.running).toBe(true);
+  await page.keyboard.press('x');
+  expect((await screens(page)).reveal.skips).toBe(before + 1);
+  expect((await screens(page)).reveal.running).toBe(false);
   expect(await opacities(page)).toEqual([1, 1, 1]);
-  // Left alone: the next reroll's cards come by themselves (no press) and the reveal ends.
+  // Left alone at the game's own pace: the next reroll's cards come by themselves (no press) and the reveal ends.
+  await pace(page, 1);
   await reroll.click();
   await expect.poll(async () => (await screens(page)).reveal.running, { timeout: 3_000 }).toBe(false);
   expect((await screens(page)).reveal.shown).toBe(3);
@@ -183,6 +184,7 @@ test('С8: the run-end lines come one by one; a click shows them all at once', a
   await expect(page.getByTestId('run')).toBeHidden();
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory', { timeout: 15_000 });
+  await pace(page, 20);
   await page.getByTestId('result-map').click();
   await expect(page.getByTestId('run-result-victory').or(page.getByTestId('run-die'))).toBeVisible();
   if (await page.getByTestId('run-die').isVisible()) await page.getByTestId('die-take').click();
@@ -195,6 +197,9 @@ test('С8: the run-end lines come one by one; a click shows them all at once', a
   expect(mid.end.shown).toBeLessThan(mid.end.lines);
   // The meta block (the experience, the record) waits for the last line.
   if (mid.held !== null) expect(mid.held).toBe(true);
+  await expect.poll(async () => (await screens(page)).end.shown, { timeout: 8_000 }).toBeGreaterThanOrEqual(2);
+  expect((await screens(page)).end.running).toBe(true);
+  await shot(page, 's8-mid');
   await page.mouse.click(20, 400);
   const after = await screens(page);
   expect(after.end.skips).toBe(1);
@@ -223,7 +228,6 @@ test('С8: left alone the lines all come by themselves', async ({ page }) => {
   await expect(page.getByTestId('run-result-victory').or(page.getByTestId('run-die'))).toBeVisible();
   if (await page.getByTestId('run-die').isVisible()) await page.getByTestId('die-take').click();
   await expect(page.getByTestId('run-result-victory')).toBeVisible();
-  await shot(page, 's8-mid');
   await expect.poll(async () => (await screens(page)).end.running, { timeout: 8_000 }).toBe(false);
   const info = await screens(page);
   expect(info.end.skips).toBe(0);
