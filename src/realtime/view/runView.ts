@@ -703,7 +703,8 @@ export class RunView {
       const def = rtTalismanShown(id, !!run.forms), label = labelOf(id, !!run.forms);
       const icon = `<i class="rt-knack-icon">${label.svg ?? escapeHtml(label.glyph)}${hone ? rankMarkHtml() : ''}</i>`;
       const head = `<b>${icon}<span>${escapeHtml(talismanName(id, run))}</span><em>${hone ? 'Ранг II' : 'Новый'}</em></b>`;
-      const lines = hone ? `<small>${escapeHtml(def?.effect ?? '')}</small><small class="rt-knack-hone" data-testid="knack-line-${id}">${escapeHtml(honeLine(id))}</small>` : talismanCardLines(id, run);
+      // Task 50, 4.3: the habit's weight acts on both cards of the knack — the tagged one carries the habit's mark (card Б via `talismanCardLines`).
+      const lines = hone ? `${habitMark(run, id)}<small>${escapeHtml(def?.effect ?? '')}</small><small class="rt-knack-hone" data-testid="knack-line-${id}">${escapeHtml(honeLine(id))}</small>` : talismanCardLines(id, run);
       return `<button class="rt-run-choice rt-knack-card" data-action="knack" data-option="${id}"${hone ? ' data-hone="1"' : ''} data-kind="${hone ? 'hone' : 'new'}" data-testid="knack-${hone ? 'hone' : 'new'}-${id}">${head}${lines}</button>`;
     }).join('');
     return `<div class="rt-run-choices rt-knack-cards" data-testid="knack-cards">${cards}</div>`
