@@ -51,6 +51,11 @@ export interface LinkContext {
    * Jailer's core) — «Призма» does not count them, as `colorSegments` does not. Absent — 0.
    */
   colorlessBefore?: number;
+  /**
+   * Task 50 («Длинная рука» II): the plan's link is taken beyond the ordinary R (chain.ts `farLinkIds`; the release fixes the same
+   * ids, the dash reads them from the module's state). Absent — not far, or no rank II of «Длинная рука».
+   */
+  far?: true;
 }
 
 /** The last enemy link the dash reached: where it was, whether it died, whether it was an elite. */
@@ -95,13 +100,29 @@ export interface ChainEnd {
 }
 
 /** The end of a planned dash (`endShadow`): the enemy links it reaches (`ChainEnd.links`) and where the hero stands after it. */
-export interface ChainEndShadow { links: number; at: Vec }
+export interface ChainEndShadow {
+  links: number; at: Vec;
+  /** Task 50 («Ударная волна» II): where the hero stood at the release (the chain's start; the dash's `ChainEnd.start`). */
+  start?: Vec;
+}
 
 /**
  * What one module's `endShadow` does: the shadow list after it and the bodies it strikes (`struck`, in the order of its hits;
  * empty — it goes off and strikes nobody).
  */
-export interface EndShadowHit { enemies: Enemy[]; struck: number[] }
+export interface EndShadowHit {
+  enemies: Enemy[]; struck: number[];
+  /** Task 50 («Ударная волна» II): the bodies of its second hit (the wave round the chain's start), after the first; absent — none. */
+  second?: number[];
+}
+
+/**
+ * Task 50: what the release of a chain fixes for the counters' rank II (chain.ts `planChain` → `HonedPlan`): the far links of «Длинная
+ * рука» II, the survivor's neighbour of «Иней на клинке» II.
+ */
+export interface HonedRelease { far?: number[]; frost?: { survivor: number; near: number } }
+/** Task 50: the key of a module's second hit in `endShadowOf`'s `struck` (and `ReturnPreview.ends`). */
+export const secondKey = (id: string): string => `${id}:2`;
 
 /** A kill of the chain (`onChainKill`): an enemy struck dead by the dash, or a fallen credited link it passed. */
 export interface ChainKill { id: number; x: number; y: number; elite: boolean; fallen: boolean; /** Kills of this chain so far. */ kills: number }
@@ -137,6 +158,8 @@ export interface BuildModifiers {
   linkGain?(world: World, value: number): number;
   /** Seconds of the after-chain invulnerability (`chainShieldOf`); `end` — the dash that gives it (null without the layer's count). */
   chainShield?(world: World, value: number, end: ChainEnd | null): number;
+  /** Task 50 («Добивание» II): the kills a chain needs for the after-chain shield (`chainShieldMinKillsOf`, base `chainShieldMinKills`). */
+  chainShieldMinKills?(world: World, value: number, end: ChainEnd | null): number;
 }
 export type BuildStat = keyof BuildModifiers;
 
@@ -156,7 +179,14 @@ export interface BuildModule {
   /** The arena started (end of `createWorld`: the kit, the start enemies are there). */
   onArenaStart?(world: World): void;
   /** A chain was released (the dash starts); `chain` — its number on the arena; cancelled chains are not counted. */
-  onRelease?(world: World, release: { chain: number; links: readonly ChainLink[]; start: Vec; back?: ReturnPreview; /** Task 46: the fusions' end the release fixes (chain.ts `planChain`). */ fusion?: FusionRelease }): void;
+  onRelease?(world: World, release: { chain: number; links: readonly ChainLink[]; start: Vec; back?: ReturnPreview; /** Task 46: the fusions' end the release fixes (chain.ts `planChain`). */ fusion?: FusionRelease; /** Task 50: what the counters' rank II fix. */ honed?: HonedRelease }): void;
+  /**
+   * Task 50 («Охотник на элит» II) — pure: plates the link loses before its hit (the plan strikes the rest, the dash strips them first);
+   * the caller caps the sum at the link's plates.
+   */
+  platesBefore?(world: World, link: LinkContext): number;
+  /** Task 50 — pure: the module's rank II acts on this link (the highlight's mark, `LinkPlan.honed`; the dash's `talismanFired` rank 2). */
+  rank2Link?(world: World, link: LinkContext): boolean;
   /** The dash struck an enemy link (after the hit: HP, power, kill applied; `outcome` null — a fallen link passed). */
   onLink?(world: World, link: LinkContext, outcome: StrikeOutcome | null): void;
   /** The chain killed (after `onLink` of that link). */
@@ -264,6 +294,7 @@ export function endShadowOf(world: World, end: ChainEndShadow, enemies: readonly
     if (!hit) continue;
     out = hit.enemies;
     struck[m.id] = hit.struck;
+    if (hit.second) struck[secondKey(m.id)] = hit.second;
   }
   return { enemies: out, struck };
 }
@@ -305,6 +336,8 @@ export const itemHealOf = (world: World): number => Math.max(0, modded(world, 'i
 export const linkGainOf = (world: World): number => modded(world, 'linkGain', 1);
 /** Seconds of the after-chain invulnerability (chain.ts `finishMove`). */
 export const chainShieldOf = (world: World, end: ChainEnd | null = null): number => modded(world, 'chainShield', world.params.chainShield, end);
+/** Task 50: the kills a chain needs for the after-chain shield (chain.ts `finishMove`): the panel's, «Добивание» II fewer; at least 1. */
+export const chainShieldMinKillsOf = (world: World, end: ChainEnd | null = null): number => Math.max(1, modded(world, 'chainShieldMinKills', world.params.chainShieldMinKills, end));
 
 /** Energy the jump costs now: the panel's `jumpCost`, one less with «Ловкие лапы» (stage 2, step 3); then the modules. */
 export function jumpCostOf(world: World): number {
@@ -349,6 +382,19 @@ export function linkPowerOf(world: World, link: LinkContext): number {
   let sum = 0;
   for (const m of withHook(world, 'linkPower')) sum += m.linkPower!(world, link);
   return sum;
+}
+
+/** Task 50: plates the link loses before its hit (the active modules' `platesBefore`), at most `plates`. */
+export function platesBeforeOf(world: World, link: LinkContext, plates: number): number {
+  if (plates <= 0) return 0;
+  let sum = 0;
+  for (const m of withHook(world, 'platesBefore')) sum += m.platesBefore!(world, link);
+  return Math.max(0, Math.min(plates, Math.floor(sum)));
+}
+
+/** Task 50: the modules whose rank II acts on this link (`rank2Link`), in their order; empty — none. */
+export function rank2LinksOf(world: World, link: LinkContext): string[] {
+  return withHook(world, 'rank2Link').filter(m => m.rank2Link!(world, link)).map(m => m.id);
 }
 
 /** Power the active modules add after the link, when the chain goes on past it. */
@@ -406,6 +452,8 @@ export function setBuildState(world: World, id: string, state: unknown): void {
 
 /** The view's signal that an item triggered (a flash of its icon, a short text at the hero; track Д5). */
 export function talismanFired(world: World, id: string, bodies?: number): void { world.events.push({ type: 'talismanFired', id, ...bodies !== undefined ? { bodies } : {} }); }
+/** Task 50: the rank II of a counter acted (the view's flash; telemetry counts it as `<id>:2`). */
+export function honedFired(world: World, id: string, bodies?: number): void { world.events.push({ type: 'talismanFired', id, rank: 2, ...bodies !== undefined ? { bodies } : {} }); }
 
 // ---- Task 29, field «Звено»: anchors and colour (pure hooks; without a form — the old rule, nothing computed) ----
 

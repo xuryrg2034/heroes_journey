@@ -9,7 +9,7 @@
 import { ITEM_KINDS } from '../forest/items';
 import { RESOURCE_KINDS } from '../forest/resources';
 import type { ItemKind, ResourceKind } from '../forest/types';
-import { expandFusions, FORM_FIELD, FUSION_EXCLUDES, FUSIONS_V2, isHammerId, type HammerId } from './buildIds';
+import { COUNTER_TALISMANS, expandFusions, FORM_FIELD, FUSION_EXCLUDES, FUSIONS_V2, isHammerId, type HammerId } from './buildIds';
 import { featGoalOf, type FeatGoal } from './feat';
 
 export type { ItemKind, ResourceKind };
@@ -151,6 +151,12 @@ export interface Loadout {
    * «Галерея» and «Караульня» from garrison row 8 once «Бойницы» was played (run/garrison.ts `garrisonBolts`). Absent — none.
    */
   bolts?: boolean;
+  /**
+   * Task 50 «Сноровка» (docs/realtime-slice.md, «Сноровка и ранг II»): the counters of the run on rank II (run/rtRun.ts `honed`, in
+   * the order taken; a part of a fusion keeps its rank). Only counter ids (buildIds.ts `COUNTER_TALISMANS`) count. Absent — every
+   * counter on rank I.
+   */
+  honed?: string[];
 }
 
 /**
@@ -231,6 +237,11 @@ export interface Kit {
   knights?: number;
   /** Task 43, part Г: the arena's crossbowmen stood (absent — no: kits before hash as before). */
   bolts?: true;
+  /**
+   * Task 50: the counters on rank II (sim/talismansRt.ts reads them with the chain window). Absent — none: kits before hash as before;
+   * present only non-empty and only with counter ids.
+   */
+  honed?: string[];
 }
 
 /** Баланс (design answer to step 3, «пустые» исходы событий): «злость» — this many more enemies in the first wave. */
@@ -271,6 +282,12 @@ export const NIMBLE_PAWS_DISCOUNT = 1;
 export const hasTalisman = (world: { kit?: Kit }, id: string): boolean => !!world.kit?.talismans.includes(id);
 
 const count = (value: unknown): number => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+const COUNTER_IDS: readonly string[] = Object.values(COUNTER_TALISMANS);
+/** Task 50: the loadout's counters on rank II — counter ids only, each once, in the loadout's order; none — undefined. */
+function honedOf(loadout: Loadout): string[] | undefined {
+  const ids = Array.isArray(loadout.honed) ? [...new Set(loadout.honed.filter(id => typeof id === 'string' && COUNTER_IDS.includes(id)))] : [];
+  return ids.length ? ids : undefined;
+}
 
 /**
  * Task 46 (design 16.10.2026, section 5, decision 10): the slot rule of a kit with a fusion of task 46. The hammer slot takes the
@@ -337,6 +354,8 @@ export function kitOf(loadout: Loadout): Kit {
     // Task 43, part Г: absent unless the run gives them (kits before hash as before).
     ...count(loadout.knights) >= 1 ? { knights: Math.min(MAX_KNIGHTS, count(loadout.knights)) } : {},
     ...loadout.bolts === true ? { bolts: true as const } : {},
+    // Task 50: absent unless the run gives counters on rank II (kits before hash as before).
+    ...honedOf(loadout) ? { honed: honedOf(loadout)! } : {},
   };
 }
 /** A kit with nothing (test setup on a world without a loadout). */

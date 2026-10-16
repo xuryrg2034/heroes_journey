@@ -4,15 +4,17 @@
  * and its rerolls, the chest, the feat's choice, the Jailer's hammer and oath screens, events with their options and reward
  * battles, the merchant's goods, the rest's craft, the find, the goblins' circle). Every state the walk passes through is
  * serialized into a digest (FNV-1a), and every id a screen offered is collected — the pools as the player sees them.
- * The walk's choices depend only on the seed index and the step, so a run of the same seed and options walks the same way.
+ * The walk's choices depend only on the seed index and the step, so a run of the same seed and options walks the same way (task 50: the
+ * knack screens and the archetype row do not move the step).
  */
 import { RESOURCE_KINDS } from '../forest/resources';
 import type { ItemKind } from '../forest/types';
 import {
   createRtRun, resolveArena, rtAvailableNodes, rtCasinoLeave, rtCasinoPlay, rtCasinoView, rtChooseEventOption, rtChooseFind, rtItemRefusal, rtChooseGift, rtChooseGiftPick,
   rtChooseHammer, rtChooseTalisman, rtHammerRerollView, rtRerollHammers, rtEnterNode, rtEventView, rtGiftView, rtNode, rtRerollView, rtRerollTalismans, rtRestCraft, rtRestFinish, rtRestHeal,
-  rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun, rtEnterGarrison, type RtArenaOutcome, type RtRunState, type RtRunStep,
+  rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun, rtEnterGarrison, rtChooseHabit, rtChooseKnack, rtRestFuse, type RtArenaOutcome, type RtKnackOption, type RtRunState, type RtRunStep,
 } from './rtRun';
+import { RT_HABITS, type RtHabitId } from './rtTalismans';
 
 export const seedOf = (k: number): number => Math.imul(k, 2654435761) >>> 0;
 export function ok(step: RtRunStep, what: string): RtRunState {
@@ -50,6 +52,14 @@ export interface WalkOptions {
   deposit?: (run: RtRunState) => number | undefined;
   /** Task 40 (the bot's curve, scripts/realtime-garrison-curve.ts): the open battle played for real; absent or null — the outcome made up. */
   fight?: (run: RtRunState) => RtArenaOutcome | null;
+  /** Task 50 «Повадка»: the archetype on the gift of a run with `habits` (null — «Без повадки»); absent — by the seed index. */
+  habit?: RtHabitId | null;
+  /** Task 50 «Сноровка»: the card taken on the knack screen (null — «Пропустить»); absent — the walk's own pick by the step. */
+  knack?: (run: RtRunState, options: readonly RtKnackOption[]) => RtKnackOption | null;
+  /** Task 50 (scripts/realtime-knacks.ts): a rest with a fusion ready makes it (the first one); absent — the rest heals or crafts. */
+  fuse?: boolean;
+  /** Task 50 (telemetry): every step that went through, with the state before it (as the view hands it to the recorder). */
+  onStep?: (before: RtRunState, step: Extract<RtRunStep, { ok: true }>) => void;
 }
 export interface Walk { run: RtRunState; digest: number; steps: number; offered: Set<string> }
 
@@ -59,6 +69,8 @@ export function offeredNow(run: RtRunState): string[] {
   if (pending?.kind === 'talisman') out.push(...pending.options);
   if (pending?.kind === 'hammer') out.push(...pending.options);
   if (pending?.kind === 'shop' && pending.stock.talisman) out.push(pending.stock.talisman);
+  // Task 50: the knack screen's cards (a rank II card as `<id>:2`).
+  if (pending?.kind === 'knack') out.push(...pending.options.map(o => (o.hone ? `${o.id}:2` : o.id)));
   if (pending?.kind === 'gift') {
     for (const { option } of rtGiftView(run)?.options ?? []) {
       if (option.kind === 'deal') out.push(...option.reward.kind === 'pick-talisman' ? option.reward.talismans : option.reward.talisman ? [option.reward.talisman] : []);
@@ -85,18 +97,22 @@ export function walkRun(options: WalkOptions): Walk {
     return next;
   };
   seen(run);
-  for (let step = 0; step < 400 && !run.result; step++) {
-    const pending = run.pending;
+  /** A step of the walk: it must go through; the caller's `onStep` sees it with the state before it. */
+  const take = (step: RtRunStep, what: string): RtRunState => { const next = ok(step, what); if (step.ok) options.onStep?.(run, step); return next; };
+  // Task 50: the knack screen and the archetype row are not counted in `step` (the walk's choices turn on it): a walk with them, every
+  // knack refused and «Без повадки», makes the same choices as one without them.
+  for (let turn = 0, extra = 0; turn < 400 + extra && !run.result; turn++) {
+    const step = turn - extra, pending = run.pending;
     if (!pending) {
       const next = rtAvailableNodes(run), wanted = options.pickNode?.(run, next.map(entry => entry.id)), node = next.find(entry => entry.id === wanted) ?? next[(k * 7 + step) % next.length];
-      run = seen(ok(rtEnterNode(run, node.id, null, { goblinCircle: options.circle ?? k % 3 === 1 }), 'enter'));
+      run = seen(take(rtEnterNode(run, node.id, null, { goblinCircle: options.circle ?? k % 3 === 1 }), 'enter'));
       continue;
     }
     switch (pending.kind) {
       case 'battle': {
         const type = rtNode(run, pending.nodeId)!.type, lose = options.loseAt?.(run, type) ?? false;
         const played = options.fight?.(run);
-        if (played) { run = seen(ok(resolveArena(run, played), 'resolve')); break; }
+        if (played) { run = seen(take(resolveArena(run, played), 'resolve')); break; }
         const outcome: RtArenaOutcome = {
           nodeId: pending.nodeId, won: !lose, hp: lose ? 0 : Math.max(1, run.maxHp - (step % 4)), kills: 20 + step % 7, damage: step % 4, time: 60 + step,
           materials: options.loot !== undefined ? { [RESOURCE_KINDS[(k + step) % RESOURCE_KINDS.length]]: options.loot } : { [RESOURCE_KINDS[(k + step) % RESOURCE_KINDS.length]]: 1 + (step % 3) },
@@ -104,58 +120,71 @@ export function walkRun(options: WalkOptions): Walk {
           ...pending.battle === 'hard' && k % 3 === 0 ? { chest: true } : {},
           ...type === 'checkpoint' && (options.sever ?? k % 2 === 1) ? { severed: true } : {},
         };
-        run = seen(ok(resolveArena(run, outcome), 'resolve'));
+        run = seen(take(resolveArena(run, outcome), 'resolve'));
         break;
       }
       case 'talisman': {
         const reroll = rtRerollView(run);
-        if (reroll?.available && (reroll.free ? options.jailerReroll === (pending.source === 'form' ? 'form' : 'oath') : step % 3 === 0)) { run = seen(ok(rtRerollTalismans(run), 'reroll')); break; }
+        if (reroll?.available && (reroll.free ? options.jailerReroll === (pending.source === 'form' ? 'form' : 'oath') : step % 3 === 0)) { run = seen(take(rtRerollTalismans(run), 'reroll')); break; }
         const options2 = (run.pending as typeof pending).options, at = step % (options2.length + 1);
-        run = seen(ok(rtChooseTalisman(run, at < options2.length ? options2[at] : null), 'talisman'));
+        run = seen(take(rtChooseTalisman(run, at < options2.length ? options2[at] : null), 'talisman'));
         break;
       }
       case 'hammer':
-        if (options.jailerReroll === 'hammer' && rtHammerRerollView(run)?.available) { run = seen(ok(rtRerollHammers(run), 'hammer reroll')); break; }
-        run = seen(ok(rtChooseHammer(run, pending.options[step % pending.options.length] ?? null), 'hammer')); break;
+        if (options.jailerReroll === 'hammer' && rtHammerRerollView(run)?.available) { run = seen(take(rtRerollHammers(run), 'hammer reroll')); break; }
+        run = seen(take(rtChooseHammer(run, pending.options[step % pending.options.length] ?? null), 'hammer')); break;
       case 'event': {
         const view = rtEventView(run)!, open = view.options.filter(option => option.available);
         const wanted = options.eventChoice?.(view.event.id, open.map(option => option.id)) ?? null;
-        run = seen(ok(rtChooseEventOption(run, open.find(option => option.id === wanted)?.id ?? open[(k + step) % open.length].id), 'event'));
+        run = seen(take(rtChooseEventOption(run, open.find(option => option.id === wanted)?.id ?? open[(k + step) % open.length].id), 'event'));
         break;
       }
       case 'shop': {
         const good = rtShopView(run)!.goods.find(entry => entry.available && entry.good !== 'heal');
-        run = seen(good && step % 2 === 0 ? ok(rtShopBuy(run, good.id), 'buy') : ok(rtShopLeave(run), 'leave'));
+        run = seen(good && step % 2 === 0 ? take(rtShopBuy(run, good.id), 'buy') : take(rtShopLeave(run), 'leave'));
         break;
       }
       case 'rest': {
-        const view = rtRestView(run)!, recipe = view.recipes.find(entry => entry.available);
-        if (view.canFinish) run = seen(ok(rtRestFinish(run), 'rest finish'));
-        else run = seen(recipe && step % 2 === 1 ? ok(rtRestCraft(run, recipe.resource), 'craft') : ok(rtRestHeal(run), 'heal'));
+        const view = rtRestView(run)!, recipe = view.recipes.find(entry => entry.available), fusion = view.fusions.find(entry => entry.available);
+        if (options.fuse && fusion) run = seen(take(rtRestFuse(run, fusion.fusion), 'fuse'));
+        else if (view.canFinish) run = seen(take(rtRestFinish(run), 'rest finish'));
+        else run = seen(recipe && step % 2 === 1 ? take(rtRestCraft(run, recipe.resource), 'craft') : take(rtRestHeal(run), 'heal'));
         break;
       }
       case 'find': {
         // Task 41: the walk's pick, or the next one the hand can take (a full hand refuses the healing one).
         const n = pending.options.length, at = [0, 1, 2].map(d => (step + d) % n).find(i => !rtItemRefusal(run, pending.options[i])) ?? step % n;
-        run = seen(ok(rtChooseFind(run, pending.options[at]), 'find')); break;
+        run = seen(take(rtChooseFind(run, pending.options[at]), 'find')); break;
       }
       case 'gift': {
         const view = rtGiftView(run)!;
+        // Task 50: the archetype row first (a run with `habits`).
+        if (view.habit && !view.habit.chosen) {
+          const habit = options.habit !== undefined ? options.habit : k % 5 === 0 ? null : RT_HABITS[k % RT_HABITS.length].id;
+          extra++;
+          run = seen(take(rtChooseHabit(run, habit), 'habit')); break;
+        }
         if (view.chosen !== null) {
           const n = view.picks.length, at = [0, 1, 2].map(d => (step + d) % n).find(i => !rtItemRefusal(run, view.picks[i] as ItemKind)) ?? step % n;
-          run = seen(ok(rtChooseGiftPick(run, view.picks[at]), 'gift pick')); break;
+          run = seen(take(rtChooseGiftPick(run, view.picks[at]), 'gift pick')); break;
         }
         const open = view.options.filter(entry => entry.available);
-        run = seen(ok(rtChooseGift(run, open.length ? open[(k + step) % open.length].index : null), 'gift'));
+        run = seen(take(rtChooseGift(run, open.length ? open[(k + step) % open.length].index : null), 'gift'));
         break;
       }
       case 'casino': {
         const table = rtCasinoView(run)!.tables.find(entry => entry.available);
-        run = seen(table && step % 2 === 0 ? ok(rtCasinoPlay(run, table.table), 'casino') : ok(rtCasinoLeave(run), 'casino leave'));
+        run = seen(table && step % 2 === 0 ? take(rtCasinoPlay(run, table.table), 'casino') : take(rtCasinoLeave(run), 'casino leave'));
         break;
       }
       // Task 38: «Предместье» — «В гарнизон».
-      case 'outskirts': run = seen(ok(rtEnterGarrison(run, options.deposit?.(run)), 'garrison')); break;
+      case 'outskirts': run = seen(take(rtEnterGarrison(run, options.deposit?.(run)), 'garrison')); break;
+      // Task 50: the knack screen — the walk's pick by the step (or the caller's).
+      case 'knack': {
+        const at = step % (pending.options.length + 1), pick = options.knack ? options.knack(run, pending.options) : at < pending.options.length ? pending.options[at] : null;
+        extra++;
+        run = seen(take(rtChooseKnack(run, pick), 'knack')); break;
+      }
       default: throw new Error(`seed ${k}: no walk for ${pending.kind}`);
     }
   }

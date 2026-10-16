@@ -31,13 +31,13 @@ import { behaviorOf, enemyArtRadius, kindOf } from './enemies/kinds';
 import { adoptChainColor, chameleonOpen, eliteDeath, pickLoot, platesOf, potionHandFull, stripPlates, trailAt } from './elites';
 import { curseKill, takeChest } from './chest';
 import { hasTalisman } from './kit';
-import { afterLinkPowerOf, anchorsOf, buildActive, chainShieldOf, colorRuleOf, colorShiftOf, crystalEveryOf, endShadowOf, focusMaxOf, hasHook, jumpCostOf, linkGainOf, linkPowerOf, linkRadiusOf, nextChainNo, runHook, talismanFired, type ChainAnchor, type ChainEnd, type LinkContext } from './build';
+import { afterLinkPowerOf, anchorsOf, buildActive, chainShieldMinKillsOf, chainShieldOf, colorRuleOf, colorShiftOf, crystalEveryOf, endShadowOf, focusMaxOf, hasHook, honedFired, jumpCostOf, linkGainOf, linkPowerOf, linkRadiusOf, nextChainNo, platesBeforeOf, rank2LinksOf, runHook, secondKey, talismanFired, type ChainAnchor, type ChainEnd, type HonedRelease, type LinkContext } from './build';
 import { COUNTER_TALISMANS, FORMS, FUSIONS, HAMMERS } from './buildIds';
 // Task 44 «Сплавы»: the fusions' pure rules (the highlight and the dash read the same ones).
 import { blastPlatesOn, boomerangFull, brandOn, brandPaintable, brandReach, endBlastOf, frostWaveCold, fusionEndOn, hunterBlastOn, hunterEnd, iceSealCold, piercePlates } from './fusions';
 // Task 46: the end of the dash in the highlight (the bodies of the wave, the end blast and the paint).
 import { enemiesInCircle, enemiesNearPath } from './buildHits';
-import { SHOCKWAVE_RADIUS } from './talismansRt';
+import { finisherHonedKills, finisherTopIds, frostNeighbour, FROST_EDGE_LINKS, honedOn, honeWaveStartOf, SHOCKWAVE_RADIUS } from './talismansRt';
 import { returnPowerFor, returnRoute, returnTargets, traceTo } from './returnRun';
 import { BOSS_CORES, colorlessCore, endsFight } from './enemies/jailer';
 import { blockedAt, cliffAt, dist, inThorns, lineOfSight, overCliff, pushOutOfObstacles, type Vec } from './geometry';
@@ -128,6 +128,21 @@ export interface LinkPlan {
    * `strike`; the core loses its plate after the dash). Absent otherwise.
    */
   severs?: true;
+  /** Task 50: the counters whose rank II acts on this link (build.ts `rank2LinksOf`: «Острие», «Улов», «Охотник», «Длинная рука»). */
+  honed?: string[];
+}
+
+/**
+ * Task 50 «Сноровка»: what the counters' rank II do with the drawn chain — the same functions the dash reads. `far` — the enemy links taken
+ * beyond the ordinary R («Длинная рука» II, +1 each); `waves` — the two circles of «Ударная волна» II (round the planned end, round the
+ * start) with the bodies each strikes; `shield` — «Добивание» II gives the after-chain shield to this chain (fewer kills than the panel's);
+ * `frost` — «Иней на клинке» II: the survivor and the neighbour that freezes with it. The release fixes `far` and `frost`.
+ */
+export interface HonedPlan {
+  far?: number[];
+  waves?: { at: Vec; radius: number; ids: number[] }[];
+  shield?: true;
+  frost?: { survivor: number; near: number };
 }
 
 export interface ChainPlan {
@@ -189,6 +204,8 @@ export interface ChainPlan {
   blast?: BlastPreview;
   /** Task 46 «Ледяная волна»: the wave with its bodies and its cold (with the fusion in the kit and a wave at this end). */
   wave?: WavePreview;
+  /** Task 50: the counters' rank II on this chain (only with `Kit.honed`; absent when they do nothing). */
+  honed?: HonedPlan;
 }
 
 /**
@@ -213,7 +230,11 @@ export interface EndHit { id: number; killed: boolean; hpAfter: number; plate?: 
  */
 export interface BlastPreview { at: Vec; radius: number; damage: number; plates: number; detonate: boolean; bodies: EndHit[] }
 /** Task 46 «Ледяная волна»: the wave of the drawn chain round its planned end — the bodies with their outcomes and those it freezes. */
-export interface WavePreview { at: Vec; radius: number; bodies: EndHit[]; ice: { ids: number[]; brittle: boolean } }
+export interface WavePreview {
+  at: Vec; radius: number; bodies: EndHit[]; ice: { ids: number[]; brittle: boolean };
+  /** Task 50, «Ударная волна» II in the fusion: the second wave round the chain's start (its bodies; `ice` holds the survivors of both). */
+  second?: { at: Vec; radius: number; bodies: EndHit[] };
+}
 /** Task 46: what the release fixes for the fusions' end of the dash (build.ts `onRelease`). */
 export interface FusionRelease { paint?: PaintPreview; blast?: BlastPreview; wave?: WavePreview }
 
@@ -294,6 +315,8 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   // Phase B: the build layer numbers the enemy links only while a build module acts (otherwise the old plan, exactly).
   const build = buildActive(world), chain = build ? nextChainNo(world) : 0, gain = linkGainOf(world);
   let index = 0, elites = 0, crystals = 0, colorless = 0;
+  // Task 50: the counters' rank II (only with `Kit.honed`) — the far links of «Длинная рука» II, the marks of each link.
+  const honedKit = build && !!world.kit?.honed, far = honedKit && honedOn(world, COUNTER_TALISMANS.longArm) ? farLinkIds(world, links) : null;
   // Task 29 («Возврат»): the power the dash ends with when it stops on a survivor (the links after it are not struck).
   let stopPower = 0;
   // Casino «Котёл»: the struck enemy links and the crystal links of the plan, for its cheque (only while the cauldron is on).
@@ -316,8 +339,10 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
       out.push({ link, outcome: null });
       continue;
     }
-    const ctx: LinkContext | null = build ? { chain, index: ++index, enemy, id: enemy.id, elite: !!enemy.elite, elitesBefore: elites, power, plan: true, crystalsBefore: crystals, ...colorless ? { colorlessBefore: colorless } : {} } : null;
-    const outcome = strike(ctx ? power + linkPowerOf(world, ctx) : power, enemy.hp, chainFactor(world, enemy), gain, platesOf(enemy));
+    const ctx: LinkContext | null = build ? { chain, index: ++index, enemy, id: enemy.id, elite: !!enemy.elite, elitesBefore: elites, power, plan: true, crystalsBefore: crystals, ...colorless ? { colorlessBefore: colorless } : {}, ...far?.has(enemy.id) ? { far: true as const } : {} } : null;
+    // Task 50 («Охотник на элит» II): plates the link loses before its hit — the strike takes the rest.
+    const pre = honedKit && ctx ? platesBeforeOf(world, ctx, platesOf(enemy)) : 0, marks = honedKit && ctx ? rank2LinksOf(world, ctx) : [];
+    const outcome = strike(ctx ? power + linkPowerOf(world, ctx) : power, enemy.hp, chainFactor(world, enemy), gain, platesOf(enemy) - pre);
     power = outcome.powerAfter;
     // The package: a plate pass is the elite's link too — «Охотник на элит» gives the tail its power (4.3, «Связь с силой цепи»).
     if (ctx) { if (outcome.killed || outcome.plate) power += afterLinkPowerOf(world, ctx, outcome); if (enemy.elite) elites++; if (colorlessLink(world, enemy)) colorless++; }
@@ -327,7 +352,7 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
     // The package: a plate hit is no survivor — the chain goes on through the armoured elite.
     else if (!outcome.plate) { if (!endsOnSurvivor) { stopPower = power; pathEnd = linkIndex + 1; } endsOnSurvivor = true; }
     // Task 27: a part this strike kills, with no survivor before it (the dash reaches it), is severed.
-    out.push({ link, outcome, ...outcome.killed && !endsOnSurvivor && enemy.partOf !== undefined ? { severs: true as const } : {} });
+    out.push({ link, outcome, ...outcome.killed && !endsOnSurvivor && enemy.partOf !== undefined ? { severs: true as const } : {}, ...marks.length ? { honed: marks } : {} });
     if (outcome.killed && !endsOnSurvivor && endsFight(world, enemy)) { cleared = true; pathEnd = linkIndex + 1; }
   }
   // Task 38: the tethers the dash's path crosses (only while the law acts and a tether stands); one whose end the dash kills goes
@@ -378,7 +403,66 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   if (fire && fused?.paint) fire = { ...fire, paint: fused.paint };
   // Task 43: the core of the drawn chain behind a grate that will drop (the full Castellan only).
   const grate = links === world.chain && !world.move ? grateLinkDrop(world, links) : null;
-  return { ...grate ? { grate } : {}, links: out, endsOnSurvivor, endsOnObject, power, kills, ...seal ? { seal } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {}, ...cuts.length ? { cuts } : {}, ...fused?.blast ? { blast: fused.blast } : {}, ...fused?.wave ? { wave: fused.wave } : {} };
+  // Task 50: the counters' rank II at the end of the dash (the drawn chain only, not after a chain that ends the fight).
+  const honed = honedKit ? planHoned(world, out, pierce, seal, far, options.back !== false && links === world.chain && !over) : null;
+  return { ...grate ? { grate } : {}, links: out, endsOnSurvivor, endsOnObject, power, kills, ...seal ? { seal } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {}, ...cuts.length ? { cuts } : {}, ...fused?.blast ? { blast: fused.blast } : {}, ...fused?.wave ? { wave: fused.wave } : {}, ...honed && Object.keys(honed).length ? { honed } : {} };
+}
+
+/**
+ * Task 50 («Длинная рука» II): the enemy links of `links` taken beyond the ordinary R — R of the build without the ×1,5 of «Длинная рука»
+ * (`linkRadiusOf` of the world with no drawn chain), to the body's edge with «R до края тела»: no anchor of the link is that close — the
+ * previous link on the arena (the hero for the first) and, with «Якорь у героя», the hero. Positions now: the plan and the release
+ * (the same tick) read the same.
+ */
+export function farLinkIds(world: World, links: readonly ChainLink[]): Set<number> {
+  const out = new Set<number>(), r = linkRadiusOf({ ...world, chain: [] }), hero = { x: world.hero.x, y: world.hero.y }, both = heroAnchorOn(world);
+  let prev: Vec = hero;
+  for (const link of links) {
+    const p = linkPoint(world, link);
+    if (!p) continue;
+    const enemy = link.kind === 'enemy' ? findEnemy(world, link.id) : undefined;
+    if (enemy) {
+      const reach = r + (world.params.linkToEdge ? enemyArtRadius(world.params, enemy) : 0);
+      if (dist(prev, p) > reach && !(both && dist(hero, p) <= reach)) out.add(enemy.id);
+    }
+    prev = p;
+  }
+  return out;
+}
+
+/**
+ * Task 50: the counters' rank II at the end of the planned dash (`end` — the drawn chain's own plan: the waves, the shield and the
+ * neighbour; otherwise only `far`). The end as `planFusionEnd` reads it: the first pass (`planDashEnd`), then the modules' end shadows
+ * (the waves round the end and round the start). Pure.
+ */
+function planHoned(world: World, out: readonly LinkPlan[], pierce: PiercePreview | null, seal: SealPreview | null, far: ReadonlySet<number> | null, end: boolean): HonedPlan {
+  const result: HonedPlan = far?.size ? { far: [...far] } : {};
+  const wave = honedOn(world, COUNTER_TALISMANS.shockwave), frost = honedOn(world, COUNTER_TALISMANS.frostEdge), finisher = finisherHonedKills(world);
+  if (!end || !(wave || frost || finisher !== null)) return result;
+  const dash = planDashEnd(world, out, pierce, seal);
+  if (!dash) return result;
+  const start = { x: world.hero.x, y: world.hero.y }, ended = endShadowOf(world, { links: dash.links, at: dash.end, start }, dash.enemies);
+  const struck = ended.struck[COUNTER_TALISMANS.shockwave];
+  if (wave && struck) result.waves = [{ at: { ...dash.end }, radius: SHOCKWAVE_RADIUS, ids: [...struck] }, { at: start, radius: honeWaveStartOf(world), ids: [...ended.struck[secondKey(COUNTER_TALISMANS.shockwave)] ?? []] }];
+  const last = lastReached(world, out);
+  if (finisher !== null && last?.outcome.killed) {
+    // The kills of the dash (the links it reaches) and the toughest links of the release (talismansRt.ts `finisherTopIds`).
+    let kills = 0;
+    for (const { link, outcome } of out) {
+      if (link.kind === 'object') { if (findObject(world, link.id) && !passObject(world, link)) break; continue; }
+      if (!outcome) continue;
+      if (outcome.killed) kills++;
+      else if (!outcome.plate) break;
+    }
+    const base = Math.max(1, world.params.chainShieldMinKills), links = out.map(l => l.link);
+    if (kills >= finisher && kills < base && finisherTopIds(world, links).includes(last.enemy.id) && chainShieldOf(world) > 0) result.shield = true;
+  }
+  // «Иней на клинке»: a chain of 3+ enemy links reached, its last one alive after the end's shadows (a wave may finish it).
+  if (frost && last && !last.outcome.killed && dash.links >= FROST_EDGE_LINKS && ended.enemies.some(e => e.id === last.enemy.id)) {
+    const near = frostNeighbour(world, last.enemy, ended.enemies);
+    if (near !== null) result.frost = { survivor: last.enemy.id, near };
+  }
+  return result;
 }
 
 /** The last enemy link the dash of the plan `out` reaches (up to the survivor it stops on, or the object that ends it) and its outcome. */
@@ -414,12 +498,15 @@ function endHits(before: readonly Enemy[], after: readonly Enemy[], ids: readonl
 function planFusionEnd(world: World, links: readonly ChainLink[], out: readonly LinkPlan[], pierce: PiercePreview | null, seal: SealPreview | null, fireLit: boolean): FusionRelease {
   const dash = planDashEnd(world, out, pierce, seal);
   if (!dash) return {};
-  const result: FusionRelease = {}, ended = endShadowOf(world, { links: dash.links, at: dash.end }, dash.enemies);
+  // Task 50: the chain's start — «Ударная волна» II strikes round it too (its second list).
+  const result: FusionRelease = {}, ended = endShadowOf(world, { links: dash.links, at: dash.end, start: { x: world.hero.x, y: world.hero.y } }, dash.enemies);
   let shadow = ended.enemies;
-  const struck = ended.struck[COUNTER_TALISMANS.shockwave], cold = frostWaveCold(world);
+  const struck = ended.struck[COUNTER_TALISMANS.shockwave], second = ended.struck[secondKey(COUNTER_TALISMANS.shockwave)], cold = frostWaveCold(world);
   if (cold && struck) {
-    const bodies = endHits(dash.enemies, shadow, struck);
-    result.wave = { at: { ...dash.end }, radius: SHOCKWAVE_RADIUS, bodies, ice: { ids: bodies.filter(b => !b.killed).map(b => b.id), brittle: cold.brittle } };
+    const bodies = endHits(dash.enemies, shadow, struck), more = second ? endHits(dash.enemies, shadow, second) : [];
+    const ice = [...new Set([...bodies, ...more].filter(b => !b.killed).map(b => b.id))];
+    result.wave = { at: { ...dash.end }, radius: SHOCKWAVE_RADIUS, bodies, ice: { ids: ice, brittle: cold.brittle },
+      ...second ? { second: { at: { x: world.hero.x, y: world.hero.y }, radius: honeWaveStartOf(world), bodies: more } } : {} };
   }
   // The end blast (hammers.ts): a last enemy link reached, the threshold, no seal or pierce of a higher rank.
   const last = lastReached(world, out), blastOn = world.kit?.hammer === HAMMERS.blast || hasTalisman(world, HAMMERS.blast);
@@ -603,7 +690,8 @@ function planReturn(world: World, out: readonly LinkPlan[], endPower: number, pi
   if (!route.length) return null;
   // `returnShadowEnd`: the build modules' end of the same dash, in the order of `onChainEnd` (a wave kills and wounds before the
   // run). A journal without the key — the old shadow.
-  const ended = world.params.returnShadowEnd ? endShadowOf(world, { links: dash.links, at: end }, enemies) : null;
+  // Task 50: the chain's start for «Ударная волна» II (the second wave of the same end).
+  const ended = world.params.returnShadowEnd ? endShadowOf(world, { links: dash.links, at: end, start: { x: world.hero.x, y: world.hero.y } }, enemies) : null;
   const after = ended ? ended.enemies : enemies, ends = ended && Object.keys(ended.struck).length ? ended.struck : null;
   const full = boomerangFull(world, lastKilled), path = [end, ...route], shadow: World = { ...world, enemies: after }, power = returnPowerFor(world, endPower, lastKilled);
   const hits: ReturnPreview['hits'] = [];
@@ -1366,7 +1454,10 @@ export function releaseChain(world: World): boolean {
   const live = world.status === 'playing' && !world.move, backFixed = live && returnFixedOn(world);
   // Task 46: a fusion of the dash's end fixes its bodies now (the wave, the end blast, the paint), as «Возврат» its run.
   const fusionFix = live && fusionEndOn(world);
-  const full = live && (pierceOn(world) || backFixed || fusionFix) ? planChain(world) : null;
+  // Task 50: the counters' rank II fix the far links and the survivor's neighbour of the highlight.
+  const honedFix = live && !!world.kit?.honed && (honedOn(world, COUNTER_TALISMANS.longArm) || honedOn(world, COUNTER_TALISMANS.frostEdge));
+  const full = live && (pierceOn(world) || backFixed || fusionFix || honedFix) ? planChain(world) : null;
+  const honed: HonedRelease | undefined = honedFix && full?.honed ? { ...full.honed.far ? { far: [...full.honed.far] } : {}, ...full.honed.frost ? { frost: { ...full.honed.frost } } : {} } : undefined;
   const fusion: FusionRelease | undefined = fusionFix && full ? { ...full.fire?.paint ? { paint: full.fire.paint } : {}, ...full.blast ? { blast: full.blast } : {}, ...full.wave ? { wave: full.wave } : {} } : undefined;
   const pierce = pierceOn(world) ? full?.pierce : undefined, back = backFixed ? full?.back : undefined;
   // Task 38: the tethers the player saw cut — fixed now, cut when the dash ends (only while the law acts and a tether stands).
@@ -1406,7 +1497,7 @@ export function releaseChain(world: World): boolean {
   if (buildActive(world)) {
     const kit = world.kit!, chain = kit.chains = (kit.chains ?? 0) + 1, start = { x: world.hero.x, y: world.hero.y };
     world.move.build = { chain, links: 0, elites: 0, start: { ...start } };
-    runHook(world, 'onRelease', m => m.onRelease!(world, { chain, links, start, ...back ? { back } : {}, ...fusion ? { fusion } : {} }));
+    runHook(world, 'onRelease', m => m.onRelease!(world, { chain, links, start, ...back ? { back } : {}, ...fusion ? { fusion } : {}, ...honed ? { honed } : {} }));
   }
   return true;
 }
@@ -1637,10 +1728,12 @@ function maybeFinisher(world: World): void {
  * The dash's hit on the link `enemy` as it would be now (pure): phase B — the build layer's link context and the modules'
  * power before the hit (the same `linkPowerOf` the plan adds), the build's gain; `ctx` null without the layer's count.
  */
-function dashStrike(world: World, move: HeroMove, enemy: Enemy): { ctx: LinkContext | null; outcome: StrikeOutcome } {
+function dashStrike(world: World, move: HeroMove, enemy: Enemy): { ctx: LinkContext | null; outcome: StrikeOutcome; pre: number; marks: string[] } {
   const b = move.build;
   const ctx: LinkContext | null = b ? { chain: b.chain, index: b.links + 1, enemy, id: enemy.id, elite: !!enemy.elite, elitesBefore: b.elites, power: move.power, plan: false, crystalsBefore: move.broken, ...b.colorless ? { colorlessBefore: b.colorless } : {} } : null;
-  return { ctx, outcome: strike(ctx ? move.power + linkPowerOf(world, ctx) : move.power, enemy.hp, dashFactor(world, enemy), linkGainOf(world), platesOf(enemy)) };
+  // Task 50 («Охотник на элит» II): plates the link loses before its hit (`hitEnemy` strips them) — the strike takes the rest, as the plan.
+  const honed = !!ctx && !!world.kit?.honed, pre = honed ? platesBeforeOf(world, ctx!, platesOf(enemy)) : 0;
+  return { ctx, pre, marks: honed ? rank2LinksOf(world, ctx!) : [], outcome: strike(ctx ? move.power + linkPowerOf(world, ctx) : move.power, enemy.hp, dashFactor(world, enemy), linkGainOf(world), platesOf(enemy) - pre) };
 }
 
 /** Phase B: the layer notes an enemy link the dash reached (struck or passed fallen). */
@@ -1655,10 +1748,13 @@ function noteLink(move: HeroMove, link: { id: number; x: number; y: number; elit
 
 function hitEnemy(world: World, enemy: Enemy): void {
   const move = world.move!, p = world.params;
-  const { ctx, outcome } = dashStrike(world, move, enemy);
+  const { ctx, outcome, pre, marks } = dashStrike(world, move, enemy);
   // Stage 2 of the transition: the kind's reaction to the hit (the porcupine's quills); the hero's death comes first.
   behaviorOf(enemy).onChainHit?.(world, enemy, outcome);
   if (world.status !== 'playing') return;
+  // Task 50: the counters' rank II on this link — «Охотник на элит» II strips its plates before the hit; each one's flash.
+  if (pre > 0) stripPlates(world, enemy, { source: 'chain', plates: pre }, false);
+  for (const id of marks) honedFired(world, id);
   // Stage 2, step 3: the ×2 of the cold is spent by this hit (a survivor stays frozen while the cold lasts, its next hit is plain).
   delete enemy.brittle;
   if (move.brittle) { move.brittle = move.brittle.filter(id => id !== enemy.id); if (!move.brittle.length) delete move.brittle; }
@@ -1738,6 +1834,8 @@ function passFallen(world: World, fallen: FallenLink): void {
   const move = world.move!, p = world.params, b = move.build;
   // Phase B: the build's gain (1 without a build module) and, while the layer counts, the modules' power around the link.
   const ctx: LinkContext | null = b ? { chain: b.chain, index: b.links + 1, enemy: null, id: fallen.id, elite: !!fallen.elite, elitesBefore: b.elites, power: move.power, plan: false, crystalsBefore: move.broken, ...b.colorless ? { colorlessBefore: b.colorless } : {} } : null;
+  // Task 50: the counters' rank II on a fallen link (its power, as the plan's link alive) — the flash.
+  if (ctx && world.kit?.honed) for (const id of rank2LinksOf(world, ctx)) honedFired(world, id);
   move.power += ctx ? linkPowerOf(world, ctx) + linkGainOf(world) + afterLinkPowerOf(world, ctx, null) : linkGainOf(world);
   // Stage 3a (М2): a link that fell into a cliff — the hero flies over its point but does not stop there: the point is
   // noted, and if nothing on the ground follows, the hero flies back along the chain (`returnToStop`).
@@ -1877,13 +1975,14 @@ function finishMove(world: World): void {
     // Stage F (user 07.10.2026): a chain that killed leaves the hero untouchable for a moment to walk out of the crowd;
     // a new one replaces the rest (no stacking); the hurt invulnerability runs on its own, the larger protects.
     // Phase B: its length is the build's (build.ts `chainShieldOf`: «Добивание», «Быстрые ноги»).
-    const p = world.params, b = move.build;
+    const b = move.build;
     const end: ChainEnd | null = b ? { chain: b.chain, kills: move.kills, hits: move.hits, links: b.links, elites: b.elites, last: b.last ? { ...b.last } : null,
       power: move.power, start: { ...b.start }, end: { x: hero.x, y: hero.y } } : null;
     // Task 29, the rank of the field «Конец» (buildIds.ts `END_RANK`): the seal or the pierce that acted on this chain.
     if (end && endRankOn(world) && (move.seal || move.pierced)) end.endForm = move.seal ? 'seal' : 'pierce';
+    // Task 50: the kills it needs are the build's (`chainShieldMinKillsOf`: «Добивание» II fewer; without it the panel's).
     const shield = chainShieldOf(world, end);
-    if (shield > 0 && move.kills >= Math.max(1, p.chainShieldMinKills)) {
+    if (shield > 0 && move.kills >= chainShieldMinKillsOf(world, end)) {
       hero.chainShield = shield;
       // The prologue, task 13 (goal `shield`): a new shield window for the room's lamps (nothing on another arena).
       startShieldWindow(world);

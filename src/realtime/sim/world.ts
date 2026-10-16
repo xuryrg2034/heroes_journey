@@ -428,7 +428,7 @@ export type WorldEvent =
   | { type: 'enemySignal'; enemyId: number; signal: string; x: number; y: number }
   | { type: 'defeat' }
   /** Phase B (build.ts `talismanFired`): an item of the build triggered — a flash of its icon, a short text at the hero. */
-  | { type: 'talismanFired'; id: string; /** Task 46: the bodies a fusion acted on (painted, struck by «Подрыв», frozen) — telemetry `build.fusionBodies`. */ bodies?: number }
+  | { type: 'talismanFired'; id: string; /** Task 46: the bodies a fusion acted on (painted, struck by «Подрыв», frozen) — telemetry `build.fusionBodies`. */ bodies?: number; /** Task 50: the counter's rank II acted (telemetry `<id>:2`). */ rank?: 2 }
   /** Task 46 «Клеймо»: the bodies the end of the dash painted and their new colour (the view: a short flash). */
   | { type: 'paint'; ids: number[]; color: number }
   /**

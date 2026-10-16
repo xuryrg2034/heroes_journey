@@ -423,7 +423,8 @@ export function createFightObserver(start: World): FightObserver {
           else if (ev.phase === 'end') s.chain.pierceHits.push(ev.hits);
           return;
         case 'talismanFired':
-          bump(s.build.fired, ev.id);
+          // Task 50: the rank II of a counter acted — its own key `<id>:2`.
+          bump(s.build.fired, ev.rank === 2 ? `${ev.id}:2` : ev.id);
           // Task 46: the bodies a fusion of the dash's end acted on.
           if (ev.bodies !== undefined) { const fb = s.build.fusionBodies ??= {}; fb[ev.id] = (fb[ev.id] ?? 0) + ev.bodies; }
           return;

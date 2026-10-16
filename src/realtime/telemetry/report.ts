@@ -24,6 +24,7 @@ import { THREAT_KINDS, ThreatTracker, type ThreatWarning } from './threats';
 import { RT_DEATH_ABILITY, RT_KIND_TITLES } from '../run/rtRunEnd';
 import { HINT_IDS, HINT_TITLES } from '../view/hints';
 import { PROLOGUE_ROOMS } from '../run/prologue';
+import { RT_HABITS, rtTalisman } from '../run/rtTalismans';
 
 // ---- Replay with the observers ----
 
@@ -959,6 +960,55 @@ export function fusionsSection(runs: readonly RunRecord[], entries: readonly Fig
   ].join('\n');
 }
 
+// ---- Task 50 «Сноровка», «Повадка», «Выборы» (RunRecord.knacks, .habit, .choices; from 16.10.2026) ----
+
+/** The sources of a build choice (`RunChoice.source`): the talisman screens, the Jailer's, the chest, the feat, the knack screen. */
+const BUILD_CHOICE_SOURCES: readonly string[] = ['talisman', 'oath', 'form', 'hammer', 'chest', 'feat', 'knack'];
+
+/**
+ * Task 50 «Сноровка» (`RunRecord.knacks`): of the runs with the flag — the screens a run, the share of «Ранг II», «Новый» and
+ * «Пропустить», the median of the screen's real seconds (design's aim: at most 5 s).
+ */
+export function knacksSection(runs: readonly RunRecord[]): string {
+  const on = runs.filter(r => r.knacksOn);
+  if (!on.length) return 'Походов со «Сноровкой» нет (`RunRecord.knacksOn`, с 16.10.2026).';
+  const screens = on.flatMap(r => r.knacks ?? []), per = on.map(r => r.knacks?.length ?? 0);
+  const hone = screens.filter(s => s.taken?.hone).length, fresh = screens.filter(s => s.taken && !s.taken.hone).length, skip = screens.filter(s => !s.taken).length;
+  const seconds = screens.flatMap(s => (s.realSeconds !== undefined ? [s.realSeconds] : []));
+  return [
+    `Походов со «Сноровкой»: ${on.length}. Экранов: ${screens.length}; за поход — среднее ${n1(per.reduce((a, b) => a + b, 0) / on.length)}, медиана ${n1(median(per))}.`,
+    `Выбор: «Ранг II» ${hone} (${pct(hone, screens.length)}), «Новый» ${fresh} (${pct(fresh, screens.length)}), «Пропустить» ${skip} (${pct(skip, screens.length)}).`,
+    `Секунды экрана: ${seconds.length ? `медиана ${n1(median(seconds))} (${seconds.length} замеров; цель — не больше 5)` : 'нет замеров'}. Рангов II за поход: ${n1(on.reduce((n, r) => n + (r.honed?.length ?? 0), 0) / on.length)}.`,
+  ].join('\n');
+}
+
+/**
+ * Task 50 «Повадка» (`RunRecord.habit`): of the runs with the archetype row — the share of each archetype and «Без повадки», the share of
+ * the items taken with the archetype's tag, the fusions made, the victories and the farthest row by archetype.
+ */
+export function habitsSection(runs: readonly RunRecord[]): string {
+  const on = runs.filter(r => r.habitsOn);
+  if (!on.length) return 'Походов с «Повадкой» нет (`RunRecord.habitsOn`, с 16.10.2026).';
+  const rows = [...RT_HABITS.map(h => ({ id: h.id as string | undefined, name: h.name })), { id: undefined, name: 'Без повадки' }].map(({ id, name }) => {
+    const list = on.filter(r => r.habit === id);
+    const taken = list.flatMap(r => r.choices.filter(c => BUILD_CHOICE_SOURCES.includes(c.source)).flatMap(c => c.taken.map(t => t.replace(/:2$/, ''))));
+    const tagged = id ? taken.filter(t => rtTalisman(t)?.tags?.includes(id as never)).length : 0;
+    const made = list.reduce((n, r) => n + (r.fusions?.made.length ?? 0), 0);
+    return [name, `${list.length} (${pct(list.length, on.length)})`, id ? `${tagged} из ${taken.length} (${pct(tagged, taken.length)})` : '—', made,
+      `${list.filter(r => r.outcome === 'victory').length} из ${list.length}`, list.length ? n1(median(list.map(r => r.farRow))) : '—'];
+  });
+  return ['Доля — среди походов с рядом «Повадка»; «с тегом» — взятые предметы выборов сборки (талисманы, Тюремщик, сундук, подвиг, «Сноровка») с тегом повадки.', '',
+    table(['Повадка', 'Походов', 'Взято с тегом', 'Сплавов', 'Победы', 'Дальний ряд (медиана)'], rows)].join('\n');
+}
+
+/** Task 50 «Выборы»: build choices a run (`RunRecord.choices` of `BUILD_CHOICE_SOURCES`), all of them and the knack screen's apart. */
+export function choicesSection(runs: readonly RunRecord[]): string {
+  if (!runs.length) return '_походов нет_';
+  const all = runs.map(r => r.choices.filter(c => BUILD_CHOICE_SOURCES.includes(c.source) && c.offered.length).length);
+  const knack = runs.map(r => r.choices.filter(c => c.source === 'knack' && c.offered.length).length);
+  return `Выборов сборки за поход: среднее ${n1(all.reduce((a, b) => a + b, 0) / runs.length)}, медиана ${n1(median(all))}; из них «Сноровка» — среднее ${n1(knack.reduce((a, b) => a + b, 0) / runs.length)} (походов: ${runs.length}).`;
+}
+
 // ---- Task 20 «Ресурсы похода» (RunRecord.resources, from 14.10.2026) ----
 const RESOURCE_SOURCE_TITLES: Record<string, string> = { gift: 'дар', event: 'события', casino: 'игорный круг', loot: 'добыча элит', bag: 'котомка', feat: 'подвиги', merchant: 'торговец', other: 'прочее' };
 const RESOURCE_SINK_TITLES: Record<string, string> = { craft: 'крафт', healMap: 'лечение на карте', merchant: 'торговец', event: 'события', casino: 'игорный круг', reroll: 'переброс', cart: 'Повозка', other: 'прочее' };
@@ -1117,6 +1167,9 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     // Task 40 «Гарнизон, шаг 1б»: the survival through both levels, the garrison's fights and the cart.
     '## Гарнизон', '', garrisonSection(runs, runFights), '',
     '## Сплавы', '', fusionsSection(runs, fights), '',
+    '## Сноровка', '', knacksSection(runs), '',
+    '## Повадка', '', habitsSection(runs), '',
+    '## Выборы', '', choicesSection(runs), '',
     '## Элиты', '', ELITE_LEGEND, '', table(ELITE_HEAD, eliteRows(runFights, sandbox)), '',
     '## Однорукий гоблин', '', SLOT_LEGEND, '', table(SLOT_HEAD, [slotRow('походы', runFights), slotRow('песочница', sandbox)].filter((r): r is (string | number)[] => !!r)), '',
     // Task 20: how the hero left the lit idol's circle.

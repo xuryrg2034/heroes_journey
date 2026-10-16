@@ -30,7 +30,7 @@ import { ARMORY_ARENA, CASTELLAN_ARENA, GALLERY_ARENA, GUARDROOM_ARENA, KENNEL_A
 import { CROSSBOW } from '../sim/enemies/crossbow';
 import { GUARD, HANDLER, KEYMASTER, KNIGHT } from '../sim/enemies/garrison';
 import { pickArena, runRow, type ArenaPoolEntry } from './arenaPools';
-import { RT_TALISMANS, rtTalismanEligible, type RtTalismanId, type RtTalismanPool } from './rtTalismans';
+import { RT_TALISMANS, rtTalismanEligible, rtWeightedPick, type RtTalismanId, type RtTalismanPool } from './rtTalismans';
 
 /**
  * A new run continues into the garrison after the forest final (`RtRunState.garrison`). On by design decision B (16.10.2026, v65): one
@@ -259,7 +259,8 @@ export function garrisonRelicOffer(base: number, pool: RtTalismanPool): RtTalism
   for (let slot = 0; slot < GARRISON_RELIC_SLOTS; slot++) {
     const left = RT_TALISMANS.filter(entry => entry.rarity === 'relic' && rtTalismanEligible(entry.id, pool, options)).map(entry => entry.id);
     if (!left.length) break;
-    options.push(left[mixSeed(mixSeed(base >>> 0, RELIC_SALT), slot) % left.length]);
+    // Task 50: the run's archetype weighs the relics (`pool.habit`; none — the pick of before).
+    options.push(rtWeightedPick(mixSeed(mixSeed(base >>> 0, RELIC_SALT), slot), left, pool.habit));
   }
   return options;
 }
