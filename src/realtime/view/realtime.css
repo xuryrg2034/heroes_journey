@@ -226,6 +226,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-die-win { color: #ffd88a; animation: rt-die-flash .6s ease-out 2; }
 @keyframes rt-die-flash { 0% { text-shadow: 0 0 0 #ffd88a00; } 40% { text-shadow: 0 0 18px #ffd88a; } 100% { text-shadow: 0 0 0 #ffd88a00; } }
 .rt-run-choice .rt-run-reason { color: #e0a596; }
+/* Task 41: «Рука полна» at a choice the hand cannot take. */
+.rt-run-choice .rt-hand-full { font-weight: 600; }
+.rt-run-full { color: #8fd18a; }
 /* B5 К10 «Переброс»: the reroll button off (no resources, nothing new left) and its reason under it. */
 .rt-run-modal .rt-other:disabled { opacity: .55; cursor: default; border-color: #6b6a4c; }
 .rt-run-reroll-note { margin: 6px 0 0; font-size: 13px; }
@@ -275,6 +278,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-item-frost { color: #9fd8ff; }
 .rt-item-bomb { color: #c9c2b0; }
 .rt-item-healing { color: #8fd18a; }
+/* Task 41 «Три зелья»: the healing tile at the cap — a double frame of its green (the hand takes no more). */
+.rt-item.rt-item-healing.rt-full { border-color: #8fd18a; box-shadow: 0 0 0 2px #151a12, 0 0 0 4px #8fd18a; }
 .rt-item-fire { color: #ff9a4a; }
 .rt-item.rt-ready.rt-item-bomb { color: #d8d0bc; }
 /* Aiming (the jump or a consumable): the field shows a cross. */

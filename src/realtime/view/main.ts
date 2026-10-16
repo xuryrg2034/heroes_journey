@@ -21,7 +21,7 @@ import { featOf, featOutcome, featProgress, featResult } from '../sim/feat';
 import { featHudText, featHudTitle, featResultRow } from './featView';
 import { FIRST_MEET_IDS, FirstMeetStore, type FirstMeetId } from './firstMeet';
 import { SCHEDULE_KINDS, scheduleSeedHistory } from '../run/schedule';
-import { AFFIX_IDS } from '../sim/elites';
+import { AFFIX_IDS, potionHandFull } from '../sim/elites';
 import { enemyLimit, scaledFloor } from '../sim/spawn';
 import { BEHAVIOR_ARENAS } from '../sim/arenasStage3';
 import { CAMERA_ARENAS } from '../sim/arenasCamera';
@@ -61,7 +61,7 @@ import { rtFeatKinds, rtNode, rtRunBestChain } from '../run/rtRun';
 import { NewSeenStore } from './newSeen';
 import { HintStore, purseResultLine } from './hints';
 import { ITEM_PULSE_ID, setPulse } from './pulse';
-import { bossMoveLabels, BOSS_LABEL_LIFE, detectLabels, labelActions, LEVER_OVER_LINE, shackleCut, shackleLabel, shackleMet, WorldLabelLayer, type LabelSpec } from './worldLabels';
+import { bossMoveLabels, BOSS_LABEL_LIFE, detectLabels, labelActions, LEVER_OVER_LINE, RIOT_LABEL_LIFE, riotLabel, riotStarted, shackleCut, shackleLabel, shackleMet, WorldLabelLayer, type LabelSpec } from './worldLabels';
 import { prologueHandSpot, prologueJumpAim, prologueLoadout, prologueParams, prologueRoom, prologueRoute, prologueShieldLinks, prologueSpinReady } from '../run/prologue';
 import { RT_RUN_HP } from '../run/hpScale';
 import { HAND_IDLE, HandGuide, PROLOGUE_ROOM_COUNT, SHIELD_HAND_IDLE, PrologueStore, TITLE_SECONDS, prologueCarry, prologueEntryRoom, prologueGoalLine, prologueLabel, prologueSeed, roomTitle, type PrologueHooks, type PrologueLabelMemo, type RoomOutcome } from './prologueFlow';
@@ -475,6 +475,8 @@ async function boot(): Promise<void> {
    * shackle came, `shackleDone` — the key whose shackle the player cut. The run's label follows «Подсказки»; view only, no save.
    */
   let fightNo = 0, shackleSeen: string | null = null, shackleDone: string | null = null;
+  /** Task 41: «На волю!» — `riotShown` the key whose flash came (once a run, the sandbox: a fight); `riot` — the flash on now. */
+  let riotShown: string | null = null, riot: { id: number; life: number } | null = null;
   const shackleKey = (): string => (sandbox ? `fight:${fightNo}` : `run:${runView?.state?.seed ?? ''}`);
   /** Task 28: the fight has a boss — the arena's band under the HUD keeps room for the boss bar (`relayout`). */
   let bossBand = false;
@@ -570,7 +572,7 @@ async function boot(): Promise<void> {
     const kit = world().kit;
     pendingArrivals = sandbox && kit ? [...kit.talismans.filter(id => !!FORM_FIELD[id]), ...kit.hammer ? [kit.hammer] : []] : [];
     labelLayer.hideAll();
-    bossNamed.clear(); bossLabels = [];
+    bossNamed.clear(); bossLabels = []; riot = null;
     fightNo++;
     bossBar.reset();
     bossBand = !!bossBarState(world());
@@ -1357,6 +1359,15 @@ async function boot(): Promise<void> {
         const spec = shackleLabel(w, p => renderer.sees(p));
         if (spec) specs.push(spec);
       }
+      // Task 41: «На волю!» over the prisoner whose riot the player's dash began — once a run (the sandbox: a fight), with the
+      // shackle's rule (the run: «Подсказки»); a flash that follows the prisoner for `RIOT_LABEL_LIFE` s.
+      const freed = riotStarted(w);
+      if (freed !== null && riotShown !== key && (sandbox || (hintsOn && !!runView?.arenaOpen))) { riotShown = key; riot = { id: freed, life: RIOT_LABEL_LIFE }; }
+      if (riot) {
+        const spec = (riot.life -= live ? realDt : 0) > 0 && w.status === 'playing' ? riotLabel(w, riot.id) : null;
+        if (!spec) riot = null;
+        else if (!runScreenOpen && !menuOpen && renderer.sees(spec.at)) specs.push(spec);
+      }
       if (specs.length) {
         const stageBox = stage.getBoundingClientRect();
         const barTop = actionBar.el.hidden ? stageBox.bottom : actionBar.el.getBoundingClientRect().top, top = Math.max(0, Math.max(hud.getBoundingClientRect().bottom, bossBar.el.hidden ? 0 : bossBar.el.getBoundingClientRect().bottom) - stageBox.top), bottom = Math.min(stageBox.height, barTop - stageBox.top);
@@ -1436,6 +1447,7 @@ async function boot(): Promise<void> {
       jumpReady: w.status === 'playing' && !w.move && w.energy >= jumpCostOf(w), spinReady: canSpin(w),
       counts: w.kit?.items ?? { frost: 0, bomb: 0, healing: 0, fire: 0 },
       aiming: ui.jumpMode ? 'jump' : itemAim !== null ? SLOT_ITEMS[itemAim] : null,
+      healingFull: potionHandFull(w),
     });
     host.classList.toggle('rt-aiming', ui.jumpMode || itemAim !== null);
     SLOT_ITEMS.forEach((kind, i) => {
@@ -1532,7 +1544,7 @@ async function boot(): Promise<void> {
     motion.clear();
     renderer.resetEffects();
     sim = replayed;
-    bossNamed.clear(); bossLabels = []; bossBar.reset(); bossBand = !!bossBarState(world());
+    bossNamed.clear(); bossLabels = []; riot = null; bossBar.reset(); bossBand = !!bossBarState(world());
     renderer.buildArena(world().arena);
     paused = true;
     menuOpen = false; menu.hidden = true;

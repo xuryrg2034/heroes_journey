@@ -10,6 +10,8 @@
  * - the shackle (the keymaster's tether): an iron chain of cold grey links, not a colour of the player's chain; a shackle the drawn
  *   chain's dash will cut — red with the cut mark, as the leash;
  * - the prisoner's padlock over its body; the keymaster's stand-in silhouette (a cap and a ring of keys).
+ * Task 41 «Узник на воле» (design 16.10.2026, docs/design-notes/task-41-prisoner-potions.md, 2): the broken shackle falls off the freed
+ * prisoner — the open padlock and two split cuffs drop and fade; the prisoner's riot is drawn as the hound's frenzy (`drawFrenzy`).
  * Coordinates are arena pixels.
  */
 import type { Graphics, GraphicsContext } from 'pixi.js';
@@ -117,6 +119,26 @@ export function drawSnap(g: Graphics, ax: number, ay: number, bx: number, by: nu
   }
   // The spark of the cut.
   g.circle(p.x, p.y, 4 + 16 * pull).stroke({ color: 0xffffff, width: 3, alpha: 0.8 * a });
+}
+
+/**
+ * Task 41: the broken shackle falling off the freed prisoner, `k` — 1 at the cut, 0 at the end: the open padlock (its body `s` px wide,
+ * from (`x`, `lockY`)) and two split cuffs at the body's sides (`r` — the body's radius, centre `bodyY`) drop, spread and fade.
+ */
+export function drawFallenShackle(g: Graphics, x: number, lockY: number, bodyY: number, s: number, r: number, k: number): void {
+  const a = Math.max(0, Math.min(1, k)), t = 1 - a, drop = t * t * r * 2.2;
+  // The padlock: its shackle swung open (the arc's right leg out of the body), it slides aside as it falls.
+  const lx = x + t * r * 0.6, ly = lockY + drop, top = ly - s * 0.18, h = s * 0.74, arc = s * 0.3;
+  g.moveTo(lx - arc, top).arc(lx - arc * 0.2, top - s * 0.12, arc, Math.PI, Math.PI * 1.75).stroke({ color: NAVY, width: s * 0.26, cap: 'round', alpha: a });
+  g.moveTo(lx - arc, top).arc(lx - arc * 0.2, top - s * 0.12, arc, Math.PI, Math.PI * 1.75).stroke({ color: STEEL, width: s * 0.12, cap: 'round', alpha: a });
+  g.roundRect(lx - s / 2, top, s, h, s * 0.14).fill({ color: IRON, alpha: a }).stroke({ color: NAVY, width: 2.5, alpha: a });
+  // The cuffs: open rings at the wrists, each split where the dash cut it.
+  for (const side of [-1, 1]) {
+    const cx = x + side * r * (0.95 + 0.5 * t), cy = bodyY + r * 0.2 + drop, cr = r * 0.32, gap = 0.9, turn = side * t * 1.4;
+    for (const [w, c] of [[s * 0.22, NAVY], [s * 0.1, STEEL]] as const) {
+      g.moveTo(cx + Math.cos(gap / 2 + turn) * cr, cy + Math.sin(gap / 2 + turn) * cr).arc(cx, cy, cr, gap / 2 + turn, Math.PI * 2 - gap / 2 + turn).stroke({ color: c, width: w, cap: 'round', alpha: a });
+    }
+  }
 }
 
 /** The hound's frenzy: a red jagged ring round the body (radius `r`), flickering by `clock`, and two streaks behind (`dx`, `dy` — its way). */

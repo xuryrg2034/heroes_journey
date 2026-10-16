@@ -17,7 +17,7 @@ import { rosterTitle } from '../sim/rosters';
 import { rtHp } from '../run/hpScale';
 import {
   arenaPreview, createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtEnterNode,
-  rtChooseTalisman, rtRerollTalismans, rtRerollView, rtHammerRerollView, rtRerollHammers, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtFoughtJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
+  rtChooseTalisman, rtRerollTalismans, rtRerollView, rtHammerRerollView, rtRerollHammers, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtFoughtJailer, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtHandFull, rtItemRefusal, rtPotionCap, RT_ITEM_REFUSAL_TEXT, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
   rtOathPreview, rtOathStakeOn, rtArenaRules, RT_SECOND_WIND_LAST_ROW, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
   rtCasinoView, rtCasinoPlay, rtCasinoLeave, rtCasinoNode, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE,
   healOffer, healOnMap, healVisible, rtResourceTotal, rtNodeFeat, RT_HEAL_MAP_GAIN, rtAsh, rtAshOptions, rtAshTitle, rtRunWon, isRtAshLevel, rtScheduleMet, RT_JAILER_SEVERED_SLOTS, rtFormReplaces, rtFormSlotField,
@@ -280,6 +280,9 @@ function talismanCardLines(id: string, run?: Pick<RtRunState, 'forms' | 'talisma
   const replaces = run ? rtFormReplaces(run, id) : null;
   return `<small>${escapeHtml(rarity + def.effect)}</small>${replaces ? `<small class="rt-run-reason" data-testid="replaces-${id}">Заменит «${escapeHtml(talismanName(replaces, run))}»</small>` : ''}`;
 }
+
+/** Task 41 «Три зелья»: the words at a choice the hand cannot take — «Рука полна» (always, not a hint: why the choice is off). */
+const handFullHtml = (of: string): string => `<small class="rt-run-reason rt-hand-full" data-testid="hand-full-${of}">${RT_ITEM_REFUSAL_TEXT.handFull}</small>`;
 
 function giftText(option: GiftOption): string {
   switch (option.kind) {
@@ -1008,7 +1011,11 @@ export class RunView {
     const kinds = resourceKindsText(run.materials);
     const resources = `<span class="rt-run-res" data-testid="run-resources" title="Ресурсы крафта${kinds ? `: ${kinds}` : ''}">${RESOURCE_ICON}<b>${rtResourceTotal(run)}</b></span>`;
     // Step 3: consumables carried between arenas and the energy banked for the next one.
-    const items = ITEM_KINDS.map(kind => `${ITEM_TITLES[kind]} ${run.items[kind]}`).join(' · ');
+    // Task 41 «Три зелья»: the healing count at the cap says «полна» (the hand takes no more until one is drunk).
+    const full = rtHandFull(run);
+    const items = ITEM_KINDS.map(kind => kind === 'healing' && full
+      ? `<span class="rt-run-full" data-testid="run-items-full" title="${escapeHtml(`${RT_ITEM_REFUSAL_TEXT.handFull}: не больше ${rtPotionCap(run)} зелий лечения`)}">${ITEM_TITLES[kind]} ${run.items[kind]} (полна)</span>`
+      : `${ITEM_TITLES[kind]} ${run.items[kind]}`).join(' · ');
     // Phase B: the hammer first (⚒), then the talismans; a relic is marked ◆ — the rule and the price in the tooltip (the
     // header is narrow: names only).
     const hammer = run.hammer ? rtHammer(run.hammer) : undefined;
@@ -1257,19 +1264,27 @@ export class RunView {
       const view = rtGiftView(run)!;
       if (view.chosen !== null) {
         // The taken button has a choice of its own: a consumable of three.
-        const picks = view.picks.map(pick => `<button class="rt-run-choice" data-action="gift-pick" data-pick="${pick}" data-testid="gift-pick-${pick}"><b>${escapeHtml(ITEM_TITLES[pick as ItemKind] ?? talismanName(pick))}</b>`
-          + `${rtTalisman(pick) ? `<small>${escapeHtml(rtTalisman(pick)!.effect)}</small>` : ''}</button>`).join('');
+        // Task 41: a consumable the hand cannot take (healing at the cap) stays shown, off, with «Рука полна».
+        const itemPick = view.options[view.chosen].option.kind === 'pick-item';
+        const picks = view.picks.map(pick => {
+          const refused = itemPick ? rtItemRefusal(run, pick as ItemKind) : null;
+          return `<button class="rt-run-choice" data-action="gift-pick" data-pick="${pick}" data-testid="gift-pick-${pick}" ${refused ? 'disabled' : ''}><b>${escapeHtml(ITEM_TITLES[pick as ItemKind] ?? talismanName(pick))}</b>`
+            + `${rtTalisman(pick) ? `<small>${escapeHtml(rtTalisman(pick)!.effect)}</small>` : ''}${refused ? handFullHtml(`gift-pick-${pick}`) : ''}</button>`;
+        }).join('');
         return card(`<h2>Дар в дорогу</h2><p>${escapeHtml(giftText(view.options[view.chosen].option))}: выбери один.</p><div class="rt-run-choices">${picks}</div>`, 'run-gift');
       }
       const buttons = view.options.map(entry => `<button class="rt-run-choice" data-action="gift" data-index="${entry.index}" data-testid="gift-${entry.index}" ${entry.available ? '' : 'disabled'}>`
-        + `<b>${escapeHtml(giftText(entry.option))}</b>${entry.reason ? `<small>${escapeHtml(entry.reason)}</small>` : ''}</button>`).join('');
+        + `<b>${escapeHtml(giftText(entry.option))}</b>${entry.handFull ? handFullHtml(`gift-${entry.index}`) : entry.reason ? `<small>${escapeHtml(entry.reason)}</small>` : ''}`
+        // Task 41 (design 16.10.2026): consumables with healing among others at the cap are taken — the healing does not join.
+        + `${!entry.handFull && entry.option.kind === 'items' && entry.option.items.includes('healing') && rtItemRefusal(run, 'healing') ? `<small class="rt-run-reason rt-hand-full" data-testid="hand-full-gift-${entry.index}">${RT_ITEM_REFUSAL_TEXT.handFull}: лечение не войдёт</small>` : ''}</button>`).join('');
       return card(`<h2>Дар в дорогу</h2><p>${view.kind === 'full' ? 'Полный дар' : 'Малый дар'}: выбери одно. Недоступные варианты выключены.</p><div class="rt-run-choices">${buttons}</div>`
         + (view.canSkip ? `<button class="rt-other" data-action="gift" data-index="skip" data-testid="gift-skip">Дальше без дара</button>` : ''), 'run-gift');
     }
     if (pending.kind === 'rest') {
       const view = rtRestView(run)!;
       const recipes = view.recipes.map(recipe => `<button class="rt-run-choice" data-action="rest-craft" data-resource="${recipe.resource}" data-testid="craft-${recipe.resource}" ${recipe.available ? '' : 'disabled'}>`
-        + `<b>Крафт: ${escapeHtml(ITEM_TITLES[recipe.item])}</b><small>${recipe.cost} «${escapeHtml(RESOURCES[recipe.resource].label)}» (есть ${recipe.have})${recipe.opens ? ' · откроется в походе' : ''}</small></button>`).join('');
+        + `<b>Крафт: ${escapeHtml(ITEM_TITLES[recipe.item])}</b><small>${recipe.cost} «${escapeHtml(RESOURCES[recipe.resource].label)}» (есть ${recipe.have})${recipe.opens ? ' · откроется в походе' : ''}</small>`
+        + `${recipe.handFull ? handFullHtml(`craft-${recipe.resource}`) : ''}</button>`).join('');
       return card(`<h2>Привал</h2><p>Лечение или крафт: первый рецепт отменяет лечение этого привала.${view.crafted.length ? ` Сделано: ${view.crafted.map(item => ITEM_TITLES[item]).join(', ')}.` : ''}</p>`
         + `<div class="rt-run-choices"><button class="rt-run-choice" data-action="rest-heal" data-testid="rest-heal" ${view.heal.available ? '' : 'disabled'}><b>Лечение +${view.heal.amount} HP</b>`
         + `<small>${!view.heal.available ? 'выбран крафт' : view.heal.amount < view.heal.value ? `не выше максимума (лечит до ${view.heal.value})` : `лечит до ${view.heal.value} HP`}</small></button>${recipes}</div>`
@@ -1323,8 +1338,12 @@ export class RunView {
         + rerollHtml + `<button class="rt-other" data-action="talisman" data-option="" data-testid="talisman-refuse">Отказаться</button>`, chest ? 'run-chest' : feat ? 'run-feat-talisman' : formScreen ? 'run-form' : 'run-talisman');
     }
     if (pending.kind === 'find') {
-      const options = pending.options.map(item => `<button class="rt-run-choice" data-action="find" data-item="${item}" data-testid="find-${item}"><b>${escapeHtml(ITEM_TITLES[item])}</b>`
-        + `<small>${run.openItems.includes(item) ? `в запасе ${run.items[item]}` : 'откроется в походе'}</small></button>`).join('');
+      // Task 41 «Три зелья»: the healing with a full hand stays shown, off, with «Рука полна» (the find's offers never change).
+      const options = pending.options.map(item => {
+        const refused = rtItemRefusal(run, item);
+        return `<button class="rt-run-choice" data-action="find" data-item="${item}" data-testid="find-${item}" ${refused ? 'disabled' : ''}><b>${escapeHtml(ITEM_TITLES[item])}</b>`
+          + `<small>${run.openItems.includes(item) ? `в запасе ${run.items[item]}` : 'откроется в походе'}</small>${refused ? handFullHtml(`find-${item}`) : ''}</button>`;
+      }).join('');
       return card(`<h2>Находка</h2><p>Возьми один расходник.</p><div class="rt-run-choices">${options}</div>`, 'run-find');
     }
     if (pending.kind === 'shop') {

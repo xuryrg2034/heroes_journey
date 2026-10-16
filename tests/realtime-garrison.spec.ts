@@ -415,3 +415,51 @@ test('task 40 view: in a run, «Ров» (the run\'s first keymaster) — the la
   await page.screenshot({ path: 'artifacts/realtime-keymaster-run.png' });
   expect(errors).toEqual([]);
 });
+
+/**
+ * Task 41 «Узник на воле» — the view (design 16.10.2026, docs/design-notes/task-41-prisoner-potions.md, 2): the dash cuts the shackle,
+ * the broken shackle falls off the prisoner, «На волю!» flashes over it (once a fight in the sandbox), the riot is drawn as the
+ * hound's frenzy and the prisoner runs at an enemy. Real input: the chain with the mouse. The rules: core's keymaster.spec.ts.
+ */
+test('task 41 view: «Ров» — a chain across the shackle; after the dash the shackle falls off, «На волю!» flashes over the prisoner, it riots (the frenzy\'s sign) and runs at an enemy', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = collectErrors(page);
+  await openSandbox(page, '&arena=25');
+  await expect.poll(async () => (await snap(page)).arena).toBe('g-moat');
+  await quiet(page, { x: 9.25, y: 0.6 });
+  const put = (x: number, y: number, color: number, kind: string): Promise<number> =>
+    page.evaluate(([x, y, color, kind]) => (window as any).__realtime.place(x, y, color, 0, kind), [x, y, color, kind] as const);
+  const keymaster = await put(8, 2.4, 1, 'keymaster'), prisoner = await put(10.5, 2.4, 0, 'basic');
+  // The prey: two bodies held by the cold right of the prisoner (nearer to it than the hero after the dash, who ends at the chain's end).
+  const prey = await page.evaluate(() => { const rt = (window as any).__realtime; const ids = [rt.place(11.3, 2.4, 3, 0, 'basic'), rt.place(11.4, 1.6, 3, 0, 'basic')]; for (const id of ids) rt.chill(id, 30); return ids as number[]; });
+  await expect.poll(async () => (await snap(page)).tethers.list, { timeout: 10_000 }).toEqual([{ holder: keymaster, held: prisoner, kind: 'shackle' }]);
+  const a = await put(9.25, 1.5, 2, 'basic'), b = await put(9.25, 3.3, 2, 'basic');
+  const at = async (id: number): Promise<{ x: number; y: number }> => { const e = (await snap(page)).enemies.find((x: { id: number }) => x.id === id); return page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [e.x, e.y] as const); };
+  const pa = await at(a), pb = await at(b);
+  await page.mouse.move(pa.x, pa.y);
+  await page.mouse.down();
+  await page.mouse.move(pb.x, pb.y, { steps: 6 });
+  await expect.poll(async () => (await snap(page)).chain).toEqual([a, b]);
+  await expect.poll(async () => (await snap(page)).tethers.cut).toBe(1);
+  // No riot before the cut: no flash, no frenzy.
+  expect((await snap(page)).garrison.riots).toBe(0);
+  await page.mouse.up();
+  // The dash cuts the shackle: the snap and the falling shackle; «На волю!» over the prisoner.
+  await expect.poll(async () => (await snap(page)).tethers.drops, { timeout: 5_000 }).toBe(1);
+  await page.screenshot({ path: 'artifacts/realtime-prisoner-freed.png' });
+  await expect.poll(async () => (await labelsOf(page)).filter(l => l.id === 'riot').map(l => l.text), { timeout: 5_000 }).toEqual(['На волю!']);
+  const pr = (await snap(page)).enemies.find((e: { id: number }) => e.id === prisoner);
+  const ps = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [pr.x, pr.y] as const);
+  expect((await labelsOf(page)).find(l => l.id === 'riot')!.top, 'the flash over the prisoner').toBeLessThan(ps.y);
+  // The riot: the frenzy's sign round the prisoner; it runs at the prey and bites it to death.
+  await page.evaluate(() => (window as any).__realtime.setParam('enemySpeed', 1.5));
+  const riots = await untilFrame(page, (sn, _a: number, late) => sn.garrison.riots > 0 || late ? sn.garrison.riots : undefined, 0, 4);
+  expect(riots).toBe(1);
+  expect((await snap(page)).garrison.frenzy, 'the riot is the frenzy\'s sign').toBeGreaterThanOrEqual(1);
+  await gameWait(page, 0.3);
+  await page.screenshot({ path: 'artifacts/realtime-prisoner-riot.png' });
+  await expect.poll(async () => (await snap(page)).enemies.filter((e: { id: number }) => prey.includes(e.id)).length, { timeout: 5_000 }).toBeLessThan(prey.length);
+  // The flash is short: gone within its 1.2 s.
+  await expect.poll(async () => (await labelsOf(page)).some(l => l.id === 'riot'), { timeout: 5_000 }).toBe(false);
+  expect(errors).toEqual([]);
+});

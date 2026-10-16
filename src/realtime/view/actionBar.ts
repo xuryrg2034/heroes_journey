@@ -44,6 +44,8 @@ export interface ActionBarState {
   counts: Readonly<Record<ItemKind, number>>;
   /** The tile whose aim is on (the jump or a consumable), null — none. */
   aiming: TileId | null;
+  /** Task 41 «Три зелья»: the hand holds the cap of healing potions — the healing tile's frame «полна» (a loot potion stays on the floor). */
+  healingFull?: boolean;
 }
 
 function tile(id: TileId, className: string, testId: string, title: string, key: string): HTMLButtonElement {
@@ -129,6 +131,12 @@ export class ActionBar {
       b.classList.toggle('rt-has', count >= 1);
       b.classList.toggle('rt-ready', count >= 1);
       b.classList.toggle('rt-on', s.aiming === kind);
+      if (kind === 'healing') {
+        const full = !!s.healingFull && count >= 1;
+        b.classList.toggle('rt-full', full);
+        const title = `${ITEM_TITLES[kind]}: клавиша ${i + 1}${full ? ' — рука полна' : ''}`;
+        if (b.title !== title) b.title = title;
+      }
     });
   }
 

@@ -48,9 +48,9 @@ import { bustBlink } from './bustBlink';
 import { dashCheque } from '../sim/purse';
 import { chainFeel, DashLinks, QUIET_LINKS } from './chainFeel';
 import { FX_DEFAULT, FlashGate, HEAVY_LINE, shardCount, shardLife, type FxLevel } from './juice';
-import { CASTELLAN, GUARD, HANDLER, HOUND, KEYMASTER, castellanMove, houndFrenzied } from '../sim/enemies/garrison';
+import { CASTELLAN, GUARD, HANDLER, HOUND, KEYMASTER, castellanMove, houndFrenzied, prisonerRioting } from '../sim/enemies/garrison';
 import { tetherCrossing } from '../sim/tethers';
-import { castellanMarks, drawFrenzy, drawLeash, drawLock, drawShackle, drawSnap, guardMarks, handlerMarks, houndMarks, keymasterMarks } from './garrisonView';
+import { castellanMarks, drawFallenShackle, drawFrenzy, drawLeash, drawLock, drawShackle, drawSnap, guardMarks, handlerMarks, houndMarks, keymasterMarks } from './garrisonView';
 import { fifthLinkFiresAt } from '../sim/talismansRt';
 import { LINK_DEPTH_SHOWN, linkDepths, type LinkDepth } from '../sim/linkDepth';
 import { CHEST_CURSE_KILLS, cursed } from '../sim/chest';
@@ -153,6 +153,11 @@ const GARRISON_ART: Readonly<Record<string, { id: CharacterArtId; size: number }
 };
 /** Task 40: the prisoner's padlock — its width (body radii) and its gap over the drawing's top (radii). */
 const LOCK_SIZE = 0.95, LOCK_GAP = 0.15;
+/** Task 40: the prisoner's padlock over its drawing (its art's top, or the disc's) — its centre y and width, arena px (`r` — the body's radius, px). */
+function lockAt(b: { kind: string; y: number }, r: number): { y: number; s: number } {
+  const art = GARRISON_ART[b.kind], top = b.y * UNIT - (art && hasCharacterArt(art.id) ? r * (art.size - 1) : r), s = r * LOCK_SIZE;
+  return { y: top - r * LOCK_GAP - s * 0.56, s };
+}
 /** Task 38 (design smoke v65): the margin (units) round the boss's drawing the boss view keeps; the hero's drawn box round his centre. */
 const BOSS_KEEP_PAD = 0.25;
 const HERO_KEEP = { side: 0.7, up: 1.0, down: 0.7 } as const;
@@ -160,6 +165,8 @@ const HERO_KEEP = { side: 0.7, up: 1.0, down: 0.7 } as const;
 const GARRISON_PROPS = ['pillar', 'crate', 'barrel'] as const;
 /** Task 38: real seconds a cut tether's snap lasts. */
 const SNAP_LIFE = 0.4;
+/** Task 41: real seconds the broken shackle takes to fall off the freed prisoner. */
+const DROP_LIFE = 0.7;
 /** Task 35, С2: shards in the pool — 60 enemies dying at once at 8 shards each. */
 const SHARD_POOL = 480;
 /**
@@ -407,13 +414,15 @@ export class RealtimeRenderer {
    * Task 38: the tethers drawn in the last frame and how many of them red (the drawn chain's cuts). Task 40: `shackles` — of them the
    * keymaster's iron chains, `locks` — the prisoners' padlocks.
    */
-  readonly tetherShown = { lines: 0, cut: 0, marks: 0, snaps: 0, shackles: 0, locks: 0 };
+  readonly tetherShown = { lines: 0, cut: 0, marks: 0, snaps: 0, shackles: 0, locks: 0, drops: 0 };
   /** Task 38 (tests read it): frenzied hounds drawn in the last frame, the Castellan's lunge lanes, «Караул!» calls shown so far. */
-  readonly garrisonShown = { frenzy: 0, lunges: 0, calls: 0 };
+  readonly garrisonShown = { frenzy: 0, lunges: 0, calls: 0, riots: 0 };
   /** Task 38: a frenzied hound's last drawn point (its streaks show its way). */
   private readonly houndAt = new Map<number, { x: number; y: number }>();
   /** Task 38: the snaps of cut tethers — the halves recoil and fade (real seconds left). */
   private snaps: { ax: number; ay: number; bx: number; by: number; px: number; py: number; ink: number; life: number }[] = [];
+  /** Task 41: the broken shackles falling off freed prisoners (arena px; real seconds left). */
+  private drops: { x: number; lockY: number; bodyY: number; s: number; r: number; life: number }[] = [];
   private readonly snapLayer = new Graphics();
   /** Task 28: the core's last point (arena units) — the centre of the crowd's death wave; the waves on screen. */
   private bossCoreAt: { x: number; y: number } | null = null;
@@ -1425,15 +1434,18 @@ export class RealtimeRenderer {
       for (const t of world.tethers) {
         const b = t.kind === 'shackle' ? world.enemies.find(e => e.id === t.held) : undefined;
         if (!b) continue;
-        const art = GARRISON_ART[b.kind], top = b.y * UNIT - (art && hasCharacterArt(art.id) ? r * (art.size - 1) : r), s = r * LOCK_SIZE;
-        drawLock(g, b.x * UNIT, top - r * LOCK_GAP - s * 0.56, s);
+        const lock = lockAt(b, r);
+        drawLock(g, b.x * UNIT, lock.y, lock.s);
         this.tetherShown.locks++;
       }
     }
-    // Task 38: the hound's frenzy — a red jagged ring and streaks behind it (its way since the last frame).
-    this.garrisonShown.frenzy = 0;
+    // Task 38: the hound's frenzy — a red jagged ring and streaks behind it (its way since the last frame). Task 41: a prisoner's riot
+    // is the same sign (one law, one look; `prisonerRioting`).
+    this.garrisonShown.frenzy = 0; this.garrisonShown.riots = 0;
     for (const e of world.enemies) {
-      if (!houndFrenzied(e)) { this.houndAt.delete(e.id); continue; }
+      const riot = prisonerRioting(e);
+      if (!houndFrenzied(e) && !riot) { this.houndAt.delete(e.id); continue; }
+      if (riot) this.garrisonShown.riots++;
       const last = this.houndAt.get(e.id) ?? { x: e.x, y: e.y }, R = enemyDrawRadius(world.params) * UNIT;
       drawFrenzy(g, e.x * UNIT, e.y * UNIT, R, this.clock, e.x - last.x, e.y - last.y);
       if (Math.hypot(e.x - last.x, e.y - last.y) > 0.02) this.houndAt.set(e.id, { x: e.x, y: e.y });
@@ -2442,6 +2454,12 @@ export class RealtimeRenderer {
           const ink = ev.kind === 'shackle' ? STEEL : colorlessLink(world, a) || a.color === NO_COLOR ? COLORLESS : chainInk(a.color);
           this.snaps.push({ ax: a.x, ay: a.y, bx: b.x, by: b.y, px: ev.x, py: ev.y, ink, life: SNAP_LIFE });
           this.tetherShown.snaps++;
+          // Task 41: the broken shackle falls off the prisoner (its padlock and cuffs).
+          if (ev.kind === 'shackle') {
+            const r = enemyDrawRadius(world.params) * UNIT, lock = lockAt(b, r);
+            this.drops.push({ x: b.x * UNIT, lockY: lock.y, bodyY: b.y * UNIT, s: lock.s, r, life: DROP_LIFE });
+            this.tetherShown.drops++;
+          }
         }
         continue;
       }
@@ -3445,6 +3463,8 @@ export class RealtimeRenderer {
     const g = this.snapLayer.clear();
     this.snaps = this.snaps.filter(s => (s.life -= dt) > 0);
     for (const s of this.snaps) drawSnap(g, s.ax * UNIT, s.ay * UNIT, s.bx * UNIT, s.by * UNIT, { x: s.px * UNIT, y: s.py * UNIT }, s.life / SNAP_LIFE, s.ink);
+    this.drops = this.drops.filter(d => (d.life -= dt) > 0);
+    for (const d of this.drops) drawFallenShackle(g, d.x, d.lockY, d.bodyY, d.s, d.r, d.life / DROP_LIFE);
   }
 
   private updateFloating(dt: number): void {
@@ -3534,7 +3554,7 @@ export class RealtimeRenderer {
   }
 
   resetEffects(): void {
-    this.snaps = []; this.snapLayer.clear(); this.houndAt.clear();
+    this.snaps = []; this.drops = []; this.snapLayer.clear(); this.houndAt.clear();
     this.intro = null; this.openedOnBoss = false;
     this.shakeLeft = 0;
     this.flashLeft = 0;

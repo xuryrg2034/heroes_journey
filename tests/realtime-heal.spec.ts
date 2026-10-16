@@ -1,6 +1,6 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
-import { createRtRun, isArenaNode, resolveArena, rtAvailableNodes, rtEnterNode, rtNode, serializeRtRun, type RtRunState } from '../src/realtime/run/rtRun';
+import { createRtRun, isArenaNode, resolveArena, rtAvailableNodes, rtEnterNode, rtGiftView, rtNode, rtShopView, RT_POTION_CAP, serializeRtRun, type RtRunState } from '../src/realtime/run/rtRun';
 import { RT_RUN_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
 import { closeNode, ok, seedOf, takeGift } from '../src/realtime/run/runFight.testkit';
 import { FIRST_MEET_KEY } from '../src/realtime/view/firstMeet';
@@ -193,5 +193,135 @@ test('task 15: the rest and the merchant have no heal button; the merchant names
     if (type === 'shop') await expect(page.getByTestId('shop-resources')).toHaveText('Ресурсов: 4 (Роса 2, Смола 2).');
     else await expect(page.getByTestId('run-rest')).toContainText('«Роса» (есть 2)');
   }
+  expect(errors).toEqual([]);
+});
+
+/**
+ * Task 41 «Три зелья» — the view (design 16.10.2026, docs/design-notes/task-41-prisoner-potions.md, 3): with the cap of healing potions
+ * in hand the healing choice of a find, the merchant, a rest's craft and the gift's pick stays shown, off, with «Рука полна» at it
+ * (always — not a hint); a mixed gift button says the healing will not join; the map header marks the count «(полна)»; in the fight
+ * the healing tile has the frame «полна». Runs are walked in Node by their own commands, the hand set to the cap by hand.
+ */
+const HAND_FULL = 'Рука полна';
+/** A run of seed k walked by its own commands until a node of `type` is open on its screen (`want` — the screen it needs). */
+function capRun(k: number, type: 'find' | 'rest' | 'shop', want: (run: RtRunState) => boolean = () => true): RtRunState | null {
+  let run = takeGift(createRtRun(seedOf(k), { gift: 'mini' }));
+  for (let step = 0; step < 400 && !run.result; step++) {
+    if (run.pending?.kind === type && want(run)) return run;
+    if (run.pending?.kind === 'battle') { run = ok(resolveArena(run, { nodeId: run.pending.nodeId, won: true, hp: run.hp, kills: 20, damage: 0, time: 40, kinds: ['basic'] }), 'win'); continue; }
+    if (run.pending) { run = closeNode(run); continue; }
+    const nodes = rtAvailableNodes(run);
+    run = ok(rtEnterNode(run, (nodes.find(n => n.type === type) ?? nodes[0]).id), 'enter');
+  }
+  return null;
+}
+const fill = (run: RtRunState): RtRunState => { const out = structuredClone(run); out.items.healing = RT_POTION_CAP; if (!out.openItems.includes('healing')) out.openItems.push('healing'); return out; };
+
+test('task 41: three potions — the find shows the healing off with «Рука полна» (a click takes nothing), the bomb is taken; the header says «(полна)»', async ({ page }) => {
+  const errors = collectErrors(page);
+  let found: RtRunState | null = null;
+  for (let k = 1; k <= 12 && !found; k++) found = capRun(k, 'find', r => r.pending?.kind === 'find' && r.pending.options.includes('healing') && r.pending.options.includes('bomb'));
+  expect(found, 'a walk reached a find with the healing and the bomb').not.toBeNull();
+  const run = fill(found!);
+  expect(run.potionCap).toBe(RT_POTION_CAP);
+  await openRun(page, run);
+  await expect(page.getByTestId('run-find')).toBeVisible();
+  const heal = page.getByTestId('find-healing');
+  await expect(heal).toBeDisabled();
+  await expect(page.getByTestId('hand-full-find-healing')).toHaveText(HAND_FULL);
+  await expect(page.getByTestId('find-bomb')).toBeEnabled();
+  await expect(page.getByTestId('hand-full-find-bomb')).toHaveCount(0);
+  await expect(page.getByTestId('run-items-full')).toContainText(`${RT_POTION_CAP} (полна)`);
+  await page.screenshot({ path: 'artifacts/realtime-potion-find-full.png' });
+  // The real mouse on the healing: nothing taken, the find stays open.
+  const box = (await heal.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.waitForTimeout(100);
+  let state = await runState(page);
+  expect(state.items.healing).toBe(RT_POTION_CAP);
+  expect(state.pending?.kind).toBe('find');
+  await page.getByTestId('find-bomb').click();
+  await expect(page.getByTestId('run-find')).toBeHidden();
+  state = await runState(page);
+  expect({ healing: state.items.healing, bomb: state.items.bomb }).toEqual({ healing: RT_POTION_CAP, bomb: run.items.bomb + 1 });
+  expect(errors).toEqual([]);
+});
+
+test('task 41: three potions — the rest\'s herbs recipe and the merchant\'s potion are off with «Рука полна»; another recipe stays on', async ({ page }) => {
+  const errors = collectErrors(page);
+  let rest: RtRunState | null = null;
+  for (let k = 1; k <= 12 && !rest; k++) rest = capRun(k, 'rest');
+  expect(rest, 'a walk reached a rest').not.toBeNull();
+  const atRest = fill(rest!);
+  atRest.materials = { dew: 3, powder: 3, resin: 3, herbs: 3 };
+  await openRun(page, atRest);
+  await expect(page.getByTestId('run-rest')).toBeVisible();
+  await expect(page.getByTestId('craft-herbs')).toBeDisabled();
+  await expect(page.getByTestId('hand-full-craft-herbs')).toHaveText(HAND_FULL);
+  await expect(page.getByTestId('craft-powder')).toBeEnabled();
+  await expect(page.getByTestId('hand-full-craft-powder')).toHaveCount(0);
+  await page.screenshot({ path: 'artifacts/realtime-potion-rest-full.png' });
+  let shop: RtRunState | null = null;
+  for (let k = 1; k <= 20 && !shop; k++) shop = capRun(k, 'shop', r => r.pending?.kind === 'shop' && r.pending.stock.items.includes('healing'));
+  expect(shop, 'a walk reached a merchant selling a potion').not.toBeNull();
+  const atShop = fill(shop!);
+  atShop.materials = { dew: 9, powder: 9, resin: 9, herbs: 9 };
+  const good = rtShopView(atShop)!.goods.find(g => g.item === 'healing')!;
+  await openRun(page, atShop);
+  await expect(page.getByTestId('run-shop')).toBeVisible();
+  await expect(page.getByTestId(`shop-${good.id}`)).toBeDisabled();
+  await expect(page.getByTestId(`shop-${good.id}`)).toContainText(HAND_FULL);
+  expect(errors).toEqual([]);
+});
+
+test('task 41: three potions at the start gift — a mixed «расходники» button says the healing will not join; the pick of three keeps the healing off with «Рука полна»', async ({ page }) => {
+  const errors = collectErrors(page);
+  // The gift's buttons are drawn by seed (forest/runGift.ts): a mini gift whose «расходники» mix the healing with another kind, and a
+  // full gift whose pick of three has the healing.
+  const seedWith = (gift: 'mini' | 'full', fits: (option: ReturnType<typeof rtGiftView> & {}) => boolean): RtRunState => {
+    for (let k = 1; k <= 60; k++) { const r = fill(createRtRun(seedOf(k), { gift })); if (fits(rtGiftView(r)!)) return r; }
+    throw new Error(`no ${gift} gift fits`);
+  };
+  const mixed = seedWith('mini', v => v.options.some(e => e.option.kind === 'items' && e.option.items.includes('healing') && e.option.items.some(i => i !== 'healing')));
+  const mix = rtGiftView(mixed)!.options.find(e => e.option.kind === 'items')!;
+  await openRun(page, mixed);
+  await expect(page.getByTestId('run-gift')).toBeVisible();
+  await expect(page.getByTestId(`gift-${mix.index}`)).toBeEnabled();
+  await expect(page.getByTestId(`hand-full-gift-${mix.index}`)).toHaveText(`${HAND_FULL}: лечение не войдёт`);
+  await page.screenshot({ path: 'artifacts/realtime-potion-gift-mixed.png' });
+  const run = seedWith('full', v => v.options.some(e => e.available && e.option.kind === 'pick-item' && e.option.items.includes('healing')));
+  const pick = rtGiftView(run)!.options.find(e => e.option.kind === 'pick-item')!;
+  await openRun(page, run);
+  await expect(page.getByTestId('run-gift')).toBeVisible();
+  await expect(page.getByTestId(`hand-full-gift-${pick.index}`)).toHaveCount(0);
+  await page.getByTestId(`gift-${pick.index}`).click();
+  await expect(page.getByTestId('gift-pick-healing')).toBeDisabled();
+  await expect(page.getByTestId('hand-full-gift-pick-healing')).toHaveText(HAND_FULL);
+  const other = pick.option.kind === 'pick-item' ? pick.option.items.find(i => i !== 'healing')! : 'bomb';
+  await expect(page.getByTestId(`gift-pick-${other}`)).toBeEnabled();
+  await page.getByTestId(`gift-pick-${other}`).click();
+  await expect(page.getByTestId('run-gift')).toBeHidden();
+  const state = await runState(page);
+  expect(state.items.healing).toBe(RT_POTION_CAP);
+  expect(errors).toEqual([]);
+});
+
+test('task 41: three potions in the fight — the healing tile has the frame «полна»; one drunk (key 3), the frame goes', async ({ page }) => {
+  const errors = collectErrors(page);
+  let run = fill(mapRun(1, 0, { dew: 0, powder: 0, resin: 0, herbs: 0 }));
+  const battle = rtAvailableNodes(run).find(n => isArenaNode(rtNode(run, n.id)!))!;
+  run = ok(rtEnterNode(run, battle.id), 'enter');
+  run.hp = run.maxHp - 6;
+  await openRun(page, run);
+  await page.getByTestId('run-battle').click();
+  await expect.poll(async () => (await snap(page)).status).toBe('playing');
+  const tile = page.getByTestId('item-healing');
+  await expect(tile).toBeVisible();
+  await expect(tile).toHaveClass(/\brt-full\b/);
+  await expect(tile).toHaveAttribute('title', /рука полна/);
+  await page.screenshot({ path: 'artifacts/realtime-potion-tile-full.png' });
+  await page.keyboard.press('Digit3');
+  await expect(tile.locator('.rt-tile-count')).toHaveText(String(RT_POTION_CAP - 1));
+  await expect(tile).not.toHaveClass(/\brt-full\b/);
   expect(errors).toEqual([]);
 });

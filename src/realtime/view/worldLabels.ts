@@ -43,6 +43,8 @@ export const LABEL_TEXT = {
   lever: 'Закончи цепь здесь',
   /** Task 40: the keymaster's prisoner (design 16.10.2026: the rule in the label — the chain across the shackle first). */
   shackle: 'В кандалах — сначала разруби',
+  /** Task 41: the prisoner the player's dash set loose riots (design 16.10.2026: a flash over it, once a run). */
+  riot: 'На волю!',
 } as const;
 /** Б8: the price of the chest of «Застава», both numbers read from `sim/chest.ts`. */
 export const chestText = (): string => `+${CHEST_CURSE_TOUCH} урон касания, ${CHEST_CURSE_KILLS} убийств`;
@@ -133,6 +135,24 @@ export function shackleLabel(w: World, onScreen: (p: Vec) => boolean): LabelSpec
 /** Task 40: the frame's events — a shackle was put on (the label's start), the player's dash cut one (its end). */
 export const shackleMet = (w: World): boolean => w.events.some(ev => ev.type === 'tether' && ev.action === 'shackle');
 export const shackleCut = (w: World): boolean => w.events.some(ev => ev.type === 'tether' && ev.action === 'cut' && ev.kind === 'shackle');
+
+/** Task 41: real seconds «На волю!» hangs over the rioting prisoner. */
+export const RIOT_LABEL_LIFE = 1.2;
+/** Arena units: how far over the prisoner's centre «На волю!» hangs (over its drawing). */
+const RIOT_LIFT = 1.2;
+/** Task 41 «Узник на воле»: the prisoner whose riot began this frame (`frenzy` `start` with `riot`) — its id, or null. */
+export function riotStarted(w: World): number | null {
+  for (const ev of w.events) if (ev.type === 'frenzy' && ev.action === 'start' && ev.riot) return ev.id;
+  return null;
+}
+/**
+ * Task 41 (design 16.10.2026, docs/design-notes/task-41-prisoner-potions.md, 2): «На волю!» over the rioting prisoner `id` — a flash
+ * of `RIOT_LABEL_LIFE` s that follows it, once a run (the sandbox: a fight); the host keeps the once. Null — the prisoner is gone.
+ */
+export function riotLabel(w: World, id: number): LabelSpec | null {
+  const e = w.enemies.find(x => x.id === id);
+  return e ? { id: 'riot', text: LABEL_TEXT.riot, at: { x: e.x, y: e.y }, place: 'above', lift: RIOT_LIFT } : null;
+}
 
 /** Which side of the label the tail sits on to point at `p` (stage px), or none when `p` is inside it. */
 export function tailSide(rect: Rect, p: Vec): 'left' | 'right' | 'up' | 'down' | null {
