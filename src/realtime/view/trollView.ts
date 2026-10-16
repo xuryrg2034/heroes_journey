@@ -20,7 +20,7 @@ import { characterSprite, hasCharacterArt } from '../art/characterAssets';
 import type { Vec } from '../sim/geometry';
 import { palette } from '../sim/spawn';
 import {
-  ROCK_FLIGHT, TAIL_INNER, TROLL, TROLL_CLUB, TROLL_ROCK, TROLL_TAIL, trollCore, trollMove, trollState, type TrollMoveId,
+  ROCK_FLIGHT, TAIL_INNER, TROLL, TROLL_CLUB, TROLL_ROCK, TROLL_TAIL, trollCore, trollMove, trollState, wolfColors, type TrollMoveId,
 } from '../sim/enemies/troll';
 import type { Enemy, World, WorldEvent } from '../sim/world';
 import { ELITE_LEMON } from './eliteView';
@@ -400,11 +400,9 @@ export class TrollView {
     }
   }
 
-  /** The colours of the wolves the roar calls: the living parts' in turn (club, rock, tail), none left — the palette's (the sim's rule, enemies/troll.ts `wolfColors`). */
+  /** The colours of the wolves the roar calls: the sim's own rule (`wolfColors`), as the view's inks. */
   private wolfInks(world: World, n: number): number[] {
-    const core = trollCore(world);
-    const parts = core ? [TROLL_CLUB, TROLL_ROCK, TROLL_TAIL].flatMap(kind => { const p = world.enemies.find(e => e.partOf === core.id && e.kind === kind); return p ? [p.color] : []; }) : [];
-    const colors = parts.length ? parts : palette(world);
+    const core = trollCore(world), colors = core ? wolfColors(world, core) : palette(world);
     return Array.from({ length: n }, (_, k) => this.ink(colors[k % colors.length]));
   }
 

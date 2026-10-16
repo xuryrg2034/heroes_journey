@@ -172,7 +172,7 @@ check('the five moves are named at their first start, at their signs; nothing el
 });
 
 check('the node card: «Враги» counts the fight\'s start — the Troll and his three parts, then who comes', () => {
-  const lines = nodeDangers({ arena: 'troll', row: 10, guaranteedElite: false });
+  const lines = nodeDangers({ arena: 'troll', row: 10, guaranteedElite: false, garrison: { start: [TROLL, TROLL_CLUB, TROLL_ROCK, TROLL_TAIL].map(kind => ({ kind, count: 1 })), newcomers: [], knights: 0, bolts: false, deep: false } });
   const enemies = lines.find(l => l.id === 'enemies');
   assert(enemies?.text === 'Тролль, дубина, камень, хвост · подходят: обычные', `the enemies line (${enemies?.text})`);
 });

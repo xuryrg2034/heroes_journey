@@ -169,17 +169,9 @@ export function nodeDangers(input: NodeDangerInput): NodeDangerLine[] {
   // `basic` first, then the kinds in the order of the plural table (stable across arenas).
   const order = Object.keys(KIND_PLURAL);
   kinds.sort((a, b) => order.indexOf(a) - order.indexOf(b));
-  // Task 48: the Troll's fight (the den branch's boss) counts its start like the garrison's — the template's own enemies, read here (the
-  // sim's world for this fight is the template's start; `rtNodeEnemies` answers for garrison nodes only).
-  const start = template.troll ? template.enemies.reduce<{ kind: string; count: number }[]>((list, e) => {
-    const item = list.find(x => x.kind === (e.kind ?? 'basic'));
-    if (item) item.count++; else list.push({ kind: e.kind ?? 'basic', count: 1 });
-    return list;
-  }, []) : null;
-  const garrison = input.garrison ?? (start ? { start, newcomers: kinds.filter(kind => kind !== 'basic' && !start.some(item => item.kind === kind)), knights: 0, bolts: false, deep: false } : undefined);
-  if (garrison) {
+  if (input.garrison) {
     // Task 43, part Г: the garrison counts its fight's start and names the newcomers; the additions on a line of their own.
-    const g = garrisonEnemiesText(garrison), fresh = g.kinds.filter(kind => input.newKinds?.includes(kind));
+    const g = garrisonEnemiesText(input.garrison), fresh = g.kinds.filter(kind => input.newKinds?.includes(kind));
     lines.push({ id: 'enemies', label: 'Враги', text: g.enemies, ...fresh.length ? { newKinds: fresh } : {} });
     if (g.extras) lines.push({ id: 'extras', label: 'Усиление', text: g.extras });
   } else if (kinds.length) {
