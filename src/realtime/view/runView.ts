@@ -53,7 +53,11 @@ import { RunStart } from './runStart';
 import { rtHearthFlagsWith, rtRunKey, type RtHearthStart, type RtMetaEnd } from '../run/rtMeta';
 import type { HearthStart } from './metaModel';
 import { KIND_CAPTIONS } from './newSeen';
+import { END_STEP, endShown, endTotal, revealDelays, revealDone, revealShown, screenTier, type RewardTier } from './reveal';
 import type { ItemKind as KitItem } from '../sim/kit';
+
+/** Task 47, С5: the chord of a reward screen by its tier (view/reveal.ts `screenTier`). */
+export type RewardSound = 'reward0' | 'reward1' | 'reward2';
 
 /** What the run asks of the arena view. */
 export interface RunHost {
@@ -136,7 +140,7 @@ export interface RunHost {
    * none). `sound` plays the meta's sounds by the run's sound setting.
    */
   meta?: {
-    sound(kind: MetaSound | 'buy' | 'open' | 'heal' | 'fuse'): void;
+    sound(kind: MetaSound | 'buy' | 'open' | 'heal' | 'fuse' | RewardSound): void;
     /** Telemetry (core's recorder): the meta of an ended or abandoned run — before the next run starts; the camp's map, purchases, clicks. */
     end?(run: RtRunState, end: RtMetaEnd): void;
     map?(run: RtRunState, chosen: number): void;
@@ -389,6 +393,19 @@ export class RunView {
   /** Task 40 «Повозка»: the deposit «−» and «+» chose on «Предместье» (null — the default, `rtCartView`'s «оставить 6»). */
   private cartN: number | null = null;
   private metaEnd: MetaEndView | null = null;
+  /**
+   * Task 47, С6 «Раскрытие награды»: the choice cards of the screen `key` show one by one (view/reveal.ts); `done` — over or skipped.
+   * The redraws keep it: every card's animation is drawn from the time since `start`.
+   */
+  private reveal: { key: string; start: number; n: number; done: boolean } | null = null;
+  /**
+   * Task 47, С8 «Итог похода по шагам»: the lines of the run-end screen `key` show one by one; the meta block (the experience, the
+   * record) is held back (`gate`) until the last and plays then. `endBase` — the end the page was loaded with (a reload shows it whole).
+   */
+  private endStage: { key: string; start: number; n: number; done: boolean; gate: boolean; timer: number } | null = null;
+  private endBase: string | null = null;
+  /** Task 47 (tests read it via `screensInfo`): chords by tier and the last one; screens revealed, run-ends staged, and the skips. */
+  private readonly screenCount = { chords: [0, 0, 0], last: null as RewardTier | null, reveals: 0, revealSkips: 0, ends: 0, endSkips: 0 };
   readonly hearth: HearthView | null;
   /** Tasks 36–37: the one start of a new run with the camp's choices (the camp's «В поход» and «Новый поход»). */
   readonly runStart = new RunStart();
@@ -418,6 +435,13 @@ export class RunView {
       this.selected = null; this.draw();
     });
     this.run = this.store.load();
+    if (this.run?.result) this.endBase = rtRunKey(this.run);
+    // Task 47, С6/С8: a click on the bare screen or a key shows the revealed cards / the run-end lines at once. A shown card or a
+    // button acts as always (the reveal never takes a press aimed at a visible control).
+    this.el.addEventListener('click', event => {
+      if (!(event.target as HTMLElement).closest('button, [data-action], summary, a, input, select')) this.skipStaged();
+    }, { capture: true });
+    window.addEventListener('keydown', event => { if (!this.el.hidden && !event.ctrlKey && !event.metaKey && !event.altKey && event.key !== 'Shift') this.skipStaged(); }, { capture: true });
     this.lines = host.hints ? new ScreenLines(host.hints.store, host.hints.on) : null;
     this.meta = host.meta ? new ProfileMeta(this.profile) : null;
     const meta = this.meta;
@@ -941,12 +965,107 @@ export class RunView {
     if (session?.on() && !run.result && !this.inArena && this.sessionNudge === null) this.sessionNudge = session.clock.takeNudge();
     this.el.innerHTML = `${this.headerHtml(run)}${this.pickLineHtml(run)}<div class="rt-run-body">${this.mapHtml(run)}${run.pending || run.result ? '' : this.detailHtml(run)}</div>${this.modalHtml(run)}${this.dieRollHtml()}${this.chanceHtml()}`;
     this.flyResources(run);
+    this.stageScreens(run);
     // Task 38: «Предместье»'s bar fills to the HP after the heal (once: then it is drawn full).
     const heal = this.el.querySelector<HTMLElement>('[data-testid="outskirts-bar"] i');
     if (heal && heal.dataset.to && heal.style.width !== heal.dataset.to) { const to = heal.dataset.to; requestAnimationFrame(() => requestAnimationFrame(() => { heal.style.width = to; })); this.outskirtsFrom = null; }
     // Tasks 36–37: the ended run's meta block keeps its element (and its animation) over redraws.
     const slot = this.el.querySelector('[data-meta-slot]');
-    if (slot && this.metaEnd) { slot.replaceWith(this.metaEnd.el); if (!this.el.hidden) this.metaEnd.play(this.pressAt); }
+    if (slot && this.metaEnd) { slot.replaceWith(this.metaEnd.el); this.metaEnd.el.classList.toggle('rt-end-wait', !!this.endStage?.gate); if (!this.el.hidden && !this.endStage?.gate) this.metaEnd.play(this.pressAt); }
+  }
+
+  /** Task 47 (tests read it): the chords and the staged screens so far, and whether a reveal or a run-end is running now. */
+  screensInfo(): { chords: number[]; last: RewardTier | null; reveal: { screens: number; skips: number; running: boolean; cards: number; shown: number }; end: { screens: number; skips: number; running: boolean; lines: number; shown: number } } {
+    const c = this.screenCount, rv = this.reveal, es = this.endStage, now = performance.now();
+    const rt = rv ? (now - rv.start) / 1000 : 0, et = es ? (now - es.start) / 1000 : 0;
+    return {
+      chords: [...c.chords], last: c.last,
+      reveal: { screens: c.reveals, skips: c.revealSkips, running: !!rv && !rv.done && !revealDone(rv.n, rt), cards: rv?.n ?? 0, shown: rv ? (rv.done ? rv.n : revealShown(rv.n, rt)) : 0 },
+      end: { screens: c.ends, skips: c.endSkips, running: !!es && (!es.done || es.gate), lines: es?.n ?? 0, shown: es ? (es.done ? es.n : endShown(es.n, et)) : 0 },
+    };
+  }
+
+  /**
+   * Task 47: after a draw — С5/С6 on a reward screen (the talisman screens of the «Застава», the chest, the feat and the Jailer,
+   * and the hammer): the chord of the screen's best card sounds once as it opens and its cards fade in one by one; С8 on the run-end
+   * screen: the lines come 0.15 s apart and the meta block starts after the last. Not the potion screen, not the camp.
+   */
+  private stageScreens(run: RtRunState): void {
+    const pending = run.pending;
+    const picks = pending && (pending.kind === 'talisman' || pending.kind === 'hammer') ? pending : null;
+    if (!picks) this.reveal = null;
+    else if (!this.el.hidden) {
+      const key = `${run.seed}|${picks.kind}|${picks.nodeId}|${picks.kind === 'talisman' ? picks.source ?? '' : ''}|${picks.options.join(',')}`;
+      const cards = [...this.el.querySelectorAll<HTMLElement>('.rt-run-modal .rt-run-choice')];
+      if (this.reveal?.key !== key && cards.length) {
+        this.reveal = { key, start: performance.now(), n: cards.length, done: revealDelays(cards.length).length === 0 };
+        const tier = screenTier(picks.options.map(id => picks.kind === 'hammer' ? 'hammer' : rtTalisman(id)?.rarity));
+        this.screenCount.chords[tier]++; this.screenCount.last = tier; this.screenCount.reveals++;
+        this.host.meta?.sound(`reward${tier}` as RewardSound);
+      }
+      const rv = this.reveal;
+      if (rv && !rv.done) {
+        const t = (performance.now() - rv.start) / 1000, delays = revealDelays(cards.length);
+        if (revealDone(cards.length, t)) rv.done = true;
+        else cards.forEach((card, i) => {
+          card.classList.add('rt-reveal-card');
+          card.style.animationDelay = `${(delays[i] - t).toFixed(3)}s`;
+          card.addEventListener('animationend', () => { card.classList.remove('rt-reveal-card'); card.style.animationDelay = ''; }, { once: true });
+        });
+      }
+    }
+    // С8: the end of a run the page saw end (not the end screen a reload shows).
+    if (!run.result) { if (this.endStage) { clearTimeout(this.endStage.timer); this.endStage = null; } return; }
+    const key = rtRunKey(run);
+    if (this.endStage?.key !== key && key !== this.endBase && !this.el.hidden) {
+      if (this.endStage) clearTimeout(this.endStage.timer);
+      const n = this.endItems().length, gate = !!this.metaEnd && !this.metaEnd.shown.done;
+      this.endStage = { key, start: performance.now(), n, done: !n && !gate, gate, timer: 0 };
+      this.screenCount.ends++;
+      if (gate) this.endStage.timer = window.setTimeout(() => this.releaseMeta(), endTotal(n) * 1000 + 100);
+    }
+    const es = this.endStage;
+    if (es && es.key === key && !es.done) {
+      const t = (performance.now() - es.start) / 1000, items = this.endItems();
+      if (endShown(items.length, t) >= items.length) { if (!es.gate) es.done = true; }
+      else items.forEach((group, i) => group.forEach(el => {
+        el.classList.add('rt-end-line');
+        el.style.animationDelay = `${(i * END_STEP - t).toFixed(3)}s`;
+        el.addEventListener('animationend', () => { el.classList.remove('rt-end-line'); el.style.animationDelay = ''; }, { once: true });
+      }));
+    }
+  }
+
+  /** С8: the run-end screen's lines in order — the facts, then the stats' rows (a row is its name and its number). */
+  private endItems(): HTMLElement[][] {
+    const facts = [...this.el.querySelectorAll<HTMLElement>('.rt-run-end-facts li')].map(li => [li]);
+    const stats = [...this.el.querySelectorAll<HTMLElement>('.rt-result-stats dt')].map(dt => [dt, dt.nextElementSibling as HTMLElement]);
+    return [...facts, ...stats];
+  }
+
+  /** С8: the lines are shown — the meta block (the experience, the record) comes and plays. */
+  private releaseMeta(): void {
+    const es = this.endStage;
+    if (!es || !es.gate) return;
+    es.gate = false; es.done = true;
+    if (this.metaEnd) { this.metaEnd.el.classList.remove('rt-end-wait'); if (!this.el.hidden) this.metaEnd.play(this.pressAt); }
+  }
+
+  /** С6/С8: a click on the bare screen or a key — the cards and the lines show whole at once, the meta block jumps to its end. */
+  private skipStaged(): void {
+    const rv = this.reveal;
+    if (rv && !rv.done) {
+      rv.done = true; this.screenCount.revealSkips++;
+      for (const card of this.el.querySelectorAll<HTMLElement>('.rt-reveal-card')) { card.classList.remove('rt-reveal-card'); card.style.animationDelay = ''; }
+    }
+    const es = this.endStage;
+    if (es && (!es.done || es.gate)) {
+      clearTimeout(es.timer);
+      if (!es.done) this.screenCount.endSkips++;
+      es.done = true; es.gate = false;
+      for (const el of this.el.querySelectorAll<HTMLElement>('.rt-end-line')) { el.classList.remove('rt-end-line'); el.style.animationDelay = ''; }
+      if (this.metaEnd) { this.metaEnd.el.classList.remove('rt-end-wait'); this.metaEnd.finish(); }
+    }
   }
 
   /**
