@@ -216,7 +216,7 @@ test('run: two runs walk to the final arena — a new run by the schedule (its a
   test.setTimeout(300_000);
   const errors: string[] = [];
   await openRun(page, errors);
-  const met: { run: number; row: number; arena: string; type: string; scheduled: boolean }[] = [];
+  const met: { run: number; row: number; arena: string; type: string; scheduled: boolean; nodeId: string }[] = [];
   // Two runs (seeds spread apart) to the end: battles are won by the test hook, other nodes take their first button.
   for (const [n, seed] of [Math.imul(1, 2654435761) >>> 0, Math.imul(2, 2654435761) >>> 0].entries()) {
     // Task 38: both runs end at the forest final — saves without the garrison (a run with it goes on: the test «task 38» below).
@@ -226,8 +226,8 @@ test('run: two runs walk to the final arena — a new run by the schedule (its a
       await page.reload();
       await expect(page.getByTestId('run')).toBeVisible();
     } else {
-      // A save without the schedule and the Jailer (a save before tasks 26 and 28; the full gift, as `?seed=` makes it).
-      await page.evaluate(([key, value]) => localStorage.setItem(key, value), [RT_RUN_STORAGE_KEY, serializeRtRun(createRtRun(seed, { gift: 'full', seeded: true, jailer: false, garrison: false }))] as const);
+      // A save without the schedule, the Jailer and the Troll (a save before tasks 26, 28 and 48; the full gift, as `?seed=` makes it).
+      await page.evaluate(([key, value]) => localStorage.setItem(key, value), [RT_RUN_STORAGE_KEY, serializeRtRun(createRtRun(seed, { gift: 'full', seeded: true, jailer: false, troll: false, garrison: false }))] as const);
       await page.reload();
       await expect(page.getByTestId('run')).toBeVisible();
     }
@@ -242,7 +242,7 @@ test('run: two runs walk to the final arena — a new run by the schedule (its a
         // Node ids carry the map row (`r6c1`, `den-r11c0`); the run row is the map row less the trunk (4).
         const row = Number(/r(\d+)c/.exec(pending.nodeId!)![1]) - 4;
         expect(pending.standIn, `${pending.nodeId}: no temporary arena`).toBeUndefined();
-        met.push({ run: seed, row, arena: pending.arena!, type: pending.battle!, scheduled });
+        met.push({ run: seed, row, arena: pending.arena!, type: pending.battle!, scheduled, nodeId: pending.nodeId! });
         await expect(page.getByTestId('run')).toBeHidden();
         expect((await snapshot(page)).arena).toBe(pending.arena);
         // The map screen named the arena without «временно».
@@ -275,12 +275,13 @@ test('run: two runs walk to the final arena — a new run by the schedule (its a
     await expect(page.getByTestId('run-result-victory')).toBeVisible();
     expect(await runState(page)).toEqual(ended);
   }
-  for (const [i, { run, row, arena, type, scheduled }] of met.entries()) {
+  for (const [i, { run, row, arena, type, scheduled, nodeId }] of met.entries()) {
     if (scheduled) {
       // The schedule (docs/realtime-slice.md, section 7): the final — «Последний рубеж»; the hard node — «Застава» once the cliff and the
       // elite are met, else a practice stand-in; the Jailer's node (row 5, task 28) — the Jailer's fight; every other fight — an arena
       // of the schedule.
-      if (type === 'final') expect(arena, `row ${row}: final`).toBe('last-stand');
+      // Task 48: a new run's den branch ends with the Troll (the camp's — «Последний рубеж»).
+      if (type === 'final') expect(arena, `row ${row}: final`).toBe(nodeId.startsWith('den-') ? 'troll' : 'last-stand');
       else if (row === 5) expect(JAILER_RUN_ARENAS.includes(arena), `row ${row}: the Jailer ${arena}`).toBe(true);
       else if (type === 'hard') expect(arena === 'outpost' || SCHEDULE_PRACTICE.some(p => p.arena === arena), `row ${row}: hard ${arena}`).toBe(true);
       else expect(SCHEDULE_RUN_ARENAS.includes(arena), `row ${row}: ${arena}`).toBe(true);

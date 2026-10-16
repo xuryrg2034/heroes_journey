@@ -37,6 +37,8 @@ export const RT_KIND_TITLES: Readonly<Record<string, string>> = {
   crossbow: 'арбалетчик', 'castellan-crossbow': 'арбалет Кастеляна',
   // Task 43 «Гарнизон, шаг 2»: the knight (lower case, the decision of task 40).
   knight: 'рыцарь',
+  // Task 48 «Тролль» (a capital for the unique boss; his parts by their own names).
+  troll: 'Тролль', 'troll-club': 'дубина Тролля', 'troll-rock': 'камень Тролля', 'troll-tail': 'хвост Тролля',
 };
 
 /**
@@ -57,6 +59,8 @@ export const RT_DEATH_ABILITY: Readonly<Record<string, string>> = {
   'castellan-bolt': 'болт Кастеляна',
   // Task 43 (spec section 5): the knight's moves (its touch — «рыцарь»).
   'knight-charge': 'рывок рыцаря', 'knight-swing': 'размах рыцаря',
+  // Task 48: the Troll's moves (their touches — the kinds above).
+  'troll-club': 'удар дубиной Тролля', 'troll-rock': 'бросок камня Тролля', 'troll-tail': 'удар хвостом Тролля',
 };
 /**
  * The touch sources (each kind's `hitSource`): the line names the striker's kind, its elite mark, armour and affixes. Task 40 (design
