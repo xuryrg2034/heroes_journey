@@ -6,7 +6,9 @@
 import { arenaTemplate } from '../sim/arenas';
 import { ARENA_POOLS, FINAL_ARENA, HARD_ARENA } from '../run/arenaPools';
 import { RT_RANDOM_ELITE_ROW, rtElitePlates } from '../run/rtRun';
-import { cardRules, eliteText, goalText, nodeDangers } from './nodeCard';
+import { cardRules, eliteText, goalText, KIND_ONE, KIND_PLURAL, nodeDangers } from './nodeCard';
+import { rtNodeEnemies } from '../run/nodeEnemies';
+import { walkRun } from '../run/metaWalk.testkit';
 import { arenaPreview, createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtEliteAffixes as affixesOf, rtElitePlates as platesOf, rtEnterNode, rtGentle, rtNode, rtRandomElites, type RtAshLevel, type RtRunState } from '../run/rtRun';
 import { closeNode, ok, seedOf, takeGift } from '../run/runFight.testkit';
 
@@ -153,4 +155,33 @@ check('task 17: the gentle tables on the card — row 3 no elites, row 4 they co
   assert(text('shields', 4, { gentle: true, guaranteedElite: true, eliteKinds: ['lynx'] }).elites === undefined, 'no allowed kind here');
   // The final without the porcupine: the enemies line leaves it out.
   assert(!text(FINAL_ARENA, 10, { gentle: true, withoutKinds: ['porcupine'] }).enemies.includes('дикобраз'), text(FINAL_ARENA, 10, { withoutKinds: ['porcupine'] }).enemies);
+});
+
+check(`task 43 Г: a garrison node's card counts its own fight's start (every kind named, «×N» for more than one), names the newcomers, and has the line «Усиление» exactly when the node has additions (knights, crossbowmen, the deep keymaster); forest nodes keep their line`, () => {
+  let cards = 0, extras = 0, knights = 0, bolts = 0, deep = 0, forest = 0;
+  for (let k = 1; k <= 10; k++) {
+    walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true }, each: state => {
+      for (const node of rtAvailableNodes(state)) {
+        if (!isArenaNode(node)) continue;
+        const g = rtNodeEnemies(state, node), pick = arenaPreview(state, node);
+        if (!pick) continue;
+        const lines = Object.fromEntries(nodeDangers({ arena: pick.arena, roster: pick.roster, ...g ? { garrison: g } : {}, ...cardRules(state, node) }).map(line => [line.id, line.text]));
+        if (!g) { forest++; assert(!lines.extras && !(lines.enemies ?? '').includes('подходят'), `forest ${pick.arena}: ${lines.enemies}`); continue; }
+        cards++;
+        for (const s of g.start) {
+          const word = s.count === 1 ? KIND_ONE[s.kind] : `${KIND_PLURAL[s.kind]} ×${s.count}`;
+          assert(word && lines.enemies.includes(word), `${pick.arena}: «${s.kind}» ×${s.count} not in «${lines.enemies}»`);
+        }
+        assert(lines.enemies.includes('подходят: обычные'), lines.enemies);
+        const want = g.knights > 0 || g.bolts || g.deep;
+        assert(!!lines.extras === want, `${pick.arena}: additions ${JSON.stringify({ k: g.knights, b: g.bolts, d: g.deep })}, line «${lines.extras}»`);
+        if (want) extras++;
+        if (g.knights) { knights++; assert(lines.extras.includes('в строю'), lines.extras); }
+        if (g.bolts) { bolts++; assert(lines.extras.includes('арбалетчики сзади'), lines.extras); }
+        if (g.deep) { deep++; assert(lines.extras.includes('ключник в глубине'), lines.extras); }
+      }
+    } });
+  }
+  assert(cards > 20 && extras > 0 && knights > 0 && bolts > 0 && forest > 0, `garrison cards ${cards}, with additions ${extras} (knights ${knights}, bolts ${bolts}, deep ${deep}), forest ${forest}`);
+  console.log(`  garrison cards ${cards}, with additions ${extras} (knights ${knights}, bolts ${bolts}, deep ${deep}); forest cards ${forest}`);
 });
