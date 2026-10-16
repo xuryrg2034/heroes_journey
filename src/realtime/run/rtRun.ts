@@ -199,7 +199,9 @@ export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal
   bossPartLoot: true,
   // Task 38 «Гарнизон» (design 15.10.2026): the law of tethers and the guards' formation (nothing on an arena without a tether or a
   // guard; the garrison's arenas turn both on for themselves too, sim/arenasGarrison.ts).
-  tethers: true, guardFormation: true });
+  tethers: true, guardFormation: true,
+  // Task 41 «Узник на воле» (design 16.10.2026): a cut shackle sets its prisoner loose (sim/enemies/garrison.ts `riotStep`).
+  prisonerRiot: true });
 /**
  * Task 19 «Короткий запал» (user decision 14.10.2026, playtest v44: the hero left the 1.2 s circle with time to spare each time):
  * a new run keeps the flag `shortFuse` (`RtRunState.shortFuse`) and its battles play this fuse (`rtArenaParams`). The prologue

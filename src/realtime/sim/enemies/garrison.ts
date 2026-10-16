@@ -240,8 +240,8 @@ function nearestPrey(world: World, e: Enemy): { enemy: Enemy | null; at: Vec; d:
 const bodiesTouch = (world: World, e: Enemy, other: Enemy): boolean =>
   dist(e, other) <= bodyRadiusOf(world.params, e) + bodyRadiusOf(world.params, other) + 0.05;
 
-/** The frenzied hound bites one enemy it touches (the nearest), if its bite is ready; not while a dash runs. */
-function frenzyBite(world: World, e: Enemy, dt: number): void {
+/** The frenzied hound (task 41: a rioting prisoner, `source` `riot`) bites one enemy it touches (the nearest), if its bite is ready; not while a dash runs. */
+function frenzyBite(world: World, e: Enemy, dt: number, source = 'hound'): void {
   e.vars.bt = Math.max(0, (e.vars.bt ?? 0) - dt);
   if (world.move || e.vars.bt > TIME_EPS || biteOf(world) <= 0) return;
   let target: Enemy | null = null, bestD = Infinity;
@@ -252,8 +252,46 @@ function frenzyBite(world: World, e: Enemy, dt: number): void {
   }
   if (!target) return;
   e.vars.bt = HOUND_BITE_GAP;
-  world.events.push({ type: 'frenzy', action: 'bite', id: e.id, target: target.id, x: target.x, y: target.y });
-  damageEnemy(world, target, biteOf(world), { source: 'hound', credited: false });
+  world.events.push({ type: 'frenzy', action: 'bite', id: e.id, target: target.id, x: target.x, y: target.y, ...source === RIOT_SOURCE ? { riot: true as const } : {} });
+  damageEnemy(world, target, biteOf(world), { source, credited: false });
+}
+
+// ---------- Task 41 «Узник на воле» ----------
+
+/** Task 41: the kill source of a rioting prisoner's bite (not the player's: `credited` false). */
+export const RIOT_SOURCE = 'riot';
+/** Task 41: `e` is a prisoner set loose by a cut shackle, in its riot now (the hound's law: `vars.fz`). */
+export const prisonerRioting = (e: Enemy): boolean => e.kind !== HOUND && (e.vars.fz ?? 0) > 0;
+/**
+ * Task 41 «Узник на воле» (`Params.prisonerRiot`; world.ts `moveEnemies` calls it for a body that is not a hound): a prisoner a
+ * dash's cut set loose (tethers.ts `cutTethers`, `vars.loose`) riots by the law of a loosed hound — once no dash runs, `houndFrenzy`
+ * s (`vars.fz`): it runs at the nearest body (an enemy or the hero) and bites an enemy it touches (`houndFrenzyDamage`, source
+ * `riot`, not the player's); then a plain enemy of its kind. True — it moved by itself this step (its own step and the common walk
+ * are skipped). Events `frenzy` `start` / `bite` / `end` with `riot: true`.
+ */
+export function riotStep(world: World, e: Enemy, dt: number): boolean {
+  if (!world.params.prisonerRiot) return false;
+  if (e.vars.loose && !world.move && !tetherOf(world, e.id)) {
+    delete e.vars.loose;
+    const frenzy = frenzyOf(world);
+    if (frenzy > 0) {
+      e.vars.fz = frenzy; e.vars.bt = 0;
+      world.events.push({ type: 'frenzy', action: 'start', id: e.id, x: e.x, y: e.y, riot: true });
+    }
+  }
+  if ((e.vars.fz ?? 0) <= 0) return false;
+  frenzyBite(world, e, dt, RIOT_SOURCE);
+  if (!world.enemies.includes(e)) return true;
+  e.vars.fz -= dt;
+  if (e.vars.fz <= TIME_EPS) {
+    delete e.vars.fz; delete e.vars.bt;
+    world.events.push({ type: 'frenzy', action: 'end', id: e.id, x: e.x, y: e.y, riot: true });
+    return false;
+  }
+  if (e.knock > 0) return false;
+  const p = world.params, prey = nearestPrey(world, e), stop = prey.enemy ? bodyRadiusOf(p, e) + bodyRadiusOf(p, prey.enemy) : touchDistanceOf(p, e);
+  walkTo(world, e, prey.at, walkStep(world, e, dt), stop);
+  return true;
 }
 
 registerBehavior({
@@ -512,7 +550,8 @@ const shackleMaxOf = (world: World): number => Math.max(0, Math.floor(world.para
 
 /** `e` may be shackled by `keeper` now: its kind, not an elite, not a boss's part, not held, not a link of the drawn chain. */
 function shackleable(world: World, keeper: Enemy, e: Enemy): boolean {
-  return e !== keeper && SHACKLE_KINDS.includes(e.kind) && !e.elite && e.partOf === undefined && !tetherOf(world, e.id)
+  // Task 41: a prisoner set loose (its riot to come or running) is no target.
+  return e !== keeper && SHACKLE_KINDS.includes(e.kind) && !e.elite && e.partOf === undefined && !tetherOf(world, e.id) && !e.vars.loose && !((e.vars.fz ?? 0) > 0)
     && !world.chain.some(link => link.kind === 'enemy' && link.id === e.id);
 }
 

@@ -25,6 +25,8 @@ import { updateBurning } from './items';
 import { RngStreams } from './rng';
 // Task 40: the keymaster's prisoner stands (tethers.ts).
 import { dropShackleOf, shackled } from './tethers';
+// Task 41: the rioting prisoner (enemies/garrison.ts).
+import { riotStep } from './enemies/garrison';
 // Casino stage 1 («Однорукий гоблин», slot.ts): the slot's state and step.
 import { goblinOf, placeArenaGoblin, updateSlot, type SlotOutcome, type SlotState, type SlotSymbol } from './slot';
 import { fallenEmbers, greedHurt, purseDoor, purseKill, type DoorExit, type PurseMove, type PurseWorld } from './purse';
@@ -506,7 +508,7 @@ export type WorldEvent =
    */
   | { type: 'tether'; action: 'cut' | 'death' | 'shackle'; holder: number; held: number; x: number; y: number; kind?: 'shackle' }
   /** Task 38 (enemies/garrison.ts): a loosed hound's frenzy began (`start`) or ended (`end`); it bit an enemy (`bite`). */
-  | { type: 'frenzy'; action: 'start' | 'end' | 'bite'; id: number; target?: number; x: number; y: number }
+  | { type: 'frenzy'; action: 'start' | 'end' | 'bite'; id: number; target?: number; x: number; y: number; /** Task 41: a prisoner's riot (absent — a hound's frenzy). */ riot?: true }
   /** Task 38 (enemies/garrison.ts): the Castellan's move — «Спустить пса» (`lunge`: windup `start`, `hit`) or «Караул!» (`guard`). */
   | { type: 'castellanMove'; id: number; move: 'lunge' | 'guard'; stage: 'start' | 'hit' };
 
@@ -1527,6 +1529,8 @@ function moveEnemies(world: World, dt: number): Set<Enemy> | null {
     if (enemyFrozen(e)) continue;
     // Task 40: the keymaster's prisoner stands — no own step, no walk (a knockback still slides it; tethers.ts `shackled`).
     const held = !!world.tethers && shackled(world, e);
+    // Task 41: a prisoner a cut shackle set loose riots (the hound's law; only with `prisonerRiot`, never a hound: its own step).
+    if (!calm && !held && e.kind !== 'hound' && (e.vars.loose || e.vars.fz) && riotStep(world, e, dt)) continue;
     // A behaviour with its own movement (the boar's windup, charge and rest) skips the common walk this step.
     const own = calm || held ? undefined : behaviorOf(e).step;
     if (own && own(world, e, dt)) continue;
