@@ -107,5 +107,7 @@ export const TROLL_ARENA: ArenaTemplate = registerArena({
 export const BOSS_ARENAS: readonly ArenaTemplate[] = [JAILER_ARENA];
 /** Task 48: the forest's boss of the sandbox menu — at its end, after the garrison's arenas (`?arena=30`: the numbers before stay). */
 export const FOREST_BOSS_ARENAS: readonly ArenaTemplate[] = [TROLL_ARENA];
+/** Task 48: the arenas of the run's Troll fight (run/rtRun.ts `RtRunState.troll`; a save names only these at its den boss). */
+export const TROLL_RUN_ARENAS: readonly string[] = [TROLL_ARENA.id];
 /** Task 28: the arenas of the run's Jailer fight (run/rtRun.ts; a save names only these at its Jailer node). */
 export const JAILER_RUN_ARENAS: readonly string[] = [JAILER_ARENA.id, JAILER_YARD_ARENA.id];

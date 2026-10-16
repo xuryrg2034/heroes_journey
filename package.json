@@ -92,6 +92,7 @@
     "test:realtime-telegraph-window": "tsx src/realtime/sim/telegraphWindow.spec.ts",
     "test:realtime-jailer": "tsx src/realtime/sim/jailer.spec.ts",
     "test:realtime-troll": "tsx src/realtime/sim/troll.spec.ts",
+    "test:realtime-troll-run": "tsx src/realtime/run/trollRun.spec.ts",
     "test:realtime-garrison": "tsx src/realtime/sim/garrison.spec.ts",
     "test:realtime-garrison-run": "tsx src/realtime/run/garrisonRun.spec.ts",
     "test:realtime-keymaster": "tsx src/realtime/sim/keymaster.spec.ts",

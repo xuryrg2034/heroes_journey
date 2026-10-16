@@ -447,6 +447,8 @@ async function boot(): Promise<void> {
   const deathSeries = new DeathSeries();
   /** Task 28: the Jailer's weight was severed in this fight (a `partSevered` event; read with the death watch) — `RtArenaOutcome.severed`. */
   let fightSevered = false;
+  /** Task 48: the boss's parts severed in this fight (`partSevered` events) — `RtArenaOutcome.parts` (the run keeps it for the Troll). */
+  let fightParts = 0;
   /** Task 22 «Удар слышен»: one sound of a kind per 0.3 real seconds; the threats' starts read frame by frame (view/soundGate.ts). */
   const soundGate = new SoundGate(), threatWatch = new ThreatWatch();
   /** Task 12: the values of the run's arena (`rtArenaParams`: the run's flag `markedGoals`); null — the sandbox's `params`. */
@@ -460,6 +462,7 @@ async function boot(): Promise<void> {
     deathWatch.reset();
     deathSeries.reset();
     fightSevered = false;
+    fightParts = 0;
     if (simParams) return new Simulation({ arena, params: simParams, seed, record: true, beforeTick: world => { motion.save(world); }, ...hero ? { hero } : {}, ...loadout ? { loadout } : {} });
     return new Simulation({ arena, params: runArenaParams ?? params, seed, record: true, beforeTick: world => { motion.save(world); recorder?.beforeTick(world); deathWatch.seen(world); deathSeries.seen(world); }, ...hero ? { hero } : {}, loadout: loadout ?? sandboxLoadout() });
   };
@@ -827,6 +830,8 @@ async function boot(): Promise<void> {
       ...featOutcome(w),
       // Task 28: the weight severed (the run keeps it only on a Jailer arena; a won fight offers 1 of 4).
       ...fightSevered ? { severed: true } : {},
+      // Task 48: the Troll's parts severed (all three — the relic 1 of 4).
+      ...fightParts ? { parts: fightParts } : {},
       ...w.status === 'defeat' && deathWatch.death ? { death: deathWatch.death } : {} });
   };
   /** The result's button only switches the screen: to the map, or to the end of the run. */
@@ -1340,7 +1345,7 @@ async function boot(): Promise<void> {
     }
     // П5: the run fight's chance (the goblin's pulls, the elites' loot) before the frame's events go.
     // П6: the run fight's killing blow, read the same way.
-    if (runView?.arenaOpen && !runArenaRecorded) { observeFightLuck(fightLuck, w.events); deathWatch.read(w, w.events); deathSeries.read(w, w.events); if (w.events.some(e => e.type === 'partSevered')) fightSevered = true; }
+    if (runView?.arenaOpen && !runArenaRecorded) { observeFightLuck(fightLuck, w.events); deathWatch.read(w, w.events); deathSeries.read(w, w.events); if (w.events.some(e => e.type === 'partSevered')) fightSevered = true; fightParts += w.events.filter(e => e.type === 'partSevered').length; }
     // Task 16 telemetry «Новизна»: the first meetings of a run fight (the kinds and affixes come from the captions, render.ts).
     if (firstMeets && runView?.arenaOpen && !prologue) {
       if (!firstMeets.has('elite') && w.enemies.some(e => e.elite && renderer.sees(e))) meetFirst('elite');

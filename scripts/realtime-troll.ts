@@ -79,8 +79,8 @@ function fight(run: RtRunState, extra: Partial<Params> = {}): Fight {
       for (const p of w.enemies) if (p.partOf === core.id && p.vars.hx !== undefined && p.vars.lie === undefined) s.part = Math.max(s.part, off(p));
       if (!w.move && hd < r) s.inside++;
       if (!w.move && hd < r + heroRadius(w.params)) s.overlap++;
-      // At his back: north of his centre, within the den's mouth (x 9–15).
-      if (!w.move && w.hero.y < core.y && Math.abs(w.hero.x - core.x) < 3) s.behind++;
+      // At his back: the hero's centre north of the core's body, within a body's width of it (the den's back wall leaves no room).
+      if (!w.move && w.hero.y < core.vars.hy - r - 0.05 && Math.abs(w.hero.x - core.vars.hx) < r + heroRadius(w.params)) s.behind++;
     }
     if (moving && !w.move) landed = w.time;
     moving = !!w.move;
@@ -185,7 +185,7 @@ if (STAND) {
   for (const f of troll) for (const [src, [n, hit]] of Object.entries(f.windows)) { const c = win[src] ??= [0, 0]; c[0] += n; c[1] += hit; }
   console.log(`Окна (открыто / с попаданием): ${Object.entries(win).map(([s, [n, hit]]) => `${s} ${n} / ${hit}`).join(', ') || 'нет'}; «звон» вне окна — ${troll.reduce((s, f) => s + f.blocks, 0)}.`);
   const sh = troll.reduce((a, f) => ({ core: Math.max(a.core, f.shift.core), coreSum: a.coreSum + f.shift.coreSum, part: Math.max(a.part, f.shift.part), ticks: a.ticks + f.shift.ticks, inside: a.inside + f.shift.inside, overlap: a.overlap + f.shift.overlap, behind: a.behind + f.shift.behind }), { core: 0, coreSum: 0, part: 0, ticks: 0, inside: 0, overlap: 0, behind: 0 });
-  console.log(`Тело ядра ×${TROLL_BODY_SCALE} (В9): сдвиг ядра с места в конце такта — наиб. ${sh.core.toFixed(3)} ед., ср. ${(sh.coreSum / Math.max(1, sh.ticks)).toFixed(4)} ед.; частей (в руке) — наиб. ${sh.part.toFixed(3)} ед.; центр героя в теле ядра — ${sh.inside} тактов из ${sh.ticks}, тело героя на теле ядра — ${sh.overlap} (${pct(sh.overlap, sh.ticks)}); герой за спиной Тролля (севернее центра ядра в устье) — ${sh.behind} тактов.`);
+  console.log(`Тело ядра ×${TROLL_BODY_SCALE} (В9): сдвиг ядра с места в конце такта — наиб. ${sh.core.toFixed(3)} ед., ср. ${(sh.coreSum / Math.max(1, sh.ticks)).toFixed(4)} ед.; частей (в руке) — наиб. ${sh.part.toFixed(3)} ед.; центр героя в теле ядра — ${sh.inside} тактов из ${sh.ticks}, тело героя на теле ядра — ${sh.overlap} (${pct(sh.overlap, sh.ticks)}); герой за спиной Тролля (центр севернее тела ядра) — ${sh.behind} тактов.`);
   const ct = troll.reduce((a, f) => ({ landing: a.landing + f.coreTouch.landing, other: a.other + f.coreTouch.other, dist: [...a.dist, ...f.coreTouch.dist] }), { landing: 0, other: 0, dist: [] as number[] });
   console.log(`Касания ядра: ${ct.landing + ct.other}, из них в первые 0,5 с после конца перемещения героя (посадка) — ${ct.landing} (${pct(ct.landing, ct.landing + ct.other)}); расстояние героя до центра ядра при касании, мед. ${f1(median(ct.dist))}.`);
   console.log(`«Храп»: выспался ${troll.reduce((s, f) => s + f.slept, 0)}, прерван ${troll.reduce((s, f) => s + f.woken, 0)}; волков «Рыка» — ${troll.reduce((s, f) => s + f.wolves, 0)} (${f1(troll.reduce((s, f) => s + f.wolves, 0) / troll.length)} на бой); фаза 3 — ${pct(troll.filter(f => f.phase >= 3).length, troll.length)} боёв.`);
