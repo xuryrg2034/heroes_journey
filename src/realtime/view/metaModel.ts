@@ -24,7 +24,8 @@ export interface MetaEnd {
   thresholds: number[];
   pack: MetaPack | null;
   nextPack: { id: string; title: string; at: number; size: number } | null;
-  record: { before: { row: number; won: boolean } | null; after: { row: number; won: boolean }; beaten: boolean };
+  /** Task 38: `level` 2 — the garrison's record (absent — the forest). */
+  record: { before: { row: number; won: boolean; level?: 2 } | null; after: { row: number; won: boolean; level?: 2 }; beaten: boolean };
   carry: { n: number; share: number; cap: number; resources: number };
   stock: { before: number; after: number };
   quest?: { npc: NpcId; id: string; done: boolean; xp: number; stock: number };
@@ -39,7 +40,7 @@ export interface HearthState {
   xp: number;
   thresholds: number[];
   nextPack: { id: string; title: string; at: number; size: number } | null;
-  record: { row: number; won: boolean } | null;
+  record: { row: number; won: boolean; level?: 2 } | null;
   /** The enemy kinds the viewer has met (the bestiary). */
   seen: string[];
   quest?: { npc: NpcId; id: string };

@@ -6,10 +6,11 @@
  *    С3), the next threshold marked on it;
  * 2. a pack opened: the bar reaches the mark, the mark flashes, three cards turn over one by one (a silhouette → the item, its
  *    name on the card) with the reward sound — the meta's main moment, no text plate;
- * 3. the depth record — «Ряд 8 — новый рекорд» only when beaten (the old one small);
+ * 3. the depth record — «Ряд 8 — новый рекорд» only when beaten (the old one small); task 38 — the garrison's «Гарнизон, ряд 2»;
  * 4. «В лагерь: +N» — the resources fly from the header's number to it and it counts up.
  * View only: the profile already holds the result (`MetaEnd`).
  */
+import { GARRISON_TITLE } from '../run/garrison';
 import { countUpValue } from './juice';
 import { metaItemCard, xpBar, xpPartLabel, type MetaEnd } from './metaModel';
 
@@ -22,17 +23,26 @@ export type MetaSound = 'tick' | 'mark' | 'flip' | 'pack';
 /** What the block has shown so far (tests read it). */
 export interface MetaEndShown { xp: number; gain: number; bar: number; mark: boolean; flipped: number; carry: number; done: boolean }
 
-export function rowWord(row: number, won: boolean): string { return won ? 'лес пройден' : `ряд ${row}`; }
+/**
+ * The record's depth in words: «ряд 8», «лес пройден». Task 38: a garrison record (`level` 2) — «Гарнизон, ряд 2» (the forest is
+ * behind it; `won` is any victory of the profile, so the row speaks, not «пройден»); `forest` — a forest row next to a garrison
+ * one says its level: «лес, ряд 9». A garrison record of row 0 (no garrison node yet) — «лес пройден».
+ */
+export function rowWord(row: number, won: boolean, level?: number, forest = false): string {
+  if (level === 2) return row > 0 ? `${GARRISON_TITLE}, ряд ${row}` : 'лес пройден';
+  return won ? 'лес пройден' : forest ? `лес, ряд ${row}` : `ряд ${row}`;
+}
 
 /** The block: the experience, the bar, the record, the carry, the pack's cards face down. */
 function blockHtml(m: MetaEnd): string {
   const parts = m.xp.parts.filter(p => p.xp !== 0).map(p => `<li data-testid="meta-part-${p.id}"><span>${esc(xpPartLabel(p.id, p.n))}</span><b>+${p.xp}</b></li>`).join('');
   const bar = xpBar(m.xp.before, m.thresholds);
   const rec = m.record.after, before = m.record.before;
+  const word = rowWord(rec.row, rec.won, rec.level);
   const record = m.record.beaten
-    ? `<p class="rt-meta-record rt-meta-beaten" data-testid="meta-record" data-beaten="true"><b>${esc(rowWord(rec.row, rec.won)[0].toUpperCase() + rowWord(rec.row, rec.won).slice(1))} — новый рекорд</b>${before && (before.row > 0 || before.won) ? `<small>прежний: ${esc(rowWord(before.row, before.won))}</small>` : ''}</p>`
-    // Smoke v62: no record yet (row 0) — no line.
-    : rec.row > 0 || rec.won ? `<p class="rt-meta-record" data-testid="meta-record" data-beaten="false"><small>Рекорд: ${esc(rowWord(rec.row, rec.won))}</small></p>` : '';
+    ? `<p class="rt-meta-record rt-meta-beaten" data-testid="meta-record" data-beaten="true"><b>${esc(word[0].toUpperCase() + word.slice(1))} — новый рекорд</b>${before && (before.row > 0 || before.won || before.level) ? `<small>прежний: ${esc(rowWord(before.row, before.won, before.level, rec.level === 2))}</small>` : ''}</p>`
+    // Smoke v62: no record yet (row 0) — no line (a garrison record of row 0 has its line: «лес пройден»).
+    : rec.row > 0 || rec.won || rec.level ? `<p class="rt-meta-record" data-testid="meta-record" data-beaten="false"><small>Рекорд: ${esc(word)}</small></p>` : '';
   const quest = m.quest ? `<p class="rt-meta-quest${m.quest.done ? ' rt-done' : ''}" data-testid="meta-quest">Задание: ${m.quest.done ? `выполнено <b>+${m.quest.xp} опыта, +${m.quest.stock} запаса</b>` : 'не выполнено'}</p>` : '';
   const cards = m.pack ? `<div class="rt-pack" data-testid="meta-pack" data-pack="${esc(m.pack.id)}"><p class="rt-pack-title">${esc(m.pack.title)}</p><div class="rt-pack-cards">${m.pack.items.map((item, i) => {
     const c = metaItemCard(item);

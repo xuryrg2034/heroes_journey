@@ -21,7 +21,7 @@ export class ProfileMeta implements MetaSource {
     return {
       stock: view.stock, levels: view.levels, met: { owl: true, herb: view.met.herb, smith: view.met.smith }, xp, thresholds: [...RT_META_THRESHOLDS],
       nextPack: next ? { id: next.id, title: next.title, at: next.at, size: next.items.length } : null,
-      record: hero?.record ? { row: hero.record.row, won: hero.record.won } : null, seen: view.seen, lines: view.lines,
+      record: hero?.record ? { row: hero.record.row, won: hero.record.won, ...hero.record.level ? { level: hero.record.level } : {} } : null, seen: view.seen, lines: view.lines,
       ...view.quest ? { quest: { npc: view.quest.npc as NpcId, id: view.quest.id } } : {},
       ...view.last ? { last: { ...view.last } } : {},
       ...view.self.herb || view.self.smith ? { self: { ...view.self.herb ? { herb: true } : {}, ...view.self.smith ? { smith: true } : {} } } : {},

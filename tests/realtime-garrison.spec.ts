@@ -4,6 +4,8 @@ import { gameWait, untilFrame } from './realtimeFrames';
 import { serializeRtRun, type RtRunState } from '../src/realtime/run/rtRun';
 import { walkRun } from '../src/realtime/run/metaWalk.testkit';
 import { RT_RUN_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
+import { rtRunDepth } from '../src/realtime/run/rtMeta';
+import { rtLevel } from '../src/realtime/run/rtRun';
 
 /**
  * Task 38 «Гарнизон, шаг 1а» — the view (design 15.10.2026, docs/design-notes/task-38-garrison-step1.md): the leash on the field
@@ -139,5 +141,37 @@ test('task 38 view: a run walked in Node to the forest final\'s relic — the re
   await expect(page.getByTestId('map-cap-checkpoint')).toHaveText('Караульня');
   await expect(page.getByTestId('map-cap-boss').first()).toHaveText('Кастелян');
   await page.screenshot({ path: 'artifacts/realtime-garrison-map.png' });
+  expect(errors).toEqual([]);
+});
+
+test('task 38 view: the depth record names the garrison — a meta run walked to the garrison\'s row 2+ and abandoned shows «Гарнизон, ряд N — новый рекорд» over «прежний: лес пройден»; the camp says «Рекорд: Гарнизон, ряд N»', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = collectErrors(page);
+  await page.goto('/');
+  // The profile of a viewer who passed the forest before (record: the forest won, row 9) and has the camp.
+  const meta = { heroes: { cat: { xp: 40, packs: [], record: { row: 9, won: true, xp: 40 } } }, hearth: { stock: 3, levels: { owl: 0, herb: 0, smith: 0 }, met: { herb: false, smith: false }, lines: { 'owl:first': 2 }, quiet: 0 } };
+  await page.evaluate(m => { localStorage.clear(); localStorage.setItem('ashen-oath-realtime-prologue-done', '1'); localStorage.setItem('ashen-oath-rt-profile-v1', JSON.stringify({ version: 1, giftFull: false, runs: 3, won: true, meta: m })); }, meta);
+  // A meta run (no given seed) walked in Node by its own commands: on the garrison's map past its row 2.
+  let open: RtRunState | null = null;
+  walkRun({ k: 3, create: { gift: 'full', garrison: true }, each: state => { if (!open && !state.result && !state.pending && rtLevel(state) === 2 && rtRunDepth(state) >= 2) open = structuredClone(state); } });
+  expect(open, 'the walk reached the garrison\'s row 2').not.toBeNull();
+  const row = rtRunDepth(open!);
+  await page.evaluate(([key, value]) => localStorage.setItem(key, value), [RT_RUN_STORAGE_KEY, serializeRtRun(open!)] as const);
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
+  await expect(page.getByTestId('run-title')).toHaveText('Гарнизон');
+  // «Новый поход» → «Да, новый»: the run is settled by core, its end screen shows the record.
+  await page.getByTestId('run-reset').click();
+  await page.getByTestId('run-reset-confirm').click();
+  await expect(page.getByTestId('run-result-abandoned')).toBeVisible();
+  const record = page.getByTestId('meta-record');
+  await expect(record).toHaveAttribute('data-beaten', 'true');
+  await expect(record).toContainText(`Гарнизон, ряд ${row} — новый рекорд`);
+  await expect(record).toContainText('прежний: лес пройден');
+  await page.waitForTimeout(1200);
+  await page.screenshot({ path: 'artifacts/realtime-garrison-record.png' });
+  await page.getByTestId('run-to-hearth').click();
+  await expect(page.getByTestId('hearth-record')).toHaveText(`Рекорд: Гарнизон, ряд ${row}`);
+  await page.screenshot({ path: 'artifacts/realtime-garrison-record-camp.png' });
   expect(errors).toEqual([]);
 });
