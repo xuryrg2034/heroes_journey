@@ -59,6 +59,11 @@ export interface EnemyBehavior {
    * Castellan loses a plate after the dash here.
    */
   onTetherCut?(world: World, holder: Enemy, held: Enemy): void;
+  /**
+   * Task 43: true — the enemy runs through the hero's body now (the knight's «Рывок» runs its lane to its end): the parting does
+   * not put it back on his touch circle (world.ts `separate`). Absent — it is put back, as every body.
+   */
+  passesHero?(world: World, enemy: Enemy): boolean;
 }
 
 /**
@@ -82,6 +87,12 @@ export interface EnemyKindDef {
   speed(world: World, enemy: Enemy): number;
   /** Phase A, T1: the speed class (absent — the kind walks by `speed` always: the reaper). */
   speedClass?: SpeedClass;
+  /** Task 43: the class of this enemy now, when its state changes it (the knight: slow in armour, normal in the offensive). */
+  speedClassOf?(enemy: Enemy): SpeedClass;
+  /** Task 43: its touch is its own (`touchDamage`) — never raised by the elite's or the tough one's touch (the knight). */
+  ownTouch?: true;
+  /** Task 43: never an elite (no elite roll, no elite modifier: the knight's plates are its own law). */
+  noElite?: true;
   /** Body (pushing, touch zone, obstacles) and art (drawing, link reach edge, press circle) as a share of the common size. */
   bodyScale: number;
   artScale: number;

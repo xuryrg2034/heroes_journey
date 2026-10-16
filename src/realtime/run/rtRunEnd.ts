@@ -32,6 +32,8 @@ export const RT_KIND_TITLES: Readonly<Record<string, string>> = {
   // Tasks 38–40 «Гарнизон» (the report's and the killer line's names; task 40: their touches are in `RT_DEATH_TOUCH`).
   // Design 16.10.2026 (task-40 spec, section 10): a capital only for a unique boss («Тюремщик», «Кастелян»); the kinds in lower case.
   guard: 'стражник', handler: 'псарь', hound: 'пёс', castellan: 'Кастелян', keymaster: 'ключник',
+  // Task 43 «Гарнизон, шаг 2»: the knight (lower case, the decision of task 40).
+  knight: 'рыцарь',
 };
 
 /**
@@ -46,13 +48,15 @@ export const RT_DEATH_ABILITY: Readonly<Record<string, string>> = {
   flail: 'кистень Тюремщика', throw: 'бросок гири',
   // Task 40 (design 16.10.2026, task-40 spec section 10): the Castellan's «Спустить пса» (a hound's touch outside it — «пёс»).
   lunge: 'рывок пса Кастеляна',
+  // Task 43 (spec section 5): the knight's moves (its touch — «рыцарь»).
+  'knight-charge': 'рывок рыцаря', 'knight-swing': 'размах рыцаря',
 };
 /**
  * The touch sources (each kind's `hitSource`): the line names the striker's kind, its elite mark, armour and affixes. Task 40 (design
  * 16.10.2026, spec section 10): the garrison's touches too — the guard, the dog handler, the hound (on its leash or in its frenzy: the
  * same body, «пёс»), the keymaster, the Castellan.
  */
-export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper', 'guard', 'handler', 'hound', 'keymaster', 'castellan'];
+export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper', 'guard', 'handler', 'hound', 'keymaster', 'castellan', 'knight'];
 
 /** Drafts sent to design 12.10.2026 (pending approval). */
 export const RT_RUN_END_TEXT = {
@@ -85,7 +89,9 @@ export interface RtDeath { source: string; enemy?: string; elite?: true; armor?:
 /** The death of a hit `source` struck by `striker` (null — no enemy, or unknown). */
 export function rtDeathOf(source: string, striker: Pick<Enemy, 'kind' | 'elite' | 'armor' | 'affixes'> | null | undefined): RtDeath {
   const affixes = striker?.affixes?.filter(id => (AFFIX_IDS as readonly string[]).includes(id)) ?? [];
-  return { source, ...striker ? { enemy: striker.kind } : {}, ...striker?.elite ? { elite: true as const } : {}, ...striker?.armor ? { armor: true as const } : {},
+  return { source, ...striker ? { enemy: striker.kind } : {}, ...striker?.elite ? { elite: true as const } : {},
+    // Task 43: the armour mark is an elite's (a knight's or a boss's plates are their kind's own: «рыцарь», not «рыцарь (броня)»).
+    ...striker?.elite && striker.armor ? { armor: true as const } : {},
     ...affixes.length ? { affixes: [...affixes] } : {} };
 }
 

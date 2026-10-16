@@ -36,11 +36,25 @@
  * enemy, a guard, a dog handler — not an elite, a boss's part, a hound, another keymaster, a body held already, a link of the drawn
  * chain. A cut of its shackle by the dash — its next shackle `shacklePeriod` s later. Its death drops its shackles after the move
  * (tethers.ts `dropTethers`, `settleTethers`).
+ *
+ * **Рыцарь** (`knight`, task 43 «Гарнизон, шаг 2», part В, design 16.10.2026, docs/design-notes/task-43-garrison-step2.md, 5): never
+ * an elite (`noElite`); its touch is its own (`knightTouch`, never raised: `ownTouch`). In armour: `knightPlates` plates of a boss's
+ * law (`EliteArmor.boss`: a chain's link takes one plate and goes on, no window at 0, no regrowth; every other source as on an elite —
+ * world.ts `damageEnemy`), HP `knightHp` behind them; slow; no moves; a knight of a formation (`vars.fm`) walks in the guards' line.
+ * The pass that took its last plate over (no dash runs): it sheds the armour (`armor` gone, `vars.of`, event `knightShed`) — the
+ * offensive: the normal speed class (`speedClassOf`), chained as an ordinary enemy, its moves in turn with `knightPause` s between
+ * (the first one `knightPause` s after the shed): «Рывок» (`charge`) — a lane `KNIGHT_LANE_LENGTH` × `KNIGHT_LANE_WIDTH` from the
+ * knight towards the hero, fixed at the windup's start (`knightChargeWindup` s, it stands), then it runs the lane to its end at
+ * `KNIGHT_RUN_SPEED` (a wall, a tree or a cliff edge stops it; no touch while it runs); the hero whose body the run's segment of a
+ * step meets takes `knightChargeDamage` once (`knight-charge`). «Размах» (`swing`) — it stands `knightSwingWindup` s, then the circle
+ * `knightSwingRadius` around it: the hero's body in it takes `knightSwingDamage` (`knight-swing`), each enemy's body in it
+ * `KNIGHT_SWING_ENEMY_DAMAGE` (an elite, a knight in armour — a plate), not the player's kills; the strike waits while a dash runs.
+ * Events `knightMove` (`charge`: `start`, `run`, `end`; `swing`: `start`, `hit`). Frozen — its timers wait.
  * Numbers are hypotheses of the design; the tests check the rules.
  */
 import { dhypot } from '../detMath';
 import { dropArmorLoot } from '../elites';
-import { dist, lineOfSight, pushOutOfCliffs, pushOutOfObstacles, type Vec } from '../geometry';
+import { blockedAt, dist, lineOfSight, pushOutOfCliffs, pushOutOfObstacles, type Vec } from '../geometry';
 import { heroRadius } from '../params';
 import { palette, spawnEnemy } from '../spawn';
 import { addTether, dropTethers, tetherOf, tethersHeldBy, tethersOn } from '../tethers';
@@ -148,20 +162,24 @@ function formLines(world: World, members: readonly Enemy[]): void {
   }
 }
 
+/** A guard (or a knight in armour) walks to its place on the line; false — the common walk this step. */
+function lineStep(world: World, e: Enemy, dt: number): boolean {
+  if (!world.params.guardFormation || e.vars.ox === undefined || e.knock > 0) return false;
+  const to = { x: e.vars.ox, y: e.vars.oy };
+  if (!lineOfSight(e, to, world.arena, bodyRadiusOf(world.params, e) * 0.9, true)) return false;
+  if (dist(e, world.hero) <= touchDistanceOf(world.params, e) + 0.01) return true;
+  const pace = Math.max(GUARD_WAIT_MIN, Math.min(1, 1 - (e.vars.oa ?? 0) * GUARD_WAIT));
+  walkTo(world, e, to, walkStep(world, e, dt) * pace);
+  return true;
+}
+
 registerBehavior({
   id: GUARD,
   beforeStep(world, members) {
-    if (world.params.guardFormation) formLines(world, members);
+    // Task 43: a knight in armour of a formation stands in its line (absent any knight — the guards alone, as before).
+    if (world.params.guardFormation) formLines(world, world.enemies.some(knightInLine) ? world.enemies.filter(e => e.kind === GUARD || knightInLine(e)) : members);
   },
-  step(world, e, dt) {
-    if (!world.params.guardFormation || e.vars.ox === undefined || e.knock > 0) return false;
-    const to = { x: e.vars.ox, y: e.vars.oy };
-    if (!lineOfSight(e, to, world.arena, bodyRadiusOf(world.params, e) * 0.9, true)) return false;
-    if (dist(e, world.hero) <= touchDistanceOf(world.params, e) + 0.01) return true;
-    const pace = Math.max(GUARD_WAIT_MIN, Math.min(1, 1 - (e.vars.oa ?? 0) * GUARD_WAIT));
-    walkTo(world, e, to, walkStep(world, e, dt) * pace);
-    return true;
-  },
+  step: lineStep,
 });
 
 registerEnemyKind({
@@ -613,3 +631,199 @@ registerEnemyKind({
   id: KEYMASTER, behavior: KEYMASTER, speedClass: 'slow', hp: () => KEYMASTER_HP, speed: world => world.pressure.enemySpeed * world.params.speedSlow,
   bodyScale: 1, artScale: 1, touchDamage: world => world.params.contactDamage, mass: () => 1, spread: true, chainable: true, hitSource: KEYMASTER,
 });
+
+// ---------- Рыцарь (task 43, part В) ----------
+
+/** Task 43: the knight (design 16.10.2026, docs/design-notes/task-43-garrison-step2.md, 5). */
+export const KNIGHT = 'knight';
+/** «Рывок»: the lane's length and width (units; the design's numbers, not panel keys). */
+export const KNIGHT_LANE_LENGTH = 5;
+export const KNIGHT_LANE_WIDTH = 0.8;
+/** «Рывок»: the knight runs its lane this fast (units per game second; the boar's default charge speed). */
+export const KNIGHT_RUN_SPEED = 8;
+/** «Размах»: damage to each enemy in the circle (an elite — a plate; not the player's kills). */
+export const KNIGHT_SWING_ENEMY_DAMAGE = 1;
+/** Hit and kill sources of «Рывок» and «Размах» (the knight's touch — `knight`). */
+export const KNIGHT_CHARGE_SOURCE = 'knight-charge';
+export const KNIGHT_SWING_SOURCE = 'knight-swing';
+/** `vars.km` — the move running now: the charge's windup, its run, the swing's windup (absent — none). */
+const KM_CHARGE = 1, KM_RUN = 2, KM_SWING = 3;
+/** The defaults of the knight's numbers (journals without the keys). */
+const KNIGHT_DEFAULTS = { plates: 2, hp: 3, touch: 2, chargeWindup: 1, chargeDamage: 2, swingWindup: 0.8, swingRadius: 1.6, swingDamage: 2, pause: 2 } as const;
+
+const knightPlatesOf = (world: World): number => Math.max(0, Math.floor(world.params.knightPlates ?? KNIGHT_DEFAULTS.plates));
+const knightPauseOf = (world: World): number => Math.max(0.05, world.params.knightPause ?? KNIGHT_DEFAULTS.pause);
+const chargeWindupOf = (world: World): number => Math.max(0.05, world.params.knightChargeWindup ?? KNIGHT_DEFAULTS.chargeWindup);
+const swingWindupOf = (world: World): number => Math.max(0.05, world.params.knightSwingWindup ?? KNIGHT_DEFAULTS.swingWindup);
+/** «Размах»: the circle's radius around the knight. */
+export const knightSwingRadius = (world: World): number => Math.max(0, world.params.knightSwingRadius ?? KNIGHT_DEFAULTS.swingRadius);
+
+/** The knight is in its offensive (its armour shed). */
+export const knightOffensive = (e: Enemy): boolean => e.kind === KNIGHT && !!e.vars.of;
+/** A knight in armour of a formation: it walks in the guards' line (`formLines`). */
+function knightInLine(e: Enemy): boolean { return e.kind === KNIGHT && !e.vars.of && e.vars.fm !== undefined; }
+
+/** The offensive starts: the armour goes (the event for the view), the first move after the pause. */
+function shedArmor(world: World, e: Enemy): void {
+  delete e.armor;
+  delete e.vars.ox; delete e.vars.oy; delete e.vars.oa;
+  e.vars.of = 1;
+  e.vars.cd = knightPauseOf(world);
+  world.events.push({ type: 'knightShed', id: e.id, x: e.x, y: e.y });
+}
+
+/** A move ended: the pause, then the other move («Рывок» after «Размах», «Размах» after «Рывок»). */
+function endKnightMove(world: World, e: Enemy, next: 'charge' | 'swing'): void {
+  const v = e.vars;
+  delete v.km; delete v.kt; delete v.kw; delete v.ax; delete v.ay; delete v.bx; delete v.by; delete v.dx; delete v.dy; delete v.ran; delete v.hh;
+  if (next === 'swing') v.nm = 1; else delete v.nm;
+  v.cd = knightPauseOf(world);
+}
+
+function endCharge(world: World, e: Enemy): void {
+  world.events.push({ type: 'knightMove', id: e.id, move: 'charge', stage: 'end' });
+  endKnightMove(world, e, 'swing');
+}
+
+/** «Рывок» runs: the knight along its lane; the hero whose body the run's segment of this step touches takes the hit once. */
+function chargeRun(world: World, e: Enemy, dt: number): void {
+  const v = e.vars, p = world.params, r = bodyRadiusOf(p, e);
+  const step = Math.min(KNIGHT_RUN_SPEED * dt, Math.max(0, KNIGHT_LANE_LENGTH - (v.ran ?? 0)));
+  const from = { x: e.x, y: e.y }, next = { x: e.x + v.dx * step, y: e.y + v.dy * step };
+  // Walls, trees and cliff edges stop the run (as the boar's charge).
+  if (blockedAt(next, r * 0.95, world.arena)) { endCharge(world, e); return; }
+  e.x = next.x; e.y = next.y; v.ran = (v.ran ?? 0) + step;
+  if (!v.hh && world.status === 'playing' && segmentDistance(from, next, world.hero) <= KNIGHT_LANE_WIDTH / 2 + heroRadius(p)) {
+    v.hh = 1;
+    // During the hero's dash or jump the run passes by (the hero cannot be hurt then).
+    if (canBeHurt(world)) hurtHero(world, e, Math.max(0, p.knightChargeDamage ?? KNIGHT_DEFAULTS.chargeDamage), KNIGHT_CHARGE_SOURCE);
+    else noteBlock(world, e.x, e.y, KNIGHT_CHARGE_SOURCE, e.id);
+  }
+  if (v.ran >= KNIGHT_LANE_LENGTH - 1e-6) endCharge(world, e);
+}
+
+/** «Размах» strikes: the hero in the circle (by his body) takes `knightSwingDamage`; each enemy in it (by its body) 1, not the player's. */
+function swingHit(world: World, e: Enemy): void {
+  const p = world.params, radius = knightSwingRadius(world);
+  world.events.push({ type: 'knightMove', id: e.id, move: 'swing', stage: 'hit' });
+  if (world.status !== 'playing') return;
+  if (dist(e, world.hero) <= radius + heroRadius(p)) {
+    if (canBeHurt(world)) hurtHero(world, e, Math.max(0, p.knightSwingDamage ?? KNIGHT_DEFAULTS.swingDamage), KNIGHT_SWING_SOURCE);
+    else noteBlock(world, e.x, e.y, KNIGHT_SWING_SOURCE, e.id);
+  }
+  for (const other of [...world.enemies]) {
+    if (other === e || kindOf(other).immune || !world.enemies.includes(other)) continue;
+    if (dist(e, other) > radius + bodyRadiusOf(p, other)) continue;
+    damageEnemy(world, other, KNIGHT_SWING_ENEMY_DAMAGE, { source: KNIGHT_SWING_SOURCE, credited: false, firing: e.id });
+  }
+}
+
+/** The knight's own step in its offensive: the windups stand, the run runs; between moves the common walk (the pause runs). */
+function offensiveStep(world: World, e: Enemy, dt: number): boolean {
+  const v = e.vars;
+  if (v.km === KM_CHARGE) {
+    e.knock = 0;
+    v.kt -= dt;
+    if (v.kt <= TIME_EPS) { v.km = KM_RUN; v.ran = 0; world.events.push({ type: 'knightMove', id: e.id, move: 'charge', stage: 'run' }); }
+    return true;
+  }
+  if (v.km === KM_RUN) { e.knock = 0; chargeRun(world, e, dt); return true; }
+  if (v.km === KM_SWING) {
+    e.knock = 0;
+    v.kt = Math.max(0, v.kt - dt);
+    // The strike waits for the hero's dash to end: the chain's highlight is what the dash does (the swing hurts enemies).
+    if (v.kt > TIME_EPS || world.move) return true;
+    swingHit(world, e);
+    endKnightMove(world, e, 'charge');
+    return true;
+  }
+  if (world.status !== 'playing') return false;
+  v.cd = Math.max(0, (v.cd ?? 0) - dt);
+  if (v.cd > TIME_EPS) return false;
+  if (v.nm) {
+    // «Размах»: the knight stands and winds up; the circle is around it.
+    const w = swingWindupOf(world);
+    v.km = KM_SWING; v.kt = w; v.kw = w;
+    world.events.push({ type: 'knightMove', id: e.id, move: 'swing', stage: 'start' });
+    return true;
+  }
+  // «Рывок»: the lane from the knight towards the hero, fixed now.
+  const hero = world.hero, d = dist(e, hero);
+  if (d < 1e-6) return false;
+  const w = chargeWindupOf(world);
+  v.km = KM_CHARGE; v.kt = w; v.kw = w;
+  v.dx = (hero.x - e.x) / d; v.dy = (hero.y - e.y) / d;
+  v.ax = e.x; v.ay = e.y; v.bx = e.x + v.dx * KNIGHT_LANE_LENGTH; v.by = e.y + v.dy * KNIGHT_LANE_LENGTH;
+  world.events.push({ type: 'knightMove', id: e.id, move: 'charge', stage: 'start' });
+  return true;
+}
+
+registerBehavior({
+  id: KNIGHT,
+  onSpawn(world, e) {
+    // In armour: the plates of a boss's law (one per pass, no regrowth, no window; elites.ts `stripPlates`); none — the offensive.
+    const plates = knightPlatesOf(world);
+    if (plates > 0) e.armor = { plates, max: plates, boss: true };
+    else shedArmor(world, e);
+  },
+  beforeStep(world, members) {
+    for (const e of members) {
+      // The last plate went: the armour is shed after the pass (the highlight the player released is what the dash does).
+      if (!e.vars.of && e.armor && e.armor.plates <= 0 && !world.move && world.enemies.includes(e)) shedArmor(world, e);
+    }
+    // No guard on the arena (their group step did not run): the knights of a formation keep a line of their own.
+    if (world.params.guardFormation && !world.enemies.some(g => g.kind === GUARD)) {
+      const line = members.filter(knightInLine);
+      if (line.length) formLines(world, line);
+    }
+  },
+  step(world, e, dt) {
+    if (!e.vars.of) return lineStep(world, e, dt);
+    return offensiveStep(world, e, dt);
+  },
+  // The run is the charge's hit: no touch while it runs; it runs through the hero to the lane's end.
+  touches: (_world, e) => e.vars.km !== KM_RUN,
+  passesHero: (_world, e) => e.vars.km === KM_RUN,
+});
+
+registerEnemyKind({
+  id: KNIGHT, behavior: KNIGHT, speedClass: 'slow', speedClassOf: e => (e.vars.of ? 'normal' : 'slow'), ownTouch: true, noElite: true,
+  hp: params => Math.max(0, Math.floor(params.knightHp ?? KNIGHT_DEFAULTS.hp)),
+  speed: (world, e) => world.pressure.enemySpeed * (e.vars.of ? 1 : world.params.speedSlow),
+  bodyScale: 1, artScale: 1, touchDamage: world => Math.max(0, world.params.knightTouch ?? KNIGHT_DEFAULTS.touch), mass: () => 1, spread: true, chainable: true, hitSource: KNIGHT,
+});
+
+// ---- The knight for the view (read only) ----
+
+/**
+ * The knight now: in armour (its plates and maximum) or in the offensive; the move running (`charge` / `swing`), its stage
+ * (`windup`, `run` — the charge's run) and the windup's share gone (0…1; 1 while it runs). Null — not a knight.
+ */
+export function knightState(e: Enemy): { armoured: boolean; plates: number; max: number; move: 'charge' | 'swing' | null; stage: 'windup' | 'run' | null; progress: number } | null {
+  if (e.kind !== KNIGHT) return null;
+  const v = e.vars, move = v.km === KM_SWING ? 'swing' as const : v.km === KM_CHARGE || v.km === KM_RUN ? 'charge' as const : null;
+  const progress = v.km === KM_RUN ? 1 : move ? Math.max(0, Math.min(1, 1 - Math.max(0, v.kt) / Math.max(1e-6, v.kw))) : 0;
+  return { armoured: !v.of, plates: e.armor?.plates ?? 0, max: e.armor?.max ?? 0, move, stage: v.km === KM_RUN ? 'run' : move ? 'windup' : null, progress };
+}
+
+/**
+ * «Рывок» for the view, in the shape of the boar's lane (`boarLane`): direction, length left (the whole lane while it winds up,
+ * the rest while it runs), the windup's share gone, running or not; the lane's width and fixed ends too. Null — no charge now.
+ */
+export function knightLane(e: Enemy): { dx: number; dy: number; len: number; progress: number; charging: boolean; second: false; width: number; from: Vec; to: Vec } | null {
+  const v = e.vars;
+  if (e.kind !== KNIGHT || (v.km !== KM_CHARGE && v.km !== KM_RUN)) return null;
+  const running = v.km === KM_RUN;
+  return {
+    dx: v.dx, dy: v.dy, len: running ? Math.max(0, KNIGHT_LANE_LENGTH - (v.ran ?? 0)) : KNIGHT_LANE_LENGTH,
+    progress: running ? 1 : Math.max(0, Math.min(1, 1 - Math.max(0, v.kt) / Math.max(1e-6, v.kw))), charging: running, second: false,
+    width: KNIGHT_LANE_WIDTH, from: { x: v.ax, y: v.ay }, to: { x: v.bx, y: v.by },
+  };
+}
+
+/** «Размах» for the view: the circle around the knight (its centre now, the radius) and the windup's share gone. Null — no swing now. */
+export function knightSwing(world: World, e: Enemy): { x: number; y: number; r: number; progress: number } | null {
+  const v = e.vars;
+  if (e.kind !== KNIGHT || v.km !== KM_SWING) return null;
+  return { x: e.x, y: e.y, r: knightSwingRadius(world), progress: Math.max(0, Math.min(1, 1 - Math.max(0, v.kt) / Math.max(1e-6, v.kw))) };
+}

@@ -925,6 +925,11 @@ export interface GarrisonSummary {
   riots: number; riotKills: number;
   /** Task 41: HP the hero lost to the touches of rioting prisoners (the striker in its riot after the tick; older records — 0). */
   riotDamage: number;
+  /**
+   * Task 43 «Рыцарь» (from 16.10.2026; older records — 0): knights seen on the arena, their armour shed (`knightShed`), knights killed
+   * (any source: `kill` of a knight), chains on a knight (a dash that struck a knight counts once per knight).
+   */
+  knights: number; knightSheds: number; knightKills: number; knightChains: number;
 }
 
 /**
@@ -1219,7 +1224,7 @@ export function emptyFightSummary(): FightSummary {
     feat: null,
     death: null,
     boss: null,
-    garrison: { shackles: 0, shackleCuts: 0, firstShackleCut: null, frenzyHits: 0, frenzyDamage: 0, riots: 0, riotKills: 0, riotDamage: 0 },
+    garrison: { shackles: 0, shackleCuts: 0, firstShackleCut: null, frenzyHits: 0, frenzyDamage: 0, riots: 0, riotKills: 0, riotDamage: 0, knights: 0, knightSheds: 0, knightKills: 0, knightChains: 0 },
   };
 }
 

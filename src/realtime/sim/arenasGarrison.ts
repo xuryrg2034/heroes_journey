@@ -10,7 +10,7 @@
  */
 import { registerArena, type ArenaTemplate, type Pace } from './arenas';
 import { polygon, tree, wall, zone } from './geometry';
-import { CASTELLAN, GUARD, GUARD_FORMATION, HANDLER, HOUND, KEYMASTER } from './enemies/garrison';
+import { CASTELLAN, GUARD, GUARD_FORMATION, HANDLER, HOUND, KEYMASTER, KNIGHT } from './enemies/garrison';
 
 /** No wolf packs and no boars (as the arenas of one kind). */
 const NO_PACKS: Partial<Pace> = { wolfShare: 0, boarShare: 0 };
@@ -181,5 +181,30 @@ export const MOAT_ARENA: ArenaTemplate = registerArena({
   shackles: true,
 });
 
-/** The garrison's arenas on the sandbox menu (after the boss arena; task 40 «Ров» at the end: the menu numbers stay). */
-export const GARRISON_ARENAS: readonly ArenaTemplate[] = [YARD_ARENA, KENNEL_ARENA, GALLERY_ARENA, GUARDROOM_ARENA, CASTELLAN_ARENA, MOAT_ARENA];
+/**
+ * Task 43 «Рыцарь» (part В; sandbox only — the run's «Оружейная» is the level designer's, spec section 6): kill 20. A line of the
+ * guards' formation with a knight in its middle (colour 0) and a second knight alone (colour 2); the newcomers are basic enemies.
+ * Each chain through a knight takes one plate; the pass that takes the last starts its offensive («Рывок», «Размах»).
+ */
+export const KNIGHT_TEST_ARENA: ArenaTemplate = registerArena({
+  id: 'g-knight-test',
+  name: 'Рыцарь (проба)',
+  summary: 'Проба рыцаря: каждая цепь через него снимает пластину лат. Без лат он наступает: рывок по полосе и размах по кругу. Убей цепью 20 врагов. Дверь сверху.',
+  goal: 'kills',
+  width: 16,
+  height: 10,
+  heroStart: { x: 8, y: 8 },
+  obstacles: [wall(2, 2, 2, 1), wall(12, 2, 2, 1)],
+  buttons: [],
+  door: { x: 8, y: 0.7 },
+  enemies: [
+    { x: 4.6, y: 3.4, color: 0, kind: GUARD, formation: 1 }, { x: 5.5, y: 3.4, color: 0, kind: KNIGHT, formation: 1 }, { x: 6.4, y: 3.4, color: 0, kind: GUARD, formation: 1 },
+    { x: 11, y: 3.6, color: 2, kind: KNIGHT },
+  ],
+  phaseOverride: NO_PACKS,
+  killGoal: 20,
+  garrison: true,
+});
+
+/** The garrison's arenas on the sandbox menu (after the boss arena; task 40 «Ров» and task 43 «Рыцарь (проба)» at the end: the menu numbers stay). */
+export const GARRISON_ARENAS: readonly ArenaTemplate[] = [YARD_ARENA, KENNEL_ARENA, GALLERY_ARENA, GUARDROOM_ARENA, CASTELLAN_ARENA, MOAT_ARENA, KNIGHT_TEST_ARENA];

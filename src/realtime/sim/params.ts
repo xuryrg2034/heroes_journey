@@ -945,6 +945,26 @@ export interface Params {
    * prisoner, as task 40). The sandbox and the run: on (`RT_RUN_FORCED`).
    */
   prisonerRiot: boolean;
+  // ---- Task 43 «Гарнизон, шаг 2», part В «Рыцарь» (sim/enemies/garrison.ts «Рыцарь»; docs/realtime-elite-behaviors.md). ----
+  // The knight comes only by an arena's roster (no knight — none of these is read). Journals without the keys: the defaults below.
+  /** Task 43: the knight's plates in armour (the law of a boss's plates: one per pass, no regrowth, no window). */
+  knightPlates: number;
+  /** Task 43: the knight's HP (behind its plates; the offensive takes it as an ordinary enemy's). */
+  knightHp: number;
+  /** Task 43: the knight's touch (never raised by the tough touch: it is its own). */
+  knightTouch: number;
+  /** Task 43: «Рывок» — game seconds of the windup (the lane from the knight to the hero, fixed at its start). */
+  knightChargeWindup: number;
+  /** Task 43: «Рывок» — damage to the hero the knight's run meets in its lane. */
+  knightChargeDamage: number;
+  /** Task 43: «Размах» — game seconds of the windup (the knight stands). */
+  knightSwingWindup: number;
+  /** Task 43: «Размах» — the circle's radius around the knight (units). */
+  knightSwingRadius: number;
+  /** Task 43: «Размах» — damage to the hero in the circle (enemies in it take 1, an elite a plate, not the player's kills). */
+  knightSwingDamage: number;
+  /** Task 43: game seconds between the knight's moves in the offensive (and from the shed armour to its first move). */
+  knightPause: number;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -1353,6 +1373,16 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   shackleMax: 2,
   // Task 41 «Узник на воле»: on in the sandbox (and the run, `RT_RUN_FORCED`); journals without the key — off.
   prisonerRiot: true,
+  // Task 43 «Рыцарь» (enemies/garrison.ts): the knight's numbers (it comes only by a roster).
+  knightPlates: 2,
+  knightHp: 3,
+  knightTouch: 2,
+  knightChargeWindup: 1,
+  knightChargeDamage: 2,
+  knightSwingWindup: 0.8,
+  knightSwingRadius: 1.6,
+  knightSwingDamage: 2,
+  knightPause: 2,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -1802,6 +1832,16 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   // Task 41 «Узник на воле» (enemies/garrison.ts `riotStep`).
   { kind: 'bool', key: 'prisonerRiot', group: 'Гарнизон', label: 'Узник срывается после рубки', stage: 5,
     hint: 'Кандалы, разрубленные цепью, спускают узника: как сорвавшийся пёс, он бежит к ближайшему телу и кусает врагов (убийства не засчитываются игроку), потом — обычный враг. Смерть Ключника освобождает узника без срыва. В походе включено.' },
+  // Task 43 «Рыцарь» (enemies/garrison.ts).
+  n('knightPlates', 'Гарнизон', 'Рыцарь: пластин лат', 0, 6, 1, 5, '', 'Каждая цепь через рыцаря снимает одну пластину; пока латы целы, HP не теряет; латы не растут. После прохода, снявшего последнюю, — наступление.'),
+  n('knightHp', 'Гарнизон', 'Рыцарь: HP', 0, 8, 1, 5),
+  n('knightTouch', 'Гарнизон', 'Рыцарь: касание', 0, 5, 1, 5),
+  n('knightChargeWindup', 'Гарнизон', 'Рыцарь: замах рывка', 0.2, 3, 0.1, 5, 'с', 'Полоса 5 × 0,8 от рыцаря к герою; рыцарь пробегает её до конца.'),
+  n('knightChargeDamage', 'Гарнизон', 'Рыцарь: урон рывка', 0, 5, 1, 5),
+  n('knightSwingWindup', 'Гарнизон', 'Рыцарь: замах размаха', 0.2, 3, 0.1, 5, 'с'),
+  n('knightSwingRadius', 'Гарнизон', 'Рыцарь: радиус размаха', 0.5, 4, 0.1, 5, 'ед.', 'Враги в круге теряют 1 HP (элита — пластину); убийства не засчитываются игроку.'),
+  n('knightSwingDamage', 'Гарнизон', 'Рыцарь: урон размаха', 0, 5, 1, 5),
+  n('knightPause', 'Гарнизон', 'Рыцарь: пауза между приёмами', 0.5, 6, 0.25, 5, 'с'),
 ];
 
 const MAX_PHASES = 8;
