@@ -509,6 +509,29 @@ check('«Прямая» (sandbox `pierceEnabled`): outside a window it passes th
   }
 });
 
+check('«Печать» (sandbox `loopEnabled`): a ring of four links round the closed core — the highlight has it outside the seal\'s strike and the core is untouched; in the window — one hit, a plate, as the highlight said', () => {
+  for (const k of SEEDS) {
+    for (const open of [false, true]) {
+      const d = den(k, { loopEnabled: true }), { sim, w, core } = d;
+      if (open) clubWindow(d); else { freeze(sim, d.club); freeze(sim, d.rock); }
+      // The ring: four weak links round the core (the club, the rock and the tail's knot stay outside), closed on the first.
+      sim.command({ t: 'teleport', x: 10.3, y: 0.6 });
+      const links = [[11, 1], [13, 1], [13, 3.2], [11, 3.2]].map(([x, y]) => place(sim, { x, y }, 0, 0));
+      draw(sim, [...links, links[0]]);
+      const plan = planChain(w), seal = plan.seal;
+      assert(w.chain.length === 4 && w.chainClosed && seal, `seed ${k}: the ring closed (${w.chain.length}, ${w.chainClosed})`);
+      assert(seal.inside.includes(core.id) === open, `seed ${k}, open ${open}: the highlight's seal on the core (${JSON.stringify(seal.inside)})`);
+      sim.command({ t: 'release' });
+      const events = settle(sim);
+      ticks(sim, 1, events);
+      assert(core.armor?.plates === (open ? 4 : 5) && core.hp === 4, `seed ${k}, open ${open}: plates ${core.armor?.plates}`);
+      const hits = windowEvents(events, 'hit');
+      assert(open ? hits.length === 1 && hits[0].source === 'seal' : !hits.length && !windowEvents(events, 'block').length, `seed ${k}, open ${open}: the seal's one hit or no try (${JSON.stringify(hits)})`);
+      assert(replays(sim), `seed ${k}: replay`);
+    }
+  }
+});
+
 check('the view\'s read of «Удар дубиной»: a lane 4.5 × 1.6 from the core\'s edge towards the hero', () => {
   const d = den(1), { sim, w, core } = d;
   freeze(sim, d.rock);
