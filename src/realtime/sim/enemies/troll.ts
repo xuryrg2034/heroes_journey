@@ -367,8 +367,8 @@ function tailHit(world: World, core: Enemy): void {
   openWindow(world, core, 'tail', windowTailOf(world));
 }
 
-/** The colours of the roar's wolves: the living parts' in turn (club, rock, tail); none left — the palette's. */
-function wolfColors(world: World, core: Enemy): readonly number[] {
+/** The colours of the roar's wolves: the living parts' in turn (club, rock, tail); none left — the palette's (the view's roar sign reads it too). */
+export function wolfColors(world: World, core: Enemy): readonly number[] {
   const parts = [TROLL_CLUB, TROLL_ROCK, TROLL_TAIL].flatMap(kind => { const part = partOfKind(world, core, kind); return part ? [part.color] : []; });
   return parts.length ? parts : palette(world);
 }

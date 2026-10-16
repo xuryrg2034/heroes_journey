@@ -55,7 +55,7 @@ import { blockedAt, cliffAt, dist, type Vec } from '../sim/geometry';
 import { bodyRadiusOf } from '../sim/enemies/kinds';
 import { heroRadius } from '../sim/params';
 import { SIM_DT } from '../sim/simulation';
-import { CONTACT_SLACK, enemyFrozen, touchDistanceOf, type Enemy, type World, type WorldEvent } from '../sim/world';
+import { enemyFrozen, touchReachOf, type Enemy, type World, type WorldEvent } from '../sim/world';
 import { EventCursor } from './observe';
 import type { ThreatTally } from './schema';
 
@@ -101,8 +101,8 @@ function rayDistance(a: Vec, dx: number, dy: number, len: number, p: Vec): numbe
   return Math.hypot(a.x + dx * t - p.x, a.y + dy * t - p.y);
 }
 
-/** Reach of an enemy's body to the hero's (the touch of world.ts with its slack). */
-const reachOf = (world: World, e: Enemy): number => touchDistanceOf(world.params, e) + CONTACT_SLACK;
+/** Reach of an enemy's body to the hero's (the touch of world.ts with its slack; task 48 — a solid body's own reach, `touchReachOf`). */
+const reachOf = (world: World, e: Enemy): number => touchReachOf(world, e);
 
 /** Follows every warning of a fight. Create it with the world at the start; call `tick` after each tick, `finish` at the end. */
 export class ThreatTracker {

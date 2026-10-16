@@ -25,6 +25,7 @@ import {
 } from './rtRun';
 import { assert, closeNode, ok, quiet, same, seedOf } from './runFight.testkit';
 import { rtTalisman } from './rtTalismans';
+import { rtNodeEnemies } from './nodeEnemies';
 
 let checks = 0;
 function check(name: string, run: () => void): void { run(); checks++; console.log(`ok - ${name}`); }
@@ -204,6 +205,29 @@ check('the camp\'s death causes by the level: the Troll — `troll`, the camp\'s
     }
   }
   assert(seen.size === 2, `both garrison causes (${[...seen]})`);
+});
+
+check('the node card line «Враги:» (rtNodeEnemies) of the den boss: the Troll and his three parts from the world of the fight, the crowd basic (the available node and its open battle); the boss of the camp and a run without the flag — null, as before', () => {
+  for (let k = 1; k <= 8; k++) {
+    for (const flag of [true, false]) {
+      for (const branch of ['den', 'camp'] as const) {
+        // Walk until the boss node is available (its preview is known), then its card; then the open battle's.
+        let run = createRtRun(seedOf(k), { gift: 'mini', ...flag ? {} : { troll: false } });
+        for (let step = 0; step < 200 && !rtAvailableNodes(run).some(n => n.type === 'boss') && !run.result; step++) {
+          const pending = run.pending;
+          if (pending?.kind === 'battle') run = fakeWin(run);
+          else if (pending) run = closeNode(run);
+          else run = ok(rtEnterNode(run, pickNode(run, branch, k, step)), 'enter');
+        }
+        const node = rtAvailableNodes(run).find(n => n.type === 'boss')!, card = rtNodeEnemies(run, node);
+        if (!flag || !node.id.startsWith('den-')) { assert(card === null, `seed ${k}, ${branch}, flag ${flag}: null (${JSON.stringify(card)})`); continue; }
+        const kinds = (card?.start ?? []).map(e => `${e.kind}×${e.count}`).sort().join();
+        assert(card?.arena === TROLL && kinds === 'troll-club×1,troll-rock×1,troll-tail×1,troll×1' && card.newcomers.length === 0, `seed ${k}: ${JSON.stringify(card)}`);
+        const open = ok(rtEnterNode(run, node.id), 'enter boss');
+        assert(same(rtNodeEnemies(open, node), card), `seed ${k}: the open battle's card is the preview's`);
+      }
+    }
+  }
 });
 
 console.log(`troll run: ${checks} checks passed`);
