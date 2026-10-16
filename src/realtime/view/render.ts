@@ -48,11 +48,12 @@ import { bustBlink } from './bustBlink';
 import { dashCheque } from '../sim/purse';
 import { chainFeel, DashLinks, QUIET_LINKS } from './chainFeel';
 import { FX_DEFAULT, FlashGate, HEAVY_LINE, shardCount, shardLife, type FxLevel } from './juice';
-import { CASTELLAN, GUARD, HANDLER, HOUND, KEYMASTER, LEVER_COOLDOWN, STAND, castellanGrate, castellanMove, gateLeverLeft, gateLeverReady, houndFrenzied, prisonerRioting } from '../sim/enemies/garrison';
+import { CASTELLAN, GUARD, HANDLER, HOUND, KEYMASTER, KNIGHT, LEVER_COOLDOWN, STAND, castellanGrate, castellanMove, gateLeverLeft, gateLeverReady, houndFrenzied, knightLane, knightSwingRadius, prisonerRioting } from '../sim/enemies/garrison';
 import { CROSSBOW, crossbowLine } from '../sim/enemies/crossbow';
 import { drawBoltLine, drawGateLever, drawGrate } from './courtView';
 import { tetherCrossing } from '../sim/tethers';
-import { castellanMarks, drawFallenShackle, drawFrenzy, drawLeash, drawLock, drawShackle, drawSnap, guardMarks, handlerMarks, houndMarks, keymasterMarks } from './garrisonView';
+import { castellanMarks, drawFallenShackle, drawFrenzy, drawLeash, drawLock, drawShackle, drawSnap, guardMarks, handlerMarks, houndMarks, keymasterMarks, knightMarks } from './garrisonView';
+import { KnightView } from './knightView';
 import { fifthLinkFiresAt } from '../sim/talismansRt';
 import { LINK_DEPTH_SHOWN, linkDepths, type LinkDepth } from '../sim/linkDepth';
 import { CHEST_CURSE_KILLS, cursed } from '../sim/chest';
@@ -154,6 +155,8 @@ const GARRISON_ART: Readonly<Record<string, { id: CharacterArtId; size: number }
   [KEYMASTER]: { id: 'garrison-keymaster', size: 3.4 },
   // Task 43: the crossbowman and the Castellan's crossbow on its stand.
   [CROSSBOW]: { id: 'garrison-crossbowman', size: 3.4 }, [STAND]: { id: 'garrison-crossbow', size: 3.6 },
+  // Task 43: the knight (heavier: a taller box).
+  [KNIGHT]: { id: 'garrison-knight', size: 3.7 },
 };
 /** Task 40: the prisoner's padlock — its width (body radii) and its gap over the drawing's top (radii). */
 const LOCK_SIZE = 0.95, LOCK_GAP = 0.15;
@@ -419,6 +422,9 @@ export class RealtimeRenderer {
    * keymaster's iron chains, `locks` — the prisoners' padlocks.
    */
   readonly tetherShown = { lines: 0, cut: 0, marks: 0, snaps: 0, shackles: 0, locks: 0, drops: 0 };
+  /** Task 43: the knight's view — plate pips, lanes and swing circles of the frame, the sheds and swing hits seen. */
+  private readonly knight = new KnightView(UNIT);
+  get knightShown(): KnightView['shown'] { return this.knight.shown; }
   /** Task 38 (tests read it): frenzied hounds drawn in the last frame, the Castellan's lunge lanes, «Караул!» calls shown so far. */
   readonly garrisonShown = { frenzy: 0, lunges: 0, calls: 0, riots: 0 };
   /**
@@ -1106,6 +1112,7 @@ export class RealtimeRenderer {
       else if (kind === HOUND) houndMarks(ctx, r);
       else if (kind === CASTELLAN) castellanMarks(ctx, r);
       else if (kind === KEYMASTER) keymasterMarks(ctx, r);
+      else if (kind === KNIGHT) knightMarks(ctx, r);
     }
     return ctx;
   }
@@ -1333,6 +1340,17 @@ export class RealtimeRenderer {
     }
     // Task 38: the Castellan's «Спустить пса» — a lane from the hound to the point towards the hero (fixed at the windup's start),
     // filling as the boar's: the same strip and head.
+    // Task 43: the knight's «Рывок» — the boar's strip (the sim's `knightLane`, the lane's own width and the hero's body), its «Размах» circle.
+    this.knight.beginFrame();
+    for (const e of world.enemies) {
+      const kl = knightLane(e);
+      if (!kl || !this.sees(e, 6)) continue;
+      const w = (kl.width / 2 + heroRadius(p)) * UNIT, len = kl.len * UNIT;
+      threatStrip(g, e.x * UNIT, e.y * UNIT, kl.dx, kl.dy, len, w, kl.progress, kl.charging ? 0.5 : 1);
+      stripHead(g, e.x * UNIT, e.y * UNIT, kl.dx, kl.dy, len, w, kl.charging ? 0.5 : 1);
+      this.knight.shown.lanes++;
+    }
+    this.knight.drawSwing(g, world, e => this.sees(e, 3));
     this.garrisonShown.lunges = 0;
     for (const e of world.enemies) {
       if (e.kind !== CASTELLAN) continue;
@@ -1879,6 +1897,8 @@ export class RealtimeRenderer {
       pl.box.destroy({ children: true });
       this.plaques.delete(id);
     }
+    // Task 43: the knight (not an elite): its plate pips over the drawing, the shed's shards and glint, the swing's hit flash.
+    this.knight.drawOver(g, world, this.clock, px, enemyDrawRadius(p) * UNIT, hasCharacterArt(GARRISON_ART[KNIGHT].id) ? GARRISON_ART[KNIGHT].size : 1.9, e => this.sees(e, 1.5));
     shown.pips = pips; shown.filledPips = filled; shown.windows = windows; shown.hotWindows = hot; shown.plaques = this.plaques.size;
   }
 
@@ -2580,6 +2600,8 @@ export class RealtimeRenderer {
         }
         continue;
       }
+      // Task 43: the knight's shed and the swing's hit.
+      if (ev.type === 'knightShed' || ev.type === 'knightMove') { this.knight.onEvent(ev, world, this.clock, enemyDrawRadius(world.params) * UNIT, knightSwingRadius(world)); continue; }
       // Task 38: the Castellan calls the guard — «Караул!» over the core (the formation's markers show where they come).
       if (ev.type === 'castellanMove') {
         if (ev.move === 'guard' && ev.stage === 'hit') {

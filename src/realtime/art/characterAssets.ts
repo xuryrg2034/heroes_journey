@@ -15,6 +15,8 @@ export const CHARACTER_ART_IDS = [
   'garrison-keymaster',
   // Task 43 «Гарнизон, шаг 2а»: the crossbowman and the Castellan's crossbow on its stand (the drawn discs stay the fallback).
   'garrison-crossbowman', 'garrison-crossbow',
+  // Task 43 «Гарнизон, шаг 2»: the knight (the drawn silhouette stays the fallback).
+  'garrison-knight',
 ] as const;
 
 export type CharacterArtId = typeof CHARACTER_ART_IDS[number];
