@@ -92,7 +92,7 @@ import { featResult } from '../sim/feat';
 import type { Command } from '../sim/commands';
 import { WOLF_RUSH } from '../sim/enemies/wolf';
 import { BOSS_CLEAR, JAILER } from '../sim/enemies/jailer';
-import { houndFrenzied } from '../sim/enemies/garrison';
+import { houndFrenzied, prisonerRioting } from '../sim/enemies/garrison';
 import { kindOf } from '../sim/enemies/kinds';
 import { dist, inThorns, inWater } from '../sim/geometry';
 import { heroRadius } from '../sim/params';
@@ -280,6 +280,8 @@ export function createFightObserver(start: World): FightObserver {
           if (striker && ev.source === kindOf(striker).hitSource && touchRaised(world, striker)) { s.damage.raisedTouches.hits++; s.damage.raisedTouches.damage += ev.damage; }
           // Task 40: a frenzied hound's touch (the striker in its frenzy after the tick: the touch is the tick's last step).
           if (ev.source === 'hound' && striker && houndFrenzied(striker)) { s.garrison.frenzyHits++; s.garrison.frenzyDamage += ev.damage; }
+          // Task 41: a rioting prisoner's touch on the hero (any kind but the hound: its touch is the hound's field above).
+          if (striker && prisonerRioting(striker)) s.garrison.riotDamage += ev.damage;
           return;
         }
         case 'kill': {

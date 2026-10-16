@@ -390,7 +390,25 @@ check('task 41: the summary counts riots and the prisoner\'s kills (`garrison.ri
   const replayed = analyzeJournal(JSON.parse(JSON.stringify(sim.exportJournal()!)) as Journal).summary;
   assert(replayed.garrison.riots === 1 && replayed.garrison.riotKills === 1 && replayed.chain.frenzyKills === 1, `the summary: ${JSON.stringify(replayed.garrison)}, frenzy kills ${replayed.chain.frenzyKills}`);
   const old = withSummaryDefaults({ garrison: { shackles: 1 } });
-  assert(old.garrison.riots === 0 && old.garrison.riotKills === 0, 'an old summary reads no riot');
+  assert(old.garrison.riots === 0 && old.garrison.riotKills === 0 && old.garrison.riotDamage === 0, 'an old summary reads no riot');
+});
+
+check('task 41: a rioting prisoner that touches the hero hurts him — `garrison.riotDamage` in the replay summary (the hound field untouched)', () => {
+  for (const k of [1, 3]) {
+    const { sim, km, pr } = prisoner(k), w = sim.world;
+    cutShackle(sim, km, pr);
+    ticks(sim, 1);
+    assert(prisonerRioting(pr), `seed ${k}: the prisoner riots`);
+    // The hero is the nearest body, at its side; touches hurt now.
+    sim.command({ t: 'param', key: 'contactDamage', value: 1 });
+    sim.command({ t: 'teleport', x: pr.x + 0.45, y: pr.y });
+    const hp = w.hero.hp, events = ticks(sim, ticksOf(2));
+    const hits = events.filter((e): e is Extract<WorldEvent, { type: 'hit' }> => e.type === 'hit' && e.enemyId === pr.id);
+    assert(hits.length > 0 && w.hero.hp < hp, `seed ${k}: the prisoner hit the hero (${hits.length})`);
+    const replayed = analyzeJournal(JSON.parse(JSON.stringify(sim.exportJournal()!)) as Journal).summary;
+    const want = hits.reduce((a, e) => a + e.damage, 0);
+    assert(replayed.garrison.riotDamage === want && replayed.garrison.frenzyDamage === 0, `seed ${k}: riotDamage ${replayed.garrison.riotDamage} / ${want}, frenzyDamage ${replayed.garrison.frenzyDamage}`);
+  }
 });
 
 check('task 41: the riot ends after houndFrenzy s — a plain enemy again (the next chain takes it); while it riots no keymaster shackles it', () => {
