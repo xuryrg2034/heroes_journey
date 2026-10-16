@@ -76,10 +76,12 @@ const CASTELLAN_SETS: Readonly<Record<string, CastellanSet>> = {
   plates8hp6: { plates: 8, coreHp: 6, windup: 0.75 },
 };
 /**
- * `--boss-aim` (with `--castellan`): in the Castellan's fight the bot hunts the boss — it walks at the core and, when the core is a
- * candidate, chains straight into it; else its greedy chain goes towards the core (each next link the one nearest the core). Without
- * it the bot plays the boss as any fight (its greedy chain never aims at the core: the first sweep, 16.10.2026).
+ * `--boss-aim`: in a fight with a boss core (the Castellan, the Jailer — `BOSS_CORES`) the bot hunts the boss — it walks at the core
+ * and, when the core is a candidate, chains straight into it; else its greedy chain goes towards the core (each next link the one
+ * nearest the core). Without it the bot plays the boss as any fight (its greedy chain never aims at the core: the first sweep,
+ * 16.10.2026). The forest's final «Последний рубеж» has no core (its goal is kills): there the bot plays as without the flag.
  */
+const BOSS_CORES: readonly string[] = ['castellan', 'jailer'];
 const BOSS_AIM = args.includes('--boss-aim');
 const SET_NAME = option('--castellan', ''), SET = SET_NAME ? CASTELLAN_SETS[SET_NAME] : undefined;
 if (SET_NAME && !SET) throw new Error(`no set ${SET_NAME}: ${Object.keys(CASTELLAN_SETS).join(', ')}`);
@@ -143,7 +145,7 @@ function fight(run: RtRunState, t: Tally): RtArenaOutcome {
       sim.command({ t: 'begin', x: w.arena.door.x, y: w.arena.door.y });
       if (w.chain.some(l => l.kind === 'object')) sim.command({ t: 'release' }); else if (w.chain.length) sim.command({ t: 'cancel' });
     }
-    if (tick % 45 === 20) { if (castellan && BOSS_AIM) aimAtCore(sim); else playChain(sim); }
+    if (tick % 45 === 20) { if (BOSS_AIM && w.enemies.some(e => BOSS_CORES.includes(e.kind))) aimAtCore(sim); else playChain(sim); }
     if (tick % 400 === 200) sim.command({ t: 'spin' });
     if (tick % 500 === 300 && canJump(w)) sim.command({ t: 'jump', x: w.hero.x + 2, y: w.hero.y - 1 });
     if (tick % 10 === 0 && w.hero.hp <= HEAL_AT && (w.kit?.items.healing ?? 0) > 0) sim.command({ t: 'item', kind: 'healing', x: w.hero.x, y: w.hero.y });
@@ -188,7 +190,7 @@ function tuneCastellan(w: World, set: CastellanSet, first: boolean): void {
 
 /** `--boss-aim`: a walk at the core and a chain into it (or towards it). */
 function aimAtCore(sim: Simulation): void {
-  const w = sim.world, core = w.enemies.find(e => e.kind === 'castellan');
+  const w = sim.world, core = w.enemies.find(e => BOSS_CORES.includes(e.kind));
   if (!core || w.move || w.chain.length || w.status !== 'playing' || w.greedStart !== null) { playChain(sim); return; }
   const d = Math.sqrt((core.x - w.hero.x) ** 2 + (core.y - w.hero.y) ** 2) || 1;
   sim.command({ t: 'walk', x: (core.x - w.hero.x) / d, y: (core.y - w.hero.y) / d });
@@ -253,6 +255,7 @@ if (SET) {
   process.exit(0);
 }
 const whole = pass(() => true), garrison = pass(run => !!run.garrisonLevel);
+if (BOSS_AIM) console.log('Бот целит в ядро босса (`--boss-aim`): Тюремщик, Кастелян; у финала леса ядра нет.\n');
 const head = (() => { try { return execSync('git rev-parse --short HEAD').toString().trim(); } catch { return '?'; } })();
 console.log(`Задача 40, часть Е: кривая выживания бота через лес и гарнизон, ${SEEDS} seed, предел боя ${LIMIT} с, «Ров» ${MOAT ? 'вкл.' : 'по флагу игры'} (эвристика, жадный бот), ${new Date().toISOString().slice(0, 10)}, HEAD ${head}, ${Math.round((Date.now() - started) / 1000)} с.\n`);
 print('Весь поход: все бои настоящие', whole, ['л', 'г']);
