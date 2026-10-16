@@ -61,7 +61,9 @@ import { validDeath, type RtDeath } from './rtRunEnd';
 // Task 16 «Подвиги»: the feat kinds of the simulation (sim/feat.ts).
 import { FEAT_KINDS, isFeatKind, type FeatKind } from '../sim/feat';
 // Tasks 36–37 «Мета» and «Очаг»: the meta catalogue (a leaf module: the packs' ids, the camp's quests).
-import { isRtLockable, isRtQuest, RT_HERO_ID, type RtHeroId, type RtQuest } from './metaCatalog';
+import { isRtLockable, isRtQuest, RT_HERO_ID, RT_TOAD_ID, type RtHeroId, type RtQuest } from './metaCatalog';
+// Task 49 «Второй герой»: the hero's innate items (sim/buildIds.ts; the fight's `Loadout.hero` gives them to the kit).
+import { HERO_INNATE } from '../sim/buildIds';
 import { HAMMER_IDS, RT_HAMMER_OFFER_SIZE } from './rtTalismans';
 // Task 38 «Гарнизон, шаг 1»: the garrison level after the forest (run/garrison.ts; the flow — section «Task 38» below).
 import { garrisonArena, garrisonBolts, garrisonCombinedMap, garrisonDeep, garrisonKit, garrisonKnights, garrisonRelicOffer, garrisonSeed, generateGarrisonMap, GARRISON_RUN_ARENAS, RT_GARRISON_MOAT_ON, RT_GARRISON_ON, RT_GARRISON_STEP2_ON, rtGarrisonNodeId } from './garrison';
@@ -626,7 +628,11 @@ export interface RtRunState {
    * seed, `createRtRun(seed, { locked })`); absent — a run saved before it, a seeded run, tests: the pools of before, to its end.
    */
   locked?: string[];
-  /** Task 36: the run's hero — only with `locked` (a meta run); absent reads as `cat` (`rtHeroId`). */
+  /**
+   * Task 36: the run's hero — `cat` only with `locked` (a meta run); absent reads as `cat` (`rtHeroId`). Task 49: `toad` (Ведунья) —
+   * a meta run or a seeded one (`?hero=toad`): its fights take `Loadout.hero` (the innate «Печать», the price of the shield), its pools
+   * never offer «Печать» (`talismanPool`), «Ледяная печать» comes from one «Иней на клинке» (`rtInnate`).
+   */
   heroId?: RtHeroId;
   /** Task 37 «Очаг»: what the camp gave this run (`RtHearthFlags`); only with `locked`. Absent — a run without the camp, as before. */
   hearth?: RtHearthFlags;
@@ -938,7 +944,7 @@ export interface RtArenaOutcome {
  * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
  * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
  */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; potionCap?: number; knacks?: boolean; habits?: boolean } = {}): RtRunState {
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; potionCap?: number; knacks?: boolean; habits?: boolean; hero?: RtHeroId } = {}): RtRunState {
   const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
   // Task 12 (13.10.2026): the goal layouts of the `marked` arenas, as the mix — on as `RT_RUN_FORCED` says unless the option says.
   const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
@@ -977,8 +983,10 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   const step2 = moat && (options.step2 ?? RT_GARRISON_STEP2_ON);
   // Task 41 «Три зелья» (16.10.2026): the cap of healing potions, `RT_POTION_CAP` unless the option says (0 — none, as a save before it).
   const potionCap = Math.max(0, Math.floor(options.potionCap ?? RT_POTION_CAP));
+  // Task 49: Ведунья's run keeps her id (with or without the meta); the cat's — `cat` with the meta's snapshot only, as before.
+  const heroId: RtHeroId | undefined = options.hero === RT_TOAD_ID ? RT_TOAD_ID : locked ? RT_HERO_ID : undefined;
   const run: RtRunState = {
-    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...locked ? { locked, heroId: RT_HERO_ID } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...potionCap ? { potionCap } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...locked ? { locked } : {}, ...heroId ? { heroId } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...potionCap ? { potionCap } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
@@ -1156,6 +1164,8 @@ export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}):
     talismans: run.talismans.filter(id => id !== rtFormHammer(run)), ward: run.talismans.includes('ash-ward') && !run.wardSpent,
     // Task 50 «Сноровка»: the counters on rank II (absent — none: loadouts as before).
     ...run.honed?.length ? { honed: [...run.honed] } : {},
+    // Task 49: Ведунья's law in every fight of her run (absent — the cat: loadouts as before).
+    ...run.heroId === RT_TOAD_ID ? { hero: RT_TOAD_ID } : {},
     // Step 3 (design answer 3): the modifiers events left for this arena.
     ...run.modifiers?.includes('first-chain-power') ? { firstPower: 1 } : {},
     ...run.modifiers?.includes('start-elite') ? { startElite: true } : {},
@@ -1385,12 +1395,28 @@ export const rtOathText = (id: OathId): string => `${oathDef(id).name} — ${oat
  * a run with the flag `forms` draws from the catalogue with the openers (`rtTalismanCatalog`). One place for every talisman
  * draw of a run: the hard battle, the Jailer's oaths, events, the chest, the feat, the merchant; task 36 — the run's `locked`.
  */
-const talismanPool = (run: Pick<RtRunState, 'talismans' | 'talismansGone' | 'forms' | 'locked' | 'habit'>, exclude: readonly RtTalismanId[] = []): RtTalismanPool => {
-  // Task 36: a meta run's locked items are out of every pool (`rtIsLocked`) — as if gone.
-  const gone = run.locked?.length || exclude.length ? [...run.talismansGone, ...run.locked ?? [], ...exclude] : run.talismansGone;
+const talismanPool = (run: Pick<RtRunState, 'talismans' | 'talismansGone' | 'forms' | 'locked' | 'habit' | 'heroId'>, exclude: readonly RtTalismanId[] = []): RtTalismanPool => {
+  // Task 36: a meta run's locked items are out of every pool (`rtIsLocked`) — as if gone. Task 49 (spec 4.1): the hero's innate items
+  // too — no screen offers Ведунья «Печать» (the Jailer's forms, «Застава», events, the chest, the feat, the merchant); the cat's pool as before.
+  const innate = rtInnate(run);
+  const gone = run.locked?.length || exclude.length || innate.length ? [...run.talismansGone, ...run.locked ?? [], ...exclude, ...innate] : run.talismansGone;
   // Task 50 «Повадка»: the run's archetype weighs every draw of the pool (the gift's draws have their own pool, never weighed).
   return { taken: run.talismans, gone, ...run.forms ? { forms: true } : {}, ...run.habit ? { habit: run.habit } : {} };
 };
+
+/**
+ * Task 49 «Второй герой» (spec 4.1, 5.1): the items the run's hero has from the first fight (sim/buildIds.ts `HERO_INNATE`) — Ведунья
+ * «Печать»; the cat none. They are not in `talismans` (the fight's kit adds them, `Loadout.hero`), stand outside the field «Конец», are
+ * never offered, and are the innate half of a recipe (`rtFusionsReady`): «Ледяная печать» from one «Иней на клинке», with no pair guarantee.
+ */
+export const rtInnate = (run: Pick<RtRunState, 'heroId'>): readonly RtTalismanId[] => (run.heroId === RT_TOAD_ID ? HERO_INNATE.toad : []);
+/** Task 49: a fusion whose form part is the hero's innate one (Ведунья's «Ледяная печать») — outside the field «Конец» as the innate seal. */
+export const rtInnateFusion = (run: Pick<RtRunState, 'heroId'>, id: RtTalismanId): boolean => {
+  const recipe = rtInnate(run).length ? fusionRecipe(id) : undefined;
+  return !!recipe && rtInnate(run).includes(recipe.form);
+};
+/** Task 49: the run's form field of `id` (`rtFormField`) — none for an innate fusion (it holds no field). */
+const fieldOf = (run: Pick<RtRunState, 'heroId'>, id: RtTalismanId): FormField | null => (rtInnateFusion(run, id) ? null : rtFormField(id));
 
 // ---------- Task 30 «Формы в походе» (design 15.10.2026; docs/realtime-slice.md, section 8, «Формы в походе») ----------
 
@@ -1406,7 +1432,7 @@ export const rtFormsFirst = (run: Pick<RtRunState, 'schedule'>): boolean => !!ru
  * simple ones — not taken, not gone, not clashing with a form taken («Возврат» — «Взрыв на конце»); `field` — only that field.
  * Empty without the flag `forms`.
  */
-export function rtFormPool(run: Pick<RtRunState, 'forms' | 'schedule' | 'talismans' | 'talismansGone' | 'locked'>, field?: FormField): RtTalismanId[] {
+export function rtFormPool(run: Pick<RtRunState, 'forms' | 'schedule' | 'talismans' | 'talismansGone' | 'locked' | 'heroId'>, field?: FormField): RtTalismanId[] {
   const pool = talismanPool(run);
   return rtFormCatalog(run).filter(def => (!field || def.field === field) && rtTalismanEligible(def.id, pool)).map(def => def.id);
 }
@@ -1475,10 +1501,10 @@ export function rtFormSlots(run: Pick<RtRunState, 'battles' | 'hearth'>, nodeId:
  * a form of one of the fields «Путь» and «Конец» and none of the other — that other one; null otherwise (no form yet, both held,
  * a run without the flag).
  */
-export function rtFormSlotField(run: Pick<RtRunState, 'forms' | 'talismans'>): FormField | null {
+export function rtFormSlotField(run: Pick<RtRunState, 'forms' | 'talismans' | 'heroId'>): FormField | null {
   if (!run.forms) return null;
-  // Task 44: a fusion holds the field of its form part.
-  const held = new Set(run.talismans.filter(id => isRtForm(id) || isRtFusion(id)).map(id => rtFormField(id)));
+  // Task 44: a fusion holds the field of its form part. Task 49: an innate fusion holds none (`fieldOf`).
+  const held = new Set(run.talismans.filter(id => isRtForm(id) || isRtFusion(id)).map(id => fieldOf(run, id)));
   return held.has('path') === held.has('end') ? null : held.has('path') ? 'end' : 'path';
 }
 /**
@@ -1486,9 +1512,10 @@ export function rtFormSlotField(run: Pick<RtRunState, 'forms' | 'talismans'>): F
  * (`rtFormField`: «Путь», «Конец», «Звено» with «Близнецы» and «Якорь у героя»); null — none, or a run without the flag. The
  * choice screens show it (`replaces`).
  */
-export function rtFormReplaces(run: Pick<RtRunState, 'forms' | 'talismans'>, id: RtTalismanId): RtTalismanId | null {
-  const field = run.forms ? rtFormField(id) : null;
-  return field ? run.talismans.find(other => other !== id && rtFormField(other) === field) ?? null : null;
+export function rtFormReplaces(run: Pick<RtRunState, 'forms' | 'talismans' | 'heroId'>, id: RtTalismanId): RtTalismanId | null {
+  // Task 49: an innate fusion is never replaced (a form of «Конец» taken later stands beside Ведунья's «Ледяная печать»).
+  const field = run.forms ? fieldOf(run, id) : null;
+  return field ? run.talismans.find(other => other !== id && fieldOf(run, other) === field) ?? null : null;
 }
 /**
  * The hammer among a run's forms — the loadout's hammer (`Loadout.hammer`, one slot: sim/chain.ts `fireOn`, `returnOn` read it):
@@ -1506,27 +1533,31 @@ export function rtFormHammer(run: Pick<RtRunState, 'forms' | 'talismans'>): Hamm
 export const RT_FUSIONS_ON = true;
 /** The salt of a node's fusion roll (`mixSeed(arenaSeed, «rt-fusion»)`): which owed pair a screen shows when several are owed. */
 export const FUSION_SALT = [...'rt-fusion'].reduce((hash, ch) => Math.imul(hash ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5);
-type FusionRun = Pick<RtRunState, 'seed' | 'forms' | 'fusions' | 'schedule' | 'locked' | 'talismans' | 'talismansGone' | 'fusionShown'>;
+type FusionRun = Pick<RtRunState, 'seed' | 'forms' | 'fusions' | 'schedule' | 'locked' | 'talismans' | 'talismansGone' | 'fusionShown' | 'heroId'>;
 /**
  * Both parts of `recipe` are available in this run (design 16.10.2026, answer 9): the flag, the form part in the run's form catalogue
  * (a first run offers only the simple forms; a meta run's locked forms are out), the counter part not locked. A recipe never
  * unlocks anything: the fusions come with the meta's packs.
  */
-export function rtFusionRecipeOn(run: Pick<RtRunState, 'forms' | 'fusions' | 'schedule' | 'locked'>, recipe: FusionRecipe): boolean {
-  return !!run.fusions && !!run.forms && rtFormCatalog(run).some(def => def.id === recipe.form) && !rtIsLocked(run, recipe.counter);
+export function rtFusionRecipeOn(run: Pick<RtRunState, 'forms' | 'fusions' | 'schedule' | 'locked' | 'heroId'>, recipe: FusionRecipe): boolean {
+  // Task 49: the hero's innate form part (Ведунья's «Печать») is available from the first fight, a first run too.
+  const form = rtInnate(run).includes(recipe.form) || rtFormCatalog(run).some(def => def.id === recipe.form);
+  return !!run.fusions && !!run.forms && form && !rtIsLocked(run, recipe.counter);
 }
 /**
  * The recipe line of a card (the choice screens, the build): the half's partner and the fusion; null — not a half, a run without
  * fusions, or a part not available in this run (`rtFusionRecipeOn`).
  */
-export function rtFusionRecipe(run: Pick<RtRunState, 'forms' | 'fusions' | 'schedule' | 'locked'>, id: RtTalismanId): { partner: RtTalismanId; fusion: FusionId } | null {
+export function rtFusionRecipe(run: Pick<RtRunState, 'forms' | 'fusions' | 'schedule' | 'locked' | 'heroId'>, id: RtTalismanId): { partner: RtTalismanId; fusion: FusionId } | null {
   const of = fusionOfHalf(id), recipe = of ? fusionRecipe(of.fusion) : undefined;
   return of && recipe && rtFusionRecipeOn(run, recipe) ? of : null;
 }
 /** «Пара собрана»: the fusions whose both parts the run holds now — the rest offers them (`rtRestView`). */
-export function rtFusionsReady(run: Pick<RtRunState, 'fusions' | 'talismans'>): FusionId[] {
+export function rtFusionsReady(run: Pick<RtRunState, 'fusions' | 'talismans' | 'heroId'>): FusionId[] {
   if (!run.fusions) return [];
-  return FUSION_RECIPES.filter(r => run.talismans.includes(r.form) && run.talismans.includes(r.counter)).map(r => r.fusion);
+  // Task 49: the hero's innate half counts as held (Ведунья: «Иней на клинке» alone makes «Ледяная печать»).
+  const innate = rtInnate(run), held = (id: RtTalismanId) => run.talismans.includes(id) || innate.includes(id);
+  return FUSION_RECIPES.filter(r => held(r.form) && held(r.counter) && !(innate.length && run.talismans.includes(r.fusion))).map(r => r.fusion);
 }
 /**
  * The owed pairs (the guarantee): every half the run holds whose recipe is on, whose partner and fusion it does not hold and whose
@@ -1536,7 +1567,8 @@ export function rtFusionOwed(run: FusionRun): { half: RtTalismanId; partner: RtT
   if (!run.fusions) return [];
   return run.talismans.flatMap(half => {
     const of = rtFusionRecipe(run, half);
-    if (!of || run.fusionShown?.includes(half) || run.talismans.includes(of.partner) || run.talismans.includes(of.fusion)) return [];
+    // Task 49 (spec 5.1): no guarantee for the hero's innate half — its partner is not owed (it is never offered either).
+    if (!of || run.fusionShown?.includes(half) || run.talismans.includes(of.partner) || run.talismans.includes(of.fusion) || rtInnate(run).includes(of.partner)) return [];
     return [{ half, partner: of.partner }];
   });
 }
@@ -1552,9 +1584,10 @@ function pairFits(run: FusionRun, partner: RtTalismanId, screen: RtFusionScreen,
   if (!isRtForm(partner)) return screen !== 'form';
   const field = rtFormField(partner);
   // Task 46 (design decision 9): no form that would replace a form half of a recipe whose pair the run holds already.
-  const replaced = run.talismans.find(id => rtFormField(id) === field), of = replaced ? fusionOfHalf(replaced) : undefined;
+  const replaced = run.talismans.find(id => fieldOf(run, id) === field), of = replaced ? fusionOfHalf(replaced) : undefined;
   if (of && run.talismans.includes(of.partner)) return false;
-  return rtFormPool(run).includes(partner) && !run.talismans.some(id => isRtFusion(id) && rtFormField(id) === field);
+  // Task 49: an innate fusion holds no field (`fieldOf`).
+  return rtFormPool(run).includes(partner) && !run.talismans.some(id => isRtFusion(id) && fieldOf(run, id) === field);
 }
 /**
  * Task 44, the pair guarantee: the partner this screen of `nodeId` shows in its last place (`pairSlot`) — one of the owed pairs that
@@ -1602,7 +1635,8 @@ function takeTalisman(run: RtRunState, id: RtTalismanId, events: RtRunEvent[]): 
   run.talismans.push(id);
   // Task 44: the pair of a recipe is collected — the rest offers the fusion.
   const of = run.fusions ? fusionOfHalf(id) : undefined;
-  if (of && run.talismans.includes(of.partner)) events.push({ type: 'fusion-paired', fusion: of.fusion });
+  // Task 49: the hero's innate half pairs too (Ведунья takes «Иней на клинке» — the rest offers «Ледяная печать»).
+  if (of && (run.talismans.includes(of.partner) || (rtInnate(run).includes(of.partner) && !!rtFusionRecipe(run, id) && !run.talismans.includes(of.fusion)))) events.push({ type: 'fusion-paired', fusion: of.fusion });
   if (id === 'tough-hide') { run.maxHp += RT_TOUGH_HIDE_HP; run.hp += RT_TOUGH_HIDE_HP; }
   if (id === RELICS.millstone) { run.maxHp = Math.max(1, run.maxHp - RT_MILLSTONE_MAX_HP_PRICE); run.hp = Math.min(run.hp, run.maxHp); }
   events.push({ type: 'talisman-taken', id });
@@ -2575,7 +2609,8 @@ export function rtRestFuse(current: RtRunState, fusion: FusionId): RtRunStep {
   if (!offer.available) return fail('На этом привале выбран крафт: сплава не будет.');
   const run = structuredClone(current), parts = [offer.form, offer.counter];
   run.talismans = run.talismans.filter(id => !parts.includes(id));
-  run.talismansGone.push(...parts);
+  // Task 49: the hero's innate half stays the hero's (not gone): only the parts the run held leave it.
+  run.talismansGone.push(...parts.filter(id => current.talismans.includes(id)));
   run.talismans.push(fusion);
   delete run.restNoHeal;
   const events: RtRunEvent[] = [{ type: 'fusion-made', nodeId: view.nodeId, fusion, parts }];
@@ -3388,7 +3423,8 @@ function checkRun(value: unknown): RtRunState | null {
   // the camp's flags (only with it, as `createRtRun` keeps them) and the free Jailer rerolls spent (1 … the flags' count).
   if (value.locked !== undefined && !(Array.isArray(value.locked) && value.locked.every(isRtLockable) && value.seeded === undefined
     && JSON.stringify([...new Set(value.locked)].sort()) === JSON.stringify(value.locked))) return null;
-  if (value.heroId !== undefined && !(value.heroId === RT_HERO_ID && value.locked !== undefined)) return null;
+  // Task 49: Ведунья's run — with or without the snapshot (a seeded one: `?hero=toad`).
+  if (value.heroId !== undefined && !((value.heroId === RT_HERO_ID && value.locked !== undefined) || value.heroId === RT_TOAD_ID)) return null;
   if (value.hearth !== undefined && !(value.locked !== undefined && JSON.stringify(rtCleanHearth(value.hearth)) === JSON.stringify(value.hearth))) return null;
   if (value.jailerRerolled !== undefined && !(isCount(value.jailerRerolled) && value.jailerRerolled >= 1 && isRecord(value.hearth) && value.jailerRerolled <= (value.hearth.jailerRerolls as number))) return null;
   // Task 30 (15.10.2026): a flag; absent — a save before it, which has the hammer screen and the old pools.
@@ -3460,7 +3496,8 @@ function checkRun(value: unknown): RtRunState | null {
   // Task 44: the fusions only in a run with the flag.
   if (!run.fusions && [...run.talismans, ...run.talismansGone].some(isRtFusion)) return null;
   if (run.forms) {
-    const fields = run.talismans.flatMap(id => rtFormField(id) ?? []);
+    // Task 49: an innate fusion holds no field (`fieldOf`).
+    const fields = run.talismans.flatMap(id => fieldOf(run, id) ?? []);
     if (run.hammer !== undefined || new Set(fields).size !== fields.length) return null;
   }
   // Phase B (Т2): a hammer is one the run's first Jailer's row offered (by the node's roll), taken after its victory —

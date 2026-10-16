@@ -99,6 +99,9 @@ import { dist, inThorns, inWater } from '../sim/geometry';
 import { heroRadius } from '../sim/params';
 import { SIM_DT } from '../sim/simulation';
 import { focusGuarded, touchRaised, type ChainLink, type Enemy, type HeroMove, type World, type WorldEvent } from '../sim/world';
+// Task 49: Ведунья's law (the shield only after a ring) — the price the summary counts (`damage.unshielded`).
+import { sealOnlyShield } from '../sim/kit';
+import { chainShieldMinKillsOf, chainShieldOf } from '../sim/build';
 import { rtDeathOf } from '../run/rtRunEnd';
 import {
   emptyFightSummary, type DeathGuard, type DeathSeriesSource, type FightObserver, type FightObserverFactory, type FightSummary, type SlotBustExit, type SlotBustExitBy,
@@ -232,6 +235,10 @@ export function createFightObserver(start: World): FightObserver {
   // Task 43: the full Castellan's core too (only on his arena: the Castellan v0 keeps no boss summary, as before).
   const fullCastellan = !!start.arena.castellanFull && start.params.bossFrame;
   const bossCore = start.params.bossFrame ? start.enemies.find(e => e.kind === JAILER || (fullCastellan && e.kind === CASTELLAN)) : undefined;
+  // Task 49: Ведунья's fight — `bare` the game time until which an open chain left her where the cat would stand shielded.
+  const toad = sealOnlyShield(start);
+  if (toad) s.damage.unshielded = { hits: 0, damage: 0 };
+  let sealDash = false, bare = -1;
   if (bossCore) s.boss = { diedAt: null, severedAt: null, moves: {}, ...fullCastellan ? { castellan: { raises: 0, openSeconds: 0, windowsHit: 0, windowsMissed: 0, parts: [], bolts: { shots: 0, hero: 0, enemies: 0 }, phase: 1 } } : {} };
   /** Task 43: the grate's open since (game s; null — down) and the lever's window now (its core hit or not). */
   let grateSince: number | null = null, leverWindow: { hit: boolean } | null = null, leverPulled = false;
@@ -284,6 +291,7 @@ export function createFightObserver(start: World): FightObserver {
           s.damage.total += ev.damage;
           bump(s.damage.bySource, source, ev.damage);
           bump(s.damage.hits, source);
+          if (s.damage.unshielded && world.time <= bare + WINDOW_EPS) { s.damage.unshielded.hits++; s.damage.unshielded.damage += ev.damage; }
           // К7: the events stand in the order they happened, so a hit after `chest` and before `curseLifted` was cursed.
           if (cursedNow) bump(s.chest.cursedDamage, source, ev.damage);
           hit = true;
@@ -411,8 +419,16 @@ export function createFightObserver(start: World): FightObserver {
             s.chain.closeAttempts++;
           }
           return;
+        // Task 49: Ведунья's dash ended open with the kills the cat's shield needs — the cat's shield length is her bare window.
+        case 'chainEnd':
+          if (toad) {
+            if (!sealDash && ev.kills >= chainShieldMinKillsOf(world)) { const length = chainShieldOf(world); if (length > 0) bare = world.time + length; }
+            sealDash = false;
+          }
+          return;
         case 'seal':
           if (ev.phase !== 'release') return;
+          sealDash = true;
           s.chain.seals++;
           if (!ev.inside.length) s.chain.sealsEmpty++;
           s.chain.sealInside.push(ev.inside.length);

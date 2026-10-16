@@ -9,7 +9,7 @@
 import { ITEM_KINDS } from '../forest/items';
 import { RESOURCE_KINDS } from '../forest/resources';
 import type { ItemKind, ResourceKind } from '../forest/types';
-import { COUNTER_TALISMANS, expandFusions, FORM_FIELD, FUSION_EXCLUDES, FUSIONS_V2, isHammerId, type HammerId } from './buildIds';
+import { COUNTER_TALISMANS, expandFusions, FORM_FIELD, FUSION_EXCLUDES, FUSIONS_V2, HERO_INNATE, HERO_LAWS, isHammerId, isLoadoutHero, type HammerId, type LoadoutHero } from './buildIds';
 import { featGoalOf, type FeatGoal } from './feat';
 
 export type { ItemKind, ResourceKind };
@@ -157,6 +157,12 @@ export interface Loadout {
    * counter on rank I.
    */
   honed?: string[];
+  /**
+   * Task 49 «Второй герой» (buildIds.ts `HERO_LAWS`): the hero of the fight other than the cat — the kit gets the hero's innate items
+   * (`HERO_INNATE`: Ведунья — «Печать») and the module of its law (`hero-toad`, sim/heroLaw.ts: the after-chain shield only after a
+   * closed chain) at the end of `talismans`. Absent — the cat: the kit of before.
+   */
+  hero?: LoadoutHero;
 }
 
 /**
@@ -280,6 +286,11 @@ export const NIMBLE_PAWS_DISCOUNT = 1;
 
 /** The talisman `id` acts in this arena. */
 export const hasTalisman = (world: { kit?: Kit }, id: string): boolean => !!world.kit?.talismans.includes(id);
+/**
+ * Task 49: the kit holds the law of Ведунья (`hero-toad`, sim/heroLaw.ts) — the after-chain shield only after a closed chain. The
+ * dash (`modify.chainShield`) and the plan (chain.ts `ChainPlan.noShield`, `planHoned`) read it.
+ */
+export const sealOnlyShield = (world: { kit?: Kit }): boolean => hasTalisman(world, HERO_LAWS.toad);
 
 const count = (value: unknown): number => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 const COUNTER_IDS: readonly string[] = Object.values(COUNTER_TALISMANS);
@@ -315,10 +326,13 @@ export function kitOf(loadout: Loadout): Kit {
   // Task 44 «Сплавы»: a fusion brings its parts (their rules stay); its hammer part («Возврат») takes the hammer slot — the fusion
   // is the form of its field. A loadout without a fusion makes the same kit as before.
   const given = [...new Set((loadout.talismans ?? []).filter(id => typeof id === 'string'))];
-  const { talismans, hammer } = given.some(id => FUSIONS_V2.includes(id)) ? fusionSlot(given, loadout.hammer) : (() => {
+  const { talismans: built, hammer } = given.some(id => FUSIONS_V2.includes(id)) ? fusionSlot(given, loadout.hammer) : (() => {
     const expanded = expandFusions(given), fusedHammer = expanded.length !== given.length ? expanded.find(id => isHammerId(id) && !given.includes(id)) : undefined;
     return { talismans: fusedHammer ? expanded.filter(id => id !== fusedHammer) : expanded, hammer: isHammerId(fusedHammer) ? fusedHammer : loadout.hammer };
   })();
+  // Task 49: the hero's innate items (those not in the kit yet) and its law's module, after the rest; the cat — the kit of before.
+  const hero = isLoadoutHero(loadout.hero) ? loadout.hero : undefined;
+  const talismans = hero ? [...built, ...[...HERO_INNATE[hero], HERO_LAWS[hero]].filter(id => !built.includes(id))] : built;
   return {
     items, materials: emptyResources(), openItems, randomElites: !!loadout.randomElites, talismans,
     firstPower: (talismans.includes('whetstone') ? WHETSTONE_POWER : 0) + count(loadout.firstPower),

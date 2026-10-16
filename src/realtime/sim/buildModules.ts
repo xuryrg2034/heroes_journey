@@ -12,3 +12,5 @@ import './forms';
 import './frostPass';
 // Task 46: the fusions of the dash's end (after the hammers: the paint of «Клеймо» comes after the end blast).
 import './fusionEnds';
+// Task 49: the heroes' laws (last: the shield of «Ведуньи» is 0 after an open chain whatever the talismans made of it).
+import './heroLaw';

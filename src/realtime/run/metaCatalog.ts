@@ -8,7 +8,17 @@ import { COUNTER_TALISMANS as CT, FORMS, HAMMERS, RELICS as RL } from '../sim/bu
 
 /** The hero of v1 (кот-варвар); a run without `heroId` is his. */
 export const RT_HERO_ID = 'cat';
-export type RtHeroId = typeof RT_HERO_ID;
+/**
+ * Task 49 «Второй герой» (docs/design-notes/task-49-second-hero.md): Ведунья (`toad`) — «Печать» innate, the after-chain shield only
+ * after a ring (sim/heroLaw.ts; the fight's `Loadout.hero`). Opened by the first win over the Jailer in a meta run (`RtMeta.freed`).
+ */
+export const RT_TOAD_ID = 'toad';
+export type RtHeroId = typeof RT_HERO_ID | typeof RT_TOAD_ID;
+/** Every hero, the cat first (the camp's and «Новый поход»'s order). */
+export const RT_HERO_IDS: readonly RtHeroId[] = [RT_HERO_ID, RT_TOAD_ID];
+export const isRtHeroId = (value: unknown): value is RtHeroId => typeof value === 'string' && (RT_HERO_IDS as readonly string[]).includes(value);
+/** Player-facing names of the heroes (one name, one meaning: «Ведунья» is free in the catalogues, task-49 spec section 15). */
+export const RT_HERO_TITLES: Readonly<Record<RtHeroId, string>> = { cat: 'Кот', toad: 'Ведунья' };
 
 /** What a pack opens (the view's card): a talisman, a relic, a hammer, a form (task 30), an event. */
 export type RtMetaItemKind = 'talisman' | 'relic' | 'hammer' | 'form' | 'event';
@@ -31,6 +41,20 @@ export const RT_META_PACKS: readonly RtMetaPack[] = [
   { id: 'long-chains', title: 'Длинные цепи', at: 600, items: [{ id: CT.longArm, kind: 'talisman' }, { id: CT.thirdChain, kind: 'talisman' }, { id: RL.wideCircle, kind: 'relic' }] },
   { id: 'frost', title: 'Иней', at: 900, items: [{ id: CT.frostEdge, kind: 'talisman' }, { id: RL.bloodOath, kind: 'relic' }] },
 ];
+/**
+ * Task 49 (user decision 16.10.2026, spec section 7.2): every hero has its own XP and packs — the same five packs, items and thresholds,
+ * the hero's own order. The cat's is `RT_META_PACKS`; Ведунья's — «Иней» first (the other half of her recipe «Ледяная печать»), then
+ * «Близнецы» (two-colour crowds close rings), «Охотник», «Длинные цепи», «Возврат».
+ */
+export const RT_HERO_PACK_ORDER: Readonly<Record<RtHeroId, readonly string[]>> = {
+  cat: RT_META_PACKS.map(pack => pack.id),
+  toad: ['frost', 'twins', 'hunter', 'long-chains', 'return'],
+};
+/** The packs of `hero` in its order, each at the threshold of its place (`RT_META_THRESHOLDS`); the cat's — `RT_META_PACKS` itself. */
+export function rtHeroPacks(hero: RtHeroId): readonly RtMetaPack[] {
+  if (hero === RT_HERO_ID) return RT_META_PACKS;
+  return RT_HERO_PACK_ORDER[hero].map((id, i) => ({ ...RT_META_PACKS.find(pack => pack.id === id)!, at: RT_META_THRESHOLDS[i] }));
+}
 /** Every id a pack may lock, sorted (a save's `locked` is a subset of it). */
 export const RT_META_LOCKABLE: readonly string[] = RT_META_PACKS.flatMap(pack => pack.items.map(item => item.id)).sort();
 /**

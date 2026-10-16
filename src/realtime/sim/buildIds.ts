@@ -204,3 +204,20 @@ export const END_RANK: readonly string[] = [FORMS.seal, FORMS.pierce, HAMMERS.bl
  * «Близнецы» before «Чужак» (the report's order; «Близнецы» bends every link, «Чужак» one).
  */
 export const COLOR_RULE_RANK: readonly string[] = [FORMS.twins, FORMS.alien];
+
+/**
+ * Task 49 «Второй герой» (docs/design-notes/task-49-second-hero.md; docs/realtime-prototype.md, section 9к): the heroes other than
+ * the cat (кот-варвар, the hero of v1: no id, no law). A loadout with `hero` (kit.ts `Loadout.hero`) gives the kit the hero's innate
+ * items and the module of the hero's law (sim/heroLaw.ts), kept in `Kit.talismans` as the other items. A journal without `hero` plays
+ * the old path.
+ */
+export const HERO_LAWS = {
+  /** Ведунья (toad): «Печать» innate; the price — the after-chain shield only after a closed chain (a seal). */
+  toad: 'hero-toad',
+} as const;
+export type HeroLawId = typeof HERO_LAWS[keyof typeof HERO_LAWS];
+/** The heroes a loadout may name (`Loadout.hero`); the cat is the loadout without one. */
+export type LoadoutHero = keyof typeof HERO_LAWS;
+export const isLoadoutHero = (value: unknown): value is LoadoutHero => typeof value === 'string' && Object.prototype.hasOwnProperty.call(HERO_LAWS, value);
+/** The items a hero has from the first fight (in the kit before the law's module): Ведунья — «Печать». */
+export const HERO_INNATE: Readonly<Record<LoadoutHero, readonly string[]>> = { toad: [FORMS.seal] };

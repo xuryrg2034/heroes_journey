@@ -329,6 +329,8 @@ interface RunMeta {
   honed?: { id: string; row: number }[];
   /** Tasks 36–37: the run's meta fields (`RunRecord.xp` … `quest`; absent — none yet). */
   metaTlm?: Partial<Pick<RunRecord, 'xp' | 'pack' | 'record' | 'locked' | 'carry' | 'stock' | 'hearthBuys' | 'npcClicks' | 'hearth' | 'quest'>>;
+  /** Task 49: the hero this run freed (`heroFreed`). */
+  freed?: { hero: 'toad'; row: number };
 }
 
 /**
@@ -714,6 +716,8 @@ export class RtRecorder {
       // Task 50: the knack screens and rank II; the archetype (absent — «Без повадки», or not chosen yet).
       ...run.knacks ? { knacksOn: true as const, ...meta.knacks?.length ? { knacks: meta.knacks } : {}, ...meta.honed?.length ? { honed: meta.honed } : {} } : {},
       ...run.habits ? { habitsOn: true as const, ...run.habit ? { habit: run.habit } : {} } : {},
+      // Task 49: the run's hero (absent — the cat) and the hero it freed.
+      ...run.heroId === 'toad' ? { hero: 'toad' as const } : {}, ...meta.freed ? { freed: { ...meta.freed } } : {},
       ...meta.featsOn ? { featsOn: true as const } : {}, ...meta.feats?.length ? { feats: meta.feats } : {}, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun, ...meta.viewerRunApprox ? { viewerRunApprox: true as const } : {} } : {}, ...meta.firsts?.length ? { firsts: meta.firsts } : {}, ...meta.resources ? { resources: meta.resources } : {}, ...meta.fx ? { fx: meta.fx } : {}, ...meta.metaTlm ?? {}, ...runLevels(run), runParams,
     };
     void this.put([JSON.parse(JSON.stringify(record)) as RunRecord]);
@@ -823,6 +827,16 @@ export class RtRecorder {
       tlm.carry = { ...end.carry };
       tlm.stock = { ...end.stock };
       if (end.quest) tlm.quest = { npc: end.quest.npc, id: end.quest.id, done: end.quest.done };
+      this.saveMeta(); this.writeRun(run);
+    });
+  }
+  /** Task 49: this run freed a hero (`RtProfileStore.freeHero` returned it; the Jailer's run row): it goes into the run's record once. */
+  heroFreed(run: RtRunState, hero: 'toad', row: number): void {
+    if (hero !== 'toad' || !Number.isInteger(row)) return;
+    safe(undefined, () => {
+      const meta = this.metaFor(run);
+      if (meta.freed) return;
+      meta.freed = { hero, row };
       this.saveMeta(); this.writeRun(run);
     });
   }

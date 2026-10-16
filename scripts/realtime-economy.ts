@@ -4,7 +4,7 @@
  * real fight of the Simulation with the run's params (`rtRunParams`: slot, cursed chest, the bag, feats) played by a greedy bot
  * through journal commands (chains through `planChain`, walking along a flow field, consumables).
  *
- * Usage: npm run realtime:economy -- [--runs N] [--from K] [--garrison on|off] [--bot garrison|economy] [--mortal] [--max-links N] [--exit-at-goals] [--gentle on|off] [--feats on|off] [--schedule off|new] [--workers W] [--json FILE]
+ * Usage: npm run realtime:economy -- [--runs N] [--from K] [--garrison on|off] [--bot garrison|economy] [--mortal] [--max-links N] [--exit-at-goals] [--gentle on|off] [--feats on|off] [--schedule off|new] [--hero toad] [--workers W] [--json FILE]
  *   seeds `Math.imul(k, 2654435761) >>> 0`, k = from … from + runs − 1 (default 1 … 300). Deterministic for a given seed range
  *   (workers only split the range).
  *
@@ -105,6 +105,11 @@ const BOSS_CORES: readonly string[] = [JAILER, 'castellan'];
 const GARRISON_BOT = GARRISON && (option('--bot') ?? 'garrison') !== 'economy';
 /** `--garrison on --mortal` (the garrison bot): the hero's real HP — a defeat ends the run (default: the hero cannot fall). */
 const MORTAL = GARRISON_BOT && args.includes('--mortal');
+/**
+ * Task 49 «Второй герой»: `--hero toad` — every run is Ведунья's (`createRtRun(seed, { hero })`: «Печать» innate, the after-chain shield
+ * only after a ring, no «Печать» in the pools). The greedy bot draws no rings, so this measures the price only (a lower bound).
+ */
+const HERO = option('--hero') === 'toad' ? 'toad' as const : undefined;
 /** «погиб бы» — the hero cannot fall; with `--mortal` the deaths are real. */
 const DIE = MORTAL ? 'погиб' : 'погиб бы';
 
@@ -478,7 +483,7 @@ function walkRun(k: number): RunRecord {
   // Update 16.10.2026: `--garrison off` — the forest only (the garrison after the forest final is not measured); `on` — the meta
   // run with the camp's flags (the cart on «Предместье») through the forest and the garrison.
   const meta = GARRISON ? { garrison: true, locked: [], hearth: { maps: 2 as const, startItems: rtHearthItems(seed, 1) } } : { garrison: false };
-  let run = createRtRun(seed, { gift: 'full', feats: FEATS, ...meta, ...GENTLE ? {} : RT_TASK17_OFF, ...SCHEDULE ? { schedule: [] } : {} });
+  let run = createRtRun(seed, { gift: 'full', feats: FEATS, ...meta, ...GENTLE ? {} : RT_TASK17_OFF, ...SCHEDULE ? { schedule: [] } : {}, ...HERO ? { hero: HERO } : {} });
   const rec: RunRecord = { k, seed, result: 'none', ...newLevel() };
   /** The level the walk accounts to: the forest, then (`--garrison on`, after «Предместье») the garrison. */
   let cur: LevelRecord = rec;
@@ -639,7 +644,7 @@ async function collect(): Promise<RunRecord[]> {
     const from = FROM + w * per, count = Math.min(per, FROM + RUNS - from);
     if (count <= 0) break;
     jobs.push(new Promise((resolve, reject) => {
-      const child = spawn(process.execPath, [...process.execArgv, script, '--child', '--from', String(from), '--runs', String(count), '--garrison', GARRISON ? 'on' : 'off', ...MORTAL ? ['--mortal'] : [], '--bot', GARRISON_BOT ? 'garrison' : 'economy', '--max-links', String(MAX_LINKS), '--gentle', GENTLE ? 'on' : 'off', '--feats', FEATS ? 'on' : 'off', '--schedule', SCHEDULE ? 'new' : 'off', ...EXIT_AT_GOALS ? ['--exit-at-goals'] : []], { stdio: ['ignore', 'pipe', 'inherit'] });
+      const child = spawn(process.execPath, [...process.execArgv, script, '--child', '--from', String(from), '--runs', String(count), '--garrison', GARRISON ? 'on' : 'off', ...MORTAL ? ['--mortal'] : [], '--bot', GARRISON_BOT ? 'garrison' : 'economy', '--max-links', String(MAX_LINKS), '--gentle', GENTLE ? 'on' : 'off', '--feats', FEATS ? 'on' : 'off', '--schedule', SCHEDULE ? 'new' : 'off', ...EXIT_AT_GOALS ? ['--exit-at-goals'] : [], ...HERO ? ['--hero', HERO] : []], { stdio: ['ignore', 'pipe', 'inherit'] });
       let out = '';
       child.stdout.on('data', chunk => { out += chunk; });
       child.on('close', code => code === 0 ? resolve(JSON.parse(out) as RunRecord[]) : reject(new Error(`worker ${w} exited ${code}`)));

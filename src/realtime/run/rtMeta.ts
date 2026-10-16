@@ -15,9 +15,10 @@ import { rtForestCleared, rtLevel, rtNode, type RtHearthFlags, type RtRunState }
 import { rtGarrisonNodeId } from './garrison';
 import { SCHEDULE_KINDS } from './schedule';
 import {
-  HEARTH_HERB_SALT, HEARTH_MAPS_SALT, HEARTH_QUEST_SALT, isRtHearthNpc, isRtQuest, RT_HEARTH_MAX_LEVEL, RT_HEARTH_NPCS, RT_HEARTH_PRICES, RT_HERO_ID, RT_META_PACKS,
-  RT_META_THRESHOLDS, rtLockedAfter, type RtHearthLevel, type RtHearthNpc, type RtHeroId, type RtMetaItem, type RtQuest, type RtQuestId,
+  HEARTH_HERB_SALT, HEARTH_MAPS_SALT, HEARTH_QUEST_SALT, isRtHearthNpc, isRtHeroId, isRtQuest, RT_HEARTH_MAX_LEVEL, RT_HEARTH_NPCS, RT_HEARTH_PRICES, RT_HERO_ID, RT_HERO_IDS,
+  RT_META_THRESHOLDS, RT_TOAD_ID, rtHeroPacks, rtLockedAfter, type RtHearthLevel, type RtHearthNpc, type RtHeroId, type RtMetaItem, type RtQuest, type RtQuestId,
 } from './metaCatalog';
+import { isRtAshLevel, type RtAshLevel } from './rtRun';
 
 export { RT_HEARTH_PRICES, RT_META_PACKS, RT_META_THRESHOLDS } from './metaCatalog';
 
@@ -85,7 +86,12 @@ export function rtDepthBeyond(a: { level?: number; row: number; won?: boolean; w
   if (level <= passed) return false;
   return a.row > b.row;
 }
-export interface RtHeroMeta { xp: number; packs: string[]; record?: RtDepthRecord }
+/**
+ * A hero's own meta (task 36; task 49 — every hero its own): XP, the packs opened in the hero's order (`rtHeroPacks`), the depth record.
+ * Task 49: `ashBest` — the highest «Испытание» of a won run of this hero (the hero card's mark; absent — no win above level 0);
+ * `offered` — Ведунья's opened items already offered once (the cat's are `RtMeta.offered`, as before).
+ */
+export interface RtHeroMeta { xp: number; packs: string[]; record?: RtDepthRecord; ashBest?: Exclude<RtAshLevel, 0>; offered?: string[] }
 /** The death cause the camp's lines read (design lines v1): the Jailer's fight, the final, the fire trail, a touch, an arrow, a blast. */
 export type RtDeathCause = 'crowd' | 'archer' | 'sapper' | 'jailer' | 'final' | 'fire' | 'other';
 /** The previous run as the camp's lines read it. `quest` — true done, false failed, absent — the run had no quest. */
@@ -104,8 +110,14 @@ export interface RtHearthMeta {
   quiet: number;
   last?: RtHearthLast;
 }
+/** Task 49: a hero freed in a run of the meta — the run row of the Jailer's fight and the viewer's run number (`RtProfile.runs`; absent — not counted). */
+export interface RtFreed { row: number; run?: number }
 export interface RtMeta {
   heroes: Partial<Record<RtHeroId, RtHeroMeta>>;
+  /** Task 49: the hero chosen for the next run (the camp, «Новый поход»); absent — the cat. Only an open hero (`rtHeroesOpen`). */
+  hero?: RtHeroId;
+  /** Task 49: the heroes freed (Ведунья — by the first win over the Jailer in a meta run, `rtFreeByJailer`); absent — none. */
+  freed?: { toad?: RtFreed };
   hearth?: RtHearthMeta;
   /** Opened items already offered once («✦ новое» shows before that). */
   offered?: string[];
@@ -256,9 +268,12 @@ export function rtNextQuest(seed: number, hearth: RtHearthMeta, record: RtDepthR
  * The meta after `run` (a run without a given seed, finished or abandoned): the new `meta` and what the end screen shows. The
  * caller checks the seed and the applied key (`RtProfileStore.endRunMeta`).
  */
-export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState): { meta: RtMeta; end: RtMetaEnd } {
-  const meta: RtMeta = structuredClone(previous ?? { heroes: {} });
+export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState, options: { viewerRun?: number } = {}): { meta: RtMeta; end: RtMetaEnd } {
+  // Task 49: a run that won the Jailer frees Ведунья here too, if the view did not (`rtFreeByJailer`, the camp's fallback).
+  const base: RtMeta = structuredClone(previous ?? { heroes: {} }), meta = rtFreeByJailer(base, run, options.viewerRun)?.meta ?? base;
   const heroId = run.heroId ?? RT_HERO_ID, hero: RtHeroMeta = meta.heroes[heroId] ?? { xp: 0, packs: [] };
+  // Task 49: the hero's own order of the packs (the cat's — `RT_META_PACKS`).
+  const PACKS = rtHeroPacks(heroId);
   const firstCamp = !meta.hearth, hearth = meta.hearth ?? emptyHearth();
   // The quest the run carried, checked against the record before the run.
   const quest = run.hearth?.quest && isRtQuest(run.hearth.quest) ? run.hearth.quest : undefined;
@@ -269,14 +284,14 @@ export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState): { me
   // At most one pack a run; the rest carried, clipped to the next threshold − 1 (the StS rule).
   const before = hero.xp, index = hero.packs.length;
   let after = before + gained, pack: RtMetaPackView | null = null;
-  if (index < RT_META_PACKS.length && after >= RT_META_PACKS[index].at) {
-    const opened = RT_META_PACKS[index];
+  if (index < PACKS.length && after >= PACKS[index].at) {
+    const opened = PACKS[index];
     pack = { id: opened.id, title: opened.title, items: opened.items.map(item => ({ ...item })) };
     hero.packs = [...hero.packs, opened.id];
-    if (index + 1 < RT_META_PACKS.length) after = Math.min(after, RT_META_PACKS[index + 1].at - 1);
-  } else if (index < RT_META_PACKS.length) after = Math.min(after, RT_META_PACKS[index].at - 1);
+    if (index + 1 < PACKS.length) after = Math.min(after, PACKS[index + 1].at - 1);
+  } else if (index < PACKS.length) after = Math.min(after, PACKS[index].at - 1);
   hero.xp = after;
-  const next = RT_META_PACKS[hero.packs.length];
+  const next = PACKS[hero.packs.length];
   // The depth record (run rows; the victory; the best XP of a run).
   // Task 38: the depth is (level, row) — the level first, then the row. Task 40: the level passed first (`wonLevel`), then (level, row).
   const depth = runDepthOf(run), row = depth.row, win = won(run), old = hero.record, farther = rtDepthBeyond(depth, old ?? { row: 0 });
@@ -289,6 +304,8 @@ export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState): { me
   // Beaten — farther by (the level passed, the level, the row); a first win is farther by the level passed.
   const beaten = farther;
   hero.record = record;
+  // Task 49: the hero card's mark — the highest «Испытание» of a won run (no field below level 1).
+  if (win && (run.ash ?? 0) > (hero.ashBest ?? 0)) hero.ashBest = run.ash;
   meta.heroes[heroId] = hero;
   // The carry and the quest's stock (outside the cap).
   const carry = rtCarry(run), stockBefore = hearth.stock;
@@ -389,12 +406,88 @@ export function rtHearthFlagsWith(start: RtHearthStart, item?: ItemKind): RtHear
   return { ...start.flags, ...chosen ? { startItems: [chosen] } : {} };
 }
 
-/** The items still locked for a new run of the hero (`createRtRun(seed, { locked })`). */
+/** The items still locked for a new run of the hero (`createRtRun(seed, { locked })`). Task 49: every hero its own packs (Ведунья — all 15 at first). */
 export const rtMetaLocked = (meta: RtMeta | undefined, heroId: RtHeroId = RT_HERO_ID): string[] => rtLockedAfter(meta?.heroes[heroId]?.packs ?? []);
-/** «✦ новое»: `id` was opened by a pack and has not been offered yet (`markOffered`). */
+/** Task 49: the opened items already offered once — the cat's `RtMeta.offered`, another hero's `RtHeroMeta.offered`. */
+const offeredOf = (meta: RtMeta | undefined, heroId: RtHeroId): readonly string[] => (heroId === RT_HERO_ID ? meta?.offered : meta?.heroes[heroId]?.offered) ?? [];
+/** «✦ новое»: `id` was opened by a pack of the hero and has not been offered to this hero yet (`markOffered`). */
 export function rtMetaNewOffer(meta: RtMeta | undefined, id: string, heroId: RtHeroId = RT_HERO_ID): boolean {
   const packs = meta?.heroes[heroId]?.packs ?? [];
-  return RT_META_PACKS.some(pack => packs.includes(pack.id) && pack.items.some(item => item.id === id)) && !meta?.offered?.includes(id);
+  return rtHeroPacks(heroId).some(pack => packs.includes(pack.id) && pack.items.some(item => item.id === id)) && !offeredOf(meta, heroId).includes(id);
+}
+/** Task 49: the meta with `ids` (opened, not offered yet) marked offered to the hero; null — nothing to mark. */
+export function rtMetaMarkOffered(meta: RtMeta | undefined, ids: readonly string[], heroId: RtHeroId = RT_HERO_ID): RtMeta | null {
+  const list = ids.filter(id => rtMetaNewOffer(meta, id, heroId));
+  if (!list.length || !meta) return null;
+  if (heroId === RT_HERO_ID) return { ...meta, offered: [...meta.offered ?? [], ...list] };
+  const hero = meta.heroes[heroId]!;
+  return { ...meta, heroes: { ...meta.heroes, [heroId]: { ...hero, offered: [...hero.offered ?? [], ...list] } } };
+}
+
+// ---------- Task 49 «Второй герой»: who is open, who is chosen, who the Jailer frees ----------
+
+/** Task 49: the heroes open to the viewer — the cat, and those freed (`RtMeta.freed`), in `RT_HERO_IDS` order. */
+export const rtHeroesOpen = (meta: RtMeta | undefined): RtHeroId[] => RT_HERO_IDS.filter(id => id === RT_HERO_ID || !!meta?.freed?.[id as typeof RT_TOAD_ID]);
+/** Task 49: the hero the next run takes — the chosen one while it is open; the cat otherwise. */
+export const rtHeroChoice = (meta: RtMeta | undefined): RtHeroId => (meta?.hero && rtHeroesOpen(meta).includes(meta.hero) ? meta.hero : RT_HERO_ID);
+/** Task 49: the meta with `id` chosen (the cat — no field); null — not an open hero. */
+export function rtChooseHero(meta: RtMeta | undefined, id: RtHeroId): RtMeta | null {
+  if (!isRtHeroId(id) || !rtHeroesOpen(meta).includes(id)) return null;
+  const { hero: _old, ...rest } = meta ?? { heroes: {} };
+  return id === RT_HERO_ID ? rest : { ...rest, hero: id };
+}
+/**
+ * Task 49 (spec 6.1): the run won the forest's Jailer — its `checkpoint` fight of the forest (not the garrison's «Караульня»); the run
+ * row of that fight, or null. Read from the run's battles alone (no stream, no forest output).
+ */
+export function rtJailerWonRow(run: Pick<RtRunState, 'battles' | 'map'> & Partial<RtRunState>): number | null {
+  for (const record of run.battles) {
+    if (!record.won || rtGarrisonNodeId(record.nodeId)) continue;
+    const node = rtNode(run as RtRunState, record.nodeId);
+    if (node?.type === 'checkpoint') return runRow(node.row);
+  }
+  return null;
+}
+/**
+ * Task 49: the first win over the Jailer in a meta run (no given seed) frees Ведунья — `freed.toad` with the row and the viewer's run
+ * number; any hero wins it. Null — a seeded run, no win over the Jailer, or she is free already (a second win changes nothing).
+ */
+export function rtFreeByJailer(meta: RtMeta | undefined, run: RtRunState, viewerRun?: number): { meta: RtMeta; hero: RtHeroId } | null {
+  if (run.seeded || meta?.freed?.toad) return null;
+  const row = rtJailerWonRow(run);
+  if (row === null) return null;
+  const next: RtMeta = structuredClone(meta ?? { heroes: {} });
+  next.freed = { ...next.freed, toad: { row, ...viewerRun !== undefined ? { run: viewerRun } : {} } };
+  return { meta: next, hero: RT_TOAD_ID };
+}
+
+/** Task 49: a hero as the camp and «Новый поход» show it (the view's contract). */
+export interface RtHeroView {
+  id: RtHeroId;
+  /** Freed (the cat always). */
+  open: boolean;
+  /** The next run takes this hero (`rtHeroChoice`). */
+  chosen: boolean;
+  xp: number;
+  /** The packs opened, in the hero's order; the next pack (null — all open). */
+  packs: string[];
+  nextPack: { id: string; title: string; at: number; size: number } | null;
+  record?: RtDepthRecord;
+  /** The highest «Испытание» of a won run (the card's mark); absent — none. */
+  ashBest?: Exclude<RtAshLevel, 0>;
+  /** Ведунья: where she was freed (absent — the cat, or not freed). */
+  freed?: RtFreed;
+}
+export function rtHeroViews(meta: RtMeta | undefined): RtHeroView[] {
+  const open = rtHeroesOpen(meta), chosen = rtHeroChoice(meta);
+  return RT_HERO_IDS.map(id => {
+    const hero = meta?.heroes[id], packs = hero?.packs ?? [], next = rtHeroPacks(id)[packs.length], freed = id === RT_TOAD_ID ? meta?.freed?.toad : undefined;
+    return {
+      id, open: open.includes(id), chosen: id === chosen, xp: hero?.xp ?? 0, packs: [...packs],
+      nextPack: next ? { id: next.id, title: next.title, at: next.at, size: next.items.length } : null,
+      ...hero?.record ? { record: { ...hero.record } } : {}, ...hero?.ashBest ? { ashBest: hero.ashBest } : {}, ...freed ? { freed: { ...freed } } : {},
+    };
+  });
 }
 
 // ---------- Reading a stored meta ----------
@@ -405,14 +498,23 @@ const level = (value: unknown): RtHearthLevel => (value === 1 || value === 2 ? v
 /** A stored `meta` as the profile reads it (anything malformed falls back to its empty part; absent — undefined). */
 export function parseRtMeta(value: unknown): RtMeta | undefined {
   if (!isPlain(value)) return undefined;
-  const heroes: RtMeta['heroes'] = {}, cat = isPlain(value.heroes) ? value.heroes[RT_HERO_ID] : undefined;
-  if (isPlain(cat)) {
-    const packs = Array.isArray(cat.packs) ? RT_META_PACKS.map(pack => pack.id).filter((id, i) => i < (cat.packs as unknown[]).length && (cat.packs as unknown[])[i] === id) : [];
-    const r = cat.record;
+  const heroes: RtMeta['heroes'] = {};
+  // Task 49: every hero by its own order of the packs (the cat's as before; a profile before it has the cat only).
+  for (const id of RT_HERO_IDS) {
+    const stored = isPlain(value.heroes) ? value.heroes[id] : undefined;
+    if (!isPlain(stored)) continue;
+    const order = rtHeroPacks(id).map(pack => pack.id), list = Array.isArray(stored.packs) ? stored.packs as unknown[] : [];
+    const packs = order.filter((pack, i) => i < list.length && list[i] === pack);
+    const r = stored.record;
     // Task 40: `wonLevel` 1 or 2; a record saved before it — `won: true` (or a garrison record) reads as the forest passed (1).
     const passed = isPlain(r) && (r.wonLevel === 1 || r.wonLevel === 2) ? r.wonLevel : isPlain(r) && (r.won === true || r.level === 2) ? 1 : 0;
-    heroes[RT_HERO_ID] = { xp: isCount(cat.xp) ? cat.xp : 0, packs, ...isPlain(r) && isCount(r.row) && isCount(r.xp) && typeof r.won === 'boolean' ? { record: { row: r.row, won: r.won || passed > 0, xp: r.xp, ...r.level === 2 ? { level: 2 as const } : {}, ...passed ? { wonLevel: passed } : {} } } : {} };
+    const best = isRtAshLevel(stored.ashBest) && stored.ashBest >= 1 ? stored.ashBest as Exclude<RtAshLevel, 0> : undefined;
+    const offered = id !== RT_HERO_ID && Array.isArray(stored.offered) ? [...new Set(stored.offered.filter((x): x is string => typeof x === 'string'))] : undefined;
+    heroes[id] = { xp: isCount(stored.xp) ? stored.xp : 0, packs, ...isPlain(r) && isCount(r.row) && isCount(r.xp) && typeof r.won === 'boolean' ? { record: { row: r.row, won: r.won || passed > 0, xp: r.xp, ...r.level === 2 ? { level: 2 as const } : {}, ...passed ? { wonLevel: passed } : {} } } : {}, ...best ? { ashBest: best } : {}, ...offered ? { offered } : {} };
   }
+  const f = isPlain(value.freed) ? value.freed.toad : undefined;
+  const freed = isPlain(f) && isCount(f.row) && f.row >= 1 ? { toad: { row: f.row, ...isCount(f.run) && f.run >= 1 ? { run: f.run } : {} } } : undefined;
+  const hero = isRtHeroId(value.hero) && value.hero !== RT_HERO_ID && (value.hero !== RT_TOAD_ID || freed) ? value.hero : undefined;
   const h = value.hearth;
   const hearth: RtHearthMeta | undefined = isPlain(h) ? {
     stock: isCount(h.stock) ? h.stock : 0,
@@ -426,5 +528,5 @@ export function parseRtMeta(value: unknown): RtMeta | undefined {
   } : undefined;
   const offered = Array.isArray(value.offered) ? [...new Set(value.offered.filter((id): id is string => typeof id === 'string'))] : undefined;
   const applied = isPlain(value.applied) && typeof value.applied.key === 'string' && isPlain(value.applied.end) ? { key: value.applied.key, end: structuredClone(value.applied.end) as unknown as RtMetaEnd } : undefined;
-  return { heroes, ...hearth ? { hearth } : {}, ...offered ? { offered } : {}, ...applied ? { applied } : {} };
+  return { heroes, ...hero ? { hero } : {}, ...freed ? { freed } : {}, ...hearth ? { hearth } : {}, ...offered ? { offered } : {}, ...applied ? { applied } : {} };
 }
