@@ -203,6 +203,55 @@ await check('a part keeps its rank in the fusion: the rest fuses a counter on ra
   assert(fused >= 3, `fusions of a part on rank II: ${fused}`);
 });
 
+// ---- «Стужа»: «Иней на клинке» new on the knack screen (design §16, answer 7 (а)) ----
+
+/**
+ * The knack screens of 24 walks (gift `full`, the garrison on even k) per archetype, as the code before the rule of answer 7 (а) made them
+ * (`core/task50` 7e2327a, 16.10.2026; the same SHA-256 of these lines before and after it): the FNV-1a of `k|node|cards` lines. Without
+ * «Стужа» they must stay byte for byte.
+ */
+const KNACKS_BEFORE_COLD_RARE: Readonly<Record<string, string>> = {
+  none: 'f139ee23',
+  flame: 'd84d38bd',
+  shift: '4803608',
+  daring: '54d8ffb',
+};
+const knackDigest = (habit: RtHabitId | null): { digest: string; screens: number } => {
+  let h = 0x811c9dc5, screens = 0;
+  const add = (text: string): void => { for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193) >>> 0; };
+  for (let k = 1; k <= 24; k++) walk(k, { gift: 'full', knacks: true, habits: true, garrison: k % 2 === 0 }, { habit, each: s => { if (s.pending?.kind === 'knack') { add(`${k}|${s.pending.nodeId}|${JSON.stringify(s.pending.options)}
+`); screens++; } } });
+  return { digest: h.toString(16), screens };
+};
+
+await check('«Стужа»: without it (and with the other archetypes) the knack screens are those of before byte for byte (24 seeds); with it «Иней на клинке» comes new on some seeds at weight 1 — never taken, gone or locked', () => {
+  for (const [key, digest] of Object.entries(KNACKS_BEFORE_COLD_RARE)) {
+    const now = knackDigest(key === 'none' ? null : key as RtHabitId);
+    assert(now.digest === digest && now.screens > 100, `${key}: the knack screens changed (${now.screens} screens)`);
+  }
+  let seeds = 0, shown = 0;
+  for (let k = 1; k <= 30; k++) {
+    let here = false;
+    walk(k, { gift: 'full', knacks: true, habits: true, garrison: k % 2 === 0 }, { habit: 'cold', knack: (_run, options) => options.find(o => !o.hone && o.id === 'frost-edge') ?? options[0], each: s => {
+      if (s.pending?.kind !== 'knack') return;
+      for (const o of s.pending.options) {
+        if (o.hone || rtTalisman(o.id)!.rarity !== 'rare') continue;
+        assert(o.id === 'frost-edge' && !s.talismans.includes(o.id) && !s.talismansGone.includes(o.id), `seed ${k}: a rare new card ${o.id}`);
+        here = true; shown++;
+      }
+    } });
+    if (here) seeds++;
+  }
+  assert(seeds >= 3, `«Иней» came new on ${seeds} of 30 seeds (${shown} cards)`);
+  // Locked by the meta — never.
+  for (let k = 1; k <= 20; k++) walk(k, { gift: 'full', knacks: true, habits: true, locked: ['frost-edge'] }, { habit: 'cold', each: s => {
+    if (s.pending?.kind === 'knack') assert(!s.pending.options.some(o => o.id === 'frost-edge'), `seed ${k}: a locked «Иней»`);
+  } });
+  // Weight 1: on the knack screens of «Стужа» it is not drawn more often than an untagged counter would be (×3 would make it the first
+  // pick about three times as often) — the pick is `rtWeightedIndex` with it plain.
+  assert(rtWeightedIndex(4, ['third-chain', 'prism', 'frost-edge'], 'cold', ['frost-edge']) === 1 && rtWeightedIndex(4, ['third-chain', 'prism', 'frost-edge'], 'cold') === 2, 'the plain weight');
+});
+
 // ---- Saves ----
 
 await check('saves: every case «похода нет» of the design (3.4) reads as no run; the controls read', () => {
