@@ -3434,6 +3434,12 @@ export class RealtimeRenderer {
     return this.fusionLabels[i];
   }
 
+  /** The plates of `e` before the dash's end: after the chain's own plate hit when it is a link of the plan, else as it stands. */
+  private plateBefore(plan: ChainPlan, e: Enemy): number {
+    const link = plan.links.find(l => l.link.kind === 'enemy' && l.link.id === e.id);
+    return link?.outcome?.plate ? link.outcome.platesAfter ?? 0 : eliteArmorView(e)?.plates ?? 0;
+  }
+
   /**
    * Task 46 «Сплавы v2» (design 16.10.2026, docs/design-notes/task-46-fusions-v2.md, 9): the highlight of the three fusions of the
    * dash's end — all of it read from the plan (`planChain`: `fire.paint`, `blast`, `wave`), nothing computed here.
@@ -3443,12 +3449,6 @@ export class RealtimeRenderer {
    * - «Ледяная волна»: the wave's circle round the dash's end; the cross on those it kills, the frost sign on those it freezes
    *   (a white rim — brittle).
    */
-  /** The plates of `e` before the dash's end: after the chain's own plate hit when it is a link of the plan, else as it stands. */
-  private plateBefore(plan: ChainPlan, e: Enemy): number {
-    const link = plan.links.find(l => l.link.kind === 'enemy' && l.link.id === e.id);
-    return link?.outcome?.plate ? link.outcome.platesAfter ?? 0 : eliteArmorView(e)?.plates ?? 0;
-  }
-
   private drawFusionEnd(g: Graphics, world: World, plan: ChainPlan, _ink: number): void {
     const p = world.params, r = enemyDrawRadius(p) * UNIT, shown = this.fusionShown;
     const paint = plan.fire?.lit ? plan.fire.paint : undefined;
@@ -3465,6 +3465,9 @@ export class RealtimeRenderer {
     }
     const blast = plan.blast;
     if (blast) {
+      // The dash's end strikes the wave first, then the blast on the wave's shadow (sim `planFusionEnd`): a plated body the wave struck
+      // meets the blast with the wave's `platesAfter`.
+      const afterWave = new Map((plan.wave?.bodies ?? []).flatMap(b => (b.plate ? [[b.id, b.platesAfter ?? 0] as const] : [])));
       const x = blast.at.x * UNIT, y = blast.at.y * UNIT, R = blast.radius * UNIT, thick = blast.detonate;
       g.circle(x, y, R).fill({ color: PLAYER_FX, alpha: thick ? 0.2 : 0.1 });
       g.circle(x, y, R).stroke({ color: NAVY, width: thick ? 11 : 5, alpha: 0.6 }).circle(x, y, R).stroke({ color: PLAYER_FX, width: thick ? 6 : 2.5, alpha: 0.95 });
@@ -3480,7 +3483,7 @@ export class RealtimeRenderer {
         shown.blastMarks++;
         if (hit.plate) {
           // A plated body: the lemon ring and the plates the blast takes — the plan's difference (`plateBefore` − `platesAfter`).
-          const removed = Math.max(0, this.plateBefore(plan, e) - (hit.platesAfter ?? 0)), RR = e.elite || e.leader ? r * enemyArtScale(p, e) * 1.06 : r, s = r * 0.2;
+          const removed = Math.max(0, (afterWave.get(e.id) ?? this.plateBefore(plan, e)) - (hit.platesAfter ?? 0)), RR = e.elite || e.leader ? r * enemyArtScale(p, e) * 1.06 : r, s = r * 0.2;
           g.circle(X, Y, RR + 4).stroke({ color: ELITE_LEMON, width: 4 });
           g.circle(cx, cy, r * 0.32).fill(ELITE_LEMON).stroke({ color: NAVY, width: 2 });
           g.roundRect(cx - s * 0.8, cy - s, s * 1.6, s * 2, s * 0.5).fill(NAVY);
