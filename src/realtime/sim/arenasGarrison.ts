@@ -11,6 +11,7 @@
 import { registerArena, type ArenaTemplate, type Pace } from './arenas';
 import { polygon, tree, wall, zone } from './geometry';
 import { CASTELLAN, GUARD, GUARD_FORMATION, HANDLER, HOUND, KEYMASTER, KNIGHT, STAND, STAND_HP } from './enemies/garrison';
+import { CROSSBOW } from './enemies/crossbow';
 
 /** No wolf packs and no boars (as the arenas of one kind). */
 const NO_PACKS: Partial<Pace> = { wolfShare: 0, boarShare: 0 };
@@ -86,6 +87,8 @@ export const GALLERY_ARENA: ArenaTemplate = registerArena({
   enemies: [{ x: 8, y: 2, color: 2, kind: HANDLER }, ...line(8, 5.2, 0, 1)],
   // Task 40: from garrison row 8, once «Ров» was played, a keymaster stands behind the far palisade (`Loadout.deep`).
   deepEnemies: [{ x: 12.5, y: 1.6, color: 3, kind: KEYMASTER }],
+  // Task 43, part Г: from garrison row 8, once «Бойницы» was played, two crossbowmen behind the far palisade (`Loadout.bolts`).
+  boltEnemies: [{ x: 2.6, y: 1.6, color: 3, kind: CROSSBOW }, { x: 13.4, y: 1.6, color: 1, kind: CROSSBOW }],
   phaseOverride: NO_PACKS,
   killGoal: 25,
   newcomers: [{ kind: GUARD, share: GUARD_SHARE, group: GUARD_FORMATION }, { kind: HANDLER, share: HANDLER_SHARE }],
@@ -110,6 +113,8 @@ export const GUARDROOM_ARENA: ArenaTemplate = registerArena({
   enemies: [{ x: 8, y: 3, color: 1, kind: HANDLER, elite: true }, ...line(4, 3.6, 0, 1), ...line(12, 3.6, 2, 2)],
   // Task 40: a hard node from garrison row 8, once «Ров» was played — a keymaster at the back of the guardroom (`Loadout.deep`).
   deepEnemies: [{ x: 8, y: 1.4, color: 3, kind: KEYMASTER }],
+  // Task 43, part Г: a hard node from garrison row 8, once «Бойницы» was played — two crossbowmen in the back corners (`Loadout.bolts`).
+  boltEnemies: [{ x: 2, y: 1.4, color: 2, kind: CROSSBOW }, { x: 14, y: 1.4, color: 0, kind: CROSSBOW }],
   phaseOverride: NO_PACKS,
   killGoal: 30,
   newcomers: [{ kind: GUARD, share: GUARD_SHARE, group: GUARD_FORMATION }, { kind: HANDLER, share: HANDLER_SHARE }],
@@ -245,5 +250,63 @@ export const KNIGHT_TEST_ARENA: ArenaTemplate = registerArena({
   garrison: true,
 });
 
-/** The garrison's arenas on the sandbox menu (after the boss arena; task 40 «Ров», task 43 «Двор кастеляна (полный)» and «Рыцарь (проба)» at the end: the menu numbers stay). */
-export const GARRISON_ARENAS: readonly ArenaTemplate[] = [YARD_ARENA, KENNEL_ARENA, GALLERY_ARENA, GUARDROOM_ARENA, CASTELLAN_ARENA, MOAT_ARENA, CASTELLAN_FULL_ARENA, KNIGHT_TEST_ARENA];
+/** Баланс (task 43, part Г): crossbowmen among the newcomers of «Бойницы» (the guards' 0.15 and the handler's 0.05 of «Галерея» — about as dense). */
+export const CROSSBOW_SHARE = 0.06;
+
+/**
+ * Task 43 «Бойницы» (part Г, design 16.10.2026, docs/design-notes/task-43-garrison-step2.md, 6; garrison rows 6–7, the branch
+ * without «Ров»): kill 25 — the crossbowman's first meeting. Three crossbowmen at the far wall aim lines through the hero; five
+ * crates in the middle field (walls of 0.9: a bolt's line and its aim stop at them) are the cover to step behind, a guards' line
+ * the body to put between. The newcomers: guards' lines and crossbowmen.
+ */
+export const LOOPHOLES_ARENA: ArenaTemplate = registerArena({
+  id: 'g-loopholes',
+  name: 'Бойницы',
+  summary: 'Убей цепью 25 врагов. Арбалетчик целится по линии: болт бьёт первое тело на ней. Встань за ящик или за врага — или убей стрелка первым. Дверь сверху.',
+  goal: 'kills',
+  width: 16,
+  height: 10,
+  heroStart: { x: 8, y: 8.5 },
+  obstacles: [wall(2.6, 5.4, 0.9, 0.9), wall(5.5, 6.3, 0.9, 0.9), wall(9.6, 6.3, 0.9, 0.9), wall(12.5, 5.4, 0.9, 0.9), wall(7.55, 4, 0.9, 0.9)],
+  buttons: [],
+  door: { x: 8, y: 0.7 },
+  enemies: [
+    { x: 3.2, y: 1.8, color: 1, kind: CROSSBOW }, { x: 12.8, y: 1.8, color: 3, kind: CROSSBOW }, { x: 10.5, y: 2.4, color: 0, kind: CROSSBOW },
+    ...line(5.6, 3.4, 2, 1),
+    { x: 1.6, y: 4.2, color: 0 }, { x: 14.4, y: 4.2, color: 2 },
+  ],
+  phaseOverride: NO_PACKS,
+  killGoal: 25,
+  newcomers: [{ kind: GUARD, share: GUARD_SHARE, group: GUARD_FORMATION }, { kind: CROSSBOW, share: CROSSBOW_SHARE }],
+  garrison: true,
+});
+
+/**
+ * Task 43 «Ристалище» (part Г; garrison rows 3–4): kill 20 — the knight's first meeting. Weapon racks (two long walls at the sides,
+ * a short one in the middle) stop a knight's «Рывок» and split the yard; a guards' line with a knight in its middle (colour 0) and a
+ * knight alone at the back (colour 2). The newcomers: guards' lines (no knights).
+ */
+export const ARMORY_ARENA: ArenaTemplate = registerArena({
+  id: 'g-armory',
+  name: 'Ристалище',
+  summary: 'Убей цепью 20 врагов. Рыцарь в латах: каждая цепь через него снимает пластину. Без лат он наступает — рывок по полосе и размах по кругу; стойки с оружием останавливают рывок. Дверь сверху.',
+  goal: 'kills',
+  width: 16,
+  height: 10,
+  heroStart: { x: 8, y: 8 },
+  obstacles: [wall(1.6, 5.4, 3.4, 0.7), wall(11, 5.4, 3.4, 0.7), wall(7.1, 4.4, 1.8, 0.7)],
+  buttons: [],
+  door: { x: 8, y: 0.7 },
+  enemies: [
+    { x: 4.4, y: 3.2, color: 0, kind: GUARD, formation: 1 }, { x: 5.3, y: 3.2, color: 0, kind: KNIGHT, formation: 1 }, { x: 6.2, y: 3.2, color: 0, kind: GUARD, formation: 1 },
+    { x: 11.2, y: 2.4, color: 2, kind: KNIGHT },
+    { x: 2.4, y: 2, color: 3 }, { x: 13.8, y: 3.6, color: 1 }, { x: 9, y: 2.2, color: 1 },
+  ],
+  phaseOverride: NO_PACKS,
+  killGoal: 20,
+  newcomers: [{ kind: GUARD, share: GUARD_SHARE, group: GUARD_FORMATION }],
+  garrison: true,
+});
+
+/** The garrison's arenas on the sandbox menu (after the boss arena; task 40 «Ров», task 43 «Двор кастеляна (полный)», «Рыцарь (проба)», «Бойницы» and «Ристалище» at the end: the menu numbers stay). */
+export const GARRISON_ARENAS: readonly ArenaTemplate[] = [YARD_ARENA, KENNEL_ARENA, GALLERY_ARENA, GUARDROOM_ARENA, CASTELLAN_ARENA, MOAT_ARENA, CASTELLAN_FULL_ARENA, KNIGHT_TEST_ARENA, LOOPHOLES_ARENA, ARMORY_ARENA];

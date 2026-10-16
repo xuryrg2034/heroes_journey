@@ -21,6 +21,8 @@
  */
 import type { ArenaTemplate, NewcomerShare } from './arenas';
 
+/** Task 43, part Г: the guard and the knight of the garrison (enemies/garrison.ts `GUARD`, `KNIGHT`; no import: the registry loads after). */
+const GUARD_KIND = 'guard', KNIGHT_KIND = 'knight';
 /** Task 28: the kind whose shield is the shieldbearer's (the Jailer's core, enemies/jailer.ts `JAILER`; no import: the registry loads after). */
 const SHIELDED_CORE = 'jailer';
 
@@ -215,4 +217,21 @@ export function withRoster(template: ArenaTemplate, id: string): RosterArena {
     ? { wolfShare: def.wolfShare ?? 0, boarShare: def.boarShare ?? 0 }
     : { ...def.wolfShare !== undefined ? { wolfShare: def.wolfShare } : {}, ...def.boarShare !== undefined ? { boarShare: def.boarShare } : {} };
   return { ...template, newcomers, phaseOverride: { ...template.phaseOverride, ...shares }, ...def.boarMax !== undefined ? { boarMax: def.boarMax } : {}, roster: id };
+}
+
+/**
+ * Task 43 «Гарнизон, шаг 2», part Г (`Loadout.knights`, world.ts `createWorld`): the template with a knight in place of the middle
+ * guard of each of its first `n` start formations (by the formation's number; the knight keeps the guard's place, colour and
+ * formation, its HP is its kind's). The run gives it to «Плац» and «Караульня» once the knight was met on «Ристалище». `n` 0 (or no
+ * formation) — the template as it is.
+ */
+export function withKnights<T extends ArenaTemplate>(template: T, n: number): T {
+  if (n < 1) return template;
+  const formations = [...new Set(template.enemies.flatMap(e => (e.kind === GUARD_KIND && e.formation !== undefined ? [e.formation] : [])))].sort((a, b) => a - b).slice(0, n);
+  if (!formations.length) return template;
+  const middle = new Set(formations.map(f => {
+    const members = template.enemies.flatMap((e, i) => (e.kind === GUARD_KIND && e.formation === f ? [i] : []));
+    return members[(members.length - 1) >> 1];
+  }));
+  return { ...template, enemies: template.enemies.map((e, i) => { if (!middle.has(i)) return e; const { hp: _hp, ...rest } = e; return { ...rest, kind: KNIGHT_KIND }; }) };
 }
