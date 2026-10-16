@@ -260,7 +260,7 @@ test('run: two runs walk to the final arena — a new run by the schedule (its a
       }
       if (pending) {
         // A node screen: its first button that is on (the gift, a rest, a find, an event option, the merchant's «Уйти»).
-        await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
+        await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"]:not([disabled]), [data-action="gift-pick"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
         continue;
       }
       await enterFirstNode(page);
@@ -329,7 +329,7 @@ test('run: a consumable taken at a find goes to the next arena (HUD 2 ×1) and i
       continue;
     }
     if (pending) {
-      await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
+      await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"]:not([disabled]), [data-action="gift-pick"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
       continue;
     }
     const find = page.locator('[data-status="available"][data-type="find"]');
@@ -344,7 +344,7 @@ test('run: a consumable taken at a find goes to the next arena (HUD 2 ×1) and i
   for (let step = 0; step < 10; step++) {
     const state = await runState(page);
     if (state.pending?.kind === 'battle') break;
-    if (state.pending) { await page.locator('[data-action="find"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click(); continue; }
+    if (state.pending) { await page.locator('[data-action="find"]:not([disabled]), [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click(); continue; }
     const battle = page.locator('[data-status="available"][data-type="battle"]');
     const node = (await battle.count()) ? battle.first() : page.locator('[data-status="available"]').first();
     await node.click();
@@ -442,13 +442,17 @@ test('run (iteration 2.1, task 6): consumables are noticed — the map says thei
   const kind = await page.evaluate(() => {
     const rt = (window as any).__realtime, s = rt.snapshot();
     rt.setParam('contactDamage', 0);
+    // The target stands still (design smoke v71: under load it walked out from under the cursor and the bomb was refused).
+    for (const [p, v] of [['enemySpeed', 0], ['speedSpread', 0]] as const) rt.setParam(p, v);
     let k = (['bomb', 'frost', 'fire'] as const).find(x => (s.items[x] ?? 0) > 0) as string | undefined;
     if (!k) { rt.setItems('bomb', 1); k = 'bomb'; }
     rt.place(s.hero.x + 2, s.hero.y, 0, 5, 'basic');
     return k;
   });
+  // Aim at where the placed enemy stands now, right before the key.
   const hero = (await snapshot(page)).hero;
-  const at = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [hero.x + 2, hero.y]);
+  const target = (await snapshot(page)).enemies.reduce((a: { x: number; y: number }, e: { x: number; y: number }) => Math.hypot(e.x - hero.x - 2, e.y - hero.y) < Math.hypot(a.x - hero.x - 2, a.y - hero.y) ? e : a);
+  const at = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [target.x, target.y]);
   await page.mouse.move(at.x, at.y);
   await page.keyboard.press(String(['frost', 'bomb', 'healing', 'fire'].indexOf(kind) + 1));
   // The first item used stops the pulse for good (the viewer's memory).
@@ -462,7 +466,7 @@ test('run (iteration 2.1, task 6): consumables are noticed — the map says thei
   for (let step = 0; step < 10; step++) {
     const state = await runState(page);
     if (state.pending?.kind === 'battle') break;
-    if (state.pending) { await page.locator('[data-action="find"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click(); continue; }
+    if (state.pending) { await page.locator('[data-action="find"]:not([disabled]), [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click(); continue; }
     const battle = page.locator('[data-status="available"][data-type="battle"]');
     const node = (await battle.count()) ? battle.first() : page.locator('[data-status="available"]').first();
     await node.click();
@@ -532,7 +536,7 @@ async function walkStep(page: Page, prefer: string): Promise<void> {
     return;
   }
   if (state.pending) {
-    await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-action="talisman"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
+    await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"]:not([disabled]), [data-action="gift-pick"], [data-action="talisman"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
     return;
   }
   const preferred = page.locator(`[data-status="available"][data-type="${prefer}"]`);
