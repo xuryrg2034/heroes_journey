@@ -74,7 +74,7 @@ export class ChainAudio {
    * Tasks 36–37 «Мета v1»: the run-end and camp sounds — a soft tick as the experience counts, a bright ping when the bar reaches
    * a threshold, a paper flip per pack card and the reward chord on the last, coins for a purchase, the fire's low hum on opening.
    */
-  meta(kind: 'tick' | 'mark' | 'flip' | 'pack' | 'buy' | 'open' | 'heal', volume: number): void {
+  meta(kind: 'tick' | 'mark' | 'flip' | 'pack' | 'buy' | 'open' | 'heal' | 'fuse', volume: number): void {
     if (kind === 'tick') this.tone(660, 'sine', 0.04, volume * 0.18);
     else if (kind === 'mark') { this.tone(1175, 'triangle', 0.25, volume * 0.5); this.tone(1760, 'sine', 0.3, volume * 0.3, 0.06); }
     else if (kind === 'flip') { this.tone(420, 'triangle', 0.07, volume * 0.4); this.tone(840, 'sine', 0.12, volume * 0.35, 0.04); }
@@ -82,6 +82,8 @@ export class ChainAudio {
     else if (kind === 'buy') for (let i = 0; i < 3; i++) this.tone(1320 + 220 * i, 'triangle', 0.08, volume * 0.35, i * 0.05);
     // Task 38: «Предместье» heals to full — a soft rising run of four notes.
     else if (kind === 'heal') for (const [i, semis] of [0, 3, 7, 12].entries()) this.tone(440 * Math.pow(2, semis / 12), 'sine', 0.3, volume * 0.4, i * 0.09);
+    // Task 44 «Сплавы»: two parts become one — two notes meet (a fifth apart, falling and rising) and ring as one chord.
+    else if (kind === 'fuse') { this.tone(392, 'triangle', 0.35, volume * 0.35); this.tone(784, 'triangle', 0.35, volume * 0.3); this.tone(523, 'sine', 0.7, volume * 0.45, 0.32); this.tone(1046, 'sine', 0.6, volume * 0.22, 0.32); }
     else this.tone(98, 'sine', 0.6, volume * 0.35);
   }
 

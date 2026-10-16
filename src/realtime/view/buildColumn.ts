@@ -9,8 +9,8 @@
  * the ids of sim/buildIds.ts and run/rtTalismans.ts (an id without a row gets its first letters).
  */
 import { buildModules, moduleActive, type BuildProgress } from '../sim/build';
-import { COUNTER_TALISMANS as T, FORMS as F, FROST_PASS, HAMMERS as H, OATH_HUNGER, RELICS as R, RELIC_IDS } from '../sim/buildIds';
-import { formIconSvg } from './formIcons';
+import { COUNTER_TALISMANS as T, FORMS as F, FROST_PASS, FUSIONS as U, fusionRecipe, HAMMERS as H, OATH_HUNGER, RELICS as R, RELIC_IDS } from '../sim/buildIds';
+import { formIconSvg, fusionIconSvg } from './formIcons';
 import type { World } from '../sim/world';
 import { rtHammer, rtTalisman } from '../run/rtTalismans';
 
@@ -69,6 +69,10 @@ export const BUILD_LABELS: Readonly<Record<string, Label>> = {
   [F.alien]: { short: 'Чуж', glyph: '◐', title: 'Чужак', svg: formIconSvg('stranger') },
   [F.twins]: { short: 'Близ', glyph: '∞', title: 'Близнецы', svg: formIconSvg('twins') },
   [FROST_PASS]: { short: 'Нал', glyph: '❄', title: 'Наледь', svg: formIconSvg('rime') },
+  // Task 44 — the fusions (drawn icons, view/formIcons.ts).
+  [U.iceSeal]: { short: 'Лёд', glyph: '◎', title: 'Ледяная печать', svg: fusionIconSvg('iceSeal') },
+  [U.spear]: { short: 'Копь', glyph: '↗', title: 'Копьё', svg: fusionIconSvg('spear') },
+  [U.boomerang]: { short: 'Бум', glyph: '↺', title: 'Бумеранг', svg: fusionIconSvg('boomerang') },
   // The view's test module (buildTestModule.ts; sandbox hook only).
   'view-test-counter': { short: 'Тест', glyph: 'T', title: 'Тестовый счётчик (песочница)' },
 };
@@ -98,6 +102,9 @@ export const FIRE_TEXT: Readonly<Record<string, string>> = {
   [OATH_HUNGER]: '+1 HP',
   'view-test-counter': 'тест',
   [FROST_PASS]: 'Наледь',
+  [U.iceSeal]: 'Лёд',
+  [U.spear]: 'Копьё',
+  [U.boomerang]: 'Полная сила',
 };
 
 /**
@@ -175,14 +182,24 @@ export function progressText(p: BuildProgress): string {
 /** A row of the column: what it shows (the item, its kind). */
 export interface BuildEntry { id: string; kind: BuildKind }
 
+/**
+ * Task 44 «Сплавы»: the parts of the kit's fusions (a kit holding a fusion holds its parts too — sim/kit.ts `kitOf`). The column
+ * shows the fusion, one item for two (design 16.10.2026); a part's firing flashes the fusion's row (`fusionOfPart`).
+ */
+function fusedParts(ids: readonly string[]): Set<string> {
+  const parts = new Set<string>();
+  for (const id of ids) { const r = fusionRecipe(id); if (r) { parts.add(r.form); parts.add(r.counter); } }
+  return parts;
+}
+
 /** The items of the world's kit in the column's order: talismans, then the hammer, then the relics. Nothing taken — none. */
 export function buildEntries(world: World): BuildEntry[] {
   const kit = world.kit;
   if (!kit) return [];
-  const relics = (RELIC_IDS as readonly string[]);
+  const relics = (RELIC_IDS as readonly string[]), fused = fusedParts(kit.talismans);
   return [
-    ...kit.talismans.filter(id => !relics.includes(id)).map(id => ({ id, kind: 'talisman' as const })),
-    ...kit.hammer ? [{ id: kit.hammer, kind: 'hammer' as const }] : [],
+    ...kit.talismans.filter(id => !relics.includes(id) && !fused.has(id)).map(id => ({ id, kind: 'talisman' as const })),
+    ...kit.hammer && !fused.has(kit.hammer) ? [{ id: kit.hammer, kind: 'hammer' as const }] : [],
     ...kit.talismans.filter(id => relics.includes(id)).map(id => ({ id, kind: 'relic' as const })),
   ];
 }
@@ -271,7 +288,8 @@ export class BuildColumn {
    * false — the flash of an arrived icon (task 29), not counted among the firings (`flashes`).
    */
   flash(id: string, fired = true): boolean {
-    const row = this.rows.find(r => r.id === id);
+    // Task 44: a fusion's part is not a row of its own — its firing flashes the fusion's.
+    const row = this.rows.find(r => r.id === id) ?? this.rows.find(r => { const f = fusionRecipe(r.id); return !!f && (f.form === id || f.counter === id); });
     if (!row) return false;
     row.flash = FLASH_TIME;
     const el = row.el.hidden && this.more ? this.more : row.el;

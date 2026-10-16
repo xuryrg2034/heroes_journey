@@ -61,3 +61,29 @@ const BODIES: Readonly<Record<FormIcon, string>> = {
 export function formIconSvg(form: FormIcon, size = 24): string {
   return `<svg class="rt-form-icon" data-form="${form}" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">${BODIES[form]}</svg>`;
 }
+
+/** Task 44 «Сплавы»: the fusions the view draws. */
+export type FusionIcon = 'iceSeal' | 'spear' | 'boomerang';
+const WOOD = '#c88a3a';
+/**
+ * Task 44 (design 16.10.2026, docs/design-notes/task-44-fusions.md, 4): the fusions' icons in the same style — each grows from its
+ * form part's icon: «Ледяная печать» — the seal's ring turned to ice with an ice shard in the middle; «Копьё» — «Прямая»'s spear
+ * longer, through three links, with a broad head; «Бумеранг» — a wooden boomerang with the way back's arrow.
+ */
+const FUSION_BODIES: Readonly<Record<FusionIcon, string>> = {
+  iceSeal: `<circle cx="12" cy="12" r="7.5" fill="none" stroke="${NAVY}" stroke-width="4"/><circle cx="12" cy="12" r="7.5" fill="none" stroke="${ICE}" stroke-width="2"/>` +
+    dot(12, 4.5, 2.2, ICE) + dot(18.5, 15.8, 2.2, ICE) + dot(5.5, 15.8, 2.2, ICE) +
+    `<path d="M12 7.4 L15.2 12 L12 16.6 L8.8 12 Z" fill="${ICE}" stroke="${NAVY}" stroke-width="1.4" stroke-linejoin="round"/>` +
+    `<path d="M11.2 9.6 L12.4 11" stroke="#ffffff" stroke-width="1.1" stroke-linecap="round"/>`,
+  spear: `<path d="M1.5 22.5 L17 7" stroke="${NAVY}" stroke-width="3.6" stroke-linecap="round"/><path d="M1.5 22.5 L17 7" stroke="${STEEL}" stroke-width="1.6" stroke-linecap="round"/>` +
+    dot(4.5, 19.5, 2.2, PALE) + dot(8.5, 15.5, 2.2, PALE) + dot(12.5, 11.5, 2.2, PALE) +
+    `<path d="M23 1 L21.2 10.4 L13.6 2.8 Z" fill="${LEMON}" stroke="${NAVY}" stroke-width="1.4" stroke-linejoin="round"/>`,
+  boomerang: `<path d="M3.5 9 Q12 1.5 20.5 9 L18 12 Q12 7 6 12 Z" fill="${WOOD}" stroke="${NAVY}" stroke-width="1.6" stroke-linejoin="round"/>` +
+    `<path d="M18.5 16.5 Q12 22.5 5.5 16.5" fill="none" stroke="${NAVY}" stroke-width="4" stroke-linecap="round"/><path d="M18.5 16.5 Q12 22.5 5.5 16.5" fill="none" stroke="${LEMON}" stroke-width="2" stroke-linecap="round"/>` +
+    `<path d="M3 15.5 L7.6 14.2 L6.4 19 Z" fill="${LEMON}" stroke="${NAVY}" stroke-width="1.3" stroke-linejoin="round"/>`,
+};
+
+/** The SVG markup of a fusion's icon, `size` px square. */
+export function fusionIconSvg(fusion: FusionIcon, size = 24): string {
+  return `<svg class="rt-form-icon rt-fusion-icon" data-fusion="${fusion}" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">${FUSION_BODIES[fusion]}</svg>`;
+}
