@@ -93,7 +93,7 @@ import { featResult } from '../sim/feat';
 import type { Command } from '../sim/commands';
 import { WOLF_RUSH } from '../sim/enemies/wolf';
 import { BOSS_CLEAR, JAILER } from '../sim/enemies/jailer';
-import { houndFrenzied, prisonerRioting } from '../sim/enemies/garrison';
+import { CASTELLAN, houndFrenzied, prisonerRioting } from '../sim/enemies/garrison';
 import { kindOf } from '../sim/enemies/kinds';
 import { dist, inThorns, inWater } from '../sim/geometry';
 import { heroRadius } from '../sim/params';
@@ -227,8 +227,14 @@ export function createFightObserver(start: World): FightObserver {
   let moveRef: HeroMove | null = start.move, moveEnd: number | null = null;
   let lethal: { source: string; damage: number; enemyId: number } | null = null;
   // Task 28: the boss's core at the start (a fight with the boss frame on); its summary.
-  const bossCore = start.params.bossFrame ? start.enemies.find(e => e.kind === JAILER) : undefined;
-  if (bossCore) s.boss = { diedAt: null, severedAt: null, moves: {} };
+  // Task 43: the full Castellan's core too (only on his arena: the Castellan v0 keeps no boss summary, as before).
+  const fullCastellan = !!start.arena.castellanFull && start.params.bossFrame;
+  const bossCore = start.params.bossFrame ? start.enemies.find(e => e.kind === JAILER || (fullCastellan && e.kind === CASTELLAN)) : undefined;
+  if (bossCore) s.boss = { diedAt: null, severedAt: null, moves: {}, ...fullCastellan ? { castellan: { raises: 0, openSeconds: 0, windowsHit: 0, windowsMissed: 0, parts: [], bolts: { shots: 0, hero: 0, enemies: 0 }, phase: 1 } } : {} };
+  /** Task 43: the grate's open since (game s; null — down) and the lever's window now (its core hit or not). */
+  let grateSince: number | null = null, leverWindow: { hit: boolean } | null = null, leverPulled = false;
+  /** Task 43: the full Castellan's parts at the start (his hounds, his crossbow on the stand) by id. */
+  const partKinds = new Map<number, string>(fullCastellan ? start.enemies.filter(e => e.kind === 'hound' || e.kind === 'castellan-crossbow').map(e => [e.id, e.kind] as [number, string]) : []);
   /** Task 20: the hero's body in a lit circle now (world.ts `bustHero`'s rule). */
   const inCircle = (b: Pick<BustWatch, 'x' | 'y' | 'edge'>): boolean => dist(world.hero, b) <= b.edge;
   /** Task 20: the hero's body against the open circles after a tick or a command — an exit (the last one counts) or a return. */
@@ -315,12 +321,46 @@ export function createFightObserver(start: World): FightObserver {
           if (!ev.killed && ev.plates === undefined && world.move && survivorDash !== world.move) { survivorDash = world.move; s.chain.survivorEnds++; }
           const elite = elites.get(ev.enemyId);
           if (elite && elite.lastDash !== s.chain.count) { elite.lastDash = s.chain.count; elite.chains++; }
+          // Task 43: a chain hit on the full Castellan's core in a lever's window.
+          if (leverWindow && bossCore && ev.enemyId === bossCore.id) leverWindow.hit = true;
           return;
         }
         case 'goals': goalsDone = true; return;
         // Task 28: the boss's moves begun, its weight severed.
         case 'bossMove': if (s.boss && ev.stage === 'start') bump(s.boss.moves, ev.move); return;
-        case 'partSevered': if (s.boss && s.boss.severedAt === null) s.boss.severedAt = round2(world.time); return;
+        case 'partSevered': {
+          if (s.boss && s.boss.severedAt === null) s.boss.severedAt = round2(world.time);
+          // Task 43: the full Castellan's parts in the order lost.
+          const part = s.boss?.castellan ? partKinds.get(ev.id) : undefined;
+          if (part) s.boss!.castellan!.parts.push({ kind: part, at: round2(world.time) });
+          return;
+        }
+        // Task 43: the full Castellan's moves (lunge, guard), the grate and its windows, «Болт».
+        case 'castellanMove': if (s.boss?.castellan && ev.stage === 'start') bump(s.boss.moves, ev.move); else if (s.boss?.castellan && ev.move === 'guard') bump(s.boss.moves, 'guard'); return;
+        case 'bossPhase': if (s.boss?.castellan) s.boss.castellan.phase = Math.max(s.boss.castellan.phase, ev.phase); return;
+        case 'grate': {
+          const c = s.boss?.castellan;
+          if (!c) return;
+          if (ev.action === 'lever') leverPulled = true;
+          // The grate fell while the core was in the drawn chain: the core and the links after it dropped out.
+          else if (ev.action === 'unlink') { c.unlinks = (c.unlinks ?? 0) + 1; c.unlinked = (c.unlinked ?? 0) + (ev.dropped?.length ?? 0); }
+          else if (ev.action === 'up') {
+            grateSince = world.time;
+            if (leverPulled) { c.raises++; leverWindow = { hit: false }; leverPulled = false; }
+          } else if (ev.action === 'down') {
+            if (grateSince !== null) c.openSeconds = round2(c.openSeconds + world.time - grateSince);
+            grateSince = null;
+            if (leverWindow) { if (leverWindow.hit) c.windowsHit++; else c.windowsMissed++; leverWindow = null; }
+          }
+          return;
+        }
+        case 'bolt': {
+          const c = s.boss?.castellan;
+          if (!c || !partKinds.has(ev.id)) return;
+          if (ev.action === 'aim') bump(s.boss!.moves, 'bolt');
+          else { c.bolts.shots++; if (ev.hit === 'hero') c.bolts.hero++; else if (ev.hit === 'enemy') c.bolts.enemies++; }
+          return;
+        }
         // К7 «Проклятый сундук» (sim/chest.ts): the chest taken (the curse starts), the curse lifted by the dash's kills.
         case 'chest': if (s.chest.taken === null) { s.chest.taken = world.curse?.tick ?? world.tick; cursedNow = true; } return;
         case 'curseLifted': s.chest.liftedAt = world.curse?.lifted ?? world.tick; cursedNow = false; return;

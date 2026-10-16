@@ -6,9 +6,11 @@
  * after the goals it walks the grid path to the door, still chaining, and chains into the door once it is within reach. A fight
  * over the limit counts as lost. `stay` — the bot keeps fighting after the goals while it says so (scripts/realtime-economy.ts: the
  * bag and the feat, as its economy bot), then heads for the door for good. `aim` — the boss-aim policy (design 16.10.2026, docs/design-notes/task-40-garrison-step1b.md,
- * 12: the measure of a boss fight): with a core of these kinds on the arena the bot walks at it and chains into it (or towards it).
+ * 12: the measure of a boss fight): with a core of these kinds on the arena the bot walks at it and chains into it (or towards it);
+ * the full Castellan's grate down (task 43) — it walks to the nearest ready lever and pulls it first.
  */
-import { canJump, nextCandidates } from '../src/realtime/sim/chain';
+import { canJump, jumpDownOpen, nextCandidates, objectRefusal } from '../src/realtime/sim/chain';
+import { castellanGrate, gateLeverReady } from '../src/realtime/sim/enemies/garrison';
 import { blockedAt, type Vec } from '../src/realtime/sim/geometry';
 import { heroRadius, type Params } from '../src/realtime/sim/params';
 import { Simulation } from '../src/realtime/sim/simulation';
@@ -49,6 +51,25 @@ export function stepToward(w: World, goal: Vec): Vec {
 export function aimAtCore(sim: Simulation, kinds: readonly string[]): void {
   const w = sim.world, core = w.enemies.find(e => kinds.includes(e.kind));
   if (!core || w.move || w.chain.length || w.status !== 'playing' || w.greedStart !== null) { playChain(sim); return; }
+  // Task 43: the full Castellan behind his grate — the bot goes to the nearest ready lever and pulls it (a chain of one link);
+  // no lever ready — the greedy chain. With the grate up it hunts the core as below.
+  const grate = castellanGrate(w);
+  if (grate && !grate.open) {
+    // On the gallery (the levers are in the yard): down to the moat's edge, then the free jump into the yard.
+    if (jumpDownOpen(w)) {
+      const down = { x: w.hero.x, y: w.hero.y + 2.5 };
+      if (w.hero.y > 3.2 && canJump(w, down)) sim.command({ t: 'jump', ...down }); else sim.command({ t: 'walk', x: 0, y: 1 });
+      return;
+    }
+    const near = (o: Vec): number => (o.x - w.hero.x) ** 2 + (o.y - w.hero.y) ** 2;
+    const lever = w.objects.filter(o => o.kind === 'lever' && o.gate && gateLeverReady(w, o)).sort((a, b) => near(a) - near(b))[0];
+    if (!lever) { playChain(sim); return; }
+    if (objectRefusal(w, lever) === null) { sim.command({ t: 'begin', x: lever.x, y: lever.y }); sim.command({ t: 'release' }); return; }
+    const step = stepToward(w, lever), len = Math.sqrt(step.x ** 2 + step.y ** 2) || 1;
+    sim.command({ t: 'walk', x: step.x / len, y: step.y / len });
+    playChain(sim);
+    return;
+  }
   const d = Math.sqrt((core.x - w.hero.x) ** 2 + (core.y - w.hero.y) ** 2) || 1;
   sim.command({ t: 'walk', x: (core.x - w.hero.x) / d, y: (core.y - w.hero.y) / d });
   const byCore = (list: Enemy[]): Enemy[] => list.sort((a, b) => ((a.x - core.x) ** 2 + (a.y - core.y) ** 2) - ((b.x - core.x) ** 2 + (b.y - core.y) ** 2));
@@ -96,7 +117,15 @@ export function botFight(run: RtRunState, options: BotFightOptions): BotFight {
     if (w.greedStart !== null && !left && !options.stay?.(w)) left = true;
     const leaving = left;
     if (tick % 30 === 0 && !w.move) {
-      if (leaving) { const d = stepToward(w, w.arena.door); sim.command({ t: 'walk', x: d.x, y: d.y }); }
+      if (leaving) {
+        const d = stepToward(w, w.arena.door);
+        // Task 43: the hero on the full Castellan's gallery (north of the moat, the door in the yard; no walking path): it walks south
+        // to the moat and jumps down (free).
+        if (jumpDownOpen(w)) {
+          sim.command({ t: 'walk', x: 0, y: 1 });
+          if (w.hero.y > 3.2 && canJump(w, { x: w.hero.x, y: w.hero.y + 2.5 })) sim.command({ t: 'jump', x: w.hero.x, y: w.hero.y + 2.5 });
+        } else sim.command({ t: 'walk', x: d.x, y: d.y });
+      }
       else if (tick % 60 === 0) { const [x, y] = [[1, 0], [0, 1], [-1, 0], [0, -1], [1, 1], [-1, -1]][(tick / 60) % 6]; sim.command({ t: 'walk', x, y }); }
     }
     // Leaving: a chain straight into the open door when it is within reach (it wins), else the greedy chain clears the way.

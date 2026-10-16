@@ -224,6 +224,20 @@ export interface ArenaTemplate extends ArenaShape {
    */
   deepEnemies?: StartEnemy[];
   /**
+   * Task 43 «Кастелян полный»: the arena of the full Castellan (the grate, its levers `gateLevers`, the moat; enemies/garrison.ts
+   * `fullOn`) — the world gets a copy of the values with `Params.castellanFull` on. Omitted — the Castellan v0.
+   */
+  castellanFull?: boolean;
+  /** Task 43: the levers of the grate (objects `lever` with `gate`). Omitted — none. */
+  gateLevers?: Vec[];
+  /** Task 43: the full Castellan's gallery lies north of this y (the moat's middle): a jump from it into the yard costs 0. Omitted — none. */
+  galleryEdge?: number;
+  /**
+   * Task 43: with `Params.castellanFull` on, this arena plays that template (by its id) under its own id and name — the run's
+   * «Двор кастеляна» becomes the full Castellan's. Omitted — the arena as it is.
+   */
+  castellanFullArena?: string;
+  /**
    * Task 40 «Ров»: the keymasters of this arena keep their bank across the moat — they never come below this y (their own walk, no
    * flow field: straight at the hero to `KEYMASTER_FAR`, back off inside `KEYMASTER_NEAR`, then held at the bank). Read only by the
    * keymaster's behaviour (no keymaster before task 40). Omitted — the keymaster walks as anywhere.

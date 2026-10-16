@@ -140,7 +140,8 @@ check('task 40: a death by the Castellan\'s «Спустить пса» — «С
   assert(pending?.kind === 'battle', 'an open battle');
   const watch = new RtDeathWatch();
   // The quiet values (nothing comes, nobody walks or touches): only the lunges hurt; the arena turns the boss frame on itself.
-  const sim = new Simulation({ arena: 'g-castellan', params: rtRunParams(quiet()), seed: seedOf(28), hero: { hp: run.hp, maxHp: run.maxHp }, loadout: rtArenaLoadout(run), beforeTick: w => watch.seen(w) });
+  // Task 43: the run plays the full Castellan — his crossbow on the stand kept silent (its windup never ends): only the lunges.
+  const sim = new Simulation({ arena: 'g-castellan', params: { ...rtRunParams(quiet()), crossbowWindup: 1e6 }, seed: seedOf(28), hero: { hp: run.hp, maxHp: run.maxHp }, loadout: rtArenaLoadout(run), beforeTick: w => watch.seen(w) });
   sim.tick(); watch.read(sim.world, sim.world.events); sim.world.events.length = 0;
   const hound = sim.world.enemies.find(e => e.kind === 'hound')!;
   sim.command({ t: 'teleport', x: hound.x, y: hound.y + 2.5 });
@@ -152,6 +153,22 @@ check('task 40: a death by the Castellan\'s «Спустить пса» — «С
   const after = ok(resolveArena(run, outcome), 'lost');
   assert(lines(after)[0] === 'Сразил: рывок пса Кастеляна', lines(after)[0]);
   assert(serializeRtRun(parseRtRun(serializeRtRun(after))!) === serializeRtRun(after), 'the save with the death reads back');
+});
+
+check('task 43: a death by the full Castellan\'s «Болт» — «Сразил: болт Кастеляна» (the run\'s «Двор кастеляна», the hero out of the hounds\' reach)', () => {
+  const run = newRun(29), pending = run.pending;
+  assert(pending?.kind === 'battle', 'an open battle');
+  const watch = new RtDeathWatch();
+  const sim = new Simulation({ arena: 'g-castellan', params: rtRunParams(quiet()), seed: seedOf(29), hero: { hp: run.hp, maxHp: run.maxHp }, loadout: rtArenaLoadout(run), beforeTick: w => watch.seen(w) });
+  sim.tick(); watch.read(sim.world, sim.world.events); sim.world.events.length = 0;
+  const stand = sim.world.enemies.find(e => e.kind === 'castellan-crossbow')!;
+  sim.command({ t: 'teleport', x: stand.x, y: 10 });
+  const sources = new Set<string>();
+  ticks(sim, 60 * 300, w => { watch.read(w, w.events); for (const ev of w.events) if (ev.type === 'hit') sources.add(ev.source); });
+  assert(sim.world.status === 'defeat' && [...sources].join() === 'castellan-bolt', `the bolts took him (${sim.world.status}, ${[...sources]})`);
+  const outcome = outcomeOf(run, sim.world, {}, watch.death);
+  assert(same(outcome.death, { source: 'castellan-bolt', enemy: 'castellan-crossbow' }), JSON.stringify(outcome.death));
+  assert(lines(ok(resolveArena(run, outcome), 'lost'))[0] === 'Сразил: болт Кастеляна', lines(ok(resolveArena(run, outcome), 'lost'))[0]);
 });
 
 check('the killer of an ability: an archer\'s arrow; a sapper\'s blast (the sapper is gone before its blast hits)', () => {

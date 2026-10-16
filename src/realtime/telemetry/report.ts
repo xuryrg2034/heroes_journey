@@ -250,15 +250,18 @@ export function findFight(entries: readonly FightEntry[], name: string): FightEn
 const KIND_TITLES = RT_KIND_TITLES;
 const SOURCE_TITLES: Record<string, string> = {
   touch: 'касание', arrow: 'стрела', boar: 'рывок кабана', wolf: 'касание волка', [WOLF_RUSH_SOURCE]: 'бросок волка', lynx: 'прыжок рыси', blast: 'взрыв сапёра',
-  quills: 'иглы', 'fire-trail': 'огонь элиты', thorns: 'терновник', reaper: 'жнец',
+  quills: 'иглы', 'fire-trail': 'огонь элиты', thorns: 'терновник', reaper: 'жнец', 'castellan-bolt': 'болт Кастеляна',
   // Task 28: the Jailer's moves.
   flail: 'кистень', throw: 'бросок гири',
   // Task 38–40: the garrison's touches and the Castellan's move (the frenzied hound's touch — `garrison.frenzyHits`, section «Гарнизон»).
+  bolt: 'болт арбалетчика', crossbow: 'касание арбалетчика',
   hound: 'касание пса', guard: 'касание стражника', handler: 'касание псаря', keymaster: 'касание ключника', castellan: 'касание Кастеляна', lunge: '«Спустить пса»',
 };
 const THREAT_TITLES: Record<string, string> = {
   archer: 'метка лучника', boar: 'полоса кабана', wolf: 'бросок стаи волков', lynx: 'прыжок рыси', sapper: 'фитиль и взрыв сапёра', 'sapper-instant': 'взрыв сапёра без предупреждения',
   flail: 'кистень Тюремщика', throw: 'бросок гири Тюремщика',
+  // Task 43: the law of the crossbow (the crossbowman, the Castellan's crossbow).
+  bolt: 'болт арбалета',
 };
 const OUTCOME_TITLES: Record<string, string> = { victory: 'победа', defeat: 'поражение', abandoned: 'брошен', open: 'не закончен', restart: 'заново', menu: 'выход в меню', unload: 'страница закрыта' };
 
@@ -1190,9 +1193,11 @@ export function deathSection(fights: readonly FightEntry[]): string {
 // ---- Task 28 «Тюремщик в походе» (observe.ts `boss`; docs/realtime-telemetry.md, section 8) ----
 
 /** The Jailer's moves in the order of the report (`bossMove`), their names. */
-const BOSS_MOVES: readonly [string, string][] = [['flail', 'кистень'], ['throw', 'бросок гири'], ['whistle', 'свисток']];
+const BOSS_MOVES: readonly [string, string][] = [['flail', 'кистень'], ['throw', 'бросок гири'], ['whistle', 'свисток'],
+  // Task 43: the full Castellan's moves.
+  ['lunge', 'спустить пса'], ['bolt', 'болт'], ['guard', 'караул']];
 /** The damage sources of the boss's moves (`hit.source`). */
-const BOSS_HIT_SOURCES: readonly string[] = ['flail', 'throw'];
+const BOSS_HIT_SOURCES: readonly string[] = ['flail', 'throw', 'lunge', 'castellan-bolt'];
 
 /** One boss fight of the report: its entry and the boss summary (the replay's, else the browser's). */
 export interface BossEntry { entry: FightEntry; summary: FightSummary; row: number | null }
@@ -1228,7 +1233,7 @@ function bossRow(b: BossEntry): (string | number)[] {
   ];
 }
 const BOSS_HEAD = ['Бой', 'Поход', 'Ряд', 'Арена', 'Итог', 'Время боя, с', 'Гиря отрублена', 'Босс убит', 'Приёмы (начато)', 'Урон герою по приёмам, HP', 'Смерть от', 'Толпа с боссом'];
-const BOSS_LEGEND = 'Задача 28 (с 15.10.2026; поле сводки `boss`, повтор журнала считает его заново): бои с боссом — Тюремщик в походе (узел ряда 5) и на арене «Тюремщик» песочницы. Время боя — игровые секунды боя; гиря отрублена — на какой секунде боя (`partSevered`); босс убит — секунда смерти ядра. Приёмы — начатые замахи (`bossMove`). Урон герою по приёмам — HP от кистеня и броска гири (`damage.bySource`), прочее — остальной урон боя (касания, толпа). Смерть от — источник смертельного удара (`death`). Толпа с боссом — враги, погибшие со смертью ядра (`Params.bossClears`, источник `boss-clear`; не в зачёт игроку). Старые записи без поля и без повтора — не в таблице. Эвристика на малом числе боёв, не оценка баланса.';
+const BOSS_LEGEND = 'Задача 28 (с 15.10.2026; поле сводки `boss`, повтор журнала считает его заново): бои с боссом — Тюремщик в походе (узел ряда 5) и на арене «Тюремщик» песочницы. Время боя — игровые секунды боя; гиря отрублена — на какой секунде боя (`partSevered`); босс убит — секунда смерти ядра. Приёмы — начатые замахи (`bossMove`). Урон герою по приёмам — HP от кистеня и броска гири (`damage.bySource`), прочее — остальной урон боя (касания, толпа). Смерть от — источник смертельного удара (`death`). Толпа с боссом — враги, погибшие со смертью ядра (`Params.bossClears`, источник `boss-clear`; не в зачёт игроку). Старые записи без поля и без повтора — не в таблице. Задача 43 (с 16.10.2026): полный Кастелян (узел ряда 10 гарнизона, арена «Двор кастеляна (полный)») — тоже бой с боссом; «гиря отрублена» у него — первая потерянная часть (пёс или арбалет), приёмы — «Спустить пса», «Болт», «Караул!», урон по приёмам — рывок пса и болт Кастеляна; его строка под таблицей — решётка, окна рычага, части по порядку. Эвристика на малом числе боёв, не оценка баланса.';
 
 /** The section «Босс»: each boss fight, then the share killed, severed and the deaths by move. */
 function bossSection(fights: readonly FightEntry[]): string {
@@ -1239,7 +1244,20 @@ function bossSection(fights: readonly FightEntry[]): string {
   return [
     BOSS_LEGEND, '', table(BOSS_HEAD, list.map(bossRow)), '',
     `Боёв с боссом: ${st.fights}; побед: ${st.won} (${pct(st.won, st.fights)}); босс убит: ${st.killed} (${pct(st.killed, st.fights)}); гиря отрублена: ${st.severed} (${pct(st.severed, st.fights)}). Смерти по приёму: ${deaths}.`,
+    ...castellanLines(list),
   ].join('\n');
+}
+/**
+ * Task 43: the full Castellan's fights (`boss.castellan`) — the fight's length, the share won (a run meets him once: the first try),
+ * the grate (raised by a lever, seconds open, windows with and without a core hit), the parts in the order lost, «Болт».
+ */
+function castellanLines(list: readonly BossEntry[]): string[] {
+  const own = list.filter(b => b.summary.boss?.castellan);
+  if (!own.length) return [];
+  const won = own.filter(b => b.entry.record.outcome === 'victory').length, times = own.map(b => b.entry.record.time);
+  const sum = (f: (c: NonNullable<FightSummary['boss']>['castellan'] & object) => number): number => own.reduce((a, b) => a + f(b.summary.boss!.castellan!), 0);
+  const order = own.map(b => b.summary.boss!.castellan!.parts.map(p => `${p.kind === 'hound' ? 'пёс' : 'арбалет'} ${n1(p.at)} с`).join(' → ') || '—');
+  return ['', `Кастелян полный (задача 43): боёв ${own.length}, побед с первой попытки ${won} (${pct(won, own.length)}); длина боя мед. ${n1(median(times))} с; решётка поднята рычагом ${sum(c => c.raises)} раз, открыта ${n1(sum(c => c.openSeconds))} с; окна с ударом по ядру ${sum(c => c.windowsHit)}, без удара ${sum(c => c.windowsMissed)}; решётка выбила звенья из цепи ${sum(c => c.unlinks ?? 0)} раз (звеньев ${sum(c => c.unlinked ?? 0)}); «Болт» — выстрелов ${sum(c => c.bolts.shots)}, в героя ${sum(c => c.bolts.hero)}, во врагов ${sum(c => c.bolts.enemies)}. Части по порядку: ${order.join('; ')}.`];
 }
 // ---- end «Босс» ----
 
@@ -1501,6 +1519,8 @@ export interface GarrisonStats {
   riots: number; riotKills: number;
   /** Task 41: HP the hero lost to rioting prisoners' touches. */
   riotDamage: number;
+  /** Task 43: the hero's deaths in the garrison's fights by a bolt (the crossbowman's, the Castellan's). */
+  boltDeaths: number;
   /** HP the garrison's fights took by source; the frenzied hounds' touches apart (`garrison.frenzyDamage`). */
   damage: Record<string, number>;
   /** Runs with the cart: what it took and the stock it was taken from. */
@@ -1526,14 +1546,14 @@ export function garrisonStats(runs: readonly RunRecord[], runFights: readonly Fi
   return {
     runs: runs.length, reached, deaths, fights: own.length, cuts: sums.map(s => s.chain.cuts), frenzyKills: sums.reduce((a, s) => a + s.chain.frenzyKills, 0),
     shackles: sums.reduce((a, s) => a + s.garrison.shackles, 0), shackleCuts: sums.reduce((a, s) => a + s.garrison.shackleCuts, 0),
-    riots: sums.reduce((a, s) => a + s.garrison.riots, 0), riotKills: sums.reduce((a, s) => a + s.garrison.riotKills, 0), riotDamage: sums.reduce((a, s) => a + s.garrison.riotDamage, 0),
+    riots: sums.reduce((a, s) => a + s.garrison.riots, 0), riotKills: sums.reduce((a, s) => a + s.garrison.riotKills, 0), riotDamage: sums.reduce((a, s) => a + s.garrison.riotDamage, 0), boltDeaths: sums.filter(s => s.death?.source === 'bolt' || s.death?.source === 'castellan-bolt').length,
     firstShackleCut: sums.flatMap(s => (s.garrison.firstShackleCut === null ? [] : [s.garrison.firstShackleCut])), damage,
     carts: runs.flatMap(r => (r.cart ? [{ n: r.cart.n, before: r.cart.before }] : [])),
   };
 }
 const GARRISON_SOURCES: readonly [string, string][] = [
   ['hound', 'пёс (на поводке или после ярости)'], ['hound-frenzy', 'пёс в ярости'], ['guard', 'стражник'], ['handler', 'псарь'], ['keymaster', 'ключник'],
-  ['lunge', '«Спустить пса»'], ['castellan', 'Кастелян'], ['touch', 'обычные враги'],
+  ['lunge', '«Спустить пса»'], ['castellan', 'Кастелян'], ['bolt', 'болт арбалетчика'], ['castellan-bolt', 'болт Кастеляна'], ['touch', 'обычные враги'],
 ];
 const GARRISON_LEGEND = 'Задача 40 (с 16.10.2026; эвристика, не оценка баланса): походы через оба уровня — лес («л N») и гарнизон («г N»), ряд по посещённым узлам (`RunRecord.nodes`: узел гарнизона — `g:…`). Дошли — походы, вошедшие в узел этого ряда (поход в гарнизоне прошёл все ряды леса); доля — от всех походов отчёта. Смерти — проигранные походы по ряду последнего узла. Бои гарнизона — `FightRecord.level` 2 (или узел `g:`): рубки за бой (`chain.cuts`: поводки и кандалы), убийства яростью пса и узника (`chain.frenzyKills`, не в зачёт игроку), кандалы надеты и разрублены, срывы узников, их убийства и урон герою от их касаний (`garrison.riots`, `riotKills`, `riotDamage`, задача 41), секунда первой рубки кандалов (`garrison`), урон герою по источникам (`damage.bySource`; касания пса в ярости — `garrison.frenzyDamage` — отдельно). Повозка — сдача у «Предместья» (`RunRecord.cart`). Цель плейтеста — отсев 10–15 п. п. на уровень и нет ряда, где смертей больше, чем у обоих соседей.';
 export function garrisonSection(runs: readonly RunRecord[], runFights: readonly FightEntry[]): string {
@@ -1543,8 +1563,8 @@ export function garrisonSection(runs: readonly RunRecord[], runFights: readonly 
   const shown = keys.filter((k, i) => i < GARRISON_ROWS || (st.reached[k] ?? 0) > 0 || (st.deaths[k] ?? 0) > 0);
   const curve = shown.map(k => [k, st.reached[k] ?? 0, pct(st.reached[k] ?? 0, st.runs), st.deaths[k] ?? 0]);
   const mean = (list: readonly number[]): string => (list.length ? n1(list.reduce((a, b) => a + b, 0) / list.length) : '—');
-  const fights = st.fights ? table(['Боёв', 'Рубок за бой, среднее', 'Боёв с рубкой', 'Убийств яростью (пёс и узник)', 'Кандалы надеты', 'Кандалы разрублены', 'Первая рубка кандалов, с мед.', 'Срывов узников', 'Убийств узниками', 'Урон герою от узников, HP'],
-    [[st.fights, mean(st.cuts), st.cuts.filter(n => n > 0).length, st.frenzyKills, st.shackles, st.shackleCuts, st.firstShackleCut.length ? n1(median(st.firstShackleCut)) : '—', st.riots, st.riotKills, st.riotDamage]]) : '_боёв гарнизона нет_';
+  const fights = st.fights ? table(['Боёв', 'Рубок за бой, среднее', 'Боёв с рубкой', 'Убийств яростью (пёс и узник)', 'Кандалы надеты', 'Кандалы разрублены', 'Первая рубка кандалов, с мед.', 'Срывов узников', 'Убийств узниками', 'Урон герою от узников, HP', 'Смертей от болта'],
+    [[st.fights, mean(st.cuts), st.cuts.filter(n => n > 0).length, st.frenzyKills, st.shackles, st.shackleCuts, st.firstShackleCut.length ? n1(median(st.firstShackleCut)) : '—', st.riots, st.riotKills, st.riotDamage, st.boltDeaths]]) : '_боёв гарнизона нет_';
   const total = Object.values(st.damage).reduce((a, b) => a + b, 0);
   const damage = GARRISON_SOURCES.filter(([id]) => (st.damage[id] ?? 0) > 0).map(([id, title]) => [title, st.damage[id], pct(st.damage[id], total)]);
   const other = total - GARRISON_SOURCES.reduce((a, [id]) => a + Math.max(0, st.damage[id] ?? 0), 0);

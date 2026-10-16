@@ -20,6 +20,8 @@ import './shaman';
 import './jailer';
 // Task 38 «Гарнизон, шаг 1»: the guard, the dog handler and its hound, the Castellan v0.
 import './garrison';
+// Task 43 «Гарнизон, шаг 2»: the crossbowman (the law of the crossbow).
+import './crossbow';
 
 export { BOAR_ART_SCALE, type BoarState } from './boar';
 export { packmates, wolfHowl, wolfRushLine, wolfState, WOLF_RUSH } from './wolf';

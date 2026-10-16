@@ -46,6 +46,8 @@ import { oathButton, oathCrystal, oathDashEnd, oathJump, oathLink, oathRelease }
 import { bagKill } from './bag';
 // Task 38 «Гарнизон»: the law of tethers — the plan lists the tethers the dash cuts, the release fixes them, the dash's end cuts them.
 import { cutTethers, dashPathPoints, dropShackleOf, planTetherCuts, settleTethers, shackled, tethersOn } from './tethers';
+// Task 43: the full Castellan's grate (the refusal) and its levers.
+import { behindGrate, gateLever, grateLinkDrop, jumpDownFree, onGallery } from './enemies/garrison';
 import { NO_COLOR, OBJECT_RADIUS, checkGoals, damageEnemy, doorOf, doorOpen, enemyFrozen, findObject, nextFiring, startShieldWindow, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
 
 export { OBJECT_RADIUS };
@@ -166,6 +168,12 @@ export interface ChainPlan {
    * without the hammer.
    */
   fire?: FirePreview;
+  /**
+   * Task 43 «Кастелян полный» (enemies/garrison.ts `grateLinkDrop`): the drawn chain holds the core while its grate is up — the
+   * core's link `index` and the seconds `left` before the grate drops; then the core and the links after it leave the chain
+   * (event `grate` `unlink`) and this plan is the rest's. A release before it — the dash strikes the core as planned. Absent otherwise.
+   */
+  grate?: { index: number; left: number };
   /**
    * Task 38 «Гарнизон» (`Params.tethers`, tethers.ts): the tethers the dash of this chain cuts — by their held body — read from the
    * bodies where they stand now along the dash's path (the hero, then the links up to the one it stops on). The release fixes the
@@ -324,7 +332,9 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   // Task 31: the fire of «Огненный проход» — lit once the dash reaches the threshold.
   const need = fireMinLinks(world.params);
   const fire: FirePreview | null = fireOn(world) ? { lit: reached >= need, links: reached, need } : null;
-  return { links: out, endsOnSurvivor, endsOnObject, power, kills, ...seal ? { seal } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {}, ...cuts.length ? { cuts } : {} };
+  // Task 43: the core of the drawn chain behind a grate that will drop (the full Castellan only).
+  const grate = links === world.chain && !world.move ? grateLinkDrop(world, links) : null;
+  return { ...grate ? { grate } : {}, links: out, endsOnSurvivor, endsOnObject, power, kills, ...seal ? { seal } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {}, ...cuts.length ? { cuts } : {} };
 }
 
 // ---- Task 31: the threshold of «Огненный проход» (the fire itself — hammers.ts) ----
@@ -844,7 +854,7 @@ export function inChain(world: World, enemy: Enemy): number {
  * Why a target cannot be the next link (stage G): the checks of `canLink` / `canLinkObject` in their order, and the
  * text the pointer hint shows. One function decides both, so the hint never disagrees with the chain.
  */
-export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'unlit' | 'color' | 'far' | 'sight' | 'guarded' | 'crossed' | 'sealed' | 'lever' | 'shackled' | 'handFull';
+export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'unlit' | 'color' | 'far' | 'sight' | 'guarded' | 'crossed' | 'sealed' | 'lever' | 'shackled' | 'handFull' | 'grate';
 export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   move: 'идёт проход',
   colorless: 'не берётся цепью',
@@ -869,6 +879,8 @@ export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   shackled: 'в кандалах',
   // Task 41 «Три зелья» (`Params.potionCap`): a healing loot while the hand is full.
   handFull: 'рука полна',
+  // Task 43 «Кастелян полный»: the core behind the grate (enemies/garrison.ts `behindGrate`) — a lever's chain raises it.
+  grate: 'за решёткой',
 };
 
 /**
@@ -926,6 +938,8 @@ export function enemyRefusal(world: World, enemy: Enemy, plan: ChainPlan = planC
   if (enemy.color === NO_COLOR || !kindOf(enemy).chainable) return 'colorless';
   // Task 40: the keymaster's prisoner (only while a shackle holds it: nothing in worlds without one).
   if (world.tethers && shackled(world, enemy)) return 'shackled';
+  // Task 43: the full Castellan's core behind its grate.
+  if (behindGrate(world, enemy)) return 'grate';
   if (inChain(world, enemy) >= 0) return 'inChain';
   if (loopClosed(world)) return 'sealed';
   if (plan.endsOnSurvivor) return 'afterSurvivor';
@@ -1305,24 +1319,40 @@ export function jumpLanding(world: World, p: Vec): Vec | null {
   return blockedAt(land, heroRadius(world.params), world.arena) ? null : land;
 }
 
-/** Stage 3a (М2): why a jump towards `p` would not start — `cliff`: it lands over a cliff (the hint at the pointer), `blocked`: in an obstacle. */
-export type JumpRefusal = 'cliff' | 'blocked';
-export const JUMP_REFUSAL_TEXT: Readonly<Record<JumpRefusal, string>> = { cliff: 'обрыв', blocked: 'препятствие' };
+/**
+ * Stage 3a (М2): why a jump towards `p` would not start — `cliff`: it lands over a cliff (the hint at the pointer), `blocked`: in an
+ * obstacle; task 43: `energy` — not enough energy for this jump (on the full Castellan's gallery the jump down is free, a jump that
+ * stays on the gallery is not).
+ */
+export type JumpRefusal = 'cliff' | 'blocked' | 'energy';
+export const JUMP_REFUSAL_TEXT: Readonly<Record<JumpRefusal, string>> = { cliff: 'обрыв', blocked: 'препятствие', energy: 'мало энергии' };
 export function jumpRefusal(world: World, p: Vec): JumpRefusal | null {
   const land = jumpTarget(world, p), r = heroRadius(world.params);
-  if (!blockedAt(land, r, world.arena)) return null;
+  if (!blockedAt(land, r, world.arena)) return world.energy >= jumpCostAt(world, p) ? null : 'energy';
   return world.arena.terrain && cliffAt(land, r, world.arena) && !blockedAt(land, r, world.arena, false) ? 'cliff' : 'blocked';
 }
 
-export function canJump(world: World): boolean {
-  return world.status === 'playing' && !world.move && world.chain.length === 0 && world.energy >= jumpCostOf(world);
+/**
+ * Task 43: the energy a jump towards `p` costs — 0 from the full Castellan's gallery down into the yard (`jumpDownFree`), else
+ * `jumpCostOf`.
+ */
+export function jumpCostAt(world: World, p: Vec): number {
+  return jumpDownFree(world, jumpTarget(world, p)) ? 0 : jumpCostOf(world);
+}
+/** Task 43: the hero stands on the full Castellan's gallery — a jump down costs 0 (the view shows the jump's price 0 then). */
+export const jumpDownOpen = (world: World): boolean => onGallery(world);
+
+/** A jump may start now (towards `p`: its own price; without `p`: some jump — the free jump down from the gallery counts). */
+export function canJump(world: World, p?: Vec): boolean {
+  const cost = p ? jumpCostAt(world, p) : jumpDownOpen(world) ? 0 : jumpCostOf(world);
+  return world.status === 'playing' && !world.move && world.chain.length === 0 && world.energy >= cost;
 }
 
 export function jump(world: World, p: Vec): boolean {
-  if (!canJump(world)) return false;
+  if (!canJump(world, p)) return false;
   const land = jumpLanding(world, p);
   if (!land) return false;
-  const cost = jumpCostOf(world);
+  const cost = jumpCostAt(world, p);
   world.energy -= cost;
   const speed = Math.max(dist(land, world.hero) / JUMP_TIME, 1);
   world.move = newMove('jump', land, land, speed);
@@ -1589,6 +1619,9 @@ function reachObject(world: World, object: ArenaObject): void {
     if (world.oath) oathButton(world);
     world.events.push({ type: 'button', objectId: object.id });
     checkGoals(world);
+  } else if (object.kind === 'lever' && object.gate) {
+    // Task 43: a lever of the full Castellan's grate — it rises after the dash.
+    gateLever(world, object);
   } else if (object.kind === 'lever') {
     // Casino stage 1 («Однорукий гоблин»): the pull — the enemy links this dash really struck (kills and plate hits) count.
     pullLever(world, object, move.hits);

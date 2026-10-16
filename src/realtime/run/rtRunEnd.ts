@@ -32,6 +32,8 @@ export const RT_KIND_TITLES: Readonly<Record<string, string>> = {
   // Tasks 38–40 «Гарнизон» (the report's and the killer line's names; task 40: their touches are in `RT_DEATH_TOUCH`).
   // Design 16.10.2026 (task-40 spec, section 10): a capital only for a unique boss («Тюремщик», «Кастелян»); the kinds in lower case.
   guard: 'стражник', handler: 'псарь', hound: 'пёс', castellan: 'Кастелян', keymaster: 'ключник',
+  // Task 43 «Гарнизон, шаг 2».
+  crossbow: 'арбалетчик', 'castellan-crossbow': 'арбалет Кастеляна',
 };
 
 /**
@@ -46,13 +48,17 @@ export const RT_DEATH_ABILITY: Readonly<Record<string, string>> = {
   flail: 'кистень Тюремщика', throw: 'бросок гири',
   // Task 40 (design 16.10.2026, task-40 spec section 10): the Castellan's «Спустить пса» (a hound's touch outside it — «пёс»).
   lunge: 'рывок пса Кастеляна',
+  // Task 43: the crossbowman's bolt (a kind in lower case, task 40's rule).
+  bolt: 'болт арбалетчика',
+  // Task 43: the Castellan's crossbow on its stand (design 16.10.2026).
+  'castellan-bolt': 'болт Кастеляна',
 };
 /**
  * The touch sources (each kind's `hitSource`): the line names the striker's kind, its elite mark, armour and affixes. Task 40 (design
  * 16.10.2026, spec section 10): the garrison's touches too — the guard, the dog handler, the hound (on its leash or in its frenzy: the
  * same body, «пёс»), the keymaster, the Castellan.
  */
-export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper', 'guard', 'handler', 'hound', 'keymaster', 'castellan'];
+export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper', 'guard', 'handler', 'hound', 'keymaster', 'castellan', 'crossbow'];
 
 /** Drafts sent to design 12.10.2026 (pending approval). */
 export const RT_RUN_END_TEXT = {
@@ -85,7 +91,10 @@ export interface RtDeath { source: string; enemy?: string; elite?: true; armor?:
 /** The death of a hit `source` struck by `striker` (null — no enemy, or unknown). */
 export function rtDeathOf(source: string, striker: Pick<Enemy, 'kind' | 'elite' | 'armor' | 'affixes'> | null | undefined): RtDeath {
   const affixes = striker?.affixes?.filter(id => (AFFIX_IDS as readonly string[]).includes(id)) ?? [];
-  return { source, ...striker ? { enemy: striker.kind } : {}, ...striker?.elite ? { elite: true as const } : {}, ...striker?.armor ? { armor: true as const } : {},
+  return { source, ...striker ? { enemy: striker.kind } : {}, ...striker?.elite ? { elite: true as const } : {},
+    // The elite's armour only (task 43: a boss part's plates — the Castellan's crossbow on its stand, the cores — are no mark: a
+    // record with `armor` and no `elite` is not a valid death, `validDeath`).
+    ...striker?.elite && striker.armor ? { armor: true as const } : {},
     ...affixes.length ? { affixes: [...affixes] } : {} };
 }
 
