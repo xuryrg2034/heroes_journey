@@ -203,6 +203,17 @@ check('a run abandoned on the map of the garrison before any garrison node: its 
   }
 });
 
+check('the carry cap of a run abandoned on the map of the garrison before any garrison node: 20 (the forest depth), the cart inside; one garrison node — 40', () => {
+  for (const k of [3, 5]) {
+    const at = toOutskirts(k, CAMP, 12), deposit = rtCartView(at)!.max, entered = ok(rtEnterGarrison(at, deposit), 'garrison');
+    assert(entered.cart?.n === RT_CART_MAX && stockTotal(entered.materials) > 20, `seed ${k}: a rich run sent 20 (${JSON.stringify(entered.cart)}, rest ${stockTotal(entered.materials)})`);
+    const carry = rtCarry(entered);
+    assert(carry.cap === 20 && carry.n === 20 && carry.cart === RT_CART_MAX, `seed ${k}: abandoned at the gate — cap 20, the cart inside (${JSON.stringify(carry)})`);
+    const first = ok(rtEnterNode(entered, rtAvailableNodes(entered)[0].id), 'enter');
+    assert(rtCarry(first).cap === 40 && rtCarry(first).n > 20, `seed ${k}: one garrison node — cap 40 (${JSON.stringify(rtCarry(first))})`);
+  }
+});
+
 check('telemetry: the run record\'s level, levelCleared and cart pass checkRecord (malformed refused); the report\'s curve «л N» / «г N», deaths, the cart', () => {
   const session = sessionKey(Date.UTC(2026, 9, 16), 7), runId = runKey(Date.UTC(2026, 9, 16), 1);
   const base = { schema: 1, id: runRecordId(session, runId), kind: 'run', session, run: runId, build: 'b', at: '2026-10-16T00:00:00Z', params: { storage: 'p', hash: 'h' },

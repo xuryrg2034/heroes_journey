@@ -201,8 +201,9 @@ export function rtRunXp(run: RtRunState): { parts: RtXpPart[]; total: number } {
  * min(cap, cart + the rest by the rule).
  */
 export function rtCarry(run: RtRunState): RtMetaEnd['carry'] {
-  // Task 38: the cap is 20 a level reached (the garrison — 40).
-  const resources = stockTotal(run.materials), cap = RT_CARRY_CAP_PER_LEVEL * rtRunLevel(run), cart = run.cart?.n ?? 0, sent = run.cart ? { cart } : {};
+  // Task 38: the cap is 20 a level reached (the garrison — 40). Task 40 (design 16.10.2026): the level of the run's depth — a run
+  // abandoned on the garrison's map before any garrison node has the forest's depth and its cap, 20 (the cart inside it).
+  const resources = stockTotal(run.materials), cap = RT_CARRY_CAP_PER_LEVEL * (runDepthOf(run).level ?? 1), cart = run.cart?.n ?? 0, sent = run.cart ? { cart } : {};
   if (won(run)) return { n: Math.min(cap, cart + resources), share: 1, cap, resources, ...sent };
   return { n: Math.min(cap, cart + Math.max(Math.floor(resources * RT_CARRY_LOSS_SHARE), Math.min(resources, RT_CARRY_FLOOR))), share: 0.5, cap, resources, ...sent };
 }
