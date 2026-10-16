@@ -596,3 +596,30 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-end-line { animation: rt-end-in .18s ease-out both; }
 @keyframes rt-end-in { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
 .rt-end-wait { opacity: 0; pointer-events: none; }
+
+/* Task 50 «Сноровка» (design 16.10.2026, 3.5): the rank mark — two notches under an icon; the fight result's two cards and «Пропустить». */
+.rt-rank { position: absolute; left: 50%; bottom: -5px; transform: translateX(-50%); display: flex; gap: 3px; margin: 0; padding: 1px 2px; background: #10150f; border-radius: 2px; line-height: 0; text-decoration: none; pointer-events: none; }
+.rt-rank i { display: block; width: 7px; height: 3px; background: #ffd36b; border-radius: 1px; }
+.rt-build-item .rt-build-icon, .rt-fuse-icon, .rt-knack-icon { position: relative; }
+.rt-build-compact .rt-rank i { width: 5px; }
+.rt-run-talismans .rt-rank { position: static; display: inline-flex; vertical-align: middle; margin: 0 0 0 3px; transform: none; padding: 1px 2px; }
+.rt-rank-strike i:nth-child(2) { animation: rt-rank-strike .4s cubic-bezier(.2, 1.6, .4, 1); }
+@keyframes rt-rank-strike { 0% { transform: translateY(-14px) scaleX(1.8); opacity: 0; background: #fff; } 60% { transform: translateY(0) scaleX(1.4); opacity: 1; background: #fff; } 100% { transform: none; } }
+.rt-build-flash2 .rt-build-icon { animation: rt-build-flash2 0.6s ease-out; }
+@keyframes rt-build-flash2 { 0% { background: #fff2c4; color: #10150f; box-shadow: 0 0 0 3px #ffd36b, 0 0 14px #ffd36b; transform: scale(1.25); } 100% { box-shadow: none; transform: scale(1); } }
+.rt-build-tip .rt-build-rank-rule { color: #ffd36b; }
+.rt-knack-box { margin: 0 0 14px; }
+.rt-knack-box h3 { margin: 0 0 8px; font: 600 15px Georgia, serif; color: #f2dfb4; }
+.rt-knack-cards { grid-template-columns: 1fr 1fr; }
+.rt-knack-card { align-content: start; }
+.rt-knack-card b { display: flex; align-items: center; gap: 8px; }
+.rt-knack-card b em { margin-left: auto; font: 600 11px 'DM Sans', Arial, sans-serif; letter-spacing: .04em; text-transform: uppercase; color: #e3b45a; }
+.rt-knack-card[data-kind="hone"] b em { color: #ffd36b; }
+.rt-knack-icon { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 30px; height: 30px; margin-bottom: 4px; border-radius: 50%; background: #2a3324; border: 1px solid #5a5e44; font-style: normal; font-size: 15px; color: #f2dfb4; }
+.rt-knack-icon svg { width: 24px; height: 24px; }
+.rt-knack-card .rt-knack-hone { color: #ffd36b; }
+.rt-knack-skip { width: 100%; margin-top: 8px; }
+.rt-result-card .rt-knack-card { padding: 8px 10px; }
+/* The result card with «Сноровка»: a width of its own (two cards side by side), the cards' words wrap. */
+.rt-result-card:has(.rt-knack-box:not([hidden])) { width: min(680px, calc(100vw - 32px)); }
+.rt-result-card .rt-knack-card small { overflow-wrap: anywhere; }

@@ -12,6 +12,7 @@ import { emptyFightSummary, fightKey } from '../src/realtime/telemetry/schema';
 import { createFightObserver } from '../src/realtime/telemetry/observe';
 import { analyzeJournal, analyzeRecords, collectRecords } from '../src/realtime/telemetry/report';
 import { gameWait, untilFrame } from './realtimeFrames';
+import { leaveResult } from './realtimeResult';
 
 /**
  * Track ТA of the real-time telemetry (docs/realtime-telemetry.md, section 8): the browser records fights, runs and N
@@ -423,7 +424,7 @@ test('the run is recorded: nodes, the gift choice, the fight of a node; a reload
   await playRunFight(page);
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   let all = await records(page);
   for (const r of all) expect(checkRecord(r)).toBeNull();
   const fights = all.filter((r): r is FightRecord => r.kind === 'fight');

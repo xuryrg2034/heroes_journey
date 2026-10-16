@@ -1,6 +1,7 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
 import { gameWait, untilFrame } from './realtimeFrames';
+import { leaveResult } from './realtimeResult';
 
 /**
  * Casino stage 1: the view and the input of «Однорукий гоблин» in the sandbox (docs/realtime-casino.md): the panel button
@@ -370,7 +371,7 @@ test('task 5 and 11, the run: no «Зарок» on the cards, the goblin after t
   await expect(page.getByTestId('result')).toBeVisible();
   await expect(page.getByTestId('result')).not.toContainText('Котёл');
   await expect(page.getByTestId('result-map')).toHaveText('К карте (Enter)');
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   await expect(page.getByTestId('run-map')).toBeVisible();
   await expect(page.getByTestId('run-die')).toHaveCount(0);
 

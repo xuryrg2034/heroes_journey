@@ -22,6 +22,7 @@
  *   sworn (fixture) loads and its arena plays without the oath. The run-layer checks above turn the stake on explicitly.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
+import { rtChooseKnack } from '../run/rtRun';
 import { registerArena } from './arenas';
 import { worldState } from './hash';
 import type { Loadout } from './kit';
@@ -436,6 +437,8 @@ function closeNode(run: RtRunState): RtRunState {
   if (pending?.kind === 'shop') return ok(rtShopLeave(run), 'shop');
   if (pending?.kind === 'talisman') return ok(rtChooseTalisman(run, null), 'talisman');
   if (pending?.kind === 'hammer') return ok(rtChooseHammer(run, null), 'hammer');
+  // Task 50: the knack screen (RT_KNACKS_ON) is passed over.
+  if (pending?.kind === 'knack') return ok(rtChooseKnack(run, null), 'knack');
   if (pending?.kind === 'event') { const safe = rtEventView(run)!.options.find(option => option.safe && option.available)!; return ok(rtChooseEventOption(run, safe.id), 'event'); }
   if (pending?.kind === 'gift') return takeGift(run);
   return run;

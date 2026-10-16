@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
+import { leaveResult } from './realtimeResult';
 
 /**
  * Casino stage 1, item 4 — «Кость у двери» (src/realtime/run/rtRun.ts, src/realtime/view/runView.ts, docs/realtime-casino.md).
@@ -49,7 +50,7 @@ test('task 5: a won run fight shows no «Котёл» row and no die — the res
   await expect(page.getByTestId('result')).toContainText('Очки');
   await expect(page.getByTestId('result-map')).toHaveText('К карте (Enter)');
   expect((await snapshot(page)).purse.door).toBeNull();
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   await expect(page.getByTestId('run-map')).toBeVisible();
   await expect(page.getByTestId('run-die')).toHaveCount(0);
   const state = await runState(page);

@@ -16,6 +16,8 @@
  *   starts the next arena; the full gift is the turn-based roll as it is;
  * - different seeds give different maps and arena sequences; the real-time keys only are written.
  */
+// Task 50: the knack screen of a run (RT_KNACKS_ON) is passed over — «Пропустить» — where the route knows only the screens of before.
+import { rtChooseKnack } from './rtRun';
 import { generateForestMap } from '../forest/mapGenerator';
 import { forestEvent } from '../forest/forestEvents';
 import { forestNodeSeed } from '../forest/nodeRolls';
@@ -455,6 +457,7 @@ function arenaPath(seed: number, k: number, mix: boolean, gentle = false): { pat
       // Phase B: the Jailer's two screens (hammer, then oath) are one step, as its one screen before them: the node choices
       // `(k + step)` and the measure of c8df2d4 stay as they were.
     } else if (pending?.kind === 'hammer') run = ok(rtChooseTalisman(ok(rtChooseHammer(run, null), 'refuse hammer'), null), 'refuse');
+    else if (pending?.kind === 'knack') run = ok(rtChooseKnack(run, null), 'knack');
     else if (pending?.kind === 'talisman') run = ok(rtChooseTalisman(run, null), 'refuse');
     else if (pending?.kind === 'rest') run = ok(rtRestHeal(run), 'rest');
     else if (pending?.kind === 'find') run = ok(rtChooseFind(run, pending.options.find(item => !rtItemRefusal(run, item)) ?? pending.options[0]), 'find');
@@ -681,6 +684,7 @@ check('rest and merchant through real visits (HP and resources prepared on enter
       if (run.pending?.kind === 'find') { run = ok(rtChooseFind(run, run.pending.options.find(item => !rtItemRefusal(run, item)) ?? run.pending.options[0]), 'find'); continue; }
       if (run.pending?.kind === 'talisman') { run = ok(rtChooseTalisman(run, null), 'talisman'); continue; }
       if (run.pending?.kind === 'hammer') { run = ok(rtChooseHammer(run, null), 'hammer'); continue; }
+      if (run.pending?.kind === 'knack') { run = ok(rtChooseKnack(run, null), 'knack'); continue; }
       if (run.pending?.kind === 'event') {
         const view = rtEventView(run)!, safe = view.options.find(option => option.safe && option.available)!;
         run = ok(rtChooseEventOption(run, safe.id), 'safe option'); continue;
@@ -779,6 +783,7 @@ function openNode(salt: number, type: 'find' | 'shop' | 'rest' | 'event', prepar
       if (pending?.kind === 'shop') { run = ok(rtShopLeave(run), 'shop'); continue; }
       if (pending?.kind === 'talisman') { run = ok(rtChooseTalisman(run, null), 'talisman'); continue; }
       if (pending?.kind === 'hammer') { run = ok(rtChooseHammer(run, null), 'hammer'); continue; }
+      if (pending?.kind === 'knack') { run = ok(rtChooseKnack(run, null), 'knack'); continue; }
       if (pending?.kind === 'event') { const safe = rtEventView(run)!.options.find(option => option.safe && option.available)!; run = ok(rtChooseEventOption(run, safe.id), 'event'); continue; }
       const next = rtAvailableNodes(run), pick = next.find(node => node.type === type) ?? next.find(node => node.type === 'battle') ?? next[0];
       run = ok(rtEnterNode(run, pick.id), 'enter');
@@ -806,6 +811,7 @@ function nextArenaStep(run: RtRunState): RtRunState {
   if (pending?.kind === 'shop') return ok(rtShopLeave(run), 'shop');
   if (pending?.kind === 'talisman') return ok(rtChooseTalisman(run, null), 'talisman');
   if (pending?.kind === 'hammer') return ok(rtChooseHammer(run, null), 'hammer');
+  if (pending?.kind === 'knack') return ok(rtChooseKnack(run, null), 'knack');
   if (pending?.kind === 'event') { const safe = rtEventView(run)!.options.find(option => option.safe && option.available)!; return ok(rtChooseEventOption(run, safe.id), 'event'); }
   if (pending?.kind === 'gift') return takeGift(run);
   return run;

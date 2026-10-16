@@ -1,5 +1,6 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
+import { leaveResult } from './realtimeResult';
 
 /**
  * Casino stage 1, item 2 — «Ставка клятвы» (src/realtime/sim/oath.ts, src/realtime/run/rtRun.ts, docs/realtime-casino.md).
@@ -43,7 +44,7 @@ test('task 5: the run offers no «Зарок» — row 1 and row 2 cards say «�
   await page.getByTestId('run-enter').click();
   await expect(page.getByTestId('run')).toBeHidden();
   await winArena(page);
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   await expect(page.getByTestId('run')).toBeVisible();
 
   // Run row 2: the card offered two oaths before task 5; now «В бой» only (task 8c; «Идти» before).

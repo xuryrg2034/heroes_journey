@@ -38,7 +38,8 @@ const COUNTERS = RT_COUNTER_TALISMANS.map(def => def.id);
 const tags = (id: string): readonly string[] => rtTalisman(id)?.tags ?? [];
 /** Every state reads back from its save as it is. */
 const readsBack = (state: RtRunState, label: string): void => { assert(serializeRtRun(parseRtRun(serializeRtRun(state))!) === serializeRtRun(state), `${label}: the save reads back`); };
-const walk = (k: number, create: WalkOptions['create'], extra: Partial<WalkOptions> = {}): Walk => walkRun({ k, create, ...extra });
+// Task 50: a walk is of a run without the knack screen unless its `create` says `knacks: true` (RT_KNACKS_ON turned on at the view's step, 16.10.2026).
+const walk = (k: number, create: WalkOptions['create'], extra: Partial<WalkOptions> = {}): Walk => walkRun({ k, create: { knacks: false, ...create }, ...extra });
 /** The run's state without the task-50 fields (to compare with a run without the flags). */
 const plain = (run: RtRunState): string => { const copy = structuredClone(run) as Partial<RtRunState>; delete copy.knacks; delete copy.honed; delete copy.habits; delete copy.habit; return JSON.stringify(copy); };
 /** The states of a walk without the task-50 fields, the knack screens left out, a repeat of the same state (the archetype's step) once. */
@@ -50,11 +51,12 @@ function plainStates(k: number, create: WalkOptions['create'], extra: Partial<Wa
 
 // ---- Flags ----
 
-await check('the flags: off by default (the ui session turns them on), only with the forms, the archetype only with the gift `full`; a run with them off is the run of before', () => {
-  assert(RT_KNACKS_ON === false && RT_HABITS_ON === false, 'the constants are off until the view');
+await check('the flags: a new run takes them from the constants (`knacks` on since the view of step 3, 16.10.2026), only with the forms, the archetype only with the gift `full`; a run with them off is the run of before', () => {
+  assert(typeof RT_KNACKS_ON === 'boolean' && typeof RT_HABITS_ON === 'boolean', 'the constants are flags');
   for (let k = 1; k <= 8; k++) {
-    const seed = seedOf(k), base = createRtRun(seed, { gift: 'full' });
-    assert(!('knacks' in base) && !('habits' in base) && !('honed' in base) && !('habit' in base), `seed ${k}: no fields by default`);
+    const seed = seedOf(k), base = createRtRun(seed, { gift: 'full', knacks: false, habits: false });
+    assert(!('knacks' in base) && !('habits' in base) && !('honed' in base) && !('habit' in base), `seed ${k}: no fields with the flags off`);
+    assert(('knacks' in createRtRun(seed, { gift: 'full' })) === RT_KNACKS_ON, `seed ${k}: the constant decides the default`);
     assert(serializeRtRun(createRtRun(seed, { gift: 'full', knacks: false, habits: false })) === serializeRtRun(base), `seed ${k}: off — byte for byte`);
     const on = createRtRun(seed, { gift: 'full', knacks: true, habits: true });
     assert(on.knacks === true && on.habits === true, 'on with the forms');
@@ -96,7 +98,7 @@ await check('the knack screen: after an ordinary fight and a breakthrough from r
 
 await check('a walk that refuses every knack is the walk without the flag, state for state — the other screens and the streams\' counters are the same (40 seeds, forest and garrison)', () => {
   for (let k = 1; k <= 40; k++) {
-    const create = { gift: k % 2 ? 'full' as const : 'mini' as const, garrison: k % 3 === 0, ...k % 4 === 0 ? { feats: true } : {} };
+    const create = { gift: k % 2 ? 'full' as const : 'mini' as const, garrison: k % 3 === 0, knacks: false, ...k % 4 === 0 ? { feats: true } : {} };
     const off = plainStates(k, create), on = plainStates(k, { ...create, knacks: true }, { knack: () => null });
     assert(on.length === off.length && on.every((s, i) => s === off[i]), `seed ${k}: ${on.length} states with the screens refused, ${off.length} without (first difference at ${on.findIndex((s, i) => s !== off[i])})`);
   }

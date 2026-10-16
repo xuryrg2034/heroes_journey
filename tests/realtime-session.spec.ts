@@ -1,5 +1,6 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
+import { leaveResult } from './realtimeResult';
 
 /**
  * П7 «Часы сессии» (docs/realtime-slice.md, «Часы сессии»; docs/realtime-engagement-research.md): with real input at 1280×720
@@ -56,7 +57,7 @@ test('the end screen says the time in the game and the runs of the session; a re
   });
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'defeat', { timeout: 45_000 });
   await expect(page.getByTestId('run-session-line')).toBeHidden();
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   await expect(page.getByTestId('run-result-defeat')).toBeVisible();
   const line = page.getByTestId('run-session-line');
   await expect(line).toHaveText('В игре 47 мин · походов 2');
@@ -129,7 +130,7 @@ test('the toggle off hides the end-screen line too', async ({ page }) => {
     for (let k = 0; k < 8; k++) rt.place(hero.x + Math.cos(k * Math.PI / 4) * 0.6, hero.y + Math.sin(k * Math.PI / 4) * 0.6, k % 4, 2, 'basic');
   });
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'defeat', { timeout: 45_000 });
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   await expect(page.getByTestId('run-result-defeat')).toBeVisible();
   await expect(page.getByTestId('run-session-line')).toHaveCount(0);
   expect(errors).toEqual([]);

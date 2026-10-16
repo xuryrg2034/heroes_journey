@@ -14,6 +14,7 @@
  *   their hash); saves read back and malformed ones read as no run.
  * Seeds `Math.imul(k, 2654435761) >>> 0`. Variety over seeds, not a fixed outcome per seed. No claim on winning a fight.
  */
+import { rtChooseKnack } from './rtRun';
 import {
   createRtRun, parseRtRun, resolveArena, rtArenaLoadout, rtArenaParams, rtAvailableNodes, rtChooseTalisman, rtHammerOptions, rtEnterNode, rtFormOptions, rtFormPool,
   rtFormReplaces, rtFormsFirst, rtFormSlotField, rtNode, rtRerollTalismans, rtRerollView, rtRunParams, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun, RT_FORM_OFFER_SIZE, RT_JAILER_SEVERED_SLOTS,
@@ -60,10 +61,13 @@ function walk(run: RtRunState, k: number, policy: Policy = {}, seen: Seen = { sc
     for (const e of step.events) if (e.type === 'form-replaced') seen.replaced.push({ id: e.id, by: e.by, shown: shown(e.by) });
     return step.run;
   };
-  for (let step = 0; step < 300 && !run.result; step++) {
+  // Task 50: the knack screen (RT_KNACKS_ON) is passed over («Пропустить») and is not a step of the walk (its node choice turns on `step`).
+  let knacks = 0;
+  for (let step = 0; step < 300 + knacks && !run.result; step++) {
     if (policy.stop?.(run)) return run;
     run = reload(run);
     const pending = run.pending;
+    if (pending?.kind === 'knack') { run = ok(rtChooseKnack(run, null), 'knack'); knacks++; step--; continue; }
     if (pending?.kind === 'battle') { run = win(run, policy.severed && nodeOf(run).type === 'checkpoint'); continue; }
     if (pending?.kind === 'talisman') {
       seen.screens.push({ source: pending.source, options: [...pending.options] });
@@ -331,6 +335,8 @@ check('saves: a run with forms reads back; a run without the flag saves no field
     delete noFlag.forms;
     // Task 44: the fusions' flag lives only with the forms.
     delete noFlag.fusions;
+    // Task 50: so do the knack screen's flag, the counters on rank II and the archetype's flag.
+    delete noFlag.knacks; delete noFlag.honed; delete noFlag.habits;
     bad(noFlag, 'a form without the flag');
     assert(parseRtRun(JSON.stringify({ ...noFlag, talismans: noFlag.talismans!.filter(id => !isRtForm(id)) })), 'control: without the form it reads');
     const fresh = createRtRun(seedOf(k + 2000), { gift: 'mini', forms: false });
@@ -344,6 +350,7 @@ check('saves: a run with forms reads back; a run without the flag saves no field
     const atOld = structuredClone(at) as Partial<RtRunState>;
     delete atOld.forms;
     delete atOld.fusions;
+    delete atOld.knacks; delete atOld.honed; delete atOld.habits;
     assert(parseRtRun(JSON.stringify({ ...atOld, pending: { kind: 'hammer', nodeId: offer.nodeId, options: rtHammerOptions(at, offer.nodeId) } })), 'control: the hammer screen without the flag reads');
   }
 });

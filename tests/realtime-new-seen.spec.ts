@@ -1,5 +1,6 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
+import { leaveResult } from './realtimeResult';
 
 /**
  * П8 «Новое на карте» (docs/realtime-slice.md, «Новое на карте»; docs/realtime-engagement-research.md): with real input at
@@ -40,7 +41,7 @@ async function freshRun(page: Page): Promise<void> {
   await expect(page.getByTestId('run')).toBeHidden();
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory', { timeout: 15_000 });
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   await expect(page.getByTestId('node-r6c0')).toHaveAttribute('data-status', 'available');
 }
 /** Selects the first available node whose card carries the sign (an arena with an unmet kind); the card stays open. */

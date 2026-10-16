@@ -54,7 +54,7 @@ import { drawBoltLine, drawGateLever, drawGrate } from './courtView';
 import { tetherCrossing } from '../sim/tethers';
 import { castellanMarks, drawFallenShackle, drawFrenzy, drawLeash, drawLock, drawShackle, drawSnap, guardMarks, handlerMarks, houndMarks, keymasterMarks, knightMarks } from './garrisonView';
 import { KnightView } from './knightView';
-import { fifthLinkFiresAt } from '../sim/talismansRt';
+import { HONE, fifthLinkFiresAt } from '../sim/talismansRt';
 import { LINK_DEPTH_SHOWN, linkDepths, type LinkDepth } from '../sim/linkDepth';
 import { CHEST_CURSE_KILLS, cursed } from '../sim/chest';
 import { FLAIL_RADIUS, JAILER, JAILER_WEIGHT, jailerCore, jailerMove, jailerShieldUp, type JailerMoveId } from '../sim/enemies/jailer';
@@ -598,6 +598,17 @@ export class RealtimeRenderer {
   };
   /** Task 46: texts of the fusions' highlight (the blast's number), a pool over the root. */
   private readonly fusionLabels: Text[] = [];
+  /**
+   * Task 50 «Сноровка»: what the drawn chain's highlight showed of the counters' rank II in the last frame (tests read it), all of it
+   * from the plan (`planChain`: `LinkPlan.honed`, `ChainPlan.honed`): `edge` — second notches of «Острие» II (every 3rd link, the
+   * ordinary 3rd counts), `catch` — «+2» on the first link after the jump («Улов»), `arm` — «+1» on far links («Длинная рука»),
+   * `hunter` — «−1 пластина» over an elite («Охотник»), `waves` — circles of «Ударная волна» II (2: round the end and round the start),
+   * `waveBodies` — rings on the bodies they strike, `shield` — the ring round the hero («Добивание» II), `frost` — snowflake badges
+   * on the survivor and its neighbour («Иней»), `prism` — nothing is drawn (its rank II is energy). `fired` — rank II firings said over the hero.
+   */
+  readonly honedShown = { edge: 0, catch: 0, arm: 0, hunter: 0, waves: 0, waveBodies: 0, shield: 0, frost: 0, prism: 0, fired: 0 };
+  /** Task 50: the words of the rank II highlight («+2», «+1», «−1 пластина»), a pool over the root. */
+  private readonly honedLabels: Text[] = [];
   /** Task 46 «Клеймо»: the view's clock at which a body was painted (its new colour fades in over `PAINT_FADE`); the old drawing fades out as a ghost. */
   private readonly paintAt = new Map<number, number>();
   private readonly ghosts: { root: Container; life: number }[] = [];
@@ -2710,7 +2721,9 @@ export class RealtimeRenderer {
       if (ev.type === 'talismanFired') {
         // Task 29 «Наледь»: the trail fires once per enemy it freezes, several in a dash — one word a second over the hero.
         if (ev.id === FROST_PASS) { if (this.clock - (this.frostWordAt ?? -9) < 1) continue; this.frostWordAt = this.clock; }
-        this.floatText(fireTextOf(ev.id, !!world.params.counterWindow), world.hero.x * UNIT, world.hero.y * UNIT - 150, PLAYER_FX);
+        // Task 50: a rank II firing says so — «Ранг II: …» (and counts itself).
+        this.floatText(ev.rank === 2 ? `Ранг II: ${fireTextOf(ev.id, !!world.params.counterWindow)}` : fireTextOf(ev.id, !!world.params.counterWindow), world.hero.x * UNIT, world.hero.y * UNIT - 150, ev.rank === 2 ? NOTCH_GOLD : PLAYER_FX);
+        if (ev.rank === 2) this.honedShown.fired++;
         this.talismanTexts++;
         continue;
       }
@@ -3091,6 +3104,8 @@ export class RealtimeRenderer {
     this.fusionShown.spearPlates = 0; this.fusionShown.ice = 0; this.fusionShown.backPower = -1; this.fusionShown.backFull = 0;
     Object.assign(this.fusionShown, { paint: 0, blastRadius: 0, blastDetonate: 0, blastNumber: 0, blastMarks: 0, blastPlates: 0, waveRadius: 0, waveIce: 0, waveBrittle: 0, waveKills: 0, wavePlates: 0 });
     for (const label of this.fusionLabels) label.visible = false;
+    for (const label of this.honedLabels) label.visible = false;
+    Object.assign(this.honedShown, { edge: 0, catch: 0, arm: 0, hunter: 0, waves: 0, waveBodies: 0, shield: 0, frost: 0, prism: 0 });
     if (this.backPowerLabel) this.backPowerLabel.visible = false;
     this.signals.quillBadges = 0;
     this.eliteShown.planPlates = 0;
@@ -3224,6 +3239,12 @@ export class RealtimeRenderer {
           if (len > 1e-6) {
             const ux = dx / len, uy = dy / len, back = Math.min(len * 0.45, 0.75), cx = (at.x - ux * back) * UNIT, cy = (at.y - uy * back) * UNIT, h = 13 * lw;
             for (const [w, c] of [[9, NAVY], [5, NOTCH_GOLD]] as const) g.moveTo(cx - uy * h, cy + ux * h).lineTo(cx + uy * h, cy - ux * h).stroke({ color: c, width: w, cap: 'round' });
+            // Task 50: a link where «Острие» II acts (`LinkPlan.honed`) wears a second notch beside the first — two notches, as the rank's mark.
+            if (lp.honed?.includes(COUNTER_TALISMANS.fifthLink)) {
+              const dx2 = ux * 9, dy2 = uy * 9;
+              for (const [w, c] of [[8, NAVY], [4, NOTCH_GOLD]] as const) g.moveTo(cx - dx2 - uy * h * 0.8, cy - dy2 + ux * h * 0.8).lineTo(cx - dx2 + uy * h * 0.8, cy - dy2 - ux * h * 0.8).stroke({ color: c, width: w, cap: 'round' });
+              this.honedShown.edge++;
+            }
             this.juiceShown.notches.push(index);
           }
         }
@@ -3285,6 +3306,7 @@ export class RealtimeRenderer {
     this.drawLoop(g, world, plan.seal, ink);
     this.drawPierce(g, world, plan.pierce, ink);
     this.drawFusionEnd(g, world, plan, ink);
+    this.drawHoned(g, world, plan);
     if (!plan.endsOnSurvivor && !plan.endsOnObject && !plan.seal) {
       if (twinNext !== null) {
         // Task 33 «Близнецы»: the next colour — the tail to the pointer, the reach ring and a bead at the last link.
@@ -3432,6 +3454,98 @@ export class RealtimeRenderer {
       this.fusionLabels.push(text);
     }
     return this.fusionLabels[i];
+  }
+
+  /** Task 50: the `i`-th word of the rank II highlight (a pool over the root). */
+  private honedLabel(i: number): Text {
+    while (this.honedLabels.length <= i) {
+      const text = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 19, fontWeight: 'bold', fill: NOTCH_GOLD, stroke: { color: NAVY, width: 5 } } });
+      text.anchor.set(0.5, 0.5);
+      text.visible = false;
+      this.root.addChild(text);
+      this.honedLabels.push(text);
+    }
+    return this.honedLabels[i];
+  }
+
+  /** A dashed circle (arcs in turn): navy under, `ink` over. */
+  private dashedRing(g: Graphics, x: number, y: number, R: number, ink: number, width: number, steps: number): void {
+    for (const [w, c, a] of [[width + 3, NAVY, 0.55], [width, ink, 0.95]] as const) {
+      for (let k = 0; k < steps; k += 2) {
+        const a0 = k / steps * Math.PI * 2, a1 = (k + 1) / steps * Math.PI * 2;
+        g.moveTo(x + Math.cos(a0) * R, y + Math.sin(a0) * R).arc(x, y, R, a0, a1);
+      }
+      g.stroke({ color: c, width: w, alpha: a });
+    }
+  }
+
+  /**
+   * Task 50 «Сноровка» (design 16.10.2026, 3.3 and 3.5): the highlight of the counters' rank II — all of it read from the plan
+   * (`LinkPlan.honed`, `ChainPlan.honed`), nothing computed here (the numbers in the words are the sim's `HONE` defaults / the panel's).
+   * - «Улов»: «+2» under the first link after a free jump; «Длинная рука»: «+1» under a far link; «Охотник на элит»: «−1 пластина»
+   *   under the elite (the lemon ring); «Острие»: the second notch, drawn with the first (`drawChain`).
+   * - «Ударная волна»: two circles — round the planned end and round the chain's start (the second, dashed, is the new one) — and a
+   *   ring on each body they strike.
+   * - «Добивание»: a dashed gold ring round the hero — the shield this chain gives that rank I would not.
+   * - «Иней на клинке»: the snowflake badge and the cold's ring on the survivor and on its neighbour that freezes with it.
+   * «Призма» II is energy: nothing is drawn.
+   */
+  private drawHoned(g: Graphics, world: World, plan: ChainPlan): void {
+    if (!world.kit?.honed) return;
+    const p = world.params, r = enemyDrawRadius(p) * UNIT, shown = this.honedShown;
+    let word = 0;
+    const say = (text: string, x: number, y: number, fill: number): void => {
+      const label = this.honedLabel(word++);
+      label.text = text;
+      label.style.fill = fill;
+      label.position.set(x, y);
+      label.visible = true;
+    };
+    for (const lp of plan.links) {
+      if (!lp.honed?.length || lp.link.kind !== 'enemy') continue;
+      const e = world.enemies.find(q => q.id === lp.link.id);
+      if (!e) continue;
+      const R = e.elite || e.leader ? r * enemyArtScale(p, e) * 1.06 : r, x = e.x * UNIT, y = e.y * UNIT;
+      let under = R + 16;
+      for (const id of lp.honed) {
+        if (id === COUNTER_TALISMANS.thirdChain) { say(`+${p.honeCatchPower ?? HONE.catchPower}`, x, y + under, NOTCH_GOLD); under += 22; shown.catch++; }
+        else if (id === COUNTER_TALISMANS.longArm) { say(`+${p.honeArmPower ?? HONE.armPower}`, x, y + under, NOTCH_GOLD); under += 22; shown.arm++; }
+        else if (id === COUNTER_TALISMANS.eliteHunter) {
+          const n = p.honeHunterPlates ?? HONE.hunterPlates;
+          g.circle(x, y, R + 4).stroke({ color: ELITE_LEMON, width: 3, alpha: 0.9 });
+          say(`−${n} ${platesWord(n)}`, x, y + under, ELITE_LEMON); under += 22; shown.hunter++;
+        }
+      }
+    }
+    const waves = plan.honed?.waves;
+    if (waves?.length) {
+      waves.forEach((wave, i) => {
+        const x = wave.at.x * UNIT, y = wave.at.y * UNIT, R = wave.radius * UNIT;
+        g.circle(x, y, R).fill({ color: PLAYER_FX, alpha: i ? 0.12 : 0.07 });
+        if (i) this.dashedRing(g, x, y, R, PLAYER_FX, 3.5, 28);
+        else g.circle(x, y, R).stroke({ color: NAVY, width: 5, alpha: 0.4 }).circle(x, y, R).stroke({ color: PLAYER_FX, width: 2, alpha: 0.8 });
+        shown.waves++;
+        for (const id of wave.ids) {
+          const e = world.enemies.find(q => q.id === id);
+          if (!e) continue;
+          g.circle(e.x * UNIT, e.y * UNIT, r + 6).stroke({ color: NAVY, width: 4, alpha: 0.45 }).circle(e.x * UNIT, e.y * UNIT, r + 6).stroke({ color: PLAYER_FX, width: 2, alpha: 0.95 });
+          shown.waveBodies++;
+        }
+      });
+    }
+    if (plan.honed?.shield) {
+      this.dashedRing(g, world.hero.x * UNIT, world.hero.y * UNIT, UNIT * 0.68, SHIELD_GLOW, 4, 20);
+      shown.shield = 1;
+    }
+    const frost = plan.honed?.frost;
+    if (frost) {
+      for (const id of [frost.survivor, frost.near]) {
+        const e = world.enemies.find(q => q.id === id);
+        if (!e) continue;
+        drawIceMark(g, e.x * UNIT, e.y * UNIT, e.elite || e.leader ? r * enemyArtScale(p, e) * 1.06 : r, false);
+        shown.frost++;
+      }
+    }
   }
 
   /** The plates of `e` before the dash's end: after the chain's own plate hit when it is a link of the plan, else as it stands. */

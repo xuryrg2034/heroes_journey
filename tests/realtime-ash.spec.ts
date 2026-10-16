@@ -4,6 +4,7 @@ import { createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNode
 import { RT_PROFILE_STORAGE_KEY, RT_PROFILE_VERSION, RT_RUN_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
 import { runRow } from '../src/realtime/run/arenaPools';
 import { closeNode, ok, seedOf, takeGift } from '../src/realtime/run/runFight.testkit';
+import { leaveResult } from './realtimeResult';
 
 /**
  * Task 18 «Испытание I–V», the view (design 13–14.10.2026; src/realtime/view/runView.ts, view/nodeCard.ts, docs/realtime-slice.md
@@ -87,7 +88,7 @@ test('task 18: no choice before a won run; the final won in the page opens «И�
   await expect(page.getByTestId('run')).toBeHidden();
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory', { timeout: 15_000 });
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   const end = page.getByTestId('run-result-victory');
   await expect(end).toBeVisible();
   const choice = end.getByTestId('run-ash');

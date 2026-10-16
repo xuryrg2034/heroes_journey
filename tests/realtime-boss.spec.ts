@@ -2,6 +2,7 @@ import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
 import { gameWait, untilFrame } from './realtimeFrames';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
+import { leaveResult } from './realtimeResult';
 
 /**
  * Task 27 «Каркас босса и Тюремщик в песочнице» (design 15.10.2026, docs/design-notes/tasks-26-28.md): the view of the flail
@@ -345,7 +346,7 @@ test('task 28: the Jailer in a run — the bar only in its fight; bombs sever th
       plainFights++;
       expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
       await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
-      await page.getByTestId('result-map').click();
+      await leaveResult(page);
       continue;
     }
     if (pending) {
@@ -433,7 +434,7 @@ test('task 28: the Jailer in a run — the bar only in its fight; bombs sever th
   await expect(page.getByTestId('result')).not.toContainText('отмеченные');
   await expect(page.getByTestId('result')).not.toContainText('В стадии жадности');
   await page.screenshot({ path: 'artifacts/realtime-boss-run-result.png' });
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   for (let i = 0; i < 4 && (await state()).pending?.source !== 'oath'; i++) {
     if ((await state()).pending?.kind === 'hammer') await page.getByTestId('hammer-refuse').click();
     // Task 30: a new run's Jailer offers forms first — a first run (a new viewer) its three simple ones, so the severed weight's

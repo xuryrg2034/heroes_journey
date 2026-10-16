@@ -19,6 +19,8 @@
  *   on over the run's values (the run layer's code stays).
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
+// Task 50: the knack screen of a run (RT_KNACKS_ON) is passed over — «Пропустить» — where the route knows only the screens of before.
+import { rtChooseKnack } from './rtRun';
 import { registerArena } from '../sim/arenas';
 import type { Loadout } from '../sim/kit';
 import type { OathId } from '../sim/oath';
@@ -121,6 +123,7 @@ function closeNode(run: RtRunState): RtRunState {
   if (pending?.kind === 'shop') return ok(rtShopLeave(run), 'shop');
   if (pending?.kind === 'talisman') return ok(rtChooseTalisman(run, null), 'talisman');
   if (pending?.kind === 'hammer') return ok(rtChooseHammer(run, null), 'hammer');
+  if (pending?.kind === 'knack') return ok(rtChooseKnack(run, null), 'knack');
   if (pending?.kind === 'event') { const safe = rtEventView(run)!.options.find(option => option.safe && option.available)!; return ok(rtChooseEventOption(run, safe.id), 'event'); }
   if (pending?.kind === 'gift') return takeGift(run);
   return run;

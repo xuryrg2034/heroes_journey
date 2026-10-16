@@ -1,5 +1,6 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
+import { leaveResult } from './realtimeResult';
 
 /**
  * П10 «Личный рекорд» (src/realtime/view/chainRecord.ts, docs/realtime-slice.md, section 9): with real input at 1280×720 —
@@ -76,7 +77,7 @@ async function fight(page: Page, chains: number[]): Promise<void> {
 }
 /** From the result to the map (the die at the door — «Забрать»). */
 async function toMap(page: Page): Promise<void> {
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   if (await page.getByTestId('run-die').isVisible()) await page.getByTestId('die-take').click();
   await expect(page.getByTestId('run-map')).toBeVisible();
 }
@@ -118,6 +119,8 @@ test('the result line «Лучшая цепь боя · похода · реко
   await page.reload();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
   if (await page.getByTestId('run-die').isVisible()) await page.getByTestId('die-take').click();
+  // Task 50: a row-2 fight left «Сноровка» open — after the reload it stands in the run's window; «Пропустить» goes on to the map.
+  if (await page.getByTestId('knack-skip').isVisible()) await page.getByTestId('knack-skip').click();
   await expect(page.getByTestId('run-map')).toBeVisible();
   expect((await runState(page)).battles.map((b: any) => b.bestChain)).toEqual([3, 5]);
   expect(await stored(page)).toBe(5);

@@ -6,6 +6,7 @@ import { walkRun } from '../src/realtime/run/metaWalk.testkit';
 import { RT_RUN_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
 import { SCHEDULE_PRACTICE, SCHEDULE_RUN_ARENAS } from '../src/realtime/run/schedule';
 import { JAILER_RUN_ARENAS } from '../src/realtime/sim/arenasBoss';
+import { leaveResult } from './realtimeResult';
 
 /**
  * The run of the real-time game in the browser (stage 2, step 1; docs/realtime-slice.md). Runs through
@@ -110,7 +111,7 @@ test('run: a battle node starts its arena with the run HP, a reload starts it ag
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
   const won = await snapshot(page);
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   await expect(page.getByTestId('run')).toBeVisible();
   await expect(page.getByTestId(`node-${nodeId}`)).toHaveAttribute('data-status', 'current');
   const after = await runState(page);
@@ -143,7 +144,7 @@ test('run: a lost arena ends the run, and the end survives a reload', async ({ p
     for (let k = 0; k < 8; k++) rt.place(hero.x + Math.cos(k * Math.PI / 4) * 0.6, hero.y + Math.sin(k * Math.PI / 4) * 0.6, k % 4, 2, 'basic');
   });
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'defeat', { timeout: 45_000 });
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   await expect(page.getByTestId('run-result-defeat')).toBeVisible();
   expect((await runState(page)).result?.outcome).toBe('defeat');
   await page.reload();
@@ -255,7 +256,7 @@ test('run: two runs walk to the final arena — a new run by the schedule (its a
           expect((await runState(page)).result?.outcome).toBe('victory');
           finalWon = true;
         }
-        await page.getByTestId('result-map').click();
+        await leaveResult(page);
         continue;
       }
       if (pending) {
@@ -325,7 +326,7 @@ test('run: a consumable taken at a find goes to the next arena (HUD 2 ×1) and i
       await expect(page.getByTestId('run')).toBeHidden();
       expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
       await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
-      await page.getByTestId('result-map').click();
+      await leaveResult(page);
       continue;
     }
     if (pending) {
@@ -364,7 +365,7 @@ test('run: a consumable taken at a find goes to the next arena (HUD 2 ×1) and i
   expect((await page.evaluate(() => (window as any).__realtime.snapshot())).enemies.some((e: { id: number }) => e.id === target.id)).toBe(false);
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   expect((await page.evaluate(() => (window as any).__realtime.run.state())).items.bomb).toBe(bombs - 1);
   expect(errors).toEqual([]);
 });
@@ -456,7 +457,7 @@ test('run (iteration 2.1, task 6): consumables are noticed — the map says thei
   expect(JSON.parse(await page.evaluate(() => localStorage.getItem('ashen-oath-realtime-hints') ?? '{}')).shown.item).toBe(1);
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   expect((await page.evaluate(() => (window as any).__realtime.run.state())).itemUsed).toBe(true);
   // The next arena: no hint (a consumable was used in this run).
   for (let step = 0; step < 10; step++) {
@@ -501,7 +502,7 @@ test('run (phase A, Т2): the node preview names its roster in one line; the car
     await expect(page.getByTestId('run')).toBeHidden();
     expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
     await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory', { timeout: 15_000 });
-    await page.getByTestId('result-map').click();
+    await leaveResult(page);
     await expect(page.getByTestId('node-r6c0')).toHaveAttribute('data-status', 'available');
   };
   await toRowTwo(11);
@@ -528,7 +529,7 @@ async function walkStep(page: Page, prefer: string): Promise<void> {
   if (state.pending?.kind === 'battle') {
     expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
     await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
-    await page.getByTestId('result-map').click();
+    await leaveResult(page);
     return;
   }
   if (state.pending) {
@@ -804,7 +805,7 @@ test('run: the map\'s «Песочница» opens the sandbox (`#sandbox`) and 
   await expect(page.getByTestId('open-sandbox')).toBeHidden();
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   await expect(page.getByTestId('run')).toBeVisible();
   const before = await runState(page);
   expect(before.visited).toEqual([nodeId]);

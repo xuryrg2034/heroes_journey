@@ -1,4 +1,5 @@
 import { type Page } from '@playwright/test';
+import { rtChooseKnack } from '../src/realtime/run/rtRun';
 import { test, expect } from './realtimeTest';
 import {
   createRtRun, resolveArena, rtAvailableNodes, rtCasinoLeave, rtChooseFind, rtItemRefusal, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtChooseTalisman, rtDieChoose, rtEnterNode,
@@ -35,6 +36,8 @@ function stepOf(run: RtRunState, stop: (run: RtRunState) => boolean, circle: boo
   if (p?.kind === 'casino') return ok(rtCasinoLeave(run));
   if (p?.kind === 'talisman') return ok(rtChooseTalisman(run, null));
   if (p?.kind === 'hammer') return ok(rtChooseHammer(run, null));
+  // Task 50: the knack screen of the run (RT_KNACKS_ON) is passed over.
+  if (p?.kind === 'knack') return ok(rtChooseKnack(run, null));
   if (p?.kind === 'die') return ok(rtDieChoose(run, false));
   if (p?.kind === 'find') return ok(rtChooseFind(run, p.options.find(item => !rtItemRefusal(run, item)) ?? p.options[0]));
   if (p?.kind === 'rest') return ok(rtRestHeal(run));

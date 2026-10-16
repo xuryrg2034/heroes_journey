@@ -70,6 +70,14 @@ export class ChainAudio {
     this.tone(1568 * 2.76, 'sine', 0.25, volume * 0.18);
   }
 
+  /** Task 50 «Сноровка»: rank II struck in — two short taps of a hammer on an anvil (the second a little higher). */
+  hone(volume: number): void {
+    this.tone(520, 'triangle', 0.09, volume * 0.5);
+    this.tone(2100, 'sine', 0.12, volume * 0.14);
+    this.tone(660, 'triangle', 0.14, volume * 0.55, 0.14);
+    this.tone(2640, 'sine', 0.2, volume * 0.16, 0.14);
+  }
+
   /** Task 47, С4 «Огненный проход»: the fire laid — a crackle (short dry ticks at uneven steps) over a low whoomp. */
   crackle(volume: number): void {
     this.tone(140, 'sawtooth', 0.16, volume * 0.22);

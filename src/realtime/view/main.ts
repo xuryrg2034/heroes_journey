@@ -364,7 +364,12 @@ async function boot(): Promise<void> {
   const resultDeath = el('div', 'rt-result-death');
   resultDeath.setAttribute('data-testid', 'result-death');
   resultDeath.hidden = true;
-  resultCard.append(resultTitle, resultDeath, resultStats, resultChain, resultButtons);
+  // Task 50 «Сноровка» (design 3.5): after a won run fight with the screen open, the card's «К карте» gives way to two cards and
+  // «Пропустить» — one click (the run's window shows the same cards after the die or a reload).
+  const resultKnack = el('div', 'rt-knack-box');
+  resultKnack.setAttribute('data-testid', 'result-knack');
+  resultKnack.hidden = true;
+  resultCard.append(resultTitle, resultDeath, resultStats, resultChain, resultKnack, resultButtons);
   result.appendChild(resultCard);
 
   const pausedBadge = el('div', 'rt-paused', 'Пауза');
@@ -405,7 +410,7 @@ async function boot(): Promise<void> {
   /** Task 35, С4: the build's sounds asked for so far — «Тяжёлый клинок» thuds, «Пятое звено» bells (tests read them). */
   // Task 47, С4: the hammers' sounds (`crackles`, `pops`, `swishes`, `rings`), «Быстрые ноги»' `whistles`, «Ударная волна»'s `hums`
   // (`humLast` — the last hum's strength).
-  const itemSounds = { thuds: 0, bells: 0, crackles: 0, pops: 0, swishes: 0, rings: 0, whistles: 0, hums: 0, humLast: 0 };
+  const itemSounds = { thuds: 0, bells: 0, crackles: 0, pops: 0, swishes: 0, rings: 0, whistles: 0, hums: 0, humLast: 0, hones: 0 };
   /** Task 47, С4: the hero dashed in the last frame (the whistle sounds at a dash's start). */
   let dashHeard = false;
   /** Markers of elites already announced by sound, for the world they belong to (each arena counts ids anew). */
@@ -426,14 +431,17 @@ async function boot(): Promise<void> {
   const sandboxBuild = loadSandboxBuild();
   /** Casino stage 1, item 2: the sandbox panel's oath (null — none); this page only. */
   let sandboxOath: OathId | null = null;
-  let buildOverride: { talismans: string[]; hammer?: string } | null = null;
+  let buildOverride: { talismans: string[]; hammer?: string; honed?: string[] } | null = null;
   const sandboxLoadout = (): Loadout => {
     const talismans = [...params.sandboxTalismans ? [params.sandboxTalismans] : [], ...buildOverride ? buildOverride.talismans : [sandboxBuild.talisman, sandboxBuild.relic, sandboxBuild.end, sandboxBuild.link, sandboxBuild.path].filter(Boolean)];
     const hammer = buildOverride ? buildOverride.hammer : sandboxBuild.hammer;
+    // Task 50: «II» by the counter (the panel) or the test hook's list — rank II of the counters (the kit keeps counters only).
+    const honed = buildOverride ? buildOverride.honed ?? [] : sandboxBuild.honed && sandboxBuild.talisman ? [sandboxBuild.talisman] : [];
     return {
       items: Object.fromEntries(SLOT_ITEMS.map(kind => [kind, params.sandboxItems])),
       ...talismans.length ? { talismans: [...new Set(talismans)], ...params.sandboxTalismans ? { ward: true } : {} } : {},
       ...isHammerId(hammer) ? { hammer } : {},
+      ...honed.length && talismans.length ? { honed: [...new Set(honed)] } : {},
       // Casino «Ставка клятвы»: the panel's oath goes into every next arena too (the loadout is journalled).
       ...sandboxOath ? { oath: sandboxOath } : {},
     };
@@ -574,6 +582,8 @@ async function boot(): Promise<void> {
    * holds (`BuildColumn.arrive`). The run gets it in task 30 (the first fight after the choice).
    */
   let pendingArrivals: string[] = [];
+  /** Task 50: counters that went to rank II and wait for the next fight's column (`BuildColumn.hone`). */
+  const pendingHoned: string[] = [];
   const startArena = (arena: ArenaTemplate, seed: number, hero?: HeroStart, loadout?: Loadout, notice?: ArenaItemNotice, simParams?: Params): void => {
     renderer.resetEffects();
     sim = newSimulation(arena, seed, hero, loadout, simParams);
@@ -696,6 +706,9 @@ async function boot(): Promise<void> {
       'Задача 29: что оставляет проход («Наледь»). С новой арены. Молоты «Огненный», «Режущий», «Возврат» — тоже поле «Путь».');
     panel.addBuildChoice('Талисман-счётчик', 'build-talisman', [none, ...Object.values(COUNTER_TALISMANS).map(option)], sandboxBuild.talisman, choose('talisman'),
       'Т1: условие и триггер. Предмет действует с новой арены; прогресс счётчика — в колонке слева.');
+    // Task 50: «II» by the counter — rank II of the chosen counter (the loadout's `honed`); it acts only with «Счётчики: окно — одна цепь».
+    panel.addBuildCheck('Ранг II счётчика', 'build-talisman-honed', !!sandboxBuild.honed, on => { sandboxBuild.honed = on; saveSandboxBuild(sandboxBuild); },
+      'Задача 50: «II» у счётчика. Выбранный счётчик играет правило ранга II со следующей арены. Действует только с переключателем «Счётчики: окно — одна цепь» (группа «Талисманы»); числа — группа «Ранг II».');
     panel.addBuildChoice('Реликвия или клятва', 'build-relic', [none, ...Object.values(RELICS).map(option), option(OATH_HUNGER)], sandboxBuild.relic, choose('relic'),
       'Т3: плюс и цена (цена — в колонке); 5а: новая «Клятва голода».');
     panel.addBuildChoice('Молот', 'build-hammer', [none, ...Object.values(HAMMERS).map(id => ({ value: id, label: `${labelOf(id).title}${fieldOf(id)}` }))], sandboxBuild.hammer, choose('hammer'),
@@ -749,6 +762,8 @@ async function boot(): Promise<void> {
     goblinCircle: params.goblinCircle,
     // Casino «Ставка клятвы»: the run's key (`RT_RUN_FORCED`; off since task 5, 12.10.2026) — oath nodes offer no oaths.
     oathStake: params.oathStake,
+    // Task 50: rank II taken — the next fight's column shows the moment (the icon flashes, the second notch is driven in, a short sound).
+    honed: id => { pendingHoned.push(id); },
     onScreenChange(open) {
       runScreenOpen = open;
       if (open) { command({ t: 'cancel' }); dragging = false; stopAim(); result.hidden = true; }
@@ -833,6 +848,13 @@ async function boot(): Promise<void> {
     runView.leaveArena();
   };
   toMap.addEventListener('click', finishRunArena);
+  // Task 50: a card of the result's «Сноровка» — the choice goes into the run, then to what follows (the feat's screen, or the map).
+  resultKnack.addEventListener('click', event => {
+    const target = (event.target as HTMLElement).closest<HTMLElement>('[data-action="knack"]');
+    if (!target || !runView?.knackOpen) return;
+    runView.chooseKnack(target.dataset.option || null, !!target.dataset.hone);
+    runView.leaveArena();
+  });
   if (runView) {
     host.appendChild(runView.el);
     if (runView.hearth) host.appendChild(runView.hearth.el);
@@ -1139,6 +1161,10 @@ async function boot(): Promise<void> {
     resultDeath.hidden = !deathLines.length;
     // The won final arena ends the run too (step 4): its button leads to the end of the run, as after a defeat.
     // Casino stage 1, item 4: a won door with a cauldron leads to the die first.
+    const knack = !sandbox && won && !!runView?.knackOpen && !!runView.state;
+    resultKnack.hidden = !knack;
+    resultKnack.innerHTML = knack ? `<h3>Сноровка</h3>${runView!.knackHtml(runView!.state!)}` : '';
+    resultButtons.hidden = knack;
     toMap.textContent = won && runView?.diePending ? 'К кости у двери (Enter)' : won && !runView?.runOver ? 'К карте (Enter)' : 'Итог похода (Enter)';
     const goal = goalProgress(w);
     // Task 16: the feat's own row (design 14.10.2026: the bag and the feat — a row each): the run's record of this fight.
@@ -1324,7 +1350,7 @@ async function boot(): Promise<void> {
     const used = w.events.filter(ev => ev.type === 'item').length;
     if (used) { arenaItemsUsed += used; if (hintsOn && !sandbox && hints.store.count(ITEM_PULSE_ID) === 0) hints.store.bump(ITEM_PULSE_ID); }
     // Phase B (Д5): an item fired — its icon flashes in the column (the renderer writes the short text at the hero).
-    for (const ev of w.events) if (ev.type === 'talismanFired') buildColumn.flash(ev.id);
+    for (const ev of w.events) if (ev.type === 'talismanFired') buildColumn.flash(ev.id, true, ev.rank === 2);
     // Stage E: a short flash of the focus bar when a link refreshes it.
     if (w.events.some(ev => ev.type === 'focusRefill')) { focusBar.classList.remove('rt-focus-flash'); void focusBar.offsetWidth; focusBar.classList.add('rt-focus-flash'); }
     // The hero and enemies are drawn between the last two ticks (the world is put back after drawing).
@@ -1451,6 +1477,9 @@ async function boot(): Promise<void> {
       if (bossBar.el.hidden !== wasHidden) measureEdgeInset();
     }
     if (buildColumn.el.hidden !== columnWasHidden) measureEdgeInset();
+    if (pendingHoned.length && !buildColumn.el.hidden && w.status === 'playing') {
+      for (const id of pendingHoned.splice(0)) if (buildColumn.hone(id)) { if (soundOn()) audio.hone(soundVolume()); itemSounds.hones++; }
+    }
     if (pendingArrivals.length && !buildColumn.el.hidden && w.status === 'playing') {
       const at = renderer.toScreen(w.hero.x, w.hero.y);
       for (const id of pendingArrivals) buildColumn.arrive(id, { x: at.x, y: at.y - 40 });
@@ -1721,9 +1750,11 @@ async function boot(): Promise<void> {
         buildBottom: buildColumn.el.hidden ? 0 : buildColumn.el.getBoundingClientRect().bottom,
         buildTip: buildColumn.tip.hidden ? null : { ids: buildColumn.tip.dataset.id ?? "", text: buildColumn.tip.textContent ?? "" },
         reachRadius: renderer.heroReachRadius,
-        buildItems: [...buildColumn.el.querySelectorAll<HTMLElement>('.rt-build-item')].map(n => ({ id: n.dataset.testid?.replace(/^build-/, '') ?? '', kind: n.dataset.kind ?? '', progress: n.querySelector('.rt-build-progress')?.textContent ?? '', price: n.querySelector('.rt-build-price')?.textContent ?? null })),
+        buildItems: [...buildColumn.el.querySelectorAll<HTMLElement>('.rt-build-item')].map(n => ({ id: n.dataset.testid?.replace(/^build-/, '') ?? '', kind: n.dataset.kind ?? '', progress: n.querySelector('.rt-build-progress')?.textContent ?? '', price: n.querySelector('.rt-build-price')?.textContent ?? null, honed: n.dataset.honed === '1', marks: n.querySelectorAll('.rt-rank i').length })),
         buildFlashing: buildColumn.flashing,
         talismanFlashes: buildColumn.flashes,
+        /** Task 50: rank II moments of the column so far, the rank II flashes at the hero and what the highlight drew of rank II (render.ts `honedShown`). */
+        honedShown: { ...renderer.honedShown, honings: buildColumn.honings, flashes: buildColumn.rankFlashes },
         talismanTexts: renderer.talismanTexts,
         /** П9 «Второе дыхание»: the tick it was used (null — not yet) and the flashes with its text shown so far. */
         secondWind: { used: w.secondWind?.tick ?? null, shown: renderer.secondWindShown, text: renderer.secondWindText },
@@ -1768,7 +1799,7 @@ async function boot(): Promise<void> {
         playerEffects: { ...renderer.playerEffects },
         /** Phase B (Т5): the view's chain colours, the goal lemon and the rim of the player's effects. */
         palette: { chain: [...CHAIN_COLORS], target: TARGET, playerFx: PLAYER_FX },
-        kit: w.kit ? { talismans: [...w.kit.talismans], hammer: w.kit.hammer ?? null, counters: { ...w.kit.counters ?? {} } } : null,
+        kit: w.kit ? { talismans: [...w.kit.talismans], hammer: w.kit.hammer ?? null, counters: { ...w.kit.counters ?? {} }, honed: [...w.kit.honed ?? []] } : null,
         /** Telemetry (track ТA): the browser buffer — records, characters, not delivered, notes, a record kept in memory only. Null — off. */
         telemetry: recorder ? (({ records, chars, undelivered, notes, bufferFull }) => ({ records, chars, undelivered, notes, bufferFull }))(recorder.stats()) : null,
         noteFlash: !noteFlash.hidden,
@@ -1813,10 +1844,10 @@ async function boot(): Promise<void> {
      * panel's build (null — back to the panel); `testModule` registers the view's test counter (buildTestModule.ts) and adds
      * it. Restarts the current arena (`seed` fixes it).
      */
-    useBuild: (build: { talismans?: string[]; hammer?: string; testModule?: boolean } | null, seed?: number) => {
+    useBuild: (build: { talismans?: string[]; hammer?: string; honed?: string[]; testModule?: boolean } | null, seed?: number) => {
       if (!sandbox) return;
       if (build?.testModule) registerViewTestModule();
-      buildOverride = build ? { talismans: [...build.talismans ?? [], ...build.testModule ? [VIEW_TEST_MODULE] : []], ...build.hammer ? { hammer: build.hammer } : {} } : null;
+      buildOverride = build ? { talismans: [...build.talismans ?? [], ...build.testModule ? [VIEW_TEST_MODULE] : []], ...build.hammer ? { hammer: build.hammer } : {}, ...build.honed?.length ? { honed: [...build.honed] } : {} } : null;
       restart(seed);
     },
     /** Restarts the arena; `seed` fixes the new fight's seed. */
@@ -1894,6 +1925,15 @@ async function boot(): Promise<void> {
         return true;
       },
       toMap: () => finishRunArena(),
+      /**
+       * Task 50 «Сноровка» (tests): the screen open now — `where` ('result': the fight's result card, 'window': the run's window; null —
+       * none), its cards (`kind` 'hone' — rank II, 'new' — a new counter; `line` — the card's «Ранг II: …» line) and the counters on rank II.
+       */
+      knack: () => {
+        const state = runView.state, box = !result.hidden && !resultKnack.hidden ? resultKnack : runView.el.hidden ? null : runView.el.querySelector<HTMLElement>('[data-testid="run-knack"]');
+        const cards = box ? [...box.querySelectorAll<HTMLElement>('.rt-knack-card')].map(card => ({ id: card.dataset.option ?? '', kind: card.dataset.kind ?? '', marks: card.querySelectorAll('.rt-rank i').length, line: card.querySelector('.rt-knack-hone')?.textContent ?? '' })) : [];
+        return { open: runView.knackOpen, where: box ? (box === resultKnack ? 'result' : 'window') : null, cards, skip: !!box?.querySelector('[data-testid="knack-skip"]'), honed: [...state?.honed ?? []], mapHoned: [...runView.el.querySelectorAll<HTMLElement>('[data-honed]')].map(n => ({ text: n.textContent?.trim() ?? '', marks: n.querySelectorAll('.rt-rank i').length })) };
+      },
     } : null,
   };
 }

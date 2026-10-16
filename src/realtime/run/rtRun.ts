@@ -1756,7 +1756,7 @@ export function rtChooseTalisman(current: RtRunState, chosen: RtTalismanOption |
 // ---------- Task 50 «Сноровка» (design 16.10.2026, docs/design-notes/task-50-levels-archetype.md, section 3) ----------
 
 /** Task 50: a new run with forms has the knack screen (its own flag `knacks`). Off until the view's step (the ui session turns it on). */
-export const RT_KNACKS_ON = false;
+export const RT_KNACKS_ON = true;
 /** Task 50 «Повадка»: a new run with forms and the gift `full` offers the archetype row (its own flag `habits`). Off until the view's step. */
 export const RT_HABITS_ON = false;
 /** Баланс (design 3.1): the knack screen from this run row (row 1 teaches «цель → дверь», as the bag); the garrison's from its row 2. */
