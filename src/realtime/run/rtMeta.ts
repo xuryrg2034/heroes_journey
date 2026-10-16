@@ -97,7 +97,8 @@ export interface RtMeta {
 
 // ---------- The end of a run (the view's contract) ----------
 
-export type RtXpPartId = 'battles' | 'elite' | 'jailer' | 'final' | 'feats' | 'victory' | 'ash' | 'quest';
+/** Task 38 (design smoke v65, D1): `guardroom` and `castellan` — the garrison's checkpoint and boss, apart from the forest's Jailer and final. */
+export type RtXpPartId = 'battles' | 'elite' | 'jailer' | 'final' | 'guardroom' | 'castellan' | 'feats' | 'victory' | 'ash' | 'quest';
 export interface RtXpPart { id: RtXpPartId; xp: number; n?: number }
 export interface RtMetaPackView { id: string; title: string; items: RtMetaItem[] }
 export interface RtMetaEnd {
@@ -133,14 +134,16 @@ const runDepthOf = (run: RtRunState): { row: number; level?: 2 } => ({ row: rtRu
 
 /** The run's XP before its quest: the parts and the base (before «Испытание»). */
 export function rtRunXp(run: RtRunState): { parts: RtXpPart[]; total: number } {
-  const count = { battles: 0, elite: 0, jailer: 0, final: 0, feats: 0 }, xp = { battles: 0, elite: 0, jailer: 0, final: 0 };
+  const count = { battles: 0, elite: 0, jailer: 0, final: 0, guardroom: 0, castellan: 0, feats: 0 }, xp = { battles: 0, elite: 0, jailer: 0, final: 0, guardroom: 0, castellan: 0 };
   for (const record of run.battles) {
     if (!record.won) continue;
     const type = rtNode(run, record.nodeId)?.type;
-    // Task 38: a garrison fight ×2, its «Караульня» 40, its Castellan a final (+50).
+    // Task 38: a garrison fight ×2, its «Караульня» 40, its Castellan a final (+50) — each on its own line (D1).
     const garrison = rtGarrisonNodeId(record.nodeId), factor = garrison ? RT_XP_GARRISON_FACTOR : 1;
     if (type === 'hard' || type === 'breakthrough') { count.elite++; xp.elite += RT_XP_ELITE * factor; }
-    else if (type === 'checkpoint') { count.jailer++; xp.jailer += garrison ? RT_XP_GUARDROOM : RT_XP_JAILER; }
+    else if (type === 'checkpoint' && garrison) { count.guardroom++; xp.guardroom += RT_XP_GUARDROOM; }
+    else if (type === 'checkpoint') { count.jailer++; xp.jailer += RT_XP_JAILER; }
+    else if (type === 'boss' && garrison) { count.castellan++; xp.castellan += RT_XP_FINAL; }
     else if (type === 'boss') { count.final++; xp.final += RT_XP_FINAL; }
     else { count.battles++; xp.battles += RT_XP_BATTLE * factor; }
     if (record.feat?.done) count.feats++;
@@ -148,6 +151,7 @@ export function rtRunXp(run: RtRunState): { parts: RtXpPart[]; total: number } {
   const parts: RtXpPart[] = [
     { id: 'battles', xp: xp.battles, n: count.battles }, { id: 'elite', xp: xp.elite, n: count.elite },
     { id: 'jailer', xp: xp.jailer, n: count.jailer }, { id: 'final', xp: xp.final, n: count.final },
+    { id: 'guardroom', xp: xp.guardroom, n: count.guardroom }, { id: 'castellan', xp: xp.castellan, n: count.castellan },
     { id: 'feats', xp: count.feats * RT_XP_FEAT, n: count.feats }, { id: 'victory', xp: won(run) ? RT_XP_VICTORY : 0 },
   ];
   const base = parts.reduce((sum, part) => sum + part.xp, 0), level = run.ash ?? 0;

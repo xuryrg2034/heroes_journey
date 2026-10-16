@@ -194,21 +194,21 @@ check('the meta of a garrison run: its fights ×2 (Караульня 40), the C
     const won = walk(k, true).run, lost = walk(k, true, { loseAt: run => rtLevel(run) === 2 && run.picks.filter(pick => rtGarrisonNodeId(pick.nodeId)).length >= 3 }).run;
     for (const run of [won, lost]) {
       const xp = rtRunXp(run), part = (id: string) => xp.parts.find(p => p.id === id)?.xp ?? 0;
-      let want = { battles: 0, elite: 0, jailer: 0, final: 0 };
+      let want = { battles: 0, elite: 0, jailer: 0, final: 0, guardroom: 0, castellan: 0 };
       for (const record of run.battles.filter(b => b.won)) {
         const type = rtNode(run, record.nodeId)!.type, g = rtGarrisonNodeId(record.nodeId) ? 2 : 1;
         if (type === 'hard' || type === 'breakthrough') want.elite += 10 * g;
-        else if (type === 'checkpoint') want.jailer += g === 2 ? 40 : 30;
-        else if (type === 'boss') want.final += 50;
+        else if (type === 'checkpoint') { if (g === 2) want.guardroom += 40; else want.jailer += 30; }
+        else if (type === 'boss') { if (g === 2) want.castellan += 50; else want.final += 50; }
         else want.battles += 5 * g;
       }
       want = { ...want };
-      assert(part('battles') === want.battles && part('elite') === want.elite && part('jailer') === want.jailer && part('final') === want.final, `seed ${k}: ${JSON.stringify(xp.parts)} / ${JSON.stringify(want)}`);
+      assert(part('battles') === want.battles && part('elite') === want.elite && part('jailer') === want.jailer && part('final') === want.final && part('guardroom') === want.guardroom && part('castellan') === want.castellan, `seed ${k}: ${JSON.stringify(xp.parts)} / ${JSON.stringify(want)}`);
       const end = rtApplyMeta({ heroes: { cat: { xp: 0, packs: [], record: { row: 10, won: true, xp: 100 } } } }, run).end;
       assert(end.record.after.level === 2 && end.record.beaten && end.record.before?.level === undefined, `seed ${k}: the garrison's record beats the forest's (${JSON.stringify(end.record)})`);
       assert(end.carry.cap === 40, `seed ${k}: the cap 40 (${end.carry.cap})`);
     }
-    assert(won.result?.outcome === 'victory' && rtRunXp(won).parts.some(p => p.id === 'victory' && p.xp === 25) && rtRunXp(won).parts.find(p => p.id === 'final')?.xp === 100, `seed ${k}: the forest final and the Castellan +50 each, the victory +25`);
+    assert(won.result?.outcome === 'victory' && rtRunXp(won).parts.some(p => p.id === 'victory' && p.xp === 25) && rtRunXp(won).parts.find(p => p.id === 'final')?.xp === 50 && rtRunXp(won).parts.find(p => p.id === 'castellan')?.xp === 50, `seed ${k}: the forest final and the Castellan +50 each on their own lines (D1), the victory +25`);
     assert(lost.result?.outcome === 'defeat' && !rtRunXp(lost).parts.some(p => p.id === 'victory'), `seed ${k}: no victory bonus for a run lost in the garrison`);
     // A garrison record row 2 is beyond a forest record row 10; a later garrison row 1 is not.
     const again = rtApplyMeta({ heroes: { cat: { xp: 0, packs: [], record: { row: 9, won: true, xp: 100, level: 2 } } } }, lost).end;

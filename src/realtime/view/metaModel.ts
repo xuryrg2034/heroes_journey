@@ -13,7 +13,7 @@ export type MetaItemKind = 'talisman' | 'relic' | 'hammer' | 'form' | 'event';
 export interface MetaPackItem { id: string; kind: MetaItemKind }
 export interface MetaPack { id: string; title: string; items: MetaPackItem[] }
 /** The parts of a run's experience, in the order the end screen lists them. */
-export type MetaXpPart = 'battles' | 'elite' | 'jailer' | 'final' | 'feats' | 'victory' | 'ash' | 'quest';
+export type MetaXpPart = 'battles' | 'elite' | 'jailer' | 'final' | 'guardroom' | 'castellan' | 'feats' | 'victory' | 'ash' | 'quest';
 export type NpcId = 'owl' | 'herb' | 'smith';
 
 /** The meta at the end of a run (null — no meta: a given seed, the sandbox, the prologue). */
@@ -89,6 +89,9 @@ export function xpPartLabel(id: MetaXpPart, n?: number): string {
     case 'elite': return n !== undefined ? `Заставы и прорывы: ${n}` : 'Заставы и прорывы';
     case 'jailer': return 'Тюремщик';
     case 'final': return 'Финал леса';
+    // Task 38 (D1): the garrison's checkpoint and boss on their own lines.
+    case 'guardroom': return 'Караульня';
+    case 'castellan': return 'Кастелян';
     case 'feats': return n !== undefined ? `Подвиги: ${n}` : 'Подвиги';
     case 'victory': return 'Победа похода';
     case 'ash': return 'Испытание';
