@@ -956,6 +956,13 @@ export interface Params {
   crossbowNear: number;
   /** Task 43: … and at most (walks up farther; journals without the key: 7). */
   crossbowFar: number;
+  /**
+   * Task 43 «Кастелян полный» (enemies/garrison.ts, sim/arenasGarrison.ts): «Двор кастеляна» plays the full Castellan — the yard and
+   * the gallery split by a moat, the grate (the core refused while down; a chain ending on a lever raises it for 5 s), his crossbow
+   * on a stand, three phases. Off by default and in journals without the key: the Castellan v0. The run: on (`RT_RUN_FORCED`); the
+   * sandbox — its own arena «Двор кастеляна (полный)».
+   */
+  castellanFull: boolean;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -1370,6 +1377,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   crossbowDamage: 2,
   crossbowNear: 5,
   crossbowFar: 7,
+  // Task 43 «Кастелян полный»: off by default (v0); the run turns it on, the sandbox has its own arena.
+  castellanFull: false,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -1822,9 +1831,12 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   // Task 43 «Арбалетчик» (enemies/crossbow.ts).
   n('crossbowWindup', 'Гарнизон', 'Арбалет: замах', 0.2, 3, 0.1, 5, 'с', 'Линия фиксируется в начале замаха: от арбалета через героя до стены. Болт бьёт первое тело на линии.'),
   n('crossbowReload', 'Гарнизон', 'Арбалет: перезарядка', 0, 10, 0.5, 5, 'с'),
-  n('crossbowDamage', 'Гарнизон', 'Арбалет: урон героя', 0, 5, 1, 5, '', 'Врага болт убивает (элита теряет пластину); такие убийства игроку не засчитываются, в цель «убей N» — засчитываются.'),
+  n('crossbowDamage', 'Гарнизон', 'Арбалет: урон героя', 0, 5, 1, 5, '', 'Врага болт убивает (элита теряет пластину); такие убийства не засчитываются ни игроку, ни в цель «убей N»; отмеченная цель — засчитывается.'),
   n('crossbowNear', 'Гарнизон', 'Арбалетчик: ближе не подходит', 1, 10, 0.5, 5, 'ед.'),
   n('crossbowFar', 'Гарнизон', 'Арбалетчик: дальше не отходит', 1, 12, 0.5, 5, 'ед.'),
+  // Task 43 «Кастелян полный» (enemies/garrison.ts; the arena's template when the fight starts).
+  { kind: 'bool', key: 'castellanFull', group: 'Гарнизон', label: 'Кастелян полный', stage: 5,
+    hint: '«Двор кастеляна» играется полным: ров, решётка и три рычага, арбалет на станке, три фазы. Действует со следующего запуска арены. «Двор кастеляна (полный)» включает его сам; в походе включено.' },
 ];
 
 const MAX_PHASES = 8;

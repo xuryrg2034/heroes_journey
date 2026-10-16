@@ -939,7 +939,22 @@ export interface FeatSummary { kind: string; n: number; done: boolean; at: numbe
  * `severedAt` the game second its weight was severed (null — not severed), `moves` the moves it began by id (`bossMove` `start`:
  * `flail`, `throw`, `whistle`).
  */
-export interface BossSummary { diedAt: number | null; severedAt: number | null; moves: Record<string, number> }
+export interface BossSummary {
+  diedAt: number | null; severedAt: number | null; moves: Record<string, number>;
+  /** Task 43 (from 16.10.2026): the full Castellan's fight only (`castellan` — absent for the Jailer and older records). */
+  castellan?: CastellanBossSummary;
+}
+/**
+ * Task 43 «Кастелян полный» (observe.ts): the grate — raised by a lever (`raises`), seconds it stood open (any cause), the lever's
+ * windows with a hit on the core (a chain hit or a kill of it) and without; his parts in the order they were lost with the game
+ * second (`kind`: `hound`, `castellan-crossbow`); «Болт» — shots, hits on the hero, enemies struck; the phase reached.
+ */
+export interface CastellanBossSummary {
+  raises: number; openSeconds: number; windowsHit: number; windowsMissed: number;
+  parts: { kind: string; at: number }[];
+  bolts: { shots: number; hero: number; enemies: number };
+  phase: number;
+}
 
 /** Task 25: a protection of the hero — the after-chain shield (`chainShield`), «Щит фокуса» (`focusGuarded`), invulnerability. */
 export type DeathGuard = 'chain' | 'focus' | 'invuln';

@@ -167,6 +167,8 @@ export function leverOf(world: World): ArenaObject | null {
 
 /** The lever `o` may be the last link now: its goblin stands, its marker and cooldown are over, pulls are left. */
 export function leverReady(world: World, o: ArenaObject): boolean {
+  // Task 43: a lever of the full Castellan's grate — ready once its cooldown is over (enemies/garrison.ts `gateLeverReady`).
+  if (o.gate) return world.status === 'playing' && world.time + EPS >= (o.ready ?? 0);
   const g = goblinOf(world), p = world.params;
   // Not while the reels spin (a short panel cooldown must not let a pull drop the previous pull's effect).
   return !!p.slot && !!g && g.id === o.id && !g.spin && g.pulls < num(p, 'slotPulls') && world.time + EPS >= g.ready;

@@ -18,7 +18,7 @@
  */
 import { registeredEnemyKinds } from './enemies/kinds';
 import { FLAIL_RADIUS, JAILER, JAILER_HP, JAILER_MOVES, JAILER_WEIGHT, JAILER_WINDUP, THROW_RADIUS, WEIGHT_HP } from './enemies/jailer';
-import { CASTELLAN, LUNGE_WIDTH, LUNGE_WINDUP } from './enemies/garrison';
+import { CASTELLAN, LUNGE_WIDTH, LUNGE_WINDUP, PAIR_GAP, PHASE3_WINDUP, STAND } from './enemies/garrison';
 import { BOLT_HALF } from './enemies/crossbow';
 import { registerArena } from './arenas';
 import { defaultParams, heroRadius, type Params } from './params';
@@ -67,6 +67,9 @@ const THREATS: readonly Threat[] = [
   // Task 38 (the Castellan v0, design 2.4): «Спустить пса» — a lane of 4 × 0.8 from the hound; the worst point is the lane's axis,
   // the way out sideways (half its width + the hero's body). The shorter windup 0.8 s (the first of a fight is 1.2).
   { id: 'castellan-lunge', source: CASTELLAN, title: 'Кастелян: спустить пса', window: () => LUNGE_WINDUP, exit: p => LUNGE_WIDTH / 2 + heroRadius(p) },
+  // Task 43 (the full Castellan): «Болт» from the stand — the law of the crossbow; the shortest windup: the pair's second bolt
+  // (`PAIR_GAP` 0.6 s, phase 2 and 3) or phase 3's windup ×0.8.
+  { id: 'castellan-bolt', source: STAND, title: 'Кастелян: болт со станка', window: p => Math.min(PAIR_GAP, p.crossbowWindup * PHASE3_WINDUP), exit: p => BOLT_HALF + heroRadius(p) },
 ];
 
 /** Task 27: the Jailer's moves without a hit on the hero, and why. */

@@ -46,6 +46,8 @@ import { oathButton, oathCrystal, oathDashEnd, oathJump, oathLink, oathRelease }
 import { bagKill } from './bag';
 // Task 38 «Гарнизон»: the law of tethers — the plan lists the tethers the dash cuts, the release fixes them, the dash's end cuts them.
 import { cutTethers, dashPathPoints, dropShackleOf, planTetherCuts, settleTethers, shackled, tethersOn } from './tethers';
+// Task 43: the full Castellan's grate (the refusal) and its levers.
+import { behindGrate, gateLever } from './enemies/garrison';
 import { NO_COLOR, OBJECT_RADIUS, checkGoals, damageEnemy, doorOf, doorOpen, enemyFrozen, findObject, nextFiring, startShieldWindow, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
 
 export { OBJECT_RADIUS };
@@ -844,7 +846,7 @@ export function inChain(world: World, enemy: Enemy): number {
  * Why a target cannot be the next link (stage G): the checks of `canLink` / `canLinkObject` in their order, and the
  * text the pointer hint shows. One function decides both, so the hint never disagrees with the chain.
  */
-export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'unlit' | 'color' | 'far' | 'sight' | 'guarded' | 'crossed' | 'sealed' | 'lever' | 'shackled' | 'handFull';
+export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'unlit' | 'color' | 'far' | 'sight' | 'guarded' | 'crossed' | 'sealed' | 'lever' | 'shackled' | 'handFull' | 'grate';
 export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   move: 'идёт проход',
   colorless: 'не берётся цепью',
@@ -869,6 +871,8 @@ export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   shackled: 'в кандалах',
   // Task 41 «Три зелья» (`Params.potionCap`): a healing loot while the hand is full.
   handFull: 'рука полна',
+  // Task 43 «Кастелян полный»: the core behind the grate (enemies/garrison.ts `behindGrate`) — a lever's chain raises it.
+  grate: 'за решёткой',
 };
 
 /**
@@ -926,6 +930,8 @@ export function enemyRefusal(world: World, enemy: Enemy, plan: ChainPlan = planC
   if (enemy.color === NO_COLOR || !kindOf(enemy).chainable) return 'colorless';
   // Task 40: the keymaster's prisoner (only while a shackle holds it: nothing in worlds without one).
   if (world.tethers && shackled(world, enemy)) return 'shackled';
+  // Task 43: the full Castellan's core behind its grate.
+  if (behindGrate(world, enemy)) return 'grate';
   if (inChain(world, enemy) >= 0) return 'inChain';
   if (loopClosed(world)) return 'sealed';
   if (plan.endsOnSurvivor) return 'afterSurvivor';
@@ -1589,6 +1595,9 @@ function reachObject(world: World, object: ArenaObject): void {
     if (world.oath) oathButton(world);
     world.events.push({ type: 'button', objectId: object.id });
     checkGoals(world);
+  } else if (object.kind === 'lever' && object.gate) {
+    // Task 43: a lever of the full Castellan's grate — it rises after the dash.
+    gateLever(world, object);
   } else if (object.kind === 'lever') {
     // Casino stage 1 («Однорукий гоблин»): the pull — the enemy links this dash really struck (kills and plate hits) count.
     pullLever(world, object, move.hits);

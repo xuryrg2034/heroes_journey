@@ -8,7 +8,7 @@
  * `world.input`), enemies follow the flow field around obstacles.
  */
 import { dcos, dhypot, dsin } from './detMath';
-import { type ArenaTemplate, type StartEnemy, LEADER_HP_OVER_TOUGH, markedCount, markedGoalArena } from './arenas';
+import { type ArenaTemplate, type StartEnemy, arenaTemplate, LEADER_HP_OVER_TOUGH, markedCount, markedGoalArena } from './arenas';
 // The prototype kinds register on import (enemies/index.ts); the core reads them through the registry only.
 import './enemies/index';
 // Phase B: the build modules (talismans Т1, hammers Т2, relics Т3) register on import; the core reads them through build.ts.
@@ -167,6 +167,9 @@ export interface ArenaObject {
   loot?: ItemKind | ResourceKind;
   /** Brazier (stage 3a, М4): game seconds left until it burns again; absent — it burns (a chain may take it). */
   out?: number;
+  /** Task 43: a lever of the full Castellan's grate (absent — the goblin's lever); `ready` — the game time it is ready again (absent — ready). */
+  gate?: true;
+  ready?: number;
   // Casino stage 1: `lever` — the lever of «Однорукий гоблин» (slot.ts): any colour, the last link, as a button; its state
   // (marker, cooldown, pulls) lives in `World.slot`. К7: `chest` — the cursed chest (chest.ts): a pass-through link as the
   // loot, taken by a chain or a touch; its curse lives in `World.curse`.
@@ -520,7 +523,13 @@ export type WorldEvent =
   /** Task 38 (enemies/garrison.ts): a loosed hound's frenzy began (`start`) or ended (`end`); it bit an enemy (`bite`). */
   | { type: 'frenzy'; action: 'start' | 'end' | 'bite'; id: number; target?: number; x: number; y: number; /** Task 41: a prisoner's riot (absent — a hound's frenzy). */ riot?: true }
   /** Task 38 (enemies/garrison.ts): the Castellan's move — «Спустить пса» (`lunge`: windup `start`, `hit`) or «Караул!» (`guard`). */
-  | { type: 'castellanMove'; id: number; move: 'lunge' | 'guard'; stage: 'start' | 'hit' };
+  | { type: 'castellanMove'; id: number; move: 'lunge' | 'guard'; stage: 'start' | 'hit' }
+  /**
+   * Task 43 (the full Castellan, enemies/garrison.ts): `lever` — a chain ended on a lever of the grate (`objectId`); `up` / `down` —
+   * the grate rose or fell; `keys` — the despair (his crossbow cut: the grate stuck open 3 s of every 10); `jam` — phase 3 (open
+   * for good). `id` — the core. The rules never read it.
+   */
+  | { type: 'grate'; action: 'lever' | 'up' | 'down' | 'keys' | 'jam'; id: number; objectId?: number; x: number; y: number };
 
 export interface World {
   arena: ArenaTemplate;
@@ -727,6 +736,8 @@ export interface HeroStart { hp: number; maxHp: number }
  * HP and maximum (a run arena; the HP is kept within 1…maximum); absent — the panel's `heroHp`, full.
  */
 export function createWorld(template: ArenaTemplate, params: Params, seed = 1, start?: HeroStart, loadout?: Loadout): World {
+  // Task 43: «Двор кастеляна» with `Params.castellanFull` plays the full Castellan's arena under its own id (journals without the key — v0).
+  if (template.castellanFullArena && params.castellanFull) template = { ...arenaTemplate(template.castellanFullArena), id: template.id, name: template.name };
   // Task 12: with `markedGoals` on, a template's goal layout (its enemies, summary and horde) — the world plays it throughout.
   const marked = markedGoalArena(template, params.markedGoals);
   // Task 40: a deep fight (`Loadout.deep`) stands the template's deep enemies too, after its own (absent — the template as it is).
@@ -742,6 +753,8 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   if (arena.garrison && (!params.tethers || !params.guardFormation)) params = { ...copyParams(params), tethers: true, guardFormation: true };
   // Task 40: «Ров» plays the keymaster's shackles (the given object stays as it is; a journal keeps the copy).
   if (arena.shackles && !params.shackles) params = { ...copyParams(params), shackles: true };
+  // Task 43: the full Castellan's arena plays its key on (the sandbox «Двор кастеляна (полный)»; a journal keeps the copy).
+  if (arena.castellanFull && !params.castellanFull) params = { ...copyParams(params), castellanFull: true };
   const maxHp = start ? Math.max(1, Math.floor(start.maxHp)) : params.heroHp;
   const hp = start ? Math.max(1, Math.min(maxHp, Math.floor(start.hp))) : params.heroHp;
   // Stage 2, step 3 («Песочные часы»): the phase table starts later — the delay is the talisman's, read once at the start.
@@ -752,6 +765,8 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
     { id: nextId++, kind: 'door', x: arena.door.x, y: arena.door.y, pressed: false },
     // Stage 3a (М4): braziers of the template (after the door: arenas without them keep their ids).
     ...(arena.braziers ?? []).map(b => ({ id: nextId++, kind: 'brazier' as const, x: b.x, y: b.y, pressed: false })),
+    // Task 43: the levers of the full Castellan's grate (after the braziers: arenas without them keep their ids).
+    ...(arena.gateLevers ?? []).map(l => ({ id: nextId++, kind: 'lever' as const, x: l.x, y: l.y, pressed: false, gate: true as const })),
   ];
   const world: World = {
     arena,

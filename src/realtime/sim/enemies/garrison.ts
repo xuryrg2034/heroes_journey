@@ -40,11 +40,12 @@
  */
 import { dhypot } from '../detMath';
 import { dropArmorLoot } from '../elites';
-import { dist, lineOfSight, pushOutOfCliffs, pushOutOfObstacles, type Vec } from '../geometry';
+import { cliffAt, dist, lineOfSight, pushOutOfCliffs, pushOutOfObstacles, type Vec } from '../geometry';
 import { heroRadius } from '../params';
 import { palette, spawnEnemy } from '../spawn';
 import { addTether, dropTethers, tetherOf, tethersHeldBy, tethersOn } from '../tethers';
-import { canBeHurt, damageEnemy, enemyFrozen, enemyGroundFactor, enemySpeed, hurtHero, noteBlock, touchDistanceOf, type Enemy, type World } from '../world';
+import { crossbowTick, crossbowWindupOf } from './crossbow';
+import { canBeHurt, damageEnemy, enemyFrozen, enemyGroundFactor, enemySpeed, hurtHero, noteBlock, touchDistanceOf, type ArenaObject, type Enemy, type World } from '../world';
 import { bossClear, bossClearsOn } from './jailer';
 import { bodyRadiusOf, kindOf, registerBehavior, registerEnemyKind } from './kinds';
 
@@ -221,7 +222,8 @@ export const houndFrenzied = (e: Enemy): boolean => e.kind === HOUND && (e.vars.
 /** A body the frenzied hound `e` goes for: not itself, not an immune kind (the reaper), not its own boss's body. */
 function preyOf(e: Enemy, other: Enemy): boolean {
   if (other === e || kindOf(other).immune) return false;
-  if (e.partOf !== undefined && (other.id === e.partOf || other.partOf === e.partOf)) return false;
+  // Task 43: a frenzied hound of the Castellan bites his crossbow on the stand (a part — a body); never the core, never a hound.
+  if (e.partOf !== undefined && (other.id === e.partOf || (other.partOf === e.partOf && other.kind !== STAND))) return false;
   return true;
 }
 
@@ -391,10 +393,26 @@ function settle(world: World, core: Enemy): void {
       world.events.push({ type: 'bossPlate', id: core.id, plates: a.plates });
     }
   }
-  if (v.phase !== 2 && ((v.lost ?? 0) > 0 || world.time - (v.born ?? 0) >= CASTELLAN_PHASE2_TIME - TIME_EPS)) {
+  // Task 43: the crossbow cut — the despair (keys thrown: the grate stuck open 3 s of every 10) and a part lost.
+  if (v.dsp) {
+    delete v.dsp;
+    v.lost = (v.lost ?? 0) + 1;
+    v.dp = world.time;
+    world.events.push({ type: 'grate', action: 'keys', id: core.id, x: core.x, y: core.y });
+  }
+  // Task 43, the full Castellan: phase 3 — the core has `PHASE3_PLATES` plates or `PHASE3_TIME` s went (phases add up: one that
+  // reaches 3 from 1 — two windows before any part is lost — passes through 2 first).
+  const third = fullOn(world) && (v.phase ?? 1) < 3 && ((core.armor?.plates ?? 0) <= PHASE3_PLATES || world.time - (v.born ?? 0) >= PHASE3_TIME - TIME_EPS);
+  if ((v.phase ?? 1) < 2 && (third || (v.lost ?? 0) > 0 || world.time - (v.born ?? 0) >= CASTELLAN_PHASE2_TIME - TIME_EPS)) {
     v.phase = 2;
     v.wt = 0;
     world.events.push({ type: 'bossPhase', id: core.id, phase: 2 });
+  }
+  // The grate jammed open.
+  if (third) {
+    v.phase = 3;
+    world.events.push({ type: 'bossPhase', id: core.id, phase: 3 });
+    world.events.push({ type: 'grate', action: 'jam', id: core.id, x: core.x, y: core.y });
   }
 }
 
@@ -408,7 +426,7 @@ function callGuards(world: World, core: Enemy, gate: Vec): void {
     const off = (k - (GUARD_FORMATION - 1) / 2) * GUARD_STEP;
     world.markers.push({ id: world.nextId++, kind: GUARD, x: gate.x + px * off, y: gate.y + py * off, color, hp: 0, timeLeft: delay, total: delay, plain: true, formation });
   }
-  core.vars.wt = GUARD_CALL_PERIOD;
+  core.vars.wt = fullOn(world) ? FULL_GUARD_PERIOD : GUARD_CALL_PERIOD;
   world.events.push({ type: 'castellanMove', id: core.id, move: 'guard', stage: 'hit' });
 }
 
@@ -421,7 +439,7 @@ function lungeHound(world: World, core: Enemy): Enemy | undefined {
 function endLunge(world: World, core: Enemy): void {
   const v = core.vars, hound = v.mh !== undefined ? enemyById(world, v.mh) : undefined;
   if (hound) delete hound.vars.mv;
-  delete v.mv; delete v.mh; delete v.t; delete v.w; delete v.ax; delete v.ay; delete v.bx; delete v.by;
+  delete v.mv; delete v.mh; delete v.t; delete v.w; delete v.ax; delete v.ay; delete v.bx; delete v.by; delete v.lx; delete v.ly;
   v.cd = CASTELLAN_MOVE_GAP;
 }
 
@@ -432,7 +450,8 @@ function lungeHit(world: World, core: Enemy, hound: Enemy): void {
     if (canBeHurt(world)) hurtHero(world, hound, LUNGE_DAMAGE, 'lunge');
     else noteBlock(world, hound.x, hound.y, 'lunge', hound.id);
   }
-  hound.x = to.x; hound.y = to.y;
+  // Task 43: the full Castellan's hound does not cross the moat — it lands at its near edge (`lx`, `ly`).
+  hound.x = v.lx ?? to.x; hound.y = v.ly ?? to.y;
   pushOutOfObstacles(hound, bodyRadiusOf(world.params, hound), world.arena);
   world.events.push({ type: 'castellanMove', id: core.id, move: 'lunge', stage: 'hit' });
 }
@@ -449,10 +468,17 @@ function conduct(world: World, core: Enemy, dt: number): void {
       hound.partOf = core.id; hound.vars.ow = core.id;
       addTether(world, core, hound);
     }
+    // Task 43, the full Castellan: his crossbow on its stand is a part (its plate; it shoots by the law of the crossbow).
+    if (fullOn(world)) for (const stand of world.enemies.filter(e => e.kind === STAND && e.partOf === undefined)) {
+      stand.partOf = core.id;
+      stand.armor = { plates: STAND_PLATES, max: STAND_PLATES, boss: true };
+    }
   }
   if (!world.move) settle(world, core);
+  // Task 43: the grate — a lever's pull raises it after the dash; its opening and closing are events (only the full Castellan).
+  if (fullOn(world)) grateStep(world, core);
   if (world.status !== 'playing' || enemyFrozen(core)) return;
-  if (v.phase === 2 && (v.wt ?? 0) > 0) v.wt = Math.max(0, v.wt - dt);
+  if ((v.phase ?? 1) >= 2 && (v.wt ?? 0) > 0) v.wt = Math.max(0, v.wt - dt);
   if (v.mv) {
     const hound = lungeHound(world, core);
     // The hound died or its leash was cut: the lunge winding up is dropped.
@@ -465,10 +491,10 @@ function conduct(world: World, core: Enemy, dt: number): void {
   }
   v.cd = Math.max(0, (v.cd ?? 0) - dt);
   if (v.cd > TIME_EPS) return;
-  if (v.phase === 2 && (v.wt ?? 0) <= TIME_EPS) {
+  if ((v.phase ?? 1) >= 2 && (v.wt ?? 0) <= TIME_EPS) {
     const gate = farGate(world);
     if (gate) { callGuards(world, core, gate); v.cd = CASTELLAN_MOVE_GAP; return; }
-    v.wt = GUARD_CALL_PERIOD;
+    v.wt = fullOn(world) ? FULL_GUARD_PERIOD : GUARD_CALL_PERIOD;
   }
   // The hounds on its leashes take turns (`vars.nh` — the turn); one within reach of the hero starts the lunge.
   const leashed = houndsOf(world, core).filter(h => tetherOf(world, h.id)?.holder === core.id && !enemyFrozen(h));
@@ -480,10 +506,12 @@ function conduct(world: World, core: Enemy, dt: number): void {
     if (d > LUNGE_REACH + heroRadius(world.params) || d < 1e-6) continue;
     const first = !v.ul;
     v.ul = 1; v.nh = (turn + k + 1) % leashed.length;
-    const windup = LUNGE_WINDUP * (first ? FIRST_WINDUP_FACTOR : 1);
+    // Task 43: the full Castellan's phase 3 — the parts wind up faster.
+    const windup = LUNGE_WINDUP * (first ? FIRST_WINDUP_FACTOR : 1) * (fullOn(world) && v.phase === 3 ? PHASE3_WINDUP : 1);
     v.mv = 1; v.mh = hound.id; v.t = windup; v.w = windup;
     v.ax = hound.x; v.ay = hound.y;
     v.bx = hound.x + (hero.x - hound.x) / d * LUNGE_LENGTH; v.by = hound.y + (hero.y - hound.y) / d * LUNGE_LENGTH;
+    if (fullOn(world)) clipLaneAtMoat(world, core, hound);
     hound.vars.mv = 1;
     world.events.push({ type: 'castellanMove', id: core.id, move: 'lunge', stage: 'start' });
     return;
@@ -612,4 +640,132 @@ registerBehavior({
 registerEnemyKind({
   id: KEYMASTER, behavior: KEYMASTER, speedClass: 'slow', hp: () => KEYMASTER_HP, speed: world => world.pressure.enemySpeed * world.params.speedSlow,
   bodyScale: 1, artScale: 1, touchDamage: world => world.params.contactDamage, mass: () => 1, spread: true, chainable: true, hitSource: KEYMASTER,
+});
+
+// ---------- Кастелян полный (task 43 «Гарнизон, шаг 2», part Б) ----------
+//
+// Design 16.10.2026 (docs/design-notes/task-43-garrison-step2.md, 4). Only on an arena with `castellanFull` (the template of the
+// full Castellan: the run's «Двор кастеляна» with `Params.castellanFull`, the sandbox «Двор кастеляна (полный)»); every other
+// Castellan is v0. The yard and the gallery split by a moat (a cliff, no walkway); the core, his hounds and his crossbow stand on
+// the gallery; three levers (objects `lever` with `gate`) and the guards' gates in the yard.
+// - **The grate.** While down the core is refused (`grate`, «за решёткой»). A chain that ENDS on a lever (`gateLever`) raises it
+//   after the dash for `GRATE_OPEN` s (`vars.go` — open until); the lever is ready again `LEVER_COOLDOWN` s later (`lever`).
+// - **The crossbow on the stand** (`castellan-crossbow`, a part: HP 4, a plate) — «Болт» by the law of the crossbow (source
+//   `castellan-bolt`); in phase 2 and 3 two bolts `PAIR_GAP` s apart. Cut: «Болт» gone, the despair — the grate stuck open
+//   `DESPAIR_OPEN` s of every `DESPAIR_PERIOD` s (`vars.dp`).
+// - **Phases.** 1 — the hounds and «Болт»; 2 — the first part lost or 35 s: «Караул!» every `FULL_GUARD_PERIOD` s, the pair of
+//   bolts; 3 — the core has `PHASE3_PLATES` plates or `PHASE3_TIME` s: the grate jammed open, the parts wind up ×`PHASE3_WINDUP`.
+// - «Спустить пса»: the lane stops at the moat — its strike reaches the hero at the moat's far edge, the hound lands at the near one.
+
+export const STAND = 'castellan-crossbow';
+/** The bolt of the Castellan's crossbow (the run-end line «болт Кастеляна»). */
+export const STAND_BOLT = 'castellan-bolt';
+// Баланс (гипотезы спеки задачи 43, 16.10.2026; the tests check the rules).
+export const GRATE_OPEN = 5;
+export const LEVER_COOLDOWN = 10;
+export const DESPAIR_OPEN = 3;
+export const DESPAIR_PERIOD = 10;
+export const FULL_GUARD_PERIOD = 15;
+export const PHASE3_PLATES = 2;
+export const PHASE3_TIME = 80;
+export const PHASE3_WINDUP = 0.8;
+export const PAIR_GAP = 0.6;
+export const STAND_HP = 4;
+export const STAND_PLATES = 1;
+/** The march along a lunge's lane that finds the moat (units). */
+const LANE_STEP = 0.05;
+
+/** The full Castellan plays on this arena (its template's flag; `Params.castellanFull` chooses the template in the run). */
+export const fullOn = (world: World): boolean => !!world.arena.castellanFull;
+const coreOf = (world: World): Enemy | undefined => world.enemies.find(e => e.kind === CASTELLAN);
+
+/** The grate is up now: jammed in phase 3, a lever's window, or the despair's 3 s of every 10. */
+export function grateOpen(world: World, core: Enemy): boolean {
+  const v = core.vars;
+  if (v.phase === 3) return true;
+  if (v.go !== undefined && world.time < v.go - TIME_EPS) return true;
+  return v.dp !== undefined && (world.time - v.dp) % DESPAIR_PERIOD < DESPAIR_OPEN - TIME_EPS;
+}
+/** The core is behind the grate now (the refusal `grate`): only the full Castellan. */
+export const behindGrate = (world: World, e: Enemy): boolean => e.kind === CASTELLAN && fullOn(world) && !grateOpen(world, e);
+
+/**
+ * For the view (read only): the grate of the full Castellan — `open`; `left` — seconds of the lever's window left (0 — none);
+ * `jammed` — phase 3 (open for good); `despair` — the keys thrown (open 3 s of every 10); `x`, `y` — the core. Null — no full Castellan.
+ */
+export function castellanGrate(world: World): { open: boolean; left: number; jammed: boolean; despair: boolean; x: number; y: number; phase: number } | null {
+  const core = coreOf(world);
+  if (!core || !fullOn(world)) return null;
+  const v = core.vars;
+  return { open: grateOpen(world, core), left: Math.max(0, (v.go ?? 0) - world.time), jammed: v.phase === 3, despair: v.dp !== undefined, x: core.x, y: core.y, phase: v.phase ?? 1 };
+}
+/** A lever of the grate is ready now (its cooldown is over), and the seconds left of the cooldown. */
+export const gateLeverReady = (world: World, o: ArenaObject): boolean => world.status === 'playing' && world.time + TIME_EPS >= (o.ready ?? 0);
+export const gateLeverLeft = (world: World, o: ArenaObject): number => Math.max(0, (o.ready ?? 0) - world.time);
+
+/** A chain ended on a lever of the grate (chain.ts `reachObject`): its cooldown starts; the grate rises after the dash. */
+export function gateLever(world: World, o: ArenaObject): void {
+  o.ready = world.time + LEVER_COOLDOWN;
+  const core = coreOf(world);
+  if (core) core.vars.gu = 1;
+  world.events.push({ type: 'grate', action: 'lever', id: core?.id ?? 0, objectId: o.id, x: o.x, y: o.y });
+}
+
+/** The grate's step (the core's group step): a pull raises it once no dash runs; up and down are events. */
+function grateStep(world: World, core: Enemy): void {
+  const v = core.vars;
+  if (v.gu && !world.move) {
+    delete v.gu;
+    v.go = Math.max(v.go ?? 0, world.time + GRATE_OPEN);
+  }
+  const open = grateOpen(world, core);
+  if (open !== !!v.gs) {
+    if (open) v.gs = 1; else delete v.gs;
+    world.events.push({ type: 'grate', action: open ? 'up' : 'down', id: core.id, x: core.x, y: core.y });
+  }
+}
+
+/** The lane of the lunge stops at the moat: the strike reaches its far edge, the hound lands at its near edge (`lx`, `ly`). */
+function clipLaneAtMoat(world: World, core: Enemy, hound: Enemy): void {
+  const v = core.vars, dx = v.bx - v.ax, dy = v.by - v.ay, len = dhypot(dx, dy) || 1, ux = dx / len, uy = dy / len;
+  let inside = false;
+  for (let t = LANE_STEP; t <= len + 1e-9; t += LANE_STEP) {
+    const p = { x: v.ax + ux * t, y: v.ay + uy * t }, cliff = cliffAt(p, 0.01, world.arena);
+    if (cliff && !inside) {
+      inside = true;
+      const back = Math.max(0, t - LANE_STEP - bodyRadiusOf(world.params, hound));
+      v.lx = v.ax + ux * back; v.ly = v.ay + uy * back;
+    } else if (!cliff && inside) { v.bx = p.x; v.by = p.y; return; }
+  }
+}
+
+registerBehavior({
+  id: STAND,
+  step(world, e, dt) {
+    // The stand never moves (no walk, no knockback); it shoots while its Castellan stands.
+    e.knock = 0;
+    const core = e.partOf !== undefined ? enemyById(world, e.partOf) : undefined;
+    if (!fullOn(world) || !core) return true;
+    const v = e.vars, phase = core.vars.phase ?? 1, aiming = v.cb === 1;
+    const windup = v.cp === 1 ? PAIR_GAP : crossbowWindupOf(world) * (phase === 3 ? PHASE3_WINDUP : 1);
+    const spared = (other: Enemy): boolean => other.id === core.id || other.partOf === core.id;
+    crossbowTick(world, e, dt, true, windup, STAND_BOLT, spared);
+    // A shot just flew: in phase 2 and 3 the second bolt of the pair follows `PAIR_GAP` s later (no reload between).
+    if (aiming && v.cb === 0) {
+      if (phase >= 2 && v.cp !== 1) { v.cp = 1; v.ct = 0; } else delete v.cp;
+    }
+    return true;
+  },
+  onDeath(world, e) {
+    // Cut (or killed): «Болт» is gone; after the dash the Castellan despairs (`settle`).
+    const core = e.partOf !== undefined ? enemyById(world, e.partOf) : undefined;
+    if (!core || !fullOn(world)) return;
+    core.vars.dsp = 1;
+    world.events.push({ type: 'partSevered', id: e.id, x: e.x, y: e.y });
+  },
+});
+
+registerEnemyKind({
+  id: STAND, behavior: STAND, speedClass: 'slow', hp: () => STAND_HP, speed: () => 0,
+  bodyScale: 1.1, artScale: 1.1, touchDamage: world => world.params.contactDamage, mass: () => 100, spread: false, chainable: true, hitSource: STAND,
 });

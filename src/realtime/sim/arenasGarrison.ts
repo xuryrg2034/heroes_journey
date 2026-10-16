@@ -10,7 +10,7 @@
  */
 import { registerArena, type ArenaTemplate, type Pace } from './arenas';
 import { polygon, tree, wall, zone } from './geometry';
-import { CASTELLAN, GUARD, GUARD_FORMATION, HANDLER, HOUND, KEYMASTER } from './enemies/garrison';
+import { CASTELLAN, GUARD, GUARD_FORMATION, HANDLER, HOUND, KEYMASTER, STAND, STAND_HP } from './enemies/garrison';
 
 /** No wolf packs and no boars (as the arenas of one kind). */
 const NO_PACKS: Partial<Pace> = { wolfShare: 0, boarShare: 0 };
@@ -143,6 +143,8 @@ export const CASTELLAN_ARENA: ArenaTemplate = registerArena({
   jailerColorless: true,
   gates: [{ x: 1.2, y: 8 }, { x: 18.8, y: 8 }],
   garrison: true,
+  // Task 43: with `Params.castellanFull` (the run) this arena plays the full Castellan's layout under its own id.
+  castellanFullArena: 'g-castellan-full',
 });
 
 /**
@@ -181,5 +183,41 @@ export const MOAT_ARENA: ArenaTemplate = registerArena({
   shackles: true,
 });
 
-/** The garrison's arenas on the sandbox menu (after the boss arena; task 40 «Ров» at the end: the menu numbers stay). */
-export const GARRISON_ARENAS: readonly ArenaTemplate[] = [YARD_ARENA, KENNEL_ARENA, GALLERY_ARENA, GUARDROOM_ARENA, CASTELLAN_ARENA, MOAT_ARENA];
+/**
+ * Task 43 «Кастелян полный» (design 16.10.2026, docs/design-notes/task-43-garrison-step2.md, 4): «Двор кастеляна» of the full
+ * Castellan — the yard (the hero, three levers of the grate at its sides, the guards' gates) and the gallery (the core behind its
+ * grate, his two hounds on leashes, his crossbow on a stand) split by a moat (a cliff across the whole arena, no walkway: only the
+ * chain bridges it). The run's «Двор кастеляна» plays it with `Params.castellanFull` (`castellanFullArena`); the sandbox — this
+ * arena, «Двор кастеляна (полный)», which turns the key on itself. Parts: hound A (colour 0, HP 3), hound B (colour 1, HP 3), the
+ * crossbow (colour 2, HP 4, a plate), the core (colourless, HP 4, 4 plates; marked — the goal).
+ */
+export const CASTELLAN_FULL_ARENA: ArenaTemplate = registerArena({
+  id: 'g-castellan-full',
+  name: 'Двор кастеляна (полный)',
+  summary: 'Босс за рвом: решётка закрывает Кастеляна. Цепь, которая кончается на рычаге, поднимает решётку на 5 с — тогда цепь через ров бьёт ядро. Псы на поводках и арбалет на станке — его части. Убей Кастеляна — бой кончится.',
+  goal: 'marked',
+  width: 20,
+  height: 14,
+  heroStart: { x: 10, y: 10.5 },
+  obstacles: [tree(4.5, 9.2), tree(15.5, 9.2)],
+  terrain: [zone('cliff', polygon(0, 4.3, 5, 4.25, 10, 4.3, 15, 4.25, 20, 4.3, 20, 5.3, 15, 5.35, 10, 5.3, 5, 5.35, 0, 5.3))],
+  buttons: [],
+  door: { x: 17.2, y: 13 },
+  enemies: [
+    { x: 10, y: 3.6, color: 0, kind: CASTELLAN, marked: true },
+    { x: 8.4, y: 3.2, color: 0, kind: HOUND, hp: 3 },
+    { x: 11.6, y: 3.2, color: 1, kind: HOUND, hp: 3 },
+    { x: 14.5, y: 2.4, color: 2, kind: STAND, hp: STAND_HP },
+  ],
+  phaseOverride: NO_PACKS,
+  bossFrame: true,
+  bossClears: true,
+  jailerColorless: true,
+  gates: [{ x: 1.2, y: 11 }, { x: 18.8, y: 11 }],
+  gateLevers: [{ x: 2.4, y: 7.2 }, { x: 17.6, y: 7.2 }, { x: 10, y: 12.8 }],
+  garrison: true,
+  castellanFull: true,
+});
+
+/** The garrison's arenas on the sandbox menu (after the boss arena; task 40 «Ров», task 43 «Двор кастеляна (полный)» at the end: the menu numbers stay). */
+export const GARRISON_ARENAS: readonly ArenaTemplate[] = [YARD_ARENA, KENNEL_ARENA, GALLERY_ARENA, GUARDROOM_ARENA, CASTELLAN_ARENA, MOAT_ARENA, CASTELLAN_FULL_ARENA];
