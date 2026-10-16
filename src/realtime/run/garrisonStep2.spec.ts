@@ -237,6 +237,7 @@ check('the node card (`rtNodeEnemies`): before entering, an available garrison n
         assert(card.arena === pending.arena && JSON.stringify(card.start) === JSON.stringify([...counts].map(([kind, count]) => ({ kind, count }))), `${pending.nodeId}: card ${JSON.stringify(card)} vs world ${JSON.stringify([...counts])}`);
         assert((card.start.some(entry => entry.kind === KNIGHT)) === world.enemies.some(e => e.kind === KNIGHT), `${pending.nodeId}: a knight on the card iff in the fight`);
         assert(card.knights === (loadout.knights ?? 0) && card.bolts === (loadout.bolts === true) && card.deep === (loadout.deep === true), `${pending.nodeId}: the card's additions are the fight's`);
+        assert(!(card.deep && (card.knights || card.start.some(entry => entry.kind === KNIGHT))), `${pending.nodeId}: a deep fight starts without a knight`);
         compared++;
         if (card.knights) knightCards++;
         if (card.bolts) boltCards++;
