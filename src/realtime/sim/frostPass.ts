@@ -1,14 +1,14 @@
 /**
  * Task 29 («Формы в песочнице», design 15.10.2026; the report «Талисманы меняющие стиль игры», concept 4): «Наледь»
- * (`frost-pass`, buildIds.ts `FROST_PASS`) — a form of the field «Путь», a sandbox talisman (`Kit.talismans`), not in the
- * run's catalogue. A copy of the hammer «Огненный проход» (sim/hammers.ts) with cold instead of a hit:
+ * (`frost-pass`, buildIds.ts `FROST_PASS`) — a form of the field «Путь» kept in `Kit.talismans`; task 30: a form of the run's
+ * catalogue (run/rtTalismans.ts `RT_FORMS`). A copy of the hammer «Огненный проход» (sim/hammers.ts) with cold instead of a hit:
  *
  * - the hero's path of the dash leaves frost points every `FROST_PASS_STEP` (radius `FROST_PASS_RADIUS`, `FROST_PASS_LIFE`
  *   game seconds); none in water and none over a cliff (as the fire);
  * - an enemy whose centre stands in a point and that is not frozen now freezes: the cold of the consumable (items.ts) —
  *   `Params.frostTime` game seconds, brittle (the next chain hit ×`frostFactor`); not the reaper (`immune`). No damage, no
  *   kill: a link ahead of the dash stays a link (frozen, it stands);
- * - it stacks with any hammer (design answer 2, «сплав»): both modules act on the same dash — fire and frost lie on one path.
+ * - it stacks with any hammer (design answer 2): both modules act on the same dash — fire and frost lie on one path.
  *
  * The highlight: `frostPassPreview` — the points the drawn chain's dash would lay (the same sampling along the path the dash
  * runs: the links the plan kills, the touch point of a survivor or a plated elite and the way back to the stop, the pierce of
@@ -19,10 +19,10 @@
  */
 import { buildStateOf, registerBuildModule, setBuildState, talismanFired } from './build';
 import { FROST_PASS } from './buildIds';
-import { findEnemy, passObject, planChain } from './chain';
+import { planChain, planDashPath } from './chain';
 import { kindOf } from './enemies/kinds';
 import { dist, inWater, overCliff, type Vec } from './geometry';
-import { findObject, touchDistanceOf, type World } from './world';
+import type { World } from './world';
 import { hasTalisman } from './kit';
 
 /** Game seconds a frost point lies. */
@@ -77,29 +77,8 @@ function frostAlong(world: World, path: readonly Vec[], next: number, out: Frost
  */
 export function frostPassPath(world: World): Vec[] {
   if (!world.chain.length || world.move) return [];
-  const plan = planChain(world), hero = { x: world.hero.x, y: world.hero.y }, path: Vec[] = [hero];
-  let at: Vec = hero, stop: Vec = hero, platedLast = false;
-  const go = (p: Vec): void => { at = { x: p.x, y: p.y }; path.push(at); };
-  for (const { link, outcome } of plan.links) {
-    if (link.kind === 'object') {
-      const o = findObject(world, link.id);
-      if (!o) continue;
-      go(o); stop = at; platedLast = false;
-      if (passObject(world, link)) continue;
-      return path;
-    }
-    const e = findEnemy(world, link.id);
-    if (!e || !outcome) continue;
-    if (outcome.killed) { go(e); stop = at; platedLast = false; continue; }
-    const reach = touchDistanceOf(world.params, e), d = dist(at, e);
-    if (d > reach + 1e-6) go({ x: e.x + (at.x - e.x) / d * reach, y: e.y + (at.y - e.y) / d * reach });
-    if (outcome.plate) { platedLast = true; continue; }
-    go(stop);
-    return path;
-  }
-  if (platedLast) go(stop);
-  else if (plan.pierce) go(plan.pierce.to);
-  return path;
+  // Task 46: the path itself is chain.ts `planDashPath` (the paint of «Клеймо» reads it inside `planChain`).
+  return planDashPath(world, planChain(world));
 }
 
 /** The highlight: the frost points the drawn chain's dash would lay now (`frostPassPath`, the dash's sampling); none without «Наледь» in the kit. Pure. */

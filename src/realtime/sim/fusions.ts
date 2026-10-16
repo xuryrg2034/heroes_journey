@@ -51,3 +51,64 @@ export function iceSealCold(world: KitWorld, hold: number): IceSealCold | null {
 
 /** «Бумеранг» gives the return run the full power: in the kit and the last enemy link the dash reached died. */
 export const boomerangFull = (world: KitWorld, lastKilled: boolean): boolean => lastKilled && boomerangOn(world);
+
+// ---- Task 46 «Сплавы v2» (docs/design-notes/task-46-fusions-v2.md, sections 3 and 14) ----
+
+/** Defaults of the numbers (also the values of a world whose params lack them). */
+export const FUSION_BRAND_REACH = 1;
+export const FUSION_BLAST_FACTOR = 1.5;
+export const FUSION_BLAST_POWER = 3;
+export const FUSION_BLAST_PLATES = 2;
+export const FUSION_WAVE_TIME = 3;
+
+/** «Клеймо» is in the kit. */
+export const brandOn = (world: KitWorld): boolean => hasTalisman(world, FUSIONS.brand);
+/** «Подрыв» is in the kit. */
+export const hunterBlastOn = (world: KitWorld): boolean => hasTalisman(world, FUSIONS.hunterBlast);
+/** «Ледяная волна» is in the kit. */
+export const frostWaveOn = (world: KitWorld): boolean => hasTalisman(world, FUSIONS.frostWave);
+/** Some fusion of task 46 acts at the end of the dash: the release fixes its bodies (chain.ts `releaseChain`). */
+export const fusionEndOn = (world: KitWorld): boolean => brandOn(world) || hunterBlastOn(world) || frostWaveOn(world);
+
+/** «Клеймо»: reach of the paint from the dash's path (plus the body radius). */
+export const brandReach = (world: KitWorld): number => Math.max(0, world.params.fusionBrandReach ?? FUSION_BRAND_REACH);
+
+/**
+ * «Клеймо»: the body may take the chain's colour — not the Reaper (`immune`), not a boss's core (`cores`: their kinds; colourless), not
+ * a part of a boss (`partOf`: the Jailer's weights, the Castellan's hounds and crossbow), not a colourless body.
+ */
+export function brandPaintable(e: { color: number; partOf?: number; kind: string }, immune: boolean, cores: readonly string[]): boolean {
+  return !immune && e.partOf === undefined && !cores.includes(e.kind) && e.color >= 0;
+}
+
+/**
+ * «Подрыв»: the last enemy link the dash reached is a hunter's link — an elite, and with the counters' chain window (a run) a tough
+ * one too (HP above 0 before its hit) — as «Охотник на элит» (sim/talismansRt.ts `hunterLink`). Any outcome: killed, a plate, a
+ * survivor.
+ */
+export const hunterEnd = (world: KitWorld, elite: boolean, hpBefore: number): boolean => elite || (!!world.params.counterWindow && hpBefore > 0);
+
+/** The end blast's numbers: radius, hit and plates off an elite (a boss's armour — 1). */
+export interface EndBlast { radius: number; damage: number; plates: number; detonate: boolean }
+/**
+ * The end blast with «Подрыв» in the kit: `detonate` (the last link a hunter's link) — radius × `fusionBlastFactor`, hit 1 +
+ * `fusionBlastPower`, `fusionBlastPlates` plates; otherwise the plain blast (`radius`, `damage` — the hammer's, 1 plate).
+ */
+export function endBlastOf(world: KitWorld, detonate: boolean, radius: number, damage: number): EndBlast {
+  if (!detonate || !hunterBlastOn(world)) return { radius, damage, plates: 1, detonate: false };
+  const p = world.params;
+  return {
+    radius: radius * Math.max(1, p.fusionBlastFactor ?? FUSION_BLAST_FACTOR),
+    damage: damage + Math.max(0, Math.floor(p.fusionBlastPower ?? FUSION_BLAST_POWER)),
+    plates: Math.max(1, Math.floor(p.fusionBlastPlates ?? FUSION_BLAST_PLATES)),
+    detonate: true,
+  };
+}
+/** Plates the blast takes off this body: a boss's armour (`armor.boss`) — 1, as any blast; another — the blast's. */
+export const blastPlatesOn = (blast: EndBlast, e: { armor?: { boss?: true } }): number => (e.armor?.boss ? 1 : blast.plates);
+
+/** The cold of «Ледяная волна» on the wave's survivors (null — not in the kit): its seconds and whether it is brittle. */
+export function frostWaveCold(world: KitWorld): IceSealCold | null {
+  if (!frostWaveOn(world)) return null;
+  return { time: Math.max(0, world.params.fusionWaveTime ?? FUSION_WAVE_TIME), brittle: world.params.fusionWaveBrittle ?? true };
+}
