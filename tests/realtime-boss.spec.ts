@@ -349,7 +349,7 @@ test('task 28: the Jailer in a run — the bar only in its fight; bombs sever th
       continue;
     }
     if (pending) {
-      await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
+      await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"]:not([disabled]), [data-action="gift-pick"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
       continue;
     }
     const node = page.locator('[data-status="available"]').first();
