@@ -526,10 +526,11 @@ export type WorldEvent =
   | { type: 'castellanMove'; id: number; move: 'lunge' | 'guard'; stage: 'start' | 'hit' }
   /**
    * Task 43 (the full Castellan, enemies/garrison.ts): `lever` — a chain ended on a lever of the grate (`objectId`); `up` / `down` —
-   * the grate rose or fell; `keys` — the despair (his crossbow cut: the grate stuck open 3 s of every 10); `jam` — phase 3 (open
-   * for good). `id` — the core. The rules never read it.
+   * the grate rose or fell; `keys` — the despair (his crossbow cut: the grate open 3 s of every 10); `unlink` — the grate fell
+   * while the core was in the drawn chain: the core and the links after it (`dropped`, their ids) left the chain. `id` — the core.
+   * The rules never read it.
    */
-  | { type: 'grate'; action: 'lever' | 'up' | 'down' | 'keys' | 'jam'; id: number; objectId?: number; x: number; y: number };
+  | { type: 'grate'; action: 'lever' | 'up' | 'down' | 'keys' | 'unlink'; id: number; objectId?: number; x: number; y: number; dropped?: number[] };
 
 export interface World {
   arena: ArenaTemplate;

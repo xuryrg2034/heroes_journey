@@ -41,12 +41,22 @@ test('task 43: «Двор кастеляна (полный)» — «за реш�
   type Snap = { enemies: { id: number; kind: string; x: number; y: number; armor: { plates: number } | null }[]; objects: { id: number; kind: string; x: number; y: number; gate?: boolean; ready?: number }[]; chain: number[]; time: number; loop: { hintText: string | null } };
   const read = async (): Promise<Snap> => snap(page);
   const screen = (x: number, y: number): Promise<{ x: number; y: number }> => page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [x, y] as const);
+  /** The screen point of (x, y) once the camera stopped gliding after a teleport (two reads 0.1 game s apart agree). */
+  const settled = async (x: number, y: number): Promise<{ x: number; y: number }> => {
+    let last = await screen(x, y);
+    for (let i = 0; i < 40; i++) {
+      await gameWait(page, 0.1);
+      const now = await screen(x, y);
+      if (Math.abs(now.x - last.x) < 0.5 && Math.abs(now.y - last.y) < 0.5) return now;
+      last = now;
+    }
+    return last;
+  };
   const core = (await read()).enemies.find(e => e.kind === 'castellan')!;
   expect(core.armor?.plates).toBe(4);
   // The hero at the moat's yard edge below the core: the pointer over the core — «за решёткой»; a press takes nothing.
   await page.evaluate(() => (window as any).__realtime.teleport(10, 5.6));
-  await gameWait(page, 1);
-  const pc = await screen(core.x, core.y);
+  const pc = await settled(core.x, core.y);
   await page.mouse.move(pc.x, pc.y);
   await expect.poll(async () => (await read()).loop.hintText).toBe('за решёткой');
   await page.mouse.down();
@@ -57,8 +67,7 @@ test('task 43: «Двор кастеляна (полный)» — «за реш�
   const lever = (await read()).objects.find(o => o.kind === 'lever' && o.gate && o.y > 12)!;
   await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [lever.x, lever.y - 1.3] as const);
   // The camera follows the hero: the screen points are read once it settled.
-  await gameWait(page, 1);
-  const pl = await screen(lever.x, lever.y);
+  const pl = await settled(lever.x, lever.y);
   await page.mouse.move(pl.x, pl.y);
   await page.mouse.down();
   await expect.poll(async () => (await read()).chain).toEqual([lever.id]);
@@ -66,8 +75,7 @@ test('task 43: «Двор кастеляна (полный)» — «за реш�
   await expect.poll(async () => { const s = await read(); return (s.objects.find(o => o.id === lever.id)?.ready ?? 0) > s.time; }, { timeout: 5_000 }).toBe(true);
   // The window: back at the moat's edge, the pointer over the core says nothing; the chain to it takes a plate.
   await page.evaluate(() => (window as any).__realtime.teleport(10, 5.6));
-  await gameWait(page, 0.5);
-  const pw = await screen(core.x, core.y);
+  const pw = await settled(core.x, core.y);
   await page.mouse.move(pw.x + 2, pw.y + 2);
   await page.mouse.move(pw.x, pw.y);
   await expect.poll(async () => (await read()).loop.hintText).toBe(null);

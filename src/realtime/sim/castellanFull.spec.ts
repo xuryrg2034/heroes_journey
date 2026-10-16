@@ -9,13 +9,16 @@
  * - «Болт» from the stand (source `castellan-bolt`) spares his own parts; in phase 2 two bolts 0.6 s apart; the stand cut — the
  *   despair (the grate open 3 s of every 10); a frenzied hound bites the stand, never the core;
  * - «Спустить пса» stops at the moat: it reaches the hero at the moat's far edge, not deeper in the yard; the hound lands on its side;
- * - phases: 2 by a part lost or 35 s («Караул!» every 15 s), 3 by 2 plates or 80 s (the grate jammed, windups ×0.8);
+ * - one hit per window (the lever's, the despair's): the grate drops after the dash that struck the core; dropping while the core
+ *   is in the drawn chain it takes the core and the links after it out (the highlight is the rest's, the dash does the rest);
+ * - the gallery: a jump down into the yard costs 0 — with 0 energy the hero leaves the gallery, after the core's death walks out;
+ * - phases: 2 by a part lost or 35 s («Караул!» every 15 s), 3 by 2 plates or 80 s (windups ×0.8, the grate as before);
  * - the fight's boss summary (`boss.castellan`) counts the raises, the windows, the parts, the bolts — the live one is the replay's;
  * - a journal without `castellanFull` plays the Castellan v0; the run's values play the full one on «Двор кастеляна»; replays.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import './arenasGarrison';
-import { enemyRefusal, objectRefusal, planChain } from './chain';
+import { canJump, enemyRefusal, jumpCostAt, jumpDownOpen, jumpRefusal, objectRefusal, planChain } from './chain';
 import {
   CASTELLAN, DESPAIR_OPEN, DESPAIR_PERIOD, FULL_GUARD_PERIOD, GRATE_OPEN, GUARD, HOUND, LEVER_COOLDOWN, LUNGE_WINDUP, PAIR_GAP, PHASE3_TIME,
   PHASE3_WINDUP, STAND, STAND_BOLT, castellanGrate, gateLeverReady,
@@ -79,6 +82,25 @@ function pull(sim: Simulation, lever: ArenaObject, out: WorldEvent[] = [], durin
   sim.command({ t: 'release' });
   return settle(sim, out, during);
 }
+/** The stand cut by two chains: the first takes its plate, the second (4 weak links of its colour for its 4 HP) cuts it. */
+function cutStand(sim: Simulation, stand: Enemy): WorldEvent[] {
+  const w = sim.world, col = (y: number): Vec => ({ x: stand.x + 0.2, y });
+  sim.command({ t: 'teleport', x: stand.x + 0.2, y: 5.7 });
+  draw(sim, [place(sim, col(3.9), 0, 'basic', stand.color), stand]);
+  assert(w.chain.length === 2, `the stand is a link (${w.chain.length})`);
+  sim.command({ t: 'release' });
+  settle(sim);
+  assert(stand.armor?.plates === 0 && w.enemies.includes(stand), 'its plate is gone');
+  sim.command({ t: 'teleport', x: stand.x + 0.2, y: 9.4 });
+  draw(sim, [...[8.2, 7.0, 5.7, 3.9].map(y => place(sim, col(y), 0, 'basic', stand.color)), stand]);
+  assert((w.chain.length as number) === 5, `the chain reaches the stand (${w.chain.length})`);
+  const plan = planChain(w);
+  assert(plan.links[4].outcome?.killed && plan.links[4].severs, 'the highlight — the stand cut');
+  sim.command({ t: 'release' });
+  const events = settle(sim);
+  ticks(sim, 1, events);
+  return events;
+}
 /** The hero at the moat's yard edge below the core: a chain of one link — the core. */
 const EDGE: Vec = { x: 10, y: 5.6 };
 
@@ -123,7 +145,7 @@ check('a chain that ends on a lever raises the grate after the dash for 5 s; the
   }
 });
 
-check('in the window a chain across the moat takes a plate off the core (the highlight = the dash); two windows — 2 plates — phase 3: the grate jammed open', () => {
+check('in the window a chain across the moat takes a plate off the core (the highlight = the dash); one hit per window — the grate drops after that dash; two windows — 2 plates — phase 3, the grate stays down', () => {
   for (const k of SEEDS) {
     const { sim, w, core, levers } = yard(k, { crossbowWindup: 100 });
     for (const [n, lever] of [levers[0], levers[1]].entries()) {
@@ -134,16 +156,126 @@ check('in the window a chain across the moat takes a plate off the core (the hig
       sim.command({ t: 'begin', x: core.x, y: core.y });
       const plan = planChain(w), outcome = plan.links[0]?.outcome, before = core.armor!.plates;
       assert(w.chain.length === 1 && outcome?.plate && outcome.platesAfter === before - 1, `seed ${k}, window ${n}: the highlight takes a plate (${JSON.stringify(outcome)})`);
+      assert(plan.grate?.index === 0 && plan.grate.left > 3, `seed ${k}, window ${n}: the highlight knows the grate's time (${JSON.stringify(plan.grate)})`);
       sim.command({ t: 'release' });
-      const events = settle(sim);
+      const during: boolean[] = [];
+      const events = settle(sim, [], world => during.push(castellanGrate(world)!.open));
       ticks(sim, 1, events);
       assert(core.armor?.plates === before - 1 && core.hp === 4, `seed ${k}, window ${n}: the dash took the plate (${before} → ${core.armor?.plates})`);
       assert(w.hero.y > 5.2, `seed ${k}, window ${n}: the hero is back in the yard (${w.hero.y.toFixed(2)})`);
-      if (n === 1) assert(of(events, 'bossPhase').some(e => e.phase === 3) && of(events, 'grate').some(e => e.action === 'jam'), `seed ${k}: phase 3, the grate jammed`);
+      // One hit per window: up while the dash runs, down right after it (seconds of the window were left).
+      assert(during.every(o => o) && of(events, 'grate').some(e => e.action === 'down') && !castellanGrate(w)!.open && enemyRefusal(w, core) === 'grate', `seed ${k}, window ${n}: the grate dropped after the dash`);
+      if (n === 1) assert(of(events, 'bossPhase').some(e => e.phase === 3), `seed ${k}: phase 3`);
     }
-    assert(core.vars.phase === 3 && castellanGrate(w)!.jammed, `seed ${k}: jammed`);
-    ticks(sim, ticksOf(12));
-    assert(castellanGrate(w)!.open && enemyRefusal(w, core) !== 'grate', `seed ${k}: open for good`);
+    assert(core.vars.phase === 3, `seed ${k}: phase 3`);
+    // Phase 3 keeps the grate: down until a lever (the third, ready) raises it.
+    ticks(sim, ticksOf(4));
+    assert(!castellanGrate(w)!.open && enemyRefusal(w, core) === 'grate', `seed ${k}: no jam`);
+    pull(sim, levers[2]);
+    ticks(sim, 1);
+    assert(castellanGrate(w)!.open, `seed ${k}: the lever raises it in phase 3`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
+check('the grate drops while the core is in the drawn chain: the core and the links after it leave the chain (event `unlink`); the highlight shows the rest and the dash does just that', () => {
+  for (const k of SEEDS) {
+    const { sim, w, core, levers } = yard(k, { crossbowWindup: 100 });
+    pull(sim, levers[2]);
+    ticks(sim, 1);
+    // A weak link at the moat's yard edge, then the core, then a weak link on the gallery behind it.
+    sim.command({ t: 'teleport', x: 10, y: 7.3 });
+    const weak = place(sim, { x: 10, y: 5.7 }, 0, 'basic', 3), behind = place(sim, { x: 10.6, y: 2.2 }, 0, 'basic', 3);
+    draw(sim, [weak, core, behind]);
+    const drawn = w.chain.map(l => l.id);
+    assert(drawn[0] === weak.id && drawn[1] === core.id, `seed ${k}: the chain holds the core (${drawn})`);
+    const plan = planChain(w);
+    assert(plan.grate?.index === 1, `seed ${k}: the highlight marks the core's link (${JSON.stringify(plan.grate)})`);
+    // Held until the window ends.
+    const events = ticks(sim, ticksOf(GRATE_OPEN + 0.5));
+    const unlink = of(events, 'grate').find(e => e.action === 'unlink');
+    assert(unlink && JSON.stringify(unlink.dropped) === JSON.stringify(drawn.slice(1)) && JSON.stringify(w.chain.map(l => l.id)) === JSON.stringify([weak.id]), `seed ${k}: the core and after it dropped (${JSON.stringify(unlink)}, chain ${w.chain.map(l => l.id)})`);
+    const rest = planChain(w);
+    assert(rest.links.length === 1 && rest.links[0].outcome?.killed && !rest.grate, `seed ${k}: the highlight is the rest's`);
+    sim.command({ t: 'release' });
+    const after = settle(sim);
+    ticks(sim, 1, after);
+    assert(!w.enemies.includes(weak) && core.armor?.plates === 4 && core.hp === 4 && !of(after, 'chainHit').some(e => e.enemyId === core.id), `seed ${k}: the dash killed the weak link only, the core untouched`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
+check('the despair\'s window takes one hit too: struck in it, the grate stays down until the next cycle', () => {
+  for (const k of [1, 2]) {
+    const { sim, w, core, stand } = yard(k, { crossbowWindup: 100 });
+    cutStand(sim, stand);
+    // The next despair window: a chain into the core.
+    ticks(sim, ticksOf(DESPAIR_PERIOD), [], world => !castellanGrate(world)!.open);
+    ticks(sim, ticksOf(DESPAIR_PERIOD), [], world => castellanGrate(world)!.open);
+    assert(castellanGrate(w)!.open && castellanGrate(w)!.despair, `seed ${k}: the despair's window`);
+    sim.command({ t: 'teleport', x: EDGE.x, y: EDGE.y });
+    sim.command({ t: 'begin', x: core.x, y: core.y });
+    sim.command({ t: 'release' });
+    settle(sim);
+    ticks(sim, 1);
+    const left = castellanGrate(w)!;
+    assert(core.armor?.plates === 3 && !left.open && enemyRefusal(w, core) === 'grate', `seed ${k}: down after the hit (${JSON.stringify(left)})`);
+    // The next cycle opens again.
+    ticks(sim, ticksOf(DESPAIR_PERIOD), [], world => castellanGrate(world)!.open);
+    assert(castellanGrate(w)!.open, `seed ${k}: the next cycle opens`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
+check('the gallery: a jump down into the yard costs 0 (with 0 energy, the core alive); a jump along the gallery is refused («мало энергии»); after the core\'s death the hero on the gallery with 0 energy jumps down and walks out through the door', () => {
+  for (const k of [1, 2]) {
+    const { sim, w, core, levers } = yard(k, { crossbowWindup: 100 });
+    sim.command({ t: 'teleport', x: 6, y: 3.6 });
+    sim.command({ t: 'energy', value: 0 });
+    ticks(sim, 1);
+    assert(jumpDownOpen(w) && canJump(w) && jumpCostAt(w, { x: 6, y: 6.5 }) === 0 && jumpCostAt(w, { x: 4, y: 2 }) === 2, `seed ${k}: the jump down is free`);
+    assert(jumpRefusal(w, { x: 4, y: 2 }) === 'energy' && !canJump(w, { x: 4, y: 2 }), `seed ${k}: along the gallery — not enough energy`);
+    sim.command({ t: 'jump', x: 4, y: 2 });
+    assert(!w.move, `seed ${k}: no jump along the gallery`);
+    sim.command({ t: 'jump', x: 6, y: 6.3 });
+    assert((w.move as World['move'])?.kind === 'jump', `seed ${k}: the jump down started`);
+    settle(sim);
+    assert(w.hero.y > 5.35 && w.energy === 0, `seed ${k}: in the yard, the energy 0 (${w.hero.y.toFixed(2)}, ${w.energy})`);
+    // Four windows by the three levers (each ready again 10 s after its pull), a plate each; then the chain that kills the core.
+    const window = (): void => {
+      ticks(sim, ticksOf(12), [], world => levers.some(o => gateLeverReady(world, o)));
+      pull(sim, levers.find(o => gateLeverReady(w, o))!);
+      ticks(sim, 1);
+    };
+    for (let n = 0; n < 4; n++) {
+      window();
+      sim.command({ t: 'teleport', x: EDGE.x, y: EDGE.y });
+      sim.command({ t: 'begin', x: core.x, y: core.y });
+      sim.command({ t: 'release' });
+      settle(sim);
+      ticks(sim, 1);
+    }
+    assert(core.armor?.plates === 0 && w.enemies.includes(core), `seed ${k}: the plates are gone (${core.armor?.plates})`);
+    window();
+    sim.command({ t: 'teleport', x: 10.2, y: 10.4 });
+    const line = [9.2, 8.0, 6.8, 5.6].map(y => place(sim, { x: 10.2, y }, 0, 'basic', 2));
+    draw(sim, [...line, core]);
+    assert(w.chain.length === 5 && planChain(w).bossClear, `seed ${k}: the chain kills the core (${w.chain.length})`);
+    sim.command({ t: 'release' });
+    settle(sim);
+    assert(!w.enemies.includes(core) && w.bossCleared && w.status === 'playing', `seed ${k}: the core dead, the door open`);
+    // The hero on the gallery with no energy: jumps down for 0, walks to the door.
+    sim.command({ t: 'teleport', x: 10, y: 3.4 });
+    sim.command({ t: 'energy', value: 0 });
+    ticks(sim, 1);
+    sim.command({ t: 'jump', x: 10, y: 6.2 });
+    settle(sim);
+    assert(w.hero.y > 5.35, `seed ${k}: down in the yard (${w.hero.y.toFixed(2)})`);
+    for (let i = 0; i < 60 * 20 && w.status === 'playing'; i++) {
+      if (i % 10 === 0) { const door = w.arena.door, dx = door.x - w.hero.x, dy = door.y - w.hero.y, d = Math.hypot(dx, dy) || 1; sim.command({ t: 'walk', x: dx / d, y: dy / d }); }
+      sim.tick(); w.events.length = 0;
+    }
+    assert((w.status as string) === 'victory', `seed ${k}: out through the door (${w.status})`);
     assert(replays(sim), `seed ${k}: replay`);
   }
 });
@@ -192,22 +324,7 @@ check('«Болт» from the stand: the hero on the line −2 (source `castellan
 check('the stand cut by the chain: «Болт» gone; the despair — the grate open 3 s of every 10 (event `keys`); phase 2', () => {
   for (const k of SEEDS) {
     const { sim, w, core, stand } = yard(k, { crossbowWindup: 100 });
-    // The first chain takes its plate, the second (4 weak links of its colour for its 4 HP) cuts it.
-    const col = (y: number): Vec => ({ x: stand.x + 0.2, y });
-    sim.command({ t: 'teleport', x: stand.x + 0.2, y: 5.7 });
-    draw(sim, [place(sim, col(3.9), 0, 'basic', stand.color), stand]);
-    assert(w.chain.length === 2, `seed ${k}: the stand is a link (${w.chain.length})`);
-    sim.command({ t: 'release' });
-    settle(sim);
-    assert(stand.armor?.plates === 0 && w.enemies.includes(stand), `seed ${k}: its plate is gone`);
-    sim.command({ t: 'teleport', x: stand.x + 0.2, y: 9.4 });
-    draw(sim, [...[8.2, 7.0, 5.7, 3.9].map(y => place(sim, col(y), 0, 'basic', stand.color)), stand]);
-    assert((w.chain.length as number) === 5, `seed ${k}: the chain reaches the stand (${w.chain.length})`);
-    const plan = planChain(w);
-    assert(plan.links[4].outcome?.killed && plan.links[4].severs, `seed ${k}: the highlight — the stand cut`);
-    sim.command({ t: 'release' });
-    const events = settle(sim);
-    ticks(sim, 1, events);
+    const events = cutStand(sim, stand);
     assert(!w.enemies.includes(stand) && of(events, 'partSevered').some(e => e.id === stand.id), `seed ${k}: cut`);
     assert(of(events, 'grate').some(e => e.action === 'keys') && castellanGrate(w)!.despair && core.vars.phase === 2, `seed ${k}: the despair, phase 2`);
     assert(core.armor?.plates === 4, `seed ${k}: the stand takes no plate off the core (${core.armor?.plates})`);
@@ -265,7 +382,7 @@ check('«Спустить пса» stops at the moat: the hero at its far edge i
   }
 });
 
-check('phases by the time: 2 at 35 s («Караул!» every 15 s), 3 at 80 s — the grate jammed, the lunge ×0.8, the bolt ×0.8', () => {
+check('phases by the time: 2 at 35 s («Караул!» every 15 s), 3 at 80 s — the grate keeps its rule, the lunge ×0.8, the bolt ×0.8', () => {
   for (const k of [1, 2]) {
     const { sim, w, core, hounds, stand } = yard(k);
     sim.command({ t: 'teleport', x: 1.5, y: 12.8 });
@@ -278,7 +395,7 @@ check('phases by the time: 2 at 35 s («Караул!» every 15 s), 3 at 80 s �
       for (const g of w.enemies.filter(e => e.kind === GUARD)) sim.command({ t: 'chill', id: g.id, seconds: 1 });
     }
     assert(calls.length >= 3 && calls.slice(1).every((t, i) => Math.abs(t - calls[i] - FULL_GUARD_PERIOD) < 0.05), `seed ${k}: «Караул!» every 15 s (${calls.map(t => t.toFixed(1))})`);
-    assert(core.vars.phase === 3 && castellanGrate(w)!.jammed && castellanGrate(w)!.open, `seed ${k}: phase 3 (${core.vars.phase})`);
+    assert(core.vars.phase === 3 && !castellanGrate(w)!.open && enemyRefusal(w, core) === 'grate', `seed ${k}: phase 3 (${core.vars.phase})`);
     // The windups now: the lunge 0.8 × 0.8, the bolt 1 × 0.8.
     sim.command({ t: 'teleport', x: hounds[0].x, y: 5.75 });
     const seen: { a: string; t: number; id: number }[] = [];
@@ -302,7 +419,7 @@ check('the boss summary (`boss.castellan`): raises, windows with and without a h
   for (const k of [1, 2]) {
     const sim = new Simulation({ arena: 'g-castellan-full', params: quiet(), seed: seedOf(k), record: true }), w = sim.world;
     const observer = createFightObserver(w), all: WorldEvent[] = [];
-    const run = (n: number): void => { for (let i = 0; i < n && w.status === 'playing'; i++) { sim.tick(); observer.tick(w); all.push(...w.events); w.events.length = 0; } };
+    const edges: number[] = [], run = (n: number): void => { for (let i = 0; i < n && w.status === 'playing'; i++) { sim.tick(); observer.tick(w); all.push(...w.events); for (const e of of(w.events, 'grate')) if (e.action === 'up' || e.action === 'down') edges.push(w.time); w.events.length = 0; } };
     const cmd = (c: Parameters<Simulation['command']>[0]): void => { sim.command(c); observer.command(c, w); };
     run(1);
     const core = w.enemies.find(e => e.kind === CASTELLAN)!, levers = w.objects.filter(o => o.kind === 'lever' && o.gate);
@@ -316,7 +433,8 @@ check('the boss summary (`boss.castellan`): raises, windows with and without a h
     run(ticksOf(12));
     const live = observer.summary(), c = live.boss?.castellan;
     assert(c && c.raises === 2 && c.windowsHit === 1 && c.windowsMissed === 1, `seed ${k}: ${JSON.stringify(c)}`);
-    assert(Math.abs(c.openSeconds - 2 * GRATE_OPEN) < 0.1 && c.phase === 1 && !c.parts.length, `seed ${k}: open ${c.openSeconds} s`);
+    const open = edges.reduce((sum, t, i) => sum + (i % 2 ? t - edges[i - 1] : 0), 0);
+    assert(edges.length === 4 && Math.abs(c.openSeconds - open) < 0.05 && open > GRATE_OPEN && open < 2 * GRATE_OPEN && c.phase === 1 && !c.parts.length, `seed ${k}: open ${c.openSeconds} s`);
     const shots = of(all, 'bolt').filter(e => e.action === 'shot'), hero = shots.filter(e => e.hit === 'hero').length;
     assert(c.bolts.shots === shots.length && c.bolts.hero === hero && shots.length > 0, `seed ${k}: bolts ${JSON.stringify(c.bolts)} / ${shots.length}`);
     const replayed = analyzeJournal(JSON.parse(JSON.stringify(sim.exportJournal()!)) as Journal).summary;

@@ -215,6 +215,7 @@ export const CASTELLAN_FULL_ARENA: ArenaTemplate = registerArena({
   jailerColorless: true,
   gates: [{ x: 1.2, y: 11 }, { x: 18.8, y: 11 }],
   gateLevers: [{ x: 2.4, y: 7.2 }, { x: 17.6, y: 7.2 }, { x: 10, y: 12.8 }],
+  galleryEdge: 4.8,
   garrison: true,
   castellanFull: true,
 });

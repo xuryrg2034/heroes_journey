@@ -401,18 +401,17 @@ function settle(world: World, core: Enemy): void {
     world.events.push({ type: 'grate', action: 'keys', id: core.id, x: core.x, y: core.y });
   }
   // Task 43, the full Castellan: phase 3 — the core has `PHASE3_PLATES` plates or `PHASE3_TIME` s went (phases add up: one that
-  // reaches 3 from 1 — two windows before any part is lost — passes through 2 first).
+  // reaches 3 from 1 — the plates gone before any part is lost — passes through 2 first).
   const third = fullOn(world) && (v.phase ?? 1) < 3 && ((core.armor?.plates ?? 0) <= PHASE3_PLATES || world.time - (v.born ?? 0) >= PHASE3_TIME - TIME_EPS);
   if ((v.phase ?? 1) < 2 && (third || (v.lost ?? 0) > 0 || world.time - (v.born ?? 0) >= CASTELLAN_PHASE2_TIME - TIME_EPS)) {
     v.phase = 2;
     v.wt = 0;
     world.events.push({ type: 'bossPhase', id: core.id, phase: 2 });
   }
-  // The grate jammed open.
+  // The remaining parts wind up faster (design 16.10.2026: the grate keeps its rule — the lever and the despair only).
   if (third) {
     v.phase = 3;
     world.events.push({ type: 'bossPhase', id: core.id, phase: 3 });
-    world.events.push({ type: 'grate', action: 'jam', id: core.id, x: core.x, y: core.y });
   }
 }
 
@@ -540,6 +539,10 @@ registerBehavior({
     // A leash cut by the dash: a plate off the core after the dash.
     if (frameOn(world)) holder.vars.sever = (holder.vars.sever ?? 0) + 1;
   },
+  onChainHit(world, e) {
+    // Task 43: the full Castellan struck by the dash — his grate drops once the dash is over (one hit per window).
+    if (fullOn(world)) e.vars.gh = 1;
+  },
   onDeath(world, e) {
     dropTethers(world, e);
     if (frameOn(world) && bossClearsOn(world) && !world.bossCleared) bossClear(world);
@@ -650,11 +653,16 @@ registerEnemyKind({
 // the gallery; three levers (objects `lever` with `gate`) and the guards' gates in the yard.
 // - **The grate.** While down the core is refused (`grate`, «за решёткой»). A chain that ENDS on a lever (`gateLever`) raises it
 //   after the dash for `GRATE_OPEN` s (`vars.go` — open until); the lever is ready again `LEVER_COOLDOWN` s later (`lever`).
+//   One hit per window (design 16.10.2026): the grate drops right after the dash that struck the core (`vars.gh`), the lever's
+//   window and the despair's alike (`vars.dh` — the despair's cycle already spent). The grate dropping while the core is in the
+//   drawn chain takes the core and the links after it out of the chain (event `grate` `unlink`; `planChain(...).grate`).
+// - **The gallery** (north of `ArenaTemplate.galleryEdge`): a jump from it into the yard costs 0 energy (`jumpDownOpen`, chain.ts
+//   `jumpCostAt`) — the hero is never stuck behind the moat.
 // - **The crossbow on the stand** (`castellan-crossbow`, a part: HP 4, a plate) — «Болт» by the law of the crossbow (source
 //   `castellan-bolt`); in phase 2 and 3 two bolts `PAIR_GAP` s apart. Cut: «Болт» gone, the despair — the grate stuck open
 //   `DESPAIR_OPEN` s of every `DESPAIR_PERIOD` s (`vars.dp`).
 // - **Phases.** 1 — the hounds and «Болт»; 2 — the first part lost or 35 s: «Караул!» every `FULL_GUARD_PERIOD` s, the pair of
-//   bolts; 3 — the core has `PHASE3_PLATES` plates or `PHASE3_TIME` s: the grate jammed open, the parts wind up ×`PHASE3_WINDUP`.
+//   bolts; 3 — the core has `PHASE3_PLATES` plates or `PHASE3_TIME` s: the parts wind up ×`PHASE3_WINDUP` (the grate as before).
 // - «Спустить пса»: the lane stops at the moat — its strike reaches the hero at the moat's far edge, the hound lands at the near one.
 
 export const STAND = 'castellan-crossbow';
@@ -679,26 +687,48 @@ const LANE_STEP = 0.05;
 export const fullOn = (world: World): boolean => !!world.arena.castellanFull;
 const coreOf = (world: World): Enemy | undefined => world.enemies.find(e => e.kind === CASTELLAN);
 
-/** The grate is up now: jammed in phase 3, a lever's window, or the despair's 3 s of every 10. */
-export function grateOpen(world: World, core: Enemy): boolean {
+/** The seconds of the lever's window left now (0 — none). */
+const leverLeft = (world: World, core: Enemy): number => (core.vars.go !== undefined ? Math.max(0, core.vars.go - world.time) : 0);
+/** The despair's window now: the seconds left of its open part (0 — shut, or its cycle's hit already spent, `vars.dh`). */
+function despairLeft(world: World, core: Enemy): number {
   const v = core.vars;
-  if (v.phase === 3) return true;
-  if (v.go !== undefined && world.time < v.go - TIME_EPS) return true;
-  return v.dp !== undefined && (world.time - v.dp) % DESPAIR_PERIOD < DESPAIR_OPEN - TIME_EPS;
+  if (v.dp === undefined) return 0;
+  const since = world.time - v.dp, cycle = Math.floor(since / DESPAIR_PERIOD), inCycle = since - cycle * DESPAIR_PERIOD;
+  return inCycle < DESPAIR_OPEN - TIME_EPS && v.dh !== cycle ? DESPAIR_OPEN - inCycle : 0;
 }
+/** The grate is up now: a lever's window, or the despair's 3 s of every 10 (each window until the core is struck once). */
+export function grateOpen(world: World, core: Enemy): boolean {
+  return leverLeft(world, core) > TIME_EPS || despairLeft(world, core) > 0;
+}
+/** The seconds the grate stays up now, whichever window holds it (0 — down). */
+export const grateLeft = (world: World, core: Enemy): number => Math.max(leverLeft(world, core), despairLeft(world, core));
 /** The core is behind the grate now (the refusal `grate`): only the full Castellan. */
 export const behindGrate = (world: World, e: Enemy): boolean => e.kind === CASTELLAN && fullOn(world) && !grateOpen(world, e);
 
 /**
- * For the view (read only): the grate of the full Castellan — `open`; `left` — seconds of the lever's window left (0 — none);
- * `jammed` — phase 3 (open for good); `despair` — the keys thrown (open 3 s of every 10); `x`, `y` — the core. Null — no full Castellan.
+ * For the view (read only): the grate of the full Castellan — `open`; `left` — seconds it stays up (the lever's window or the
+ * despair's, 0 — down; a hit on the core drops it after that dash); `despair` — the keys thrown (open 3 s of every 10); `x`, `y` —
+ * the core; `phase`. Null — no full Castellan.
  */
-export function castellanGrate(world: World): { open: boolean; left: number; jammed: boolean; despair: boolean; x: number; y: number; phase: number } | null {
+export function castellanGrate(world: World): { open: boolean; left: number; despair: boolean; x: number; y: number; phase: number } | null {
   const core = coreOf(world);
   if (!core || !fullOn(world)) return null;
   const v = core.vars;
-  return { open: grateOpen(world, core), left: Math.max(0, (v.go ?? 0) - world.time), jammed: v.phase === 3, despair: v.dp !== undefined, x: core.x, y: core.y, phase: v.phase ?? 1 };
+  return { open: grateOpen(world, core), left: grateLeft(world, core), despair: v.dp !== undefined, x: core.x, y: core.y, phase: v.phase ?? 1 };
 }
+/** The core's link in the drawn chain while the grate is up: its index and the seconds before the grate drops it (and the links after it). */
+export function grateLinkDrop(world: World, chain: readonly { kind: string; id: number }[]): { index: number; left: number } | null {
+  const core = coreOf(world);
+  if (!core || !fullOn(world)) return null;
+  const index = chain.findIndex(l => l.kind === 'enemy' && l.id === core.id);
+  return index >= 0 ? { index, left: grateLeft(world, core) } : null;
+}
+
+/** The hero (or `p`) stands on the full Castellan's gallery — north of the arena's `galleryEdge`, behind the moat. */
+export const onGallery = (world: World, p: Vec = world.hero): boolean =>
+  fullOn(world) && world.arena.galleryEdge !== undefined && p.y < world.arena.galleryEdge;
+/** A jump from the gallery down into the yard (`land` south of the edge): it costs 0 energy (design 16.10.2026). */
+export const jumpDownFree = (world: World, land: Vec): boolean => onGallery(world) && !onGallery(world, land);
 /** A lever of the grate is ready now (its cooldown is over), and the seconds left of the cooldown. */
 export const gateLeverReady = (world: World, o: ArenaObject): boolean => world.status === 'playing' && world.time + TIME_EPS >= (o.ready ?? 0);
 export const gateLeverLeft = (world: World, o: ArenaObject): number => Math.max(0, (o.ready ?? 0) - world.time);
@@ -714,6 +744,13 @@ export function gateLever(world: World, o: ArenaObject): void {
 /** The grate's step (the core's group step): a pull raises it once no dash runs; up and down are events. */
 function grateStep(world: World, core: Enemy): void {
   const v = core.vars;
+  // One hit per window: the dash that struck the core drops the grate once it is over (the lever's window ends, the despair's
+  // cycle is spent); a pull of the same dash (the lever after the core) then raises it anew.
+  if (v.gh && !world.move) {
+    delete v.gh;
+    if (v.go !== undefined && v.go > world.time) v.go = world.time;
+    if (despairLeft(world, core) > 0) v.dh = Math.floor((world.time - v.dp) / DESPAIR_PERIOD);
+  }
   if (v.gu && !world.move) {
     delete v.gu;
     v.go = Math.max(v.go ?? 0, world.time + GRATE_OPEN);
@@ -722,6 +759,16 @@ function grateStep(world: World, core: Enemy): void {
   if (open !== !!v.gs) {
     if (open) v.gs = 1; else delete v.gs;
     world.events.push({ type: 'grate', action: open ? 'up' : 'down', id: core.id, x: core.x, y: core.y });
+  }
+  // The grate down while the core is in the drawn chain: the core and the links after it drop out (the highlight shows the rest).
+  if (!open && !world.move) {
+    const index = world.chain.findIndex(l => l.kind === 'enemy' && l.id === core.id);
+    if (index >= 0) {
+      const dropped = world.chain.slice(index).map(l => l.id);
+      world.chain = world.chain.slice(0, index);
+      delete world.chainClosed;
+      world.events.push({ type: 'grate', action: 'unlink', id: core.id, x: core.x, y: core.y, dropped });
+    }
   }
 }
 

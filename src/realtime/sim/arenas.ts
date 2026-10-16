@@ -230,6 +230,8 @@ export interface ArenaTemplate extends ArenaShape {
   castellanFull?: boolean;
   /** Task 43: the levers of the grate (objects `lever` with `gate`). Omitted — none. */
   gateLevers?: Vec[];
+  /** Task 43: the full Castellan's gallery lies north of this y (the moat's middle): a jump from it into the yard costs 0. Omitted — none. */
+  galleryEdge?: number;
   /**
    * Task 43: with `Params.castellanFull` on, this arena plays that template (by its id) under its own id and name — the run's
    * «Двор кастеляна» becomes the full Castellan's. Omitted — the arena as it is.

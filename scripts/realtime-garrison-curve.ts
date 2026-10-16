@@ -45,9 +45,9 @@ const MOAT = args.includes('--moat');
  * ×1.5); `guardPeriod` — «Караул!» every this many s (20); `guards` — guards a call brings (3, the rest of the markers dropped);
  * `touch` — the run's raised tough touch off in his fight (`toughTouch`); `floor` — the density floor of his fight × this (the
  * loadout's `floorScale`, as «Испытание V» gives it; the crowd of newcomers); `fullHp` — the hero enters his fight with full HP (a
- * measure of the entry, not a knob of the Castellan); `oneHit` (task 43, the full Castellan) — a chain hit on the core closes the lever's window.
+ * measure of the entry, not a knob of the Castellan).
  */
-interface CastellanSet { plates?: number; coreHp?: number; houndHp?: number; windup?: number; guardPeriod?: number; guards?: number; touch?: boolean; floor?: number; fullHp?: boolean; oneHit?: boolean }
+interface CastellanSet { plates?: number; coreHp?: number; houndHp?: number; windup?: number; guardPeriod?: number; guards?: number; touch?: boolean; floor?: number; fullHp?: boolean }
 const CASTELLAN_SETS: Readonly<Record<string, CastellanSet>> = {
   base: {},
   plates2: { plates: 2 },
@@ -71,9 +71,6 @@ const CASTELLAN_SETS: Readonly<Record<string, CastellanSet>> = {
   plates6: { plates: 6 },
   plates6hp6: { plates: 6, coreHp: 6 },
   plates8hp6: { plates: 8, coreHp: 6, windup: 0.75 },
-  // Task 43 (the full Castellan, `Params.castellanFull` of the run): `oneHit` — a chain hit on the core drops the lever's window (one
-  // core hit per lever; the game lets every chain of the 5 s hit it).
-  oneHit: { oneHit: true },
 };
 /**
  * `--boss-aim`: in a fight with a boss core (the Castellan, the Jailer — `BOSS_CORES`) the bot hunts the boss — it walks at the core
@@ -129,7 +126,6 @@ function tuneCastellan(w: World, set: CastellanSet, first: boolean): void {
     if (set.fullHp) w.hero.hp = w.hero.maxHp;
   }
   for (const ev of w.events) {
-    if (set.oneHit && ev.type === 'chainHit' && ev.enemyId === core.id && core.vars.go !== undefined && core.vars.go > w.time) core.vars.go = w.time;
     if (ev.type !== 'castellanMove' || ev.id !== core.id) continue;
     if (ev.move === 'lunge' && ev.stage === 'start' && set.windup !== undefined) { core.vars.t *= set.windup; core.vars.w *= set.windup; }
     if (ev.move === 'guard' && ev.stage === 'hit') {
