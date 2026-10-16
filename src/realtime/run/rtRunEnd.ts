@@ -30,7 +30,8 @@ export const RT_KIND_TITLES: Readonly<Record<string, string>> = {
   // Task 28 «Тюремщик в походе»: the boss and its part (a touch of either may kill in the run's Jailer fight).
   jailer: 'Тюремщик', 'jailer-weight': 'гиря Тюремщика',
   // Tasks 38–40 «Гарнизон» (the report's and the killer line's names; task 40: their touches are in `RT_DEATH_TOUCH`).
-  guard: 'стражник', handler: 'псарь', hound: 'пёс', castellan: 'Кастелян', keymaster: 'Ключник',
+  // Design 16.10.2026 (task-40 spec, section 10): a capital only for a unique boss («Тюремщик», «Кастелян»); the kinds in lower case.
+  guard: 'стражник', handler: 'псарь', hound: 'пёс', castellan: 'Кастелян', keymaster: 'ключник',
 };
 
 /**
@@ -43,6 +44,8 @@ export const RT_DEATH_ABILITY: Readonly<Record<string, string>> = {
   thorns: 'шипы', 'slot-rain': 'стрелы гоблина', 'slot-volley': 'стрелы гоблина', 'slot-bust': 'взрыв гоблина',
   // Task 28: the Jailer's moves.
   flail: 'кистень Тюремщика', throw: 'бросок гири',
+  // Task 40 (design 16.10.2026, task-40 spec section 10): the Castellan's «Спустить пса» (a hound's touch outside it — «пёс»).
+  lunge: 'рывок пса Кастеляна',
 };
 /**
  * The touch sources (each kind's `hitSource`): the line names the striker's kind, its elite mark, armour and affixes. Task 40 (design

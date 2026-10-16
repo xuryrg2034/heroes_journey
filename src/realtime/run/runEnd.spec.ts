@@ -13,14 +13,14 @@
  *   loads unchanged and, lost, shows no killer line; malformed deaths are no run; a won fight keeps no death.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
-import { createRtRun, parseRtRun, resolveArena, rtNode, rtRunParams, serializeRtRun, type RtArenaOutcome, type RtRunState } from './rtRun';
+import { createRtRun, parseRtRun, resolveArena, rtArenaLoadout, rtNode, rtRunParams, serializeRtRun, type RtArenaOutcome, type RtRunState } from './rtRun';
 import { createRtRunStore, RT_RUN_STORAGE_KEY, type RunStorage } from './rtRunStorage';
-import { rtDeathLine, rtRunEndLines } from './rtRunEnd';
+import { RtDeathWatch, rtDeathLine, rtRunEndLines } from './rtRunEnd';
 import { runRow } from './arenaPools';
-import { assert, closeNode, ok, playFight, pullBare, quiet, same, seedOf, summonGoblin, takeGift, ticks, toBattle } from './runFight.testkit';
+import { assert, closeNode, ok, outcomeOf, playFight, pullBare, quiet, same, seedOf, summonGoblin, takeGift, ticks, toBattle } from './runFight.testkit';
 import { inThorns } from '../sim/geometry';
 import { defaultParams } from '../sim/params';
-import type { Simulation } from '../sim/simulation';
+import { Simulation } from '../sim/simulation';
 import type { World } from '../sim/world';
 import saveBefore from '../../../tests/fixtures/rt-run-save-before-record.json';
 
@@ -76,9 +76,9 @@ check('the killer of an elite\'s touch: its kind, «-элита» (the basic ene
   });
 });
 
-check('task 40: the killer of a garrison touch — «стражник», «псарь», «пёс», «Ключник», «Кастелян»; a hound in its frenzy — «пёс» too (a real death)', () => {
+check('task 40: the killer of a garrison touch — «стражник», «псарь», «пёс», «ключник», «Кастелян»; a hound in its frenzy — «пёс» too (a real death)', () => {
   const cases: { kind: string; text: string }[] = [
-    { kind: 'guard', text: 'Сразил: стражник' }, { kind: 'hound', text: 'Сразил: пёс' }, { kind: 'keymaster', text: 'Сразил: Ключник' }, { kind: 'castellan', text: 'Сразил: Кастелян' },
+    { kind: 'guard', text: 'Сразил: стражник' }, { kind: 'hound', text: 'Сразил: пёс' }, { kind: 'keymaster', text: 'Сразил: ключник' }, { kind: 'castellan', text: 'Сразил: Кастелян' },
   ];
   cases.forEach((c, i) => {
     const run = newRun(21 + i);
@@ -133,6 +133,25 @@ check('task 40: the killer of a garrison touch — «стражник», «пс�
   assert(frenzied && byMad.sim.world.status === 'defeat', 'a frenzied hound hit the hero, the hero fell');
   assert(same(byMad.outcome.death, { source: 'hound', enemy: 'hound' }), JSON.stringify(byMad.outcome.death));
   assert(lines(ok(resolveArena(mad, byMad.outcome), 'lost'))[0] === 'Сразил: пёс', 'the frenzied hound is «пёс»');
+});
+
+check('task 40: a death by the Castellan\'s «Спустить пса» — «Сразил: рывок пса Кастеляна» (a real fight on «Двор кастеляна»)', () => {
+  const run = newRun(28), pending = run.pending;
+  assert(pending?.kind === 'battle', 'an open battle');
+  const watch = new RtDeathWatch();
+  // The quiet values (nothing comes, nobody walks or touches): only the lunges hurt; the arena turns the boss frame on itself.
+  const sim = new Simulation({ arena: 'g-castellan', params: rtRunParams(quiet()), seed: seedOf(28), hero: { hp: run.hp, maxHp: run.maxHp }, loadout: rtArenaLoadout(run), beforeTick: w => watch.seen(w) });
+  sim.tick(); watch.read(sim.world, sim.world.events); sim.world.events.length = 0;
+  const hound = sim.world.enemies.find(e => e.kind === 'hound')!;
+  sim.command({ t: 'teleport', x: hound.x, y: hound.y + 2.5 });
+  const sources = new Set<string>();
+  ticks(sim, 60 * 300, w => { watch.read(w, w.events); for (const ev of w.events) if (ev.type === 'hit') sources.add(ev.source); });
+  assert(sim.world.status === 'defeat' && [...sources].join() === 'lunge', `the lunges took him (${sim.world.status}, ${[...sources]})`);
+  const outcome = outcomeOf(run, sim.world, {}, watch.death);
+  assert(same(outcome.death, { source: 'lunge', enemy: 'hound' }), JSON.stringify(outcome.death));
+  const after = ok(resolveArena(run, outcome), 'lost');
+  assert(lines(after)[0] === 'Сразил: рывок пса Кастеляна', lines(after)[0]);
+  assert(serializeRtRun(parseRtRun(serializeRtRun(after))!) === serializeRtRun(after), 'the save with the death reads back');
 });
 
 check('the killer of an ability: an archer\'s arrow; a sapper\'s blast (the sapper is gone before its blast hits)', () => {
