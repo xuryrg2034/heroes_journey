@@ -163,3 +163,9 @@ NOT smooth plastic surfaces, NOT excessive gradients.
 Набор для задачи 51 (`docs/design-notes/task-51-camp-l3.md`, раздел 11.3), Codex `image_gen`, промпты — `artifacts/art-prompts/camp-npc.json`. Проверка `check-art.mjs` 16.10.2026: PASS для двух; глазами — стиль един с NPC лагеря v1. Подключение в вид — задача ui после ядра задачи 51; до него — заглушки силуэтами.
 - `public/art/characters/npc-gambler.png` — Шиш, гоблин-шулер: огромные уши, золотой зуб, горчичный кафтан не по росту, карты в рукавах, кости на шее; протягивает карту, монету прячет за спиной, 1295×1206.
 - `public/art/characters/npc-monk.png` — Евлампий, расстрига: тощий, сутулый, рваная фиолетовая ряса с зачёркнутым знаком колдуна, обрывок кандалов на запястье, книга с бирюзовым огоньком, сломанный жезл вместо посоха, 1186×1321.
+
+### Лагерь, этап 3 — следы ухода и трофеи (16.10.2026)
+
+Предметы для задачи 51 (разделы 3.4 и 4), Codex `image_gen`, промпты — `artifacts/art-prompts/camp-props.json`; RGBA, прозрачный фон, проверено глазами на листе 16.10.2026 — стиль един с `troll-club.png` и `jailer-cage.png`, читаются в малом размере. Подключение — ui с видом задачи 51.
+- `public/art/camp/trace-basket.png` (корзина Марфы), `trace-wheel.png` (точильное колесо Ерофея), `trace-mug.png` (кружка с костями Шиша) — около 512 px.
+- `public/art/camp/trophy-jailer.png` (гиря с цепью), `trophy-severed.png` (обрубок цепи), `trophy-troll.png` (рог Тролля), `trophy-chief.png` (котелок Главаря), `trophy-shackles.png` (сломанные кандалы), `trophy-castellan.png` (знамя Кастеляна), `trophy-ash.png` (доска Испытания с восемью засечками), `trophy-bestiary.png` (чернильница Неясыти), `trophy-chain.png` (длинная цепь кольцом) — 256×256.
