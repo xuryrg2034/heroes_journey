@@ -2,7 +2,9 @@
  * Measure of task 18 «Испытание V» (design 14.10.2026; docs/realtime-slice.md, «Испытание»): the final «Последний рубеж» of a run
  * at levels IV and V — the loadout and params the run gives its final (`rtArenaLoadout`, `rtArenaParams`; V adds the density floor
  * ×1.15 and the phases 15 % earlier). A heuristic for the design, not a test: `npm run realtime:ash-final` (`--seeds N`, default
- * 12; `--stay S` — seconds the bot keeps fighting after the goals before it walks to the door, default 30; `--limit S`, default 300).
+ * 12; `--stay S` — seconds the bot keeps fighting after the goals before it walks to the door, default 30; `--limit S`, default 300;
+ * task 45: `--levels 5,6,7,8` — the levels measured, default 4,5; the column «Цепь» — the length of the chains the bot released).
+ * The bot draws a whole chain within one tick, so the focus (VI) does not reach it: its VI plays as V.
  *
  * The bot (seeds `Math.imul(k, 2654435761) >>> 0`): the greedy chain of the phase A measure every 0.75 s (nearest first,
  * nearest next, until the plan ends on a survivor), a walk by a pattern, a spin every 6.7 s, a jump every 8.3 s; after the goals
@@ -22,6 +24,8 @@ import { createRtRun, rtArenaLoadout, rtArenaParams, rtMapNodes, rtRunParams, ty
 const args = process.argv.slice(2);
 const option = (name: string, fallback: string): string => { const at = args.indexOf(name); return at >= 0 ? args[at + 1] : fallback; };
 const SEEDS = Number(option('--seeds', '12')), STAY = Number(option('--stay', '30')), LIMIT = Number(option('--limit', '300'));
+const LEVELS = option('--levels', '4,5').split(',').map(Number) as RtAshLevel[];
+const ROMAN = ['0', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'];
 const seedOf = (k: number): number => Math.imul(k, 2654435761) >>> 0;
 
 /** A run of level `ash` with its final open (the first boss node of the map). */
@@ -73,12 +77,13 @@ function greedyChain(w: World): Vec[] | null {
   return points;
 }
 
-interface Result { won: boolean; damage: number; goals: boolean; goalTime: number | null; enemies: number }
+interface Result { won: boolean; damage: number; goals: boolean; goalTime: number | null; enemies: number; chains: number[] }
 function fight(ash: RtAshLevel, k: number, hp: number): Result {
   const run = finalRun(ash, k);
   const sim = new Simulation({ arena: FINAL_ARENA, params: rtArenaParams(run, rtRunParams(defaultParams())), seed: seedOf(k), hero: { hp, maxHp: hp }, loadout: rtArenaLoadout(run) });
   const w = sim.world;
   let enemySum = 0, samples = 0;
+  const chains: number[] = [];
   for (let t = 0; t < LIMIT * 60 && w.status === 'playing'; t++) {
     const leaving = w.greedStart !== null && w.time >= w.greedStart + STAY;
     if (t % 30 === 0 && !w.move) {
@@ -90,7 +95,7 @@ function fight(ash: RtAshLevel, k: number, hp: number): Result {
       if (points?.length) {
         sim.command({ t: 'begin', x: points[0].x, y: points[0].y });
         for (const p of points.slice(1)) sim.command({ t: 'drag', x: p.x, y: p.y, mode: 'full' });
-        if (w.chain.length) sim.command({ t: 'release' });
+        if (w.chain.length) { chains.push(w.chain.length); sim.command({ t: 'release' }); }
       }
     }
     if (t % 400 === 200) sim.command({ t: 'spin' });
@@ -99,17 +104,18 @@ function fight(ash: RtAshLevel, k: number, hp: number): Result {
     w.events.length = 0;
     if (t % 60 === 0) { enemySum += w.enemies.length; samples++; }
   }
-  return { won: w.status === 'victory', damage: w.stats.damageTaken, goals: w.greedStart !== null, goalTime: w.greedStart, enemies: samples ? enemySum / samples : 0 };
+  return { won: w.status === 'victory', damage: w.stats.damageTaken, goals: w.greedStart !== null, goalTime: w.greedStart, enemies: samples ? enemySum / samples : 0, chains };
 }
 
 const median = (xs: number[]): number => { const s = [...xs].sort((a, b) => a - b); return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2; };
 const mean = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length;
 const f1 = (x: number): string => x.toFixed(1).replace('.', ',');
 
-console.log(`Задача 18 «Испытание V»: финал «Последний рубеж», ${SEEDS} seed, после целей ${STAY} с, предел ${LIMIT} с (эвристика, жадный бот).\n`);
-console.log(`| Ступень | Цели (HP 999) | Время до целей, с, мед. | Врагов на арене, ср. | Урон (HP 999), мед. / ср. | Побед с HP ${RT_RUN_HP} |`);
-console.log('| --- | --- | --- | --- | --- | --- |');
-for (const ash of [4, 5] as const) {
+console.log(`Задачи 18 и 45 «Испытание»: финал «Последний рубеж», ступени ${LEVELS.map(l => ROMAN[l]).join(', ')}, ${SEEDS} seed, после целей ${STAY} с, предел ${LIMIT} с (эвристика, жадный бот).\n`);
+console.log(`| Ступень | Цели (HP 999) | Время до целей, с, мед. | Врагов на арене, ср. | Урон (HP 999), мед. / ср. | Побед с HP ${RT_RUN_HP} | Цепь (HP 999), мед. / ср. |`);
+console.log('| --- | --- | --- | --- | --- | --- | --- |');
+for (const ash of LEVELS) {
   const big = Array.from({ length: SEEDS }, (_, i) => fight(ash, i + 1, 999)), real = Array.from({ length: SEEDS }, (_, i) => fight(ash, i + 1, RT_RUN_HP));
-  console.log(`| ${ash === 4 ? 'IV' : 'V'} | ${big.filter(r => r.goals).length}/${SEEDS} | ${f1(median(big.filter(r => r.goalTime !== null).map(r => r.goalTime!)))} | ${f1(mean(big.map(r => r.enemies)))} | ${f1(median(big.map(r => r.damage)))} / ${f1(mean(big.map(r => r.damage)))} | ${real.filter(r => r.won).length}/${SEEDS} |`);
+  const lengths = big.flatMap(r => r.chains);
+  console.log(`| ${ROMAN[ash]} | ${big.filter(r => r.goals).length}/${SEEDS} | ${f1(median(big.filter(r => r.goalTime !== null).map(r => r.goalTime!)))} | ${f1(mean(big.map(r => r.enemies)))} | ${f1(median(big.map(r => r.damage)))} / ${f1(mean(big.map(r => r.damage)))} | ${real.filter(r => r.won).length}/${SEEDS} | ${lengths.length ? `${f1(median(lengths))} / ${f1(mean(lengths))}` : '—'} |`);
 }

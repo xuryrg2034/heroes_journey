@@ -286,11 +286,19 @@ function modded(world: World, stat: BuildStat, base: number, end: ChainEnd | nul
 /** Link radius R (chain.ts `reachRefusal`; the view draws the circle with it). */
 export const linkRadiusOf = (world: World): number => modded(world, 'linkRadius', world.params.linkRadius);
 /** Focus reserve (chain.ts focus, world.ts start focus; the view's focus bar). */
-export const focusMaxOf = (world: World): number => modded(world, 'focusMax', world.params.focusMax);
+export const focusMaxOf = (world: World): number => {
+  // Task 45 «Испытание VI»: the run's factor after the build's (`Kit.focusScale`; absent — the reserve as before).
+  const max = modded(world, 'focusMax', world.params.focusMax), k = world.kit?.focusScale;
+  return k === undefined ? max : max * k;
+};
 /** Hero walking speed (world.ts `stepHeroWalk`). */
 export const heroSpeedOf = (world: World): number => modded(world, 'heroSpeed', world.params.heroSpeed);
 /** Multiplier of the enemies' walk (world.ts `enemySpeed`; the reaper is left out there). */
-export const enemyWalkFactorOf = (world: World): number => modded(world, 'enemyWalk', 1);
+export const enemyWalkFactorOf = (world: World): number => {
+  // Task 45 «Испытание VII»: the run's factor with the build's (`Kit.walkScale`; absent — the walk as before).
+  const walk = modded(world, 'enemyWalk', 1), k = world.kit?.walkScale;
+  return k === undefined ? walk : walk * k;
+};
 /** HP the healing consumable restores (items.ts), not below 0. */
 export const itemHealOf = (world: World): number => Math.max(0, modded(world, 'itemHeal', Math.max(0, world.params.itemHeal)));
 /** Power every enemy link adds before its hit (chain.ts `strike`; a fallen link adds it too). */

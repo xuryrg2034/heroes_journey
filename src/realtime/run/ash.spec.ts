@@ -30,7 +30,7 @@ registerArena({
   heroStart: { x: 8, y: 5 }, obstacles: [], buttons: [], door: { x: 15.3, y: 5 }, enemies: [], killGoal: 9999,
 });
 const TICKS = (s: number): number => Math.round(s * 60);
-const LEVELS: readonly RtAshLevel[] = [0, 1, 2, 3, 4, 5];
+const LEVELS: readonly RtAshLevel[] = [0, 1, 2, 3, 4, 5, 6, 7, 8];
 const ORDINARY = ['battle', 'event', 'breakthrough'];
 const BATTLE_OF: Record<string, RtBattleKind> = { boss: 'final', hard: 'hard', event: 'event' };
 
@@ -66,10 +66,11 @@ function diffKeys(a: object, b: object): string[] {
   return [...new Set([...Object.keys(ra), ...Object.keys(rb)])].filter(key => JSON.stringify(ra[key]) !== JSON.stringify(rb[key])).sort();
 }
 
-check('the choice\'s data: levels 0 … V with marks, titles «Испытание I–V» (none for 0) and a line of at most 6 words; no «Пепел» in the texts', () => {
+check('the choice\'s data: levels 0 … VII (task 45, step 1: VIII waits for the fifth colour\'s view) with marks, titles «Испытание I–VII» (none for 0) and a line of at most 6 words; no «Пепел» in the texts', () => {
   const options = rtAshOptions();
-  assert(same(options.map(o => o.level), [0, 1, 2, 3, 4, 5]) && same(options.map(o => o.label), ['0', 'I', 'II', 'III', 'IV', 'V']), JSON.stringify(options));
-  assert(rtAshTitle(0) === '' && rtAshTitle(3) === 'Испытание III' && rtAshTitle(5) === 'Испытание V', 'titles');
+  assert(same(options.map(o => o.level), [0, 1, 2, 3, 4, 5, 6, 7]) && same(options.map(o => o.label), ['0', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII']), JSON.stringify(options));
+  assert(rtAshTitle(0) === '' && rtAshTitle(3) === 'Испытание III' && rtAshTitle(5) === 'Испытание V' && rtAshTitle(8) === 'Испытание VIII', 'titles');
+  assert(same(options.slice(6).map(o => o.text), ['Фокус короче на четверть', 'Враги быстрее на десятую']), 'the lines of VI and VII (design 16.10.2026)');
   for (const o of options) {
     const words = o.text.split(/\s+/).filter(Boolean).length;
     assert(words >= 1 && words <= 6 && !/пеп[её]л/i.test(o.text + o.title), `level ${o.level}: «${o.text}» (${words} words)`);
@@ -116,8 +117,12 @@ check('every battle node of rows 1–10 (8 maps): each level changes the loadout
     3: { loadout: [], params: ['invulnerability', 'toughTouch'] },
     4: { loadout: ['eliteAffixes'], params: [] },
     5: { loadout: ['floorScale', 'phaseScale'], params: [] },
+    // Task 45: VI — the focus, VII — the walk, VIII — the fifth colour (the panel's palette by the row off: absent below VIII).
+    6: { loadout: ['focusScale'], params: [] },
+    7: { loadout: ['walkScale'], params: [] },
+    8: { loadout: ['colors'], params: [] },
   };
-  const seen: Record<number, Set<string>> = { 1: new Set(), 2: new Set(), 3: new Set(), 4: new Set(), 5: new Set() };
+  const seen: Record<number, Set<string>> = { 1: new Set(), 2: new Set(), 3: new Set(), 4: new Set(), 5: new Set(), 6: new Set(), 7: new Set(), 8: new Set() };
   const base = rtRunParams(defaultParams());
   let nodes = 0;
   for (let k = 1; k <= 8; k++) {
@@ -133,7 +138,7 @@ check('every battle node of rows 1–10 (8 maps): each level changes the loadout
         for (const key of [...lo, ...pa]) seen[ash].add(key);
       }
       // III — the run of v40: the same loadout and params.
-      assert(same(looks[3], looks[6]), `row ${runRow(node.row)} ${node.type}: III ≠ v40`);
+      assert(same(looks[3], looks[LEVELS.length]),`row ${runRow(node.row)} ${node.type}: III ≠ v40`);
       const row = runRow(node.row), battle = BATTLE_OF[node.type] ?? 'battle';
       // IV: 2 affixes from row 6 (III: 1 on rows 5–8); V: the floor everywhere, the phases in the final only.
       assert((looks[4].loadout.eliteAffixes ?? 0) === (row >= 6 ? 2 : row >= 5 ? 1 : 0), `IV row ${row}: affixes ${looks[4].loadout.eliteAffixes}`);
@@ -315,7 +320,7 @@ check('saves: a run of each level loads back as saved; a save without `ash` (lev
   const run = JSON.parse(serializeRtRun(createRtRun(seedOf(5), { gift: 'mini', ash: 1 }))) as Record<string, unknown>;
   const zero = JSON.parse(serializeRtRun(createRtRun(seedOf(5), { gift: 'mini' }))) as Record<string, unknown>;
   const three = JSON.parse(serializeRtRun(createRtRun(seedOf(5), { gift: 'mini', ash: 3 }))) as Record<string, unknown>;
-  for (const [value, what] of [[{ ...run, ash: 0 }, 'ash 0'], [{ ...run, ash: 6 }, 'ash 6'], [{ ...run, ash: 1.5 }, 'ash 1.5'], [{ ...run, ash: '1' }, 'ash "1"'],
+  for (const [value, what] of [[{ ...run, ash: 0 }, 'ash 0'], [{ ...run, ash: 9 }, 'ash 9'], [{ ...run, ash: 1.5 }, 'ash 1.5'], [{ ...run, ash: '1' }, 'ash "1"'],
     [{ ...zero, ash: 1 }, 'level I with the potion'], [{ ...run, secondWind: true }, 'level I with the wind'], [{ ...three, gentleEntry: true }, 'level III with the gentle entry']] as const) {
     assert(parseRtRun(JSON.stringify(value)) === null, `malformed: ${what}`);
   }
@@ -349,6 +354,11 @@ check('the profile: the choice is closed until an unseeded run is won (a seeded 
   store.endRun({ reachedJailer: true, seeded: false, won: rtRunWon(won) });
   assert(store.ashOpen() && store.ashChoice() === 0, 'open after the first unseeded win');
   assert(store.chooseAsh(3) && store.ashChoice() === 3 && createRtProfileStore(storage).ashChoice() === 3, 'remembered');
+  // Task 45, step 1: VII is offered, VIII not yet (the fifth colour's view); a stored VIII reads as the highest offered.
+  assert(store.chooseAsh(7) && store.ashChoice() === 7 && !store.chooseAsh(8) && store.ashChoice() === 7, 'VII yes, VIII not yet');
+  const eight = memory(); eight.data.set(RT_PROFILE_STORAGE_KEY, '{"version":1,"giftFull":false,"won":true,"ash":8}');
+  assert(createRtProfileStore(eight).ashChoice() === 7, 'a stored VIII — VII');
+  assert(store.chooseAsh(3) && store.ashChoice() === 3, 'back to III');
   store.endRun({ reachedJailer: false, seeded: false, won: false });
   assert(store.ashOpen() && store.ashChoice() === 3, 'a later defeat keeps it');
   assert(store.chooseAsh(0) && store.ashChoice() === 0 && !storage.data.get(RT_PROFILE_STORAGE_KEY)!.includes('"ash"'), '0 removes the field');

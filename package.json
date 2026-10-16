@@ -25,6 +25,7 @@
     "test:realtime-run": "tsx src/realtime/run/rtRun.spec.ts",
     "test:realtime-gentle-entry": "tsx src/realtime/run/gentleEntry.spec.ts",
     "test:realtime-ash": "tsx src/realtime/run/ash.spec.ts",
+    "test:realtime-ash-skill": "tsx src/realtime/run/ashSkill.spec.ts",
     "test:realtime-forest": "tsx src/realtime/forest/forestLayer.spec.ts",
     "test:realtime-rosters": "tsx src/realtime/run/rosters.spec.ts",
     "test:realtime-marked-goals": "tsx src/realtime/run/markedGoals.spec.ts",

@@ -9,7 +9,7 @@ import { closeNode, ok, seedOf, takeGift } from '../src/realtime/run/runFight.te
  * Task 18 «Испытание I–V», the view (design 13–14.10.2026; src/realtime/view/runView.ts, view/nodeCard.ts, docs/realtime-slice.md
  * «Испытание») at 1280×720 by real clicks. Runs are walked in Node by the run's own commands and put into the page's storage:
  * - a lost run's end screen has no choice (the profile never won); a run won in the page — its final fought, the hero walked
- *   through the door — opens «Испытание: 0 · I · II · III · IV · V» over «Новый поход» for good;
+ *   through the door — opens «Испытание: 0 · I · … · VII» (task 45: VIII after the fifth colour's view) over «Новый поход» for good;
  * - a click chooses the level and its line («Неуязвимость 0,5 с, касание 2»), a reload keeps it, the new run takes it: the map
  *   header says «Испытание III», the run has no gentle entry;
  * - the node card of an «Испытание IV» run on row 6 says the fight's 2 traits («2 особых свойства»).
@@ -46,7 +46,7 @@ async function open(page: Page, run: RtRunState, profile: object | null): Promis
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
 }
 
-test('task 18: no choice before a won run; the final won in the page opens «Испытание: 0 · I · II · III · IV · V»; the level is remembered and the new run takes it — «Испытание III» on the map', async ({ page }) => {
+test('task 18: no choice before a won run; the final won in the page opens «Испытание: 0 · I · … · VII» (task 45); the level is remembered and the new run takes it — «Испытание III» on the map', async ({ page }) => {
   test.setTimeout(90_000);
   const errors = collectErrors(page);
   // A lost run's end: the profile has not won — no choice, only «Новый поход».
@@ -72,7 +72,7 @@ test('task 18: no choice before a won run; the final won in the page opens «И�
   await expect(end).toBeVisible();
   const choice = end.getByTestId('run-ash');
   await expect(choice).toBeVisible();
-  await expect(choice).toHaveText('Испытание:0IIIIIIIVV');
+  await expect(choice).toHaveText('Испытание:0IIIIIIIVVVIVII'); // task 45, step 1: 0 … VII
   await expect(end.getByTestId('ash-0')).toHaveAttribute('aria-pressed', 'true');
   await expect(end.getByTestId('run-ash-text')).toHaveText('Обычный поход');
   await expect(page.locator('body')).not.toContainText('Пепел');
@@ -85,6 +85,14 @@ test('task 18: no choice before a won run; the final won in the page opens «И�
   await expect(page.getByTestId('ash-3')).toHaveAttribute('title', 'Испытание III: + неуязвимость 0,5 с, касание 2');
   await page.getByTestId('ash-1').click();
   await expect(page.getByTestId('run-ash-text')).toHaveText('+ без зелья и второго дыхания');
+  // Task 45, step 1: VI and VII are offered with their lines, VIII not yet (the fifth colour's view comes in step 2).
+  await page.getByTestId('ash-6').click();
+  await expect(page.getByTestId('run-ash-text')).toHaveText('+ фокус короче на четверть');
+  await page.getByTestId('ash-7').click();
+  await expect(page.getByTestId('run-ash-text')).toHaveText('+ враги быстрее на десятую');
+  await expect(page.getByTestId('ash-8')).toHaveCount(0);
+  await page.mouse.move(0, 0);
+  await page.screenshot({ path: 'artifacts/realtime-ash-choice-vii.png' });
   await page.getByTestId('ash-3').click();
   await page.mouse.move(0, 0);
   await page.screenshot({ path: 'artifacts/realtime-ash-choice.png' });

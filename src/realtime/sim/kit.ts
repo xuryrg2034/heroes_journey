@@ -49,6 +49,7 @@ export interface Loadout {
   /**
    * Loop research, step 1 (docs/realtime-loop-research.md, section 4.2): chain colours of the newcomers, the first this many
    * of the four — a run by its row when its panel toggle `colorsByRow` is on (run/rtRun.ts `rtColorsByRow`). Absent — 4.
+   * Task 45 «Испытание VIII»: 5 — the four and the fifth chain colour (index 4) on every row (`MAX_COLORS`).
    */
   colors?: number;
   /**
@@ -124,6 +125,16 @@ export interface Loadout {
    */
   phaseScale?: number;
   /**
+   * Task 45 «Испытание VI» (run/rtRun.ts `rtAshSkill`): the focus reserve × this (build.ts `focusMaxOf`, after the build's own
+   * factor; 0.75 — a quarter shorter). The slowdown and the refill rate stay. Absent (or 1) — the reserve as before.
+   */
+  focusScale?: number;
+  /**
+   * Task 45 «Испытание VII»: the enemies' walk × this (build.ts `enemyWalkFactorOf` — the scope of the build's walk factor:
+   * walking only; not the reaper, charges, leaps, shots or windups). Absent (or 1) — the walk as before.
+   */
+  walkScale?: number;
+  /**
    * Task 40 «Гарнизон, шаг 1б»: the arena's deep start enemies stand too (`ArenaTemplate.deepEnemies`; world.ts `createWorld`) —
    * the run gives it to «Ров» on garrison rows 8–9 (the second keymaster, the dog handler) and to «Галерея» and «Караульня» from
    * row 8 once «Ров» was played (the keymaster). Absent — the template's start enemies as they are.
@@ -158,7 +169,7 @@ export interface Kit {
    * before phase A and of run rows 1–4 hash as before.
    */
   eliteAffixes?: number;
-  /** Loop research, step 1: colours of the newcomers, 2–3, with the arena's own (spawn.ts `palette`). Absent — 4: kits without it hash as before. */
+  /** Loop research, step 1: colours of the newcomers, 2–3, with the arena's own (spawn.ts `palette`); task 45: 5 — the fifth colour. Absent — 4: kits without it hash as before. */
   colors?: number;
   /** Phase B, Т2: the hammer of the run (absent — none: kits before phase B hash as before). */
   hammer?: HammerId;
@@ -199,6 +210,10 @@ export interface Kit {
   floorScale?: number;
   /** Task 18 «Испытание V»: the phase durations' factor (absent — 1: kits before hash as before). */
   phaseScale?: number;
+  /** Task 45 «Испытание VI»: the focus reserve's factor (absent — 1: kits before hash as before). */
+  focusScale?: number;
+  /** Task 45 «Испытание VII»: the enemies' walk factor (absent — 1: kits before hash as before). */
+  walkScale?: number;
   /** Task 40: the deep start enemies stood (absent — no: kits before hash as before). */
   deep?: true;
 }
@@ -209,6 +224,11 @@ export const EVENT_EXTRA_ENEMIES = 3;
 export const COLOR_COUNT = 4;
 /** Loop research, step 1: a palette has at least this many colours (fewer in a loadout — the full four). */
 export const MIN_COLORS = 2;
+/**
+ * Task 45 «Испытание VIII»: a palette has at most this many colours — the fifth chain colour (index 4) comes only when a loadout
+ * gives `colors` 5 (the sandbox's `colorCount` 5 too); without it the four of `COLOR_COUNT`, as before.
+ */
+export const MAX_COLORS = 5;
 /** Package «Урон имеет значение»: an armoured elite has at most this many plates; a tough newcomer at most this HP. */
 export const MAX_PLATES = 6;
 export const MAX_TOUGH_HP = 4;
@@ -248,7 +268,8 @@ export function kitOf(loadout: Loadout): Kit {
     ward: !!loadout.ward && talismans.includes('ash-ward'), wardUsed: false, startElite: !!loadout.startElite,
     extraStart: !!loadout.extraStart, earlyPace: !!loadout.earlyPace,
     ...count(loadout.eliteAffixes) > 0 ? { eliteAffixes: Math.min(MAX_AFFIXES, count(loadout.eliteAffixes)) } : {},
-    ...count(loadout.colors) >= MIN_COLORS && count(loadout.colors) < COLOR_COUNT ? { colors: count(loadout.colors) } : {},
+    // Task 45: 5 — the fifth colour («Испытание VIII»); 4 (or more than 5) — absent, the four as before.
+    ...count(loadout.colors) >= MIN_COLORS && count(loadout.colors) !== COLOR_COUNT && count(loadout.colors) <= MAX_COLORS ? { colors: count(loadout.colors) } : {},
     ...isHammerId(loadout.hammer) ? { hammer: loadout.hammer } : {},
     // Package «Урон имеет значение»: absent unless the loadout gives them (kits before hash as before).
     ...count(loadout.elitePlates) >= 1 ? { elitePlates: Math.min(MAX_PLATES, count(loadout.elitePlates)) } : {},
@@ -268,6 +289,9 @@ export function kitOf(loadout: Loadout): Kit {
     // Task 18 «Испытание V»: absent unless the run gives them (kits before hash as before).
     ...scale(loadout.floorScale) !== undefined ? { floorScale: scale(loadout.floorScale)! } : {},
     ...scale(loadout.phaseScale) !== undefined ? { phaseScale: scale(loadout.phaseScale)! } : {},
+    // Task 45 «Испытание VI–VII»: absent unless the run gives them (kits before hash as before).
+    ...scale(loadout.focusScale) !== undefined ? { focusScale: scale(loadout.focusScale)! } : {},
+    ...scale(loadout.walkScale) !== undefined ? { walkScale: scale(loadout.walkScale)! } : {},
     // Task 40: absent unless the run gives it (kits before hash as before).
     ...loadout.deep === true ? { deep: true as const } : {},
   };
