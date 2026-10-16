@@ -65,7 +65,7 @@ async function drag(page: Page, points: readonly (readonly [number, number])[]):
 
 /** The dash after the release has ended: no move, none of the test's row left (newcomers elsewhere do not count). */
 const dashDone = (page: Page): Promise<boolean> => untilFrame(page, (s, _a: number, late) => {
-  const done = !s.move && !s.enemies.some((e: any) => Math.abs(e.y - 5.5) < 0.4 && e.x > 5);
+  const done = !s.moving && !s.enemies.some((e: any) => Math.abs(e.y - 5.5) < 0.4 && e.x > 5);
   return done || late ? done : undefined;
 }, 0, 6);
 

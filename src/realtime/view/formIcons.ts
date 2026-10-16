@@ -63,8 +63,31 @@ export function formIconSvg(form: FormIcon, size = 24): string {
 }
 
 /** Task 44 «Сплавы»: the fusions the view draws. */
-export type FusionIcon = 'iceSeal' | 'spear' | 'boomerang';
+export type FusionIcon = 'iceSeal' | 'spear' | 'boomerang' | 'brand' | 'hunterBlast' | 'frostWave';
 const WOOD = '#c88a3a';
+/** The fire of the consumable (render.ts `EMBER`, `FLAME`). */
+const EMBER = '#ff8a3a';
+const FLAME = '#ffd36b';
+/** Task 46: an explosion's star — `n` spikes between the radii `ro` and `ri` round (12, 12). */
+const star = (n: number, ro: number, ri: number): string => {
+  const pts: string[] = [];
+  for (let i = 0; i < n * 2; i++) {
+    const t = -Math.PI / 2 + i * Math.PI / n, r = i % 2 ? ri : ro;
+    pts.push(`${(12 + Math.cos(t) * r).toFixed(2)} ${(12 + Math.sin(t) * r).toFixed(2)}`);
+  }
+  return `M${pts.join(' L')} Z`;
+};
+/** Task 46: the wave's ring of ice shards — `n` diamonds standing on the ring of radius `R` round (12, 12), long side outward. */
+const shardRing = (n: number, R: number): string => {
+  let out = '';
+  for (let i = 0; i < n; i++) {
+    const t = i * Math.PI * 2 / n - Math.PI / 2, ux = Math.cos(t), uy = Math.sin(t), nx = -uy, ny = ux, cx = 12 + ux * R, cy = 12 + uy * R, l = 3.6, w = 2.4;
+    const q = (a: number, b: number): string => `${(cx + ux * a + nx * b).toFixed(2)} ${(cy + uy * a + ny * b).toFixed(2)}`;
+    out += `<path d="M${q(l, 0)} L${q(0, w)} L${q(-l * 0.8, 0)} L${q(0, -w)} Z" fill="${ICE}" stroke="${NAVY}" stroke-width="1.3" stroke-linejoin="round"/>`;
+  }
+  return out;
+};
+
 /**
  * Task 44 (design 16.10.2026, docs/design-notes/task-44-fusions.md, 4): the fusions' icons in the same style — each grows from its
  * form part's icon: «Ледяная печать» — the seal's ring turned to ice with an ice shard in the middle; «Копьё» — «Прямая»'s spear
@@ -85,7 +108,43 @@ const FUSION_BODIES: Readonly<Record<FusionIcon, string>> = {
   boomerang: `<path d="M3.5 9 Q12 1.5 20.5 9 L18 12 Q12 7 6 12 Z" fill="${WOOD}" stroke="${NAVY}" stroke-width="1.6" stroke-linejoin="round"/>` +
     `<path d="M18.5 16.5 Q12 22.5 5.5 16.5" fill="none" stroke="${NAVY}" stroke-width="4" stroke-linecap="round"/><path d="M18.5 16.5 Q12 22.5 5.5 16.5" fill="none" stroke="${LEMON}" stroke-width="2" stroke-linecap="round"/>` +
     `<path d="M3 15.5 L7.6 14.2 L6.4 19 Z" fill="${LEMON}" stroke="${NAVY}" stroke-width="1.3" stroke-linejoin="round"/>`,
+  // Task 46 (design 16.10.2026): «Клеймо» grows from «Огненный проход»'s tongue of flame and «Призма»: a branding iron of the chain's colour
+  // (here coral, with a rim of embers) in the flame; «Подрыв» from «Взрыв на конце»: the blast's star with an elite's horned helmet in
+  // the middle; «Ледяная волна» from «Наледь» and «Ударная волна»: the wave's ring made of ice shards round a hero's dot.
+  brand: `<path d="M12 11 C8 10.6 4 13.6 1.4 22.4 C3.4 19.6 4.8 20.4 5.8 19.2 C5.6 21.2 7 20.8 8.2 18.8 C8.8 20 10 19.4 10.8 17.4 C12.2 16.2 12.8 13.6 12 11 Z" fill="${EMBER}" stroke="${NAVY}" stroke-width="1.5" stroke-linejoin="round"/>` +
+    `<path d="M10.8 12.4 C8.4 12.4 6 14.6 4.4 18.6 C5.8 17.4 6.6 17.8 7.4 17 C7.6 17.8 8.8 17.4 9.4 16.2 C10.4 15.4 11 14 10.8 12.4 Z" fill="${FLAME}"/>` +
+    `<path d="M10 14 L16.6 7.4" stroke="${NAVY}" stroke-width="4" stroke-linecap="round"/><path d="M10 14 L16.6 7.4" stroke="${WOOD}" stroke-width="2" stroke-linecap="round"/>` +
+    `<circle cx="18" cy="6" r="4.8" fill="${CORAL}" stroke="${NAVY}" stroke-width="1.6"/><circle cx="18" cy="6" r="3.1" fill="none" stroke="${FLAME}" stroke-width="1"/>` +
+    `<path d="M18 3.8 L18.7 5.4 L20.4 5.5 L19.1 6.6 L19.6 8.2 L18 7.3 L16.4 8.2 L16.9 6.6 L15.6 5.5 L17.3 5.4 Z" fill="${FLAME}"/>`,
+  hunterBlast: `<path d="${star(9, 11.4, 7.2)}" fill="${EMBER}" stroke="${NAVY}" stroke-width="1.6" stroke-linejoin="round"/>` +
+    `<path d="${star(9, 8.6, 5.6)}" fill="${FLAME}"/>` +
+    `<path d="M8.2 11 Q5.2 10.6 5 6.8 Q7.8 8 9.6 9.4 Z" fill="${PALE}" stroke="${NAVY}" stroke-width="1.3" stroke-linejoin="round"/>` +
+    `<path d="M15.8 11 Q18.8 10.6 19 6.8 Q16.2 8 14.4 9.4 Z" fill="${PALE}" stroke="${NAVY}" stroke-width="1.3" stroke-linejoin="round"/>` +
+    `<path d="M7.8 16.6 Q7.4 8.6 12 8.6 Q16.6 8.6 16.2 16.6 Z" fill="${STEEL}" stroke="${NAVY}" stroke-width="1.5" stroke-linejoin="round"/>` +
+    `<path d="M9.6 12.4 L14.4 12.4 L13.8 14.2 L10.2 14.2 Z" fill="${NAVY}"/>`,
+  frostWave: `<circle cx="12" cy="12" r="8.4" fill="none" stroke="${NAVY}" stroke-width="3.6"/><circle cx="12" cy="12" r="8.4" fill="none" stroke="${ICE}" stroke-width="1.8"/>` +
+    shardRing(6, 8.4) + dot(12, 12, 3, PALE) +
+    `<path d="M11.2 11.2 L12.6 11.8" stroke="#ffffff" stroke-width="0.9" stroke-linecap="round"/>`,
 };
+
+/** Task 47 §1: hammers with a drawn icon (the others keep their glyph, view/buildColumn.ts). */
+export type HammerIcon = 'fire';
+/**
+ * Task 47 §1 (design 16.10.2026, docs/design-notes/task-47-view-polish.md): «Огненный проход» — the dash's arrow with a tongue of the
+ * consumable's fire behind it (the burning trail). Not «Режущий проход»'s slash, «Возврат»'s arrow back, «Наледь»'s ice shards, nor the
+ * fire rim of the highlight.
+ */
+const HAMMER_BODIES: Readonly<Record<HammerIcon, string>> = {
+  fire: `<path d="M14 10 C9 9.6 4.4 13 1.2 22.8 C3.6 19.6 5 20.6 6.2 19.2 C6 21.4 7.6 21 9 18.6 C9.6 20 11 19.4 11.8 17 C13.4 15.6 14.6 13.4 14 10 Z" fill="${EMBER}" stroke="${NAVY}" stroke-width="1.5" stroke-linejoin="round"/>` +
+    `<path d="M12.6 11.6 C9.6 11.6 6.6 14 4.6 18.8 C6.4 17.2 7.4 17.6 8.4 16.6 C8.6 17.8 10 17.2 10.8 15.6 C12 14.8 12.8 13.4 12.6 11.6 Z" fill="${FLAME}"/>` +
+    `<path d="M11.6 12.4 L19 5" stroke="${NAVY}" stroke-width="4" stroke-linecap="round"/><path d="M11.6 12.4 L19 5" stroke="${PALE}" stroke-width="2" stroke-linecap="round"/>` +
+    `<path d="M22.6 1.4 L21 9.6 L14.4 3 Z" fill="${PALE}" stroke="${NAVY}" stroke-width="1.5" stroke-linejoin="round"/>`,
+};
+
+/** The SVG markup of a hammer's icon, `size` px square. */
+export function hammerIconSvg(hammer: HammerIcon, size = 24): string {
+  return `<svg class="rt-form-icon rt-hammer-icon" data-hammer="${hammer}" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">${HAMMER_BODIES[hammer]}</svg>`;
+}
 
 /** The SVG markup of a fusion's icon, `size` px square. */
 export function fusionIconSvg(fusion: FusionIcon, size = 24): string {

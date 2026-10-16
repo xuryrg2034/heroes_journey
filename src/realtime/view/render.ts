@@ -47,7 +47,7 @@ import { SLOT_BUST_SOURCE, goblinOf } from '../sim/slot';
 import { bustBlink } from './bustBlink';
 import { dashCheque } from '../sim/purse';
 import { chainFeel, DashLinks, QUIET_LINKS } from './chainFeel';
-import { FX_DEFAULT, FlashGate, HEAVY_LINE, shardCount, shardLife, type FxLevel } from './juice';
+import { FX_DEFAULT, FlashGate, HEAVY_LINE, LONG_ARM_FLASH, SPEED_LINES, SPEED_LINE_GAP, SPEED_LINE_LEN, SQUASH_TIME, shardCount, shardLife, squashScale, type FxLevel, type SquashKind } from './juice';
 import { CASTELLAN, GUARD, HANDLER, HOUND, KEYMASTER, KNIGHT, LEVER_COOLDOWN, STAND, castellanGrate, castellanMove, gateLeverLeft, gateLeverReady, houndFrenzied, knightLane, knightSwingRadius, prisonerRioting } from '../sim/enemies/garrison';
 import { CROSSBOW, crossbowLine } from '../sim/enemies/crossbow';
 import { drawBoltLine, drawGateLever, drawGrate } from './courtView';
@@ -238,6 +238,8 @@ const THORN = 0x2b3a1d, THORN_INK = 0x9a8452;
 const EMBER = 0xff8a3a, FLAME = 0xffd36b, ASH = 0x7a7a72;
 /** Task 31: real seconds the flare of the fire's path lasts. */
 const FIRE_FLARE_LIFE = 0.45;
+/** Task 46 «Клеймо»: a painted body's new colour fades in (and the old fades out) over this many real seconds. */
+const PAINT_FADE = 0.2;
 /** П8: the colour of the caption plates (lavender: not the elite's lemon, not the player's pale blue). */
 const CAPTION_COLOR = 0xc8b0ff;
 /** К7 «Проклятый сундук»: the curse's violet (the chest's eye and chain glow, the hero's border, the counter). */
@@ -379,12 +381,24 @@ function drawSigil(g: GraphicsContext, color: number, size: number, ink: number,
   else g.poly([0, y - s, s * 0.85, y, 0, y + s, -s * 0.85, y]).stroke({ color: ink, width: s * 0.35 });
 }
 
+/** The canvas's background; task 47 §2: the band over the view's top border is of it. */
+const CANVAS_BG = 0x10150f;
+
 /** П1 «Глубина звена»: render frames between two searches of the same drawn chain (design answer 11.10.2026). */
 export const LINK_DEPTH_FRAMES = 6;
 
 export class RealtimeRenderer {
   readonly app = new Application();
   private readonly root = new Container();
+  /**
+   * Task 47 §2 (design 16.10.2026, variant 1): the camera's border under the HUD plate. The world (bodies, objects, effects, the chain's
+   * highlight, its texts) is seen only in the view (`freeTop` down: under the plate and the boss bar) — above it a band of the canvas's
+   * own background covers it (`viewBorder`; the look of a mask, without the stencil's cost: a mask on the world halved the frame rate
+   * with 60 enemies). The hero stays over the border whole — his drawing, HP bar, ring R, power number, combo and curse counter are in
+   * `heroRoot`, drawn after the band with the world's transform: at the top edge his head shows through the plate as before.
+   */
+  private readonly heroRoot = new Container();
+  private readonly viewBorder = new Graphics();
   /** Floor and obstacles never change during a fight: drawn once into a cached texture. */
   private readonly staticLayer = new Container();
   private readonly floor = new Graphics();
@@ -569,7 +583,24 @@ export class RealtimeRenderer {
    * plates a «Копьё» hit takes, written over a corridor elite (0 — none); `ice` — bodies inside a «Ледяная печать» ring with the
    * frost sign; `backPower` — the power badge of «Бумеранг»'s second pass (-1 — none), `backFull` — it goes with the full power.
    */
-  readonly fusionShown = { spearPlates: 0, ice: 0, backPower: -1, backFull: 0 };
+  readonly fusionShown = {
+    spearPlates: 0, ice: 0, backPower: -1, backFull: 0,
+    /** Task 46 «Клеймо»: rings of paint on the bodies the lit path will paint (0 — the fire does not light, or no paint). */
+    paint: 0,
+    /** Task 46 «Подрыв»: the end blast's circle — radius in cells (0 — none), `blastDetonate` 1 — the wide circle with the thick rim, `blastNumber` — the hit written at it (0 — none), `blastMarks` — outcome marks on bodies, `blastPlates` — the plates the words over an elite say. */
+    blastRadius: 0, blastDetonate: 0, blastNumber: 0, blastMarks: 0, blastPlates: 0,
+    /** Task 46 «Ледяная волна»: the wave's circle — radius in cells (0 — none), bodies with the frost sign (`waveIce`), with the white rim of brittleness (`waveBrittle`), marked as killed (`waveKills`). */
+    waveRadius: 0, waveIce: 0, waveBrittle: 0, waveKills: 0, wavePlates: 0,
+    /** Task 46 «Клеймо», the execution: paint flashes played; bodies whose new colour is still fading in. */
+    paintFlashes: 0, paintFading: 0,
+    /** Task 46 «Подрыв»: detonation flashes played. */
+    detonations: 0,
+  };
+  /** Task 46: texts of the fusions' highlight (the blast's number), a pool over the root. */
+  private readonly fusionLabels: Text[] = [];
+  /** Task 46 «Клеймо»: the view's clock at which a body was painted (its new colour fades in over `PAINT_FADE`); the old drawing fades out as a ghost. */
+  private readonly paintAt = new Map<number, number>();
+  private readonly ghosts: { root: Container; life: number }[] = [];
   /** Task 44 «Бумеранг»: the power number on its badge. */
   private backPowerLabel: Text | null = null;
   /** The experiment `loopHint`: the figure found at the last search (the view recomputes it every few frames, never in the sim). */
@@ -665,9 +696,17 @@ export class RealtimeRenderer {
   private readonly flashGate = new FlashGate();
   /**
    * Task 35 (tests read it): С1 — full-screen flashes started and held back (the level 0 or the cap), frames with a shake offset
-   * and the largest offset, px; С2 — shards thrown so far, the count of the last kill's burst, shards flying now.
+   * and the largest offset, px; С2 — shards thrown so far, the count of the last kill's burst, shards flying now. Task 47 (pack 2): С7 `squashes` — squashes started, `squashMax` — the largest deviation of the hero's drawing scale from 1 drawn;
+   * С4 `speedLines` — frames with «Быстрые ноги»'s speed lines, `armFlashes` — «Длинная рука»'s brighter rings started, `armBright` — the
+   * ring brighter in the last frame (1/0).
    */
-  readonly juiceShown = { flashes: 0, flashesHeld: 0, shakeFrames: 0, shakeMax: 0, shards: 0, lastBurst: 0, shardsLive: 0, heavyLine: 0, notches: [] as number[] };
+  readonly juiceShown = { flashes: 0, flashesHeld: 0, shakeFrames: 0, shakeMax: 0, shards: 0, lastBurst: 0, shardsLive: 0, heavyLine: 0, notches: [] as number[], squashes: 0, squashMax: 0, speedLines: 0, armFlashes: 0, armBright: 0 };
+  /** Task 47, С7: the hero's squash on (its kind and real seconds into it); null — none. `wasDash` — the dash of the last frame. */
+  private squash: { kind: SquashKind; t: number } | null = null;
+  private wasDash = false;
+  /** Task 47, С4 «Длинная рука»: the view's clock until which the reach ring burns brighter; the reach of the last frame (units). */
+  private armUntil = 0;
+  private lastReach = 0;
   /** Task 35, С2: the shards of dead enemies — one pool of particles on one texture, tinted by the enemy's colour. */
   private readonly shardLayer = new ParticleContainer({ dynamicProperties: { position: true, rotation: true, vertex: true, color: true } });
   private readonly shards: { p: Particle; vx: number; vy: number; spin: number; life: number; total: number; delay: number; s: number }[] = [];
@@ -686,7 +725,7 @@ export class RealtimeRenderer {
   async init(host: HTMLElement): Promise<void> {
     await this.app.init({
       resizeTo: host,
-      background: 0x10150f,
+      background: CANVAS_BG,
       antialias: true,
       autoDensity: true,
       resolution: Math.min(window.devicePixelRatio || 1, 2),
@@ -694,15 +733,16 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.reachLayer, this.reachMask, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.heroLayer, this.overlay, this.prologueLayer, this.fxLayer, this.snapLayer, this.shardLayer, this.flash);
-    this.app.stage.addChild(this.root, this.edgeLayer);
+    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.overlay, this.prologueLayer, this.fxLayer, this.snapLayer, this.shardLayer, this.flash);
+    this.heroRoot.addChild(this.reachLayer, this.reachMask, this.heroLayer);
+    this.app.stage.addChild(this.root, this.viewBorder, this.heroRoot, this.edgeLayer);
     this.initShards();
     this.heroArt = makePlayer();
     this.heroLayer.addChild(this.heroRing, this.heroArt);
     this.comboText = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 46, fontWeight: 'bold', fill: 0xfff2c4, stroke: { color: 0x200c08, width: 7 } } });
     this.comboText.anchor.set(0.5, 1);
     this.comboText.visible = false;
-    this.root.addChild(this.comboText);
+    this.heroRoot.addChild(this.comboText);
   }
 
   /**
@@ -745,6 +785,7 @@ export class RealtimeRenderer {
    */
   layout(freeWidth: number, height: number, top = 0, boss = false): void {
     this.freeW = freeWidth; this.freeH = height; this.freeTop = top; this.bossView = boss;
+    this.viewBorder.clear().rect(0, 0, freeWidth, top).fill(CANVAS_BG);
     this.fitScale();
     this.camera.clamp(this.bounds());
     this.placeRoot();
@@ -762,6 +803,7 @@ export class RealtimeRenderer {
     if (!a || (a.width <= CAMERA.refW && a.height <= CAMERA.refH)) scale = Math.min(scale, (this.freeH - this.freeTop - margin * 2) / (CAMERA.refH * UNIT));
     this.scale = Math.max(0.1, scale);
     this.root.scale.set(this.scale);
+    this.heroRoot.scale.set(this.scale);
   }
 
   /** The view in units and the arena it stays inside. */
@@ -778,6 +820,7 @@ export class RealtimeRenderer {
     this.base.x = Math.round(this.freeW / 2 - this.camera.x * k);
     this.base.y = Math.round(this.freeTop + (this.freeH - this.freeTop) / 2 - this.camera.y * k);
     this.root.position.set(this.base.x, this.base.y);
+    this.heroRoot.position.set(this.base.x, this.base.y);
   }
 
   /**
@@ -1232,7 +1275,12 @@ export class RealtimeRenderer {
       seen.add(e.id);
       let view = this.enemyViews.get(e.id);
       const colorless = colorlessLink(world, e);
-      if (view && (view.look !== look || view.color !== e.color || view.colorless !== colorless || (view.hp > 0) !== (e.hp > 0))) { view.root.destroy({ children: true }); this.enemyViews.delete(e.id); view = undefined; }
+      if (view && (view.look !== look || view.color !== e.color || view.colorless !== colorless || (view.hp > 0) !== (e.hp > 0))) {
+        // Task 46 «Клеймо»: a painted body's old drawing stays as a ghost and fades out while the new one fades in (`PAINT_FADE`).
+        if (view.look === look && view.color !== e.color && this.clock - (this.paintAt.get(e.id) ?? -9) < PAINT_FADE) this.ghosts.push({ root: view.root, life: PAINT_FADE });
+        else view.root.destroy({ children: true });
+        this.enemyViews.delete(e.id); view = undefined;
+      }
       if (!view) {
         const root = new Container(), { body, grey, hpLabel, exclaim, quills } = this.buildEnemyBody(e, look, colorless);
         root.addChild(body); this.enemyLayer.addChild(root);
@@ -1266,7 +1314,9 @@ export class RealtimeRenderer {
       const dim = color !== null && !colorless && !sameColor(world, e.color, color) ? strength : 0;
       if (dim > 0 && view.root.visible) dimmed++;
       if (colorless && view.root.visible) colorlessShown++;
-      view.root.alpha = mode === 'alpha' ? 1 - dim : 1;
+      const paintedAt = this.paintAt.get(e.id), fade = paintedAt === undefined ? 1 : Math.min(1, Math.max(0, (this.clock - paintedAt) / PAINT_FADE));
+      if (paintedAt !== undefined && fade >= 1) this.paintAt.delete(e.id);
+      view.root.alpha = (mode === 'alpha' ? 1 - dim : 1) * fade;
       const shade = Math.round(255 * (mode === 'darken' ? 1 - dim : 1));
       view.root.tint = (shade << 16) | (shade << 8) | shade;
       if (view.grey) view.grey.alpha = mode === 'desaturate' ? dim : 0;
@@ -2028,6 +2078,21 @@ export class RealtimeRenderer {
     }
     this.playerEffects.cutTrail = segments;
     if (segments) this.playerEffects.cutFrames++;
+    // Task 47, С4 «Быстрые ноги»: speed lines behind the dashing hero — pale streaks against his way (from the trail of the last
+    // 0.2 s); С1 scales their alpha, at 0 there are none.
+    const last = this.dashTrail.at(-1), first = this.dashTrail[0];
+    if (dashLike(world) && this.fxLevel > 0 && world.kit?.talismans.includes(RELICS.swiftFeet) && last && first) {
+      const dx = last.x - first.x, dy = last.y - first.y, d = Math.hypot(dx, dy);
+      if (d > 0.05) {
+        const ux = dx / d, uy = dy / d, nx = -uy, ny = ux, a = 0.7 * this.fxLevel / 100;
+        for (let i = 0; i < SPEED_LINES; i++) {
+          const off = (i - (SPEED_LINES - 1) / 2) * SPEED_LINE_GAP, len = SPEED_LINE_LEN * (i === (SPEED_LINES - 1) / 2 ? 1.25 : 1);
+          const x0 = world.hero.x - ux * 0.45 + nx * off, y0 = world.hero.y - uy * 0.45 + ny * off;
+          g.moveTo(x0 * UNIT, y0 * UNIT).lineTo((x0 - ux * len) * UNIT, (y0 - uy * len) * UNIT).stroke({ color: 0xeaf6ff, width: 2.5, alpha: a, cap: 'round' });
+        }
+        this.juiceShown.speedLines++;
+      }
+    }
   }
 
   /** Task 12: what the marked view drew in the last frame — the horde ring (its members), the reticles, the leaders' crowns (tests read it). */
@@ -2200,11 +2265,22 @@ export class RealtimeRenderer {
     this.curseShown.chests = chests;
   }
 
-  private drawHero(world: World): void {
+  private drawHero(world: World, dt: number): void {
     const hero = world.hero, art = this.heroArt;
     this.heroLayer.position.set(hero.x * UNIT, hero.y * UNIT);
+    // Task 47, С7: the dash starts — the hero stretches up; it ends — he squashes (the drawing only; С1 scales it, 0 — none).
+    const dash = dashLike(world);
+    if (dash !== this.wasDash && this.fxLevel > 0) { this.squash = { kind: dash ? 'start' : 'end', t: 0 }; this.juiceShown.squashes++; }
+    this.wasDash = dash;
+    let sq = { x: 1, y: 1 };
+    if (this.squash) {
+      sq = squashScale(this.squash.kind, this.squash.t, this.fxLevel);
+      this.juiceShown.squashMax = Math.max(this.juiceShown.squashMax, Math.abs(sq.x - 1), Math.abs(sq.y - 1));
+      this.squash.t += dt;
+      if (this.squash.t >= SQUASH_TIME) this.squash = null;
+    }
     if (art) {
-      art.scale.set(0.95);
+      art.scale.set(0.95 * sq.x, 0.95 * sq.y);
       art.alpha = hero.invulnerable > 0 && world.status === 'playing' ? (Math.floor(this.clock * 20) % 2 ? 0.4 : 1) : 1;
     }
     const flash = Math.max(world.params.hitFlash, 0.01), hurt = Math.min(1, hero.hurtFlash / flash);
@@ -2276,7 +2352,7 @@ export class RealtimeRenderer {
       this.curseText = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 15, fontWeight: 'bold', fill: CURSE, stroke: { color: CURSE_DARK, width: 4 } } });
       this.curseText.anchor.set(0.5, 0);
       this.curseText.visible = false;
-      this.root.addChild(this.curseText);
+      this.heroRoot.addChild(this.curseText);
     }
     const text = this.curseText, curse = world.curse, on = !!curse && cursed(world) && world.status === 'playing';
     text.visible = on;
@@ -2417,7 +2493,7 @@ export class RealtimeRenderer {
       this.powerText = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 34, fontWeight: 'bold', fill: POWER_WARM, stroke: { color: 0x200c08, width: 6 } } });
       this.powerText.anchor.set(0.5, 1);
       this.powerText.visible = false;
-      this.root.addChild(this.powerText);
+      this.heroRoot.addChild(this.powerText);
     }
     const text = this.powerText, move = world.move, plan = this.drawnPlan;
     let value: number | null = null, red = false, drawing = false;
@@ -2679,9 +2755,50 @@ export class RealtimeRenderer {
         this.secondWindShown++;
         continue;
       }
-      if (ev.type === 'wave') { this.playerBurst(ev.x, ev.y, ev.r, PLAYER_FX, 0.16, 0.35, true); this.playerEffects.waves++; continue; }
+      if (ev.type === 'wave') {
+        this.playerBurst(ev.x, ev.y, ev.r, PLAYER_FX, 0.16, 0.35, true); this.playerEffects.waves++;
+        // Task 46 «Ледяная волна»: the wave goes with a white rim (the bodies it leaves alive stand in the cold, drawn by the cold's ring).
+        if (world.kit?.talismans.includes(FUSIONS.frostWave) && this.fxLevel > 0) {
+          const rim = new Graphics().circle(0, 0, ev.r * UNIT).stroke({ color: 0xffffff, width: 7, alpha: 0.95 * this.fxLevel / 100 });
+          rim.position.set(ev.x * UNIT, ev.y * UNIT);
+          this.fxLayer.addChild(rim);
+          this.bursts.push({ g: rim, life: 0.4, total: 0.4, grow: true });
+        }
+        continue;
+      }
+      // Task 46 «Клеймо»: the bodies took the chain's colour — a short flash of that colour on each (the new colour fades in, `syncEnemies`).
+      if (ev.type === 'paint') {
+        const k = this.fxLevel / 100, ink = chainInk(ev.color);
+        for (const id of ev.ids) {
+          this.paintAt.set(id, this.clock);
+          const e = world.enemies.find(x => x.id === id);
+          if (!e || this.fxLevel <= 0) continue;
+          const flash = new Graphics().circle(0, 0, enemyDrawRadius(world.params) * UNIT * 1.5).fill({ color: ink, alpha: 0.5 * k }).stroke({ color: 0xffffff, width: 3, alpha: 0.9 * k });
+          flash.position.set(e.x * UNIT, e.y * UNIT);
+          this.fxLayer.addChild(flash);
+          this.bursts.push({ g: flash, life: 0.3, total: 0.3 });
+        }
+        this.fusionShown.paintFlashes++;
+        continue;
+      }
       if (ev.type === 'hammer') {
-        if (ev.kind === 'blast') { this.playerBurst(ev.x, ev.y, ev.r ?? 1.5, 0xffffff, 0.42, 0.35); this.playerEffects.blasts++; }
+        if (ev.kind === 'blast') {
+          this.playerBurst(ev.x, ev.y, ev.r ?? 1.5, 0xffffff, 0.42, 0.35); this.playerEffects.blasts++;
+          // Task 46 «Подрыв»: a bigger flash than the plain blast's — an ember core and a second white wave, a stronger shake (all by the С1 level).
+          if (ev.detonate && this.fxLevel > 0) {
+            const k = this.fxLevel / 100, R = (ev.r ?? 2.25) * UNIT;
+            const core = new Graphics().circle(0, 0, R).fill({ color: SPARK, alpha: 0.6 * k }).stroke({ color: 0xfff2c4, width: 8, alpha: 0.95 * k });
+            core.position.set(ev.x * UNIT, ev.y * UNIT);
+            this.fxLayer.addChild(core);
+            this.bursts.push({ g: core, life: 0.5, total: 0.5, grow: true });
+            const wide = new Graphics().circle(0, 0, R * 1.25).stroke({ color: 0xffffff, width: 5, alpha: 0.9 * k });
+            wide.position.set(ev.x * UNIT, ev.y * UNIT);
+            this.fxLayer.addChild(wide);
+            this.bursts.push({ g: wide, life: 0.55, total: 0.55, grow: true });
+            this.shakeLeft = this.shakeTotal = 0.25; this.shakeAmp = Math.max(this.shakeAmp, 9);
+            this.fusionShown.detonations++;
+          }
+        }
         // `fire`: the fire is drawn from the module's state (`hammerFireOf`). Task 31 (`fireMinLinks`): the dash reached the
         // threshold and the whole path lit at once (`flare`) — the path flashes in one stroke with a burst at each of its points.
         else if (ev.kind === 'fire') { if (ev.flare?.length) this.fireFlare(ev.flare, ev.r ?? 0.5); }
@@ -2972,6 +3089,8 @@ export class RealtimeRenderer {
     this.linkDepthShown.labels = [];
     this.pierceShown.arrow = 0; this.pierceShown.marks = 0; this.pierceShown.end = 0;
     this.fusionShown.spearPlates = 0; this.fusionShown.ice = 0; this.fusionShown.backPower = -1; this.fusionShown.backFull = 0;
+    Object.assign(this.fusionShown, { paint: 0, blastRadius: 0, blastDetonate: 0, blastNumber: 0, blastMarks: 0, blastPlates: 0, waveRadius: 0, waveIce: 0, waveBrittle: 0, waveKills: 0, wavePlates: 0 });
+    for (const label of this.fusionLabels) label.visible = false;
     if (this.backPowerLabel) this.backPowerLabel.visible = false;
     this.signals.quillBadges = 0;
     this.eliteShown.planPlates = 0;
@@ -2995,8 +3114,17 @@ export class RealtimeRenderer {
     this.heroReachShown = world.status === 'playing';
     // Phase B (Д5): the radius drawn (units) — «Длинная рука» and «Широкий круг» widen it (tests read it).
     this.heroReachRadius = linkRadiusOf(world);
+    // Task 47, С4 «Длинная рука»: the reach grew while a chain is drawn (the counters' window gave R ×1.5) — the rings burn brighter
+    // for `LONG_ARM_FLASH` s.
+    if (world.chain.length && this.lastReach > 0 && this.heroReachRadius > this.lastReach + 1e-9 && world.kit?.talismans.includes(COUNTER_TALISMANS.longArm)) {
+      this.armUntil = this.clock + LONG_ARM_FLASH;
+      this.juiceShown.armFlashes++;
+    }
+    this.lastReach = this.heroReachRadius;
+    const arm = Math.max(0, Math.min(1, (this.armUntil - this.clock) / LONG_ARM_FLASH));
+    this.juiceShown.armBright = arm > 0 ? 1 : 0;
     if (this.heroReachShown) {
-      rg.circle(hero.x * UNIT, hero.y * UNIT, this.heroReachRadius * UNIT).stroke({ color: 0xffffff, width: 1.25, alpha: 0.22 });
+      rg.circle(hero.x * UNIT, hero.y * UNIT, this.heroReachRadius * UNIT).stroke({ color: 0xffffff, width: 1.25 + 2 * arm, alpha: 0.22 + 0.6 * arm });
       reach++;
     }
     this.visibleReachCircles = reach;
@@ -3156,17 +3284,18 @@ export class RealtimeRenderer {
     const anchor = chainAnchor(world);
     this.drawLoop(g, world, plan.seal, ink);
     this.drawPierce(g, world, plan.pierce, ink);
+    this.drawFusionEnd(g, world, plan, ink);
     if (!plan.endsOnSurvivor && !plan.endsOnObject && !plan.seal) {
       if (twinNext !== null) {
         // Task 33 «Близнецы»: the next colour — the tail to the pointer, the reach ring and a bead at the last link.
         const next = chainInk(twinNext), ax = anchor.x * UNIT, ay = anchor.y * UNIT;
         if (ui.pointer) for (const [w, c, a] of [[6, NAVY, 0.6], [3.5, next, 0.9]] as const) g.moveTo(ax, ay).lineTo(ui.pointer.x * UNIT, ui.pointer.y * UNIT).stroke({ color: c, width: w, alpha: a, cap: 'round' });
-        g.circle(ax, ay, linkRadiusOf(world) * UNIT).stroke({ color: next, width: 2, alpha: 0.6 });
+        g.circle(ax, ay, linkRadiusOf(world) * UNIT).stroke({ color: next, width: 2 + 2 * arm, alpha: 0.6 + 0.4 * arm });
         g.circle(ax, ay, 8).fill(next).stroke({ color: NAVY, width: 2.5 });
       } else {
         if (ui.pointer) g.moveTo(anchor.x * UNIT, anchor.y * UNIT).lineTo(ui.pointer.x * UNIT, ui.pointer.y * UNIT).stroke({ color: ink, width: 2, alpha: 0.45 });
         // Reach of the next link and the valid next links (outlined; `nextCandidates` already counts both anchors).
-        g.circle(anchor.x * UNIT, anchor.y * UNIT, linkRadiusOf(world) * UNIT).stroke({ color: ink, width: 1.5, alpha: 0.35 });
+        g.circle(anchor.x * UNIT, anchor.y * UNIT, linkRadiusOf(world) * UNIT).stroke({ color: ink, width: 1.5 + 2.5 * arm, alpha: 0.35 + 0.6 * arm });
       }
       this.visibleReachCircles = ++reach;
       // Stage G: the hero is a second anchor — his circle (always drawn faint) gets the chain color too.
@@ -3291,6 +3420,125 @@ export class RealtimeRenderer {
       const a0 = turn + i * part, a1 = a0 + part;
       g.moveTo(x + Math.cos(a0) * R, y + Math.sin(a0) * R).arc(x, y, R, a0, a1).stroke({ color: c, width: 7.5, alpha: 1, cap: 'butt' });
     });
+  }
+
+  /** Task 46: the `i`-th text of the fusions' highlight (a pool over the root). */
+  private fusionLabel(i: number): Text {
+    while (this.fusionLabels.length <= i) {
+      const text = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 20, fontWeight: 'bold', fill: 0xffffff, stroke: { color: NAVY, width: 5 } } });
+      text.anchor.set(0.5, 0.5);
+      text.visible = false;
+      this.root.addChild(text);
+      this.fusionLabels.push(text);
+    }
+    return this.fusionLabels[i];
+  }
+
+  /** The plates of `e` before the dash's end: after the chain's own plate hit when it is a link of the plan, else as it stands. */
+  private plateBefore(plan: ChainPlan, e: Enemy): number {
+    const link = plan.links.find(l => l.link.kind === 'enemy' && l.link.id === e.id);
+    return link?.outcome?.plate ? link.outcome.platesAfter ?? 0 : eliteArmorView(e)?.plates ?? 0;
+  }
+
+  /**
+   * Task 46 «Сплавы v2» (design 16.10.2026, docs/design-notes/task-46-fusions-v2.md, 9): the highlight of the three fusions of the
+   * dash's end — all of it read from the plan (`planChain`: `fire.paint`, `blast`, `wave`), nothing computed here.
+   * - «Клеймо»: a thin ring of the paint's colour with a dot on each body the lit path will paint (the fire's edge stays as it is).
+   * - «Подрыв»: the blast's circle in the player's effects' pale blue — wider with a thick rim when it detonates — and the hit written
+   *   at its top; on the bodies the marks of a link's outcome (the cross, the orange ring and «!», the lemon ring and «−N пластины»).
+   * - «Ледяная волна»: the wave's circle round the dash's end; the cross on those it kills, the frost sign on those it freezes
+   *   (a white rim — brittle).
+   */
+  private drawFusionEnd(g: Graphics, world: World, plan: ChainPlan, _ink: number): void {
+    const p = world.params, r = enemyDrawRadius(p) * UNIT, shown = this.fusionShown;
+    const paint = plan.fire?.lit ? plan.fire.paint : undefined;
+    if (paint) {
+      const tint = chainInk(paint.color);
+      for (const id of paint.ids) {
+        const e = world.enemies.find(x => x.id === id);
+        if (!e) continue;
+        const x = e.x * UNIT, y = e.y * UNIT, R = (e.elite || e.leader ? r * enemyArtScale(p, e) * 1.06 : r) + 9;
+        g.circle(x, y, R).stroke({ color: NAVY, width: 4, alpha: 0.55 }).circle(x, y, R).stroke({ color: tint, width: 2, alpha: 0.95 });
+        g.circle(x - R, y, 4).fill(tint).stroke({ color: NAVY, width: 1.5 });
+        shown.paint++;
+      }
+    }
+    const blast = plan.blast;
+    if (blast) {
+      // The dash's end strikes the wave first, then the blast on the wave's shadow (sim `planFusionEnd`): a plated body the wave struck
+      // meets the blast with the wave's `platesAfter`.
+      const afterWave = new Map((plan.wave?.bodies ?? []).flatMap(b => (b.plate ? [[b.id, b.platesAfter ?? 0] as const] : [])));
+      const x = blast.at.x * UNIT, y = blast.at.y * UNIT, R = blast.radius * UNIT, thick = blast.detonate;
+      g.circle(x, y, R).fill({ color: PLAYER_FX, alpha: thick ? 0.2 : 0.1 });
+      g.circle(x, y, R).stroke({ color: NAVY, width: thick ? 11 : 5, alpha: 0.6 }).circle(x, y, R).stroke({ color: PLAYER_FX, width: thick ? 6 : 2.5, alpha: 0.95 });
+      shown.blastRadius = blast.radius; shown.blastDetonate = thick ? 1 : 0; shown.blastNumber = blast.damage;
+      const num = this.fusionLabel(0);
+      num.text = String(blast.damage);
+      num.position.set(x, y - R - 16);
+      num.visible = true;
+      for (const hit of blast.bodies) {
+        const e = world.enemies.find(q => q.id === hit.id);
+        if (!e) continue;
+        const X = e.x * UNIT, Y = e.y * UNIT, cx = X + r * 0.7, cy = Y - r * 0.75;
+        shown.blastMarks++;
+        if (hit.plate) {
+          // A plated body: the lemon ring and the plates the blast takes — the plan's difference (`plateBefore` − `platesAfter`).
+          const removed = Math.max(0, (afterWave.get(e.id) ?? this.plateBefore(plan, e)) - (hit.platesAfter ?? 0)), RR = e.elite || e.leader ? r * enemyArtScale(p, e) * 1.06 : r, s = r * 0.2;
+          g.circle(X, Y, RR + 4).stroke({ color: ELITE_LEMON, width: 4 });
+          g.circle(cx, cy, r * 0.32).fill(ELITE_LEMON).stroke({ color: NAVY, width: 2 });
+          g.roundRect(cx - s * 0.8, cy - s, s * 1.6, s * 2, s * 0.5).fill(NAVY);
+          const label = this.plateLabel(this.eliteShown.planPlates++);
+          label.text = `−${removed} ${platesWord(removed)}`;
+          // A chain link has its own «−1 пластина» over it (the dash's strike): the blast's words go under the body then.
+          const isLink = world.chain.some(l => l.kind === 'enemy' && l.id === e.id);
+          label.position.set(X, isLink ? Y + RR + 18 : Y - RR - 14);
+          label.visible = true;
+          shown.blastPlates = removed;
+        } else if (hit.killed) {
+          const s = r * 0.2;
+          g.circle(cx, cy, r * 0.32).fill(0xf4efe0).stroke({ color: NAVY, width: 2 });
+          g.moveTo(cx - s, cy - s).lineTo(cx + s, cy + s).moveTo(cx + s, cy - s).lineTo(cx - s, cy + s).stroke({ color: 0xa8322a, width: 3, cap: 'round' });
+        } else {
+          g.circle(X, Y, r + 4).stroke({ color: 0xffa040, width: 4 });
+          g.circle(cx, cy, r * 0.32).fill(0xffa040).stroke({ color: NAVY, width: 2 });
+          g.rect(cx - 2, cy - r * 0.18, 4, r * 0.22).rect(cx - 2, cy + r * 0.1, 4, 4).fill(NAVY);
+        }
+      }
+    }
+    const wave = plan.wave;
+    if (wave) {
+      const blastIds = new Set((blast?.bodies ?? []).map(b => b.id));
+      const x = wave.at.x * UNIT, y = wave.at.y * UNIT, R = wave.radius * UNIT;
+      g.circle(x, y, R).fill({ color: ICE, alpha: 0.1 });
+      g.circle(x, y, R).stroke({ color: NAVY, width: 6, alpha: 0.5 }).circle(x, y, R).stroke({ color: ICE, width: 3, alpha: 0.95 });
+      shown.waveRadius = wave.radius;
+      for (const hit of wave.bodies) {
+        const e = world.enemies.find(q => q.id === hit.id);
+        if (!e) continue;
+        const X = e.x * UNIT, Y = e.y * UNIT;
+        if (hit.killed) {
+          const cx = X - r * 0.7, cy = Y + r * 0.75, s = r * 0.2;
+          g.circle(cx, cy, r * 0.32).fill(0xf4efe0).stroke({ color: NAVY, width: 2 });
+          g.moveTo(cx - s, cy - s).lineTo(cx + s, cy + s).moveTo(cx + s, cy - s).lineTo(cx - s, cy + s).stroke({ color: 0xa8322a, width: 3, cap: 'round' });
+          shown.waveKills++;
+        } else if (wave.ice.ids.includes(hit.id)) {
+          drawIceMark(g, X, Y, r, wave.ice.brittle);
+          if (hit.plate) {
+            // The wave also takes plates off an armoured survivor: the same words as the blast's, under the body.
+            const removed = Math.max(0, this.plateBefore(plan, e) - (hit.platesAfter ?? 0)), RR = e.elite || e.leader ? r * enemyArtScale(p, e) * 1.06 : r;
+            if (removed > 0) {
+              const label = this.plateLabel(this.eliteShown.planPlates++);
+              label.text = `−${removed} ${platesWord(removed)}`;
+              label.position.set(X, Y + RR + (blastIds.has(hit.id) ? 44 : 18));
+              label.visible = true;
+              shown.wavePlates = removed;
+            }
+          }
+          shown.waveIce++;
+          if (wave.ice.brittle) shown.waveBrittle++;
+        }
+      }
+    }
   }
 
   /**
@@ -3543,6 +3791,14 @@ export class RealtimeRenderer {
   }
 
   private updateBursts(dt: number): void {
+    for (let i = this.ghosts.length - 1; i >= 0; i--) {
+      const gh = this.ghosts[i];
+      gh.life -= dt;
+      if (gh.life <= 0) { gh.root.destroy({ children: true }); this.ghosts.splice(i, 1); continue; }
+      gh.root.alpha = gh.life / PAINT_FADE;
+    }
+    for (const [id, at] of this.paintAt) if (this.clock - at > 1) this.paintAt.delete(id);
+    this.fusionShown.paintFading = this.paintAt.size;
     for (let i = this.bursts.length - 1; i >= 0; i--) {
       const b = this.bursts[i];
       b.life -= dt;
@@ -3688,7 +3944,7 @@ export class RealtimeRenderer {
     this.drawChain(world, ui);
     this.drawPlayerFx(world, realDt);
     this.outlineLeft = Math.max(0, this.outlineLeft - realDt);
-    this.drawHero(world);
+    this.drawHero(world, realDt);
     this.drawCurseCounter(world);
     this.drawOverlay(world);
     // The power number first: the combo counter stands beside it while both show (task 8b).
@@ -3730,6 +3986,7 @@ export class RealtimeRenderer {
       if (ox !== 0 || oy !== 0) { this.juiceShown.shakeFrames++; this.juiceShown.shakeMax = Math.max(this.juiceShown.shakeMax, Math.hypot(ox, oy)); }
     }
     this.root.position.set(this.base.x + ox, this.base.y + oy);
+    this.heroRoot.position.set(this.base.x + ox, this.base.y + oy);
   }
 
   resetEffects(): void {
@@ -3738,6 +3995,8 @@ export class RealtimeRenderer {
     this.shakeLeft = 0;
     this.flashLeft = 0;
     this.flashGate.reset();
+    for (const gh of this.ghosts) gh.root.destroy({ children: true });
+    this.ghosts.length = 0; this.paintAt.clear();
     for (const s of this.shards) { s.life = 0; s.delay = 0; s.p.alpha = 0; }
     this.shardLayer.particleChildren.length = 0; this.shardLayer.update(); this.shardLayer.visible = this.shardsAwake = false;
     this.juiceShown.shardsLive = 0;
@@ -3755,6 +4014,7 @@ export class RealtimeRenderer {
     this.bursts.length = 0;
     this.dashTrail = [];
     this.cutSeen = false;
+    this.squash = null; this.wasDash = false; this.armUntil = 0; this.lastReach = 0;
     this.slotView.reset();
     this.bagView.reset();
     this.featDoor.reset();

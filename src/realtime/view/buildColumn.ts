@@ -10,7 +10,7 @@
  */
 import { buildModules, moduleActive, type BuildProgress } from '../sim/build';
 import { COUNTER_TALISMANS as T, FORMS as F, FROST_PASS, FUSIONS as U, fusionRecipe, HAMMERS as H, OATH_HUNGER, RELICS as R, RELIC_IDS } from '../sim/buildIds';
-import { formIconSvg, fusionIconSvg } from './formIcons';
+import { formIconSvg, fusionIconSvg, hammerIconSvg } from './formIcons';
 import type { World } from '../sim/world';
 import { rtHammer, rtTalisman } from '../run/rtTalismans';
 
@@ -42,7 +42,8 @@ export const BUILD_LABELS: Readonly<Record<string, Label>> = {
   [T.longArm]: { short: 'Рука', glyph: '⇔', title: 'Длинная рука' },
   [T.frostEdge]: { short: 'Иней', glyph: '✱', title: 'Иней на клинке' },
   // Т2 — hammers.
-  [H.fire]: { short: 'Огн', glyph: '≈', title: 'Огненный проход' },
+  // Task 47 §1: a drawn icon — the dash's arrow with the consumable's fire behind it (the glyph stays for plain text).
+  [H.fire]: { short: 'Огн', glyph: '≈', title: 'Огненный проход', svg: hammerIconSvg('fire') },
   [H.blast]: { short: 'Взрв', glyph: '✺', title: 'Взрыв на конце' },
   [H.cut]: { short: 'Рез', glyph: '⟋', title: 'Режущий проход' },
   [H.return]: { short: 'Возв', glyph: '↺', title: 'Возврат' },
@@ -74,6 +75,10 @@ export const BUILD_LABELS: Readonly<Record<string, Label>> = {
   [U.iceSeal]: { short: 'Лёд. печать', glyph: '◎', title: 'Ледяная печать', svg: fusionIconSvg('iceSeal') },
   [U.spear]: { short: 'Копьё', glyph: '↗', title: 'Копьё', svg: fusionIconSvg('spear') },
   [U.boomerang]: { short: 'Бумеранг', glyph: '↺', title: 'Бумеранг', svg: fusionIconSvg('boomerang') },
+  // Task 46 — the three fusions of the dash's end; «Ледяная волна» wraps to two lines (the row's word is not cut).
+  [U.brand]: { short: 'Клеймо', glyph: '♨', title: 'Клеймо', svg: fusionIconSvg('brand') },
+  [U.hunterBlast]: { short: 'Подрыв', glyph: '✹', title: 'Подрыв', svg: fusionIconSvg('hunterBlast') },
+  [U.frostWave]: { short: 'Ледяная волна', glyph: '❄', title: 'Ледяная волна', svg: fusionIconSvg('frostWave') },
   // The view's test module (buildTestModule.ts; sandbox hook only).
   'view-test-counter': { short: 'Тест', glyph: 'T', title: 'Тестовый счётчик (песочница)' },
 };
@@ -106,6 +111,9 @@ export const FIRE_TEXT: Readonly<Record<string, string>> = {
   [U.iceSeal]: 'Лёд',
   [U.spear]: 'Копьё',
   [U.boomerang]: 'Полная сила',
+  [U.brand]: 'Цвет цепи',
+  [U.hunterBlast]: 'Подрыв',
+  [U.frostWave]: 'Мороз',
 };
 
 /**
