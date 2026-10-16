@@ -530,7 +530,14 @@ export type WorldEvent =
    * while the core was in the drawn chain: the core and the links after it (`dropped`, their ids) left the chain. `id` — the core.
    * The rules never read it.
    */
-  | { type: 'grate'; action: 'lever' | 'up' | 'down' | 'keys' | 'unlink'; id: number; objectId?: number; x: number; y: number; dropped?: number[] };
+  | { type: 'grate'; action: 'lever' | 'up' | 'down' | 'keys' | 'unlink'; id: number; objectId?: number; x: number; y: number; dropped?: number[] }
+  /** Task 43 (enemies/garrison.ts «Рыцарь»): the knight's last plate went with the pass — it sheds its armour (the offensive starts). */
+  | { type: 'knightShed'; id: number; x: number; y: number }
+  /**
+   * Task 43: the knight's move — «Рывок» (`charge`: windup `start`, the run `run`, the run's `end`) or «Размах» (`swing`: windup
+   * `start`, the strike `hit`). The rules never read it.
+   */
+  | { type: 'knightMove'; id: number; move: 'charge' | 'swing'; stage: 'start' | 'run' | 'end' | 'hit' };
 
 export interface World {
   arena: ArenaTemplate;
@@ -1158,7 +1165,8 @@ const elitePlated = (e: Enemy): boolean => !!e.armor && !e.armor.boss;
  * reaper. A raised touch of an elite takes no `eliteDamageBonus` on top.
  */
 export function touchRaised(world: World, e: Enemy): boolean {
-  if (kindOf(e).immune) return false;
+  // Task 43: the knight's touch is its own (`knightTouch`).
+  if (kindOf(e).immune || kindOf(e).ownTouch) return false;
   if (elitePlated(e)) return true;
   return !!world.params.toughTouch && (!!e.elite || e.hp >= 2);
 }
@@ -1234,7 +1242,8 @@ export function enemySpeedFactor(e: Enemy, params: Params): number {
  * A kind without a class (the reaper) always walks by its own.
  */
 export function kindSpeed(world: World, e: Enemy): number {
-  const p = world.params, def = kindOf(e), cls = p.speedClasses ? def.speedClass : undefined;
+  // Task 43: a kind whose class follows its state (the knight) says it per enemy.
+  const p = world.params, def = kindOf(e), cls = p.speedClasses ? def.speedClassOf?.(e) ?? def.speedClass : undefined;
   if (!cls) return def.speed(world, e);
   return world.pressure.enemySpeed * (cls === 'slow' ? p.speedSlow : cls === 'fast' ? p.speedFast : 1);
 }
@@ -1685,7 +1694,9 @@ function separate(world: World): Map<Enemy, Enemy> | null {
       const dx = e.x - hero.x, dy = e.y - hero.y, d = dhypot(dx, dy);
       // While dashing or jumping the hero passes through bodies (design answer 4).
       const ahead = dx * wx + dy * wy;
-      if (d < heroMin && !world.move && parting && ahead > 0) {
+      // Task 43: a body that runs through the hero now (the knight's «Рывок») is not put back on his touch circle.
+      if (d < heroMin && !world.move && behaviorOf(e).passesHero?.(world, e)) { /* it runs on */ }
+      else if (d < heroMin && !world.move && parting && ahead > 0) {
         // Across the way: keep the distance along it, move sideways onto the touch circle.
         const side = dx * -wy + dy * wx, sign = Math.abs(side) > 1e-6 ? Math.sign(side) : (e.id % 2 ? 1 : -1);
         const across = Math.sqrt(Math.max(0, heroMin * heroMin - ahead * ahead));

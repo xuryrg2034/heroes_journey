@@ -33,4 +33,6 @@ export { LYNX_LEAP, LYNX_STUN, LYNX_WINDUP, lynxLine, lynxStunned } from './lynx
 export { shamanBeam } from './shaman';
 export { JAILER, JAILER_MOVES, JAILER_WEIGHT, inJailerShield, jailerCore, jailerMove, jailerShieldUp, type JailerMoveId } from './jailer';
 export { CASTELLAN, GUARD, HANDLER, HOUND, castellanMove, houndFrenzied } from './garrison';
+// Task 43: the knight for the view.
+export { KNIGHT, KNIGHT_LANE_WIDTH, knightLane, knightOffensive, knightState, knightSwing } from './garrison';
 export * from './kinds';

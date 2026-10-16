@@ -28,6 +28,11 @@
  *   windup's start) and «Бросок гири» (the circle on the hero's centre then), from the windup (`bossMove` `start`) with the hero's
  *   body in the zone. Strike — `bossMove` `hit`: a `flail` / `throw` hit — hit, else shielded (in the zone) or dodged; the core died
  *   or the move was dropped (the weight severed) — interrupted.
+ * - `knight-charge`, `knight-swing` (task 43, the knight's offensive) — «Рывок» (the lane from the knight, `KNIGHT_LANE_WIDTH` wide: the
+ *   whole lane while it winds up, the rest while it runs) and «Размах» (the circle `knightSwingRadius` around the knight), from the
+ *   windup (`knightMove` `start`) with the hero's body in the zone. «Рывок»: a `knight-charge` hit — hit; the run passed the hero's
+ *   body without a hit (a dash, a jump, invulnerability: `vars.hh` without a hit) — shielded; the run ended — dodged. «Размах»: the
+ *   strike (`knightMove` `hit`) — a `knight-swing` hit, else shielded (in the zone) or dodged. The knight died — interrupted.
  *
  * - `bolt` (task 43, the law of the crossbow) — a crossbow's windup (`bolt` `aim`) with the hero's body on its fixed line. Strike —
  *   `bolt` `shot`: the hero hit — hit; the bolt went to the hero but did not hurt (invulnerability, a shield) — shielded; it struck
@@ -45,6 +50,7 @@ import { WOLF_HOWL, WOLF_RUSH, wolfRushLength } from '../sim/enemies/wolf';
 import { LYNX_LEAP, LYNX_STUN, LYNX_WINDUP } from '../sim/enemies/lynx';
 import { inFlail, jailerMove, JAILER } from '../sim/enemies/jailer';
 import { BOLT_HALF } from '../sim/enemies/crossbow';
+import { KNIGHT_CHARGE_SOURCE, KNIGHT_LANE_WIDTH, KNIGHT_SWING_SOURCE, knightLane, knightSwing } from '../sim/enemies/garrison';
 import { blockedAt, cliffAt, dist, type Vec } from '../sim/geometry';
 import { bodyRadiusOf } from '../sim/enemies/kinds';
 import { heroRadius } from '../sim/params';
@@ -53,8 +59,8 @@ import { CONTACT_SLACK, enemyFrozen, touchDistanceOf, type Enemy, type World, ty
 import { EventCursor } from './observe';
 import type { ThreatTally } from './schema';
 
-export type ThreatKind = 'archer' | 'boar' | 'wolf' | 'lynx' | 'sapper' | 'sapper-instant' | 'flail' | 'throw' | 'bolt';
-export const THREAT_KINDS: readonly ThreatKind[] = ['archer', 'boar', 'wolf', 'lynx', 'sapper', 'sapper-instant', 'flail', 'throw', 'bolt'];
+export type ThreatKind = 'archer' | 'boar' | 'wolf' | 'lynx' | 'sapper' | 'sapper-instant' | 'flail' | 'throw' | 'bolt' | 'knight-charge' | 'knight-swing';
+export const THREAT_KINDS: readonly ThreatKind[] = ['archer', 'boar', 'wolf', 'lynx', 'sapper', 'sapper-instant', 'flail', 'throw', 'bolt', 'knight-charge', 'knight-swing'];
 export type ThreatOutcome = 'hit' | 'shielded' | 'dodged' | 'interrupted';
 export type CoverKind = 'wall' | 'cliff';
 
@@ -126,6 +132,11 @@ export class ThreatTracker {
   private boltAims: Extract<WorldEvent, { type: 'bolt' }>[] = [];
   private boltShots: Extract<WorldEvent, { type: 'bolt' }>[] = [];
   private readonly boltOpen = new Map<number, Open>();
+  /** Task 43: the knights' moves of this tick (`knightMove`): `start`, and the ends (`end` of the run, `hit` of the swing). */
+  private knightStarts: { id: number; move: string }[] = [];
+  private knightEnds: { id: number; move: string }[] = [];
+  /** Task 43: the charges whose run met the hero's body without a hit (shielded). */
+  private readonly knightPassed = new Set<Open>();
   /** Hits already explained by a warning of this tick. */
   private used = new Set<Hit>();
 
@@ -137,9 +148,10 @@ export class ThreatTracker {
   /** After a tick; `realDt` — the real seconds it stood for (`Simulation.nextTickCost()` before it). */
   tick(world: World, realDt: number = SIM_DT): void {
     this.real += realDt;
-    this.hits = []; this.kills.clear(); this.blasts = []; this.used.clear(); this.bossStarts = []; this.bossHits = []; this.boltAims = []; this.boltShots = [];
+    this.hits = []; this.kills.clear(); this.blasts = []; this.used.clear(); this.bossStarts = []; this.bossHits = []; this.boltAims = []; this.boltShots = []; this.knightStarts = []; this.knightEnds = [];
     this.cursor.read(world, ev => {
       if (ev.type === 'hit') this.hits.push({ enemyId: ev.enemyId, source: ev.source });
+      else if (ev.type === 'knightMove') { if (ev.stage === 'start') this.knightStarts.push({ id: ev.id, move: ev.move }); else if (ev.stage === 'end' || ev.stage === 'hit') this.knightEnds.push({ id: ev.id, move: ev.move }); }
       else if (ev.type === 'bossMove') (ev.stage === 'start' ? this.bossStarts : this.bossHits).push({ id: ev.id, move: ev.move });
       else if (ev.type === 'kill') this.kills.set(ev.enemyId, ev.source ?? '');
       else if (ev.type === 'blast' && ev.source === 'blast') this.blasts.push({ x: ev.x, y: ev.y });
@@ -159,6 +171,7 @@ export class ThreatTracker {
     this.resolveSappers(world);
     this.resolveBoss(world);
     this.resolveBolts(world);
+    this.resolveKnights(world);
     if (world.status !== 'playing') for (const o of [...this.open]) this.close(o, world, 'interrupted', 'end');
     else this.openNew(world);
     this.wolfState = new Map(world.enemies.filter(e => e.kind === 'wolf').map(e => [e.id, e.vars.st ?? 0]));
@@ -494,6 +507,52 @@ export class ThreatTracker {
       if (!core || core.kind !== JAILER) continue;
       const zone = this.bossZone(world, core);
       if (zone?.(world)) this.add(start.move, [core.id], world, zone);
+    }
+  }
+
+  // ---- Task 43: the knight's «Рывок» and «Размах» ----
+
+  /** The zone of the move the knight `e` runs now: the rest of the charge's lane, or the swing's circle; null — none. */
+  private knightZone(world: World, e: Enemy, move: string): Open['inZone'] | null {
+    const id = e.id, hr = heroRadius(world.params);
+    if (move === 'charge') {
+      if (!knightLane(e)) return null;
+      return w => {
+        const k = this.enemies.get(id), lane = k ? knightLane(k) : null;
+        if (!k || !lane) return null;
+        return rayDistance(k, lane.dx, lane.dy, lane.charging ? lane.len : dist(k, lane.to), w.hero) <= KNIGHT_LANE_WIDTH / 2 + hr;
+      };
+    }
+    const swing = knightSwing(world, e);
+    if (!swing) return null;
+    return w => {
+      const k = this.enemies.get(id), s = k ? knightSwing(w, k) : null;
+      return s ? dist(w.hero, s) <= s.r + hr : null;
+    };
+  }
+
+  private resolveKnights(world: World): void {
+    for (const [kind, move, source] of [['knight-charge', 'charge', KNIGHT_CHARGE_SOURCE], ['knight-swing', 'swing', KNIGHT_SWING_SOURCE]] as const) {
+      for (const o of this.kindOpen(kind)) {
+        const id = o.w.enemies[0], e = this.enemies.get(id);
+        if (this.hitBy([id], source)) { this.close(o, world, 'hit'); this.knightPassed.delete(o); continue; }
+        if (e && move === 'charge' && e.vars.hh) this.knightPassed.add(o);
+        if (this.knightEnds.some(x => x.id === id && x.move === move)) {
+          if (move === 'charge') this.close(o, world, this.knightPassed.has(o) ? 'shielded' : 'dodged', this.knightPassed.has(o) ? 'move' : undefined);
+          else this.close(o, world, o.inZone(world) ? 'shielded' : 'dodged');
+          this.knightPassed.delete(o);
+          continue;
+        }
+        if (!e) { this.close(o, world, 'interrupted', 'dead'); this.knightPassed.delete(o); continue; }
+        if (world.status !== 'playing') { this.close(o, world, 'interrupted', 'end'); this.knightPassed.delete(o); }
+      }
+    }
+    if (world.status !== 'playing') return;
+    for (const start of this.knightStarts) {
+      const e = this.enemies.get(start.id);
+      if (!e) continue;
+      const zone = this.knightZone(world, e, start.move);
+      if (zone?.(world)) this.add(start.move === 'charge' ? 'knight-charge' : 'knight-swing', [e.id], world, zone);
     }
   }
 

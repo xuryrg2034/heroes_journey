@@ -93,7 +93,7 @@ import { featResult } from '../sim/feat';
 import type { Command } from '../sim/commands';
 import { WOLF_RUSH } from '../sim/enemies/wolf';
 import { BOSS_CLEAR, JAILER } from '../sim/enemies/jailer';
-import { CASTELLAN, houndFrenzied, prisonerRioting } from '../sim/enemies/garrison';
+import { CASTELLAN, KNIGHT, houndFrenzied, prisonerRioting } from '../sim/enemies/garrison';
 import { kindOf } from '../sim/enemies/kinds';
 import { dist, inThorns, inWater } from '../sim/geometry';
 import { heroRadius } from '../sim/params';
@@ -203,6 +203,8 @@ export function createFightObserver(start: World): FightObserver {
   const skips = new Set<string>();
   // Elites alive: when seen, the chains that hit them and the last of those (dashes are numbered by `s.chain.count`).
   const elites = new Map<number, { born: number; chains: number; lastDash: number }>();
+  // Task 43: the last dash (`s.chain.count`) that struck each knight.
+  const knightDash = new Map<number, number>();
   let goalsDone = start.greedStart !== null;
   // К7: the curse is on now (a world that starts cursed — a test — counts from its own ticks).
   if (start.curse) { s.chest.taken = start.curse.tick; s.chest.liftedAt = start.curse.lifted ?? null; }
@@ -253,7 +255,7 @@ export function createFightObserver(start: World): FightObserver {
     // Task 25: enemies new since the last look (ids only grow in a world) are remembered for the cause of death.
     let top = seenId;
     for (const e of w.enemies) {
-      if (e.id > seenId) { seen.set(e.id, e); if (e.id > top) top = e.id; }
+      if (e.id > seenId) { seen.set(e.id, e); if (e.id > top) top = e.id; if (e.kind === KNIGHT) s.garrison.knights++; }
       if (e.elite && !elites.has(e.id)) { elites.set(e.id, { born: w.time, chains: 0, lastDash: -1 }); s.elites.count++; }
     }
     seenId = top;
@@ -306,6 +308,8 @@ export function createFightObserver(start: World): FightObserver {
           // Task 41: a rioting prisoner's kill (`riot`) counts with the hounds' frenzy, and apart.
           if (ev.source === 'hound' || ev.source === 'riot') s.chain.frenzyKills++;
           if (ev.source === 'riot') s.garrison.riotKills++;
+          // Task 43: a knight killed (by any source).
+          if (seen.get(ev.enemyId)?.kind === KNIGHT) s.garrison.knightKills++;
           else if (ev.source === 'slot-bust') s.slot.bustKills++;
           // Task 14 «Котомка у двери»: the player's kills after the bag appeared.
           if (bagOpen && ev.credited) s.bag.killsAfterGoals++;
@@ -323,6 +327,8 @@ export function createFightObserver(start: World): FightObserver {
           if (elite && elite.lastDash !== s.chain.count) { elite.lastDash = s.chain.count; elite.chains++; }
           // Task 43: a chain hit on the full Castellan's core in a lever's window.
           if (leverWindow && bossCore && ev.enemyId === bossCore.id) leverWindow.hit = true;
+          // Task 43: a chain on a knight (once per dash and knight).
+          if (seen.get(ev.enemyId)?.kind === KNIGHT && knightDash.get(ev.enemyId) !== s.chain.count) { knightDash.set(ev.enemyId, s.chain.count); s.garrison.knightChains++; }
           return;
         }
         case 'goals': goalsDone = true; return;
@@ -383,6 +389,8 @@ export function createFightObserver(start: World): FightObserver {
         // Task 38: a tether the dash cut at its end.
         // Task 41: a prisoner's riot began (a cut shackle set it loose).
         case 'frenzy': if (ev.action === 'start' && ev.riot) s.garrison.riots++; return;
+        // Task 43: a knight shed its armour (the offensive began).
+        case 'knightShed': s.garrison.knightSheds++; return;
         case 'tether':
           if (ev.action === 'cut') s.chain.cuts++;
           // Task 40: the keymaster's shackles — put on, cut (the game second of the first cut).

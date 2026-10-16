@@ -239,7 +239,8 @@ export function affixSpeedFactor(world: World, e: Enemy): number {
  * (the test command `place`; none — the slice's elite). «Стремительный» and «Толстый» put their own HP factor instead of ×2.
  */
 export function makeElite(world: World, e: Enemy, random = false, affixes: readonly string[] | 'roll' = 'roll'): void {
-  if (e.elite || !kindOf(e).chainable || kindOf(e).immune) return;
+  // Task 43: a kind that is never an elite (the knight) stays as it is.
+  if (e.elite || !kindOf(e).chainable || kindOf(e).immune || kindOf(e).noElite) return;
   e.elite = random ? 'random' : true;
   const p = world.params;
   const ids = affixes === 'roll' ? rollAffixes(world, e, affixCountOf(world)) : legalAffixes(e.kind, affixes);
@@ -379,7 +380,8 @@ export function rollRandomElite(world: World, e: Enemy): void {
  */
 export function eliteRoll(world: World, kind: EnemyKind): boolean {
   const def = enemyKind(kind);
-  if (!def.chainable || def.immune) return false;
+  // Task 43: the knight is never an elite — no draw is spent on it (the guarantee waits for another newcomer).
+  if (!def.chainable || def.immune || def.noElite) return false;
   const kit = world.kit, p = world.params, guarantee = !!kit?.guaranteedElite && !!p.eliteArmor;
   // Task 17 Е2 (`Params.eliteMetKinds`, `Kit.eliteKinds`): only these kinds become elites — no draw is spent, the guarantee and
   // the event's start elite wait for the first newcomer of an allowed kind.
