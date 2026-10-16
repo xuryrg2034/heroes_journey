@@ -947,10 +947,12 @@ export interface BossSummary {
 /**
  * Task 43 «Кастелян полный» (observe.ts): the grate — raised by a lever (`raises`), seconds it stood open (any cause), the lever's
  * windows with a hit on the core (a chain hit or a kill of it) and without; his parts in the order they were lost with the game
- * second (`kind`: `hound`, `castellan-crossbow`); «Болт» — shots, hits on the hero, enemies struck; the phase reached.
+ * second (`kind`: `hound`, `castellan-crossbow`); «Болт» — shots, hits on the hero, enemies struck; the phase reached; the chain drop-outs (`unlinks` — times, `unlinked` — links in all; from 16.10.2026, absent in older records).
  */
 export interface CastellanBossSummary {
   raises: number; openSeconds: number; windowsHit: number; windowsMissed: number;
+  /** The grate fell while the core was in the drawn chain (event `grate` `unlink`): times, and the links dropped in all (absent — 0). */
+  unlinks?: number; unlinked?: number;
   parts: { kind: string; at: number }[];
   bolts: { shots: number; hero: number; enemies: number };
   phase: number;

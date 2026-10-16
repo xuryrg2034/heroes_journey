@@ -201,6 +201,9 @@ check('the grate drops while the core is in the drawn chain: the core and the li
     const after = settle(sim);
     ticks(sim, 1, after);
     assert(!w.enemies.includes(weak) && core.armor?.plates === 4 && core.hp === 4 && !of(after, 'chainHit').some(e => e.enemyId === core.id), `seed ${k}: the dash killed the weak link only, the core untouched`);
+    // The fight's boss summary counts the drop-out: once, the core and the link behind it (the replay of the journal).
+    const c = analyzeJournal(JSON.parse(JSON.stringify(sim.exportJournal()!)) as Journal).summary.boss?.castellan;
+    assert(c?.unlinks === 1 && c.unlinked === 2, `seed ${k}: the summary's drop-outs (${c?.unlinks}, ${c?.unlinked})`);
     assert(replays(sim), `seed ${k}: replay`);
   }
 });

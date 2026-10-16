@@ -24,8 +24,6 @@ export const HEAL_AT = 5;
 
 const fields = new Map<string, Map<string, number>>();
 const STEPS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
-/** The last `stepToward` found a walking path from the hero (false — cut off: task 43, the gallery behind the moat). */
-let lastReach = true;
 /** One step of a breadth-first path on a 0.25 grid to `goal` (scripts/realtime-ash-final.ts). */
 export function stepToward(w: World, goal: Vec): Vec {
   const a = w.arena, s = 0.25, r = heroRadius(w.params) + 0.05, g = (v: number) => Math.round(v / s), key = `${a.id}:${g(goal.x)},${g(goal.y)}`;
@@ -44,7 +42,6 @@ export function stepToward(w: World, goal: Vec): Vec {
     fields.set(key, field);
   }
   const hx = g(w.hero.x), hy = g(w.hero.y);
-  lastReach = field.has(`${hx},${hy}`);
   let best: Vec | null = null, bestD = field.get(`${hx},${hy}`) ?? Infinity;
   for (const [dx, dy] of STEPS) { const d = field.get(`${hx + dx},${hy + dy}`); if (d !== undefined && d < bestD) { bestD = d; best = { x: dx, y: dy }; } }
   return best ?? { x: goal.x - w.hero.x, y: goal.y - w.hero.y };
@@ -73,7 +70,7 @@ export function aimAtCore(sim: Simulation, kinds: readonly string[]): void {
     playChain(sim);
     return;
   }
-  const d =Math.sqrt((core.x - w.hero.x) ** 2 + (core.y - w.hero.y) ** 2) || 1;
+  const d = Math.sqrt((core.x - w.hero.x) ** 2 + (core.y - w.hero.y) ** 2) || 1;
   sim.command({ t: 'walk', x: (core.x - w.hero.x) / d, y: (core.y - w.hero.y) / d });
   const byCore = (list: Enemy[]): Enemy[] => list.sort((a, b) => ((a.x - core.x) ** 2 + (a.y - core.y) ** 2) - ((b.x - core.x) ** 2 + (b.y - core.y) ** 2));
   const first = byCore(nextCandidates(w))[0];
@@ -122,9 +119,9 @@ export function botFight(run: RtRunState, options: BotFightOptions): BotFight {
     if (tick % 30 === 0 && !w.move) {
       if (leaving) {
         const d = stepToward(w, w.arena.door);
-        // Task 43: no walking path to the door — the hero on the full Castellan's gallery (north of the moat, the door in the yard):
-        // it walks south to the moat and jumps across (the jump's energy permitting; else it waits at the edge).
-        if (!lastReach) {
+        // Task 43: the hero on the full Castellan's gallery (north of the moat, the door in the yard; no walking path): it walks south
+        // to the moat and jumps down (free).
+        if (jumpDownOpen(w)) {
           sim.command({ t: 'walk', x: 0, y: 1 });
           if (w.hero.y > 3.2 && canJump(w, { x: w.hero.x, y: w.hero.y + 2.5 })) sim.command({ t: 'jump', x: w.hero.x, y: w.hero.y + 2.5 });
         } else sim.command({ t: 'walk', x: d.x, y: d.y });

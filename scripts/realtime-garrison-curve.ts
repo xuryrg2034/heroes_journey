@@ -32,6 +32,7 @@ import { walkRun } from '../src/realtime/run/metaWalk.testkit';
 import { outcomeOf } from '../src/realtime/run/runFight.testkit';
 import { rtArenaLoadout, rtArenaParams, rtNode, rtRunParams, type RtArenaOutcome, type RtRunState } from '../src/realtime/run/rtRun';
 import { botFight } from './garrisonBot';
+import { JAILER_RUN_ARENAS } from '../src/realtime/sim/arenasBoss';
 
 const args = process.argv.slice(2);
 const option = (name: string, fallback: string): string => { const at = args.indexOf(name); return at >= 0 ? args[at + 1] : fallback; };
@@ -45,9 +46,10 @@ const MOAT = args.includes('--moat');
  * ×1.5); `guardPeriod` — «Караул!» every this many s (20); `guards` — guards a call brings (3, the rest of the markers dropped);
  * `touch` — the run's raised tough touch off in his fight (`toughTouch`); `floor` — the density floor of his fight × this (the
  * loadout's `floorScale`, as «Испытание V» gives it; the crowd of newcomers); `fullHp` — the hero enters his fight with full HP (a
- * measure of the entry, not a knob of the Castellan).
+ * measure of the entry, not a knob of the Castellan); `crowd` (task 43) — the density floor of his fight AND the groups' pace × this (the
+ * loadout's `floorScale` and the params' group interval ÷ it).
  */
-interface CastellanSet { plates?: number; coreHp?: number; houndHp?: number; windup?: number; guardPeriod?: number; guards?: number; touch?: boolean; floor?: number; fullHp?: boolean }
+interface CastellanSet { plates?: number; coreHp?: number; houndHp?: number; windup?: number; guardPeriod?: number; guards?: number; touch?: boolean; floor?: number; fullHp?: boolean; crowd?: number }
 const CASTELLAN_SETS: Readonly<Record<string, CastellanSet>> = {
   base: {},
   plates2: { plates: 2 },
@@ -71,6 +73,12 @@ const CASTELLAN_SETS: Readonly<Record<string, CastellanSet>> = {
   plates6: { plates: 6 },
   plates6hp6: { plates: 6, coreHp: 6 },
   plates8hp6: { plates: 8, coreHp: 6, windup: 0.75 },
+  // Task 43 (the full Castellan, after the design of 16.10.2026): the yard's crowd (its density floor AND its top-up pace × `crowd`)
+  // × the core's plates; the window 5 s, the lever 10 s and «Караул!» as the game has them.
+  plates5: { plates: 5 },
+  crowd75: { crowd: 0.75 },
+  crowd75plates5: { crowd: 0.75, plates: 5 },
+  crowd75plates6: { crowd: 0.75, plates: 6 },
 };
 /**
  * `--boss-aim`: in a fight with a boss core (the Castellan, the Jailer — `BOSS_CORES`) the bot hunts the boss — it walks at the core
@@ -85,6 +93,9 @@ const SET_NAME = option('--castellan', ''), SET = SET_NAME ? CASTELLAN_SETS[SET_
 if (SET_NAME && !SET) throw new Error(`no set ${SET_NAME}: ${Object.keys(CASTELLAN_SETS).join(', ')}`);
 /** The Castellan's fights of the sweep: their outcome, game time and the killing blow's source. */
 const castellanFights: { won: boolean; time: number; source: string | null; hpIn: number }[] = [];
+/** Task 43: the Jailer's fights (the reference wall): outcome and game time. */
+const jailerFights: { won: boolean; time: number }[] = [];
+const jailerArena = (id: string): boolean => (JAILER_RUN_ARENAS as readonly string[]).includes(id);
 
 interface Tally { reached: Map<string, number>; deaths: Map<string, number>; damage: Map<string, number[]>; outcomes: Record<string, number>; fights: number; timeouts: number; runs: number }
 const tally = (): Tally => ({ reached: new Map(), deaths: new Map(), damage: new Map(), outcomes: { victory: 0, defeat: 0, open: 0 }, fights: 0, timeouts: 0, runs: 0 });
@@ -100,11 +111,17 @@ function fight(run: RtRunState, t: Tally): RtArenaOutcome {
   if (castellan?.touch === false) params.toughTouch = false;
   const loadout = rtArenaLoadout(run);
   if (castellan?.floor !== undefined) loadout.floorScale = castellan.floor;
+  // Task 43: the crowd's density floor and its top-up pace (the groups' interval ÷ the factor: fewer groups a second).
+  if (castellan?.crowd !== undefined) {
+    loadout.floorScale = (loadout.floorScale ?? 1) * castellan.crowd;
+    params.baseIntervalMin /= castellan.crowd; params.baseIntervalMax /= castellan.crowd;
+  }
   t.fights++;
   const played = botFight(run, { params, loadout, limit: LIMIT, ...BOSS_AIM ? { aim: BOSS_CORES } : {},
     ...castellan ? { afterTick: (world: World, tick: number) => tuneCastellan(world, castellan, tick === 0) } : {} });
   const w = played.sim.world, lastSource = played.lastSource;
   if (played.timeout) t.timeouts++;
+  if (w.enemies.some(e => e.kind === 'jailer') || jailerArena(pending.arena)) jailerFights.push({ won: w.status === 'victory', time: w.time });
   if (castellan) castellanFights.push({ won: w.status === 'victory', time: w.time, source: w.status === 'defeat' ? lastSource ?? 'timeout' : null, hpIn: run.hp });
   const key = keyOf(run, pending.nodeId);
   t.damage.set(key, [...t.damage.get(key) ?? [], w.stats.damageTaken]);
@@ -181,7 +198,7 @@ if (SET) {
   for (const f of lost) sources.set(f.source!, (sources.get(f.source!) ?? 0) + 1);
   const top = [...sources].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(', ');
   console.log(`Задача 40, проход 3: перебор Кастеляна, набор «${SET_NAME}» ${JSON.stringify(SET)}${BOSS_AIM ? ', бот целит в ядро' : ''}, ${SEEDS} seed, «Ров» ${MOAT ? 'вкл.' : 'по флагу игры'}, ${new Date().toISOString().slice(0, 10)}, HEAD ${head}, ${Math.round((Date.now() - started) / 1000)} с (эвристика).`);
-  console.log(`| ${SET_NAME}${BOSS_AIM ? ' (в ядро)' : ''} | ${lost.length} из ${castellanFights.length} (${castellanFights.length ? Math.round(100 * lost.length / castellanFights.length) : 0}%) | ${castellanFights.length ? f1(median(castellanFights.map(f => f.time))) : '—'} | ${top || '—'} | ${garrison.outcomes.victory} | ${castellanFights.length ? f1(median(castellanFights.map(f => f.hpIn))) : '—'} |`);
+  console.log(`| ${SET_NAME}${BOSS_AIM ? ' (в ядро)' : ''} | ${lost.length} из ${castellanFights.length} (${castellanFights.length ? Math.round(100 * lost.length / castellanFights.length) : 0}%) | ${castellanFights.length ? f1(median(castellanFights.map(f => f.time))) : '—'} | ${top || '—'} | ${garrison.outcomes.victory} | ${castellanFights.length ? f1(median(castellanFights.map(f => f.hpIn))) : '—'} | ${castellanFights.filter(f => f.won).length ? f1(median(castellanFights.filter(f => f.won).map(f => f.time))) : '—'} | ${lost.length ? f1(median(lost.map(f => f.time))) : '—'} |`);
   process.exit(0);
 }
 const whole = pass(() => true), garrison = pass(run => !!run.garrisonLevel);
@@ -190,3 +207,6 @@ const head = (() => { try { return execSync('git rev-parse --short HEAD').toStri
 console.log(`Задача 40, часть Е: кривая выживания бота через лес и гарнизон, ${SEEDS} seed, предел боя ${LIMIT} с, «Ров» ${MOAT ? 'вкл.' : 'по флагу игры'} (эвристика, жадный бот), ${new Date().toISOString().slice(0, 10)}, HEAD ${head}, ${Math.round((Date.now() - started) / 1000)} с.\n`);
 print('Весь поход: все бои настоящие', whole, ['л', 'г']);
 print('Гарнизон от «Предместья»: бои леса выиграны обходом, бои гарнизона настоящие', garrison, ['г']);
+// Task 43: the Jailer's fights of both passes (the second plays the forest by the walk: only the first's count).
+const jl = jailerFights.filter(f => !f.won).length;
+console.log(`Тюремщик (все бои с ним, оба прохода): боёв ${jailerFights.length}, поражений ${jl} (${jailerFights.length ? Math.round(100 * jl / jailerFights.length) : 0}%), длина боя мед. ${jailerFights.length ? f1(median(jailerFights.map(f => f.time))) : '—'} с.`);

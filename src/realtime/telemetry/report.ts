@@ -1257,7 +1257,7 @@ function castellanLines(list: readonly BossEntry[]): string[] {
   const won = own.filter(b => b.entry.record.outcome === 'victory').length, times = own.map(b => b.entry.record.time);
   const sum = (f: (c: NonNullable<FightSummary['boss']>['castellan'] & object) => number): number => own.reduce((a, b) => a + f(b.summary.boss!.castellan!), 0);
   const order = own.map(b => b.summary.boss!.castellan!.parts.map(p => `${p.kind === 'hound' ? 'пёс' : 'арбалет'} ${n1(p.at)} с`).join(' → ') || '—');
-  return ['', `Кастелян полный (задача 43): боёв ${own.length}, побед с первой попытки ${won} (${pct(won, own.length)}); длина боя мед. ${n1(median(times))} с; решётка поднята рычагом ${sum(c => c.raises)} раз, открыта ${n1(sum(c => c.openSeconds))} с; окна с ударом по ядру ${sum(c => c.windowsHit)}, без удара ${sum(c => c.windowsMissed)}; «Болт» — выстрелов ${sum(c => c.bolts.shots)}, в героя ${sum(c => c.bolts.hero)}, во врагов ${sum(c => c.bolts.enemies)}. Части по порядку: ${order.join('; ')}.`];
+  return ['', `Кастелян полный (задача 43): боёв ${own.length}, побед с первой попытки ${won} (${pct(won, own.length)}); длина боя мед. ${n1(median(times))} с; решётка поднята рычагом ${sum(c => c.raises)} раз, открыта ${n1(sum(c => c.openSeconds))} с; окна с ударом по ядру ${sum(c => c.windowsHit)}, без удара ${sum(c => c.windowsMissed)}; решётка выбила звенья из цепи ${sum(c => c.unlinks ?? 0)} раз (звеньев ${sum(c => c.unlinked ?? 0)}); «Болт» — выстрелов ${sum(c => c.bolts.shots)}, в героя ${sum(c => c.bolts.hero)}, во врагов ${sum(c => c.bolts.enemies)}. Части по порядку: ${order.join('; ')}.`];
 }
 // ---- end «Босс» ----
 

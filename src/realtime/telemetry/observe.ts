@@ -342,6 +342,8 @@ export function createFightObserver(start: World): FightObserver {
           const c = s.boss?.castellan;
           if (!c) return;
           if (ev.action === 'lever') leverPulled = true;
+          // The grate fell while the core was in the drawn chain: the core and the links after it dropped out.
+          else if (ev.action === 'unlink') { c.unlinks = (c.unlinks ?? 0) + 1; c.unlinked = (c.unlinked ?? 0) + (ev.dropped?.length ?? 0); }
           else if (ev.action === 'up') {
             grateSince = world.time;
             if (leverPulled) { c.raises++; leverWindow = { hit: false }; leverPulled = false; }
