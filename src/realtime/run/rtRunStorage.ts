@@ -6,7 +6,7 @@
 
 /** The part of the Web Storage API the stores use (tests pass a plain object). */
 export interface RunStorage { getItem(key: string): string | null; setItem(key: string, value: string): void; removeItem(key: string): void }
-import { isRtAshLevel, parseRtRun, serializeRtRun, type RtAshLevel, type RtRunState } from './rtRun';
+import { isRtAshLevel, parseRtRun, RT_ASH_OPEN, serializeRtRun, type RtAshLevel, type RtRunState } from './rtRun';
 import { isScheduleElement } from './schedule';
 // Tasks 36–37 «Мета» and «Очаг»: the meta the profile keeps (rtMeta.ts computes it; this store reads and writes it).
 import { parseRtMeta, rtApplyMeta, rtHearthBuy, rtHearthStartOf, rtHearthView, rtMetaLocked, rtMetaNewOffer, rtRunKey, type RtHearthBuy, type RtHearthStart, type RtHearthView, type RtMeta, type RtMetaEnd } from './rtMeta';
@@ -72,7 +72,7 @@ export function createRtRunStore(storage: RunStorage | null = browserStorage()):
  * Task 18 «Испытание I–V» (design 13–14.10.2026; the same version 1, optional fields):
  * - `won` — the viewer won a run without a given seed (`endRun` with `won`); it stays once set and opens the choice of
  *   «Испытание» on «Новый поход» (`ashOpen`).
- * - `ash` — the level chosen last (1–5; absent — 0), the choice's default (`ashChoice`, `chooseAsh`).
+ * - `ash` — the level chosen last (1–5; task 45: up to `RT_ASH_OPEN`; absent — 0), the choice's default (`ashChoice`, `chooseAsh`).
  * Task 26 «Расписание леса» (design 15.10.2026; the same version 1, an optional field):
  * - `seen` — the living elements the viewer has met (run/schedule.ts), sorted; a new run takes a snapshot (`createRtRun(seed,
  *   { schedule })`). Absent — the schedule never ran here: the first read takes the view's older memory (`scheduleHistory(seed)`).
@@ -183,10 +183,11 @@ export function createRtProfileStore(storage: RunStorage | null = browserStorage
     // Task 18: `won` stays once an unseeded run was won.
     endRun: ({ reachedJailer, seeded, won }) => !seeded && write({ ...read(), giftFull: reachedJailer, ...reachedJailer ? { jailer: true as const } : {}, ...won ? { won: true as const } : {} }),
     ashOpen: () => read().won === true,
-    ashChoice: () => { const profile = read(); return profile.won === true ? profile.ash ?? 0 : 0; },
+    // Task 45: a level above the choice's (`RT_ASH_OPEN`) is not offered — the highest offered one.
+    ashChoice: () => { const profile = read(); return profile.won === true ? Math.min(profile.ash ?? 0, RT_ASH_OPEN) as RtAshLevel : 0; },
     chooseAsh: level => {
       const profile = read();
-      if (profile.won !== true || !isRtAshLevel(level)) return false;
+      if (profile.won !== true || !isRtAshLevel(level) || level > RT_ASH_OPEN) return false;
       const { ash: _old, ...rest } = profile;
       return write(level > 0 ? { ...rest, ash: level as Exclude<RtAshLevel, 0> } : rest);
     },

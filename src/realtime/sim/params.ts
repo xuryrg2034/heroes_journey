@@ -184,7 +184,8 @@ export interface Params {
   /**
    * Loop research, step 1 (docs/realtime-loop-research.md, section 4.2): chain colours of the newcomers in the sandbox, the
    * first this many of the four and the colours of the arena's start enemies (spawn.ts `palette`). Journals without the
-   * value: 4. A run plays 4 (`RUN_FORCED`); its palette by the row comes from `colorsByRow`.
+   * value: 4. A run plays 4 (`RUN_FORCED`); its palette by the row comes from `colorsByRow`. Task 45: up to 5 (the fifth chain
+   * colour, for the view's snapshots); «Испытание VIII» gives a run 5 through the kit (`Loadout.colors`).
    */
   colorCount: number;
   /**
@@ -1504,7 +1505,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
     options: [{ value: 'edges', label: 'только края' }, { value: 'edgesAndInside', label: 'края + кучки внутри' }] },
   { kind: 'choice', key: 'groupColor', group: 'Появление', label: 'Цвет группы', stage: 1,
     options: [{ value: 'mixed', label: 'смешанный' }, { value: 'mono', label: 'одноцветный' }] },
-  n('colorCount', 'Появление', 'Цветов у новых врагов', 2, 4, 1, 5, '', 'Только песочница (исследование петли): новые враги — первых N цветов и цветов врагов арены. В походе — 4 или по ряду (ниже).'),
+  n('colorCount', 'Появление', 'Цветов у новых врагов', 2, 5, 1, 5, '', 'Только песочница (исследование петли): новые враги — первых N цветов и цветов врагов арены; 5 — с пятым цветом (задача 45, для снимков). В походе — 4 или по ряду (ниже), на «Испытании VIII» — 5.'),
   { kind: 'bool', key: 'colorsByRow', group: 'Появление', label: 'Поход: палитра по рядам (исследование петли)', stage: 5,
     hint: 'Ряды похода 1–2 — 2 цвета, 3–4 — 3, с 5-го — 4. Выключено — всегда 4.' },
   n('maxEnemies', 'Появление', 'Предел врагов на арене', 1, 150, 1, 1, '', 'При пределе новые ждут в очереди меток.'),

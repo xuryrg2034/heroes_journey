@@ -547,6 +547,14 @@ async function main(): Promise<void> {
     const rows = text.slice(text.indexOf('## По рядам'), text.indexOf('## Испытание')), section = text.slice(text.indexOf('## Испытание'), text.indexOf('## Бои походов'));
     assert(rows.includes('| прежний · Исп. II | 1 |') && rows.includes('| пологий · Исп. I | 1 |') && rows.includes('| пологий | 1 |'), rows);
     assert(section.includes('| Испытание | Походов |') && section.includes('| V | 1 | 1 | 0 | 10 |') && section.includes('| II | 1 | 0 | 1 | 4 |'), section);
+    // Task 45: levels VI–VIII by their marks; the chain length — the median over the ended fights with chains of each fight's median.
+    const eight = runOf('s9', 'a8', 'defeat', { ash: 8, farRow: 3, nodes: [visit('r6c0', 1, 9)] });
+    const chained = (lengthMedian: number, count: number) => { const e = entry(eight, 1, 'glade', 'victory', 1); e.record.summary!.chain.lengthMedian = lengthMedian; e.record.summary!.chain.count = count; return e; };
+    const deep = ashStats([eight], [chained(2, 5), chained(3, 4), chained(7, 0)]);
+    assert(deep.length === 1 && deep[0].ash === 8 && same(deep[0].chainMedian, [2, 3]), JSON.stringify(deep));
+    const deepText = reportMarkdown(collectRecords([{ name: 'ash8.json', text: JSON.stringify([eight]) }]), { fights: [], orphanNotes: [] }, { now: new Date('2026-10-16T14:00:00Z'), source: 'ash8' });
+    const deepSection = deepText.slice(deepText.indexOf('## Испытание'), deepText.indexOf('## Бои походов'));
+    assert(deepSection.includes('Цепь мед. (боёв)') && deepSection.includes('| VIII | 1 | 0 | 1 | 3 |'), deepSection);
   });
 
   await check('the prologue: per room median time, hand and arrow shares, attempts, deaths, returns, skips; completion by origin; the older copy dropped; no records — «нет данных»', () => {

@@ -1,7 +1,7 @@
-import { type Page } from '@playwright/test';
+import { type Locator, type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
 import { createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtEnterNode, serializeRtRun, type RtAshLevel, type RtRunState } from '../src/realtime/run/rtRun';
-import { RT_PROFILE_STORAGE_KEY, RT_RUN_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
+import { RT_PROFILE_STORAGE_KEY, RT_PROFILE_VERSION, RT_RUN_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
 import { runRow } from '../src/realtime/run/arenaPools';
 import { closeNode, ok, seedOf, takeGift } from '../src/realtime/run/runFight.testkit';
 
@@ -9,11 +9,31 @@ import { closeNode, ok, seedOf, takeGift } from '../src/realtime/run/runFight.te
  * Task 18 «Испытание I–V», the view (design 13–14.10.2026; src/realtime/view/runView.ts, view/nodeCard.ts, docs/realtime-slice.md
  * «Испытание») at 1280×720 by real clicks. Runs are walked in Node by the run's own commands and put into the page's storage:
  * - a lost run's end screen has no choice (the profile never won); a run won in the page — its final fought, the hero walked
- *   through the door — opens «Испытание: 0 · I · II · III · IV · V» over «Новый поход» for good;
+ *   through the door — opens «Испытание: 0 · I · … · VIII» (task 45) over «Новый поход» for good;
  * - a click chooses the level and its line («Неуязвимость 0,5 с, касание 2»), a reload keeps it, the new run takes it: the map
  *   header says «Испытание III», the run has no gentle entry;
  * - the node card of an «Испытание IV» run on row 6 says the fight's 2 traits («2 особых свойства»).
  */
+/**
+ * Task 45 (core's report 16.10.2026: «VII» ran under the meta column, «Испытание:» was cut on the left): every level button and the
+ * head lie inside the end screen's card, and the point at each button's centre is that button (nothing covers it).
+ */
+async function expectAshFits(page: Page, screen: Locator): Promise<void> {
+  const box = (await screen.locator('.rt-card').boundingBox())!;
+  const head = (await screen.locator('.rt-ash-head').boundingBox())!;
+  expect(head.x, 'the head is not cut on the left').toBeGreaterThanOrEqual(box.x);
+  const levels = screen.locator('.rt-ash-level'), meta = screen.locator('.rt-meta');
+  const metaBox = await meta.count() ? await meta.boundingBox() : null;
+  for (let i = 0; i < await levels.count(); i++) {
+    const b = (await levels.nth(i).boundingBox())!;
+    expect(b.x, `level ${i} inside the card`).toBeGreaterThanOrEqual(box.x);
+    expect(b.x + b.width, `level ${i} inside the card`).toBeLessThanOrEqual(box.x + box.width);
+    if (metaBox) expect(b.x + b.width, `level ${i} left of the meta column`).toBeLessThanOrEqual(metaBox.x);
+    const hit = await page.evaluate(([x, y]) => (document.elementFromPoint(x, y) as HTMLElement | null)?.dataset.testid ?? null, [b.x + b.width / 2, b.y + b.height / 2] as const);
+    expect(hit, `level ${i} takes the click`).toBe(await levels.nth(i).getAttribute('data-testid'));
+  }
+}
+
 const runState = (page: Page): Promise<RtRunState> => page.evaluate(() => (window as any).__realtime.run.state());
 
 function collectErrors(page: Page): string[] {
@@ -46,7 +66,7 @@ async function open(page: Page, run: RtRunState, profile: object | null): Promis
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
 }
 
-test('task 18: no choice before a won run; the final won in the page opens «Испытание: 0 · I · II · III · IV · V»; the level is remembered and the new run takes it — «Испытание III» on the map', async ({ page }) => {
+test('task 18: no choice before a won run; the final won in the page opens «Испытание: 0 · I · … · VIII» (task 45); the level is remembered and the new run takes it — «Испытание III» on the map', async ({ page }) => {
   test.setTimeout(90_000);
   const errors = collectErrors(page);
   // A lost run's end: the profile has not won — no choice, only «Новый поход».
@@ -72,7 +92,8 @@ test('task 18: no choice before a won run; the final won in the page opens «И�
   await expect(end).toBeVisible();
   const choice = end.getByTestId('run-ash');
   await expect(choice).toBeVisible();
-  await expect(choice).toHaveText('Испытание:0IIIIIIIVV');
+  await expect(choice).toHaveText('Испытание:0IIIIIIIVVVIVIIVIII'); // task 45: 0 … VIII
+  await expectAshFits(page, end);
   await expect(end.getByTestId('ash-0')).toHaveAttribute('aria-pressed', 'true');
   await expect(end.getByTestId('run-ash-text')).toHaveText('Обычный поход');
   await expect(page.locator('body')).not.toContainText('Пепел');
@@ -85,6 +106,16 @@ test('task 18: no choice before a won run; the final won in the page opens «И�
   await expect(page.getByTestId('ash-3')).toHaveAttribute('title', 'Испытание III: + неуязвимость 0,5 с, касание 2');
   await page.getByTestId('ash-1').click();
   await expect(page.getByTestId('run-ash-text')).toHaveText('+ без зелья и второго дыхания');
+  // Task 45: VI, VII and VIII (since the fifth colour's view) are offered with their lines.
+  await page.getByTestId('ash-6').click();
+  await expect(page.getByTestId('run-ash-text')).toHaveText('+ фокус короче на четверть');
+  await page.getByTestId('ash-7').click();
+  await expect(page.getByTestId('run-ash-text')).toHaveText('+ враги быстрее на десятую');
+  await page.getByTestId('ash-8').click();
+  await expect(page.getByTestId('ash-8')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('run-ash-text')).toHaveText('+ пятый цвет на аренах');
+  await page.mouse.move(0, 0);
+  await page.screenshot({ path: 'artifacts/realtime-ash-choice-viii.png' });
   await page.getByTestId('ash-3').click();
   await page.mouse.move(0, 0);
   await page.screenshot({ path: 'artifacts/realtime-ash-choice.png' });
@@ -122,6 +153,29 @@ test('task 18: no choice before a won run; the final won in the page opens «И�
   if (await pick.count()) await pick.click();
   await expect(page.getByTestId('run-map')).toBeVisible();
   await expect(page.getByTestId('run-ash-title')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('task 45: the start screen of a won profile without a run — «Испытание: 0 … VIII» fits its card, each level takes the click', async ({ page }) => {
+  const errors = collectErrors(page);
+  await page.goto('/');
+  await page.evaluate(([key, version]) => { localStorage.clear(); localStorage.setItem(key, JSON.stringify({ version, won: true, ash: 8 })); }, [RT_PROFILE_STORAGE_KEY, RT_PROFILE_VERSION] as const);
+  await page.reload();
+  const start = page.locator('.rt-run-start');
+  await expect(start).toBeVisible();
+  await expect(start.getByTestId('run-ash')).toHaveText('Испытание:0IIIIIIIVVVIVIIVIII');
+  await expect(start.getByTestId('ash-8')).toHaveAttribute('aria-pressed', 'true');
+  await expect(start.getByTestId('run-ash-text')).toHaveText('+ пятый цвет на аренах');
+  const box = (await start.boundingBox())!;
+  const levels = start.locator('.rt-ash-level');
+  for (let i = 0; i < await levels.count(); i++) {
+    const b = (await levels.nth(i).boundingBox())!;
+    expect(b.x >= box.x && b.x + b.width <= box.x + box.width, `level ${i} inside the card`).toBe(true);
+    const hit = await page.evaluate(([x, y]) => (document.elementFromPoint(x, y) as HTMLElement | null)?.dataset.testid ?? null, [b.x + b.width / 2, b.y + b.height / 2] as const);
+    expect(hit, `level ${i} takes the click`).toBe(`ash-${i}`);
+  }
+  await page.mouse.move(0, 0);
+  await page.screenshot({ path: 'artifacts/realtime-ash-start-viii.png' });
   expect(errors).toEqual([]);
 });
 

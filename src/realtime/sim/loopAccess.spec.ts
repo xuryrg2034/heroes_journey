@@ -65,7 +65,8 @@ check('off by default: colorCount 4, colorsByRow off; a journal without the valu
     assert(palette(b.world).join() === '0,1,2,3', 'a journal without the value — 4 colours');
   }
   // Sanitising: out of range is clamped, garbage keeps the default.
-  assert(sanitizeParams({ colorCount: 1 }).colorCount === 2 && sanitizeParams({ colorCount: 9 }).colorCount === 4 && sanitizeParams({ colorCount: 'x' }).colorCount === 4, 'clamped');
+  // Task 45: the panel's top is 5 (the fifth chain colour, for the view's snapshots).
+  assert(sanitizeParams({ colorCount: 1 }).colorCount === 2 && sanitizeParams({ colorCount: 9 }).colorCount === 5 && sanitizeParams({ colorCount: 5 }).colorCount === 5 && sanitizeParams({ colorCount: 'x' }).colorCount === 4, 'clamped');
 });
 
 check('sandbox colorCount 2 and 3: newcomers take the first N colours and the arena\'s colour 3, each of them, no other; the journal replays', () => {

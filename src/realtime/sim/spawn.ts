@@ -16,7 +16,7 @@
 import { dcos, dsin } from './detMath';
 import { behaviorOf, enemyKind } from './enemies/kinds';
 import { eliteRoll, makeElite, rollRandomElite } from './elites';
-import { COLOR_COUNT, EVENT_EXTRA_ENEMIES, EVENT_PACE_FACTOR, MAX_TOUGH_HP, MIN_COLORS } from './kit';
+import { COLOR_COUNT, EVENT_EXTRA_ENEMIES, EVENT_PACE_FACTOR, MAX_COLORS, MAX_TOUGH_HP, MIN_COLORS } from './kit';
 import { type ArenaShape, blockedAt, dist, inWater, type Vec } from './geometry';
 import { enemyBodyRadius, rollGroupInterval, type Params } from './params';
 import type { Rng } from './rng';
@@ -254,17 +254,21 @@ function rollSize(world: World, min: number, max: number): number {
 
 /** The full palette: every chain colour. */
 const FULL_PALETTE: readonly number[] = Array.from({ length: COLOR_COUNT }, (_, i) => i);
+/** Task 45 «Испытание VIII»: the four and the fifth chain colour (index 4). */
+const FIFTH_PALETTE: readonly number[] = Array.from({ length: MAX_COLORS }, (_, i) => i);
 
 /**
  * Loop research, step 1 (docs/realtime-loop-research.md, sections 4.2 and 4.5): the colours newcomers take, ascending — the
  * first N (the run's by its row, `Kit.colors`, else the sandbox's `colorCount`; journals without it — 4) and the colours of
  * the arena's own start enemies, as the turn-based palette (row palette + the authored colours, decision 30.09.2026): a
- * marked target of another colour still gets partners. The chameleon cycles in it too. N = 4 — all four, as before.
+ * marked target of another colour still gets partners. The chameleon cycles in it too. N = 4 — all four, as before. Task 45
+ * «Испытание VIII»: N = 5 — the five (`MAX_COLORS`; the sandbox's `colorCount` 5 too); a draw is one whatever the size.
  */
 export function palette(world: World): readonly number[] {
   const raw = world.kit?.colors ?? world.params.colorCount ?? COLOR_COUNT;
-  const n = Number.isFinite(raw) ? Math.min(COLOR_COUNT, Math.max(MIN_COLORS, Math.floor(raw))) : COLOR_COUNT;
-  if (n >= COLOR_COUNT) return FULL_PALETTE;
+  const n = Number.isFinite(raw) ? Math.min(MAX_COLORS, Math.max(MIN_COLORS, Math.floor(raw))) : COLOR_COUNT;
+  if (n > COLOR_COUNT) return FIFTH_PALETTE;
+  if (n === COLOR_COUNT) return FULL_PALETTE;
   const colors = new Set(FULL_PALETTE.slice(0, n));
   for (const s of world.arena.enemies) if (s.color >= 0 && s.color < COLOR_COUNT) colors.add(s.color);
   return [...colors].sort((a, b) => a - b);

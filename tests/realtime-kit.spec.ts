@@ -312,12 +312,18 @@ test('colours Т5 (Д5): the yellow of the chain is ochre c8962e, the rim of an 
   await openArena(page, errors, 1);
   await quiet(page);
   const s = await buildSnap(page);
-  expect(s.palette.chain.slice(0, 4)).toEqual([0xca7970, 0x9fba7c, 0x79b0c4, 0xc8962e]);
+  // Task 45: the fifth is mauve a86a9a (not the turn-based lavender b69ad2).
+  expect(s.palette.chain).toEqual([0xca7970, 0x9fba7c, 0x79b0c4, 0xc8962e, 0xa86a9a]);
   expect(s.palette.target).toBe(0xffff66);
   // A plain enemy of colour 3: its disc below the sigil is ochre.
   const plain = await place(page, 6, 6.5, 'basic', 3, 0);
   const elite = await page.evaluate(() => (window as any).__realtime.place(10, 5, 3, 1, 'basic', true)) as number;
   await page.waitForTimeout(400);
+  // `setParam('enemySpeed', 0)` is clamped to the slider's minimum 0.2 (sanitizeParams; core 16.10.2026): the elite walks to the hero,
+  // and on a slow run it left the scanned strip between the snapshot and the screenshot (the whole file only). The pause («P») holds
+  // the bodies where the snapshot says.
+  await page.keyboard.press('p');
+  await expect.poll(async () => (await buildSnap(page) as BuildSnap & { paused: boolean }).paused).toBe(true);
   const scale = (await page.evaluate(() => (window as any).__realtime.camera())).scale as number;
   const r = 0.4 * 0.8 * 72 * scale;
   const where = (await buildSnap(page)).enemies, p0 = where.find(x => x.id === plain)!, p1 = where.find(x => x.id === elite)!;
@@ -331,6 +337,49 @@ test('colours Т5 (Д5): the yellow of the chain is ochre c8962e, the rim of an 
   const strip = await pixels(page, { x: Math.round(e.x + r), y: Math.round(e.y) - 1, width: Math.round(r * 1.2), height: 3 });
   expect(strip.some(p => near(p, 0xffff66, 12)), JSON.stringify(strip)).toBe(true);
   expect(strip.some(p => near(p, 0xffd36b, 8))).toBe(false);
+  expect(errors).toEqual([]);
+});
+
+test('task 45: the fifth colour — a mauve body, the crystal of a five-colour arena has a mauve facet (none at four), a real-mouse chain of the fifth colour', async ({ page }) => {
+  test.setTimeout(60_000);
+  const errors: string[] = [];
+  await openArena(page, errors, 1);
+  await quiet(page);
+  const scale = (await page.evaluate(() => (window as any).__realtime.camera())).scale as number;
+  const r = 0.4 * 0.8 * 72 * scale, R = 0.32 * 72 * scale;
+  // The crystal at four colours: four facets, no mauve.
+  const crystal = { x: 4.5, y: 2.5 };
+  await page.evaluate(([x, y]) => (window as any).__realtime.placeCrystal(x, y), [crystal.x, crystal.y] as const);
+  await page.waitForTimeout(300);
+  const box = async () => { const c = await screen(page, crystal.x, crystal.y); return pixels(page, { x: Math.round(c.x - R), y: Math.round(c.y - R * 1.3), width: Math.round(R * 2), height: Math.round(R * 2.6) }); };
+  expect((await box()).some(p => near(p, 0xa86a9a, 8)), 'no fifth facet at four colours').toBe(false);
+  expect((await box()).some(p => near(p, 0xc8962e, 8)), 'the ochre facet').toBe(true);
+  await page.evaluate(() => (window as any).__realtime.setParam('colorCount', 5));
+  await page.waitForTimeout(300);
+  expect((await box()).some(p => near(p, 0xa86a9a, 8)), 'the mauve facet at five colours').toBe(true);
+  // A crowd of all five: a zigzag of the fifth (a link apart) among the four others; the fifth's bodies are mauve under the sigil.
+  const fifth: number[] = [];
+  for (const [x, y] of [[7, 3], [8.3, 4.1], [7, 5.2], [8.3, 6.3]]) fifth.push(await place(page, x, y, 'basic', 4, 0));
+  for (const [i, c] of [0, 1, 2, 3, 2, 0, 3, 1].entries()) await place(page, 9.8 + (i % 4) * 1.4, 3.4 + Math.floor(i / 4) * 2, 'basic', c, 0);
+  await place(page, 5.7, 4.1, 'basic', 2, 0);
+  await place(page, 9.6, 5.2, 'basic', 0, 0);
+  await page.waitForTimeout(300);
+  const where = (await buildSnap(page)).enemies, first = where.find(x => x.id === fifth[0])!;
+  const at = await screen(page, first.x, first.y);
+  const disc = await pixels(page, { x: Math.round(at.x) - 1, y: Math.round(at.y + r * 0.4), width: 3, height: Math.round(r * 0.8) });
+  expect(disc.some(p => near(p, 0xa86a9a, 6)), JSON.stringify(disc)).toBe(true);
+  expect(disc.some(p => near(p, 0xb69ad2, 6))).toBe(false);
+  // The hero by the first, a chain over the fifth's bodies by the real mouse: the highlight takes them.
+  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [first.x - 0.6, first.y - 1] as const);
+  await page.waitForTimeout(200);
+  const order = fifth.map(id => where.find(x => x.id === id)!).sort((a, b) => a.y - b.y || a.x - b.x);
+  const p0 = await screen(page, order[0].x, order[0].y);
+  await page.mouse.move(p0.x, p0.y);
+  await page.mouse.down();
+  for (const e of order.slice(1)) { const p = await screen(page, e.x, e.y); await page.mouse.move(p.x, p.y, { steps: 6 }); }
+  await expect.poll(async () => (await buildSnap(page)).chain).toEqual(order.map(e => e.id));
+  await page.screenshot({ path: 'artifacts/realtime-fifth-colour.png' });
+  await page.mouse.up();
   expect(errors).toEqual([]);
 });
 

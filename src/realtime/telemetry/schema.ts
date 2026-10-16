@@ -366,7 +366,7 @@ export interface RunRecord extends RtHeader {
   secondWind?: RunSecondWind;
   /** Task 15 (from 14.10.2026): the map heals bought, in order; absent — none (older records too). */
   mapHeals?: RunMapHeal[];
-  /** Task 18 «Испытание I–V» (from 14.10.2026): the run's level, 1–5 (`RtRunState.ash`); absent — 0 (older records too). */
+  /** Task 18 «Испытание I–V» (from 14.10.2026): the run's level, 1–5 (task 45, from 16.10.2026: 1–8; `RtRunState.ash`); absent — 0 (older records too). */
   ash?: number;
   /** Task 16 (from 14.10.2026): the run had feats (`RtRunState.feats`); absent — no (a first run, older records). */
   featsOn?: true;
@@ -633,8 +633,8 @@ export function checkRecord(value: unknown): string | null {
         const w = r.secondWind as Record<string, unknown> | null;
         if (!w || typeof w !== 'object' || typeof w.nodeId !== 'string' || !Number.isInteger(w.row) || !(w.fight === null || typeof w.fight === 'string')) return 'run secondWind';
       }
-      // Task 18 (14.10.2026): optional — the level of «Испытание», 1–5.
-      if (r.ash !== undefined && !(Number.isInteger(r.ash) && (r.ash as number) >= 1 && (r.ash as number) <= 5)) return 'run ash';
+      // Task 18 (14.10.2026): optional — the level of «Испытание», 1–5; task 45 (16.10.2026): 1–8.
+      if (r.ash !== undefined && !(Number.isInteger(r.ash) && (r.ash as number) >= 1 && (r.ash as number) <= 8)) return 'run ash';
       // Task 41 (16.10.2026): optional — the cap of healing potions, a whole number from 1.
       if (r.potionCap !== undefined && !(Number.isInteger(r.potionCap) && (r.potionCap as number) >= 1)) return 'run potionCap';
       // Task 15 (14.10.2026): optional — the map heals bought.

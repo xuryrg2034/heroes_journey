@@ -60,10 +60,12 @@ import { CHAIN_BREAK_LIFE, drawFlailArc, drawFlailChain, drawSeverPip, drawWeigh
 /**
  * Phase B (Т5, design 10.10.2026): the chain colours of the real-time view. Red, green and blue are those of the turn-based
  * art (`COLORS`, read only); the yellow of the chain becomes ochre `c8962e` — under deuteranopia the old `d8b66a` stood
- * close to the gold of goals and elites (ΔE2000 8.7; ochre against the lemon `ffff66` — 21.3). A fifth colour, if any,
- * keeps the turn-based one. `art/art.ts` is not changed.
+ * close to the gold of goals and elites (ΔE2000 8.7; ochre against the lemon `ffff66` — 21.3). Task 45 (design 16.10.2026,
+ * «Испытание VIII»): the fifth colour is mauve `a86a9a`, not the turn-based lavender `b69ad2` (under deuteranopia it merged
+ * with the blue: ΔE2000 3.2; mauve's worst against the four — 10.0, tritanopia against the red; against the curse and magic
+ * violets — 16.5 and more). `art/art.ts` is not changed.
  */
-export const CHAIN_COLORS: readonly number[] = [COLORS[0], COLORS[1], COLORS[2], 0xc8962e, ...COLORS.slice(4)];
+export const CHAIN_COLORS: readonly number[] = [COLORS[0], COLORS[1], COLORS[2], 0xc8962e, 0xa86a9a];
 /** The view colour of chain colour `index` (out of range — the last one, as a guard). */
 const chainInk = (index: number): number => CHAIN_COLORS[index] ?? CHAIN_COLORS[CHAIN_COLORS.length - 1];
 /** The part of `SealPreview` the view reads. */
@@ -2031,16 +2033,18 @@ export class RealtimeRenderer {
         continue;
       }
       if (o.kind === 'crystal') {
-        // Colour-change crystal (stage C): a faceted prism in all four chain colors, glowing; fits any chain.
+        // Colour-change crystal (stage C): a faceted prism in all four chain colors, glowing; fits any chain. Task 45: an arena of
+        // five colours («Испытание VIII», the sandbox's 5) — five facets, the fifth mauve (design 16.10.2026: «кристалл на 5 частей»).
         const h = R * 1.05, w = R * 0.72, bob = Math.sin(this.clock * 3 + o.id) * 3, cy = y + bob;
         g.ellipse(x, y + R * 0.75, R * 0.6, R * 0.2).fill({ color: 0x050a07, alpha: 0.4 });
         g.circle(x, cy, R * 1.15).fill({ color: 0xffffff, alpha: 0.08 + 0.1 * pulse });
-        const top = [x, cy - h], right = [x + w, cy], bottom = [x, cy + h], left = [x - w, cy], mid = [x, cy];
-        g.poly([...top, ...right, ...mid]).fill(CHAIN_COLORS[0]);
-        g.poly([...right, ...bottom, ...mid]).fill(CHAIN_COLORS[1]);
-        g.poly([...bottom, ...left, ...mid]).fill(CHAIN_COLORS[2]);
-        g.poly([...left, ...top, ...mid]).fill(CHAIN_COLORS[3]);
-        g.poly([...top, ...right, ...bottom, ...left]).stroke({ color: NAVY, width: 3 });
+        const facets = world.params.colorCount >= 5 ? 5 : 4, mid = [x, cy];
+        const corners = Array.from({ length: facets }, (_, k) => {
+          const a = -Math.PI / 2 + k * Math.PI * 2 / facets;
+          return facets === 4 ? [x + Math.cos(a) * w, cy + Math.sin(a) * h] : [x + Math.cos(a) * w * 1.15, cy + Math.sin(a) * h * 0.95];
+        });
+        corners.forEach((c, k) => g.poly([...c, ...corners[(k + 1) % facets], ...mid]).fill(CHAIN_COLORS[k]));
+        g.poly(corners.flat()).stroke({ color: NAVY, width: 3 });
         g.poly([x - w * 0.35, cy - h * 0.45, x - w * 0.1, cy - h * 0.75, x, cy - h * 0.3]).fill({ color: 0xffffff, alpha: 0.7 });
         continue;
       }

@@ -111,7 +111,7 @@ import { garrisonArena, garrisonCombinedMap, garrisonDeep, garrisonKit, garrison
  * Task 18 «Испытание I–V» (the same version, design 13–14.10.2026): the run's level `ash` (1–5), set at its creation from the
  * choice on «Новый поход»; absent — level 0 (every save before it). The level decides the task-17 flags the run is created with
  * (`createRtRun`) and acts through `rtGentle`, `rtEliteAffixes` and the loadout (`rtAshPressure`). A save without it plays and
- * saves byte for byte as before.
+ * saves byte for byte as before. Task 45 (the same version): levels 6–8 (`rtAshSkill`); a save of 1–5 reads and plays as before.
  * Task 19 «Короткий запал» (the same version, user decision 14.10.2026 after playtest v44): the run's flag `shortFuse`, set at
  * its creation (`RT_SHORT_FUSE_ON`); its battles play the goblin's bust fuse `RT_RUN_BUST_FUSE` (0.6 s, `rtArenaParams`). A save
  * without it keeps the fuse of `RT_RUN_FORCED` (1.2 s) to its end and saves byte for byte as before.
@@ -309,27 +309,46 @@ export const RT_START_POTIONS = 1;
  * III — invulnerability after a hit 0.5 s and the tough touch 2 from row 1 (`gentleEntry` off: the run of v40);
  * IV — 2 affixes on elites from run row 6 (`RT_ASH_AFFIX_ROW`);
  * V — the density floor ×1.15 in every fight and the final's phases 15 % earlier (`rtAshPressure`; the arena limit stays).
+ * Task 45 (design 16.10.2026, docs/design-notes/task-45-trial-skill.md), the levels of chain skill, in every fight of the run
+ * (garrison, bosses and events too; `rtAshSkill`):
+ * VI — the focus reserve ×0.75 (`Loadout.focusScale`); the slowdown and the refill stay;
+ * VII — the enemies' walk ×1.1 (`Loadout.walkScale`; the scope of the build's walk factor);
+ * VIII — the fifth chain colour on every row (`Loadout.colors` 5; hand-placed start enemies keep theirs).
  * Unlocked by the player's first won run without a given seed (run/rtRunStorage.ts `RtProfile.won`).
  */
-export type RtAshLevel = 0 | 1 | 2 | 3 | 4 | 5;
-export const RT_ASH_MAX = 5;
+export type RtAshLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+export const RT_ASH_MAX = 8;
+/**
+ * Task 45: the highest level the choice offers (`rtAshOptions`, `chooseAsh`) — all of them since the view of the fifth colour
+ * (step 2, ui: mauve `a86a9a`, the five-facet crystal).
+ */
+export const RT_ASH_OPEN: RtAshLevel = RT_ASH_MAX;
 /** The levels from which each change acts. */
 export const RT_ASH_NO_START_HELP = 1;
 export const RT_ASH_TABLES = 2;
 export const RT_ASH_GRACE = 3;
 export const RT_ASH_AFFIXES = 4;
 export const RT_ASH_PRESSURE = 5;
+export const RT_ASH_FOCUS = 6;
+export const RT_ASH_WALK = 7;
+export const RT_ASH_COLORS = 8;
 /** Баланс (IV): elites carry 2 affixes from this run row (row 9 keeps its 2). */
 export const RT_ASH_AFFIX_ROW = 6;
 /** Баланс (V): the density floor of every fight × this (spawn.ts `topUpToFloor`; the arena limit stays the cap). */
 export const RT_ASH_FLOOR_SCALE = 1.15;
 /** Баланс (V, design 14.10.2026): the final's phase table runs this much faster (each phase's duration × it: 15 % earlier). */
 export const RT_ASH_FINAL_PHASE_SCALE = 0.85;
+/** Баланс (VI, task 45): the focus reserve × this (`focusMax` 3 → 2.25 s; the HUD bar 75 %). */
+export const RT_ASH_FOCUS_SCALE = 0.75;
+/** Баланс (VII, task 45): the enemies' walk × this. */
+export const RT_ASH_WALK_SCALE = 1.1;
+/** VIII (task 45): the palette of every fight — the four chain colours and the fifth (sim/kit.ts `MAX_COLORS`). */
+export const RT_ASH_COLOR_COUNT = 5;
 /** The run's level (absent — 0). */
 export const rtAsh = (run: Pick<RtRunState, 'ash'> | null | undefined): RtAshLevel => run?.ash ?? 0;
 export const isRtAshLevel = (value: unknown): value is RtAshLevel => typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= RT_ASH_MAX;
-const ASH_ROMAN = ['0', 'I', 'II', 'III', 'IV', 'V'] as const;
-/** The level's mark on the choice: «0», «I» … «V». */
+const ASH_ROMAN = ['0', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'] as const;
+/** The level's mark on the choice: «0», «I» … «VIII». */
 export const rtAshLabel = (level: RtAshLevel): string => ASH_ROMAN[level];
 /** The run's title on the map header: «Испытание III»; level 0 — '' (nothing shown). */
 export const rtAshTitle = (level: RtAshLevel): string => (level > 0 ? `Испытание ${ASH_ROMAN[level]}` : '');
@@ -344,11 +363,15 @@ export const rtAshText = (level: RtAshLevel): string => [
   'Неуязвимость 0,5 с, касание 2',
   `Два свойства элит с ряда ${RT_ASH_AFFIX_ROW}`,
   `Толпа ×${String(RT_ASH_FLOOR_SCALE).replace('.', ',')}, фазы финала короче`,
+  // Task 45 (design 16.10.2026): the lines of VI–VIII.
+  'Фокус короче на четверть',
+  'Враги быстрее на десятую',
+  'Пятый цвет на аренах',
 ][level];
-/** The choice on «Новый поход»: every level with its mark, title and line, 0 … V. */
+/** The choice on «Новый поход»: every level the choice offers with its mark, title and line, 0 … `RT_ASH_OPEN`. */
 export interface RtAshOption { level: RtAshLevel; label: string; title: string; text: string }
 export const rtAshOptions = (): RtAshOption[] =>
-  ([0, 1, 2, 3, 4, 5] as const).map(level => ({ level, label: rtAshLabel(level), title: rtAshTitle(level) || 'Испытание 0', text: rtAshText(level) }));
+  Array.from({ length: RT_ASH_OPEN + 1 }, (_, i) => i as RtAshLevel).map(level => ({ level, label: rtAshLabel(level), title: rtAshTitle(level) || 'Испытание 0', text: rtAshText(level) }));
 /**
  * Task 18, V: what the level adds to the loadout of a fight played as `battle` — the density floor of every fight
  * (`Loadout.floorScale`) and, in the final, the phase table's pace (`Loadout.phaseScale`). Empty below V. The scope of V is here
@@ -357,6 +380,18 @@ export const rtAshOptions = (): RtAshOption[] =>
 export function rtAshPressure(level: RtAshLevel, battle: RtBattleKind | undefined): Pick<Loadout, 'floorScale' | 'phaseScale'> {
   if (level < RT_ASH_PRESSURE || !battle) return {};
   return { floorScale: RT_ASH_FLOOR_SCALE, ...battle === 'final' ? { phaseScale: RT_ASH_FINAL_PHASE_SCALE } : {} };
+}
+/**
+ * Task 45, VI–VIII: what the level adds to the loadout of every fight of the run (forest, garrison, bosses, events) — the focus
+ * reserve (VI), the enemies' walk (VII), the fifth chain colour (VIII). Empty below VI. The scope of VI–VIII is here and only here.
+ */
+export function rtAshSkill(level: RtAshLevel, battle: RtBattleKind | undefined): Pick<Loadout, 'focusScale' | 'walkScale' | 'colors'> {
+  if (level < RT_ASH_FOCUS || !battle) return {};
+  return {
+    focusScale: RT_ASH_FOCUS_SCALE,
+    ...level >= RT_ASH_WALK ? { walkScale: RT_ASH_WALK_SCALE } : {},
+    ...level >= RT_ASH_COLORS ? { colors: RT_ASH_COLOR_COUNT } : {},
+  };
 }
 
 /**
@@ -523,6 +558,7 @@ export interface RtRunState {
   /**
    * Task 18 «Испытание I–V»: the run's level, 1–5 (`RtAshLevel`), set when the run is created; absent — level 0 (a save before it
    * too). The level decides the task-17 flags at creation and acts through `rtGentle`, `rtEliteAffixes`, `rtAshPressure`.
+   * Task 45: 6–8 too (`rtAshSkill`: the focus, the walk, the fifth colour).
    */
   ash?: Exclude<RtAshLevel, 0>;
   /**
@@ -1058,13 +1094,17 @@ export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}):
     ...pending?.kind === 'battle' && pending.feat ? { feat: { kind: pending.feat.kind, n: pending.feat.n } } : {},
     // Task 18, «Испытание V»: the denser floor of every fight, the final's faster phases (absent below V: loadouts as before).
     ...node && pending?.kind === 'battle' ? rtAshPressure(ash, pending.battle) : {},
+    // Task 45, «Испытание VI–VIII»: the focus, the walk, the fifth colour (absent below VI: loadouts as before; VIII's palette
+    // replaces the panel's palette by the row).
+    ...node && pending?.kind === 'battle' ? rtAshSkill(ash, pending.battle) : {},
   };
   // Task 38 «Гарнизон»: a garrison fight plays the garrison's row tables (run/garrison.ts; no schedule, no gentle tables there).
   if (node && pending?.kind === 'battle' && rtGarrisonNodeId(node.id)) {
     // Task 40: a deep fight of a run with «Ров» (its deep enemies: the second keymaster, the keymaster in «Галерея», «Караульня»).
     const before = run.picks.flatMap(pick => pick.arena && rtGarrisonNodeId(pick.nodeId) && pick.nodeId !== node.id ? [pick.arena] : []);
     garrisonKit(kit, node, pending.battle, !!run.moat && garrisonDeep(pending.arena, runRow(node.row), before));
-    return kit;
+    // Task 45 «Испытание VIII»: the garrison plays the fifth colour too (`garrisonKit` drops the panel's palette by the row).
+    return { ...kit, ...rtAshSkill(ash, pending.battle) };
   }
   // Task 26 «Расписание леса»: a scheduled run's fight takes the schedule's elite and enemy rules (it replaces Е2 and the final's rule).
   if (run.schedule && node && pending?.kind === 'battle') {
@@ -3031,7 +3071,7 @@ function checkRun(value: unknown): RtRunState | null {
   if (value.shortFuse !== undefined && value.shortFuse !== true) return null;
   // Task 16 (14.10.2026): a flag; absent — a save before it (or a first run), which has no feats.
   if (value.feats !== undefined && value.feats !== true) return null;
-  // Task 18 (14.10.2026): the level 1–5; absent — 0. The task-17 flags must be those the level creates the run with.
+  // Task 18 (14.10.2026): the level 1–5 (task 45: 1–8); absent — 0. The task-17 flags must be those the level creates the run with.
   if (value.ash !== undefined && !(isRtAshLevel(value.ash) && value.ash >= 1)) return null;
   if (isRtAshLevel(value.ash) && ((value.ash >= RT_ASH_NO_START_HELP && (value.startPotion !== undefined || value.secondWind !== undefined)) || (value.ash >= RT_ASH_GRACE && value.gentleEntry !== undefined))) return null;
   if (value.secondWindSpent !== undefined && (value.secondWindSpent !== true || value.secondWind !== true || !Array.isArray(value.battles) || !value.battles.length)) return null;
