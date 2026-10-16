@@ -81,7 +81,7 @@ test('task 43 view: a chain through the knight takes a plate pip; the last one �
   await openSandbox(page, '&arena=27');
   await expect.poll(async () => (await snap(page)).arena).toBe('g-knight-test');
   await quiet(page, { x: 8, y: 6.6 });
-  await page.evaluate(() => { const rt = (window as any).__realtime; rt.setParam('knightChargeWindup', 3); rt.setParam('knightSwingWindup', 3); rt.setParam('knightPause', 0.3); });
+  await page.evaluate(() => { const rt = (window as any).__realtime; rt.setParam('knightChargeWindup', 3); rt.setParam('knightSwingWindup', 3); });
   const knight = await place(page, 8, 4.2, 1, 3, 'knight');
   await expect.poll(async () => (await snap(page)).knight.filled).toBe(2);
 
@@ -95,9 +95,16 @@ test('task 43 view: a chain through the knight takes a plate pip; the last one �
   // The second chain: the last plate — the shed (the event counted, the pips gone).
   await pass(page, knight);
   await expect.poll(async () => (await snap(page)).knight.sheds).toBe(1);
+  // The first move waits `knightPause` (2 s, the default) after the shed: no lane in the shed's frame (design asked, 16.10.2026).
+  expect((await snap(page)).knight.lanes).toBe(0);
   await page.screenshot({ path: 'artifacts/realtime-knight-shed.png' });
   expect((await knightOf(page, knight)).armor).toBeNull();
   await expect.poll(async () => (await snap(page)).knight.pips).toBe(0);
+  // On the offensive the red mark stays (design 16.10.2026): the visor's glow and the red ring, while the knight lives.
+  await expect.poll(async () => (await snap(page)).knight.marks).toBe(1);
+  await gameWait(page, 1);
+  expect((await snap(page)).knight.marks).toBe(1);
+  await page.screenshot({ path: 'artifacts/realtime-knight-offensive.png' });
 
   // «Рывок»: the boar's strip along the lane while the windup runs, filling (the sim's progress grows).
   await untilFrame(page, (sn, id: number, late) => sn.knight.lanes > 0 || late ? sn.knight.lanes : undefined, knight, 4);

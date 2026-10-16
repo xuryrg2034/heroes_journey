@@ -148,7 +148,8 @@ export class HearthView {
     if (!this.bestiary) return '';
     const met = new Set([...h.seen, ...this.host.beasts?.() ?? []]), kinds = Object.keys(KIND_CAPTIONS).filter(k => met.has(k));
     this.shown.bestiary = kinds.length;
-    const rows = kinds.map(k => { const [name, line] = KIND_CAPTIONS[k].split(' — '); return `<li data-testid="beast-${k}"><b>${esc(name)}</b><span>${esc(line ?? '')}</span></li>`; }).join('');
+    // The name is before the first « — » (task 43: «Стражник — ходит строем: строй — готовая цепь» keeps its second dash in the line).
+    const rows = kinds.map(k => { const text = KIND_CAPTIONS[k], at = text.indexOf(' — '), name = at < 0 ? text : text.slice(0, at), line = at < 0 ? '' : text.slice(at + 3); return `<li data-testid="beast-${k}"><b>${esc(name)}</b><span>${esc(line)}</span></li>`; }).join('');
     return `<div class="rt-overlay rt-hearth-modal" data-action="close" data-testid="hearth-bestiary-panel"><div class="rt-card rt-hearth-book-card"><h2>Бестиарий</h2>${rows ? `<ul class="rt-hearth-beasts">${rows}</ul>` : '<p class="rt-run-note">Пока пусто.</p>'}<button class="rt-other" data-action="close">Закрыть</button></div></div>`;
   }
 

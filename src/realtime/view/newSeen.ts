@@ -31,6 +31,13 @@ export const KIND_CAPTIONS: Readonly<Record<string, string>> = {
   shield: 'Щитоносец — спереди щит не пускает звено',
   lynx: 'Рысь — замирает, потом прыгает по линии',
   shaman: 'Шаман — лучом усиливает слабого',
+  // Task 43 (design 16.10.2026): the garrison's kinds (the prisoner is no kind of its own — no caption).
+  guard: 'Стражник — ходит строем: строй — готовая цепь',
+  handler: 'Псарь — держит псов: разруби поводок',
+  hound: 'Пёс — без поводка кусает всех подряд',
+  keymaster: 'Ключник — в кандалах не берётся: сначала разруби',
+  crossbow: 'Арбалетчик — болт бьёт первое тело на линии',
+  knight: 'Рыцарь — цепь снимает латы; без лат нападает',
 };
 /** The final captions of the elite affixes (a run fight has the elite armour on: «Толстый» is +1 plate, «Стремительный» −1). */
 export const AFFIX_CAPTIONS: Readonly<Record<AffixId, string>> = {
