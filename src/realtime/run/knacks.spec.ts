@@ -330,6 +330,18 @@ await check('the Jailer\'s form screen: place 1 — a form of the archetype\'s t
   console.log(`  form screens ${screens}, place 1 forced ${forced}, with a pair beside it ${pairs}, rerolled ${rerolled}`);
 });
 
+await check('a save of the open gift with «Без повадки» (`habit: null`) loads as the state right after the choice: the same state, view and actions (12 seeds)', () => {
+  for (let k = 1; k <= 12; k++) {
+    const after = ok(rtChooseHabit(createRtRun(seedOf(k), { gift: 'full', habits: true }), null), 'none'), loaded = parseRtRun(serializeRtRun(after));
+    assert(loaded && serializeRtRun(loaded) === serializeRtRun(after) && loaded.habit === null, `seed ${k}: the same state`);
+    assert(JSON.stringify(rtGiftView(loaded)) === JSON.stringify(rtGiftView(after)) && rtGiftView(loaded)!.habit?.chosen === true, `seed ${k}: the same view, the archetype decided`);
+    assert(!rtChooseHabit(loaded, 'cold').ok && !rtChooseHabit(after, 'cold').ok, `seed ${k}: no second choice`);
+    const view = rtGiftView(after)!, at = view.options.find(o => o.available)?.index ?? null;
+    const a = rtChooseGift(after, at), b = rtChooseGift(loaded, at);
+    assert(a.ok && b.ok && serializeRtRun(a.run) === serializeRtRun(b.run) && JSON.stringify(a.events) === JSON.stringify(b.events), `seed ${k}: the gift's button gives the same step`);
+  }
+});
+
 await check('saves of the archetype: every malformed case reads as no run; the open gift with «Без повадки» reads', () => {
   const run = createRtRun(seedOf(3), { gift: 'full', habits: true });
   const none = ok(rtChooseHabit(run, null), 'none'), cold = ok(rtChooseHabit(run, 'cold'), 'cold');

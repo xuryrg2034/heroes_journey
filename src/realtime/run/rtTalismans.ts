@@ -82,7 +82,8 @@ const RT_SLICE_TALISMANS: readonly RtTalismanDef[] = [
   turn('millstone-shard', 'Смена цвета на 1 звено раньше: после 5 звеньев одного цвета вместо 6', ['shift']),
   turn('hourglass', 'Фазы после целей начинаются на 10 с позже', ['cold']),
   turn('nimble-paws', 'Прыжок стоит 1 энергию вместо 2'),
-  turn('ash-ward', 'Один раз за поход: удар, который убил бы героя, оставляет его с 1 HP; оберег рассыпается'),
+  // Task 50 (design §16, answer 3): the tag «Стужа» — the bot's share of tagged items for «Стужа» was below half the others' mean.
+  turn('ash-ward', 'Один раз за поход: удар, который убил бы героя, оставляет его с 1 HP; оберег рассыпается', ['cold']),
   { id: 'hero-anchor', name: 'Якорь у героя', rarity: 'rare', effect: 'Следующее звено берётся и в радиусе R от героя (обойти щит им нельзя)', tags: ['shift'] },
   // Phase B, 5а (decision 10.10.2026): the new «Клятва голода» (sim/relics.ts `HUNGER_KILLS`, `HUNGER_HEAL`; relics.spec.ts checks the numbers).
   turn('oath-hunger', '+1 HP за 15 убийств цепью; привал не лечит (крафт остаётся)'),

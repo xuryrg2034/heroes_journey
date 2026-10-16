@@ -33,6 +33,7 @@ const VARIANTS: Variant[] = [
 const median = (list: number[]): number => { const s = [...list].sort((a, b) => a - b); return s.length ? (s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2) : 0; };
 const n1 = (x: number): string => (Math.round(x * 10) / 10).toLocaleString('ru-RU');
 const pct = (n: number, of: number): string => (of ? `${Math.round(n / of * 100)} %` : '—');
+const pct1 = (n: number, of: number): string => (of ? `${(n / of * 100).toFixed(1).replace('.', ',')} %` : '—');
 /** The build at the end: items (a fusion as itself) and ranks II (`<id>:2`). */
 const buildOf = (run: RtRunState): string[] => [...run.talismans, ...(run.honed ?? []).map(id => `${id}:2`)].sort();
 const jaccard = (a: readonly string[], b: readonly string[]): number => { const x = new Set(a), y = new Set(b), both = [...x].filter(id => y.has(id)).length, any = new Set([...x, ...y]).size; return any ? both / any : 1; };
@@ -70,5 +71,5 @@ for (const v of VARIANTS) {
   }
   const distinct = new Set(builds.map(b => b.join())).size;
   const sim = builds.slice(1).map((b, i) => jaccard(builds[i], b)), meanSim = sim.reduce((a, b) => a + b, 0) / Math.max(1, sim.length);
-  console.log(`| ${v.name} | ${n1(choices / SEEDS)} | ${n1(knacks / SEEDS)} | ${n1(size / SEEDS)} | ${distinct} из ${SEEDS} | ${meanSim.toFixed(2)} | ${pct(paired, SEEDS)} | ${pct(fused, SEEDS)} | ${v.habit ? pct(tagged, items) : '—'} | ${FIGHTS ? n1(median(far)) : '—'} | ${FIGHTS ? pct(won, SEEDS) : '—'} |`);
+  console.log(`| ${v.name} | ${n1(choices / SEEDS)} | ${n1(knacks / SEEDS)} | ${n1(size / SEEDS)} | ${distinct} из ${SEEDS} | ${meanSim.toFixed(2)} | ${pct(paired, SEEDS)} | ${pct(fused, SEEDS)} | ${v.habit ? pct1(tagged, items) : '—'} | ${FIGHTS ? n1(median(far)) : '—'} | ${FIGHTS ? pct(won, SEEDS) : '—'} |`);
 }
