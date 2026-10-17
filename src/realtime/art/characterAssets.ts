@@ -21,6 +21,8 @@ export const CHARACTER_ART_IDS = [
   'troll', 'troll-sleep', 'troll-club', 'troll-rock',
   // Task 49 «Второй герой»: Ведунья (the hero's sprite; the drawn toad stays the fallback) and the Jailer's cage (the drawn cage stays the fallback).
   'toad', 'jailer-cage',
+  // Task 57а «Лес: стрелки»: the slinger, the hive and the wisp (the drawn silhouettes stay the fallback).
+  'forest-slinger', 'forest-hive', 'forest-wisp',
 ] as const;
 
 export type CharacterArtId = typeof CHARACTER_ART_IDS[number];

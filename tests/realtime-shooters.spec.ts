@@ -304,3 +304,19 @@ test('task 57а view: the first meeting of each kind in a run fight gets its cap
   await page.waitForTimeout(600);
   expect((await snap(page)).captions.texts).toEqual([]);
 });
+
+test('task 57а view: the three shooters side by side — their art over the disc of the colour (a snapshot)', async ({ page }) => {
+  test.setTimeout(60_000);
+  const errors = collectErrors(page);
+  await openSandbox(page);
+  const hero = await quiet(page, [['focusSlow', 0.1]], { x: 8, y: 5.8 });
+  // Three colours, three kinds, in a row above the hero.
+  const ids = [await place(page, hero.x - 2.5, hero.y - 2.2, 1, 0, 'slinger'), await place(page, hero.x, hero.y - 2.2, 2, 2, 'hive'), await place(page, hero.x + 2.5, hero.y - 2.2, 3, 0, 'wisp')];
+  expect(ids.every(id => id > 0)).toBe(true);
+  await untilFrame(page, (s, _a: number, late) => s.shooters.wispsLighting === 0 && s.shooters.hanging === 0 && s.time > 0.3 || late ? true : undefined, 0, 3);
+  await page.keyboard.press('KeyP');
+  await expect.poll(async () => (await page.evaluate(() => (window as any).__realtime.snapshot().paused))).toBe(true);
+  await shot(page, 'all-three');
+  await page.keyboard.press('KeyP');
+  expect(errors).toEqual([]);
+});

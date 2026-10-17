@@ -165,6 +165,8 @@ const GARRISON_ART: Readonly<Record<string, { id: CharacterArtId; size: number }
   [CROSSBOW]: { id: 'garrison-crossbowman', size: 3.4 }, [STAND]: { id: 'garrison-crossbow', size: 3.6 },
   // Task 43: the knight (heavier: a taller box).
   [KNIGHT]: { id: 'garrison-knight', size: 3.7 },
+  // Task 57а: the forest shooters (the box is in body radii of the kind's own drawing scale; the colour reads on the disc and the plaque).
+  slinger: { id: 'forest-slinger', size: 3.4 }, hive: { id: 'forest-hive', size: 3.1 }, wisp: { id: 'forest-wisp', size: 3.0 },
 };
 /** Task 40: the prisoner's padlock — its width (body radii) and its gap over the drawing's top (radii). */
 const LOCK_SIZE = 0.95, LOCK_GAP = 0.15;
@@ -1183,9 +1185,12 @@ export class RealtimeRenderer {
       for (const a of [-0.5, 0, 0.5]) ctx.poly([Math.sin(a) * r * 0.55, -r * 0.8, Math.sin(a) * r * 1.0 - r * 0.12, -r * 1.55, Math.sin(a) * r * 1.0 + r * 0.12, -r * 1.55]).fill(PALE).stroke({ color: NAVY, width: 2, join: 'round' });
     }
     // Task 57а: the forest shooters' stand-in silhouettes (the design's art comes later).
-    if (kind === 'slinger') slingerMarks(ctx, r);
-    if (kind === 'hive') hiveMarks(ctx, r);
-    if (kind === 'wisp') wispMarks(ctx, r);
+    const shooterArt = GARRISON_ART[kind];
+    if (!shooterArt || !hasCharacterArt(shooterArt.id)) {
+      if (kind === 'slinger') slingerMarks(ctx, r);
+      if (kind === 'hive') hiveMarks(ctx, r);
+      if (kind === 'wisp') wispMarks(ctx, r);
+    }
     // Porcupine (iteration 2.1): its quills go up and down — drawn per frame over the texture (`quillGraphics`).
     if (kind === 'sapper') {
       // Sapper: a black powder keg on its back with a short fuse (silhouette, not a color).
