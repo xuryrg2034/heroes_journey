@@ -714,3 +714,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-meet-npc { height: 56px; width: auto; flex: none; }
 .rt-meet-head { display: flex; align-items: center; justify-content: center; gap: 12px; }
 .rt-meet-head .rt-meet-npc { height: 52px; }
+
+/* Task 51г: the vows' sign in the map's header; a hover shows the list, a broken vow is struck through. */
+.rt-run-vows { position: relative; display: inline-flex; align-items: center; cursor: help; margin-right: 14px; }
+.rt-vows-tip { display: none; position: absolute; top: calc(100% + 8px); left: 0; z-index: 30; margin: 0; padding: 8px 12px; list-style: none; width: 260px; background: #f1e6c8; color: #1b2017; border: 2px solid #18232d; box-shadow: 0 6px 18px #000a; font: 13px Georgia, serif; }
+.rt-run-vows:hover .rt-vows-tip, .rt-run-vows:focus .rt-vows-tip { display: block; }
+.rt-vows-tip li { display: grid; padding: 3px 0; }
+.rt-vows-tip .rt-vows-head { font-weight: 700; border-bottom: 1px solid #c9b98a; margin-bottom: 3px; }
+.rt-vows-tip small { color: #5a5234; font-size: 12px; }
+.rt-vows-tip .rt-broken { text-decoration: line-through; opacity: .65; }
+.rt-vows-tip b { color: #1b2017; font: 700 14px Georgia, serif; }

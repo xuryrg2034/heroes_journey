@@ -53,9 +53,9 @@ import { HearthView, NPC_ART, artUrl } from './hearthView';
 import { npcLine, type LineKey } from './npcLines';
 import { NPCS, type NpcId } from './metaModel';
 import { ProfileMeta } from './metaSource';
-import { MAP_KINDS, mapCounts, mapPreview, RunStart } from './runStart';
-import { rtHearthFlagsWith, rtJailerWonRow, rtRunKey, type RtHearthStart, type RtMetaEnd } from '../run/rtMeta';
-import { RT_HERO_ID, RT_TOAD_ID, type RtHeroId, type RtVowId } from '../run/metaCatalog';
+import { MAP_KINDS, VOW_RULES, mapCounts, mapPreview, RunStart } from './runStart';
+import { rtHearthFlagsWith, rtJailerWonRow, rtRunKey, rtVowsOf, type RtHearthStart, type RtMetaEnd } from '../run/rtMeta';
+import { RT_HERO_ID, RT_TOAD_ID, type RtHeroId, type RtVowId, RT_VOW_TITLES } from '../run/metaCatalog';
 import { defaultParams } from '../sim/params';
 import { TOAD_LINES } from './heroLines';
 import type { MetaHeroId } from './metaModel';
@@ -780,6 +780,23 @@ export class RunView {
     this.host.startArena(pending.arena, pending.seed, { hp: this.run.hp, maxHp: this.run.maxHp }, label, rtArenaLoadout(this.run, this.host.loadoutOptions), { blink: arenaBlink(this.run), hint: rtItemHintDue(this.run) }, pending.roster, rtArenaRules(this.run));
   }
 
+  /**
+   * Task 51г (design 17.10.2026): the sign of the vows taken in the map's header (not in the fight's HUD) - a seal on a dark disc; on a hover a
+   * list of the vows (name and rule). A vow already broken is struck through - by the core's check of the end (`rtVowsOf`), which counts a
+   * run only from the Jailer's row: before it nothing is struck (the vows are not counted yet).
+   */
+  private vowSign(run: RtRunState): string {
+    const vows = run.hearth?.vows;
+    if (!vows?.length) return '';
+    const state = rtVowsOf(run), items = vows.map(id => {
+      const broken = state?.find(v => v.id === id)?.kept === false;
+      return `<li class="${broken ? 'rt-broken' : ''}" data-testid="run-vow-${id}" data-broken="${broken}"><b>${escapeHtml(RT_VOW_TITLES[id])}</b><small>${escapeHtml(VOW_RULES[id])}</small></li>`;
+    }).join('');
+    return `<span class="rt-run-vows" data-testid="run-vows" tabindex="0" aria-label="Обеты похода"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#233039"/>`
+      + `<path d="M12 4.5 L14.4 9.2 L19.6 9.9 L15.8 13.5 L16.8 18.6 L12 16.1 L7.2 18.6 L8.2 13.5 L4.4 9.9 L9.6 9.2 Z" fill="#c9a8ff" stroke="#18232d" stroke-width="1.4" stroke-linejoin="round"/></svg>`
+      + `<ul class="rt-vows-tip" data-testid="run-vows-tip"><li class="rt-vows-head">Обеты</li>${items}</ul></span>`;
+  }
+
   /** Task 51д: one line of the NPC for the key (the hero of the run: Ведунья's variants), counted in the profile's memory; '' - none. */
   private meetLine(npc: NpcId, key: LineKey): string {
     const line = npcLine(npc, key, this.run?.heroId === RT_TOAD_ID ? 'toad' : undefined, this.profile.load().meta?.hearth?.lines ?? {});
@@ -1497,7 +1514,7 @@ export class RunView {
     const ash = rtAshTitle(rtAsh(run));
     // Task 38: the garrison's map is headed «Гарнизон».
     // Task 38: a run that goes on into the garrison names its level by one word — «Лес», then «Гарнизон»; a run without it — «Поход».
-    return `<header class="rt-run-head"><b data-testid="run-title" data-level="${rtLevel(run)}">${levelWord(run)}</b>${ash ? `<span class="rt-run-ash" data-testid="run-ash-title">${ash}</span>` : ''}<span class="rt-run-hp" data-testid="run-hp">HP ${run.hp} / ${run.maxHp}</span>${windHtml}${habitSign(run)}${heal}`
+    return `<header class="rt-run-head"><b data-testid="run-title" data-level="${rtLevel(run)}">${levelWord(run)}</b>${ash ? `<span class="rt-run-ash" data-testid="run-ash-title">${ash}</span>` : ''}<span class="rt-run-hp" data-testid="run-hp">HP ${run.hp} / ${run.maxHp}</span>${windHtml}${habitSign(run)}${this.vowSign(run)}${heal}`
       + `<span class="rt-run-items" data-testid="run-items">${items}</span>${talismans ? `<span class="rt-run-talismans" data-testid="run-talismans">${talismans}</span>` : ''}`
       + `${run.energy > 0 ? `<span class="rt-run-energy" data-testid="run-energy">⚡ ${run.energy} к арене</span>` : ''}`
       + `${resources}${reset}${this.sandboxButton(run)}${this.logsButton()}${this.settingsHtml()}</header>`
