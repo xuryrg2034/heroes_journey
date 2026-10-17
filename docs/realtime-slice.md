@@ -504,6 +504,7 @@
 - **Сплав.** Карточка «Инея на клинке» Ведуньи пишет «Сплав: с «Печать» → «Ледяная печать» · пара есть» (врождённая половина считается держимой), привал предлагает сплав с одной «Иней».
 - **Снимок для тестов.** `__realtime.run.heroesShown()` — карточки героя на экране, выбранный, отметки «Испытания», строки закона, состояние сцены клетки.
 - **Проверки 17.10.2026** (ветка `ui/task-49-meta`): `npx tsc --noEmit` чисто; Node-наборы вида 17 файлов, все зелёные; Playwright `tests/realtime-toad-meta.spec.ts` 4/4, вместе с `realtime-run`, `realtime-actionbar`, `realtime-heal`, `realtime-meta` 40/40. Дополнение (17.10.2026, после слияния `ui/task-49`): `tsc` чисто, `test:realtime-hero-view` 4/4, `test:realtime-npc-lines` 4/4, `tests/realtime-toad-meta.spec.ts` 5/5. Полный прогон и повтор ×3 не делались.
+- **Проверки интеграции вида 49 (17.10.2026, ветка `ui/task-49`: `core/task49` b1b2536 + `ui/task-50` 77ae999 + вид боя и вид меты, с правками дизайна task-49 §18).** `npx tsc --noEmit` — чисто; Node вида — 10 из 10 (`test:realtime-toad-view`, `hero-view`, `npc-lines`, `hints`, `node-card`, `prologue-view`, `new-seen`, `meta`, `hearth`, `build`); Playwright, один прогон — 89 из 89 (`realtime-toad-fight`, `realtime-toad-meta`, `realtime-run`, `realtime-actionbar`, `realtime-heal`, `realtime-meta`, `realtime-boss`, `realtime-onboarding`, `realtime-prologue`). Полное тестирование и ×3 не запускались.
 
 ### Гарнизон (задача 38, шаг 1а, 16.10.2026)
 
