@@ -90,10 +90,18 @@ export const RT_HEARTH_GATED_LEVEL = 3;
 /** Task 51 (spec 2.2): levels not sold in stage 3 — Евлампий's 3rd waits for the warlock's castle (level 3 of the world). */
 export const RT_HEARTH_LOCKED: Readonly<Partial<Record<RtHearthNpc, number>>> = { monk: 3 };
 
-/** A quest of the next run: Неясыть — farther than the record (`owl-farther`) or, at the record 10, win the forest (`owl-forest`); Марфа — 2 consumables at the end; Ерофей — sever the Jailer's weight. */
-export type RtQuestId = 'owl-farther' | 'owl-forest' | 'herb-flasks' | 'smith-sever';
-export const RT_QUEST_IDS: readonly RtQuestId[] = ['owl-farther', 'owl-forest', 'herb-flasks', 'smith-sever'];
-export const RT_QUEST_NPC = { 'owl-farther': 'owl', 'owl-forest': 'owl', 'herb-flasks': 'herb', 'smith-sever': 'smith' } as const satisfies Readonly<Record<RtQuestId, RtHearthNpc>>;
+/**
+ * A quest of the next run: Неясыть — farther than the record (`owl-farther`) or, at the record 10, win the forest (`owl-forest`); Марфа —
+ * 2 consumables at the end; Ерофей — sever the Jailer's weight. Task 51в: Шиш — «Вернись с 10 ресурсами» (`gambler-hoard`).
+ */
+export type RtQuestId = 'owl-farther' | 'owl-forest' | 'herb-flasks' | 'smith-sever' | 'gambler-hoard';
+export const RT_QUEST_IDS: readonly RtQuestId[] = ['owl-farther', 'owl-forest', 'herb-flasks', 'smith-sever', 'gambler-hoard'];
+export const RT_QUEST_NPC = { 'owl-farther': 'owl', 'owl-forest': 'owl', 'herb-flasks': 'herb', 'smith-sever': 'smith', 'gambler-hoard': 'gambler' } as const satisfies Readonly<Record<RtQuestId, RtHearthNpc>>;
+/**
+ * Task 51в: Шиш comes to the camp (by a game of the goblins' circle, by the fallback path) only while this is on — the camp's view of
+ * Шиш (ui) turns it on. Off: no profile changes (his flags, quest and lines never come). `rtApplyMeta(…, { gambler })` overrides it.
+ */
+export const RT_HEARTH_GAMBLER_ON = false;
 /** The NPCs that give quests (by the quest catalogue: v1's three; task 51 adds Шиш and Евлампий with their quests). */
 export type RtQuestNpc = (typeof RT_QUEST_NPC)[RtQuestId];
 export interface RtQuest { npc: RtQuestNpc; id: RtQuestId }
@@ -108,3 +116,5 @@ export const HEARTH_MAPS_SALT = metaSalt('hearth-maps');
 /** Task 51б (spec 2.2, 9): «Путь в гарнизон» — the second garrison map's seed; «Склянка в гарнизон» — the kinds offered at «Предместье». */
 export const HEARTH_GMAPS_SALT = metaSalt('hearth-gmaps');
 export const HEARTH_GATE_SALT = metaSalt('hearth-gate');
+/** Task 51в (spec 3.2, 9): «Шишова лавка» — the merchant's goods drawn again (by the node's seed). */
+export const HEARTH_SHOP_SALT = metaSalt('hearth-shop');
