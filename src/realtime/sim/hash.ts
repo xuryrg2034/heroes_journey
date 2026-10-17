@@ -84,6 +84,11 @@ export function worldState(world: World): unknown {
     ...world.bossCleared ? { bossCleared: true } : {},
     // Task 38 «Гарнизон» (`Params.tethers`, tethers.ts): the tethers on the arena (absent while none — worlds hash as before).
     ...world.tethers?.length ? { tethers: world.tethers } : {},
+    // Task 56 «Приметы» (omens.ts): the storm, the sleep, the pools, the roll call (each absent until its rule acts — worlds hash as before).
+    ...world.storm ? { storm: world.storm } : {},
+    ...world.drowse ? { drowse: world.drowse } : {},
+    ...world.flood ? { flood: world.flood } : {},
+    ...world.rollcall ? { rollcall: world.rollcall } : {},
   };
 }
 
