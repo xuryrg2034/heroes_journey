@@ -21,6 +21,7 @@ import type { Loadout } from '../src/realtime/sim/kit';
 import type { Enemy, World } from '../src/realtime/sim/world';
 import type { RtRunState } from '../src/realtime/run/rtRun';
 import { playChain } from './loopBot';
+import { shotDodge } from './shotDodge';
 
 /** The bot drinks a healing potion at this HP or lower. */
 export const HEAL_AT = 5;
@@ -155,8 +156,14 @@ export function botFight(run: RtRunState, options: BotFightOptions): BotFight {
   const sim = new Simulation({ arena: pending.arena, ...pending.roster !== undefined ? { roster: pending.roster } : {}, params: options.params, seed: pending.seed,
     hero: { hp: run.hp + buffer, maxHp: run.maxHp + buffer }, loadout: options.loadout });
   const w = sim.world;
-  let lastSource: string | null = null, timeout = false, left = false;
+  let lastSource: string | null = null, timeout = false, left = false, dodging = false;
   for (let tick = 0; tick < options.limit * 60 && w.status === 'playing'; tick++) {
+    // Task 57а: a shot about to touch the hero — a step aside; once clear, the hero stops until the next walk (nothing while no shot flies).
+    if (tick % 3 === 0 && !w.move) {
+      const aside = shotDodge(w);
+      if (aside) { sim.command({ t: 'walk', x: aside.x, y: aside.y }); dodging = true; }
+      else if (dodging) { sim.command({ t: 'walk', x: 0, y: 0 }); dodging = false; }
+    }
     if (w.greedStart !== null && !left && !options.stay?.(w)) left = true;
     const leaving = left;
     // Task 48: leaving, the walk follows the field every 6 ticks (each 30 overshot the cells: the den's mouth held the hero in a loop).
