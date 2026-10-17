@@ -1473,7 +1473,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   // Task 48 «Тролль» (enemies/troll.ts): the window off by default (the arena «Берлога тролля» turns it on); his numbers (hypotheses of the spec).
   trollWindow: false,
   trollSolid: false,
-  // Design 16.10.2026 (spec 24.11, the bot's grid): HP 2, 4 plates, the crowd ×0.45 on the arena.
+  // Design 16.10.2026 (spec 24.11, the bot's grid): HP 2, 4 plates; the crowd ×0.3 on the arena (design 17.10.2026, spec 24.17).
   trollHp: 2,
   trollPlates: 4,
   trollWindowClub: 1.5,
@@ -1995,7 +1995,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('trollSnore', 'Тролль', '«Храп»: длина', 1, 10, 0.5, 5, 'с', 'Всё это время окно открыто. Не задет — отрастает пластина.'),
   n('trollSnoreRegrow', 'Тролль', '«Храп»: пластин за сон', 0, 3, 1, 5, '', '0 — «Храп» без отрастания.'),
   n('trollRoarPeriod', 'Тролль', '«Рык»: раз в', 5, 60, 1, 5, 'с', 'Во второй и третьей фазе; первый — при входе во вторую.'),
-  n('trollCrowd', 'Тролль', 'Тролль: толпа', 0.25, 2, 0.05, 5, '×', 'Множитель плотности и темпа пополнения толпы. Арена «Берлога тролля» ставит 0,45, если на панели 1.'),
+  n('trollCrowd', 'Тролль', 'Тролль: толпа', 0.25, 2, 0.05, 5, '×', 'Множитель плотности и темпа пополнения толпы. Арена «Берлога тролля» ставит 0,3, если на панели 1.'),
   // Task 38 «Гарнизон, шаг 1» (tethers.ts, enemies/garrison.ts, docs/realtime-elite-behaviors.md).
   { kind: 'bool', key: 'tethers', group: 'Гарнизон', label: 'Закон связи', stage: 5,
     hint: 'Поводок — линия между псарём (или Кастеляном) и псом, не звено. Отрезок прохода цепи, пересекающий поводок, рубит его после прохода; подсветка показывает те же поводки. Прыжок, ходьба, круговой удар и расходники не рубят. Сорвавшийся пёс в ярости кусает всех. В походе включено.' },

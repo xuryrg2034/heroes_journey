@@ -7,14 +7,14 @@
  *   flag (a save before the task) plays «Последний рубеж» on both branches;
  * - saves: the Troll's pick and its record's parts read back; a Troll pick in a run without the flag, another arena at the den boss of
  *   a run with it, a malformed flag or parts — no run; a scheduled run's den boss — the Troll, arc null;
- * - the fight the run starts: the frame, the boss's death ending it, the window, the solid bodies, the crowd ×0.45, HP 2 and 4 plates, the part's loot;
+ * - the fight the run starts: the frame, the boss's death ending it, the window, the solid bodies, the crowd ×0.3 (a journal of ×0.45 replays it), HP 2 and 4 plates, the part's loot;
  * - the won Troll's fight with all three parts severed offers 1 of 4 (the relics of 1 of 3, the empty places rare talismans), with two parts 1 of 3;
  * - the run's end lines: «Ряд 10 · Тролль не пройден» / «Тролль пройден» for the Troll's fight, «Последний рубеж» for the camp's;
  * - the camp's death causes: the Troll — `troll`, the camp's final — `final`, the garrison's guardroom — `guardroom`, its Castellan —
  *   `castellan`.
  * Seeds `Math.imul(k, 2654435761) >>> 0`. No claim on winning or losing a fight.
  */
-import { Simulation } from '../sim/simulation';
+import { replay, Simulation } from '../sim/simulation';
 import { TROLL, TROLL_CLUB } from '../sim/enemies/troll';
 import { arenaTitle, FINAL_ARENA } from './arenaPools';
 import { rtDeathCause } from './rtMeta';
@@ -127,16 +127,21 @@ check('a scheduled run: the den boss plays the Troll, the camp boss «После
   }
 });
 
-check('the fight the run starts: the boss frame, the boss\'s death ending it, the window, the solid bodies, the crowd ×0.45, HP 2 and 4 plates, the part\'s loot; the colours of the parts vary by seed', () => {
+check('the fight the run starts: the boss frame, the boss\'s death ending it, the window, the solid bodies, the crowd ×0.3 (a journal of ×0.45 — design 16.10.2026 — replays its own), HP 2 and 4 plates, the part\'s loot; the colours of the parts vary by seed', () => {
   const colors = new Set<string>();
   for (let k = 1; k <= 8; k++) {
     const run = toBoss(createRtRun(seedOf(k), { gift: 'mini' }), 'den', k).run;
     const sim = new Simulation({ arena: pendingOf(run).arena, params: rtArenaParams(run, rtRunParams(quiet())), seed: pendingOf(run).seed, loadout: rtArenaLoadout(run) }), p = sim.world.params;
-    assert(p.bossFrame && p.bossClears && p.trollWindow && p.trollSolid && p.trollCrowd === 0.45 && p.bossPartLoot && p.jailerColorless, `seed ${k}: the fight's rules`);
+    assert(p.bossFrame && p.bossClears && p.trollWindow && p.trollSolid && p.trollCrowd === 0.3 && p.bossPartLoot && p.jailerColorless, `seed ${k}: the fight's rules`);
     const core = sim.world.enemies.find(e => e.kind === TROLL)!, club = sim.world.enemies.find(e => e.kind === TROLL_CLUB)!;
     // The design's numbers (spec 24.11): HP 2, 4 plates.
     assert(core.marked && core.armor?.plates === 4 && core.armor.max === 4 && core.hp === 2 && club.partOf === core.id, `seed ${k}: the Troll and his parts`);
     colors.add(sim.world.enemies.filter(e => e.partOf === core.id).map(e => e.color).join());
+    // A journal recorded with ×0.45 (16.10–17.10.2026) keeps the value it holds: the arena puts ×0.3 only over 1.
+    const old = new Simulation({ arena: pendingOf(run).arena, params: { ...rtArenaParams(run, rtRunParams(quiet())), trollCrowd: 0.45 }, seed: pendingOf(run).seed, loadout: rtArenaLoadout(run), record: true });
+    for (let t = 0; t < 600; t++) old.tick();
+    const journal = JSON.parse(JSON.stringify(old.exportJournal()!)), back = replay(journal);
+    assert(journal.params.trollCrowd === 0.45 && back.world.params.trollCrowd === 0.45 && back.hash() === old.hash(), `seed ${k}: the old journal plays ×0.45`);
   }
   assert(colors.size >= 3, `the parts' colours vary (${[...colors]})`);
 });

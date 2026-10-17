@@ -75,7 +75,8 @@ export const TROLL_TAIL_SOURCE = 'troll-tail';
 
 // ---- Баланс (гипотезы спеки задачи 48, 16.10.2026; тесты проверяют правила, не числа) ----
 /** The defaults of the Troll's keys (journals without them). */
-// Design 16.10.2026 (spec 24.11): HP 2, 4 plates, the crowd ×0.45 (the bot's grid: between the Jailer and the full Castellan).
+// Design 16.10.2026 (spec 24.11): HP 2, 4 plates (the bot's grid: between the Jailer and the full Castellan); the crowd ×0.3 —
+// design 17.10.2026 (spec 24.17, the bot's crowd sweep; ×0.45 before).
 export const TROLL_HP = 2;
 export const TROLL_PLATES = 4;
 export const TROLL_WINDOW_CLUB = 1.5;
@@ -84,7 +85,7 @@ export const TROLL_SNORE = 4;
 export const TROLL_SNORE_REGROW = 1;
 export const TROLL_ROAR_PERIOD = 20;
 /** The crowd's factor the arena «Берлога тролля» puts (`Params.trollCrowd` when the values hold 1). */
-export const TROLL_CROWD = 0.45;
+export const TROLL_CROWD = 0.3;
 /**
  * The core's body and art: × the common size. Design 16.10.2026 (spec 24.2, question В9): ×1 — the body ×2 was shifted up to 0.79 off
  * its spot by the hero's parting; the drawing is large in the view (as the Jailer's), the body of the simulation is common.
