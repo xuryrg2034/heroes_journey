@@ -178,3 +178,8 @@ NOT smooth plastic surfaces, NOT excessive gradients.
 - `public/art/characters/chief-sack.png` — мешок с перцем, грибом и морковью (предмет), 751×677.
 - `public/art/characters/chief-cauldron.png` — котелок на трёх камнях с огнём; горловина пустая (варево и пар рисует вид цветом варева), 1000×813.
 - `public/art/camp/trophy-chief.png` перерисован: тот же котелок без огня, с половником — трофей «Котелок Главаря» совпадает с котелком боя.
+
+### Лес — виды врагов для «Летописи» (17.10.2026)
+
+Набор для задачи 58 («Летопись», бестиарий), Codex `image_gen`, промпты — `artifacts/art-prompts/forest-kinds.json`. Проверка `check-art.mjs` 17.10.2026: PASS для шести; глазами — стиль един с `melee.png`, `ranged.png`. В бою виды леса по-прежнему рисует код (диски со знаками); PNG — для карточек книги. Лучник — `ranged.png`, щитоносец — `sentinel.png` (набор 27.09.2026).
+- `public/art/characters/forest-wolf.png`, `forest-boar.png`, `forest-lynx.png`, `forest-porcupine.png`, `forest-sapper.png` (гоблин с бомбой), `forest-shaman.png` (гоблин-шаман с посохом-кристаллом).
