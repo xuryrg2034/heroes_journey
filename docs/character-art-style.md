@@ -194,3 +194,9 @@ NOT smooth plastic surfaces, NOT excessive gradients.
 - `public/art/characters/warlock-dazed.png` — тот же Колдун сбит: шляпа набок, глаза-спирали, свеча погасла; сделан по `warlock.png` как образцу, 1145×1200.
 - `public/art/camp/foothill.png` — фон «Подножия», 1280×720: дорога в гору к замку на скале, сумерки, огни окон; низ в центре спокойнее (там панель).
 - Задача 57 (17.10.2026, тот же набор и файл промптов): `forest-slinger.png` (Пращник — гоблин с пращой), `forest-hive.png` (Улей), `forest-wisp.png` (Светляк — светящийся жук, не огонь), `forest-rootling.png` (Корневик), `forest-slime.png` (Слизень), `forest-centipede.png` (Сороконожка), `forest-firebrand.png` (Головешка). `check-art.mjs` — PASS для семи; для карточек «Летописи» и вида 57а/57б.
+
+### Гарнизон, шаг 3 и враги замка (17.10.2026)
+
+Наборы для задач 59 и 60, Codex `image_gen`, промпты — `artifacts/art-prompts/garrison.json` и `castle.json`; обрезка по силуэту (2 %) сделана дизайном после генерации. `check-art.mjs` — PASS для восьми; глазами — стиль един с гарнизоном и замком 1а.
+- Гарнизон: `garrison-pitcher.png` (Смолокур — горшок со смолой на плече), `garrison-recruit.png` (Новобранец — шлем на глаза, бирка без номера: номер рисует вид), `garrison-warden.png` (Привратник — алебарда-ключ, половина лат цветная).
+- Замок: `castle-queen.png` (Ферзь), `castle-butler.png` (Дворецкий — вешалка во фраке с подносом), `castle-chandelier.png` (Люстра), `castle-poltergeist.png` (Полтергейст), `castle-jester.png` (Шут). `castle-candelabra.png` (Подсвечник) — повтор генерации (первые две попытки не дали картинки).
