@@ -34,8 +34,9 @@ export const ROLE_TITLES: Readonly<Record<EnemyRole, string>> = {
 /** The role of each kind a roster may bring. */
 export const KIND_ROLE: Readonly<Record<string, EnemyRole>> = {
   basic: 'presser', boar: 'presser', archer: 'shooter', shield: 'blocker', porcupine: 'punisher', sapper: 'punisher', shaman: 'master', wolf: 'diver', lynx: 'diver',
-  // Task 57а «Лес: стрелки» (design 17.10.2026): the slinger, the hive and the wisp shoot.
-  slinger: 'shooter', hive: 'shooter', wisp: 'shooter',
+  // Task 57а «Лес: стрелки» (design 17.10.2026): the slinger and the hive shoot. The wisp has no role (design 17.10.2026: it does not shoot,
+  // it is a homing body; no role «flies after the hero» exists — no badge).
+  slinger: 'shooter', hive: 'shooter',
 };
 /** Kinds every run has met from its start: no roster waits for them. */
 export const ALWAYS_MET: readonly string[] = ['basic', 'wolf', 'boar'];
