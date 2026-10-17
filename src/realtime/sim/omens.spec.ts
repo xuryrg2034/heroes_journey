@@ -19,6 +19,11 @@
  *   chain keeps the slow-down 4.5 s, the focus refills from 0 in 9 s; «Сорочье гнездо» — a chain of 6 kills drops a crystal, the colour
  *   frees on the 9th link; «Скудные краски» — newcomers of 30 s take 3 colours, a chain of 4 kills gives no shield, of 5 — gives;
  *   «Попутный ветер» — a jump at 1 energy to a point 4 away, the spin refused at 6 energy, struck at 7;
+ * - the link (chain.ts, fixed when taken): «Половодье» — a tough one (2 HP) taken in a pool dies of one link, out of it survives; one that
+ *   walked out of the pool while the focus ran keeps its +1; «Перекличка» — a link of the colour called gives 1 energy, another 0.5, the
+ *   colour taken before the call changed still gives 1;
+ * - the highlight is the dash (5+ seeds): the plan's strike of every link (its damage, killed or not) and its kills are the dash's, with
+ *   «Половодье», «Перекличка», «Сорочье гнездо» (the crystal) and «Скудные краски» (the shield);
  * - every omen's fight replays to the same hash at every checkpoint; with every key off a fight is the world of before.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
@@ -33,6 +38,7 @@ import { RUN_ARENAS } from '../run/arenaPools';
 import { rtArenaParams, rtRunParams } from '../run/rtRun';
 import { rtOmenColors } from '../run/omens';
 import { SIM_DT } from './simulation';
+import { planChain } from './chain';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -551,6 +557,114 @@ check('«Попутный ветер»: a jump at 1 energy to a point 4 away; th
   g.sim.command({ t: 'teleport', x: 5, y: 6 });
   g.sim.command({ t: 'energy', value: 1 });
   assert(g.sim.command({ t: 'jump', x: 8, y: 6 }) === false, 'without the omen a jump at 1 energy is refused');
+});
+
+// ---- The link: «Половодье» and «Перекличка» (fixed when taken) ----
+
+/** A chain over the points, its plan when drawn, released and played out: the plan and the dash's hits. */
+function planned(f: Fight, points: readonly { x: number; y: number }[]): { plan: ReturnType<typeof planChain>; hits: Ev<'chainHit'>[] } {
+  f.sim.command({ t: 'begin', x: points[0].x, y: points[0].y });
+  for (const q of points.slice(1)) f.sim.command({ t: 'drag', x: q.x, y: q.y, mode: 'full' });
+  assert(f.sim.world.chain.length === points.length, `the chain took ${f.sim.world.chain.length} of ${points.length}`);
+  const before = f.sim.hash(), plan = planChain(f.sim.world);
+  assert(f.sim.hash() === before, 'the highlight leaves the world as it was');
+  const from = f.events.length;
+  f.sim.command({ t: 'release' });
+  settle(f);
+  return { plan, hits: of(f.events.slice(from), 'chainHit') };
+}
+/** The plan's strikes and kills are the dash's: per link — the damage and whether it died. */
+function sameAsPlan(what: string, plan: ReturnType<typeof planChain>, hits: readonly Ev<'chainHit'>[]): void {
+  const planned = plan.links.flatMap(l => (l.outcome && l.link.kind === 'enemy' ? [`${l.link.id}:${l.outcome.damage}:${l.outcome.killed}`] : []));
+  const struck = hits.map(h => `${h.enemyId}:${h.damage}:${h.killed}`);
+  assert(JSON.stringify(planned.slice(0, struck.length)) === JSON.stringify(struck) && plan.kills === hits.filter(h => h.killed).length, `${what}: the plan ${planned} vs the dash ${struck} (kills ${plan.kills})`);
+}
+
+check('«Половодье»: a tough one (2 HP) taken in a pool dies of one link, out of it survives; the highlight says so first', () => {
+  for (let k = 1; k <= 5; k++) {
+    for (const wet of [true, false]) {
+      const f = fight(omenRun('flood'), k), w = f.sim.world, pool = w.flood!.pools[0];
+      const at = wet ? { x: pool.x, y: pool.y } : { x: pool.x + 2.4 < 29 ? pool.x + 2.4 : pool.x - 2.4, y: pool.y };
+      f.sim.command({ t: 'teleport', x: at.x + (at.x > 15 ? -1.2 : 1.2), y: at.y });
+      const id = place(f, at.x, at.y, 0, 2);
+      const { plan, hits } = planned(f, [at]);
+      assert(w.chain.length === 0, 'released');
+      const killed = !w.enemies.some(e => e.id === id);
+      assert(killed === wet, `seed ${k}: ${wet ? 'in' : 'out of'} the pool — killed ${killed}`);
+      sameAsPlan(`seed ${k} ${wet ? 'wet' : 'dry'}`, plan, hits);
+    }
+  }
+});
+
+check('«Половодье»: an enemy that walked out of the pool while the focus ran keeps its +1 (the mark of the link taken)', () => {
+  let tried = 0;
+  for (let k = 1; k <= 12 && tried < 3; k++) {
+    const f = fight(omenRun('flood', { enemySpeed: 1.2 }), k, RUN_ARENAS[0]), w = f.sim.world, pool = w.flood!.pools[0];
+    // The hero 2.6 from the pool's centre, the enemy at its rim on his side: it walks out towards him.
+    const dir = pool.x > w.arena.width / 2 ? -1 : 1, hero = { x: pool.x + dir * 2.6, y: pool.y }, at = { x: pool.x + dir * 0.85, y: pool.y };
+    if (inWater(hero, w.arena) || !inWater(at, w.arena)) continue;
+    f.sim.command({ t: 'clear', keepMarked: false });
+    f.sim.command({ t: 'teleport', x: hero.x, y: hero.y });
+    const id = place(f, at.x, at.y, 0, 2);
+    f.sim.command({ t: 'begin', x: at.x, y: at.y });
+    if (w.chain.length !== 1) continue;
+    assert(w.chain[0].wet === true, `seed ${k}: the link is marked wet`);
+    for (let i = 0; i < 40; i++) tick(f);
+    const e = w.enemies.find(x => x.id === id)!;
+    if (inWater(e, w.arena)) continue;
+    tried++;
+    const plan = planChain(w);
+    assert(plan.links[0].outcome?.killed === true, `seed ${k}: the highlight still kills it out of the water`);
+    f.sim.command({ t: 'release' }); settle(f);
+    assert(!w.enemies.some(x => x.id === id), `seed ${k}: the dash kills it out of the water`);
+  }
+  assert(tried >= 1, 'some enemy walked out of the pool during the focus');
+});
+
+check('«Перекличка»: a link of the colour called gives 1 energy, another 0.5; the colour taken before the call changed still gives 1', () => {
+  for (let k = 1; k <= 5; k++) {
+    const f = fight(omenRun('rollcall'), k), w = f.sim.world;
+    place(f, 20, 2, 0); place(f, 20, 4, 1); place(f, 20, 8, 2); place(f, 20, 10, 3);
+    until(f, 3);
+    const call = w.rollcall!.color!, other = (call + 1) % 4;
+    const energyOf = (color: number): number => {
+      f.sim.command({ t: 'teleport', x: 3, y: 6 }); f.sim.command({ t: 'energy', value: 0 });
+      const points = [{ x: 4.4, y: 6 }, { x: 5.8, y: 6 }];
+      for (const q of points) place(f, q.x, q.y, color);
+      const { plan, hits } = planned(f, points);
+      sameAsPlan(`seed ${k}`, plan, hits);
+      return w.energy;
+    };
+    assert(energyOf(call) === 2 && energyOf(other) === 1, `seed ${k}: energy of the called colour 2, of another 1`);
+    until(f, 14.95);
+    f.sim.command({ t: 'teleport', x: 3, y: 6 }); f.sim.command({ t: 'energy', value: 0 });
+    const color = w.rollcall!.color!;
+    place(f, 4.4, 6, color);
+    f.sim.command({ t: 'begin', x: 4.4, y: 6 });
+    while (w.rollcall!.color === color) tick(f);
+    f.sim.command({ t: 'release' }); settle(f);
+    assert(w.energy === 1, `seed ${k}: the link taken before the call changed gives 1 (${w.energy})`);
+  }
+});
+
+check('the highlight is the dash (6 seeds): mixed chains with «Половодье», «Перекличка», «Сорочье гнездо», «Скудные краски» together', () => {
+  for (let k = 1; k <= 6; k++) {
+    const p = rtArenaParams({ omens: ['flood', 'magpie'] as never }, rtRunParams(defaultParams()));
+    Object.assign(p, rtArenaParams({ omens: ['rollcall', 'pale'] as never }, rtRunParams(defaultParams())), { omenFlood: true, crystals: true, crystalEvery: 6, colorShiftLinks: 8 });
+    p.baseFloor = 0; p.baseIntervalMin = 1e6; p.baseIntervalMax = 1e6; p.maxEnemies = 1; p.reaperEnabled = false; p.enemySpeed = 0; p.speedSpread = 0; p.contactDamage = 0; p.heroHp = 40; p.hitstop = false; p.survivorKnockback = false; p.finisher = false;
+    const f = fight(p, k), w = f.sim.world, pool = w.flood!.pools[0];
+    until(f, 3);
+    // A row through the first pool (its third link at the centre: a tough one), colour 0; the last one a tough survivor on some seeds.
+    const dir = pool.x > 15 ? -1 : 1, points = Array.from({ length: 7 }, (_, i) => ({ x: pool.x + dir * (1.3 * i - 2.6), y: pool.y }));
+    const hps = [k % 2, (k + 1) % 2, 2, k % 2, (k + 1) % 2, 1, k % 3 === 0 ? 4 : 0];
+    f.sim.command({ t: 'teleport', x: points[0].x - dir * 1.2, y: points[0].y });
+    for (const [i, q] of points.entries()) place(f, q.x, q.y, 0, hps[i]);
+    const { plan, hits } = planned(f, points);
+    sameAsPlan(`seed ${k}`, plan, hits);
+    assert(plan.links.some(l => l.link.wet), `seed ${k}: some link wet`);
+    assert((w.hero.chainShield > 0) === (plan.kills >= 5), `seed ${k}: the shield of ${plan.kills} kills`);
+    assert(w.objects.some(o => o.kind === 'crystal') === (plan.kills >= 6), `seed ${k}: the crystal of ${plan.kills} kills`);
+  }
 });
 
 // ---- Repeat ----

@@ -39,7 +39,7 @@ import { JAILER, JAILER_WEIGHT } from './enemies/jailer';
 import { TROLL } from './enemies/troll';
 import { CASTELLAN, STAND } from './enemies/garrison';
 import { palette } from './spawn';
-import { OBJECT_RADIUS, bustCanHurt, damageEnemy, hurtHero, type Enemy, type World } from './world';
+import { OBJECT_RADIUS, bustCanHurt, damageEnemy, hurtHero, type ChainLink, type Enemy, type HeroMove, type World } from './world';
 
 /** The omens of v1 that are fight rules with keys of their own (the run's catalogue, run/omens.ts, names all twelve). */
 export type OmenRule = 'storm' | 'drowse' | 'flood' | 'rollcall';
@@ -107,6 +107,29 @@ export function floodArena(arena: ArenaTemplate, params: Params, rng: RngStreams
 
 /** «Половодье»: the enemy's centre is in water now (a pool or the template's water) — the link taken now hits +1 (chain.ts). */
 export function wetNow(world: World, e: Vec): boolean { return !!world.params.omenFlood && inWater(e, world.arena); }
+
+// ---------- The link (chain.ts) ----------
+
+/**
+ * A link of the drawn chain as it is taken (chain.ts `beginChain`, `dragChain`): «Половодье» marks an enemy whose centre is in water
+ * (`wet`), «Перекличка» one of the colour on the roll call (`call`). The marks hold to the end of this chain — the highlight and the
+ * dash read the same marks (an enemy that walks out of the water while the focus runs keeps its +1). Neither rule — the link as it is.
+ */
+export function omenLink(world: World, link: ChainLink, enemy: Enemy | undefined): ChainLink {
+  if (link.kind !== 'enemy' || !enemy) return link;
+  const wet = wetNow(world, enemy), call = world.params.omenRollcall && world.rollcall?.color !== undefined && enemy.color === world.rollcall.color;
+  return wet || call ? { ...link, ...wet ? { wet: true as const } : {}, ...call ? { call: true as const } : {} } : link;
+}
+/** «Половодье»: the power a link adds before its hit — `omenFloodHit` for a link taken in water (the plan's link, or the dash's id). */
+export const wetHit = (world: World, wet: boolean): number => (wet && world.params.omenFlood ? Math.max(0, num(world.params, 'omenFloodHit')) : 0);
+/** «Перекличка»: the energy a dash's hit adds over the usual — `omenRollcallEnergy` for a link of the colour called when taken. */
+export const callEnergy = (world: World, move: HeroMove, id: number): number => (move.call?.includes(id) ? Math.max(0, num(world.params, 'omenRollcallEnergy')) : 0);
+/** The release fixes the marks of the links (`HeroMove.wet`, `.call`; absent when none). */
+export function fixOmenLinks(move: HeroMove, links: readonly ChainLink[]): void {
+  const wet = links.flatMap(l => (l.kind === 'enemy' && l.wet ? [l.id] : [])), call = links.flatMap(l => (l.kind === 'enemy' && l.call ? [l.id] : []));
+  if (wet.length) move.wet = wet;
+  if (call.length) move.call = call;
+}
 
 // ---------- «Сонный час» ----------
 

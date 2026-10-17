@@ -195,7 +195,15 @@ export const OBJECT_RADIUS = 0.45;
  * A link of the drawn chain. `fork` (task 33, `Params.forkBranches`): «Развилка» took it from that older link (its anchor, fixed
  * when it was taken: bodies move) — absent otherwise.
  */
-export type ChainLink = ({ kind: 'enemy'; id: number } | { kind: 'object'; id: number }) & { fork?: { kind: 'enemy' | 'object'; id: number } };
+export type ChainLink = ({ kind: 'enemy'; id: number } | { kind: 'object'; id: number }) & {
+  fork?: { kind: 'enemy' | 'object'; id: number };
+  /**
+   * Task 56 (omens.ts `omenLink`), fixed when the link is taken: «Половодье» — the enemy's centre was in water (`wet`: its hit +1);
+   * «Перекличка» — its colour was on the roll call (`call`: +0.5 energy). Absent otherwise (chains without them hash as before).
+   */
+  wet?: true;
+  call?: true;
+};
 
 /** The last finished dash (render: combo counter, score popup; result screen). */
 export interface ChainSummary { kills: number; hits: number; crystals: number; score: number; time: number }
@@ -246,6 +254,9 @@ export interface HeroMove {
   route?: Vec[];
   /** Stage 2, step 3: links frozen and brittle at the release — struck ×2 even if they thaw on the way (absent when none). */
   brittle?: number[];
+  /** Task 56: the enemy links taken in water («Половодье») and of the colour on the roll call («Перекличка») — from the release (absent when none). */
+  wet?: number[];
+  call?: number[];
   /**
    * Iteration 2.1 (docs/realtime-slice.md, section 12): links armed at the release (`EnemyBehavior.armed`: porcupines with
    * their quills up) — their chain
