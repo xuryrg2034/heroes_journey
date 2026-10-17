@@ -166,6 +166,8 @@ const GARRISON_ART: Readonly<Record<string, { id: CharacterArtId; size: number }
   [CROSSBOW]: { id: 'garrison-crossbowman', size: 3.4 }, [STAND]: { id: 'garrison-crossbow', size: 3.6 },
   // Task 43: the knight (heavier: a taller box).
   [KNIGHT]: { id: 'garrison-knight', size: 3.7 },
+  // Task 55а: the castle's art (a thing has no colour plaque; the rook keeps its colour's plaque and disc).
+  [WARDROBE]: { id: 'castle-wardrobe', size: 3.1 }, [ROOK]: { id: 'castle-rook', size: 2.5 }, [BARREL]: { id: 'castle-barrel', size: 2 },
 };
 /** Task 40: the prisoner's padlock — its width (body radii) and its gap over the drawing's top (radii). */
 const LOCK_SIZE = 0.95, LOCK_GAP = 0.15;
@@ -1223,9 +1225,11 @@ export class RealtimeRenderer {
       else if (kind === KNIGHT) knightMarks(ctx, r);
     }
     // Task 55а: the castle's stand-ins (procedural until the art is registered in characterAssets.ts): the barrel, the wardrobe, the rook.
-    if (kind === BARREL) barrelMarks(ctx, r);
-    else if (kind === WARDROBE) wardrobeMarks(ctx, r);
-    else if (kind === ROOK) rookMarks(ctx, r);
+    if (!art || !hasCharacterArt(art.id)) {
+      if (kind === BARREL) barrelMarks(ctx, r);
+      else if (kind === WARDROBE) wardrobeMarks(ctx, r);
+      else if (kind === ROOK) rookMarks(ctx, r);
+    }
     return ctx;
   }
 
@@ -1277,10 +1281,12 @@ export class RealtimeRenderer {
       if (sprite) {
         sprite.position.set(0, r * (1 - gart.size / 2));
         body.addChild(sprite);
-        const belt = r * (1 - gart.size * 0.36), plaque = new Graphics();
-        plaque.circle(0, belt, r * 0.34).fill(colorless ? COLORLESS : chainInk(e.color)).stroke({ color: NAVY, width: 2.5 });
-        if (!colorless) drawSigil(plaque.context, e.color, r * 0.19, NAVY, belt);
-        body.addChild(plaque);
+        if (!isThingKind(e.kind)) {
+          const belt = r * (1 - gart.size * 0.36), plaque = new Graphics();
+          plaque.circle(0, belt, r * 0.34).fill(colorless ? COLORLESS : chainInk(e.color)).stroke({ color: NAVY, width: 2.5 });
+          if (!colorless) drawSigil(plaque.context, e.color, r * 0.19, NAVY, belt);
+          body.addChild(plaque);
+        }
       }
     }
     if (e.kind === JAILER && e.color !== NO_COLOR) {
