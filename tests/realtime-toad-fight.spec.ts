@@ -294,16 +294,21 @@ test('the cage in a run: the Jailer\'s fight of a meta run with Ведунья n
     await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
     await page.getByTestId('run-battle').click();
     await expect.poll(() => page.evaluate(() => (window as any).__realtime.run.arenaOpen())).toBe(true);
-    await expect.poll(() => page.evaluate(() => (window as any).__realtime.camera().intro)).toBe(0);
   };
   await open({ version: 1, giftFull: false, meta: { heroes: {}, freed: { toad: { row: 5 } } } });
   await gameWait(page, 0.5);
   expect((await snap(page)).cage.on, 'freed in the profile: no cage').toBe(false);
   await open(null);
   await expect.poll(async () => (await snap(page)).cage.on).toBe(true);
+  // The FIRST frame of the fight (the camera opens on the Jailer, the glide is still on): the cage stands in the frame already.
   const cage = (await snap(page)).cage;
   const at = await screen(page, cage.x, cage.y - 1);
-  expect(at.x).toBeGreaterThan(0); expect(at.x).toBeLessThan(1280); expect(at.y).toBeGreaterThan(0); expect(at.y).toBeLessThan(720);
+  expect(await page.evaluate(() => (window as any).__realtime.camera().intro), 'the glide is on').toBeGreaterThanOrEqual(0);
+  expect(at.x).toBeGreaterThan(0); expect(at.x).toBeLessThan(1280); expect(at.y).toBeGreaterThan(80); expect(at.y).toBeLessThan(720);
+  await page.screenshot({ path: `${SHOTS}/toad-cage-run-first-frame.png` });
+  await expect.poll(() => page.evaluate(() => (window as any).__realtime.camera().intro)).toBe(0);
+  const later = await screen(page, cage.x, cage.y - 1);
+  expect(later.x).toBeGreaterThan(0); expect(later.x).toBeLessThan(1280);
   await page.screenshot({ path: `${SHOTS}/toad-cage-run-fight.png` });
   expect(errors).toEqual([]);
 });
