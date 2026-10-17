@@ -50,6 +50,9 @@ import { habitIconSvg, habitMark, habitSign } from './habitMark';
 import type { FirstMeetId } from './firstMeet';
 import { ICON as STOCK_ICON, MetaEndView, type MetaSound } from './metaEnd';
 import { HearthView } from './hearthView';
+import { chronicleEndLines } from './chronicleView';
+import { AFFIX_IDS } from '../sim/elites';
+import type { ChronicleSource } from './chronicleModel';
 import { ProfileMeta } from './metaSource';
 import { RunStart } from './runStart';
 import { rtHearthFlagsWith, rtJailerWonRow, rtRunKey, type RtHearthStart, type RtMetaEnd } from '../run/rtMeta';
@@ -127,6 +130,13 @@ export interface RunHost {
    * sign «✦ новое» stands on the arena line of the card of an AVAILABLE arena node whose arena has a kind not met yet.
    */
   newSeen?: { store: NewSeenStore; on(): boolean };
+  /**
+   * Task 58 «Летопись»: the chronicle (core's; `chronicleStub.ts` until 58а lands). The camp's window and the end screen's line read it;
+   * the fights write it (`main.ts`: kinds that come into view in a meta run). Absent (the sandbox) — no chronicle.
+   */
+  chronicle?: ChronicleSource;
+  /** Telemetry (58а): a page of the chronicle opened (and whether it held the new). */
+  chronicleOpened?(page: string, unread: boolean): void;
   /**
    * «Обучение» (view/hints.ts): the viewer's memory of what was shown, the toggle «Подсказки» (`on`, `set`) and the button
    * «Обучение» on the gear (task 6, step 4): it clears the memory and `startPrologue()` plays the prologue «Опушка» again over the
@@ -492,7 +502,10 @@ export class RunView {
       bought: (npc, level, price) => this.host.meta?.buy?.(this.run, npc, level, price),
       back: () => this.open(),
       sound: kind => this.host.meta?.sound(kind),
-      beasts: () => { const seen = this.host.newSeen?.store; return seen ? Object.keys(KIND_CAPTIONS).filter(k => seen.hasKind(k)) : []; },
+      ...host.chronicle ? { chronicle: host.chronicle } : {},
+      // The retro: the P8 memory of kinds and affixes (this device's), once when the camp opens.
+      memory: () => { const seen = this.host.newSeen?.store; return { kinds: seen ? Object.keys(KIND_CAPTIONS).filter(k => seen.hasKind(k)) : [], affixes: seen ? AFFIX_IDS.filter(id => seen.hasAffix(id)) : [] }; },
+      ...host.chronicleOpened ? { chronicleOpened: host.chronicleOpened } : {},
     }) : null;
   }
 
@@ -533,6 +546,9 @@ export class RunView {
     this.hearth.open();
   }
 
+  /** Task 58: the lines of the end screen's block under the record - what this run wrote in the chronicle (none - no line). */
+  private chronicleLines(key: string): string[] { return this.host.chronicle ? chronicleEndLines(this.host.chronicle.added(key)) : []; }
+
   /** Tasks 36–37: the meta block of the ended run (created once per run; a reload shows its end state at once). */
   private metaEndOf(run: RtRunState, play: boolean): MetaEndView | null {
     if (!this.meta || !run.result) return null;
@@ -541,7 +557,7 @@ export class RunView {
     this.metaEnd?.stop();
     // Core: the first call for a run applies it (experience, pack, record, carry), a repeated one returns the same.
     const end = this.profile.endRunMeta(run);
-    this.metaEnd = end ? new MetaEndView(end, key, s => this.host.meta?.sound(s)) : null;
+    this.metaEnd = end ? new MetaEndView(end, key, s => this.host.meta?.sound(s), this.chronicleLines(key)) : null;
     if (this.metaEnd && !play) this.metaEnd.finish();
     return this.metaEnd;
   }
@@ -1240,7 +1256,7 @@ export class RunView {
     const end = this.profile.endRunMeta(run);
     if (end) this.host.meta?.end?.(run, end);
     this.metaEnd?.stop();
-    this.metaEnd = end ? new MetaEndView(end, rtRunKey(run), s => this.host.meta?.sound(s)) : null;
+    this.metaEnd = end ? new MetaEndView(end, rtRunKey(run), s => this.host.meta?.sound(s), this.chronicleLines(rtRunKey(run))) : null;
     this.abandoned = run; this.run = null; this.store.clear();
     this.selected = null; this.notice = '';
     this.draw();

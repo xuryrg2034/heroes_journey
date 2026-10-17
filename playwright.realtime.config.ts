@@ -15,7 +15,7 @@ const port = Number(process.env.PLAYWRIGHT_PORT ?? 4620 + createHash('sha1').upd
 
 export default defineConfig({
   testDir: './tests',
-  testMatch: /realtime(?:-prologue|-run-end|-run|-enemies|-kit|-arenas|-terrain|-behavior|-camera|-telemetry|-loop|-pierce|-elites|-slot|-purse|-oath|-die|-link-depth|-session|-second-wind|-record|-luck|-reroll|-chest|-casino|-new-seen|-onboarding|-actionbar|-color-keep|-marked|-sound|-bag|-gentle|-heal|-feats|-ash|-schedule|-boss|-forms|-fusions|-juice|-juice2-screens|-meta|-garrison-step2|-garrison|-keymaster|-castellan-full|-knight|-juice2|-troll|-knacks|-habits|-toad-fight|-toad-meta)?\.spec\.ts/,
+  testMatch: /realtime(?:-prologue|-run-end|-run|-enemies|-kit|-arenas|-terrain|-behavior|-camera|-telemetry|-loop|-pierce|-elites|-slot|-purse|-oath|-die|-link-depth|-session|-second-wind|-record|-luck|-reroll|-chest|-casino|-new-seen|-onboarding|-actionbar|-color-keep|-marked|-sound|-bag|-gentle|-heal|-feats|-ash|-schedule|-boss|-forms|-fusions|-juice|-juice2-screens|-meta|-garrison-step2|-garrison|-keymaster|-castellan-full|-knight|-juice2|-troll|-knacks|-habits|-toad-fight|-toad-meta|-chronicle)?\.spec\.ts/,
   timeout: 60_000,
   fullyParallel: false,
   workers: 1,

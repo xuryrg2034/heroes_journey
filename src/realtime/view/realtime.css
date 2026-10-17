@@ -566,6 +566,57 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-hearth-beasts { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 8px; }
 .rt-hearth-beasts li { display: grid; grid-template-columns: 110px 1fr; gap: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--rt-line); }
 .rt-hearth-beasts b { font: 600 15px Georgia, serif; color: #e8d7ad; }
+/* Task 58 «Летопись»: the owl's book — a 1200×640 window over the camp (tabs 200 px, cards 88×104, ten in a row, the strip of the chosen card). */
+.rt-hearth-chron-mark { position: absolute; top: -6px; left: 4px; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #cdb6f0; color: #1b1730; font: 700 14px Georgia, serif; font-style: normal; border: 2px solid #18232d; }
+.rt-hearth-book-new { color: #cdb6f0; font-weight: 700; }
+.rt-chron { box-sizing: border-box; width: 1200px; max-width: calc(100vw - 24px); height: 640px; max-height: calc(100vh - 24px); padding: 0; display: flex; flex-direction: column; overflow: hidden; text-align: left; }
+.rt-chron-head { flex: none; height: 48px; display: flex; align-items: center; gap: 16px; padding: 0 16px; border-bottom: 1px solid var(--rt-line); }
+.rt-chron-head h2 { margin: 0; font: 500 24px Georgia, serif; }
+.rt-chron-total { margin-left: auto; font: 600 17px Georgia, serif; color: #ffd88a; font-variant-numeric: tabular-nums; }
+.rt-chron-body { flex: 1; display: flex; min-height: 0; }
+.rt-chron-tabs { flex: none; width: 200px; box-sizing: border-box; display: flex; flex-direction: column; gap: 4px; padding: 10px; border-right: 1px solid var(--rt-line); }
+.rt-chron-tab { position: relative; display: flex; align-items: baseline; justify-content: space-between; gap: 6px; padding: 9px 10px; text-align: left; background: #191e16; color: #c9c5a8; border: 1px solid var(--rt-line); font: 600 14px Georgia, serif; cursor: pointer; }
+.rt-chron-tab span { flex: 1; line-height: 1.15; }
+.rt-chron-tab em { font: 600 13px system-ui, sans-serif; font-style: normal; color: var(--rt-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rt-chron-tab:hover { border-color: #c8a56b; }
+.rt-chron-tab.rt-on { background: #2d3623; color: #f4efe0; border-color: #c8a56b; }
+.rt-chron-new { position: static; font-style: normal; color: #cdb6f0; font-weight: 700; }
+.rt-chron-page { flex: 1; box-sizing: border-box; padding: 8px 16px 6px; overflow: hidden; display: flex; flex-direction: column; gap: 4px; }
+.rt-chron-chapter h3 { margin: 0 0 4px; font: 600 15px Georgia, serif; color: #e8d7ad; }
+.rt-chron-seal { font-style: normal; color: #ffd88a; margin-left: 6px; text-shadow: 0 0 6px #c8962e; }
+.rt-chron-grid { display: grid; grid-template-columns: repeat(10, 88px); gap: 6px; }
+.rt-chron-blank { width: 88px; padding: 6px 0; text-align: center; font: 600 26px Georgia, serif; color: #5a5f4a; letter-spacing: 2px; }
+.rt-chron-card { box-sizing: border-box; width: 88px; height: 104px; padding: 4px 3px 3px; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 2px; background: #191e16; color: #e8d7ad; border: 2px solid #414232; cursor: pointer; overflow: hidden; }
+.rt-chron-card:hover, .rt-chron-card.rt-on { border-color: #c8a56b; }
+.rt-chron-dense .rt-chron-card { height: 84px; }
+.rt-chron-art { flex: none; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; }
+.rt-chron-dense .rt-chron-art { width: 44px; height: 44px; }
+.rt-chron-art svg, .rt-chron-art img { width: 100%; height: 100%; object-fit: contain; }
+.rt-chron-fallback { width: 100%; height: 100%; display: flex; }
+.rt-chron-name { font: 600 11px Georgia, serif; line-height: 1.1; text-align: center; max-height: 2.3em; overflow: hidden; }
+.rt-chron-long { font-size: 9px !important; }
+.rt-chron-card small { font-size: 10px; line-height: 1.1; color: var(--rt-muted); text-align: center; }
+.rt-chron-unknown { background: #12160f; border-style: dashed; }
+.rt-chron-q { font: 600 30px Georgia, serif; color: #4a503c; }
+.rt-chron-locked { background: #12160f; border-color: #353626; }
+.rt-chron-lock { width: 40px; height: 40px; }
+.rt-chron-dark img, .rt-chron-dark svg { filter: brightness(0) opacity(.55); }
+.rt-chron-card.rt-chron-met .rt-chron-art { opacity: .55; filter: grayscale(.5); }
+.rt-chron-card.rt-chron-won { border-color: #c8a56b; background: #2d3623; }
+.rt-chron-card.rt-chron-seen:is([data-chapter="talismans"], [data-chapter="relics"], [data-chapter="forms"], [data-chapter="fusions"]) { color: #8e947b; }
+.rt-chron-card.rt-chron-seen:is([data-chapter="talismans"], [data-chapter="relics"], [data-chapter="forms"], [data-chapter="fusions"]) .rt-chron-art { filter: grayscale(1); opacity: .6; }
+.rt-chron-card.rt-chron-taken { background: radial-gradient(circle at 50% 35%, #3b4630, #20271d 70%); }
+.rt-chron-icon { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+.rt-chron-glyph { font: 600 30px Georgia, serif; color: #f4efe0; }
+.rt-chron-roman { font-size: 26px; }
+.rt-chron-half { display: flex; flex-direction: column; align-items: center; gap: 0; height: 100%; }
+.rt-chron-half .rt-chron-icon { height: 36px; opacity: .8; }
+.rt-chron-half em { font: 600 14px system-ui, sans-serif; font-style: normal; color: #8e947b; }
+.rt-rar-common { border-color: #6d725c; } .rt-rar-uncommon { border-color: #5e9a4e; } .rt-rar-rare { border-color: #4f7fd0; } .rt-rar-oath { border-color: #b04a44; }
+.rt-rar-relic { border-color: #d89a38; } .rt-rar-form { border-color: #3fa89c; } .rt-rar-fusion { border-color: #9a60c8; }
+.rt-chron-card.rt-on.rt-rar-common, .rt-chron-card.rt-on.rt-rar-uncommon, .rt-chron-card.rt-on.rt-rar-rare, .rt-chron-card.rt-on.rt-rar-oath, .rt-chron-card.rt-on.rt-rar-relic, .rt-chron-card.rt-on.rt-rar-form, .rt-chron-card.rt-on.rt-rar-fusion { box-shadow: 0 0 0 2px #c8a56b; }
+.rt-chron-line { flex: none; box-sizing: border-box; height: 44px; margin: 0; padding: 0 16px; display: flex; align-items: center; border-top: 1px solid var(--rt-line); font: 15px Georgia, serif; color: #e8d7ad; }
+.rt-meta-chronicle { margin: 0; font-size: 13px; color: #cdb6f0; }
 .rt-hearth-maps { display: flex; gap: 16px; }
 .rt-hearth-map { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px; background: #1a1e16; border: 2px solid #444837; color: #e8d7ad; }
 .rt-hearth-map:hover { border-color: #c8a56b; }
