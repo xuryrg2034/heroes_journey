@@ -12,6 +12,7 @@
  * - Ведунья is freed by the first win over the Jailer in a meta run (any hero; the row and the viewer's run kept), not by a seeded run,
  *   not twice; `endRunMeta` frees her too; only a freed hero is chosen;
  * - Неясыть's «дальше прежнего» by the run's hero (the camp shows the chosen hero's, the run fixes it at its start); the cat's as before;
+ * - the camp's `last.hero` — the previous run's hero (toad only; the cat — no field);
  * - «Испытание» is the hero's own: hers opens with her win, the cat's open one stays; the levels chosen apart;
  * - an old profile reads as before; the telemetry fields pass the schema.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
@@ -218,6 +219,39 @@ check('Неясыть\'s «дальше прежнего» is the run\'s hero\'s
     return;
   }
   throw new Error('no seed gave the owl\'s quest after a won forest');
+});
+
+check('the camp knows the previous run\'s hero: Ведунья\'s death and win — `last.hero` toad, the cat\'s run — no field; a reload keeps it; a malformed one is dropped', () => {
+  const storage = memoryStorage(), store = createRtProfileStore(storage);
+  const freeing = walkRun({ k: 2, create: { gift: 'full', garrison: false, locked: store.locked() } });
+  store.endRunMeta(freeing.run);
+  assert(store.load().meta?.freed?.toad && store.hearth().last && !('hero' in store.hearth().last!), 'the cat\'s run: no field');
+  assert(store.chooseHero(RT_TOAD_ID), 'chosen');
+  // Her run dies on its third fight; the next one wins.
+  const died = walkRun({ k: 3, create: { gift: 'full', garrison: false, hero: store.heroChoice(), locked: store.locked() }, loseAt: (run: RtRunState) => run.battles.length >= 2 });
+  assert(died.run.result?.outcome === 'defeat', 'her death');
+  store.endRunMeta(died.run);
+  assert(store.hearth().last?.hero === RT_TOAD_ID && !store.hearth().last!.won, 'after her death: toad');
+  assert(createRtProfileStore(storage).hearth().last?.hero === RT_TOAD_ID, 'a reload keeps it');
+  const won = walkRun({ k: 5, create: { gift: 'full', garrison: false, hero: store.heroChoice(), locked: store.locked() } });
+  assert(won.run.result?.outcome === 'victory', 'her win');
+  store.endRunMeta(won.run);
+  assert(store.hearth().last?.hero === RT_TOAD_ID && store.hearth().last!.won, 'after her win: toad');
+  // The cat's run (the selection changed back): the field is gone — the hero of the run, not of the profile's choice.
+  assert(store.chooseHero(RT_HERO_ID), 'the cat chosen');
+  const cat = walkRun({ k: 6, create: { gift: 'full', garrison: false, locked: store.locked() } });
+  store.endRunMeta(cat.run);
+  assert(!('hero' in store.hearth().last!) && !('hero' in createRtProfileStore(storage).hearth().last!), 'the cat\'s run: no field, after a reload too');
+  // Her run ended while the cat is the chosen hero: still hers.
+  const hers = walkRun({ k: 7, create: { gift: 'full', garrison: false, hero: RT_TOAD_ID, locked: store.locked(RT_TOAD_ID) } });
+  store.endRunMeta(hers.run);
+  assert(store.heroChoice() === RT_HERO_ID && store.hearth().last?.hero === RT_TOAD_ID, 'the run\'s hero, not the choice');
+  // A malformed stored hero is dropped; a stored `last` without it reads byte for byte.
+  const text = JSON.parse(storage.data.get(RT_PROFILE_STORAGE_KEY)!);
+  text.meta.hearth.last.hero = 'owl';
+  assert(!('hero' in parseRtProfile(JSON.stringify(text)).meta!.hearth!.last!), 'malformed — dropped');
+  delete text.meta.hearth.last.hero;
+  assert(same(parseRtProfile(JSON.stringify(text)).meta!.hearth!.last, text.meta.hearth.last), 'without it — as stored');
 });
 
 check('an old profile (the cat only) reads as before; the run\'s telemetry fields pass the schema', () => {
