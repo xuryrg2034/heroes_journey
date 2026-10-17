@@ -98,8 +98,8 @@ export const NPCS: Readonly<Record<NpcId, { name: string; who: string; upgrades:
   gambler: { name: 'Шиш', who: 'гоблин-шулер', upgrades: ['Шишова лавка', 'Размен', 'Лавка в гарнизоне'],
     rules: ['+1 бесплатный переброс у торговца', 'У торговца — обмен ресурсов, раз за поход', '+1 бесплатный переброс у торговца гарнизона'] },
 };
-/** The order of the six places round the fire: the NPC of v1, Шиш on the left stump (task 51в), then empty places. */
-export const HEARTH_PLACES: readonly (NpcId | null)[] = ['owl', 'herb', 'smith', 'gambler', null, null];
+/** The order of the six places round the fire: the NPC of v1, Шиш on the right stump (task 51в; the left one waits for the next guest), then empty places. */
+export const HEARTH_PLACES: readonly (NpcId | null)[] = ['owl', 'herb', 'smith', null, 'gambler', null];
 
 /** The end screen's line of each part of the experience. */
 export function xpPartLabel(id: MetaXpPart, n?: number): string {

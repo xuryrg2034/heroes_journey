@@ -35,7 +35,7 @@ async function open(page: Page, meta: object, run?: RtRunState): Promise<void> {
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
 }
 
-test('task 51в view: after three quiet runs Шиш comes by himself — the left stump, his meeting line, «Шишова лавка» and «Размен» bought, the lock of level 3 before the gate', async ({ page }) => {
+test('task 51в view: after three quiet runs Шиш comes by himself — the right stump, «✦» until the first click (gone after it and after a reload), his meeting line, «Шишова лавка» and «Размен» bought, the lock of level 3 before the gate', async ({ page }) => {
   test.setTimeout(120_000);
   const errors = collectErrors(page);
   await open(page, profile(false, { ...hearth({ owl: 0, herb: 0, smith: 0 }, 30), quiet: 3 }));
@@ -52,8 +52,12 @@ test('task 51в view: after three quiet runs Шиш comes by himself — the lef
   await expect(page.getByTestId('hearth-npc-gambler')).toBeVisible();
   await expect(page.locator('.rt-hearth-npc')).toHaveCount(4);
   await page.waitForTimeout(800);
-  await page.screenshot({ path: shot('shish-camp') });
+  // «✦» over the guest who came, until the first click (not «!», that is the quest's); the old guests (their meeting said) have none.
+  await expect(page.getByTestId('hearth-new-gambler')).toHaveText('✦');
+  await expect(page.locator('[data-testid^="hearth-new-"]')).toHaveCount(1);
+  await page.screenshot({ path: shot('shish-camp-new') });
   await page.getByTestId('hearth-npc-gambler').click();
+  await expect(page.getByTestId('hearth-new-gambler')).toHaveCount(0);
   await expect(page.getByTestId('hearth-line')).toHaveText('Не звал, а я пришёл. Из круга меня выгнали, а костёр у тебя тёплый.');
   await expect(page.getByTestId('hearth-bubble')).toContainText('Шиш');
   // The quest of a camp that has him in the draw is Шиш's only when drawn; his levels are sold in order.
@@ -72,6 +76,7 @@ test('task 51в view: after three quiet runs Шиш comes by himself — the lef
   await page.reload();
   await page.getByTestId('run-hearth').click();
   await expect(page.getByTestId('hearth-npc-gambler')).toBeVisible();
+  await expect(page.getByTestId('hearth-new-gambler')).toHaveCount(0);
   await page.getByTestId('hearth-npc-gambler').click();
   await expect(page.getByTestId('up-gambler-2-bought')).toBeVisible();
   expect(errors).toEqual([]);

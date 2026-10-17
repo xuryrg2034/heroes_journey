@@ -696,3 +696,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-swap-kind small { color: #a7ad93; }
 .rt-swap-kind.rt-chosen { border-color: #ffd88a; background: #2d3526; }
 .rt-swap-kind:disabled { opacity: .4; cursor: default; }
+
+/* Task 51в: «✦» over a guest who came, until the first click (the same sign as «новое» of the Chronicle; «!» is the quest's). */
+.rt-hearth-new-mark { position: absolute; top: -6px; left: calc(50% - 11px); width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #2a2340; border: 1px solid #c8b0ff; color: #c8b0ff; font: 700 14px Georgia, serif; font-style: normal; pointer-events: none; }
