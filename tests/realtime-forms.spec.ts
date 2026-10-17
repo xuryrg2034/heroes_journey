@@ -89,6 +89,8 @@ test('task 29: «Развилка» — the reach rings at the links, a Y at the
   const errors = collectErrors(page);
   await openSandbox(page);
   await withBuild(page, { talismans: ['form-fork'] });
+  // Task 52, Р2: the rule without the dwell gesture (the run's; the sandbox's default 0,25 — the test «task 52» below).
+  await page.evaluate(() => (window as any).__realtime.setParam('forkDwell', 0));
   const a1 = await place(page, 9.5, 5.5, 0, 0), a2 = await place(page, 11.5, 5.5, 0, 0), a3 = await place(page, 10, 3.5, 0, 0);
   await drag(page, [[9.5, 5.5], [11.5, 5.5]]);
   await expect.poll(async () => (await snap(page)).chain).toEqual([a1, a2]);
@@ -216,6 +218,8 @@ test('task 33: «Развилка» — one fork a chain: before it the reach ri
   const errors = collectErrors(page);
   await openSandbox(page);
   await withBuild(page, { talismans: ['form-fork'] });
+  // Task 52, Р2: the rule without the dwell gesture (the run's; the sandbox's default 0,25 — the test «task 52» below).
+  await page.evaluate(() => (window as any).__realtime.setParam('forkDwell', 0));
   // a3 — from a1 only (1.9 from it, 2.8 from a2); a4 — from a2 only (1.9 from it, 2.8 from a1, far from a3): a second fork.
   const a1 = await place(page, 9.5, 5.5, 0, 0), a2 = await place(page, 11.3, 5.5, 0, 0), a3 = await place(page, 9.3, 3.6, 0, 0);
   await place(page, 11.5, 7.4, 0, 0);
@@ -246,11 +250,11 @@ test('task 33: «Развилка» — one fork a chain: before it the reach ri
  * Task 52 «Числа», Р2 (docs/design-notes/task-52-numbers.md, 3.5; `Params.forkDwell`, the sandbox's panel «Талисманы»): «Развилка» with the
  * dwell gesture. Real input: the chain is drawn with the mouse; the pointer rests on the older link, then goes to the body beside it.
  */
-test('task 52: «Развилка» with the dwell — the body beside an older link is refused until the pointer rests on that link 0,25 s; then it joins from it (a fork)', async ({ page }) => {
+test('task 52: «Развилка» with the dwell (the sandbox\'s default 0,25 s) — the body beside an older link is refused until the pointer rests on that link; then it joins from it (a fork)', async ({ page }) => {
   const errors = collectErrors(page);
   await openSandbox(page);
   await withBuild(page, { talismans: ['form-fork'] });
-  await page.evaluate(() => (window as any).__realtime.setParam('forkDwell', 0.25));
+  // The sandbox's own default — no param set: the refusal before the dwell and the fork after it show it.
   // a1, a2, a3 in a row; d — within R of a1 only (1.9 from it, 2.8 from a2, far from a3).
   const a1 = await place(page, 9.5, 5.5, 0, 0), a2 = await place(page, 11.3, 5.5, 0, 0), a3 = await place(page, 13.1, 5.5, 0, 0), d = await place(page, 9.3, 3.6, 0, 0);
   await drag(page, [[9.5, 5.5], [11.3, 5.5], [13.1, 5.5]]);

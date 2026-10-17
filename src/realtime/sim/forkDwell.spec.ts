@@ -18,6 +18,7 @@ import { worldState } from './hash';
 import { defaultParams, runParams, type Params } from './params';
 import { SIM_DT, Simulation, replay, type Journal } from './simulation';
 import type { Vec } from './geometry';
+import legacyFork from '../../../tests/fixtures/realtime-fork-legacy.json';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -34,7 +35,7 @@ const ticksOf = (seconds: number): number => Math.round(seconds / SIM_DT);
 function fight(k: number, extra: Partial<Params> = {}, talismans: string[] = [FORMS.fork]): Simulation {
   const p = defaultParams();
   p.baseFloor = 0; p.baseIntervalMin = 1e6; p.baseIntervalMax = 1e6; p.maxEnemies = 1; p.enemySpeed = 0; p.speedSpread = 0; p.contactDamage = 0;
-  p.hitstop = false; p.survivorKnockback = false; p.loopEnabled = false; p.pierceEnabled = false; p.forkDwell = DWELL;
+  p.hitstop = false; p.survivorKnockback = false; p.loopEnabled = false; p.pierceEnabled = false;
   const sim = new Simulation({ arena: 'fork-dwell-field', params: Object.assign(p, extra), seed: seedOf(k), record: true, loadout: { talismans } });
   sim.command({ t: 'clear', keepMarked: false });
   sim.command({ t: 'teleport', x: 4.5, y: 6 });
@@ -131,7 +132,19 @@ check('`forkDwell` 0 and a journal without the key play the old rule (every link
     const strip = (s: unknown): string => { const o = s as Record<string, unknown>; delete o.params; return JSON.stringify(o); };
     assert(strip(worldState(replay(pj).world)) === strip(worldState(plain.sim.world)) && !plain.sim.world.forkAnchor, `seed ${k}: without the form the key is not read`);
   }
-  assert(runParams(defaultParams()).forkDwell === 0 && defaultParams().forkDwell === 0, 'the run 0; the sandbox default 0 (the old rule) until design says otherwise');
+  assert(runParams(defaultParams()).forkDwell === 0 && defaultParams().forkDwell === DWELL, 'the run 0; the sandbox 0,25 (design 17.10.2026)');
+});
+
+check('a new sandbox world plays the dwell by default (0,25 s, no key set — the checks above play it so); journals recorded before the key (110da5b) replay to their hash — the old rule', () => {
+  const sim = scene(1).sim;
+  assert(sim.world.params.forkDwell === DWELL && (sim.exportJournal()!.params as Partial<Params>).forkDwell === DWELL, 'the default is in the world and its journal');
+  const legacy = (legacyFork as unknown as { cases: { name: string; hash: string; journal: Journal }[] }).cases;
+  for (const c of legacy) {
+    assert(!('forkDwell' in c.journal.params), `${c.name}: recorded without the key`);
+    const again = replay(c.journal, s => { s.world.events.length = 0; });
+    assert(again.hash() === c.hash, `${c.name}: replays to ${c.hash} (now ${again.hash()})`);
+  }
+  assert(legacy.length >= 2, 'the legacy fixture');
 });
 
 console.log(`realtime-fork-dwell: ${checks} checks passed`);
