@@ -58,6 +58,8 @@ const LIGHT: ReadonlySet<ShotKind> = new Set<ShotKind>(['stone', 'wasp']);
 export const SHOT_DAMAGE = 1;
 /** The circle round a bomb's target that puts out light shots (`snuffShots`; the bomb itself has no circle — design question). */
 export const BOMB_SNUFF_RADIUS = 1;
+/** The arena's shooters' timer of the run with the flag and of the sandbox arena of the shooters (game s; run/rtRun.ts, world.ts). */
+export const FOREST_VOLLEY_GAP = 2.5;
 /** Shots on the arena at most (journals without `shotCap`). */
 export const SHOT_CAP = 24;
 /** The shot's centre is put out by walls and trees within this radius (a point of the line, as the archer's line). */

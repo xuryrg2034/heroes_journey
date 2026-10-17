@@ -25,6 +25,8 @@ import './arenasPrologue';
 import './arenasBoss';
 // Task 38: the arenas of the garrison register on import too.
 import './arenasGarrison';
+// Task 57а: the sandbox arena of the forest shooters registers on import too.
+import './arenasShooters';
 import { withRoster, withoutKinds, type RosterArena } from './rosters';
 import { stepHero, tickScale } from './chain';
 import { applyCommand, type Command, type CommandResult } from './commands';

@@ -17,6 +17,7 @@
  * the merchant sells consumables, the gift has its usual buttons. The trunk, the bosses, the ladder and the bar of
  * openings are not in the slice.
  */
+import { FOREST_VOLLEY_GAP } from '../sim/shots';
 import { ITEM_KINDS, mixSeed, rewardChoices } from '../forest/items';
 import type { ItemKind, ResourceKind } from '../forest/types';
 import { CRAFT_COST, emptyMaterials, RESOURCE_KINDS, RESOURCES } from '../forest/resources';
@@ -274,7 +275,7 @@ export const RT_FORMS_PARAMS: Readonly<Partial<Params>> = Object.freeze({ counte
  * plays — the arena's shooters' timer 2.5 s (the archer stays out of it, Д1), the dash and the bomb put out the light shots. Both act
  * only while a new shooter stands or a shot flies.
  */
-export const RT_FOREST_SHOOTERS_PARAMS: Readonly<Partial<Params>> = Object.freeze({ volleyGap: 2.5, snuffShots: true });
+export const RT_FOREST_SHOOTERS_PARAMS: Readonly<Partial<Params>> = Object.freeze({ volleyGap: FOREST_VOLLEY_GAP, snuffShots: true });
 /**
  * Task 57а: a new run keeps the flag `forestShooters`. Off until the forest's arenas, arcs and pools of the new shooters are in
  * (level design, spec 10.2–10.4): the flag alone brings no new kind.

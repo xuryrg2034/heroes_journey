@@ -43,7 +43,7 @@ import { spawnEnemy, spawnReaper, toughHpMaxOf, updateSpawning, type QueuedSpawn
 // К7 «Проклятый сундук» (chest.ts): the chest of «Застава», its touch, the curse on the touch.
 import { curseTouch, placeChest, touchChest, type CurseState } from './chest';
 // Task 57а «Лес: стрелки» (shots.ts): the shots of the arena and the shooters' timer.
-import { updateShots, type Shot, type ShotKind } from './shots';
+import { FOREST_VOLLEY_GAP, updateShots, type Shot, type ShotKind } from './shots';
 
 /**
  * Id of a registered enemy kind (enemies/*): prototype kinds `basic`, `wolf` (fast, hits harder next to other wolves),
@@ -813,6 +813,9 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   // Task 57а: an arena of the new shooters plays its own timer when the values have none (and the archer in it; a journal keeps the copy).
   if (arena.volleyGap && !params.volleyGap) params = { ...copyParams(params), volleyGap: arena.volleyGap };
   if (arena.volleyArcher && !params.volleyArcher) params = { ...copyParams(params), volleyArcher: true };
+  // Task 57а: the sandbox arena of the shooters plays the run's rules of the layer (as `RT_FOREST_SHOOTERS_PARAMS`).
+  if (arena.forestShooters && !params.volleyGap) params = { ...copyParams(params), volleyGap: FOREST_VOLLEY_GAP };
+  if (arena.forestShooters && !params.snuffShots) params = { ...copyParams(params), snuffShots: true };
   const maxHp = start ? Math.max(1, Math.floor(start.maxHp)) : params.heroHp;
   const hp = start ? Math.max(1, Math.min(maxHp, Math.floor(start.hp))) : params.heroHp;
   // Stage 2, step 3 («Песочные часы»): the phase table starts later — the delay is the talisman's, read once at the start.

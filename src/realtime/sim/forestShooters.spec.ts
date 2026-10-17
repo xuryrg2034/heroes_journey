@@ -19,7 +19,8 @@
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import { registerArena } from './arenas';
-import { planChain } from './chain';
+import { nextCandidates, planChain } from './chain';
+import { SHOOTERS_TEST_ARENA } from './arenasShooters';
 import { HIVE, HIVE_HP, HIVE_MAX } from './enemies/hive';
 import { SHOOTERS_MAX, SLINGER, SLINGER_MAX, slingerLines } from './enemies/slinger';
 import { WISP, WISP_MAX } from './enemies/wisp';
@@ -633,6 +634,34 @@ check('telemetry: the damage of each new source is its own line of `damage.bySou
     if (t) { opened++; assert(t.warned === 1 && t.interrupted === 1, `seed ${k}: the ring went out with the hive — interrupted (${JSON.stringify(t)})`); }
   }
   assert(opened >= 1, `the hive's warning opened on ${opened} seeds`);
+});
+
+check("the sandbox arena «Стрелки леса (проба)»: it plays the layer's rules (timer 2.5, snuffing), two slingers, a hive and a wisp stand from the start; 30 s of a greedy bot replay to the same hash at every checkpoint; seeds differ", () => {
+  const hashes: string[] = [];
+  for (const k of [1, 2]) {
+    const p = defaultParams(); p.hitstop = false; p.heroHp = 99;
+    const sim = new Simulation({ arena: SHOOTERS_TEST_ARENA.id, params: p, seed: seedOf(k), record: true }), w = sim.world, checkpoints: string[] = [];
+    const kinds = new Set(w.enemies.map(e => e.kind));
+    assert(w.params.volleyGap === 2.5 && w.params.snuffShots && kinds.has(SLINGER) && kinds.has(HIVE) && kinds.has(WISP), `seed ${k}: rules and kinds (${[...kinds].join(', ')})`);
+    let volleys = 0;
+    for (let i = 0; i < ticksOf(30) && w.status === 'playing'; i++) {
+      if (i % 30 === 0 && !w.move) {
+        const first = nextCandidates(w).sort((a, b) => dist(a, w.hero) - dist(b, w.hero))[0];
+        if (first) { sim.command({ t: 'begin', x: first.x, y: first.y }); sim.command({ t: 'release' }); }
+        else sim.command({ t: 'walk', x: Math.cos(i), y: Math.sin(i) });
+      }
+      sim.tick();
+      volleys += of(w.events, 'shooter').filter(e => e.action === 'aim').length;
+      w.events.length = 0;
+      if (w.tick % 300 === 0) checkpoints.push(sim.hash());
+    }
+    assert(volleys > 0, `seed ${k}: the shooters shot (${volleys})`);
+    const again: string[] = [];
+    const re = replay(JSON.parse(JSON.stringify(sim.exportJournal()!)), x => { if (x.world.tick % 300 === 0) again.push(x.hash()); });
+    assert(re.hash() === sim.hash() && JSON.stringify(again) === JSON.stringify(checkpoints), `seed ${k}: replay`);
+    hashes.push(sim.hash());
+  }
+  assert(hashes[0] !== hashes[1], 'seeds differ');
 });
 
 console.log(`forest shooters: ${checks} checks passed`);
