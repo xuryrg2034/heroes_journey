@@ -108,7 +108,7 @@ if (STAND) {
   console.log('| --- | --- | --- | --- |');
   for (const [src, xs] of Object.entries(totals)) console.log(`| ${src} | ${f1(xs.reduce((s, x) => s + x, 0) / xs.length)} | ${f1(median(xs))} | ${pct(xs.filter(x => x > 0).length, xs.length)} |`);
 } else {
-  console.log(`Задача 54 «Главарь», --direct: узел босса ветки Главаря, HP похода, параметры и кит ряда 10 без сборки, бот с целью в ядро (окно — очередь цвета варева в ядро, выбранная подсветкой `planChain`, иначе к ближайшей части), ${SEEDS} seed, предел ${LIMIT} с${KEYS ? `, ключи ${JSON.stringify(SET)}` : ''} (эвристика), ${date}, HEAD ${head}.\n`);
+  console.log(`Задача 54 «Главарь», --direct: узел босса ветки Главаря, HP похода, параметры и кит ряда 10 без сборки, бот с целью в ядро (окно — очередь цвета варева в ядро, выбранная подсветкой planChain, иначе к ближайшей части), ${SEEDS} seed, предел ${LIMIT} с${KEYS ? `, ключи ${JSON.stringify(SET)}` : ''} (эвристика), ${date}, HEAD ${head}.\n`);
   const rows: { title: string; fights: Fight[] }[] = [
     { title: 'Стан Главаря', fights: Array.from({ length: SEEDS }, (_, i) => fight(openRun(i + 1, 'boss', 'chief'), SET)) },
     ...KEYS ? [] : [
