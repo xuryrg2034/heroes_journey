@@ -457,4 +457,37 @@ check('ranks II and Ведунья: «Ударная волна» II\'s start wa
   }
 });
 
+check('the core under the feast\'s rule is out of every shadow: the return run that passes it does not strike it (the highlight\'s run and the run); the window\'s timer stands while the hero\'s dash runs', () => {
+  // `returnFixed` (the sandbox's) — the release fixes the highlight's run; off (the run's) — the run finds its bodies as it goes.
+  for (const k of SEEDS) for (const returnFixed of [true, false]) {
+    const c = camp(k, { returnFixed }, { hammer: HAMMERS.return }), { sim, w, core } = c;
+    freeze(sim, c.ladle); freeze(sim, c.sack);
+    // Before the first feast: two links south of the core, the last beside it — the way back passes its body.
+    sim.command({ t: 'teleport', x: 11.2, y: 6.8 });
+    const links = [place(sim, { x: 11.2, y: 5.4 }, 0, 0), place(sim, { x: 11.2, y: 3.75 }, 0, 0)];
+    draw(sim, links);
+    const plan = planChain(w);
+    assert(w.chain.length === 2 && plan.back && !plan.back.hits.some(h => h.id === core.id), `seed ${k}: the highlight's run passes the core (${plan.back?.hits.map(h => h.id)})`);
+    sim.command({ t: 'release' });
+    const out = settle(sim);
+    assert(core.armor?.plates === 4 && !feastEvents(out, 'block').some(e => e.source === 'hammer-return'), `seed ${k}: the run never on the core`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+  for (const k of SEEDS) {
+    const c = camp(k), { sim, w } = c;
+    feastWindow(c, [], { x: 4, y: 13 });
+    const brew = chiefState(w)!.brew;
+    const links = [5.6, 7.4, 9.2, 11, 12.8, 14.6].map(x => place(sim, { x, y: 13 }, 3, brew));
+    for (const e of links) freeze(sim, e);
+    ticks(sim, ticksOf(4), [], wd => (chiefState(wd)!.window?.left ?? 0) <= 0.1);
+    const left = chiefState(w)!.window!.left;
+    draw(sim, links);
+    sim.command({ t: 'release' });
+    let during = 0;
+    for (let i = 0; i < 300 && (w.move || i === 0); i++) { sim.tick(); w.events.length = 0; if (w.move) during++; }
+    assert(during > ticksOf(left) && chiefState(w)!.window?.open && Math.abs(chiefState(w)!.window!.left - left) < 0.02, `seed ${k}: the window waited for the dash (${left} → ${chiefState(w)!.window?.left}, ${during} ticks)`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
 console.log(`chief: ${checks} checks passed`);
