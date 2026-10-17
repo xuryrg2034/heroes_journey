@@ -18,8 +18,8 @@ import { Simulation, SIM_DT } from '../sim/simulation';
 import type { WorldEvent } from '../sim/world';
 import { seedOf, walkRun, type WalkOptions } from './metaWalk.testkit';
 import { createRtProfileStore, RT_PROFILE_STORAGE_KEY, type RunStorage } from './rtRunStorage';
-import { parseRtRun, rtNode, rtShackleCuts, serializeRtRun, type RtArenaOutcome } from './rtRun';
-import { rtHearthFlagsWith, rtRunCuts, RT_XP_VOW } from './rtMeta';
+import { parseRtRun, rtNode, rtReachedJailer, rtShackleCuts, serializeRtRun, type RtArenaOutcome, type RtRunState } from './rtRun';
+import { rtHearthFlagsWith, rtRunCuts, rtVowsNow, rtVowsOf, RT_XP_VOW } from './rtMeta';
 import { RT_VOW_IDS } from './metaCatalog';
 
 let checks = 0;
@@ -167,6 +167,22 @@ check('«Без переброса»: a reroll (a paid screen\'s) breaks it — 
     if (rerolled) broken++; else kept++;
   }
   assert(broken >= 2 && kept >= 1, `broken ${broken}, kept ${kept}`);
+});
+
+check('`rtVowsNow`: the vows as they stand in the middle of the run — kept until the step that breaks one, broken from it (before the Jailer\'s row too); none — null', () => {
+  let checked = 0;
+  for (let k = 1; k <= 20 && checked < 3; k++) {
+    const store = monkCamp(1), flags = { ...store.hearthStart(seedOf(k)).flags, vows: ['vow-no-shop' as const] };
+    const states: RtRunState[] = [];
+    walkRun({ k, create: { gift: 'full', garrison: false, locked: store.locked(), hearth: flags }, pickNode: prefer('shop'), each: r => states.push(r) });
+    const at = states.findIndex(r => r.pending?.kind === 'shop');
+    if (at < 0) continue;
+    assert(states.slice(0, at).every(r => same(rtVowsNow(r), [{ id: 'vow-no-shop', kept: true }])), `seed ${k}: kept before the merchant`);
+    assert(states.slice(at).every(r => same(rtVowsNow(r), [{ id: 'vow-no-shop', kept: false }])), `seed ${k}: broken from the merchant on`);
+    assert(!rtReachedJailer(states[at]) ? rtVowsOf(states[at]) === null : true, 'rtVowsOf waits for the Jailer\'s row');
+    checked++;
+  }
+  assert(checked >= 3 && rtVowsNow(walkRun({ k: 1, create: { gift: 'full', garrison: false } }).run) === null, `runs ${checked}; no vows — null`);
 });
 
 check('the quest «Разруби кандалы дважды»: done with 2 shackles cut in the run, not with 1', () => {

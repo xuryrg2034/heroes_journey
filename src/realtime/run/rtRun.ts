@@ -736,6 +736,13 @@ export interface RtRunState {
    */
   step2?: true;
   /**
+   * Task 51 (design 17.10.2026, task-51 spec section 17): «Караульня»'s oath and relic screen fills its empty places — the oaths and the
+   * relics are spent by the Jailer's screen and the forest final's relic before the garrison (since task 38 the screen showed 0–1) — with
+   * a rare talisman each by the same draw (`rtTalismanOffer` of a hard battle, as the Troll's 1 of 4). Set when a run with the garrison is
+   * created (`RT_GUARDROOM_FILL_ON`); absent — a run saved before it: the screen of before, to its end.
+   */
+  guardroomFill?: true;
+  /**
    * Task 41 «Три зелья» (design 16.10.2026, docs/design-notes/task-41-prisoner-potions.md): at most this many healing potions in hand
    * (`RT_POTION_CAP`) — a healing choice of a find, the merchant, the gift or a rest's craft is refused with a full hand
    * (`rtItemRefusal`), a reward's healing beyond it does not join (`items-capped`), the fights play it (`Params.potionCap`). A hand
@@ -994,7 +1001,7 @@ export interface RtArenaOutcome {
  * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
  * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
  */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; troll?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; potionCap?: number; knacks?: boolean; habits?: boolean; hero?: RtHeroId } = {}): RtRunState {
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; troll?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; guardroomFill?: boolean; potionCap?: number; knacks?: boolean; habits?: boolean; hero?: RtHeroId } = {}): RtRunState {
   const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
   // Task 12 (13.10.2026): the goal layouts of the `marked` arenas, as the mix — on as `RT_RUN_FORCED` says unless the option says.
   const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
@@ -1033,12 +1040,14 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   // Task 43 «Гарнизон, шаг 2» (16.10.2026): «Ристалище», «Бойницы», knights and crossbowmen — only with «Ров», by `RT_GARRISON_STEP2_ON`
   // unless the option says.
   const step2 = moat && (options.step2 ?? RT_GARRISON_STEP2_ON);
+  // Task 51 (design 17.10.2026): «Караульня»'s screen filled — its own flag, only with the garrison.
+  const guardroomFill = garrison && (options.guardroomFill ?? RT_GUARDROOM_FILL_ON);
   // Task 41 «Три зелья» (16.10.2026): the cap of healing potions, `RT_POTION_CAP` unless the option says (0 — none, as a save before it).
   const potionCap = Math.max(0, Math.floor(options.potionCap ?? RT_POTION_CAP));
   // Task 49: Ведунья's run keeps her id (with or without the meta); the cat's — `cat` with the meta's snapshot only, as before.
   const heroId: RtHeroId | undefined = options.hero === RT_TOAD_ID ? RT_TOAD_ID : locked ? RT_HERO_ID : undefined;
   const run: RtRunState = {
-    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked } : {}, ...heroId ? { heroId } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...potionCap ? { potionCap } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked } : {}, ...heroId ? { heroId } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...guardroomFill ? { guardroomFill: true as const } : {}, ...potionCap ? { potionCap } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
@@ -1732,7 +1741,18 @@ function drawTalismanOffer(run: RtRunState, nodeId: string, source: RtTalismanSo
   // Task 38: the forest final's reward — a relic 1 of 3.
   // Task 48: the Troll's three parts severed in the won final — 1 of 4 (the first three are those of 3).
   if (source === 'level') return levelOffer(run, nodeId, base, pool);
-  if (source === 'oath') return rtTalismanOffer(base, source, pool, rtOathSlots(run, nodeId));
+  if (source === 'oath') {
+    const options = rtTalismanOffer(base, source, pool, rtOathSlots(run, nodeId));
+    // Task 51: «Караульня» of a run with the flag — the places the oaths and relics left empty take a rare talisman each (the same draw).
+    if (run.guardroomFill && rtGarrisonNodeId(nodeId)) {
+      while (options.length < rtOathSlots(run, nodeId)) {
+        const rare = rtTalismanOffer(base, 'hard', { ...pool, gone: [...pool.gone, ...options] }, 1)[0];
+        if (!rare) break;
+        options.push(rare);
+      }
+    }
+    return options;
+  }
   if (source === 'hard') {
     // Task 30: the rare place of «Застава» holds a form of the other field (`rtFormSlotField`) — by the node's form roll over the
     // forms of that field not shown on this screen; the other places are the offer's own (the same `talismans` draw).
@@ -3549,6 +3569,8 @@ export function rtGarrisonMaps(seed: number): number[] {
 }
 /** Task 51б: the garrison's seed of a run — the second map's with `garrisonMap` 1, else `garrisonSeed(seed)` as before. */
 export const rtGarrisonSeed = (run: Pick<RtRunState, 'seed' | 'garrisonMap'>): number => (run.garrisonMap === 1 ? rtGarrisonMaps(run.seed)[1] : garrisonSeed(run.seed));
+/** Task 51 (design 17.10.2026): a new run with the garrison fills «Караульня»'s empty places (`RtRunState.guardroomFill`). */
+export const RT_GUARDROOM_FILL_ON = true;
 /** Баланс (task 40, design 4): the cart keeps this much of the stock by default («оставить 6»); it takes at most the forest's cap. */
 export const RT_CART_KEEP = 6;
 export const RT_CART_MAX = 20;
@@ -3764,6 +3786,8 @@ function checkRun(value: unknown): RtRunState | null {
   // Task 40: a flag, only with the garrison; the cart only in a run with it and the camp, once in the garrison (n of 0 … the
   // cart's most, not above the stock it was taken from).
   if (value.moat !== undefined && !(value.moat === true && value.garrison === true)) return null;
+  // Task 51: «Караульня» filled — a flag, only with the garrison.
+  if (value.guardroomFill !== undefined && !(value.guardroomFill === true && value.garrison === true)) return null;
   // Task 43: a flag, only with «Ров».
   if (value.step2 !== undefined && !(value.step2 === true && value.moat === true)) return null;
   // Task 41: the cap of healing potions, a whole number from 1; absent — a save before it (no cap).
