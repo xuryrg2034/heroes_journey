@@ -1757,7 +1757,7 @@ export function rtChooseTalisman(current: RtRunState, chosen: RtTalismanOption |
     const pick = run.picks.find(entry => entry.nodeId === node.id), option = pick?.eventId ? battleOption(forestEvent(pick.eventId)!) : undefined;
     if (option) {
       run.eventChoices.push({ nodeId: node.id, option: option.id, outcome: 0 });
-      events.push({ type: 'event-resolved', nodeId: node.id, option: option.id, outcome: 0, text: chosen ? `победа, талисман «${rtTalisman(chosen)?.name ?? chosen}»` : 'победа' });
+      events.push({ type: 'event-resolved', nodeId: node.id, option: option.id, outcome: 0, text: chosen ? `победа, талисман «${rtTalismanShown(chosen, !!run.forms)?.name ?? chosen}»` : 'победа' });
     }
   }
   if (pending.source === 'hard' && rtChestOwed(run, node.id)) {
@@ -2452,15 +2452,18 @@ function openCasino(run: RtRunState, node: ForestMapNode, events: RtRunEvent[]):
 }
 
 const resourceWordRu = (n: number): string => { const tens = n % 100, ones = n % 10; return tens >= 11 && tens <= 14 ? 'ресурсов' : ones === 1 ? 'ресурс' : ones >= 2 && ones <= 4 ? 'ресурса' : 'ресурсов'; };
-/** A game's line and whether it is a win (the flash): «Кости» — the sum reached; the wheel — more resources than the stake, or a talisman. */
-export function rtCasinoResult(game: RtCasinoGame): { text: string; win: boolean } {
+/**
+ * A game's line and whether it is a win (the flash): «Кости» — the sum reached; the wheel — more resources than the stake, or a talisman
+ * (by its name in the run: `window` — a run with forms names the counters by their chain window, «Острие», «Улов»).
+ */
+export function rtCasinoResult(game: RtCasinoGame, window = false): { text: string; win: boolean } {
   if (game.table === 'dice') {
     const [a, b] = game.faces, sum = a + b, win = sum >= RT_DICE_WIN_SUM;
     const kinds = game.gain.map(kind => RESOURCES[kind].label).join(', ');
     return { text: `Кости: ${a} и ${b} = ${sum} → ${win ? `+${game.gain.length} ${resourceWordRu(game.gain.length)} (${kinds})` : 'ставка проиграна'}`, win };
   }
   const rolled = wheelOption().outcomes[game.outcome];
-  const talisman = game.talisman ? ` — «${rtTalisman(game.talisman)?.name ?? game.talisman}»` : rolled.effect.talisman ? ' — талисманов не осталось' : '';
+  const talisman = game.talisman ? ` — «${rtTalismanShown(game.talisman, window)?.name ?? game.talisman}»` : rolled.effect.talisman ? ' — талисманов не осталось' : '';
   return { text: `Колесо костей: ${outcomeText(rolled, game.gain)}${talisman}`, win: game.gain.length > RT_DICE_STAKE || !!game.talisman };
 }
 
@@ -2484,7 +2487,7 @@ export function rtCasinoView(run: RtRunState): RtCasinoView | null {
       available: false, reason: over || wheelCost.block || (mayLoseHp(option) && run.hp < rtHp(EVENT_RISK_MIN_HP) ? hpShort(rtHp(EVENT_RISK_MIN_HP), run.hp) : '') },
   ];
   for (const table of tables) table.available = !table.reason;
-  const last = games.length ? { game: games[games.length - 1], ...rtCasinoResult(games[games.length - 1]) } : null;
+  const last = games.length ? { game: games[games.length - 1], ...rtCasinoResult(games[games.length - 1], !!run.forms) } : null;
   return { nodeId: pending.nodeId, played, max: RT_CASINO_GAMES, total, tables, last };
 }
 
@@ -2519,7 +2522,7 @@ export function rtCasinoPlay(current: RtRunState, table: RtCasinoTable): RtRunSt
     game = { table: 'wheel', outcome, gain, ...talisman ? { talisman } : {} };
   }
   run.casino!.games.push(game);
-  events.push({ type: 'casino-played', nodeId: view.nodeId, game: structuredClone(game), ...rtCasinoResult(game) }, ...gained);
+  events.push({ type: 'casino-played', nodeId: view.nodeId, game: structuredClone(game), ...rtCasinoResult(game, !!run.forms) }, ...gained);
   return { ok: true, run, events };
 }
 
