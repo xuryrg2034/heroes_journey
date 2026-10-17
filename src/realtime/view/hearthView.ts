@@ -12,7 +12,7 @@
  */
 import { KIND_CAPTIONS } from './newSeen';
 import { HEARTH_GATE_LOCK, HEARTH_MONK_LOCK, HEARTH_PLACES, HEARTH_PRICES, NPCS, metaItemCard, xpBar, type HearthState, type MetaHeroId, type MetaSource, type NpcId } from './metaModel';
-import { NPC_LINES, pickLine, questLine, type DeathCause } from './npcLines';
+import { NPC_LINES, npcLine, pickLine, questLine, type DeathCause, type LineKey } from './npcLines';
 import { rowWord } from './metaEnd';
 import { toadLine, toadRunKey } from './heroLines';
 
@@ -29,8 +29,8 @@ const PLACE_AT: readonly { x: number; y: number; s: number }[] = [
   { x: 345, y: 352, s: 0.9 }, { x: 935, y: 356, s: 0.9 }, { x: 305, y: 528, s: 0.95 }, { x: 245, y: 422, s: 1 }, { x: 1045, y: 422, s: 1 }, { x: 940, y: 522, s: 0.85 },
 ];
 /** The NPC's art (public/art/characters; design, Codex): a stand-in silhouette shows if the image does not load. */
-const NPC_ART: Readonly<Record<NpcId, string>> = { owl: 'npc-owl', herb: 'npc-herbalist', smith: 'npc-smith', gambler: 'npc-gambler', monk: 'npc-monk' };
-const artUrl = (path: string): string => new URL(`art/${path}`, document.baseURI).href;
+export const NPC_ART: Readonly<Record<NpcId, string>> = { owl: 'npc-owl', herb: 'npc-herbalist', smith: 'npc-smith', gambler: 'npc-gambler', monk: 'npc-monk' };
+export const artUrl = (path: string): string => new URL(`art/${path}`, document.baseURI).href;
 
 /**
  * Task 49: the heroes by the fire (feet, px of the 1280x720 screen): the chosen one sits nearer to the fire, the other beside it.
@@ -45,6 +45,8 @@ const HERO_SVG: Readonly<Record<MetaHeroId, string>> = {
 
 /** Stand-in of Шиш (task 51в). */
 const MONK_SVG = '<svg viewBox="0 0 120 150" aria-hidden="true"><path d="M60 14 Q34 18 32 50 L28 146 L92 146 L88 50 Q86 18 60 14 Z" fill="#4a3a6a" stroke="#0d141b" stroke-width="5" stroke-linejoin="round"/><ellipse cx="60" cy="48" rx="18" ry="22" fill="#e2d6bd" stroke="#0d141b" stroke-width="4"/><circle cx="52" cy="46" r="3" fill="#0d141b"/><circle cx="68" cy="46" r="3" fill="#0d141b"/><path d="M50 60 Q60 66 70 58" fill="none" stroke="#0d141b" stroke-width="3" stroke-linecap="round"/><rect x="82" y="70" width="22" height="30" rx="3" fill="#8a6a3e" stroke="#0d141b" stroke-width="4" transform="rotate(10 93 85)"/><circle cx="94" cy="86" r="4" fill="#48d6c8"/></svg>';
+/** The trace of an NPC away (public/art/camp; task 51д): Марфа's basket, Ерофей's wheel, Шиш's mug with the dice. */
+const TRACE_ART: Readonly<Partial<Record<NpcId, string>>> = { herb: 'trace-basket', smith: 'trace-wheel', gambler: 'trace-mug' };
 const GAMBLER_SVG = '<svg viewBox="0 0 120 150" aria-hidden="true"><path d="M60 40 Q96 44 98 84 Q100 136 60 142 Q20 136 22 84 Q24 44 60 40 Z" fill="#c8962e" stroke="#0d141b" stroke-width="5" stroke-linejoin="round"/><path d="M26 56 L4 40 L24 72 Z M94 56 L116 40 L96 72 Z" fill="#6f8f3a" stroke="#0d141b" stroke-width="4" stroke-linejoin="round"/><ellipse cx="60" cy="58" rx="24" ry="20" fill="#7aa045" stroke="#0d141b" stroke-width="4"/><circle cx="50" cy="56" r="4" fill="#0d141b"/><circle cx="70" cy="56" r="4" fill="#0d141b"/><path d="M48 70 Q60 80 72 70" fill="none" stroke="#0d141b" stroke-width="3.5" stroke-linecap="round"/><rect x="40" y="96" width="14" height="18" rx="2" fill="#e8d7ad" stroke="#0d141b" stroke-width="3" transform="rotate(-10 47 105)"/><path d="M34 92 L86 92" stroke="#e0613f" stroke-width="6" stroke-linecap="round"/></svg>';
 /** Stand-in silhouettes of the NPC until the art (design, Codex): navy shapes with one colour accent. */
 const NPC_SVG: Readonly<Record<NpcId, string>> = {
@@ -92,6 +94,9 @@ export class HearthView {
   private lastLine = '';
   /** Task 49: the line Ведунья says now (one at a time; empty - her place is quiet). */
   private heroLine = '';
+  /** Task 51д: the line over a trace (the leaver's goodbye said on this visit, then the owl's line of a click on it). */
+  private leaveSaid = new Map<NpcId, string>();
+  private traceSay: { npc: NpcId; text: string } | null = null;
   readonly shown: HearthShown = { open: false, npcs: [], empty: 0, bubble: null, line: '', bought: 0, bestiary: 0, heroes: [], hero: 'cat', heroLine: '' };
 
   constructor(private readonly host: HearthHost) {
@@ -111,7 +116,7 @@ export class HearthView {
   get isOpen(): boolean { return !this.el.hidden; }
 
   open(): void {
-    this.el.hidden = false; this.bubble = null; this.bestiary = false; this.said.clear();
+    this.el.hidden = false; this.bubble = null; this.bestiary = false; this.said.clear(); this.leaveSaid.clear(); this.traceSay = null;
     // Task 49: the first camp after the rescue - her one line names the deed (`first_camp`, said once).
     this.heroLine = '';
     const camp = this.host.meta.hearth();
@@ -146,13 +151,14 @@ export class HearthView {
     }).join('');
   }
 
-  private npcsHere(h: HearthState): NpcId[] { return (['owl', 'herb', 'smith', 'gambler', 'monk'] as const).filter(id => id === 'owl' || h.met[id]); }
+  private npcsHere(h: HearthState): NpcId[] { return (['owl', 'herb', 'smith', 'gambler', 'monk'] as const).filter(id => (id === 'owl' || h.met[id]) && id !== h.away); }
 
   draw(): void {
     const h = this.host.meta.hearth(), here = this.npcsHere(h);
     const places = HEARTH_PLACES.map((npc, i) => {
       const at = PLACE_AT[i], live = npc && here.includes(npc) ? npc : null;
       // An empty place: the background's stump or rug as it is (a dark log only without the background).
+      if (npc && h.away === npc) return this.traceHtml(npc, at, h);
       if (!live) return `<div class="rt-hearth-place rt-hearth-empty" style="left:${at.x}px;top:${at.y}px" data-testid="hearth-empty-${i}">${EMPTY_SVG}</div>`;
       const fig = `<img class="rt-hearth-art" src="${artUrl(`characters/${NPC_ART[live]}.png`)}" alt="" style="height:${Math.round(150 * at.s)}px" onerror="this.hidden=true;this.nextElementSibling.hidden=false">`
         + `<span class="rt-hearth-sil-npc" hidden>${NPC_SVG[live]}</span>`;
@@ -172,6 +178,28 @@ export class HearthView {
     const head = `<header class="rt-hearth-head"><b>Очаг</b><span class="rt-hearth-stock" data-testid="hearth-stock" title="Запас лагеря">${ICON}<b>${h.stock}</b></span></header>`;
     this.shown.heroLine = this.heroLine;
     this.el.innerHTML = head + `<div class="rt-hearth-stage">${center}${places}${this.heroesHtml()}${this.bubbleHtml(h)}</div>${this.bestiaryHtml(h)}`;
+  }
+
+  /** Task 51д: the trace of an NPC away — on its place (basket, wheel, mug); a click: the owl's line; the NPC's goodbye over it once a departure. */
+  private traceHtml(npc: NpcId, at: { x: number; y: number; s: number }, h: HearthState): string {
+    const say = this.traceSay?.npc === npc ? this.traceSay.text : this.leaveLine(npc, h);
+    return `<button class="rt-hearth-place rt-hearth-trace" style="left:${at.x}px;top:${at.y}px" data-action="trace" data-npc="${npc}" data-testid="hearth-trace-${npc}" title="${esc(NPCS[npc].name)} — по делам">`
+      + `${say ? `<span class="rt-hearth-hero-say" data-testid="hearth-trace-line">${esc(say)}</span>` : ''}`
+      + `<img class="rt-hearth-art" src="${artUrl(`camp/${TRACE_ART[npc]}.png`)}" alt="" style="height:${Math.round(110 * at.s)}px" onerror="this.hidden=true"></button>`;
+  }
+
+  /** The NPC's `leave` line, once for each departure (the departures are the 1st, 3rd, 5th... quest done: `done` 1 → 1, 3 → 2); '' - already said. */
+  private leaveLine(npc: NpcId, h: HearthState): string {
+    const cached = this.leaveSaid.get(npc);
+    if (cached !== undefined) return cached;
+    const departure = Math.ceil((h.done?.[npc] ?? 0) / 2);
+    let text = '';
+    if (departure > (h.lines[`${npc}:leave`] ?? 0)) {
+      const line = npcLine(npc, 'leave', h.last?.hero, h.lines);
+      if (line) { text = line.text; this.host.meta.markLine(line.id); }
+    }
+    this.leaveSaid.set(npc, text);
+    return text;
   }
 
   private bubbleHtml(h: HearthState): string {
@@ -218,7 +246,7 @@ export class HearthView {
     const line = pickLine(npc, {
       ...h.self?.[npc] ? { self: true } : {}, ...bought ? { bought } : {}, others: this.npcsHere(h),
       ...h.last?.hero ? { hero: h.last.hero } : {},
-      ...l ? { last: { won: l.won, ...l.firstWin ? { firstWin: true } : {}, ...l.cause ? { cause: l.cause as DeathCause } : {}, ...l.beaten ? { record: true } : {}, ...l.pack ? { pack: true } : {}, ...l.casino ? { casino: l.casino } : {}, ...l.cuts ? { cuts: l.cuts } : {}, ...l.vows?.length ? { vows: l.vows.every(v => v.kept) ? 'kept' as const : 'broken' as const } : {}, ...l.firstGarrison ? { castellan: true } : {}, ...quest ? (l.quest ? { questDone: true } : { questFail: true }) : {} } } : {},
+      ...l ? { last: { won: l.won, ...l.firstWin ? { firstWin: true } : {}, ...l.cause ? { cause: l.cause as DeathCause } : {}, ...l.beaten ? { record: true } : {}, ...l.pack ? { pack: true } : {}, ...l.casino ? { casino: l.casino } : {}, ...l.away?.npc === npc ? { away: l.away.met ? 'met' as const : 'missed' as const } : {}, ...l.cuts ? { cuts: l.cuts } : {}, ...l.vows?.length ? { vows: l.vows.every(v => v.kept) ? 'kept' as const : 'broken' as const } : {}, ...l.firstGarrison ? { castellan: true } : {}, ...quest ? (l.quest ? { questDone: true } : { questFail: true }) : {} } } : {},
     }, h.lines);
     this.said.add(npc);
     this.boughtNow = null;
@@ -245,6 +273,12 @@ export class HearthView {
       this.bubble = null;
       if (id === 'toad') { const chosen = h.hero === 'toad'; if (chosen || this.host.meta.chooseHero('toad')) this.sayHero(chosen ? 'about_cat' : 'pick'); }
       else { this.host.meta.chooseHero('cat'); this.heroLine = ''; }
+      this.draw(); return;
+    }
+    if (action === 'trace') {
+      const npc = target.dataset.npc as NpcId, line = npcLine('owl', `trace_${npc}` as LineKey, h.last?.hero, h.lines);
+      this.bubble = null;
+      if (line) { this.host.meta.markLine(line.id); this.traceSay = { npc, text: line.text }; }
       this.draw(); return;
     }
     if (action === 'bestiary') { this.bestiary = true; this.draw(); return; }

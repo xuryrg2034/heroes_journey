@@ -11,7 +11,8 @@ export type DeathCause = 'crowd' | 'archer' | 'sapper' | 'jailer' | 'final' | 'f
 export type LineKey = 'first' | 'first_self' | 'win_first' | 'win' | `death_${DeathCause}` | 'record' | 'buy_1' | 'buy_2' | 'buy_3'
   | 'quest_give' | 'quest_give_final' | 'quest_done' | 'quest_fail' | 'idle' | 'about_owl' | 'about_herb' | 'about_smith' | 'about_gambler' | 'about_monk' | 'locked3' | 'pack'
   | 'win_garrison_first' | 'meet_hello' | 'back_met' | 'first_won' | 'first_lost' | 'casino_won' | 'casino_lost'
-  | 'vow_kept' | 'vow_broken' | 'memory_cuts' | 'memory_castellan';
+  | 'vow_kept' | 'vow_broken' | 'memory_cuts' | 'memory_castellan'
+  | 'leave' | 'back_missed' | 'meet_deal' | 'meet_no' | 'trace_herb' | 'trace_smith' | 'trace_gambler';
 
 export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly string[]>>>> = {
   owl: {
@@ -42,6 +43,10 @@ export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly 
     about_monk: ['Евлампий требует записать «каялся». Я пишу «ныл» — летопись не исповедь.'],
     about_gambler: ['Шиш боится моих чернил. Правильно: его долги я записала в столбик.'],
     buy_3: ['«Путь в гарнизон». В Предместье покажу две карты — я и над стенами летала.'],
+    win_garrison_first: ['Гарнизон пройден. Открываю новый том — старый кончился на Кастеляне.'],
+    trace_herb: ['Марфа ушла за корнем, в сторону Тролля. Записала: вернётся после похода.'],
+    trace_smith: ['Ерофей ушёл точить в ближний лес. Ищи его на ранних привалах.'],
+    trace_gambler: ['Шиш ушёл к столу. Кружку оставил, кости тоже, долги — само собой.'],
     locked3: ['Эту страницу открою, когда дойдёшь до гарнизона. Раньше — не по чину.'],
     pack: ['В лесу появилось новое. Я внесла в опись три строки.'],
   },
@@ -72,6 +77,13 @@ export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly 
     about_monk: ['Евлампий молится, я лечу. Он хоть не мешает, и на том спасибо.'],
     about_gambler: ['Шиш меня тётушкой зовёт. Лечу бесплатно — с него всё равно нечего взять.'],
     buy_3: ['На-ка склянку к воротам. Одну из двух — выбирай, не жадничай.'],
+    win_garrison_first: ['Гарнизон прошёл и вернулся? Сядь, дай отдышаться — мне, не тебе.'],
+    leave: ['Ухожу за корнем, по дороге к Троллю. Встретишь на привале — не шуми.'],
+    back_met: ['Встретились на привале — и склянку не разбил. Растёшь.'],
+    back_missed: ['Не дождалась тебя на привале. Ладно, корень и без тебя нашла.'],
+    meet_hello: ['Ох, дошёл-таки. Садись, у меня травы на привале сохнут.'],
+    meet_deal: ['Два ресурса — и склянка твоя. Из двух выбирай, рука-то не резиновая.'],
+    meet_no: ['Не надо — и не надо. Иди, только не хромай.'],
     locked3: ['Этот отвар — как дойдёшь до гарнизона. Там травы другие, злые.'],
     pack: ['В лесу новое завелось. Принюхайся, прежде чем хватать.'],
   },
@@ -102,6 +114,13 @@ export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly 
     about_monk: ['С Евлампием сидим, молчим. Добрый собеседник.'],
     about_gambler: ['Шиш должен мне. «Вот-вот отдам» — третий год слышу.'],
     buy_3: ['«Правка в гарнизоне». Худая награда в караульне — разок перебросишь.'],
+    win_garrison_first: ['Гарнизон прошёл. Сталь там добрая была — а ты острее.'],
+    leave: ['Пойду, колесо поправлю. Ищи на первых привалах леса.'],
+    back_met: ['Встретились на привале. Добро — колесо по тебе скучало.'],
+    back_missed: ['Не дождался. Колесо зря крутил.'],
+    meet_hello: ['Малый. Садись, пока точу.'],
+    meet_deal: ['Два ресурса — и выбирай талисман из двух. Наточил сам.'],
+    meet_no: ['Не надо — не бери. Торговаться не стану.'],
     locked3: ['Третья правка — как дойдёшь до гарнизона. Там сталь другая.'],
     pack: ['Новое железо в лесу. Бери, да проверь кромку.'],
   },
@@ -153,6 +172,12 @@ export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly 
       'Коплю на место за столом круга. Пока скопил на табурет.',
       'Карта в рукаве — для тепла. Ночи у Очага холодные.',
     ],
+    leave: ['Пойду к столу, отыграться. Ищи меня на привале по дороге к Главарю.'],
+    back_met: ['Встретились на привале — я тебя сразу узнал. По кошельку.'],
+    back_missed: ['Ждал тебя на привале, пока не проигрался. Недолго ждал.'],
+    meet_hello: ['Партнёр! Тише, я тут не за столом — я тут скупаю.'],
+    meet_deal: ['Одну склянку — за два ресурса. «Скупка» честная, я сам считал.'],
+    meet_no: ['Не хочешь — и ладно. Я тебя тут не видел, партнёр.'],
     locked3: ['«Лавка в гарнизоне» — как дойдёшь до гарнизона. Раньше там меня не знают.'],
   },
   // Task 51г: Евлампий (docs/design-notes/npc-lines-v2.md, «Евлампий, расстрига»).
@@ -227,8 +252,8 @@ export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly 
  */
 export const CAT_MARKED: Readonly<Record<NpcId, Partial<Record<LineKey, readonly number[]>>>> = {
   owl: { first: [1], win: [1, 2], death_crowd: [1, 2], death_archer: [1, 2], death_sapper: [1, 2], death_fire: [1, 2], quest_fail: [1], idle: [4] },
-  herb: { first: [1], first_self: [1], win_first: [1], win: [1, 2], death_crowd: [1], death_sapper: [1, 2], death_final: [1], death_fire: [2], record: [1], buy_2: [1], quest_done: [2], quest_fail: [1], idle: [2, 3, 4] },
-  smith: { first: [1, 2], first_self: [1], win_first: [1], win: [1, 2, 3], death_crowd: [1], death_archer: [1], death_sapper: [2], death_jailer: [2], death_final: [1], death_fire: [1, 2], death_other: [2], record: [1, 2], quest_done: [1, 2], quest_fail: [2], idle: [1, 2, 4] },
+  herb: { win_garrison_first: [1], back_met: [1], meet_hello: [1], first: [1], first_self: [1], win_first: [1], win: [1, 2], death_crowd: [1], death_sapper: [1, 2], death_final: [1], death_fire: [2], record: [1], buy_2: [1], quest_done: [2], quest_fail: [1], idle: [2, 3, 4] },
+  smith: { win_garrison_first: [1], meet_hello: [1], first: [1, 2], first_self: [1], win_first: [1], win: [1, 2, 3], death_crowd: [1], death_archer: [1], death_sapper: [2], death_jailer: [2], death_final: [1], death_fire: [1, 2], death_other: [2], record: [1, 2], quest_done: [1, 2], quest_fail: [2], idle: [1, 2, 4] },
   // Task 51в, design table «Метка `cat`» (Шиш, v2): the lines that put a verb about the hero in the masculine.
   gambler: { first_won: [1], first_lost: [1], first_self: [1], win: [1, 2], win_garrison_first: [1], death_fire: [1], death_troll: [1], quest_fail: [1], casino_won: [1], casino_lost: [1] },
   // Task 51г, design table «Метка `cat`» (Евлампий, v2).
@@ -242,7 +267,7 @@ export interface LineContext {
   /** The NPC came by itself (the fallback way) — its meeting line is `first_self`. */
   self?: boolean;
   /** The occasions of the last run (said once per camp visit). */
-  last?: { won: boolean; firstWin?: boolean; cause?: DeathCause; record?: boolean; questDone?: boolean; questFail?: boolean; pack?: boolean; casino?: 'won' | 'lost'; cuts?: number; vows?: 'kept' | 'broken'; castellan?: boolean };
+  last?: { won: boolean; firstWin?: boolean; cause?: DeathCause; record?: boolean; questDone?: boolean; questFail?: boolean; pack?: boolean; casino?: 'won' | 'lost'; cuts?: number; vows?: 'kept' | 'broken'; castellan?: boolean; away?: 'met' | 'missed' };
   /** Just bought this level. */
   bought?: 1 | 2 | 3;
   /** The other NPC in the camp (for `about_*`). */
@@ -287,7 +312,8 @@ export function pickLine(npc: NpcId, ctx: LineContext, memory: LineMemory): { ke
   if (buy) return buy;
   const last = ctx.last;
   if (last) {
-    const occasion = (last.questDone && line('quest_done')) || (last.questFail && line('quest_fail')) || (last.firstWin && line('win_first', true))
+    // Task 51д: the NPC came back from the road — `back_met` (met on a rest) or `back_missed`.
+    const occasion = (last.away && line(last.away === 'met' ? 'back_met' : 'back_missed')) || (last.questDone && line('quest_done')) || (last.questFail && line('quest_fail')) || (last.firstWin && line('win_first', true))
       || (last.record && line('record')) || (last.pack && line('pack')) || (last.casino && line(last.casino === 'won' ? 'casino_won' : 'casino_lost'))
       // Task 51г (Евлампий): the vows' result, the garrison passed, the shackles cut in the last run.
       || (last.vows && line(last.vows === 'kept' ? 'vow_kept' : 'vow_broken')) || (last.castellan && line('memory_castellan')) || (last.cuts && line('memory_cuts')) || (last.won && line('win')) || (last.cause && (line(`death_${last.cause}`) ?? line('death_other')));
@@ -296,6 +322,17 @@ export function pickLine(npc: NpcId, ctx: LineContext, memory: LineMemory): { ke
   const idle = count('idle'), about = ctx.others.filter(o => o !== npc).map(o => `about_${o}` as LineKey).filter(k => L[k]);
   if (about.length && idle % 4 === 3) return { ...line(about[(idle >> 2) % about.length])!, id: `${npc}:idle${tail}` };
   return line('idle')!;
+}
+
+/**
+ * Task 51д: one line of a key outside the camp's turn-taking (`leave`, `trace_*`, `meet_*`): the key's lines in turn by the memory `npc:key`
+ * (`:toad` after her run: her variants first, then the lines without the mark `cat`). Null — the key has no line for this hero.
+ */
+export function npcLine(npc: NpcId, key: LineKey, hero: 'toad' | undefined, memory: LineMemory): { text: string; id: string } | null {
+  const tail = hero === 'toad' ? ':toad' : '', marked = hero === 'toad' ? CAT_MARKED[npc][key] ?? [] : [];
+  const list = [...hero === 'toad' ? TOAD_LINES_BY_NPC[npc][key] ?? [] : [], ...(NPC_LINES[npc][key] ?? []).filter((_, i) => !marked.includes(i + 1))];
+  if (!list.length) return null;
+  return { text: list[(memory[`${npc}:${key}${tail}`] ?? 0) % list.length], id: `${npc}:${key}${tail}` };
 }
 
 /** The words of the NPC's quest as it gives it (Неясыть at a record of 10: «Пройди лес»). */

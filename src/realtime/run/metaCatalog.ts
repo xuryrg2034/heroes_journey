@@ -109,7 +109,7 @@ export const RT_HEARTH_MONK_ON = true;
  * Task 51д «Уход по делам» (spec 3.4): Марфа, Ерофей and Шиш leave for one run after their first quest done, then after every second;
  * only while this is on — the camp's trace and the rest's meeting (ui) turn it on. Off: nobody leaves, profiles and runs as before.
  */
-export const RT_HEARTH_AWAY_ON = false;
+export const RT_HEARTH_AWAY_ON = true;
 /** Task 51д: the NPCs that leave (Неясыть and Евлампий stay). */
 export type RtHearthLeaver = 'herb' | 'smith' | 'gambler';
 export const RT_HEARTH_LEAVERS: readonly RtHearthLeaver[] = ['herb', 'smith', 'gambler'];

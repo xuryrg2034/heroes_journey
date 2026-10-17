@@ -1997,6 +1997,8 @@ async function boot(): Promise<void> {
       gateShown: () => runView.gateInfo(),
       /** Task 51в: the merchant's reroll and «Размен» as shown (null — no merchant open). */
       shopShown: () => runView.shopInfo(),
+      /** Task 51д: the meeting at the open rest (the NPC, its deals, the deal made, the window open). */
+      meetShown: () => runView.meetInfo(),
       /** Task 49: the hero cards of the screen (ids, the chosen one, the best «Испытание» marks, the laws) and the cage scene (null - none). */
       heroesShown: () => runView.heroesShown(),
       /** Task 47, tests only: multiplies the times of the staged screens (С6, С8) by `k` — a slow reveal to act in the middle of it. */

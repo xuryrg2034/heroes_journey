@@ -87,12 +87,12 @@ check('the table of the mark cat (v1 rows) is CAT_MARKED, place for place', () =
   for (const l of DOC.slice(from)) {
     if (l.startsWith('### ') && !l.includes('Метка')) break;
     const m = /^\| (Неясыть|Марфа|Ерофей|Шиш|Евлампий) \| (v1|v2) \| `([a-z_0-9]+)`(?: \((\d+)\))? \|/.exec(l);
-    // rows of Шиш are v2 (all of them in the camp's code); the v2 rows of Марфа and Ерофей are keys the camp does not play yet.
-    if (m && (m[2] === 'v1' || m[1] === 'Шиш' || m[1] === 'Евлампий')) (table[`${NAMES[m[1]]}.${m[3]}`] ??= []).push(m[4] ? Number(m[4]) : 1);
+    // Task 51д: every row of the table — the v2 rows of Марфа, Ерофей (win_garrison_first, back_met, meet_hello) are in the data too.
+    if (m) (table[`${NAMES[m[1]]}.${m[3]}`] ??= []).push(m[4] ? Number(m[4]) : 1);
   }
   const ours: Record<string, number[]> = {};
   for (const npc of NPCS) for (const [key, places] of Object.entries(CAT_MARKED[npc])) ours[`${npc}.${key}`] = [...places!];
-  assert(Object.values(table).flat().length === 70, `${Object.values(table).flat().length} marks in the table`);
+  assert(Object.values(table).flat().length === 75, `${Object.values(table).flat().length} marks in the table`);
   assert(JSON.stringify(Object.keys(table).sort()) === JSON.stringify(Object.keys(ours).sort()), 'the same keys');
   for (const k of Object.keys(table)) assert(JSON.stringify([...table[k]].sort()) === JSON.stringify([...ours[k]].sort()), `${k}: marks ${table[k]} vs ${ours[k]}`);
 });
@@ -156,9 +156,9 @@ check('task 51 (design 17.10.2026): `buy_3` and `locked3` of Неясыть, М�
   }
 });
 
-check('task 51в: lines of Шиш are the design table words (the Шиш table, `locked3`; `leave`, `back_*`, `meet_*` wait for 51д); the first meeting is `first_won` / `first_lost` by the circle and one count with `first_self`', () => {
+check('task 51в: lines of Шиш are the design table words (the Шиш table, `locked3`); the first meeting is `first_won` / `first_lost` by the circle and one count with `first_self`', () => {
   const from = DOC.findIndex((l: string) => l.startsWith('## Шиш')), to = DOC.findIndex((l: string) => l.startsWith('## Евлампий')), want: Record<string, string[]> = {};
-  for (const l of DOC.slice(from, to)) { const m = /^\| `([a-z_0-9]+)` \| (.*) \|\s*$/.exec(l); if (m && !/^(leave|back_|meet_)/.test(m[1])) (want[m[1]] ??= []).push(m[2]); }
+  for (const l of DOC.slice(from, to)) { const m = /^\| `([a-z_0-9]+)` \| (.*) \|\s*$/.exec(l); if (m) (want[m[1]] ??= []).push(m[2]); }
   for (const l of DOC) { const m = /^\| Шиш \| `locked3` \| [^|]*\| (.*) \|\s*$/.exec(l); if (m) want.locked3 = [m[1]]; }
   assert(JSON.stringify(Object.keys(want).sort()) === JSON.stringify(Object.keys(NPC_LINES.gambler).sort()), `keys ${Object.keys(want)} vs ${Object.keys(NPC_LINES.gambler)}`);
   for (const k of Object.keys(want)) assert(JSON.stringify(want[k]) === JSON.stringify(NPC_LINES.gambler[k as LineKey]), `${k}: the text of the table`);
@@ -197,4 +197,16 @@ check('task 51г: lines of Евлампий are the design table words (his tabl
   }
   // First meeting: both lines of `first`, then none.
   assert(pickLine('monk', { others: NPCS }, {}).text === NPC_LINES.monk.first![0] && pickLine('monk', { others: NPCS }, { 'monk:first': 1 }).text === NPC_LINES.monk.first![1], 'first');
+});
+
+check('task 51д: leave, back_met, back_missed, meet_hello, meet_deal, meet_no (Марфа, Ерофей, Шиш), win_garrison_first (Неясыть, Марфа, Ерофей) and trace_* (Неясыть) are the design table words', () => {
+  const want: Record<string, string[]> = {}, wanted = ['win_garrison_first', 'leave', 'back_met', 'back_missed', 'meet_hello', 'meet_deal', 'meet_no', 'trace_herb', 'trace_smith', 'trace_gambler'];
+  const from = DOC.findIndex((l: string) => l.startsWith('## Шиш')), mid = DOC.findIndex((l: string) => l.startsWith('## Евлампий'));
+  for (const l of DOC.slice(0, DOC.findIndex((l: string) => l.startsWith('### Варианты для Ведуньи')))) {
+    const m = /^\| (Неясыть|Марфа|Ерофей) \| `([a-z_]+)` \| (?:[^|]*\| )?(.*?) \|\s*$/.exec(l);
+    if (m && wanted.includes(m[2])) (want[`${NAMES[m[1]]}.${m[2]}`] ??= []).push(m[3]);
+  }
+  for (const l of DOC.slice(from, mid)) { const m = /^\| `(leave|back_met|back_missed|meet_hello|meet_deal|meet_no)` \| (.*) \|\s*$/.exec(l); if (m) (want[`gambler.${m[1]}`] ??= []).push(m[2]); }
+  assert(Object.keys(want).length === 4 + 7 + 7 + 6, `${Object.keys(want).length} keys`);
+  for (const [k, texts] of Object.entries(want)) { const [npc, key] = k.split('.'); assert(JSON.stringify(NPC_LINES[npc as NpcId][key as LineKey]) === JSON.stringify(texts), `${k}: the text of the table`); }
 });

@@ -49,6 +49,9 @@ export interface HearthState {
   /** Task 51а: level 3 is for sale (a hero of the profile has entered the garrison); before it the lock «Дойди до гарнизона». */
   gate3: boolean;
   met: Record<NpcId, boolean>;
+  /** Task 51д: the NPC away for the next run (its place shows the trace); `done` — the quests done by NPC (the departure's number). */
+  away?: NpcId;
+  done?: Partial<Record<NpcId, number>>;
   /** The hero's experience now, the thresholds and the next pack (null — all open). */
   xp: number;
   thresholds: number[];
@@ -59,7 +62,7 @@ export interface HearthState {
   seen: string[];
   quest?: { npc: NpcId; id: string };
   /** What the last run was: the lines' occasion (`quest` — the quest's result; `firstWin` — the profile's first victory). */
-  last?: { won: boolean; cause?: string; row: number; beaten: boolean; quest?: boolean; firstWin?: boolean; pack?: boolean; hero?: 'toad'; casino?: 'won' | 'lost'; firstGarrison?: boolean; cuts?: number; vows?: { id: string; kept: boolean }[] };
+  last?: { won: boolean; cause?: string; row: number; beaten: boolean; quest?: boolean; firstWin?: boolean; pack?: boolean; hero?: 'toad'; casino?: 'won' | 'lost'; firstGarrison?: boolean; away?: { npc: NpcId; met: boolean }; cuts?: number; vows?: { id: string; kept: boolean }[] };
   /** The NPC who came by themselves (the fallback way): their meeting line is `first_self`. */
   self?: Partial<Record<NpcId, boolean>>;
   /** The lines said so far, by `npc:key` (the profile's `lines`). */

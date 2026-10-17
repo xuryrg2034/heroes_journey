@@ -705,3 +705,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-vow:disabled { opacity: .45; }
 .rt-vow-go { display: block; width: 100%; margin-top: 14px; }
 .rt-hearth-modal .rt-run-note { margin: 0 0 10px; }
+
+/* Task 51д: the trace of an NPC away (on its place) and the meeting at the rest (portrait button, deal window). */
+.rt-hearth-trace .rt-hearth-art { filter: drop-shadow(0 4px 6px #000a); }
+.rt-hearth-trace:hover .rt-hearth-art { transform: translateY(-3px); }
+.rt-run-choice.rt-meet { display: flex; align-items: center; gap: 12px; }
+.rt-meet > span { display: grid; gap: 2px; }
+.rt-meet-npc { height: 56px; width: auto; flex: none; }
+.rt-meet-head { display: flex; align-items: center; justify-content: center; gap: 12px; }
+.rt-meet-head .rt-meet-npc { height: 52px; }

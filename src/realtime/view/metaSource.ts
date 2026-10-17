@@ -24,7 +24,7 @@ export class ProfileMeta implements MetaSource {
   hearth(): HearthState {
     const hero = this.profile.heroChoice(), view = this.profile.hearth(hero), own = this.profile.heroes().find(h => h.id === hero)!;
     return {
-      hero, stock: view.stock, levels: view.levels, gate3: view.gate3, met: { owl: true, herb: view.met.herb, smith: view.met.smith, gambler: view.met.gambler, monk: view.met.monk }, xp: own.xp, thresholds: [...RT_META_THRESHOLDS],
+      hero, stock: view.stock, ...view.away ? { away: view.away as NpcId } : {}, done: { ...view.done } as HearthState['done'], levels: view.levels, gate3: view.gate3, met: { owl: true, herb: view.met.herb, smith: view.met.smith, gambler: view.met.gambler, monk: view.met.monk }, xp: own.xp, thresholds: [...RT_META_THRESHOLDS],
       nextPack: own.nextPack,
       record: own.record ? { row: own.record.row, won: own.record.won, ...own.record.level ? { level: own.record.level } : {}, ...own.record.wonLevel ? { wonLevel: own.record.wonLevel } : {} } : null, seen: view.seen, lines: view.lines,
       ...view.quest ? { quest: { npc: view.quest.npc as NpcId, id: view.quest.id } } : {},
