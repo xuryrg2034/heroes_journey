@@ -24,7 +24,7 @@
  *
  * Events (the view; the rules never read them): `shooter` — a windup began (`aim`: the slinger's lines, the hive's points) or the
  * volley left (`loose`); `shot` — a shot ended (`hit` the hero, `block`, `snuff` by the dash or a bomb, `end`: a wall, a tree, the
- * edge or its flight ran out).
+ * edge or its flight ran out; `by: 'owner'` — a hanging shot whose shooter died, design 17.10.2026).
  */
 import { dhypot } from './detMath';
 import { blockedAt, type Vec } from './geometry';
@@ -131,7 +131,7 @@ function runVolleyTimer(world: World, dt: number): void {
 }
 
 /** Puts the shot out with a `shot` event of `action`. */
-function endShot(world: World, s: Shot, action: 'hit' | 'block' | 'snuff' | 'end', by?: 'dash' | 'bomb'): void {
+function endShot(world: World, s: Shot, action: 'hit' | 'block' | 'snuff' | 'end', by?: 'dash' | 'bomb' | 'owner'): void {
   const list = world.shots!, i = list.indexOf(s);
   if (i >= 0) list.splice(i, 1);
   world.events.push({ type: 'shot', action, id: s.id, kind: s.kind, owner: s.owner, x: s.x, y: s.y, ...by ? { by } : {} });
@@ -150,9 +150,12 @@ export function updateShots(world: World, dt: number): void {
   for (const s of [...list]) {
     if (world.status !== 'playing') return;
     if (s.hang > 0) {
-      // Cold (design Д5): a frozen shooter's hanging pattern hangs on; its death lets it fly.
       const owner = world.enemies.find(e => e.id === s.owner);
-      if (!owner || !enemyFrozen(owner)) s.hang = Math.max(0, s.hang - dt);
+      // Design 17.10.2026 (task 57а, question 3): a hanging shot goes out with its dead shooter — killing it during the sign is the
+      // reward (event `shot` `end` by `owner`); the flying ones fly on.
+      if (!owner) { endShot(world, s, 'end', 'owner'); continue; }
+      // Cold (design Д5): a frozen shooter's hanging pattern hangs on.
+      if (!enemyFrozen(owner)) s.hang = Math.max(0, s.hang - dt);
       if (s.hang <= TIME_EPS) s.hang = 0;
     } else {
       s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;

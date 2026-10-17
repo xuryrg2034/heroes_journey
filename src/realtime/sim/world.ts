@@ -565,9 +565,9 @@ export type WorldEvent =
   | { type: 'shooter'; action: 'aim' | 'loose'; id: number; kind: string; x: number; y: number; lines?: { x0: number; y0: number; x1: number; y1: number }[]; points?: Vec[] }
   /**
    * Task 57а (shots.ts): a shot ended — `hit` the hero, `block` (a shield took it), `snuff` (`by` the dash or a bomb, `snuffShots`),
-   * `end` (a wall, a tree, the edge, or its flight ran out). The rules never read it.
+   * `end` (a wall, a tree, the edge, or its flight ran out; `by: 'owner'` — it hung and its shooter died). The rules never read it.
    */
-  | { type: 'shot'; action: 'hit' | 'block' | 'snuff' | 'end'; id: number; kind: ShotKind; owner: number; x: number; y: number; by?: 'dash' | 'bomb' }
+  | { type: 'shot'; action: 'hit' | 'block' | 'snuff' | 'end'; id: number; kind: ShotKind; owner: number; x: number; y: number; by?: 'dash' | 'bomb' | 'owner' }
   /**
    * Task 57а (enemies/wisp.ts, «Светляк»): it lit and flies (`lit`), or it went out without a kill (`out`: its flight ran out —
    * `life`; it touched the hero — `touch`; a shield took the touch — `block`). The rules never read it.
