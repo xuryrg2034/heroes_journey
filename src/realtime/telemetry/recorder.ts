@@ -327,6 +327,8 @@ interface RunMeta {
   /** Task 50: the run's knack screens and its counters on rank II (absent — none yet). */
   knacks?: RunKnack[];
   honed?: { id: string; row: number }[];
+  /** Task 51з: the run of the day's attempt (`dailyAttempt`; absent — not reported, or an ordinary run). */
+  daily?: { date: string; attempt: number; first: boolean; verified?: true };
   /** Tasks 36–37: the run's meta fields (`RunRecord.xp` … `quest`; absent — none yet). */
   metaTlm?: Partial<Pick<RunRecord, 'xp' | 'pack' | 'record' | 'locked' | 'carry' | 'stock' | 'hearthBuys' | 'npcClicks' | 'hearth' | 'quest'>>;
   /** Task 49: the hero this run freed (`heroFreed`). */
@@ -716,6 +718,8 @@ export class RtRecorder {
       // Task 50: the knack screens and rank II; the archetype (absent — «Без повадки», or not chosen yet).
       ...run.knacks ? { knacksOn: true as const, ...meta.knacks?.length ? { knacks: meta.knacks } : {}, ...meta.honed?.length ? { honed: meta.honed } : {} } : {},
       ...run.habits ? { habitsOn: true as const, ...run.habit ? { habit: run.habit } : {} } : {},
+      // Task 51з: the run of the day — the date and the attempt the view reported (`dailyAttempt`).
+      ...run.daily && meta.daily?.date === run.daily ? { daily: meta.daily } : {},
       // Task 49: the run's hero (absent — the cat) and the hero it freed.
       ...run.heroId === 'toad' ? { hero: 'toad' as const } : {}, ...meta.freed ? { freed: { ...meta.freed } } : {},
       ...meta.featsOn ? { featsOn: true as const } : {}, ...meta.feats?.length ? { feats: meta.feats } : {}, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun, ...meta.viewerRunApprox ? { viewerRunApprox: true as const } : {} } : {}, ...meta.firsts?.length ? { firsts: meta.firsts } : {}, ...meta.resources ? { resources: meta.resources } : {}, ...meta.fx ? { fx: meta.fx } : {}, ...meta.metaTlm ?? {}, ...runLevels(run), runParams,
@@ -868,6 +872,28 @@ export class RtRecorder {
   }
 
   /** «Обучение v1»: a fight hint started in this run; its id goes into the run record once (the record is written again). */
+  /** Task 51з «Поход дня»: the run of the day began as attempt `attempt` of its date (run/rtDaily.ts `RtDailyStore.begin`). */
+  dailyAttempt(run: RtRunState, attempt: number): void {
+    if (!run.daily || !(attempt >= 1)) return;
+    safe(undefined, () => {
+      const meta = this.metaFor(run);
+      meta.daily = { date: run.daily!, attempt, first: attempt === 1 };
+      this.saveMeta();
+      this.writeRun(run);
+    });
+  }
+
+  /** Task 51з: the run of the day's proof passed the check by replay (the view's «Проверить»). */
+  dailyVerified(run: RtRunState): void {
+    safe(undefined, () => {
+      const meta = this.metaFor(run);
+      if (!run.daily || meta.daily?.date !== run.daily || meta.daily.verified) return;
+      meta.daily.verified = true;
+      this.saveMeta();
+      this.writeRun(run);
+    });
+  }
+
   hintShown(run: RtRunState | null, id: string): void {
     if (!run) return;
     safe(undefined, () => {

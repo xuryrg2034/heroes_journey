@@ -17,7 +17,7 @@ import { ARENAS, SLICE_ARENAS, TERRAIN_ARENAS, arenaTemplate, markedGoalArena, t
 import { withRoster } from '../sim/rosters';
 import { bagPayout, bagProgress, bagTotal } from '../sim/bag';
 import { bagResultLine } from './bagView';
-import { featOf, featOutcome, featProgress, featResult } from '../sim/feat';
+import { featOf, featProgress, featResult } from '../sim/feat';
 import { featHudText, featHudTitle, featResultRow } from './featView';
 import { FIRST_MEET_IDS, FirstMeetStore, type FirstMeetId } from './firstMeet';
 import { SCHEDULE_KINDS, scheduleSeedHistory } from '../run/schedule';
@@ -70,7 +70,8 @@ import { RT_RUN_HP } from '../run/hpScale';
 import { HAND_IDLE, HandGuide, PROLOGUE_ROOM_COUNT, SHIELD_HAND_IDLE, PrologueStore, TITLE_SECONDS, prologueCarry, prologueEntryRoom, prologueGoalLine, prologueLabel, prologueSeed, roomTitle, type PrologueHooks, type PrologueLabelMemo, type RoomOutcome } from './prologueFlow';
 import { PrologueDom, PrologueLayer } from './prologueView';
 import { ChainRecordStore, chainLine, type ChainLine } from './chainRecord';
-import { observeFightLuck, type RtLuckTally } from '../run/rtLuck';
+// Task 51з: the run fight's outcome — read while it plays and built from the world (run/fightOutcome.ts; the proof's check reads the same).
+import { RtFightWatch, rtFightOutcome } from '../run/fightOutcome';
 import { RtDeathWatch, rtDeathLine } from '../run/rtRunEnd';
 import { DeathSeries } from './deathSeries';
 import { bustBlasts, goblinOf } from '../sim/slot';
@@ -462,10 +463,11 @@ async function boot(): Promise<void> {
   const deathWatch = new RtDeathWatch();
   /** Task 21 «Почему погиб»: the fight's hits on the hero for the series line of «Поражение» (view/deathSeries.ts). */
   const deathSeries = new DeathSeries();
-  /** Task 28: the Jailer's weight was severed in this fight (a `partSevered` event; read with the death watch) — `RtArenaOutcome.severed`. */
-  let fightSevered = false;
-  /** Task 48: the boss's parts severed in this fight (`partSevered` events) — `RtArenaOutcome.parts` (the run keeps it for the Troll). */
-  let fightParts = 0;
+  /**
+   * Task 51з: what the run fight is read for while it plays (run/fightOutcome.ts): П5 the luck, П6 the killing blow (`deathWatch`), task 28
+   * the weight severed, task 48 the parts severed, the consumables used — the outcome is built from it (`rtFightOutcome`).
+   */
+  const fightWatch = new RtFightWatch(deathWatch);
   /** Task 22 «Удар слышен»: one sound of a kind per 0.3 real seconds; the threats' starts read frame by frame (view/soundGate.ts). */
   const soundGate = new SoundGate(), threatWatch = new ThreatWatch();
   /** Task 12: the values of the run's arena (`rtArenaParams`: the run's flag `markedGoals`); null — the sandbox's `params`. */
@@ -476,10 +478,8 @@ async function boot(): Promise<void> {
    */
   const newSimulation = (arena: ArenaTemplate, seed: number, hero?: HeroStart, loadout?: Loadout, simParams?: Params): Simulation => {
     motion.clear();
-    deathWatch.reset();
+    fightWatch.reset();
     deathSeries.reset();
-    fightSevered = false;
-    fightParts = 0;
     if (simParams) return new Simulation({ arena, params: simParams, seed, record: true, beforeTick: world => { motion.save(world); }, ...hero ? { hero } : {}, ...loadout ? { loadout } : {} });
     return new Simulation({ arena, params: runArenaParams ?? params, seed, record: true, beforeTick: world => { motion.save(world); recorder?.beforeTick(world); deathWatch.seen(world); deathSeries.seen(world); }, ...hero ? { hero } : {}, loadout: loadout ?? sandboxLoadout() });
   };
@@ -781,7 +781,6 @@ async function boot(): Promise<void> {
       runArenaParams = rtArenaParams(rules ?? {}, params);
       runArenaRecorded = false;
       fightChainLine = null;
-      fightLuck = {};
       // Phase A (Т2): the node's roster over the template (the journal keeps it, sim/simulation.ts).
       startArena(roster !== undefined ? withRoster(arenaTemplate(arenaId), roster) : arenaTemplate(arenaId), seed, hero, loadout, notice);
     },
@@ -854,8 +853,6 @@ async function boot(): Promise<void> {
   /** П10: the viewer's all-time chain record and the line of the run fight just recorded (null — none: the sandbox). */
   const chainRecord = new ChainRecordStore();
   let fightChainLine: ChainLine | null = null;
-  /** П5 «Журнал удачи»: the run fight's chance, read from the sim's events every frame (rtLuck.ts); it goes with the outcome. */
-  let fightLuck: RtLuckTally = {};
   const recordRunArena = (): void => {
     const w = world();
     if (!runView || !runView.arenaOpen || runArenaRecorded || w.status === 'playing') return;
@@ -863,16 +860,8 @@ async function boot(): Promise<void> {
     const runBefore = rtRunBestChain(runView.state), recordBefore = chainRecord.best();
     fightChainLine = chainLine(w.stats.bestChain, runBefore, recordBefore);
     chainRecord.submit(w.stats.bestChain);
-    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, bestChain: w.stats.bestChain, ...Object.keys(fightLuck).length ? { luck: fightLuck } : {}, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed, openItems: [...w.kit.openItems] } : {}, ...w.secondWind ? { secondWind: true } : {}, kinds: deathWatch.kinds(w), ...deathWatch.elite(w) ? { elite: true } : {}, ...deathWatch.affixes(w).length ? { affixes: deathWatch.affixes(w) } : {}, itemsUsed: arenaItemsUsed, itemHint: arenaHintShown, ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...w.params.doorDie ? { doorDie: true } : {}, ...w.curse ? { chest: true } : {},
-      // Task 14 «Котомка у двери»: what the door paid for the bag's filled steps (the run adds it to its materials).
-      ...bagPayout(w) ? { bag: bagPayout(w)! } : {},
-      // Task 16 «Подвиги»: whether the fight did its feat (the run pays it on a victory; the record keeps it).
-      ...featOutcome(w),
-      // Task 28: the weight severed (the run keeps it only on a Jailer arena; a won fight offers 1 of 4).
-      ...fightSevered ? { severed: true } : {},
-      // Task 48: the Troll's parts severed (all three — the relic 1 of 4).
-      ...fightParts ? { parts: fightParts } : {},
-      ...w.status === 'defeat' && deathWatch.death ? { death: deathWatch.death } : {} });
+    // Task 51з: the outcome from the world and the fight's watch (run/fightOutcome.ts) — the proof of «Поход дня» rebuilds the same.
+    runView.recordArena(rtFightOutcome(w, fightWatch, arenaHintShown));
   };
   /** The result's button only switches the screen: to the map, or to the end of the run. */
   const finishRunArena = (): void => {
@@ -1402,7 +1391,7 @@ async function boot(): Promise<void> {
     }
     // П5: the run fight's chance (the goblin's pulls, the elites' loot) before the frame's events go.
     // П6: the run fight's killing blow, read the same way.
-    if (runView?.arenaOpen && !runArenaRecorded) { observeFightLuck(fightLuck, w.events); deathWatch.read(w, w.events); deathSeries.read(w, w.events); if (w.events.some(e => e.type === 'partSevered')) fightSevered = true; fightParts += w.events.filter(e => e.type === 'partSevered').length; }
+    if (runView?.arenaOpen && !runArenaRecorded) { fightWatch.read(w, w.events); deathSeries.read(w, w.events); }
     // Task 16 telemetry «Новизна»: the first meetings of a run fight (the kinds and affixes come from the captions, render.ts).
     if (firstMeets && runView?.arenaOpen && !prologue) {
       if (!firstMeets.has('elite') && w.enemies.some(e => e.elite && renderer.sees(e))) meetFirst('elite');

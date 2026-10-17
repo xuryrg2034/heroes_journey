@@ -446,6 +446,11 @@ export interface RunRecord extends RtHeader {
    * (absent — «Без повадки», or not chosen yet). `heroId` of the meta stands beside it (task 49 compares them).
    */
   habitsOn?: true;
+  /**
+   * Task 51з «Поход дня» (from 17.10.2026): the run of the day — its date, the attempt's number on the date (1 — the first), whether it
+   * is the first, and `verified` — its proof passed the check by replay («Проверить»). Absent — an ordinary run (older records too).
+   */
+  daily?: { date: string; attempt: number; first: boolean; verified?: true };
   habit?: string;
   /** Task 49 «Второй герой» (from 16.10.2026): the run's hero other than the cat (`RtRunState.heroId`); absent — the cat (older records too). */
   hero?: 'toad';
@@ -687,6 +692,11 @@ export function checkRecord(value: unknown): string | null {
       // Task 50 (16.10.2026): optional — the knack screens (cards with an id, a node, a row), the counters on rank II, the archetype.
       if (r.knacksOn !== undefined && r.knacksOn !== true) return 'run knacksOn';
       if (r.habitsOn !== undefined && r.habitsOn !== true) return 'run habitsOn';
+      // Task 51з (17.10.2026): optional — the run of the day.
+      if (r.daily !== undefined) {
+        const d = r.daily as Record<string, unknown> | null;
+        if (!d || typeof d !== 'object' || typeof d.date !== 'string' || !Number.isInteger(d.attempt) || (d.attempt as number) < 1 || typeof d.first !== 'boolean' || (d.verified !== undefined && d.verified !== true)) return 'run daily';
+      }
       if (r.habit !== undefined && !(typeof r.habit === 'string' && r.habitsOn === true)) return 'run habit';
       // Task 49 (16.10.2026): optional — the run's hero (`toad`), the hero this run freed and the row.
       if (r.hero !== undefined && r.hero !== 'toad') return 'run hero';

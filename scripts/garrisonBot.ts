@@ -144,6 +144,9 @@ export interface BotFightOptions {
   afterTick?: (w: World, tick: number) => void;
   /** Each tick's events, before they go. */
   seen?: (w: World) => void;
+  /** Task 51з: keep the fight's journal (the proof of «Поход дня»), and a reader of the world before each tick (run/fightOutcome.ts). */
+  record?: boolean;
+  beforeTick?: (w: World) => void;
 }
 export interface BotFight { sim: Simulation; timeout: boolean; lastSource: string | null }
 
@@ -153,7 +156,7 @@ export function botFight(run: RtRunState, options: BotFightOptions): BotFight {
   if (pending?.kind !== 'battle') throw new Error('no battle');
   const buffer = options.buffer ?? 0;
   const sim = new Simulation({ arena: pending.arena, ...pending.roster !== undefined ? { roster: pending.roster } : {}, params: options.params, seed: pending.seed,
-    hero: { hp: run.hp + buffer, maxHp: run.maxHp + buffer }, loadout: options.loadout });
+    hero: { hp: run.hp + buffer, maxHp: run.maxHp + buffer }, loadout: options.loadout, ...options.record ? { record: true } : {}, ...options.beforeTick ? { beforeTick: options.beforeTick } : {} });
   const w = sim.world;
   let lastSource: string | null = null, timeout = false, left = false;
   for (let tick = 0; tick < options.limit * 60 && w.status === 'playing'; tick++) {
