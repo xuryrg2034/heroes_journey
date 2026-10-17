@@ -19,7 +19,8 @@
  */
 import { dcos, dsin } from '../detMath';
 import { blockedAt, dist, lineOfSight, pushOutOfObstacles } from '../geometry';
-import { addShot, registerShooter, volleyIdle, volleyReady } from '../shots';
+import { addShot, volleyIdle, volleyReady } from '../shots';
+import { registerShooter } from '../shooterRegistry';
 import { enemyGroundFactor, enemySpeed, type Enemy, type World } from '../world';
 import { bodyRadiusOf, registerBehavior, registerEnemyKind } from './kinds';
 

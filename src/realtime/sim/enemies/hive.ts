@@ -19,7 +19,8 @@
  */
 import { dcos, dsin } from '../detMath';
 import { dist, lineOfSight, type Vec } from '../geometry';
-import { addShot, registerShooter, volleyIdle, volleyReady } from '../shots';
+import { addShot, volleyIdle, volleyReady } from '../shots';
+import { registerShooter } from '../shooterRegistry';
 import type { Enemy, World } from '../world';
 import { registerBehavior, registerEnemyKind } from './kinds';
 import { SHOOTER_KINDS, SHOOTERS_MAX } from './slinger';

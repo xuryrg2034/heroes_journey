@@ -24,7 +24,8 @@ import { blockedAt, dist, lineOfSight, pushOutOfObstacles, type Vec } from '../g
 import { DEFAULT_PARAMS, heroRadius, type Params } from '../params';
 import { canBeHurt, damageEnemy, enemyGroundFactor, enemySpeed, hurtHero, noteBlock, type Enemy, type World } from '../world';
 import { bodyRadiusOf, registerBehavior, registerEnemyKind } from './kinds';
-import { registerShooter, volleyGapOf, volleyIdle, volleyReady } from '../shots';
+import { volleyGapOf, volleyIdle, volleyReady } from '../shots';
+import { registerShooter } from '../shooterRegistry';
 
 /** Step of the march that finds where a wall or a tree cuts the line (units). */
 const LINE_STEP = 0.05;
