@@ -641,3 +641,28 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* The result card with «Сноровка»: a width of its own (two cards side by side), the cards' words wrap. */
 .rt-result-card:has(.rt-knack-box:not([hidden])) { width: min(680px, calc(100vw - 32px)); }
 .rt-result-card .rt-knack-card small { overflow-wrap: anywhere; }
+
+/* Task 49 «Второй герой»: the heroes by the camp's fire (hearthView.ts), the hero cards of «Новый поход» (runView.ts), the cage scene. */
+.rt-hearth-hero { display: flex; flex-direction: column; align-items: center; transform: translate(-50%, calc(-100% + 14px)); }
+.rt-hearth-hero:hover .rt-hearth-art, .rt-hearth-hero.rt-chosen .rt-hearth-art { transform: translateY(-3px); filter: drop-shadow(0 0 12px #ffb347cc); }
+.rt-hearth-hero:not(.rt-chosen) .rt-hearth-art { opacity: .82; }
+.rt-hearth-hero svg { width: 112px; height: 140px; filter: drop-shadow(0 6px 6px #000a); }
+.rt-hearth-hero.rt-chosen .rt-hearth-name { color: #fff2c4; border-color: var(--rt-gold); }
+.rt-hearth-hero-say { position: absolute; bottom: calc(100% + 4px); left: 50%; transform: translateX(-50%); width: 220px; padding: 6px 10px; background: #f1e6c8; color: #1b2017; border: 2px solid #18232d; font: italic 13px Georgia, serif; line-height: 1.3; text-align: left; box-shadow: 0 6px 18px #000a; z-index: 2; pointer-events: none; }
+.rt-heroes { display: flex; gap: 8px; margin: 12px 0 0; }
+.rt-hero-card { flex: 1 1 0; display: flex; flex-direction: column; gap: 2px; padding: 7px 8px; text-align: center; background: #1a2117; color: #d9cfa8; border: 1px solid #4a5038; cursor: pointer; }
+.rt-hero-card b { font: 600 16px Georgia, serif; color: #e8d7ad; }
+.rt-hero-card span { font-size: 12px; line-height: 1.25; color: var(--rt-muted); }
+.rt-hero-card em { margin-top: 2px; font-size: 12px; font-style: normal; color: #e3b45a; }
+.rt-hero-card.rt-on { background: #3d3423; border-color: var(--rt-gold); }
+.rt-hero-card.rt-on b { color: #fff2c4; }
+.rt-cage-scene .rt-card { width: 380px; text-align: center; }
+.rt-cage-stage { position: relative; width: 240px; height: 240px; margin: 0 auto 10px; overflow: hidden; }
+.rt-cage-toad { position: absolute; left: 50%; bottom: 8px; width: 190px; transform: translateX(-50%); }
+.rt-cage-img { position: absolute; left: 50%; top: 0; height: 240px; transform: translateX(-50%); transform-origin: 50% 0; }
+.rt-cage-scene[data-state="opened"] .rt-cage-img { animation: rt-cage-fall .7s ease-in forwards; }
+.rt-cage-scene[data-state="opened"] .rt-cage-toad { animation: rt-cage-hop .6s .5s ease-out both; }
+@keyframes rt-cage-fall { 0% { transform: translateX(-50%) rotate(0); opacity: 1; } 55% { transform: translate(-50%, 18px) rotate(-3deg); } 100% { transform: translate(-50%, 260px) rotate(8deg); opacity: 0; } }
+@keyframes rt-cage-hop { 0% { transform: translate(-50%, 0) scale(1); } 45% { transform: translate(-50%, -26px) scale(1.04); } 100% { transform: translate(-50%, 0) scale(1.08); } }
+.rt-cage-line { margin: 0 0 12px; font: italic 17px Georgia, serif; color: #e8d7ad; line-height: 1.35; }
+@media (prefers-reduced-motion: reduce) { .rt-cage-scene[data-state="opened"] .rt-cage-img, .rt-cage-scene[data-state="opened"] .rt-cage-toad { animation-duration: .01s; animation-delay: 0s; } }

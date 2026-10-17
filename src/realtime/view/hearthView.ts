@@ -11,9 +11,10 @@
  * View only: the profile (core) holds the stock, the levels and the meetings (`MetaSource`); the run's flags come from it.
  */
 import { KIND_CAPTIONS } from './newSeen';
-import { HEARTH_LEVEL_LOCKED, HEARTH_PLACES, HEARTH_PRICES, NPCS, metaItemCard, xpBar, type HearthState, type MetaSource, type NpcId } from './metaModel';
+import { HEARTH_LEVEL_LOCKED, HEARTH_PLACES, HEARTH_PRICES, NPCS, metaItemCard, xpBar, type HearthState, type MetaHeroId, type MetaSource, type NpcId } from './metaModel';
 import { NPC_LINES, pickLine, questLine, type DeathCause } from './npcLines';
 import { rowWord } from './metaEnd';
+import { toadLine } from './heroLines';
 
 const esc = (s: string): string => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 const ICON = '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M10 2 L17 7 L14.5 17 L5.5 17 L3 7 Z" fill="#e3b45a" stroke="#1a2330" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 7 L10 9 L17 7 M10 9 L10 17" fill="none" stroke="#1a2330" stroke-width="1.2" stroke-linejoin="round"/></svg>';
@@ -30,6 +31,17 @@ const PLACE_AT: readonly { x: number; y: number; s: number }[] = [
 /** The NPC's art (public/art/characters; design, Codex): a stand-in silhouette shows if the image does not load. */
 const NPC_ART: Readonly<Record<NpcId, string>> = { owl: 'npc-owl', herb: 'npc-herbalist', smith: 'npc-smith' };
 const artUrl = (path: string): string => new URL(`art/${path}`, document.baseURI).href;
+
+/**
+ * Task 49: the heroes by the fire (feet, px of the 1280x720 screen): the chosen one sits nearer to the fire, the other beside it.
+ * The art is public/art/characters (`player` - the cat, `toad` - Ведунья); a stand-in silhouette shows if it does not load.
+ */
+const HERO_AT = { chosen: { x: 566, y: 524, s: 1 }, other: { x: 724, y: 522, s: 0.82 } } as const;
+const HERO_ART: Readonly<Record<MetaHeroId, string>> = { cat: 'player', toad: 'toad' };
+const HERO_SVG: Readonly<Record<MetaHeroId, string>> = {
+  cat: '<svg viewBox="0 0 120 150" aria-hidden="true"><path d="M30 20 L44 44 L76 44 L90 20 L96 64 Q98 100 84 126 L36 126 Q22 100 24 64 Z" fill="#c9732e" stroke="#0d141b" stroke-width="5" stroke-linejoin="round"/><circle cx="48" cy="70" r="6" fill="#0d141b"/><circle cx="72" cy="70" r="6" fill="#0d141b"/><path d="M56 84 L64 84 L60 92 Z" fill="#0d141b"/></svg>',
+  toad: '<svg viewBox="0 0 120 150" aria-hidden="true"><path d="M60 40 Q96 40 100 80 Q106 126 60 132 Q14 126 20 80 Q24 40 60 40 Z" fill="#6a8a4a" stroke="#0d141b" stroke-width="5" stroke-linejoin="round"/><circle cx="40" cy="44" r="14" fill="#e8d7ad" stroke="#0d141b" stroke-width="4"/><circle cx="80" cy="44" r="14" fill="#e8d7ad" stroke="#0d141b" stroke-width="4"/><circle cx="42" cy="46" r="5" fill="#0d141b"/><circle cx="78" cy="46" r="5" fill="#0d141b"/><path d="M38 86 Q60 100 82 86" fill="none" stroke="#0d141b" stroke-width="4" stroke-linecap="round"/></svg>',
+};
 
 /** Stand-in silhouettes of the NPC until the art (design, Codex): navy shapes with one colour accent. */
 const NPC_SVG: Readonly<Record<NpcId, string>> = {
@@ -59,7 +71,11 @@ export interface HearthHost {
 }
 
 /** What the camp shows now (tests read it). */
-export interface HearthShown { open: boolean; npcs: NpcId[]; empty: number; bubble: NpcId | null; line: string; bought: number; bestiary: number }
+export interface HearthShown {
+  open: boolean; npcs: NpcId[]; empty: number; bubble: NpcId | null; line: string; bought: number; bestiary: number;
+  /** Task 49: the heroes by the fire (the chosen one first), the hero chosen, and the line Ведунья says now (empty - none). */
+  heroes: MetaHeroId[]; hero: MetaHeroId; heroLine: string;
+}
 
 export class HearthView {
   readonly el: HTMLDivElement;
@@ -69,7 +85,9 @@ export class HearthView {
   private said = new Set<NpcId>();
   private boughtNow: { npc: NpcId; level: 1 | 2 } | null = null;
   private lastLine = '';
-  readonly shown: HearthShown = { open: false, npcs: [], empty: 0, bubble: null, line: '', bought: 0, bestiary: 0 };
+  /** Task 49: the line Ведунья says now (one at a time; empty - her place is quiet). */
+  private heroLine = '';
+  readonly shown: HearthShown = { open: false, npcs: [], empty: 0, bubble: null, line: '', bought: 0, bestiary: 0, heroes: [], hero: 'cat', heroLine: '' };
 
   constructor(private readonly host: HearthHost) {
     this.el = document.createElement('div');
@@ -89,12 +107,34 @@ export class HearthView {
 
   open(): void {
     this.el.hidden = false; this.bubble = null; this.bestiary = false; this.said.clear();
+    // Task 49: the first camp after the rescue - her one line names the deed (`first_camp`, said once).
+    this.heroLine = '';
+    if (this.host.meta.heroes().some(h => h.id === 'toad' && h.open) && !this.host.meta.hearth().lines['toad:first_camp']) this.sayHero('first_camp');
     this.shown.open = true;
     this.host.sound?.('open');
     this.draw();
   }
 
   close(): void { this.el.hidden = true; this.shown.open = false; }
+
+  private sayHero(key: 'first_camp' | 'pick' | 'about_cat'): void {
+    const line = toadLine(key, this.host.meta.hearth().lines);
+    this.host.meta.markLine(line.id);
+    this.heroLine = line.text;
+  }
+
+  /** Task 49: the heroes by the fire - the chosen one nearer the fire; a click on the other chooses it. Ведунья's line stands over her. */
+  private heroesHtml(): string {
+    const heroes = this.host.meta.heroes().filter(h => h.open), ordered = [...heroes.filter(h => h.chosen), ...heroes.filter(h => !h.chosen)];
+    this.shown.heroes = ordered.map(h => h.id); this.shown.hero = ordered[0]?.id ?? 'cat';
+    return ordered.map((h, i) => {
+      const at = i === 0 ? HERO_AT.chosen : HERO_AT.other;
+      const say = h.id === 'toad' && this.heroLine ? `<span class="rt-hearth-hero-say" data-testid="hearth-hero-line">${esc(this.heroLine)}</span>` : '';
+      const fig = `<img class="rt-hearth-art" src="${artUrl(`characters/${HERO_ART[h.id]}.png`)}" alt="" style="height:${Math.round(150 * at.s)}px" onerror="this.hidden=true;this.nextElementSibling.hidden=false">`
+        + `<span class="rt-hearth-sil-npc" hidden>${HERO_SVG[h.id]}</span>`;
+      return `<button class="rt-hearth-place rt-hearth-hero${h.chosen ? ' rt-chosen' : ''}" style="left:${at.x}px;top:${at.y}px" data-action="hero" data-hero="${h.id}" data-testid="hearth-hero-${h.id}" aria-pressed="${h.chosen}" title="${esc(h.title)}${h.chosen ? '' : ' — взять в поход'}">${say}${fig}<span class="rt-hearth-name">${esc(h.title)}</span></button>`;
+    }).join('');
+  }
 
   private npcsHere(h: HearthState): NpcId[] { return (['owl', 'herb', 'smith'] as const).filter(id => id === 'owl' || h.met[id]); }
 
@@ -117,7 +157,8 @@ export class HearthView {
     const go = this.host.runActive() ? '<button class="rt-again rt-hearth-go" data-action="back" data-testid="hearth-back">К походу</button>' : '<button class="rt-again rt-hearth-go" data-action="go" data-testid="hearth-go">В поход</button>';
     const center = `<div class="rt-hearth-fire-wrap">${FIRE_SVG}</div><div class="rt-hearth-glow"></div><div class="rt-hearth-center"><div class="rt-hearth-bar" data-testid="hearth-bar" title="Опыт героя"><i style="width:${(bar.k * 100).toFixed(1)}%"></i><em>${h.xp}${bar.to !== null ? ` / ${bar.to}` : ''}</em></div>${next}${record}${go}</div>`;
     const head = `<header class="rt-hearth-head"><b>Очаг</b><span class="rt-hearth-stock" data-testid="hearth-stock" title="Запас лагеря">${ICON}<b>${h.stock}</b></span></header>`;
-    this.el.innerHTML = head + `<div class="rt-hearth-stage">${center}${places}${this.bubbleHtml(h)}</div>${this.bestiaryHtml(h)}`;
+    this.shown.heroLine = this.heroLine;
+    this.el.innerHTML = head + `<div class="rt-hearth-stage">${center}${places}${this.heroesHtml()}${this.bubbleHtml(h)}</div>${this.bestiaryHtml(h)}`;
   }
 
   private bubbleHtml(h: HearthState): string {
@@ -177,6 +218,14 @@ export class HearthView {
       const npc = target.dataset.npc as NpcId, level = Number(target.dataset.level);
       const result = this.host.meta.buy(npc, level);
       if (result.ok) { this.shown.bought++; this.boughtNow = { npc, level: level === 2 ? 2 : 1 }; this.host.sound?.('buy'); this.host.bought?.(npc, level, HEARTH_PRICES[level - 1]); this.say(npc, this.host.meta.hearth()); }
+      this.draw(); return;
+    }
+    if (action === 'hero') {
+      const id = target.dataset.hero as MetaHeroId;
+      // Task 49: a click chooses the hero for the next run (the bar, the pack and the record follow); Ведунья answers with one line.
+      this.bubble = null;
+      if (id === 'toad') { const chosen = h.hero === 'toad'; if (chosen || this.host.meta.chooseHero('toad')) this.sayHero(chosen ? 'about_cat' : 'pick'); }
+      else { this.host.meta.chooseHero('cat'); this.heroLine = ''; }
       this.draw(); return;
     }
     if (action === 'bestiary') { this.bestiary = true; this.draw(); return; }

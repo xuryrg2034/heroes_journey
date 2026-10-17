@@ -70,6 +70,7 @@
     "test:realtime-horde-view": "tsx src/realtime/view/hordeView.spec.ts",
     "test:realtime-bag-view": "tsx src/realtime/view/bagView.spec.ts",
     "test:realtime-feat-view": "tsx src/realtime/view/featView.spec.ts",
+    "test:realtime-hero-view": "tsx src/realtime/view/heroView.spec.ts",
     "test:realtime-gentle-view": "tsx src/realtime/view/gentleView.spec.ts",
     "test:realtime-bust-blink": "tsx src/realtime/view/bustBlink.spec.ts",
     "test:realtime-death-series": "tsx src/realtime/view/deathSeries.spec.ts",
