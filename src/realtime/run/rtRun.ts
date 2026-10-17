@@ -61,7 +61,7 @@ import { validDeath, type RtDeath } from './rtRunEnd';
 // Task 16 «Подвиги»: the feat kinds of the simulation (sim/feat.ts).
 import { FEAT_KINDS, isFeatKind, type FeatKind } from '../sim/feat';
 // Tasks 36–37 «Мета» and «Очаг»: the meta catalogue (a leaf module: the packs' ids, the camp's quests).
-import { HEARTH_GMAPS_SALT, isRtLockable, isRtQuest, RT_HERO_ID, RT_TOAD_ID, type RtHeroId, type RtQuest } from './metaCatalog';
+import { HEARTH_GMAPS_SALT, HEARTH_SHOP_SALT, isRtLockable, isRtQuest, RT_HERO_ID, RT_TOAD_ID, type RtHeroId, type RtQuest } from './metaCatalog';
 // Task 49 «Второй герой»: the hero's innate items (sim/buildIds.ts; the fight's `Loadout.hero` gives them to the kit).
 import { HERO_INNATE } from '../sim/buildIds';
 import { HAMMER_IDS, RT_HAMMER_OFFER_SIZE } from './rtTalismans';
@@ -433,7 +433,7 @@ export type RtRunPending =
   /** The entered event: `draw` — the index of the `events` draw it took on entering; `attempts` — escalation outcomes so far. */
   | { kind: 'event'; nodeId: string; draw: number; attempts?: number[] }
   /** The merchant: the stock rolled on entering and what was bought at this visit (in order). */
-  | { kind: 'shop'; nodeId: string; stock: RtShopStock; bought: RtShopPurchase[] }
+  | { kind: 'shop'; nodeId: string; stock: RtShopStock; bought: RtShopPurchase[]; /** Task 51в «Шишова лавка»: the goods of this visit were drawn again (`rtShopReroll`). */ rerolled?: true }
   /** The start gift waits for its choice (before the row-5 nodes). */
   | { kind: 'gift' }
   /**
@@ -656,6 +656,13 @@ export interface RtRunState {
   /** Task 51б «Правка в гарнизоне»: the free rerolls of the garrison's reward screens spent (≤ `hearth.garrisonRerolls`); absent until the first. */
   garrisonRerolled?: number;
   /**
+   * Task 51в (Шиш, spec 3.2): `shopRerolled` — «Шишова лавка» spent (a forest merchant's goods drawn again, once a run);
+   * `garrisonShopRerolled` — «Лавка в гарнизоне» spent (a garrison merchant's); `swapped` — «Размен» spent (once a run). Absent until then.
+   */
+  shopRerolled?: true;
+  garrisonShopRerolled?: true;
+  swapped?: true;
+  /**
    * Task 30 «Формы в походе» (design 15.10.2026; docs/realtime-slice.md, section 8): the run's forms — the first Jailer's screen
    * offers forms (`RT_FORMS`) instead of the hammers, «Застава» a form of the other field in its rare place, the common pool
    * holds «Близнецы» (`RT_OPENERS`), one form per field (a new one replaces the old), the fights play the counters' chain window
@@ -854,6 +861,9 @@ export type RtRunEvent =
   | { type: 'event-attempt'; nodeId: string; option: string; attempt: number; outcome: number; text: string }
   | { type: 'event-resolved'; nodeId: string; option: string; outcome: number; text: string }
   | { type: 'shop-bought'; nodeId: string; purchase: RtShopPurchase }
+  /** Task 51в: Шиш's «Шишова лавка» drew the goods again; «Размен» changed 3 of `from` for 2 of `to`. */
+  | { type: 'shop-rerolled'; nodeId: string; stock: RtShopStock }
+  | { type: 'shop-swapped'; nodeId: string; from: ResourceKind; to: ResourceKind }
   /**
    * Task 15 «Лечение на карте»: a heal bought for `price` resources (`paid` by kind), HP `hpBefore` → `hpAfter`; `nodeId` — the
    * battle card's node when bought there, else the last completed node (null — none yet); `row` — its run row (0 — none).
@@ -2192,11 +2202,7 @@ export function rtEnterNode(current: RtRunState, nodeId: string, oath: OathId | 
   if (node.type === 'shop') {
     // The stock of the turn-based merchant from the `merchant` stream (spent, as there): consumables of the open kinds
     // first (none open — none; one open — the other slot a closed kind, buying it opens it).
-    const base = draw(run, 'merchant', true), stock = shopStock(base, run.openItems, GIFT_POOL);
-    // Step 3: the talisman of the visit from the slice's list (the rarity roll of the turn-based merchant).
-    // Task 44: the guaranteed pair of a half replaces the visit's talisman (`stock.pair`; no stream spent beyond the visit's draw).
-    const drawn = rtShopTalisman(base, talismanPool(run)), pair = rtFusionPair(run, nodeId, 'shop', drawn ? [drawn] : []);
-    run.pending = { kind: 'shop', nodeId, stock: { items: stock.items, talisman: pair ?? drawn, ...pair ? { pair: true as const } : {} }, bought: [] };
+    run.pending = { kind: 'shop', nodeId, stock: shopStockOf(run, nodeId, draw(run, 'merchant', true)), bought: [] };
     return { ok: true, run, events };
   }
   // B7 К9: the circle's roll comes before the event's draw; the circle spends no `events` draw.
@@ -2778,6 +2784,68 @@ export function rtShopBuy(current: RtRunState, id: string): RtRunStep {
   pending.bought.push(purchase);
   return { ok: true, run, events: [{ type: 'shop-bought', nodeId: pending.nodeId, purchase: structuredClone(purchase) }, ...events] };
 }
+/**
+ * The goods of a merchant's visit from `base` (the visit's `merchant` draw; task 51в — the reroll's `hearth-shop` draw): the turn-based
+ * merchant's consumables, the talisman of the slice's list (the rarity roll of the turn-based merchant); task 44 — the guaranteed pair of
+ * a half replaces it (`stock.pair`; no stream spent beyond the draw).
+ */
+function shopStockOf(run: RtRunState, nodeId: string, base: number): RtShopStock {
+  const stock = shopStock(base, run.openItems, GIFT_POOL), drawn = rtShopTalisman(base, talismanPool(run)), pair = rtFusionPair(run, nodeId, 'shop', drawn ? [drawn] : []);
+  return { items: stock.items, talisman: pair ?? drawn, ...pair ? { pair: true as const } : {} };
+}
+/** Task 51в «Шишова лавка»: the base of a merchant's goods drawn again — the stream `hearth-shop` of the node's seed (no run stream spent). */
+const shopRerollBase = (run: Pick<RtRunState, 'seed' | 'garrisonMap'>, nodeId: string): number => mixSeed(mixSeed(arenaSeed(run, nodeId), HEARTH_SHOP_SALT), 0);
+/**
+ * Task 51в «Шишова лавка» (Шиш ur. 1, spec 3.2) and «Лавка в гарнизоне» (ur. 3): the free reroll of the open merchant's goods — a forest
+ * merchant with `hearth.shopRerolls`, a garrison one with `shopRerolls` 2; once a run each; before a good of the stock is bought; once a
+ * visit. Null — no merchant, or no such reroll in this run (the merchant has no button then).
+ */
+export interface RtShopRerollView { available: boolean; reason: string; garrison: boolean }
+export function rtShopRerollView(run: RtRunState): RtShopRerollView | null {
+  const pending = run.pending, shops = run.hearth?.shopRerolls ?? 0;
+  if (pending?.kind !== 'shop') return null;
+  const garrison = !!rtGarrisonNodeId(pending.nodeId);
+  if (garrison ? shops < 2 : shops < 1) return null;
+  const spent = garrison ? run.garrisonShopRerolled : run.shopRerolled, bought = pending.bought.some(entry => entry.good === 'item' || entry.good === 'talisman');
+  const reason = spent ? 'Переброс уже был' : pending.rerolled ? 'Товар уже переброшен' : bought ? 'Товар уже куплен' : '';
+  return { available: !reason, reason, garrison };
+}
+/**
+ * «Перебросить» at the merchant (Шиш, free): the goods (consumables and the talisman) drawn again from the stream `hearth-shop` of the
+ * node's seed; the heal and «Закалка» stay. The talisman shown before goes back to the pool (as a screen's reroll). The forest's outputs
+ * do not change: the visit's first goods are the merchant stream's, as before.
+ */
+export function rtShopReroll(current: RtRunState): RtRunStep {
+  const view = rtShopRerollView(current);
+  if (!view) return fail('Сейчас нечего перебрасывать.');
+  if (!view.available) return fail(view.reason);
+  const run = structuredClone(current), pending = run.pending as Extract<RtRunPending, { kind: 'shop' }>;
+  pending.stock = shopStockOf(run, pending.nodeId, shopRerollBase(run, pending.nodeId));
+  pending.rerolled = true;
+  if (view.garrison) run.garrisonShopRerolled = true; else run.shopRerolled = true;
+  return { ok: true, run, events: [{ type: 'shop-rerolled', nodeId: pending.nodeId, stock: structuredClone(pending.stock) }] };
+}
+/** Баланс (spec 3.2): «Размен» — this many of one kind for that many of another. */
+export const RT_SWAP_GIVE = 3;
+export const RT_SWAP_GET = 2;
+/** Task 51в «Размен» (Шиш ur. 2): at an open merchant of a run with `hearth.swap`, once a run — the kinds that can be given (3 or more held). */
+export interface RtShopSwapView { available: boolean; reason: string; give: ResourceKind[] }
+export function rtShopSwapView(run: RtRunState): RtShopSwapView | null {
+  if (run.pending?.kind !== 'shop' || !run.hearth?.swap) return null;
+  const give = RESOURCE_KINDS.filter(kind => run.materials[kind] >= RT_SWAP_GIVE);
+  const reason = run.swapped ? 'Размен уже был' : !give.length ? `Нужно ${RT_SWAP_GIVE} ресурса одного вида` : '';
+  return { available: !reason, reason, give };
+}
+/** «Размен»: `RT_SWAP_GIVE` of `from` → `RT_SWAP_GET` of `to` (another kind); no chance. */
+export function rtShopSwap(current: RtRunState, from: ResourceKind, to: ResourceKind): RtRunStep {
+  const view = rtShopSwapView(current);
+  if (!view) return fail('Сейчас нет размена.');
+  if (!view.available) return fail(view.reason);
+  if (!view.give.includes(from) || !RESOURCE_KINDS.includes(to) || from === to) return fail('Так не разменять.');
+  const run = structuredClone(current);
+  run.materials[from] -= RT_SWAP_GIVE; run.materials[to] += RT_SWAP_GET; run.swapped = true;
+  return { ok: true, run, events: [{ type: 'shop-swapped', nodeId: (run.pending as { nodeId: string }).nodeId, from, to }] };
+}
 export function rtShopLeave(current: RtRunState): RtRunStep {
   const pending = current.pending;
   if (pending?.kind !== 'shop') return fail('Сейчас нет торговца.');
@@ -3220,6 +3288,11 @@ export interface RtHearthFlags {
    * в гарнизоне», free rerolls of the garrison's reward screens (the oath and relic screen of «Караульня»). Absent — none, as before.
    */
   garrisonMaps?: 2; gateItems?: ItemKind[]; garrisonRerolls?: number;
+  /**
+   * Task 51в (Шиш, spec 3.2): `shopRerolls` — «Шишова лавка», a free reroll of a forest merchant's goods (1), with «Лавка в гарнизоне» a
+   * garrison merchant's too (2); `swap` — «Размен» at a merchant, 3 resources of a kind → 2 of another, once a run.
+   */
+  shopRerolls?: 1 | 2; swap?: true;
 }
 /** Баланс (task 37): the most free Jailer rerolls a run may carry (v1 gives 1). */
 export const RT_HEARTH_REROLLS_MAX = 3;
@@ -3235,6 +3308,8 @@ export function rtCleanHearth(value: unknown): RtHearthFlags | undefined {
     ...value.garrisonMaps === 2 ? { garrisonMaps: 2 as const } : {},
     ...isItemList(value.gateItems) && value.gateItems.length === 2 && new Set(value.gateItems).size === 2 ? { gateItems: [...value.gateItems] } : {},
     ...isCount(value.garrisonRerolls) && value.garrisonRerolls >= 1 && value.garrisonRerolls <= RT_HEARTH_REROLLS_MAX ? { garrisonRerolls: value.garrisonRerolls } : {},
+    // Task 51в: Шиш.
+    ...value.shopRerolls === 1 || value.shopRerolls === 2 ? { shopRerolls: value.shopRerolls } : {}, ...value.swap === true ? { swap: true as const } : {},
   };
   return Object.keys(out).length ? out : undefined;
 }
@@ -3602,6 +3677,10 @@ function checkRun(value: unknown): RtRunState | null {
   if (value.garrisonMap !== undefined && !((value.garrisonMap === 0 || value.garrisonMap === 1) && isRecord(value.hearth) && value.hearth.garrisonMaps === 2 && value.garrisonLevel !== undefined)) return null;
   if (value.gateItem !== undefined && !(isRecord(value.hearth) && Array.isArray(value.hearth.gateItems) && value.hearth.gateItems.includes(value.gateItem) && value.garrisonLevel !== undefined)) return null;
   if (value.garrisonRerolled !== undefined && !(isCount(value.garrisonRerolled) && value.garrisonRerolled >= 1 && isRecord(value.hearth) && value.garrisonRerolled <= (value.hearth.garrisonRerolls as number))) return null;
+  // Task 51в: Шиш's rerolls and «Размен» spent — only with their flags.
+  if (value.shopRerolled !== undefined && !(value.shopRerolled === true && isRecord(value.hearth) && isCount(value.hearth.shopRerolls) && value.hearth.shopRerolls >= 1)) return null;
+  if (value.garrisonShopRerolled !== undefined && !(value.garrisonShopRerolled === true && isRecord(value.hearth) && value.hearth.shopRerolls === 2 && value.garrisonLevel !== undefined)) return null;
+  if (value.swapped !== undefined && !(value.swapped === true && isRecord(value.hearth) && value.hearth.swap === true)) return null;
   const level = garrisonStreams ? { seed: rtGarrisonSeed(value as { seed: number; garrisonMap?: 0 | 1 }), streams: garrisonStreams } : { seed: value.seed as number, streams };
   const run = value as unknown as RtRunState;
   const map = rtRunMap(run), known = (id: unknown): id is string => typeof id === 'string' && !!map.node(id);
@@ -3870,7 +3949,12 @@ function checkRun(value: unknown): RtRunState | null {
       const entering = talismanPool({ ...run, talismans: run.talismans.filter(id => !(boughtTalisman && id === stock.talisman)) });
       // Task 44: the guaranteed pair (`stock.pair`) — a half's partner in a run with fusions, instead of the draw.
       if (stock.pair !== undefined) { if (!(stock.pair === true && run.fusions === true && typeof stock.talisman === 'string' && fusionOfHalf(stock.talisman))) return null; }
-      else if (rtShopTalisman(streamValue(level.seed, 'merchant', level.streams.merchant - 1), entering) !== stock.talisman) return null;
+      // Task 51в: goods drawn again by «Шишова лавка» — from the stream `hearth-shop` of the node (the counter of its level spent).
+      else if (pending.rerolled !== undefined) {
+        const garrisonShop = !!rtGarrisonNodeId(node.id);
+        if (pending.rerolled !== true || !(garrisonShop ? run.garrisonShopRerolled === true : run.shopRerolled === true)) return null;
+        if (rtShopTalisman(shopRerollBase(run, node.id), entering) !== stock.talisman) return null;
+      } else if (rtShopTalisman(streamValue(level.seed, 'merchant', level.streams.merchant - 1), entering) !== stock.talisman) return null;
       const items = stock.items as ItemKind[];
       if (!pending.bought.every(entry => isRecord(entry) && isCount(entry.price) && isMaterials(entry.paid) && (entry.good === 'heal' || entry.good === 'harden'
         || entry.good === 'item' && isCount(entry.slot) && entry.slot < items.length && entry.item === items[entry.slot]

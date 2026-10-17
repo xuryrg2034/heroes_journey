@@ -17,9 +17,9 @@ import { TROLL_RUN_ARENAS } from '../sim/arenasBoss';
 import { SCHEDULE_KINDS } from './schedule';
 import {
   HEARTH_GATE_SALT, HEARTH_HERB_SALT, HEARTH_MAPS_SALT, HEARTH_QUEST_SALT, isRtHearthNpc, isRtHeroId, isRtQuest, RT_HEARTH_GATED_LEVEL, RT_HEARTH_LOCKED, RT_HEARTH_MAX_LEVEL, RT_HEARTH_NPCS, RT_HEARTH_NPCS_L3, RT_HEARTH_PRICES, RT_HERO_ID, RT_HERO_IDS, RT_QUEST_NPC,
-  RT_META_THRESHOLDS, RT_TOAD_ID, rtHeroPacks, rtLockedAfter, type RtHearthGuest, type RtHearthLevel, type RtHearthNpc, type RtHeroId, type RtMetaItem, type RtQuest, type RtQuestId, type RtQuestNpc,
+  RT_HEARTH_GAMBLER_ON, RT_META_THRESHOLDS, RT_TOAD_ID, rtHeroPacks, rtLockedAfter, type RtHearthGuest, type RtHearthLevel, type RtHearthNpc, type RtHeroId, type RtMetaItem, type RtQuest, type RtQuestId, type RtQuestNpc,
 } from './metaCatalog';
-import { isRtAshLevel, type RtAshLevel } from './rtRun';
+import { isRtAshLevel, rtCasinoResult, type RtAshLevel } from './rtRun';
 
 export { RT_HEARTH_PRICES, RT_META_PACKS, RT_META_THRESHOLDS } from './metaCatalog';
 
@@ -35,6 +35,8 @@ export const RT_XP_FEAT = 5;
 export const RT_XP_VICTORY = 25;
 /** Баланс: «Испытание» multiplies the run's XP by 1 + this × level (rounded down). */
 export const RT_XP_ASH_STEP = 0.1;
+/** Баланс (task 51в, spec 3.2): Шиш's quest «Вернись с 10 ресурсами» — the run's resources at its end (and what «Повозка» sent) at least this. */
+export const RT_GAMBLER_HOARD = 10;
 /** Баланс (task 37): a quest done gives this much XP and stock (the stock outside the carry's cap). */
 export const RT_QUEST_XP = 10;
 export const RT_QUEST_STOCK = 3;
@@ -101,7 +103,11 @@ export type RtDeathCause = 'crowd' | 'archer' | 'sapper' | 'jailer' | 'final' | 
  * Task 51 (npc-lines-v2, `win_garrison_first`): `firstGarrison` — the run passed the garrison and no hero of the profile had before
  * (`wonLevel` 2 the first time); absent otherwise.
  */
-export interface RtHearthLast { won: boolean; row: number; beaten: boolean; cause?: RtDeathCause; quest?: boolean; firstWin?: true; pack?: true; hero?: typeof RT_TOAD_ID; firstGarrison?: true }
+export interface RtHearthLast {
+  won: boolean; row: number; beaten: boolean; cause?: RtDeathCause; quest?: boolean; firstWin?: true; pack?: true; hero?: typeof RT_TOAD_ID; firstGarrison?: true;
+  /** Task 51в (Шиш's lines `first_won` / `first_lost`, `casino_*`): the run played the goblins' circle — its last game won or lost. Absent — no game. */
+  casino?: 'won' | 'lost';
+}
 /** The NPCs' levels: v1's three always; task 51's Шиш and Евлампий only once bought (absent — 0: a profile before it hashes as before). */
 export type RtHearthLevels = Record<'owl' | 'herb' | 'smith', RtHearthLevel> & Partial<Record<'gambler' | 'monk', RtHearthLevel>>;
 export interface RtHearthMeta {
@@ -154,6 +160,8 @@ export interface RtMetaEnd {
   record: { before: { row: number; won: boolean; level?: 2; wonLevel?: 1 | 2 } | null; after: { row: number; won: boolean; level?: 2; wonLevel?: 1 | 2 }; beaten: boolean };
   /** Task 40: `cart` — what «Повозка» sent (inside `n`, 100 %); absent — no cart. `resources` — the stock left at the end. */
   carry: { n: number; share: 1 | 0.5; cap: number; resources: number; cart?: number };
+  /** Task 51в: the NPCs who came to the camp after this run — by the run's deed or by the fallback path (`self`); absent — none. */
+  arrived?: { npc: RtHearthGuest; self?: true }[];
   stock: { before: number; after: number };
   quest?: { npc: RtQuestNpc; id: RtQuestId; done: boolean; xp: number; stock: number };
 }
@@ -244,6 +252,8 @@ export function rtQuestDone(quest: RtQuest, run: RtRunState, record: RtDepthReco
     case 'owl-forest': return won(run) || rtForestCleared(run);
     case 'herb-flasks': return ITEM_KINDS.reduce((sum, kind) => sum + run.items[kind], 0) >= 2;
     case 'smith-sever': return run.battles.some(entry => entry.severed === true);
+    // Task 51в: the resources at the end (before the carry) and what «Повозка» sent at «Предместье».
+    case 'gambler-hoard': return stockTotal(run.materials) + (run.cart?.n ?? 0) >= RT_GAMBLER_HOARD;
   }
 }
 
@@ -277,7 +287,7 @@ const QUEST_NPCS: readonly string[] = Object.values(RT_QUEST_NPC);
 /** The quest the next run gets: one NPC present by the stream `hearth-quest` of the ended run's seed; the owl's by the record. */
 export function rtNextQuest(seed: number, hearth: RtHearthMeta, record: RtDepthRecord | undefined): RtQuest {
   const npcs = presentNpcs(hearth), npc = npcs[mixSeed(mixSeed(seed >>> 0, HEARTH_QUEST_SALT), 0) % npcs.length];
-  const id: RtQuestId = npc === 'herb' ? 'herb-flasks' : npc === 'smith' ? 'smith-sever' : owlQuestId(record);
+  const id: RtQuestId = npc === 'herb' ? 'herb-flasks' : npc === 'smith' ? 'smith-sever' : npc === 'gambler' ? 'gambler-hoard' : owlQuestId(record);
   return { npc, id };
 }
 /** The owl's quest by a depth record: at the forest's last row (not a garrison record) «Пройди лес», else «Дальше». Task 38: a record of the garrison has passed the forest — «Дальше». */
@@ -294,7 +304,9 @@ export const rtQuestFor = (quest: RtQuest, record: RtDepthRecord | undefined): R
  * The meta after `run` (a run without a given seed, finished or abandoned): the new `meta` and what the end screen shows. The
  * caller checks the seed and the applied key (`RtProfileStore.endRunMeta`).
  */
-export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState, options: { viewerRun?: number } = {}): { meta: RtMeta; end: RtMetaEnd } {
+export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState, options: { viewerRun?: number; gambler?: boolean } = {}): { meta: RtMeta; end: RtMetaEnd } {
+  // Task 51в: Шиш comes only while his camp is on (`RT_HEARTH_GAMBLER_ON`, or the option).
+  const gambler = options.gambler ?? RT_HEARTH_GAMBLER_ON;
   // Task 49: a run that won the Jailer frees Ведунья here too, if the view did not (`rtFreeByJailer`, the camp's fallback).
   const base: RtMeta = structuredClone(previous ?? { heroes: {} }), meta = rtFreeByJailer(base, run, options.viewerRun)?.meta ?? base;
   const heroId = run.heroId ?? RT_HERO_ID, hero: RtHeroMeta = meta.heroes[heroId] ?? { xp: 0, packs: [] };
@@ -339,16 +351,21 @@ export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState, optio
   // Task 51: the quest done counts for its NPC (the leaving of 51д reads it).
   if (quest && questDone) hearth.done = { ...hearth.done, [quest.npc]: (hearth.done?.[quest.npc] ?? 0) + 1 };
   // Марфа and Ерофей: met by the run's event choice; else the fallback after RT_HEARTH_FALLBACK_RUNS quiet runs since the first camp.
-  const metNow = rtMetByEvents(run).filter(npc => !hearth.met[npc]);
+  // Task 51в: Шиш — by a game of the goblins' circle (`run.casino.games`).
+  const metNow: RtHearthGuest[] = [...rtMetByEvents(run), ...gambler && (run.casino?.games.length ?? 0) >= 1 ? ['gambler' as const] : []].filter(npc => !hearth.met[npc]);
   for (const npc of metNow) hearth.met[npc] = true;
+  const arrived: { npc: RtHearthGuest; self?: true }[] = metNow.map(npc => ({ npc }));
   if (!firstCamp) {
     hearth.quiet = metNow.length ? 0 : hearth.quiet + 1;
-    const unmet = (['herb', 'smith'] as const).find(npc => !hearth.met[npc]);
-    if (unmet && hearth.quiet >= RT_HEARTH_FALLBACK_RUNS) { hearth.met[unmet] = true; hearth.self = { ...hearth.self, [unmet]: true }; hearth.quiet = 0; }
+    // Task 51в: the fallback queue Марфа → Ерофей → Шиш.
+    const unmet = (['herb', 'smith', ...gambler ? ['gambler' as const] : []] as const).find(npc => !hearth.met[npc]);
+    if (unmet && hearth.quiet >= RT_HEARTH_FALLBACK_RUNS) { hearth.met[unmet] = true; hearth.self = { ...hearth.self, [unmet]: true }; hearth.quiet = 0; arrived.push({ npc: unmet, self: true }); }
   }
+  // Task 51в: the last game of the circle (Шиш's lines), only while his camp is on.
+  const lastGame = gambler ? run.casino?.games[run.casino.games.length - 1] : undefined, casino = lastGame ? (rtCasinoResult(lastGame).win ? 'won' as const : 'lost' as const) : undefined;
   // Task 51: the garrison passed the first time for the profile (no hero's record had `wonLevel` 2 before this run).
   const firstGarrison = passed === 2 && !RT_HERO_IDS.some(id => previous?.heroes[id]?.record && rtWonLevelOf(previous.heroes[id]!.record!) >= 2);
-  hearth.last = { won: win, row, beaten, ...rtDeathCause(run) ? { cause: rtDeathCause(run) } : {}, ...quest ? { quest: questDone } : {}, ...win && !oldPassed ? { firstWin: true as const } : {}, ...pack ? { pack: true as const } : {}, ...heroId === RT_TOAD_ID ? { hero: RT_TOAD_ID } : {}, ...firstGarrison ? { firstGarrison: true as const } : {} };
+  hearth.last = { won: win, row, beaten, ...rtDeathCause(run) ? { cause: rtDeathCause(run) } : {}, ...quest ? { quest: questDone } : {}, ...win && !oldPassed ? { firstWin: true as const } : {}, ...pack ? { pack: true as const } : {}, ...heroId === RT_TOAD_ID ? { hero: RT_TOAD_ID } : {}, ...firstGarrison ? { firstGarrison: true as const } : {}, ...casino ? { casino } : {} };
   hearth.quest = rtNextQuest(run.seed, hearth, record);
   meta.hearth = hearth;
   const end: RtMetaEnd = {
@@ -360,6 +377,7 @@ export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState, optio
     },
     carry, stock: { before: stockBefore, after: hearth.stock },
     ...quest ? { quest: { npc: quest.npc, id: quest.id, done: questDone, xp: questDone ? RT_QUEST_XP : 0, stock: questDone ? RT_QUEST_STOCK : 0 } } : {},
+    ...arrived.length ? { arrived } : {},
   };
   meta.applied = { key: rtRunKey(run), end };
   return { meta, end };
@@ -446,7 +464,7 @@ export function rtHearthGateItems(seed: number): ItemKind[] {
 export function rtHearthStartOf(meta: RtMeta | undefined, seed: number, hero: RtHeroId = rtHeroChoice(meta)): RtHearthStart {
   const hearth = meta?.hearth;
   if (!hearth) return { flags: {} };
-  const { owl, herb, smith } = hearth.levels;
+  const { owl, herb, smith, gambler } = hearth.levels;
   // Task 51: level 3 keeps level 2's service in the forest (3 maps, 2 kinds) and adds its own in the garrison (the flags below).
   const maps = owl > 0 ? rtHearthMaps(seed, Math.min(owl, 2) + 1) : undefined, items = herb > 0 && hearth.met.herb ? rtHearthItems(seed, Math.min(herb, 2)) : undefined;
   const flags: RtHearthFlags = {
@@ -455,6 +473,8 @@ export function rtHearthStartOf(meta: RtMeta | undefined, seed: number, hero: Rt
     // Task 51б (spec 2.2): «Путь в гарнизон», «Склянка в гарнизон» (2 kinds by the stream `hearth-gate`), «Правка в гарнизоне».
     ...owl >= 3 ? { garrisonMaps: 2 as const } : {}, ...herb >= 3 && hearth.met.herb ? { gateItems: rtHearthGateItems(seed) } : {},
     ...smith >= 3 && hearth.met.smith ? { garrisonRerolls: 1 } : {},
+    // Task 51в: Шиш — «Шишова лавка» (1), «Лавка в гарнизоне» (2), «Размен».
+    ...(gambler ?? 0) >= 1 && hearth.met.gambler ? { shopRerolls: ((gambler ?? 0) >= 3 ? 2 : 1) as 1 | 2 } : {}, ...(gambler ?? 0) >= 2 && hearth.met.gambler ? { swap: true as const } : {},
   };
   return { ...maps ? { maps } : {}, ...items ? { items } : {}, flags };
 }
@@ -565,8 +585,10 @@ const guests = (value: Record<string, unknown>): Partial<Record<RtHearthGuest, t
   Object.fromEntries(RT_HEARTH_NPCS.filter(npc => npc !== 'owl' && value[npc] === true).map(npc => [npc, true])) as Partial<Record<RtHearthGuest, true>>;
 /** A stored `last` (task 49: `hero` kept only as `toad`; a `last` without it — as stored, byte for byte). */
 function lastOf(value: Record<string, unknown>): RtHearthLast {
-  const last = structuredClone(value) as unknown as RtHearthLast & { hero?: unknown };
+  const last = structuredClone(value) as unknown as RtHearthLast & { hero?: unknown; casino?: unknown };
   if (last.hero !== undefined && last.hero !== RT_TOAD_ID) delete last.hero;
+  // Task 51в: `casino` only `won` / `lost`.
+  if (last.casino !== undefined && last.casino !== 'won' && last.casino !== 'lost') delete last.casino;
   return last;
 }
 /** A stored `meta` as the profile reads it (anything malformed falls back to its empty part; absent — undefined). */

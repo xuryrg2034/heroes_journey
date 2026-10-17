@@ -334,7 +334,7 @@ interface RunMeta {
   knacks?: RunKnack[];
   honed?: { id: string; row: number }[];
   /** Tasks 36–37: the run's meta fields (`RunRecord.xp` … `quest`; absent — none yet). */
-  metaTlm?: Partial<Pick<RunRecord, 'xp' | 'pack' | 'record' | 'locked' | 'carry' | 'stock' | 'hearthBuys' | 'npcClicks' | 'hearth' | 'quest'>>;
+  metaTlm?: Partial<Pick<RunRecord, 'xp' | 'pack' | 'record' | 'locked' | 'carry' | 'stock' | 'hearthBuys' | 'npcClicks' | 'hearth' | 'quest' | 'arrive'>>;
   /** Task 49: the hero this run freed (`heroFreed`). */
   freed?: { hero: 'toad'; row: number };
 }
@@ -761,7 +761,9 @@ export class RtRecorder {
         const h = run.hearth, tlm = this.meta.metaTlm ??= {};
         const hearth = { ...h.maps ? { maps: h.maps } : {}, ...h.startItems ? { startItems: [...h.startItems] } : {}, ...h.jailerRerolls ? { jailerRerolls: h.jailerRerolls } : {}, ...h.hammerAll ? { hammerAll: true as const } : {},
           // Task 51б: level 3 of the camp (the choices at «Предместье» join at `writeRun`).
-          ...h.garrisonMaps ? { garrisonMaps: h.garrisonMaps } : {}, ...h.gateItems ? { gateItems: [...h.gateItems] } : {}, ...h.garrisonRerolls ? { garrisonRerolls: h.garrisonRerolls } : {} };
+          ...h.garrisonMaps ? { garrisonMaps: h.garrisonMaps } : {}, ...h.gateItems ? { gateItems: [...h.gateItems] } : {}, ...h.garrisonRerolls ? { garrisonRerolls: h.garrisonRerolls } : {},
+          // Task 51в: Шиш.
+          ...h.shopRerolls ? { shopRerolls: h.shopRerolls } : {}, ...h.swap ? { swap: true as const } : {} };
         if (Object.keys(hearth).length) tlm.hearth = hearth;
         if (h.quest) tlm.quest = { npc: h.quest.npc, id: h.quest.id };
       }
@@ -835,6 +837,8 @@ export class RtRecorder {
       tlm.carry = { ...end.carry };
       tlm.stock = { ...end.stock };
       if (end.quest) tlm.quest = { npc: end.quest.npc, id: end.quest.id, done: end.quest.done };
+      // Task 51в: the NPCs who came after this run.
+      if (end.arrived) tlm.arrive = end.arrived.map(a => ({ npc: a.npc, path: a.self ? 'self' as const : 'deed' as const, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun } : {} }));
       this.saveMeta(); this.writeRun(run);
     });
   }
