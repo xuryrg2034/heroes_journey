@@ -106,6 +106,22 @@ export const RT_HEARTH_GAMBLER_ON = true;
 /** Task 51г: Евлампий comes (by cut shackles, by the fallback path after the garrison) only while this is on — the same rule as Шиш's. */
 export const RT_HEARTH_MONK_ON = true;
 /**
+ * Task 51д «Уход по делам» (spec 3.4): Марфа, Ерофей and Шиш leave for one run after their first quest done, then after every second;
+ * only while this is on — the camp's trace and the rest's meeting (ui) turn it on. Off: nobody leaves, profiles and runs as before.
+ */
+export const RT_HEARTH_AWAY_ON = false;
+/** Task 51д: the NPCs that leave (Неясыть and Евлампий stay). */
+export type RtHearthLeaver = 'herb' | 'smith' | 'gambler';
+export const RT_HEARTH_LEAVERS: readonly RtHearthLeaver[] = ['herb', 'smith', 'gambler'];
+export const isRtHearthLeaver = (value: unknown): value is RtHearthLeaver => typeof value === 'string' && (RT_HEARTH_LEAVERS as readonly string[]).includes(value);
+/**
+ * Task 51д (spec 3.4): where the NPC away waits — the first rest of the run in its zone: Марфа — the den branch («ветка Тролля»), run rows
+ * 6–8; Ерофей — the trails, rows 2–4; Шиш — the camp branch (to the Chief), rows 6–8. `branch` null — no branch (the trails).
+ */
+export const RT_MEET_ZONES: Readonly<Record<RtHearthLeaver, { branch: 'den' | 'camp' | null; rows: [number, number] }>> = {
+  herb: { branch: 'den', rows: [6, 8] }, smith: { branch: null, rows: [2, 4] }, gambler: { branch: 'camp', rows: [6, 8] },
+};
+/**
  * Task 51г «Обет» (Евлампий, spec 3.3): a restriction the player takes for a run; kept — +15 XP (`RT_XP_VOW`), counted only when the run
  * reached the Jailer's row. «Мимо торговцев», «Без привала», «Без лечения на карте», «Без переброса».
  */
@@ -133,3 +149,5 @@ export const HEARTH_GATE_SALT = metaSalt('hearth-gate');
 export const HEARTH_SHOP_SALT = metaSalt('hearth-shop');
 /** Task 51г: the salt of the vows offered at the start (`hearth-vow`). */
 export const HEARTH_VOW_SALT = metaSalt('hearth-vow');
+/** Task 51д: the salt of the meeting's deal on the road (`npc-meet`, with the node's id). */
+export const NPC_MEET_SALT = metaSalt('npc-meet');

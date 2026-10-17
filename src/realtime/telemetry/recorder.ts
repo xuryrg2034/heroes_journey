@@ -724,6 +724,8 @@ export class RtRecorder {
       ...run.habits ? { habitsOn: true as const, ...run.habit ? { habit: run.habit } : {} } : {},
       // Task 49: the run's hero (absent — the cat) and the hero it freed.
       ...run.heroId === 'toad' ? { hero: 'toad' as const } : {}, ...meta.freed ? { freed: { ...meta.freed } } : {},
+      // Task 51д: the meeting on the road (absent — no NPC away in this run).
+      ...run.hearth?.away ? { npcMeet: { npc: run.hearth.away, met: !!run.npcMeet, ...run.npcMeet ? { nodeId: run.npcMeet.nodeId, ...run.npcMeet.deal ? { deal: run.npcMeet.deal } : {} } : {} } } : {},
       ...meta.featsOn ? { featsOn: true as const } : {}, ...meta.feats?.length ? { feats: meta.feats } : {}, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun, ...meta.viewerRunApprox ? { viewerRunApprox: true as const } : {} } : {}, ...meta.firsts?.length ? { firsts: meta.firsts } : {}, ...meta.resources ? { resources: meta.resources } : {}, ...meta.fx ? { fx: meta.fx } : {}, ...meta.metaTlm ?? {}, ...gateTlm(run, meta.metaTlm?.hearth), ...runLevels(run), runParams,
     };
     void this.put([JSON.parse(JSON.stringify(record)) as RunRecord]);
@@ -765,7 +767,9 @@ export class RtRecorder {
           // Task 51в: Шиш.
           ...h.shopRerolls ? { shopRerolls: h.shopRerolls } : {}, ...h.swap ? { swap: true as const } : {},
           // Task 51г: Евлампий's vows taken.
-          ...h.vows ? { vows: [...h.vows] } : {} };
+          ...h.vows ? { vows: [...h.vows] } : {},
+          // Task 51д: the NPC away.
+          ...h.away ? { away: h.away } : {} };
         if (Object.keys(hearth).length) tlm.hearth = hearth;
         if (h.quest) tlm.quest = { npc: h.quest.npc, id: h.quest.id };
       }
