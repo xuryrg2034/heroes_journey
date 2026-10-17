@@ -399,6 +399,25 @@ export interface Params {
    * 8, a constant). Read only with `counterWindow` on.
    */
   shockwaveLinks: number;
+  /**
+   * Task 50 «Сноровка» (sim/talismansRt.ts; docs/realtime-prototype.md, «Ранг II»): the numbers of the counters' rank II — read only
+   * while the kit holds the counter in `Kit.honed` (and the chain window `counterWindow` is on); a journal without them plays these
+   * defaults, a fight without `Kit.honed` never reads them. «Острие» II: every `honeEdgeEvery`-th enemy link +2. «Улов» II: the free
+   * jump charges the next released chain — its first enemy link +`honeCatchPower`. «Призма» II: +`honePrismEnergy` energy for every
+   * colour shift of the dash. «Ударная волна» II: a second wave of radius `honeWaveStart` round the chain's start. «Добивание» II: the
+   * shield from a chain of `honeFinisherKills` kills. «Охотник на элит» II: an elite link loses `honeHunterPlates` plates before its
+   * hit. «Длинная рука» II: a link taken beyond the ordinary R +`honeArmPower`. «Иней на клинке» II: the nearest enemy within
+   * `honeFrostNear` of the survivor freezes `honeFrostTime` s too.
+   */
+  honeEdgeEvery: number;
+  honeCatchPower: number;
+  honePrismEnergy: number;
+  honeWaveStart: number;
+  honeFinisherKills: number;
+  honeHunterPlates: number;
+  honeArmPower: number;
+  honeFrostNear: number;
+  honeFrostTime: number;
   // Look
   dimMode: DimMode;
   dimStrength: number;
@@ -1242,6 +1261,16 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   // Task 29: off — the old windows of the counters; the wave of the chain window from 4 links.
   counterWindow: false,
   shockwaveLinks: 4,
+  // Task 50: the counters' rank II (acts only with `Kit.honed`).
+  honeEdgeEvery: 3,
+  honeCatchPower: 2,
+  honePrismEnergy: 1,
+  honeWaveStart: 2,
+  honeFinisherKills: 1,
+  honeHunterPlates: 1,
+  honeArmPower: 1,
+  honeFrostNear: 1.5,
+  honeFrostTime: 2,
   dimMode: 'alpha',
   dimStrength: 0.65,
   enemyLook: 'circle',
@@ -1705,6 +1734,16 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   { kind: 'bool', key: 'counterWindow', group: 'Талисманы', label: 'Счётчики: окно — одна цепь', stage: 5,
     hint: 'Только песочница (со следующей арены). Восемь талисманов-счётчиков считают внутри одной цепи: «Острие» — 3-е вражеское звено +2 силы; «Улов» — цепь с 3+ убийствами даёт бесплатный прыжок на 5 с; «Призма» — звенья после кристалла или смены цвета +1 силы (без энергии); «Ударная волна» — цепь от N звеньев; «Добивание» — последнее звено самое крепкое и погибло; «Охотник на элит» — и после крепкого; «Длинная рука» — с 3-го звена R ×1,5; «Иней на клинке» — цепь 3+ на выжившем. Выкл. — прежние счётчики между цепями. В походе выключено.' },
   n('shockwaveLinks', 'Талисманы', '«Ударная волна» (окно — цепь): звеньев от', 2, 12, 1, 5, '', 'Только при «Счётчики: окно — одна цепь». Без него — 8.'),
+  // Task 50 «Сноровка»: the counters' rank II (only for a counter on rank II in the kit, `Loadout.honed`; only with the chain window).
+  n('honeEdgeEvery', 'Ранг II', '«Острие» II: каждое N-е звено +2', 2, 6, 1, 5, '', 'Задача 50. Только счётчик на ранге II и окно — одна цепь: вместо одного 3-го звена — каждое N-е (3, 6, 9…).'),
+  n('honeCatchPower', 'Ранг II', '«Улов» II: сила первого звена', 0, 6, 1, 5, '', 'Бесплатный прыжок заряжает следующую отпущенную цепь: её первое вражеское звено получает столько силы.'),
+  n('honePrismEnergy', 'Ранг II', '«Призма» II: энергия за смену цвета', 0, 3, 1, 5, '', 'За каждую смену цвета в проходе (до 7).'),
+  n('honeWaveStart', 'Ранг II', '«Ударная волна» II: радиус второй волны', 0.5, 4, 0.25, 5, 'ед.', 'Вторая волна — вокруг точки, где герой стоял при отпускании, в тот же такт.'),
+  n('honeFinisherKills', 'Ранг II', '«Добивание» II: щит от убийств', 1, 5, 1, 5, '', 'Последнее звено — самое крепкое и погибло: щит после цепи ×2 и у цепи с этим числом убийств.'),
+  n('honeHunterPlates', 'Ранг II', '«Охотник на элит» II: пластин до удара', 0, 3, 1, 5, '', 'Элита в цепи теряет столько пластин перед ударом звена.'),
+  n('honeArmPower', 'Ранг II', '«Длинная рука» II: сила дальнего звена', 0, 4, 1, 5, '', 'Звено дальше обычного R (без ×1,5) от прежнего звена получает столько силы.'),
+  n('honeFrostNear', 'Ранг II', '«Иней на клинке» II: радиус соседа', 0.5, 4, 0.25, 5, 'ед.', 'Ближайший к выжившему враг в этом радиусе (не Жнец) замерзает тоже. Сосед выбирается при отпускании.'),
+  n('honeFrostTime', 'Ранг II', '«Иней на клинке» II: заморозка соседа', 0.5, 6, 0.5, 5, 'с'),
   { kind: 'choice', key: 'dimMode', group: 'Вид', label: 'Приглушение не того цвета', stage: 2,
     options: [{ value: 'darken', label: 'затемнение' }, { value: 'alpha', label: 'полупрозрачность' }, { value: 'desaturate', label: 'обесцвечивание' }] },
   n('dimStrength', 'Вид', 'Сила приглушения', 0, 1, 0.05, 2),

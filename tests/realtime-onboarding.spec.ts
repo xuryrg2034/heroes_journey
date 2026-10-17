@@ -1,7 +1,8 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
 import { readFileSync } from 'node:fs';
 import { gameWait, untilFrame } from './realtimeFrames';
+import { leaveResult } from './realtimeResult';
 
 /**
  * «Обучение» (src/realtime/view/hints.ts, src/realtime/view/worldLabels.ts, docs/realtime-onboarding.md): real input at 1280×720.
@@ -48,6 +49,7 @@ async function freshViewer(page: Page, errors: string[], url = '/'): Promise<voi
 /** A seeded run to the first battle of the map (the gift's first button), the arena open. */
 async function startFight(page: Page): Promise<void> {
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await page.getByTestId('node-r5c0').click();
   await page.getByTestId('run-enter').click();
@@ -106,7 +108,7 @@ async function leaveFight(page: Page): Promise<void> {
   await expect(page.getByTestId('result')).toBeVisible({ timeout: 15_000 });
   // A small cauldron pays the same on every face: no die. Otherwise «Забрать».
   const die = (await page.evaluate(() => (window as any).__realtime.run.state().pending?.kind)) === 'die';
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   if (die) await page.getByTestId('die-take').click();
 }
 const gearOpen = async (page: Page): Promise<void> => { if (!(await page.getByTestId('run-settings-panel').isVisible())) await page.getByTestId('run-settings').click(); };
@@ -453,6 +455,7 @@ test('the toggle «Подсказки» off hides the labels and marks NOTHING (
   };
   // Fight 1: the toggle off on the gear of the map — the goblin stands, no label; the lever is pulled with it off: nothing marked.
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await gearOpen(page);
   await page.getByTestId('view-hints').uncheck();
@@ -468,6 +471,7 @@ test('the toggle «Подсказки» off hides the labels and marks NOTHING (
 
   // Fight 2: on again — the label at the lever is there (the pull of fight 1 did not take it away); one real pull marks b9.
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await gearOpen(page);
   await page.getByTestId('view-hints').check();
@@ -481,6 +485,7 @@ test('the toggle «Подсказки» off hides the labels and marks NOTHING (
 
   // «Обучение»: the memory is empty, the label comes again in the next fight.
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await gearOpen(page);
   await page.getByTestId('prologue-start').click();
@@ -514,6 +519,7 @@ test('the slot pulse follows the toggle «Подсказки»: off — no pulse
   };
   // Off: no pulse, the use marks nothing.
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await gearOpen(page);
   await page.getByTestId('view-hints').uncheck();
@@ -579,6 +585,7 @@ test('task 15 (design 14.10.2026): no line Э2 under the map header — on the f
   const errors: string[] = [];
   await freshViewer(page, errors);
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await expect(page.getByTestId('run-map')).toBeVisible();
   await expect(page.getByTestId('line-resources')).toHaveCount(0);
@@ -613,7 +620,7 @@ test('task 5: a won run fight has no «Котёл» row (Э1) — «Очки» i
   await expect(page.getByTestId('result')).not.toContainText('→ ресурсов');
   await expect(page.getByTestId('result-map')).toHaveText('К карте (Enter)');
   await page.screenshot({ path: 'artifacts/realtime-onboarding-result.png' });
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   await expect(page.getByTestId('run-map')).toBeVisible();
   await expect(page.getByTestId('run-die')).toHaveCount(0);
   await expect(page.getByTestId('line-die')).toHaveCount(0);

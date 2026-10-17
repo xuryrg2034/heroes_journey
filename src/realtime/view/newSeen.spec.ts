@@ -3,6 +3,7 @@
  * kinds an arena brings — against what a simulation of the arena really spawns, and on the nodes of real run maps. Node
  * only: `npm run test:realtime-new-seen`. The end-to-end result (sign, caption, toggle, sandbox) is tests/realtime-new-seen.spec.ts.
  */
+import { rtChooseKnack } from '../run/rtRun';
 import { AFFIX_CAPTIONS, arenaKinds, KIND_CAPTIONS, NEW_SEEN_KEY, newKindsOfArena, NewSeenStore, type NewSeenStorage } from './newSeen';
 import { Simulation } from '../sim/simulation';
 import { defaultParams, type Params } from '../sim/params';
@@ -102,6 +103,8 @@ function walk(seed: number, k: number, visit: (run: RtRunState) => void): void {
       if (open && open.chosen !== null) run = ok(rtChooseGiftPick(run, open.picks[0]));
     } else if (pending?.kind === 'battle') run = ok(resolveArena(run, { nodeId: pending.nodeId, won: true, hp: run.hp, kills: 0, damage: 0, time: 1 }));
     else if (pending?.kind === 'hammer') run = ok(rtChooseTalisman(ok(rtChooseHammer(run, null)), null));
+    // Task 50: the knack screen (RT_KNACKS_ON) is passed over and is not a step of the walk (its node choice turns on `step`).
+    else if (pending?.kind === 'knack') { run = ok(rtChooseKnack(run, null)); step--; }
     else if (pending?.kind === 'talisman') run = ok(rtChooseTalisman(run, null));
     else if (pending?.kind === 'rest') run = ok(rtRestHeal(run));
     else if (pending?.kind === 'find') run = ok(rtChooseFind(run, pending.options.find(item => !rtItemRefusal(run, item)) ?? pending.options[0]));

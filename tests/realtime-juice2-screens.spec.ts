@@ -1,4 +1,6 @@
 import { type Page } from '@playwright/test';
+import { leaveResult } from './realtimeResult';
+import { rtChooseKnack } from '../src/realtime/run/rtRun';
 import { test, expect } from './realtimeTest';
 import { readFileSync } from 'node:fs';
 import {
@@ -45,6 +47,8 @@ function walk(options: Parameters<typeof createRtRun>[1], stop: (run: RtRunState
         run = view.chosen !== null ? ok(rtChooseGiftPick(run, view.picks[0])) : ok(rtChooseGift(run, view.options.find(entry => entry.available)?.index ?? null));
       } else if (p?.kind === 'talisman') run = ok(rtChooseTalisman(run, null));
       else if (p?.kind === 'hammer') run = ok(rtChooseHammer(run, null));
+      // Task 50: the knack screen of the run (RT_KNACKS_ON) is passed over.
+      else if (p?.kind === 'knack') run = ok(rtChooseKnack(run, null));
       else if (p?.kind === 'die') run = ok(rtDieChoose(run, false));
       else if (p?.kind === 'find') run = ok(rtChooseFind(run, p.options.find(item => !rtItemRefusal(run, item)) ?? p.options[0]));
       else if (p?.kind === 'rest') run = ok(rtRestHeal(run));
@@ -185,7 +189,7 @@ test('С8: the run-end lines come one by one; a click shows them all at once', a
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory', { timeout: 15_000 });
   await pace(page, 20);
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   await expect(page.getByTestId('run-result-victory').or(page.getByTestId('run-die'))).toBeVisible();
   if (await page.getByTestId('run-die').isVisible()) await page.getByTestId('die-take').click();
   await expect(page.getByTestId('run-result-victory')).toBeVisible();
@@ -224,7 +228,7 @@ test('С8: left alone the lines all come by themselves', async ({ page }) => {
   await expect(page.getByTestId('run')).toBeHidden();
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory', { timeout: 15_000 });
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   await expect(page.getByTestId('run-result-victory').or(page.getByTestId('run-die'))).toBeVisible();
   if (await page.getByTestId('run-die').isVisible()) await page.getByTestId('die-take').click();
   await expect(page.getByTestId('run-result-victory')).toBeVisible();

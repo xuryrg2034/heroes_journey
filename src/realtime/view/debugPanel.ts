@@ -267,6 +267,22 @@ export class DebugPanel {
     return select;
   }
 
+  /** Task 50: a switch in the build section («II» by the counter) — not a Param; the caller keeps the value. Call after `addBuildChoice`. */
+  addBuildCheck(label: string, testId: string, value: boolean, onChange: (value: boolean) => void, hint?: string): HTMLInputElement {
+    const row = document.createElement('label');
+    row.className = 'rt-row';
+    if (hint) row.title = hint;
+    const name = document.createElement('span');
+    name.className = 'rt-name'; name.textContent = label;
+    const box = document.createElement('input');
+    box.type = 'checkbox'; box.checked = value;
+    box.setAttribute('data-testid', testId);
+    box.addEventListener('change', () => { onChange(box.checked); box.blur(); });
+    row.append(name, box);
+    this.buildSection.appendChild(row);
+    return box;
+  }
+
   /**
    * Casino stage 1, item 2: a choice in the section of the param group `group` (the sandbox oath, «Ставка клятвы») — not a
    * Param: the caller keeps the value and turns it into journalled commands. Null — no such group.

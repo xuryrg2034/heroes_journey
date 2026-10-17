@@ -1,11 +1,12 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
 import { untilFrame } from './realtimeFrames';
 import { arenaPreview, createRtRun, isArenaNode, resolveArena, rtAvailableNodes, rtEnterNode, rtNode, serializeRtRun, type RtRunState } from '../src/realtime/run/rtRun';
 import { RT_RUN_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
 import { runRow } from '../src/realtime/run/arenaPools';
 import { closeNode, ok, seedOf, takeGift } from '../src/realtime/run/runFight.testkit';
 import { cardRules, nodeDangers } from '../src/realtime/view/nodeCard';
+import { leaveResult } from './realtimeResult';
 
 /**
  * Task 17 «Пологий вход», the view (design 13–14.10.2026; docs/realtime-slice.md) at 1280×720 by real input:
@@ -80,6 +81,7 @@ test('task 17: the winged heart by the map\'s HP — lit at the start; a lethal 
   await page.reload();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), 10);
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   const heart = page.getByTestId('run-second-wind');
   await expect(heart).toHaveAttribute('data-state', 'ready');
@@ -111,7 +113,7 @@ test('task 17: the winged heart by the map\'s HP — lit at the start; a lethal 
   await page.screenshot({ path: 'artifacts/realtime-gentle-second-wind.png' });
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory', { timeout: 15_000 });
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   await expect(page.getByTestId('run')).toBeVisible();
   expect((await page.evaluate(() => (window as any).__realtime.run.state())).secondWindSpent).toBe(true);
   await expect(heart).toHaveAttribute('data-state', 'spent');

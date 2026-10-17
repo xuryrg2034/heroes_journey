@@ -1,4 +1,4 @@
-import { test as base, expect } from '@playwright/test';
+import { test as base, expect, type Page } from '@playwright/test';
 
 /**
  * The `test` of every realtime spec except the prologue's own (tests/realtime-prologue.spec.ts uses plain `@playwright/test`).
@@ -16,4 +16,12 @@ export const test = base.extend({
     await use(page);
   },
 });
+/**
+ * Task 50 «Повадка»: a gift `full` of a run waits for the archetype row. The routes of the specs that are not about it take «Без повадки»
+ * (a real click) before the gift's button; with no row on the screen (a mini gift) nothing is clicked.
+ */
+export async function skipHabit(page: { getByTestId: Page['getByTestId'] }): Promise<void> {
+  const none = page.getByTestId('habit-none');
+  if (await none.count() && await none.isEnabled()) await none.click();
+}
 export { expect };

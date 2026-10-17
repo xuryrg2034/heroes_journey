@@ -92,6 +92,8 @@ export interface SandboxBuild {
   talisman: string; relic: string; hammer: string;
   /** Task 29: the forms by field (sim/buildIds.ts `FORM_FIELD`) — «Конец», «Звено», «Путь»; '' — none. Old saves: none. */
   end: string; link: string; path: string;
+  /** Task 50: the chosen counter is on rank II («II» by the counter; acts only with «Счётчики: окно — одна цепь»). Old saves: no. */
+  honed?: boolean;
 }
 const BUILD_KEY = 'ashen-oath-realtime-sandbox-build';
 
@@ -101,7 +103,7 @@ export function loadSandboxBuild(): SandboxBuild {
     const raw = JSON.parse(localStorage.getItem(BUILD_KEY) ?? 'null') as Partial<SandboxBuild> | null;
     if (!raw || typeof raw !== 'object') return empty;
     const text = (v: unknown): string => (typeof v === 'string' ? v : '');
-    return { talisman: text(raw.talisman), relic: text(raw.relic), hammer: text(raw.hammer), end: text(raw.end), link: text(raw.link), path: text(raw.path) };
+    return { talisman: text(raw.talisman), relic: text(raw.relic), hammer: text(raw.hammer), end: text(raw.end), link: text(raw.link), path: text(raw.path), ...raw.honed === true ? { honed: true } : {} };
   } catch { return empty; }
 }
 

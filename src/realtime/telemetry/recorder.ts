@@ -35,7 +35,7 @@ import {
   encodeJournal, fightKey, fightRecordId, gzipBase64, isIdSegment, journalPartId, makeExport, noteRecordId, nullObserver, packJournal, paramsHash, runKey, runRecordId, SANDBOX_RUN,
   sessionKey, splitParts, prologueKey, prologueRecordId, RT_TELEMETRY_SCHEMA,
   type FightObserver, type FightObserverFactory, type FightOutcome, type FightRecord, type FightSummary, type JournalMeta, type JournalPart, type NoteRecord, type RtHeader, type RtRecord,
-  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, CASINO_SOURCE, FEAT_SOURCE, type FeatSummary, type RunResources, type RunResourceSink, type RunResourceSource, type RunFeat, type RunFirst, type RunDie, type RunItems, type RunMapHeal, type RunMapSign, type RunFx, type RunFusions, RUN_FX_LEVELS, type RunSecondWind, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord, type PrologueFrom, type PrologueRecord,
+  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, CASINO_SOURCE, FEAT_SOURCE, type FeatSummary, type RunResources, type RunResourceSink, type RunResourceSource, type RunFeat, type RunFirst, type RunDie, type RunItems, type RunMapHeal, type RunMapSign, type RunFx, type RunFusions, type RunKnack, KNACK_SOURCE, RUN_FX_LEVELS, type RunSecondWind, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord, type PrologueFrom, type PrologueRecord,
 } from './schema';
 import { PrologueTally } from './prologue';
 
@@ -196,6 +196,12 @@ export function stepChoices(before: RtRunState | null, step: Extract<RtRunStep, 
       choice(pending.nodeId, pending.source === 'oath' ? 'oath' : pending.source === 'chest' ? CHEST_SOURCE : pending.source === 'feat' ? FEAT_SOURCE : pending.source === 'form' ? 'form' : 'talisman', pending.options.map(String), taken);
       break;
     }
+    case 'knack': {
+      // Task 50 «Сноровка»: the cards (a rank II card as `<id>:2`), the one taken; «Пропустить» refuses both.
+      const chosen = events.find(e => e.type === 'knack-chosen'), label = (o: { id: string; hone?: true }): string => (o.hone ? `${o.id}:2` : o.id);
+      if (chosen?.type === 'knack-chosen') choice(pending.nodeId, KNACK_SOURCE, pending.options.map(label), chosen.option ? [label(chosen.option)] : []);
+      break;
+    }
     case 'die': {
       // Casino «Кость у двери»: «Бросить» (`roll`) or «Забрать» (`take`).
       const resolved = events.find(e => e.type === 'die-resolved');
@@ -318,6 +324,9 @@ interface RunMeta {
   fx?: RunFx;
   /** Task 44: the run's fusions (absent — a run without the flag, until its first step). */
   fusions?: RunFusions;
+  /** Task 50: the run's knack screens and its counters on rank II (absent — none yet). */
+  knacks?: RunKnack[];
+  honed?: { id: string; row: number }[];
   /** Tasks 36–37: the run's meta fields (`RunRecord.xp` … `quest`; absent — none yet). */
   metaTlm?: Partial<Pick<RunRecord, 'xp' | 'pack' | 'record' | 'locked' | 'carry' | 'stock' | 'hearthBuys' | 'npcClicks' | 'hearth' | 'quest'>>;
 }
@@ -702,6 +711,9 @@ export class RtRecorder {
       ...this.header(runRecordId(this.session, meta.key), 'run', meta.key, paramsHash(runParams)),
       seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, ...meta.hints?.length ? { hints: meta.hints } : {}, ...meta.items ? { items: meta.items } : {}, ...meta.gentle ? { gentle: true as const } : {}, ...meta.startPotion ? { startPotion: true as const } : {}, ...meta.secondWindOn ? { secondWindOn: true as const } : {}, ...meta.startItems ? { startItems: meta.startItems } : {}, ...meta.secondWind ? { secondWind: meta.secondWind } : {}, ...meta.mapHeals?.length ? { mapHeals: meta.mapHeals } : {}, /* task 18: the run's own level */ ...run.ash ? { ash: run.ash } : {}, /* task 41: the cap of healing potions */ ...run.potionCap ? { potionCap: run.potionCap } : {}, /* task 26: living elements of the snapshot (affix types apart) */ ...run.schedule ? { schedule: { start: run.schedule.seen.filter(id => !id.startsWith('affix:')).length } } : {},
       ...run.fusions ? { fusions: meta.fusions ?? { halves: [], paired: [], made: [], declined: [] } } : {},
+      // Task 50: the knack screens and rank II; the archetype (absent — «Без повадки», or not chosen yet).
+      ...run.knacks ? { knacksOn: true as const, ...meta.knacks?.length ? { knacks: meta.knacks } : {}, ...meta.honed?.length ? { honed: meta.honed } : {} } : {},
+      ...run.habits ? { habitsOn: true as const, ...run.habit ? { habit: run.habit } : {} } : {},
       ...meta.featsOn ? { featsOn: true as const } : {}, ...meta.feats?.length ? { feats: meta.feats } : {}, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun, ...meta.viewerRunApprox ? { viewerRunApprox: true as const } : {} } : {}, ...meta.firsts?.length ? { firsts: meta.firsts } : {}, ...meta.resources ? { resources: meta.resources } : {}, ...meta.fx ? { fx: meta.fx } : {}, ...meta.metaTlm ?? {}, ...runLevels(run), runParams,
     };
     void this.put([JSON.parse(JSON.stringify(record)) as RunRecord]);
@@ -920,6 +932,14 @@ export class RtRecorder {
           else if (ev.type === 'fusion-paired') f.paired.push({ fusion: ev.fusion, row });
           else if (ev.type === 'fusion-made') f.made.push({ fusion: ev.fusion, row, nodeId: ev.nodeId });
           else f.declined.push({ fusions: [...ev.fusions], row, nodeId: ev.nodeId });
+        } else if (ev.type === 'knack-chosen') {
+          // Task 50 «Сноровка»: the screen (its cards from the state before the step), the card taken, the seconds it was open.
+          const visit = [...meta.nodes].reverse().find(v => v.nodeId === ev.nodeId), node = rtNode(after, ev.nodeId), row = visit?.row ?? (node ? runRow(node.row) : 0);
+          const offered = before?.pending?.kind === 'knack' ? structuredClone(before.pending.options) : ev.option ? [structuredClone(ev.option)] : [];
+          const seconds = typeof info.realSeconds === 'number' && Number.isFinite(info.realSeconds) && info.realSeconds >= 0 ? { realSeconds: info.realSeconds } : {};
+          (meta.knacks ??= []).push({ nodeId: ev.nodeId, row, offered, taken: ev.option ? structuredClone(ev.option) : null, ...seconds });
+        } else if (ev.type === 'talisman-honed') {
+          (meta.honed ??= []).push({ id: ev.id, row: meta.nodes[meta.nodes.length - 1]?.row ?? 0 });
         } else if (ev.type === 'run-won' || ev.type === 'run-lost') {
           meta.outcome = ev.type === 'run-won' ? 'victory' : 'defeat';
           // П6: the end of the run (the step that ended it; the first one, should a step repeat).

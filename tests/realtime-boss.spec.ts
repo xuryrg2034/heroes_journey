@@ -1,7 +1,8 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
 import { gameWait, untilFrame } from './realtimeFrames';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
+import { leaveResult } from './realtimeResult';
 
 /**
  * Task 27 «Каркас босса и Тюремщик в песочнице» (design 15.10.2026, docs/design-notes/tasks-26-28.md): the view of the flail
@@ -329,6 +330,7 @@ test('task 28: the Jailer in a run — the bar only in its fight; bombs sever th
   await page.reload();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
   await page.getByTestId('run-new').click();
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   const state = (): Promise<any> => page.evaluate(() => (window as any).__realtime.run.state());
   const bar = page.getByTestId('boss-bar');
@@ -345,11 +347,13 @@ test('task 28: the Jailer in a run — the bar only in its fight; bombs sever th
       plainFights++;
       expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
       await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
-      await page.getByTestId('result-map').click();
+      await leaveResult(page);
       continue;
     }
     if (pending) {
-      await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"]:not([disabled]), [data-action="gift-pick"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
+      // The run's seed is random: «Фляга росы» excludes «Клятва голода», so the route never takes it — the Jailer's oath screen
+      // keeps its oath (task 50 run, 17.10.2026: a route that took it saw 2 cards).
+      await page.locator('[data-action="habit"][data-habit="none"]:not([disabled]), [data-action="gift"]:not([disabled]), [data-action="find"]:not([disabled]), [data-action="gift-pick"]:not([data-pick="dew-flask"]), [data-action="talisman"]:not([data-option="dew-flask"]), [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
       continue;
     }
     const node = page.locator('[data-status="available"]').first();
@@ -433,7 +437,7 @@ test('task 28: the Jailer in a run — the bar only in its fight; bombs sever th
   await expect(page.getByTestId('result')).not.toContainText('отмеченные');
   await expect(page.getByTestId('result')).not.toContainText('В стадии жадности');
   await page.screenshot({ path: 'artifacts/realtime-boss-run-result.png' });
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   for (let i = 0; i < 4 && (await state()).pending?.source !== 'oath'; i++) {
     if ((await state()).pending?.kind === 'hammer') await page.getByTestId('hammer-refuse').click();
     // Task 30: a new run's Jailer offers forms first — a first run (a new viewer) its three simple ones, so the severed weight's

@@ -54,6 +54,8 @@ import type { FormField } from '../sim/buildIds';
 // Task 44 «Сплавы»: the recipes (sim/buildIds.ts) and the run's fusion catalogue.
 import { fusionOfHalf, fusionRecipe, FUSION_RECIPES, type FusionId, type FusionRecipe } from '../sim/buildIds';
 import { isRtFusion } from './rtTalismans';
+// Task 50 «Сноровка» и «Повадка»: the counters (rank II, the new ones), the archetypes and the weighed pick.
+import { isRtHabit, RT_COUNTER_TALISMANS, rtWeightedPick, type RtHabitId } from './rtTalismans';
 // П6 «Незакрытое дело»: the lost fight's killing blow (rtRunEnd.ts).
 import { validDeath, type RtDeath } from './rtRunEnd';
 // Task 16 «Подвиги»: the feat kinds of the simulation (sim/feat.ts).
@@ -122,6 +124,9 @@ import { garrisonArena, garrisonBolts, garrisonCombinedMap, garrisonDeep, garris
  * forms are kept in `talismans`, the Jailer's form screen is a talisman offer of source `form`. A save without the flag has the
  * hammer screen and the old pools to its end and saves byte for byte as before.
  */
+// Task 50 «Сноровка» и «Повадка» (the same version, design 16.10.2026): the run's flags `knacks` (the knack screen after an ordinary
+// fight, `honed` — the counters on rank II) and `habits` (the archetype on the gift `full`, `habit`), set at its creation; the open
+// screen of kind `knack`. A save without them plays the old screens and draws to its end and saves byte for byte as before.
 export const RT_RUN_VERSION = 7;
 /** The version the save of phase B had; it is migrated on reading (casino stage 1). */
 export const RT_RUN_VERSION_V6 = 6;
@@ -463,6 +468,11 @@ export type RtRunPending =
    */
   | { kind: 'casino'; nodeId: string }
   /**
+   * Task 50 «Сноровка» (design 3.1–3.2): after an ordinary fight or a breakthrough from run row `RT_KNACK_ROW` of a run with `knacks` —
+   * two cards (`rtKnackOptions`, the node's own roll) and «Пропустить» (`rtChooseKnack`). After the die, before the feat's screen.
+   */
+  | { kind: 'knack'; nodeId: string; options: RtKnackOption[] }
+  /**
    * Task 38 «Гарнизон»: «Предместье» — after the forest final's relic, before the garrison: HP is full (healed on showing), «В гарнизон»
    * (`rtEnterGarrison`) makes the garrison's map. No node of its own.
    */
@@ -648,6 +658,28 @@ export interface RtRunState {
   /** Task 44: the halves whose pair guarantee is spent (a screen showed the partner), in order; absent — none yet. */
   fusionShown?: RtTalismanId[];
   /**
+   * Task 50 «Сноровка» (design 16.10.2026, docs/design-notes/task-50-levels-archetype.md): the knack screen after an ordinary fight and a
+   * breakthrough from run row 2 (the garrison's too). Only with `forms`; set when the run is created (`RT_KNACKS_ON`); absent — a run
+   * saved before it (or created without it): no knack screen, to its end.
+   */
+  knacks?: true;
+  /**
+   * Task 50: the counters on rank II, in the order taken (`Loadout.honed`); a part of a fusion keeps its rank. Only with `knacks`;
+   * absent until the first rank II.
+   */
+  honed?: RtTalismanId[];
+  /**
+   * Task 50 «Повадка»: the archetype row on the gift. Only with `forms` and the gift `full`; set when the run is created
+   * (`RT_HABITS_ON`); absent — no archetype offered (every weight 1).
+   */
+  habits?: true;
+  /**
+   * Task 50: the archetype chosen on the gift (`rtChooseHabit`) — the run's draws weigh its tagged items (`RtTalismanPool.habit`), the
+   * Jailer's form screen puts a tagged form in place 1 (`rtHabitForm`). `null` — «Без повадки», only while the gift is open (the field
+   * leaves with it); absent — none chosen (yet, or «Без повадки»).
+   */
+  habit?: RtHabitId | null;
+  /**
    * Task 38 «Гарнизон» (design 15.10.2026): the forest final does not end the run — its relic, «Предместье», then the garrison (run/
    * garrison.ts). Set when the run is created (`RT_GARRISON_ON`); absent — a run saved before it (or created without it): the forest
    * final wins the run, to its end, byte for byte as before.
@@ -788,6 +820,14 @@ export type RtRunEvent =
   | { type: 'fusion-declined'; nodeId: string; fusions: FusionId[] }
   /** B5 К10: the talisman offer was rerolled for `price` resources (`paid` by kind); `options` — the new offer. */
   | { type: 'talisman-rerolled'; nodeId: string; price: number; paid: Record<ResourceKind, number>; options: RtTalismanOption[] }
+  /** Task 50 «Сноровка»: the knack screen opened at `nodeId` with these cards. */
+  | { type: 'knack-offered'; nodeId: string; options: RtKnackOption[] }
+  /** Task 50: the knack screen closed — the card taken (`hone` — rank II, else a new counter), null — «Пропустить». */
+  | { type: 'knack-chosen'; nodeId: string; option: RtKnackOption | null }
+  /** Task 50: the counter `id` went to rank II. */
+  | { type: 'talisman-honed'; id: RtTalismanId }
+  /** Task 50 «Повадка»: the gift's archetype row chosen (null — «Без повадки»). */
+  | { type: 'habit-chosen'; id: RtHabitId | null }
   | { type: 'hammer-offered'; nodeId: string; options: HammerId[] }
   | { type: 'hammer-taken'; id: HammerId }
   /** Task 37 «Правка»: the Jailer's hammer screen was rerolled free (the camp's reroll); `options` — the new offer. */
@@ -911,7 +951,7 @@ export interface RtArenaOutcome {
  * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
  * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
  */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; troll?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; potionCap?: number } = {}): RtRunState {
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; troll?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; potionCap?: number; knacks?: boolean; habits?: boolean } = {}): RtRunState {
   const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
   // Task 12 (13.10.2026): the goal layouts of the `marked` arenas, as the mix — on as `RT_RUN_FORCED` says unless the option says.
   const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
@@ -940,6 +980,8 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   const forms = options.forms ?? RT_FORMS_ON;
   // Task 44 «Сплавы» (16.10.2026): its own flag, only with the forms.
   const fusions = forms && (options.fusions ?? RT_FUSIONS_ON);
+  // Task 50 «Сноровка» и «Повадка» (16.10.2026): their own flags, only with the forms (the archetype — only with the gift `full`).
+  const knacks = forms && (options.knacks ?? RT_KNACKS_ON), habits = forms && options.gift === 'full' && (options.habits ?? RT_HABITS_ON);
   // Task 38 «Гарнизон» (15.10.2026): its own flag, off unless the option says (design turns it on after the ui view).
   const garrison = options.garrison ?? RT_GARRISON_ON;
   // Task 40 «Гарнизон, шаг 1б» (16.10.2026): «Ров», the keymaster and the cart — only with the garrison, by `RT_GARRISON_MOAT_ON`
@@ -951,7 +993,7 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   // Task 41 «Три зелья» (16.10.2026): the cap of healing potions, `RT_POTION_CAP` unless the option says (0 — none, as a save before it).
   const potionCap = Math.max(0, Math.floor(options.potionCap ?? RT_POTION_CAP));
   const run: RtRunState = {
-    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked, heroId: RT_HERO_ID } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...potionCap ? { potionCap } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked, heroId: RT_HERO_ID } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...potionCap ? { potionCap } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
@@ -1127,6 +1169,8 @@ export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}):
     ...node && (node.type === 'checkpoint' || node.type === 'boss' || runRow(node.row) < RT_BAG_ROW) ? { noBag: true } : {},
     // Task 30: a run with forms keeps its forms in `talismans`; a hammer among them is the loadout's hammer (`rtFormHammer`).
     talismans: run.talismans.filter(id => id !== rtFormHammer(run)), ward: run.talismans.includes('ash-ward') && !run.wardSpent,
+    // Task 50 «Сноровка»: the counters on rank II (absent — none: loadouts as before).
+    ...run.honed?.length ? { honed: [...run.honed] } : {},
     // Step 3 (design answer 3): the modifiers events left for this arena.
     ...run.modifiers?.includes('first-chain-power') ? { firstPower: 1 } : {},
     ...run.modifiers?.includes('start-elite') ? { startElite: true } : {},
@@ -1275,7 +1319,16 @@ function payFeat(run: RtRunState, nodeId: string, feat: RtFeat, count: number, f
  * The last step of a won battle node (after its own screens): a done feat with a talisman reward opens its choice of
  * RT_FEAT_TALISMANS (source `feat`; fewer left in the pool now — resources by the row instead); otherwise the node completes.
  */
-function finishBattleNode(run: RtRunState, node: ForestMapNode, events: RtRunEvent[]): RtRunStep {
+function finishBattleNode(run: RtRunState, node: ForestMapNode, events: RtRunEvent[], knack = true): RtRunStep {
+  // Task 50 «Сноровка»: its screen comes first (after the die), the feat's after it.
+  if (knack && rtKnackNode(run, node)) {
+    const options = rtKnackOptions(run, node.id);
+    if (options.length) {
+      run.pending = { kind: 'knack', nodeId: node.id, options };
+      events.push({ type: 'knack-offered', nodeId: node.id, options: structuredClone(options) });
+      return { ok: true, run, events };
+    }
+  }
   const record = rtFeatTalismanOwed(run, node.id) ? [...run.battles].reverse().find(entry => entry.nodeId === node.id) : undefined;
   if (record?.feat) {
     const offer = talismanOfferOf(run, node.id, 'feat', featOfferBase(run.seed, node.id))!;
@@ -1347,10 +1400,11 @@ export const rtOathText = (id: OathId): string => `${oathDef(id).name} — ${oat
  * a run with the flag `forms` draws from the catalogue with the openers (`rtTalismanCatalog`). One place for every talisman
  * draw of a run: the hard battle, the Jailer's oaths, events, the chest, the feat, the merchant; task 36 — the run's `locked`.
  */
-const talismanPool = (run: Pick<RtRunState, 'talismans' | 'talismansGone' | 'forms' | 'locked'>, exclude: readonly RtTalismanId[] = []): RtTalismanPool => {
+const talismanPool = (run: Pick<RtRunState, 'talismans' | 'talismansGone' | 'forms' | 'locked' | 'habit'>, exclude: readonly RtTalismanId[] = []): RtTalismanPool => {
   // Task 36: a meta run's locked items are out of every pool (`rtIsLocked`) — as if gone.
   const gone = run.locked?.length || exclude.length ? [...run.talismansGone, ...run.locked ?? [], ...exclude] : run.talismansGone;
-  return { taken: run.talismans, gone, ...run.forms ? { forms: true } : {} };
+  // Task 50 «Повадка»: the run's archetype weighs every draw of the pool (the gift's draws have their own pool, never weighed).
+  return { taken: run.talismans, gone, ...run.forms ? { forms: true } : {}, ...run.habit ? { habit: run.habit } : {} };
 };
 
 // ---------- Task 30 «Формы в походе» (design 15.10.2026; docs/realtime-slice.md, section 8, «Формы в походе») ----------
@@ -1392,9 +1446,34 @@ const formRoll = (run: Pick<RtRunState, 'seed'>, nodeId: string): number => mixS
  */
 export function rtFormOptions(run: RtRunState, nodeId: string, shown: readonly RtTalismanId[] = []): RtTalismanId[] {
   const roll = formRoll(run, nodeId), pool = rtFormPool(run), size = rtFormSlots(run, nodeId);
-  if (!shown.length) return rtFormOffer(roll, pool, size);
-  const again = mixSeed(roll, FORM_REROLL_SALT + shown.length), fresh = rtFormOffer(again, pool.filter(id => !shown.includes(id)), size);
-  return [...fresh, ...rtFormOffer(mixSeed(again, 1), pool.filter(id => shown.includes(id)), size - fresh.length)];
+  // Task 50 «Повадка»: place 1 holds the archetype's form (`rtHabitForm`); a reroll keeps the archetype's form of the screen in place 1
+  // (`rtHabitKept`), the other places are drawn without it.
+  if (!shown.length) { const habit = rtHabitForm(run, nodeId); return habit ? [habit, ...rtFormOffer(roll, pool, size).slice(1)] : rtFormOffer(roll, pool, size); }
+  const habit = rtHabitKept(run, nodeId), rest = habit ? pool.filter(id => id !== habit) : pool, places = habit ? size - 1 : size;
+  const again = mixSeed(roll, FORM_REROLL_SALT + shown.length), fresh = rtFormOffer(again, rest.filter(id => !shown.includes(id)), places);
+  return [...habit ? [habit] : [], ...fresh, ...rtFormOffer(mixSeed(again, 1), rest.filter(id => shown.includes(id)), places - fresh.length)];
+}
+/**
+ * Task 50 «Повадка» (design 4.4): the form the Jailer's screen of `nodeId` puts in place 1 — a form with the run's archetype tag of the
+ * form pool, by the node's form roll among them — when the screen's own draw shows no tagged form. Null — no archetype, no tagged form
+ * in the pool (a meta lock, a first run's simple forms), or one on the screen by its own draw (nothing changes).
+ */
+export function rtHabitForm(run: RtRunState, nodeId: string): RtTalismanId | null {
+  const habit = run.habit;
+  if (!habit) return null;
+  const pool = rtFormPool(run), tagged = pool.filter(id => rtTalisman(id)?.tags?.includes(habit));
+  if (!tagged.length) return null;
+  const roll = formRoll(run, nodeId);
+  return rtFormOffer(roll, pool, rtFormSlots(run, nodeId)).some(id => tagged.includes(id)) ? null : rtFormOffer(roll, tagged, 1)[0];
+}
+/**
+ * Task 50 («Правка» on the Jailer's form screen): the archetype's form the screen of `nodeId` showed first — the one in place 1
+ * (`rtHabitForm`), or the first tagged form of its own draw; a reroll keeps it, in place 1. Null — none (no archetype, no tagged form).
+ */
+export function rtHabitKept(run: RtRunState, nodeId: string): RtTalismanId | null {
+  const habit = run.habit;
+  if (!habit) return null;
+  return rtHabitForm(run, nodeId) ?? rtFormOffer(formRoll(run, nodeId), rtFormPool(run), rtFormSlots(run, nodeId)).find(id => rtTalisman(id)?.tags?.includes(habit)) ?? null;
 }
 /** Task 30 with task 37: the salt of a form screen reroll's roll (mixed with the node's form roll and the count shown so far). */
 const FORM_REROLL_SALT = 0x7f4a7c15;
@@ -1587,7 +1666,8 @@ function drawTalismanOffer(run: RtRunState, nodeId: string, source: RtTalismanSo
     // Task 30: the rare place of «Застава» holds a form of the other field (`rtFormSlotField`) — by the node's form roll over the
     // forms of that field not shown on this screen; the other places are the offer's own (the same `talismans` draw).
     const options = rtTalismanOffer(base, source, pool), field = rtFormSlotField(run);
-    const formed = field ? rtFormOffer(formRoll(run, nodeId), rtFormPool(run, field).filter(id => !exclude.includes(id)), 1)[0] : undefined;
+    // Task 50: the run's archetype weighs this draw (the Jailer's screen is not weighed: its place 1, `rtHabitForm`).
+    const formed = field ? rtFormOffer(formRoll(run, nodeId), rtFormPool(run, field).filter(id => !exclude.includes(id)), 1, run.habit ?? undefined)[0] : undefined;
     if (formed) options.splice(RT_RARE_SLOT, options.length > RT_RARE_SLOT ? 1 : 0, formed);
     return options;
   }
@@ -1642,8 +1722,10 @@ export function rtRerollTalismans(current: RtRunState): RtRunStep {
   const paid = view.free ? emptyMaterials() : shopPayment(run.materials, view.price);
   for (const kind of RESOURCE_KINDS) run.materials[kind] -= paid[kind];
   if (view.free) run.jailerRerolled = (run.jailerRerolled ?? 0) + 1;
-  // Task 44: the guaranteed pair stays on the screen through a reroll — it is not one of the shown ones.
-  const pairs = rtFusionOwed(run).map(o => o.partner);
+  // Task 44: the guaranteed pair stays on the screen through a reroll — it is not one of the shown ones. Task 50: so does the form of
+  // the run's archetype in place 1 of the Jailer's form screen.
+  const habitForm = pending.source === 'form' ? rtHabitKept(run, pending.nodeId) : null;
+  const pairs = [...rtFusionOwed(run).map(o => o.partner), ...habitForm ? [habitForm] : []];
   const rerolled = [...pending.rerolled ?? [], ...pending.options.filter(id => !pairs.includes(id))];
   // Task 30: the form screen rerolls by the node's form roll — no `talismans` draw.
   const options = talismanOfferOf(run, pending.nodeId, pending.source, pending.source === 'form' ? 0 : draw(run, 'talismans', true), rerolled)!;
@@ -1685,6 +1767,65 @@ export function rtChooseTalisman(current: RtRunState, chosen: RtTalismanOption |
   // Task 16 «Подвиги»: the feat's talisman screen comes last (after the fight's talismans and the chest's).
   if (pending.source !== 'feat') return finishBattleNode(run, node, events);
   completeNode(run, node, events); return { ok: true, run, events };
+}
+
+// ---------- Task 50 «Сноровка» (design 16.10.2026, docs/design-notes/task-50-levels-archetype.md, section 3) ----------
+
+/** Task 50: a new run with forms has the knack screen (its own flag `knacks`). Off until the view's step (the ui session turns it on). */
+export const RT_KNACKS_ON = true;
+/** Task 50 «Повадка»: a new run with forms and the gift `full` offers the archetype row (its own flag `habits`). On since the view (16.10.2026). */
+export const RT_HABITS_ON = true;
+/** Баланс (design 3.1): the knack screen from this run row (row 1 teaches «цель → дверь», as the bag); the garrison's from its row 2. */
+export const RT_KNACK_ROW = 2;
+/** The salt of a node's knack roll (`mixSeed(arenaSeed, «rt-knack»)`): no stream spent, a reload shows the same cards. */
+export const KNACK_SALT = [...'rt-knack'].reduce((hash, ch) => Math.imul(hash ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5);
+/** Task 50 (design §16, answer 7 (а)): the rare counter a knack screen of a run with «Стужа» may bring new, at weight 1. */
+export const RT_KNACK_COLD_RARE = 'frost-edge';
+/** A card of the knack screen: a counter to rank II (`hone`) or a new counter. */
+export interface RtKnackOption { id: RtTalismanId; hone?: true }
+/** Баланс (design 3.2, answer 1): cards on the knack screen (and «Пропустить»). */
+export const RT_KNACK_CARDS = 2;
+/**
+ * The won fight of `node` opens the knack screen (design 3.1): a run with `knacks`, an ordinary fight or a breakthrough (the forest's or
+ * the garrison's) from run row `RT_KNACK_ROW` — not «Застава», the Jailer, «Караульня», an event's fight, a final, the Castellan.
+ */
+export const rtKnackNode = (run: Pick<RtRunState, 'knacks'>, node: Pick<ForestMapNode, 'type' | 'row'>): boolean =>
+  !!run.knacks && (node.type === 'battle' || node.type === 'breakthrough') && runRow(node.row) >= RT_KNACK_ROW;
+/**
+ * The knack screen of `nodeId` (design 3.2): card A — a counter the run holds on rank I (not a part of a fusion: parts are not in
+ * `talismans`), card B — a counter not in the run, common or uncommon, of the run's pool (not taken, not gone, not locked, no clash).
+ * No A — two B; no B — two A; none — no screen. By the node's own roll (`KNACK_SALT`, the `talismans` stream not spent), each card
+ * weighed by the run's archetype (`habit`). The candidates in the catalogue's order. The fusion pair guarantee does not act here.
+ */
+export function rtKnackOptions(run: RtRunState, nodeId: string): RtKnackOption[] {
+  const roll = mixSeed(arenaSeed(run, nodeId), KNACK_SALT), habit = run.habit ?? undefined, pool = talismanPool(run);
+  const hone = RT_COUNTER_TALISMANS.filter(def => run.talismans.includes(def.id) && !run.honed?.includes(def.id)).map(def => def.id);
+  // Task 50, design §16 answer 7 (а): with «Стужа» the rare «Иней на клинке» may come new too (in the catalogue's order), at weight 1 —
+  // without the archetype's ×3 (`plain`). Without «Стужа» the rare ones never come new here.
+  const plain = habit === 'cold' ? [RT_KNACK_COLD_RARE] : [];
+  const fresh = RT_COUNTER_TALISMANS.filter(def => (def.rarity === 'common' || def.rarity === 'uncommon' || plain.includes(def.id)) && rtTalismanEligible(def.id, pool)).map(def => def.id);
+  const two = (list: readonly RtTalismanId[], hone: boolean): RtKnackOption[] => {
+    const first = rtWeightedPick(mixSeed(roll, 0), list, habit, plain), left = list.filter(id => id !== first);
+    return [{ id: first, ...hone ? { hone: true as const } : {} }, ...left.length ? [{ id: rtWeightedPick(mixSeed(roll, 1), left, habit, plain), ...hone ? { hone: true as const } : {} }] : []];
+  };
+  if (hone.length && fresh.length) return [{ id: rtWeightedPick(mixSeed(roll, 0), hone, habit), hone: true }, { id: rtWeightedPick(mixSeed(roll, 1), fresh, habit, plain) }];
+  return hone.length ? two(hone, true) : fresh.length ? two(fresh, false) : [];
+}
+/**
+ * Take a card of the open knack screen or «Пропустить» (`null`): rank II joins `honed`; a new counter joins the run (`takeTalisman`: a
+ * half of a recipe starts its pair guarantee on the next screens). Nothing shown leaves the pool. The feat's screen follows, or the node
+ * completes.
+ */
+export function rtChooseKnack(current: RtRunState, chosen: RtKnackOption | null): RtRunStep {
+  const pending = current.pending;
+  if (pending?.kind !== 'knack') return fail('Сейчас нет «Сноровки».');
+  const option = chosen === null ? null : pending.options.find(o => o.id === chosen.id && !!o.hone === !!chosen.hone);
+  if (chosen !== null && !option) return fail('Этой карточки нет среди предложенных.');
+  const run = structuredClone(current), events: RtRunEvent[] = [{ type: 'knack-chosen', nodeId: pending.nodeId, option: option ? structuredClone(option) : null }];
+  if (option?.hone) { run.honed = [...run.honed ?? [], option.id]; events.push({ type: 'talisman-honed', id: option.id }); }
+  else if (option) takeTalisman(run, option.id, events);
+  run.pending = null;
+  return finishBattleNode(run, rtNode(run, pending.nodeId)!, events, false);
 }
 
 // ---------- The hammer of the Jailer's row (phase B, Т2) ----------
@@ -2911,6 +3052,11 @@ export interface RtGiftView {
   /** The button taken whose own choice is open (a consumable of three), or null. */
   chosen: number | null;
   picks: string[];
+  /**
+   * Task 50 «Повадка»: the archetype row of a run with `habits` (the cards — `RT_HABITS`, «Без повадки» — null): `chosen` — decided
+   * (the gift's buttons wait for it), `id` — the archetype (null — «Без повадки» or not yet). Absent — no row.
+   */
+  habit?: { chosen: boolean; id: RtHabitId | null };
 }
 /** The open gift: its buttons (those without an analogue off); with none on, it can be passed by. */
 export function rtGiftView(run: RtRunState): RtGiftView | null {
@@ -2925,7 +3071,26 @@ export function rtGiftView(run: RtRunState): RtGiftView | null {
     return { index, option, available: !gap && !empty && !full, reason: gap ? 'Недоступно в этом походе' : empty ? 'Талисманов не осталось' : full ? RT_ITEM_REFUSAL_TEXT.handFull : '', ...full ? { handFull: true as const } : {} };
   });
   const chosen = run.gift.chosen ?? null;
-  return { kind: run.gift.kind, options, canSkip: !options.some(entry => entry.available), chosen, picks: chosen === null ? [] : giftPicks(all[chosen]).map(String) };
+  return { kind: run.gift.kind, options, canSkip: !options.some(entry => entry.available), chosen, picks: chosen === null ? [] : giftPicks(all[chosen]).map(String),
+    ...run.habits ? { habit: { chosen: run.habit !== undefined, id: run.habit ?? null } } : {} };
+}
+/**
+ * Task 50 «Повадка»: choose the archetype on the open gift (`null` — «Без повадки»), once, before its buttons. It stays to the run's end
+ * (the garrison too).
+ */
+export function rtChooseHabit(current: RtRunState, id: RtHabitId | null): RtRunStep {
+  const view = rtGiftView(current);
+  if (!view?.habit) return fail('Сейчас нет выбора повадки.');
+  if (view.habit.chosen) return fail('Повадка уже выбрана.');
+  if (id !== null && !isRtHabit(id)) return fail('Такой повадки нет.');
+  const run = structuredClone(current);
+  run.habit = id;
+  return { ok: true, run, events: [{ type: 'habit-chosen', id }] };
+}
+/** The gift closes: «Без повадки» (`habit` null) leaves no field (task 50). */
+function closeGift(run: RtRunState): void {
+  run.pending = null;
+  if (run.habit === null) delete run.habit;
 }
 /** Apply a taken gift button (its own choice `pick` made) and close the gift. */
 function applyGift(run: RtRunState, option: GiftOption, pick: string | undefined, events: RtRunEvent[]): void {
@@ -2946,7 +3111,7 @@ function applyGift(run: RtRunState, option: GiftOption, pick: string | undefined
       run.talismansGone.push(...option.reward.talismans.filter(id => id !== pick));
     } else if (option.reward.talisman) takeTalisman(run, option.reward.talisman, events);
   }
-  run.pending = null;
+  closeGift(run);
 }
 /**
  * Take a gift button (`null` — pass the gift by, only when no button is on). A button with a choice of its own (a
@@ -2956,10 +3121,12 @@ export function rtChooseGift(current: RtRunState, index: number | null): RtRunSt
   const view = rtGiftView(current);
   if (!view) return fail('Сейчас нет дара.');
   if (view.chosen !== null) return fail('Дар уже выбран: осталось выбрать, что взять.');
+  // Task 50: the archetype row comes first.
+  if (view.habit && !view.habit.chosen) return fail('Сначала выбери повадку.');
   const run = structuredClone(current), events: RtRunEvent[] = [{ type: 'gift-chosen', index }];
   if (index === null) {
     if (!view.canSkip) return fail('Дар нельзя пропустить: выбери кнопку.');
-    run.pending = null;
+    closeGift(run);
     return { ok: true, run, events };
   }
   const entry = view.options[index];
@@ -3225,6 +3392,12 @@ const oathNodeOf = (node: ForestMapNode | undefined): boolean => !!node && rtOat
 /** A talisman the merchant's stock may hold: a talisman of the slice (not an oath, not a relic). */
 const validShopTalisman = (value: unknown): boolean => isRtTalisman(value) && !isRtOath(value) && rtTalisman(value)?.rarity !== 'relic' && rtTalisman(value)?.rarity !== 'fusion';
 const isTalismanList = (value: unknown): value is RtTalismanId[] => Array.isArray(value) && value.every(isRtTalisman) && new Set(value).size === value.length;
+/** Task 50: a counter on rank II of a save — a counter id held in `talismans`, or a part of a fusion held there. */
+function validHoned(id: unknown, talismans: readonly unknown[]): boolean {
+  if (typeof id !== 'string' || !RT_COUNTER_TALISMANS.some(def => def.id === id)) return false;
+  const of = fusionOfHalf(id);
+  return talismans.includes(id) || (!!of && talismans.includes(of.fusion));
+}
 
 /**
  * B7 К9: the run's circle in a save — an event node of run row 3 or later whose roll stands the circle, no event picked
@@ -3284,6 +3457,14 @@ function checkRun(value: unknown): RtRunState | null {
   // Task 44 (16.10.2026): a flag, only with the forms; the halves whose guarantee is spent — known ids, each once, only with it.
   if (value.fusions !== undefined && !(value.fusions === true && value.forms === true)) return null;
   if (value.fusionShown !== undefined && !(value.fusions === true && isTalismanList(value.fusionShown) && value.fusionShown.length && new Set(value.fusionShown).size === value.fusionShown.length && value.fusionShown.every(id => fusionOfHalf(id as string)))) return null;
+  // Task 50: the knack flag only with the forms; the counters on rank II only with it — known counter ids, each once, each held (or a
+  // part of a fusion held). The archetype flag only with the forms and the gift `full`; the archetype only with it (null only while
+  // the gift is open, and decided before its buttons).
+  if (value.knacks !== undefined && !(value.knacks === true && value.forms === true)) return null;
+  if (value.honed !== undefined && !(value.knacks === true && isTalismanList(value.honed) && value.honed.length && Array.isArray(value.talismans) && value.honed.every(id => validHoned(id, value.talismans as unknown[])))) return null;
+  if (value.habits !== undefined && !(value.habits === true && value.forms === true && isRecord(value.gift) && value.gift.kind === 'full')) return null;
+  if (value.habit !== undefined && !(value.habits === true && (isRtHabit(value.habit) || (value.habit === null && isRecord(value.pending) && value.pending.kind === 'gift')))) return null;
+  if (value.habits === true && value.habit === undefined && isRecord(value.pending) && value.pending.kind === 'gift' && isRecord(value.gift) && value.gift.chosen !== undefined) return null;
   // Task 26: the viewer's snapshot — sorted known elements, no repeats (may be empty); only below «Испытание II».
   if (value.schedule !== undefined && !(isRecord(value.schedule) && Object.keys(value.schedule).length === 1 && Array.isArray(value.schedule.seen)
     && value.schedule.seen.every(isScheduleElement) && JSON.stringify([...new Set(value.schedule.seen)].sort()) === JSON.stringify(value.schedule.seen)
@@ -3494,6 +3675,12 @@ function checkRun(value: unknown): RtRunState | null {
       const last = [...run.battles].reverse().find(record => record.nodeId === node.id);
       if (pick?.arena === undefined || !last?.won || !validDoor(pending.door) || !(pending.door.cauldron > 0) || !rtDieOffered(pending.door)) return null;
       if (!(isCount(run.dieDraws) && run.dieDraws >= 1) || pending.face !== rtDieFace(run.seed, run.dieDraws - 1)) return null;
+      break;
+    }
+    // Task 50: the knack screen — a run with `knacks`, its node's won fight, the cards of the node's roll (no other keys).
+    case 'knack': {
+      if (!rtKnackNode(run, node) || !run.battles.some(record => record.nodeId === node.id && record.won) || Object.keys(pending).length !== 3) return null;
+      if (!Array.isArray(pending.options) || !pending.options.length || JSON.stringify(pending.options) !== JSON.stringify(rtKnackOptions(run, node.id))) return null;
       break;
     }
     // B7 К9: the open circle is the run's circle (checked above).

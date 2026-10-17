@@ -16,7 +16,7 @@ import { featOutcome } from '../sim/feat';
 import { observeFightLuck, type RtLuckTally } from './rtLuck';
 import { RtDeathWatch, type RtDeath } from './rtRunEnd';
 import {
-  rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtItemRefusal, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtChooseTalisman, rtDieChoose,
+  rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtItemRefusal, rtChooseGift, rtChooseGiftPick, rtChooseHabit, rtChooseHammer, rtChooseKnack, rtChooseTalisman, rtDieChoose,
   rtEnterNode, rtEventView, rtGiftView, rtNode, rtRestHeal, rtRunParams, rtShopLeave, type RtArenaOutcome, type RtRunState, type RtRunStep,
 } from './rtRun';
 
@@ -160,6 +160,8 @@ export function ok(step: RtRunStep, what: string): RtRunState {
   return step.run;
 }
 export function takeGift(run: RtRunState): RtRunState {
+  // Task 50: a gift `full` of a run with the archetype row waits for it — «Без повадки» keeps these routes the routes of before.
+  if (rtGiftView(run)?.habit && !rtGiftView(run)!.habit!.chosen) run = ok(rtChooseHabit(run, null), 'habit');
   const view = rtGiftView(run)!, first = view.options.find(entry => entry.available);
   let next = ok(rtChooseGift(run, first ? first.index : null), 'gift');
   const open = rtGiftView(next);
@@ -175,6 +177,8 @@ export function closeNode(run: RtRunState, roll = false): RtRunState {
   if (pending?.kind === 'shop') return ok(rtShopLeave(run), 'shop');
   if (pending?.kind === 'talisman') return ok(rtChooseTalisman(run, null), 'talisman');
   if (pending?.kind === 'hammer') return ok(rtChooseHammer(run, null), 'hammer');
+  // Task 50: the «Сноровка» screen after a won ordinary fight (RT_KNACKS_ON) — passed over, the run's other screens as they were.
+  if (pending?.kind === 'knack') return ok(rtChooseKnack(run, null), 'knack');
   if (pending?.kind === 'event') { const safe = rtEventView(run)!.options.find(option => option.safe && option.available)!; return ok(rtChooseEventOption(run, safe.id), 'event'); }
   if (pending?.kind === 'gift') return takeGift(run);
   return run;

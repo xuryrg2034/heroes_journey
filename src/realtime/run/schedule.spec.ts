@@ -7,6 +7,7 @@
  * two rules (`affixMetKinds`, the wolf and boar out by `withoutKinds`) and the viewer's history in the profile.
  * `npm run test:realtime-schedule`.
  */
+import { rtChooseKnack } from './rtRun';
 import { defaultParams, type Params } from '../sim/params';
 import { replay, Simulation } from '../sim/simulation';
 import { AFFIX_IDS } from '../sim/elites';
@@ -69,6 +70,8 @@ function viewer(k: number, runs: number, seconds: number, history: string[] = []
     let run = createRtRun(seedOf(1000 * k + r), { gift: 'mini', schedule: history, garrison: false });
     for (let step = 0; step < 300 && !run.result; step++) {
       const pending = run.pending;
+      // Task 50: the knack screen (RT_KNACKS_ON) is passed over and is not a step (the node choice turns on `step`).
+      if (pending?.kind === 'knack') { run = ok(rtChooseKnack(run, null), 'knack'); step--; continue; }
       if (pending?.kind === 'battle') {
         const node = rtNode(run, pending.nodeId)!, metBefore = rtScheduleMet(run), arc = rtFightArc(run), kit = rtArenaLoadout(run);
         const fight = shortFight(run, seconds);
@@ -117,6 +120,8 @@ function quickWalk(run: RtRunState, k: number, each?: (run: RtRunState) => void)
   for (let step = 0; step < 300 && !run.result; step++) {
     each?.(run);
     const pending = run.pending;
+    // Task 50: the knack screen (RT_KNACKS_ON) is passed over and is not a step (the node choice turns on `step`).
+    if (pending?.kind === 'knack') { run = ok(rtChooseKnack(run, null), 'knack'); step--; continue; }
     if (pending?.kind === 'battle') {
       const kit = rtArenaLoadout(run), kinds = [...arenaKinds(pending.arena, pending.roster)].filter(kind => !(kit.withoutKinds ?? []).includes(kind));
       run = ok(resolveArena(run, { nodeId: pending.nodeId, won: true, hp: run.maxHp, kills: 30, damage: 0, time: 60, kinds, ...kit.guaranteedElite ? { elite: true } : {} }), 'resolve');
@@ -141,6 +146,8 @@ check('a run without the schedule (40 runs, the walk of the reference): the aren
     let run = createRtRun(seedOf(k), { gift: 'mini', jailer: false, troll: false, garrison: false });
     for (let step = 0; step < 300 && !run.result; step++) {
       const pending = run.pending;
+      // Task 50: the knack screen (RT_KNACKS_ON) is passed over and is not a step (the node choice turns on `step`).
+      if (pending?.kind === 'knack') { run = ok(rtChooseKnack(run, null), 'knack'); step--; continue; }
       if (!pending) { const next = rtAvailableNodes(run); run = ok(rtEnterNode(run, next[(k * 7 + step) % next.length].id), 'enter'); }
       else if (pending.kind === 'gift') run = takeGift(run);
       else if (pending.kind === 'battle') run = ok(resolveArena(run, { nodeId: pending.nodeId, won: true, hp: run.maxHp, kills: 30, damage: 0, time: 60, kinds: [...arenaKinds(pending.arena, pending.roster)] }), 'resolve');
@@ -193,6 +200,8 @@ function openOn(k: number, seen: readonly string[], test: (run: RtRunState) => b
   let run = createRtRun(seedOf(k), { gift: 'mini', schedule: seen, garrison: false });
   for (let step = 0; step < 300 && !run.result; step++) {
     const pending = run.pending;
+    // Task 50: the knack screen (RT_KNACKS_ON) is passed over and is not a step (the node choice turns on `step`).
+    if (pending?.kind === 'knack') { run = ok(rtChooseKnack(run, null), 'knack'); step--; continue; }
     if (pending?.kind === 'battle') {
       if (test(run)) return run;
       run = ok(resolveArena(run, { nodeId: pending.nodeId, won: true, hp: run.maxHp, kills: 30, damage: 0, time: 60, kinds: [] }), 'resolve');

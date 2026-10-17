@@ -168,6 +168,8 @@ export const DIE_SOURCE = 'door-die';
 
 /** Task 16 «Подвиги»: the source of the feat's talisman choice in `RunRecord.choices` (not the «Застава» `talisman` or the chest's). */
 export const FEAT_SOURCE = 'feat';
+/** Task 50 «Сноровка»: the knack screen's choice (`RunChoice.source`; a rank II card offered as `<id>:2`). */
+export const KNACK_SOURCE = 'knack';
 
 /** B7 К9 «Игорный круг гоблинов»: the source of the circle's choices in `RunRecord.choices` (offered `dice`, `wheel`, `leave`; one entry a visit). */
 export const CASINO_SOURCE = 'casino';
@@ -325,6 +327,10 @@ export interface RunFusions {
 }
 /** Task 37: the run's quest and (once the run ended) whether it was done. */
 export interface RunQuest { npc: string; id: string; done?: boolean }
+/** Task 50: a card of the knack screen (`RunKnack`): a counter to rank II (`hone`) or a new one. */
+export interface RunKnackCard { id: string; hone?: true }
+/** Task 50 «Сноровка»: one knack screen of a run (`RunRecord.knacks`) — its node and run row, the cards, the one taken (null — «Пропустить»), real seconds open. */
+export interface RunKnack { nodeId: string; row: number; offered: RunKnackCard[]; taken: RunKnackCard | null; realSeconds?: number }
 
 /** The run record (`S/R/run`): written at every node and sent again under the same id (the last copy wins). */
 export interface RunRecord extends RtHeader {
@@ -428,6 +434,19 @@ export interface RunRecord extends RtHeader {
    * run without the flag (older records too).
    */
   fusions?: RunFusions;
+  /**
+   * Task 50 «Сноровка» (from 16.10.2026): the run has the knack screen (`RtRunState.knacks`), its screens, and the counters it put on rank
+   * II in order (with the run row). Absent — a run without the flag (older records too); `knacks`/`honed` absent — none yet.
+   */
+  knacksOn?: true;
+  knacks?: RunKnack[];
+  honed?: { id: string; row: number }[];
+  /**
+   * Task 50 «Повадка» (from 16.10.2026): the run offered the archetype row on the gift (`RtRunState.habits`) and the archetype chosen
+   * (absent — «Без повадки», or not chosen yet). `heroId` of the meta stands beside it (task 49 compares them).
+   */
+  habitsOn?: true;
+  habit?: string;
   /** The Params of the run, once per run (decision 3): the journals name them by `params.hash`. Named `runParams` because `params` is the header's `{storage, hash}`. */
   runParams: Params;
 }
@@ -658,6 +677,17 @@ export function checkRecord(value: unknown): string | null {
         });
         if (!f || typeof f !== 'object' || !list(f.halves, ['id']) || !list(f.paired, ['fusion']) || !list(f.made, ['fusion', 'nodeId']) || !list(f.declined, ['fusions', 'nodeId'])) return 'run fusions';
       }
+      // Task 50 (16.10.2026): optional — the knack screens (cards with an id, a node, a row), the counters on rank II, the archetype.
+      if (r.knacksOn !== undefined && r.knacksOn !== true) return 'run knacksOn';
+      if (r.habitsOn !== undefined && r.habitsOn !== true) return 'run habitsOn';
+      if (r.habit !== undefined && !(typeof r.habit === 'string' && r.habitsOn === true)) return 'run habit';
+      const card = (c: unknown): boolean => { const o = c as Record<string, unknown> | null; return !!o && typeof o === 'object' && typeof o.id === 'string' && (o.hone === undefined || o.hone === true); };
+      if (r.knacks !== undefined && !(r.knacksOn === true && Array.isArray(r.knacks) && r.knacks.every(k => {
+        const o = k as Record<string, unknown> | null;
+        return !!o && typeof o === 'object' && typeof o.nodeId === 'string' && Number.isInteger(o.row) && Array.isArray(o.offered) && o.offered.every(card)
+          && (o.taken === null || card(o.taken)) && (o.realSeconds === undefined || (typeof o.realSeconds === 'number' && o.realSeconds >= 0));
+      }))) return 'run knacks';
+      if (r.honed !== undefined && !(r.knacksOn === true && Array.isArray(r.honed) && r.honed.every(h => { const o = h as Record<string, unknown> | null; return !!o && typeof o.id === 'string' && Number.isInteger(o.row); }))) return 'run honed';
       // Task 15 (14.10.2026): optional — the map heals bought.
       if (r.mapHeals !== undefined && !(Array.isArray(r.mapHeals) && r.mapHeals.every(h => {
         const o = h as Record<string, unknown> | null;

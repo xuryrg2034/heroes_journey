@@ -35,7 +35,29 @@ export interface RtTalismanDef {
   field?: FormField;
   /** Task 30: a simple form — the only ones a first run offers (design decision 6). */
   simple?: true;
+  /**
+   * Task 50 «Повадка» (design 4.5): the run archetypes this item belongs to — with the run's `habit` among them it weighs
+   * `RT_HABIT_WEIGHT` in the draws (`rtWeightedIndex`). Absent — no tag (survival, the jump's economy).
+   */
+  tags?: readonly RtHabitId[];
 }
+
+// ---------- Task 50 «Повадка» (design 16.10.2026, docs/design-notes/task-50-levels-archetype.md, section 4) ----------
+
+/** The run's archetype: chosen on the gift `full` (`RtRunState.habit`), the same to the run's end. */
+export type RtHabitId = 'cold' | 'flame' | 'shift' | 'daring';
+export interface RtHabitDef { id: RtHabitId; name: string; line: string }
+/** The four archetypes in the order of the gift's row (names checked against the catalogue and the documents, 16.10.2026). */
+export const RT_HABITS: readonly RtHabitDef[] = [
+  { id: 'cold', name: 'Стужа', line: 'Холод и удержание: «Наледь», «Печать», «Иней»' },
+  { id: 'flame', name: 'Пламя', line: 'Огонь и волны по толпе' },
+  { id: 'shift', name: 'Перелив', line: 'Смена цвета, дальний шаг, длинные цепи' },
+  { id: 'daring', name: 'Удаль', line: 'Сила звена, элиты, добивание' },
+];
+export const isRtHabit = (value: unknown): value is RtHabitId => RT_HABITS.some(def => def.id === value);
+export const rtHabit = (id: RtHabitId): RtHabitDef => RT_HABITS.find(def => def.id === id)!;
+/** Баланс (design 4.3): an item with the run's tag weighs this much in a draw, one without — 1. */
+export const RT_HABIT_WEIGHT = 3;
 /**
  * Phase B ids (docs/realtime-phase-b.md; sim/buildIds.ts — one place for the simulation and the run): counter talismans
  * (Т1), hammers (Т2, `Loadout.hammer`), relics (Т3, rarity `relic`). Their definitions and offers come with track Д4.
@@ -47,21 +69,22 @@ export const RT_TOUGH_HIDE_HP = rtHp(1);
 export const RT_DEW_FLASK_HEAL = rtHp(1);
 
 /** A turn-based talisman as a slice definition: its id, name, rarity and exclusions; the effect text is the slice's. */
-const turn = (id: TalismanId, effect: string): RtTalismanDef => {
+const turn = (id: TalismanId, effect: string, tags?: readonly RtHabitId[]): RtTalismanDef => {
   const entry = TALISMANS.find(other => other.id === id)!;
-  return { id, name: entry.name, rarity: entry.rarity, effect, ...entry.excludes ? { excludes: entry.excludes } : {} };
+  return { id, name: entry.name, rarity: entry.rarity, effect, ...entry.excludes ? { excludes: entry.excludes } : {}, ...tags ? { tags } : {} };
 };
 /** Texts in real-time numbers; rarity and exclusions — the turn-based ones. The talismans of the slice before phase B. */
 const RT_SLICE_TALISMANS: readonly RtTalismanDef[] = [
-  turn('whetstone', 'Первая цепь каждой арены начинается с силой 1'),
+  turn('whetstone', 'Первая цепь каждой арены начинается с силой 1', ['daring']),
   turn('dew-flask', `Лечение на привале на ${RT_DEW_FLASK_HEAL} HP больше`),
   turn('tough-hide', `+${RT_TOUGH_HIDE_HP} к максимуму HP (и +${RT_TOUGH_HIDE_HP} HP сразу)`),
   // «Смена цвета» (design 12.10.2026): same id, the run's new action (sim/build.ts `colorShiftOf`); the sandbox with crystals — the crystal step.
-  turn('millstone-shard', 'Смена цвета на 1 звено раньше: после 5 звеньев одного цвета вместо 6'),
-  turn('hourglass', 'Фазы после целей начинаются на 10 с позже'),
+  turn('millstone-shard', 'Смена цвета на 1 звено раньше: после 5 звеньев одного цвета вместо 6', ['shift']),
+  turn('hourglass', 'Фазы после целей начинаются на 10 с позже', ['cold']),
   turn('nimble-paws', 'Прыжок стоит 1 энергию вместо 2'),
-  turn('ash-ward', 'Один раз за поход: удар, который убил бы героя, оставляет его с 1 HP; оберег рассыпается'),
-  { id: 'hero-anchor', name: 'Якорь у героя', rarity: 'rare', effect: 'Следующее звено берётся и в радиусе R от героя (обойти щит им нельзя)' },
+  // Task 50 (design §16, answer 3): the tag «Стужа» — the bot's share of tagged items for «Стужа» was below half the others' mean.
+  turn('ash-ward', 'Один раз за поход: удар, который убил бы героя, оставляет его с 1 HP; оберег рассыпается', ['cold']),
+  { id: 'hero-anchor', name: 'Якорь у героя', rarity: 'rare', effect: 'Следующее звено берётся и в радиусе R от героя (обойти щит им нельзя)', tags: ['shift'] },
   // Phase B, 5а (decision 10.10.2026): the new «Клятва голода» (sim/relics.ts `HUNGER_KILLS`, `HUNGER_HEAL`; relics.spec.ts checks the numbers).
   turn('oath-hunger', '+1 HP за 15 убийств цепью; привал не лечит (крафт остаётся)'),
 ];
@@ -80,22 +103,22 @@ export const RT_TURN_TALISMANS: readonly TalismanId[] = RT_SLICE_TALISMANS.map(e
 
 /** Т1. Counter talismans (section 3): a condition and a trigger; «Добивание» never with «Быстрые ноги» (design answer 14). */
 export const RT_COUNTER_TALISMANS: readonly RtTalismanDef[] = [
-  { id: CT.fifthLink, name: 'Пятое звено', rarity: 'common', effect: 'Каждое 5-е звено цепи (5, 10, 15…) получает +2 силы перед ударом' },
+  { id: CT.fifthLink, name: 'Пятое звено', rarity: 'common', effect: 'Каждое 5-е звено цепи (5, 10, 15…) получает +2 силы перед ударом', tags: ['daring'] },
   { id: CT.thirdChain, name: 'Третья цепь', rarity: 'common', effect: 'Каждая 3-я цепь арены, убившая хотя бы одного: следующий прыжок за 5 с бесплатен' },
-  { id: CT.prism, name: 'Призма', rarity: 'common', effect: '+1 энергия за каждую смену цвета цепи и за каждый кристалл, разбитый проходом' },
-  { id: CT.shockwave, name: 'Ударная волна', rarity: 'uncommon', effect: 'Цепь из 8+ звеньев: в конце прохода волна радиусом 2 вокруг героя бьёт на 1 всех врагов' },
-  { id: CT.finisher, name: 'Добивание', rarity: 'uncommon', effect: 'Последнее звено цепи погибло: неуязвимость после цепи 1 с вместо 0,5 с', excludes: [RL.swiftFeet] },
-  { id: CT.eliteHunter, name: 'Охотник на элит', rarity: 'uncommon', effect: 'Элита в цепи: звенья после неё получают +3 силы (один раз)' },
-  { id: CT.longArm, name: 'Длинная рука', rarity: 'rare', effect: 'Каждая 4-я цепь арены: радиус звена R +50% на всю эту цепь' },
-  { id: CT.frostEdge, name: 'Иней на клинке', rarity: 'rare', effect: 'Каждая 4-я цепь арены: выжившее последнее звено замерзает на 2 с' },
+  { id: CT.prism, name: 'Призма', rarity: 'common', effect: '+1 энергия за каждую смену цвета цепи и за каждый кристалл, разбитый проходом', tags: ['shift'] },
+  { id: CT.shockwave, name: 'Ударная волна', rarity: 'uncommon', effect: 'Цепь из 8+ звеньев: в конце прохода волна радиусом 2 вокруг героя бьёт на 1 всех врагов', tags: ['flame'] },
+  { id: CT.finisher, name: 'Добивание', rarity: 'uncommon', effect: 'Последнее звено цепи погибло: неуязвимость после цепи 1 с вместо 0,5 с', excludes: [RL.swiftFeet], tags: ['daring'] },
+  { id: CT.eliteHunter, name: 'Охотник на элит', rarity: 'uncommon', effect: 'Элита в цепи: звенья после неё получают +3 силы (один раз)', tags: ['daring'] },
+  { id: CT.longArm, name: 'Длинная рука', rarity: 'rare', effect: 'Каждая 4-я цепь арены: радиус звена R +50% на всю эту цепь', tags: ['shift', 'daring'] },
+  { id: CT.frostEdge, name: 'Иней на клинке', rarity: 'rare', effect: 'Каждая 4-я цепь арены: выжившее последнее звено замерзает на 2 с', tags: ['cold'] },
 ];
 /** Т3. Relics (section 5): a strong plus and a price; offered with the oaths by the Jailer's row, never sold. */
 export const RT_RELICS: readonly RtTalismanDef[] = [
-  { id: RL.millstone, name: 'Жернов', rarity: 'relic', effect: 'Смена цвета на 2 звена раньше: после 4 звеньев одного цвета вместо 6', price: 'максимум HP −3' },
-  { id: RL.heavyBlade, name: 'Тяжёлый клинок', rarity: 'relic', effect: 'Каждое звено даёт +2 силы вместо +1', price: 'запас фокуса вдвое меньше' },
+  { id: RL.millstone, name: 'Жернов', rarity: 'relic', effect: 'Смена цвета на 2 звена раньше: после 4 звеньев одного цвета вместо 6', price: 'максимум HP −3', tags: ['shift'] },
+  { id: RL.heavyBlade, name: 'Тяжёлый клинок', rarity: 'relic', effect: 'Каждое звено даёт +2 силы вместо +1', price: 'запас фокуса вдвое меньше', tags: ['daring'] },
   { id: RL.swiftFeet, name: 'Быстрые ноги', rarity: 'relic', effect: 'Скорость героя +25%', price: 'нет неуязвимости после цепи', excludes: [CT.finisher] },
-  { id: RL.wideCircle, name: 'Широкий круг', rarity: 'relic', effect: 'Радиус звена R +25%', price: 'враги ходят на 10% быстрее' },
-  { id: RL.bloodOath, name: 'Кровавая клятва', rarity: 'relic', effect: '+1 энергия за каждые 6 убийств цепью на арене', price: 'лечение расходником вдвое слабее (9 → 5)' },
+  { id: RL.wideCircle, name: 'Широкий круг', rarity: 'relic', effect: 'Радиус звена R +25%', price: 'враги ходят на 10% быстрее', tags: ['shift'] },
+  { id: RL.bloodOath, name: 'Кровавая клятва', rarity: 'relic', effect: '+1 энергия за каждые 6 убийств цепью на арене', price: 'лечение расходником вдвое слабее (9 → 5)', tags: ['flame'] },
 ];
 /** Every talisman of the real-time run: the slice's, the counter talismans (Т1), the relics (Т3). */
 export const RT_TALISMANS: readonly RtTalismanDef[] = [...RT_SLICE_TALISMANS, ...RT_COUNTER_TALISMANS, ...RT_RELICS];
@@ -111,13 +134,13 @@ export const RT_TALISMANS: readonly RtTalismanDef[] = [...RT_SLICE_TALISMANS, ..
 const form = (id: string, name: string, effect: string, extra: Partial<RtTalismanDef> = {}): RtTalismanDef =>
   ({ id, name, rarity: 'form', effect, field: FORM_FIELD[id], ...extra });
 export const RT_FORMS: readonly RtTalismanDef[] = [
-  form(HM.fire, 'Огненный проход', 'Цепь из 3+ звеньев: путь прохода горит 2 с, огонь бьёт врагов на 1 при входе'),
-  form(HM.cut, 'Режущий проход', 'Проход бьёт на 1 врагов любого цвета в 0,5 от пути (кроме звеньев)'),
-  form(HM.return, 'Возврат', 'После прохода герой бежит к началу цепи вторым проходом с половиной силы; неуязвим на бегу', { excludes: [HM.blast] }),
-  form(FROST_PASS, 'Наледь', 'Путь прохода 2 с морозит врагов, которые в него входят', { simple: true }),
-  form(HM.blast, 'Взрыв на конце', 'Цепь из 3+ звеньев: в конце прохода — взрыв радиусом 1,5 вокруг последнего звена, удар 1 по всем врагам', { simple: true, excludes: [HM.return] }),
-  form(FM.pierce, 'Прямая', 'Прямой хвост цепи: проход идёт дальше по прямой и бьёт всех на пути', { simple: true }),
-  form(FM.seal, 'Печать', 'Замкни цепь в кольцо — удар по всем врагам внутри'),
+  form(HM.fire, 'Огненный проход', 'Цепь из 3+ звеньев: путь прохода горит 2 с, огонь бьёт врагов на 1 при входе', { tags: ['flame'] }),
+  form(HM.cut, 'Режущий проход', 'Проход бьёт на 1 врагов любого цвета в 0,5 от пути (кроме звеньев)', { tags: ['flame'] }),
+  form(HM.return, 'Возврат', 'После прохода герой бежит к началу цепи вторым проходом с половиной силы; неуязвим на бегу', { excludes: [HM.blast], tags: ['daring'] }),
+  form(FROST_PASS, 'Наледь', 'Путь прохода 2 с морозит врагов, которые в него входят', { simple: true, tags: ['cold'] }),
+  form(HM.blast, 'Взрыв на конце', 'Цепь из 3+ звеньев: в конце прохода — взрыв радиусом 1,5 вокруг последнего звена, удар 1 по всем врагам', { simple: true, excludes: [HM.return], tags: ['flame'] }),
+  form(FM.pierce, 'Прямая', 'Прямой хвост цепи: проход идёт дальше по прямой и бьёт всех на пути', { simple: true, tags: ['daring'] }),
+  form(FM.seal, 'Печать', 'Замкни цепь в кольцо — удар по всем врагам внутри', { tags: ['cold', 'shift'] }),
 ];
 /**
  * Task 30 (design decision 5; user 15.10.2026): the openers in the run's common pool — only «Близнецы» (rarity uncommon, field
@@ -125,7 +148,7 @@ export const RT_FORMS: readonly RtTalismanDef[] = [
  * in the pool. Drawn only by a run with the flag `forms` (`rtTalismanCatalog`).
  */
 export const RT_OPENERS: readonly RtTalismanDef[] = [
-  { id: FM.twins, name: 'Близнецы', rarity: 'uncommon', field: FORM_FIELD[FM.twins],
+  { id: FM.twins, name: 'Близнецы', rarity: 'uncommon', field: FORM_FIELD[FM.twins], tags: ['shift'],
     effect: 'Цвета разбиты на пары, пара — один цвет: 1 и 3, 2 и 4. Взяв второй цвет пары, цепь чередует цвета пары; «Смена цвета» не действует' },
 ];
 /** A form of the run (`RT_FORMS`, rarity `form`). */
@@ -220,9 +243,10 @@ export const FORM_SALT = [...'rt-form'].reduce((hash, ch) => Math.imul(hash ^ ch
  * Task 30: `count` different forms of `candidates` (in their order) by a node's roll (`mixSeed(arenaSeed, FORM_SALT)`), as the
  * hammers are drawn: the first `n` of a longer offer are the offer of `n`.
  */
-export function rtFormOffer(roll: number, candidates: readonly RtTalismanId[], count: number): RtTalismanId[] {
+export function rtFormOffer(roll: number, candidates: readonly RtTalismanId[], count: number, habit?: RtHabitId): RtTalismanId[] {
+  // Task 50: `habit` — the draw weighs the run's tagged forms (the rare place of «Застава»; never the Jailer's screen).
   const left = [...candidates], options: RtTalismanId[] = [];
-  for (let n = 0; n < count && left.length; n++) options.push(left.splice(mixSeed(roll >>> 0, n) % left.length, 1)[0]);
+  for (let n = 0; n < count && left.length; n++) options.push(left.splice(rtWeightedIndex(mixSeed(roll >>> 0, n), left, habit), 1)[0]);
   return options;
 }
 /** An offer option: a talisman (design answer 10 to step 3: no «пустышка» in the slice — an empty pool offers nothing). */
@@ -233,7 +257,26 @@ export interface RtTalismanPool {
   taken: readonly RtTalismanId[]; gone: readonly RtTalismanId[];
   /** Task 30: a run with the flag `forms` — its catalogue holds the openers (`rtTalismanCatalog`). Absent — the old catalogue. */
   forms?: boolean;
+  /** Task 50 «Повадка»: the run's archetype — the draws weigh its tagged items (`rtWeightedIndex`). Absent — every weight 1. */
+  habit?: RtHabitId;
 }
+
+/** Task 50: the weight of `id` in a draw of a run with `habit` (`RT_HABIT_WEIGHT` with the tag, else 1); no habit — 1. */
+export const rtHabitWeight = (id: RtTalismanId, habit?: RtHabitId): number => (habit && rtTalisman(id)?.tags?.includes(habit) ? RT_HABIT_WEIGHT : 1);
+/**
+ * Task 50 (design 4.3): the index a draw `value` picks among `candidates` (in their order) — `value mod Σw`, then the accumulated weights.
+ * Without a habit every weight is 1: `value mod n`, the index of before, byte for byte. The rarity roll is not weighed (it came first).
+ */
+export function rtWeightedIndex(value: number, candidates: readonly RtTalismanId[], habit?: RtHabitId, plain: readonly RtTalismanId[] = []): number {
+  // `plain` — candidates that weigh 1 whatever their tag (task 50: «Иней на клинке» new on the knack screen of «Стужа»).
+  if (!habit) return value % candidates.length;
+  const weights = candidates.map(id => (plain.includes(id) ? 1 : rtHabitWeight(id, habit)));
+  let r = value % weights.reduce((sum, w) => sum + w, 0);
+  for (let i = 0; i < weights.length; i++) { if (r < weights[i]) return i; r -= weights[i]; }
+  return candidates.length - 1;
+}
+/** `rtWeightedIndex`'s pick. */
+export const rtWeightedPick = (value: number, candidates: readonly RtTalismanId[], habit?: RtHabitId, plain: readonly RtTalismanId[] = []): RtTalismanId => candidates[rtWeightedIndex(value, candidates, habit, plain)];
 /**
  * The talismans the rarity draws of a run pick from — one place for every draw (`rtTalismanOffer`, `rtShopTalisman`,
  * `rtTalismanDraw`, `rtTalismanLeft`): the run's catalogue `RT_TALISMANS`; task 30 — with the flag `forms` the openers too
@@ -284,7 +327,7 @@ export function rtTalismanOffer(base: number, source: 'hard' | 'oath', pool: RtT
       const rolled = slot === RT_RARE_SLOT ? RARITIES.indexOf('rare') : RARITIES.indexOf(rarityOfRoll(unit(mixSeed(mixSeed(seed, slot), RARITY_SALT))));
       for (let step = 0; step < RARITIES.length && !candidates.length; step++) candidates = eligibleOf(RARITIES[(rolled + step) % RARITIES.length], pool, options);
     }
-    if (candidates.length) options.push(candidates[mixSeed(mixSeed(seed, slot), PICK_SALT) % candidates.length]);
+    if (candidates.length) options.push(rtWeightedPick(mixSeed(mixSeed(seed, slot), PICK_SALT), candidates, pool.habit));
   }
   return options;
 }
@@ -294,7 +337,7 @@ export function rtShopTalisman(base: number, pool: RtTalismanPool): RtTalismanId
   const seed = mixSeed(base >>> 0, SHOP_SALT), rolled = RARITIES.indexOf(rarityOfRoll(unit(mixSeed(seed, RARITY_SALT))) as typeof RARITIES[number]);
   for (let step = 0; step < RARITIES.length; step++) {
     const candidates = eligibleOf(RARITIES[(rolled + step) % RARITIES.length], pool, []);
-    if (candidates.length) return candidates[mixSeed(seed, PICK_SALT) % candidates.length];
+    if (candidates.length) return rtWeightedPick(mixSeed(seed, PICK_SALT), candidates, pool.habit);
   }
   return null;
 }
@@ -316,7 +359,7 @@ export function rtTalismanDraw(base: number, rarity: 'common' | 'uncommon' | 'oa
     let candidates: RtTalismanId[] = [];
     if (rarity === 'oath') candidates = eligible('oath');
     else for (const of of DRAW_RARITIES.slice(DRAW_RARITIES.indexOf(rarity))) { candidates = eligible(of); if (candidates.length) break; }
-    if (candidates.length) drawn.push(candidates[mixSeed(mixSeed(base >>> 0, slot), DRAW_SALT) % candidates.length]);
+    if (candidates.length) drawn.push(rtWeightedPick(mixSeed(mixSeed(base >>> 0, slot), DRAW_SALT), candidates, pool.habit));
   }
   return drawn;
 }

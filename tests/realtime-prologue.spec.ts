@@ -1,6 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { gameWait, untilFrame } from './realtimeFrames';
+import { skipHabit } from './realtimeTest';
 
 /**
  * The prologue «Опушка» (src/realtime/view/prologueFlow.ts, prologueView.ts, run/prologue.ts; docs/realtime-onboarding.md, «Пролог:
@@ -586,6 +587,8 @@ test('«Пропустить обучение» leads to the run and sets the ke
   expect((await pro(page)).active).toBe(false);
   // The gear: «Обучение» clears the labels' memory and plays the prologue.
   await page.evaluate(() => { (window as any).__realtime.run.newRun(10); });
+  await expect(page.getByTestId('gift-1')).toBeVisible();
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await page.evaluate(() => localStorage.setItem('ashen-oath-realtime-hints', JSON.stringify({ version: 1, shown: { b6: 1 } })));
   const runBefore = await page.evaluate(() => JSON.stringify((window as any).__realtime.run.state()));
@@ -814,6 +817,8 @@ test('telemetry: one prologue record per playthrough — room 1 passed with the 
   expect([r2.room, r2.outcome, r2.attempts, r2.restores]).toEqual([2, 'skip', 1, 1]);
   // The gear's «Обучение» (a run on the map): a second record, from the gear, skipped in room 1.
   await page.evaluate(() => { (window as any).__realtime.run.newRun(10); });
+  await expect(page.getByTestId('gift-1')).toBeVisible();
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await page.getByTestId('run-settings').click();
   await page.getByTestId('prologue-start').click();
