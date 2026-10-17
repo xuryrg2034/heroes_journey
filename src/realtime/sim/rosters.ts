@@ -34,6 +34,8 @@ export const ROLE_TITLES: Readonly<Record<EnemyRole, string>> = {
 /** The role of each kind a roster may bring. */
 export const KIND_ROLE: Readonly<Record<string, EnemyRole>> = {
   basic: 'presser', boar: 'presser', archer: 'shooter', shield: 'blocker', porcupine: 'punisher', sapper: 'punisher', shaman: 'master', wolf: 'diver', lynx: 'diver',
+  // Task 57а «Лес: стрелки» (design 17.10.2026): the slinger, the hive and the wisp shoot.
+  slinger: 'shooter', hive: 'shooter', wisp: 'shooter',
 };
 /** Kinds every run has met from its start: no roster waits for them. */
 export const ALWAYS_MET: readonly string[] = ['basic', 'wolf', 'boar'];
@@ -55,6 +57,8 @@ export interface RosterDef {
   boarShare?: number;
   /** Cap of boars on the arena for this roster (design 09.10.2026: «Натиск» — 5); absent — the panel's «Кабанов на арене». */
   boarMax?: number;
+  /** Task 57а: caps of kinds on the arena for this roster over the kinds' own (`ArenaTemplate.kindCaps`); absent — the kinds' own. */
+  caps?: Readonly<Record<string, number>>;
 }
 
 /**
@@ -216,7 +220,7 @@ export function withRoster(template: ArenaTemplate, id: string): RosterArena {
   const shares = def.mode === 'replace'
     ? { wolfShare: def.wolfShare ?? 0, boarShare: def.boarShare ?? 0 }
     : { ...def.wolfShare !== undefined ? { wolfShare: def.wolfShare } : {}, ...def.boarShare !== undefined ? { boarShare: def.boarShare } : {} };
-  return { ...template, newcomers, phaseOverride: { ...template.phaseOverride, ...shares }, ...def.boarMax !== undefined ? { boarMax: def.boarMax } : {}, roster: id };
+  return { ...template, newcomers, phaseOverride: { ...template.phaseOverride, ...shares }, ...def.boarMax !== undefined ? { boarMax: def.boarMax } : {}, ...def.caps ? { kindCaps: { ...template.kindCaps, ...def.caps } } : {}, roster: id };
 }
 
 /**

@@ -70,6 +70,12 @@ export interface EnemyBehavior {
    * `pushOutOfSolids`), and the body itself is never moved by the parting or the crowd. Absent — an ordinary body.
    */
   solid?(world: World, enemy: Enemy): boolean;
+  /**
+   * Task 57а: how the parting (world.ts `separate`) treats the body now — `anchored`: the crowd and the walking hero never move it,
+   * the others yield (the hive); `ghost`: it takes no part at all — no push either way, no obstacle, no cliff (the flying wisp).
+   * Absent — an ordinary body.
+   */
+  crowd?(world: World, enemy: Enemy): 'anchored' | 'ghost';
 }
 
 /**
@@ -99,6 +105,11 @@ export interface EnemyKindDef {
   ownTouch?: true;
   /** Task 43: never an elite (no elite roll, no elite modifier: the knight's plates are its own law). */
   noElite?: true;
+  /**
+   * Task 57а: true — a newcomer of this kind would pass its cap now: spawn.ts `rollSingle` brings none (the roll goes on to the next
+   * kind). `count` — bodies of these kinds on the arena, at markers and in the queue. Absent — no cap (every kind before).
+   */
+  capped?(world: World, count: (kinds: readonly string[]) => number): boolean;
   /** Body (pushing, touch zone, obstacles) and art (drawing, link reach edge, press circle) as a share of the common size. */
   bodyScale: number;
   artScale: number;

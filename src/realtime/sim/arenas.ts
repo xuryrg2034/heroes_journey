@@ -127,6 +127,17 @@ export interface ArenaTemplate extends ArenaShape {
   /** Phase A (Т2): the cap of boars on the arena (a roster's own, «Натиск»); omitted — the panel slider «Кабанов на арене». */
   boarMax?: number;
   /**
+   * Task 57а: caps of newcomer kinds on this arena (a roster's `caps`, rosters.ts `withRoster`) over the kinds' own (`EnemyKindDef.cap`):
+   * a roll of such a kind with that many on the arena, at markers and in the queue brings none (spawn.ts `rollSingle`). Omitted — the kinds' own.
+   */
+  kindCaps?: Readonly<Record<string, number>>;
+  /**
+   * Task 57а: the arena's shooters' timer (game s; `Params.volleyGap`) when the values have none — an arena of the new shooters
+   * (world.ts `createWorld`); `volleyArcher` — the archer obeys it too. Omitted — the values as they come.
+   */
+  volleyGap?: number;
+  volleyArcher?: true;
+  /**
    * К7 «Проклятый сундук» (chest.ts; design 12.10.2026): the authored point of the cursed chest — only «Застава». The chest
    * stands there while `Params.cursedChest` is on; omitted — no chest.
    */

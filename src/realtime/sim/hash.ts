@@ -84,6 +84,9 @@ export function worldState(world: World): unknown {
     ...world.bossCleared ? { bossCleared: true } : {},
     // Task 38 «Гарнизон» (`Params.tethers`, tethers.ts): the tethers on the arena (absent while none — worlds hash as before).
     ...world.tethers?.length ? { tethers: world.tethers } : {},
+    // Task 57а «Лес: стрелки» (shots.ts): the shots and the shooters' timer (absent until used — worlds without shooters hash as before).
+    ...world.shots ? { shots: world.shots } : {},
+    ...world.volley !== undefined ? { volley: world.volley } : {},
   };
 }
 
