@@ -34,6 +34,8 @@ export interface MetaEnd {
   carry: { n: number; share: number; cap: number; resources: number; cart?: number };
   stock: { before: number; after: number };
   quest?: { npc: NpcId; id: string; done: boolean; xp: number; stock: number };
+  /** Task 51г: the run's vows, each kept or not (only when counted: the run reached the Jailer's row); absent — none. */
+  vows?: { id: string; kept: boolean }[];
 }
 
 /** Task 49: the heroes as the camp and «Новый поход» show them (the profile's `heroes()`; the cat always open, Ведунья once freed). */

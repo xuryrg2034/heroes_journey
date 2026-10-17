@@ -167,15 +167,20 @@ test('task 51г view: the shackle cut in a real fight (a chain across it, the mo
   expect(errors).toEqual([]);
 });
 
-test('task 51г view: a kept vow shows «Обеты: 1  +15» in the end screen\'s experience; a run without vows has no such line', async ({ page }) => {
+test('task 51г view: a kept vow shows «Обеты: сдержано 1 из 1 · +15×1» in the end screen\'s experience; a run without vows has no such line', async ({ page }) => {
   test.setTimeout(120_000);
   const kept = walkRun({ k: 5, loot: 4, create: { ...CAMP, hearth: { jailerRerolls: 1, vows: ['vow-no-mapheal'] } } }).run;
   expect(kept.result?.outcome, 'the walk won').toBe('victory');
   await open(page, MONK_PROFILE, kept);
-  await expect(page.getByTestId('meta-part-vows')).toContainText('Обеты: 1');
-  await expect(page.getByTestId('meta-part-vows')).toContainText('+15');
+  await expect(page.getByTestId('meta-part-vows')).toContainText('Обеты: сдержано 1 из 1');
+  await expect(page.getByTestId('meta-part-vows')).toContainText('+15×1');
   await page.waitForTimeout(1500);
   await page.screenshot({ path: shot('monk-end') });
+  // A broken vow is seen by the number: «сдержано 0 из 1 · +15×0» (the walk rerolls, «Без переброса» is broken).
+  const broken = walkRun({ k: 5, loot: 4, create: { ...CAMP, hearth: { jailerRerolls: 1, vows: ['vow-no-reroll'] } } }).run;
+  await open(page, MONK_PROFILE, broken);
+  await expect(page.getByTestId('meta-part-vows')).toContainText('Обеты: сдержано 0 из 1');
+  await expect(page.getByTestId('meta-part-vows')).toContainText('+15×0');
   const plain = walkRun({ k: 5, loot: 4, create: CAMP }).run;
   await open(page, MONK_PROFILE, plain);
   await expect(page.getByTestId('meta-record')).toBeVisible();
