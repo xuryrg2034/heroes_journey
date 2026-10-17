@@ -5,6 +5,7 @@ import { RT_PROFILE_STORAGE_KEY, RT_RUN_STORAGE_KEY } from '../src/realtime/run/
 import { rtMetaLocked } from '../src/realtime/run/rtMeta';
 import { closeNode, ok, seedOf, takeGift } from '../src/realtime/run/runFight.testkit';
 import { TOAD_LINES } from '../src/realtime/view/heroLines';
+import { TOAD_LINES_BY_NPC } from '../src/realtime/view/npcToadLines';
 
 /**
  * Task 49 «Второй герой: Ведунья», the meta part of the view (docs/design-notes/task-49-second-hero.md, 6.1, 7.1; docs/realtime-slice.md,
@@ -257,11 +258,17 @@ test('task 49: Ведунья\'s rest offers «Сплав: «Ледяная пе
 test('task 49: after her run the camp gives her line of its death or record at her place; after the cat run none', async ({ page }) => {
   test.setTimeout(90_000);
   const errors = collectErrors(page);
-  const hearth = (last: object) => ({ ...HEARTH, lines: { 'owl:first': 2, 'toad:first_camp': 1 }, last });
+  const hearth = (last: object) => ({ ...HEARTH, lines: { 'owl:first': 2, 'owl:first:toad': 9, 'toad:first_camp': 1 }, last });
   const meta = (last: object) => ({ heroes: { toad: { xp: 5, packs: [] } }, hearth: hearth(last), freed: { toad: { row: 5, run: 1 } }, hero: 'toad' });
   await open(page, null, { ...PROFILE_BASE, meta: meta({ won: false, row: 3, beaten: false, cause: 'crowd', hero: 'toad' }) });
   await page.getByTestId('run-hearth').click();
   await expect(page.getByTestId('hearth-hero-line')).toHaveText(TOAD_LINES.death_crowd[0]);
+  // The camp NPC speaks to her: the owl's variant for the death by the crowd (its own memory key `owl:death_crowd:toad`).
+  await page.getByTestId('hearth-npc-owl').click();
+  await expect(page.getByTestId('hearth-line')).toHaveText(TOAD_LINES_BY_NPC.owl.death_crowd![0]);
+  expect((await profileOf(page)).meta.hearth.lines['owl:death_crowd:toad']).toBe(1);
+  await page.mouse.move(0, 0);
+  await page.screenshot({ path: shot('hearth-after-her-run-owl') });
   await open(page, null, { ...PROFILE_BASE, meta: meta({ won: false, row: 6, beaten: true, cause: 'crowd', hero: 'toad' }) });
   await page.getByTestId('run-hearth').click();
   await expect(page.getByTestId('hearth-hero-line')).toHaveText(TOAD_LINES.record[0]);
