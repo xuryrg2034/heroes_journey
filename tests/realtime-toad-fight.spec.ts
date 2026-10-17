@@ -270,20 +270,20 @@ test('the cage: the Jailer\'s yard in the sandbox with `?cage=1` shows her in th
   expect(errors).toEqual([]);
 });
 
-/** A run of the meta (no given seed) walked to the Jailer's open battle: a plain save. */
-function runAtJailer(): RtRunState {
-  for (let k = 1; k <= 30; k++) {
+/** A run of the meta (no given seed) walked to the open battle on the Jailer's arena `arenaId` (a scheduled run that has not met the cliff plays `jailer-yard`): a plain save. */
+function runAtJailer(arenaId: string): RtRunState {
+  for (let k = 1; k <= 40; k++) {
     let found: RtRunState | null = null;
-    walkRun({ k, create: { gift: 'mini', jailer: true }, each: run => { if (!found && run.pending?.kind === 'battle' && JAILER_RUN_ARENAS.includes(run.pending.arena)) found = structuredClone(run); } });
+    walkRun({ k, create: { gift: 'mini', jailer: true, ...arenaId === 'jailer-yard' ? { schedule: [] } : {} }, each: run => { if (!found && run.pending?.kind === 'battle' && run.pending.arena === arenaId) found = structuredClone(run); } });
     if (found) return found;
   }
-  throw new Error('no Jailer fight on 30 seeds');
+  throw new Error(`no fight on ${arenaId} on 40 seeds`);
 }
 
-test('the cage in a run: the Jailer\'s fight of a meta run with Ведунья not freed shows the cage; once freed in the profile, it is gone', async ({ page }) => {
+for (const arenaId of JAILER_RUN_ARENAS) test(`the cage in a run, arena «${arenaId}»: the Jailer fight of a meta run with Ведунья not freed shows the cage in the first frame; once freed in the profile, it is gone`, async ({ page }) => {
   test.setTimeout(120_000);
   const errors = collectErrors(page);
-  const start = runAtJailer();
+  const start = runAtJailer(arenaId);
   const open = async (profile: Record<string, unknown> | null): Promise<void> => {
     await page.goto('/');
     await page.evaluate(([key, value, profileJson]) => {
@@ -294,6 +294,7 @@ test('the cage in a run: the Jailer\'s fight of a meta run with Ведунья n
     await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
     await page.getByTestId('run-battle').click();
     await expect.poll(() => page.evaluate(() => (window as any).__realtime.run.arenaOpen())).toBe(true);
+    await expect.poll(async () => (await snap(page)).arena).toBe(arenaId);
   };
   await open({ version: 1, giftFull: false, meta: { heroes: {}, freed: { toad: { row: 5 } } } });
   await gameWait(page, 0.5);
@@ -305,10 +306,10 @@ test('the cage in a run: the Jailer\'s fight of a meta run with Ведунья n
   const at = await screen(page, cage.x, cage.y - 1);
   expect(await page.evaluate(() => (window as any).__realtime.camera().intro), 'the glide is on').toBeGreaterThanOrEqual(0);
   expect(at.x).toBeGreaterThan(0); expect(at.x).toBeLessThan(1280); expect(at.y).toBeGreaterThan(80); expect(at.y).toBeLessThan(720);
-  await page.screenshot({ path: `${SHOTS}/toad-cage-run-first-frame.png` });
+  await page.screenshot({ path: `${SHOTS}/toad-cage-run-first-frame-${arenaId}.png` });
   await expect.poll(() => page.evaluate(() => (window as any).__realtime.camera().intro)).toBe(0);
   const later = await screen(page, cage.x, cage.y - 1);
   expect(later.x).toBeGreaterThan(0); expect(later.x).toBeLessThan(1280);
-  await page.screenshot({ path: `${SHOTS}/toad-cage-run-fight.png` });
+  await page.screenshot({ path: `${SHOTS}/toad-cage-run-fight-${arenaId}.png` });
   expect(errors).toEqual([]);
 });

@@ -12,7 +12,20 @@ import type { World } from '../sim/world';
 
 const NAVY = 0x14213d;
 /** Arena units: the cage's size, and how far from the arena's right and bottom edge its hanging point and ground stand. */
-const CAGE_W = 1.9, CAGE_H = 2.1, EDGE_X = 2.4, GROUND_K = 0.58;
+const CAGE_W = 1.9, CAGE_H = 2.1;
+/**
+ * Where the cage hangs (arena units: the hanging point's x and the ground's y) in each arena of the Jailer's fight of a run
+ * (`JAILER_RUN_ARENAS`): a place no newcomer comes to (checked by the spawn count of `toadLesson.spec.ts`: no spawn under the cage's
+ * footprint in 20 seeds) and inside the first frame of the fight, where the camera opens on the boss (x 0–16, y 1.5–11.5).
+ * «Тюремщик» — over the ravine at the yard's west edge (no shadow: nothing to cast it on); «Тюремщик» without the ravine (`jailer-yard`) —
+ * the yard's east corner at the south palisade, clear of the gate and the boss's post.
+ */
+export const CAGE_PLACES: Readonly<Record<string, { x: number; y: number; shadow: boolean }>> = {
+  jailer: { x: 2.4, y: 8.1, shadow: false },
+  'jailer-yard': { x: 14.2, y: 8.9, shadow: true },
+};
+/** The cage's place in an arena: the table's, else the west side at 58 % of the height. */
+export const cagePlace = (arenaId: string, height: number): { x: number; y: number; shadow: boolean } => CAGE_PLACES[arenaId] ?? { x: 2.4, y: height * 0.58, shadow: true };
 /** Seconds between blinks, how long one blink lasts, how long a flinch lasts (real seconds). */
 const BLINK_EVERY = 3.4, BLINK_LEN = 0.16, JOLT_LIFE = 0.55;
 
@@ -88,7 +101,7 @@ export class JailerCageView {
   update(world: World, dt: number): void {
     if (!this.shown.on) return;
     this.clock += dt;
-    const arena = world.arena, x = EDGE_X, ground = arena.height * GROUND_K;
+    const place = cagePlace(world.arena.id, world.arena.height), x = place.x, ground = place.y;
     this.shown.x = x; this.shown.y = ground;
     for (const ev of world.events) if (ev.type === 'chainEnd' && ev.kills > 0) { this.joltLeft = JOLT_LIFE; this.shown.jolts++; }
     if (this.joltLeft > 0) this.joltLeft = Math.max(0, this.joltLeft - dt);
@@ -99,8 +112,7 @@ export class JailerCageView {
     this.body.position.set(0, top);
     this.body.rotation = Math.sin(this.clock * 1.3) * 0.02 + Math.sin(this.clock * 24) * 0.09 * jolt * jolt;
     this.shadow.clear();
-    // Over the ravine (the Jailer's yard has it on the west) a hanging cage casts no shadow on the ground.
-    if (!arena.terrain?.length) this.shadow.ellipse(0, 4, CAGE_W * 72 * 0.34 * (1 - 0.1 * Math.sin(this.clock * 1.3)), 9).fill({ color: 0x050a07, alpha: 0.4 });
+    if (place.shadow) this.shadow.ellipse(0, 4, CAGE_W * 72 * 0.34 * (1 - 0.1 * Math.sin(this.clock * 1.3)), 9).fill({ color: 0x050a07, alpha: 0.4 });
     // She flinches: a hop and a squash at the blow, then she settles.
     if (this.toad) {
       const base = CAGE_H * 72 * 0.64;
