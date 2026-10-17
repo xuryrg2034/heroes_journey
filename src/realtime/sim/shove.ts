@@ -1,0 +1,206 @@
+/**
+ * Task 55а «Замок: толчок» (design 17.10.2026, docs/design-notes/task-55-castle-step1a.md, 2; docs/realtime-elite-behaviors.md,
+ * «Замок: толчок»): the law of the castle — a chain that ends on a thing (the barrel, the wardrobe; enemies/castle.ts) shoves it at the
+ * dash's end along the chain's last segment.
+ *
+ * - **The path** (`shovePath`, one function for the highlight and the dash): the thing — a circle of its body — slides straight on
+ *   from where it stands. It stops at the first of: a wall, a tree or the edge (`blockedAt` with its radius, no cliffs; marched by
+ *   `PATH_STEP`); a tough body (an enemy with HP ≥ 1 or plates, another thing, a boss core; the circle touches the thing's lane — the
+ *   lane is the thing's diameter wide); a cliff (its centre over one: it falls, no strike); the end of its length (the wardrobe —
+ *   `shoveDistance`; the barrel — `barrelRoll` at most). The weak (HP 0, no plates) the lane meets before the stop are **crushed**, in
+ *   the order of the path. The hero is neither a stop nor a target.
+ * - **The strike at the stop:** a tough body — `shoveImpact` (the wardrobe) or `barrelImpact` (the barrel) HP, an armoured one loses a
+ *   plate (the law of the elites' armour, `damageEnemy`); a boss core — the same hit (`damageEnemy` decides, task 55б will add the
+ *   warlock's rule); another thing — both lose 1 of their durability; a wall — the wardrobe loses 1. The barrel breaks at any stop; a
+ *   thing whose durability reached 0 breaks (it leaves the arena, event `thing` `break` — not a kill).
+ * - **The plan is fixed** (the pattern of the garrison's `cuts`): the release fixes the preview (chain.ts, task 55а, its last step) and
+ *   the dash's end runs exactly it (`startShove`): the thing slides to the fixed stop at `shoveSpeed` (`world.shoves`, present only while
+ *   a thing slides; hashed); each crushed body dies when the thing passes its point (dead already — skipped); the strike lands when the
+ *   thing arrives (the stop dead — no strike, the thing still stands at the fixed point and wears as planned). A body that moved during
+ *   the dash is still crushed or struck — the price of «highlight = dash» (spec, risk Р1).
+ * - **Credit** (design В4): kills of the shove are the player's (`kill` with `source` `shove`, `credited`).
+ *
+ * Events (the view; the rules never read them): `shove` — `start` (the plan), `crush` (a body crushed), `impact` (the strike at the
+ * stop: `target`, or the wall), `stop` (the thing stands at its point), `fall` (it fell into a cliff), `cancel` (the dash did not reach
+ * it, chain.ts); `thing` `break` (`by`: `wall`, `thing`, `body`, `core`, `end` — the barrel breaks at any stop).
+ */
+import { blockedAt, overCliff, type Vec } from './geometry';
+import { bodyRadiusOf, kindOf } from './enemies/kinds';
+import { BOSS_CORES } from './enemies/jailer';
+import { platesOf } from './elites';
+import { damageEnemy, killEnemy, pushOutOfSolids, type Enemy, type World } from './world';
+
+export type ShoveStop = 'wall' | 'body' | 'thing' | 'core' | 'cliff' | 'end';
+
+/** The strike at a body or a core: a plate off (`plate`), or `damage` HP (`killed` — it dies). */
+export interface ShoveImpact { id: number; damage: number; plate: boolean; killed: boolean }
+
+/** A shove as the highlight shows it and the dash runs it. Distances along the path from the thing's place at the release. */
+export interface ShovePlan {
+  /** The thing and its kind. */
+  thing: number;
+  kind: string;
+  /** Where it stands at the release, the unit direction, how far it slides and where it stops. */
+  from: Vec;
+  dir: Vec;
+  length: number;
+  to: Vec;
+  /** What stops it, and the body or thing it stops at (`body`, `thing`, `core`). */
+  stop: ShoveStop;
+  target?: number;
+  /** The weak bodies it crushes, in the order of the path (`at` — the distance where it meets each). */
+  crushed: { id: number; at: number }[];
+  /** The strike at the body or the core it stops at (none at a wall, a thing, a cliff, the end, or an immune body). */
+  impact?: ShoveImpact;
+  /** The things' durability after the stop (this thing; and the other one for `thing`). */
+  wear: { id: number; left: number }[];
+  /** The things that break at the stop (this thing; the other one too when its durability runs out). */
+  breaks: number[];
+}
+
+/** A shove running (`world.shoves`): its plan, how far the thing has slid and how many of `crushed` have been met. */
+export interface Shove extends ShovePlan { run: number; met: number }
+
+/** Step of the march along the path (units; as the crossbow's line). */
+export const PATH_STEP = 0.05;
+/** The barrel and the wardrobe (enemies/castle.ts; no import: the kinds register after). */
+const BARREL = 'barrel';
+// ---- Баланс (journals without the keys play these) ----
+export const SHOVE_DISTANCE = 3;
+export const SHOVE_SPEED = 12;
+export const SHOVE_IMPACT = 1;
+export const BARREL_ROLL = 16;
+export const BARREL_IMPACT = 2;
+
+export const isThing = (e: Pick<Enemy, 'kind'>): boolean => !!kindOf(e as Enemy).thing;
+/** A thing's durability now (`vars.du`; set when it appears). */
+export const durabilityOf = (e: Enemy): number => e.vars.du ?? 0;
+/** The law is on (`Params.shove`). */
+export const shoveOn = (world: World): boolean => !!world.params.shove;
+const lengthOf = (world: World, kind: string): number => Math.max(0, kind === BARREL ? world.params.barrelRoll ?? BARREL_ROLL : world.params.shoveDistance ?? SHOVE_DISTANCE);
+const impactOf = (world: World, kind: string): number => Math.max(0, kind === BARREL ? world.params.barrelImpact ?? BARREL_IMPACT : world.params.shoveImpact ?? SHOVE_IMPACT);
+const speedOf = (world: World): number => Math.max(0.1, world.params.shoveSpeed ?? SHOVE_SPEED);
+
+/** A body that stops a thing: a thing, a boss core, an enemy with HP ≥ 1 or plates, an immune one (the reaper: no strike). */
+function stopKind(e: Enemy): 'thing' | 'core' | 'body' | null {
+  if (isThing(e)) return 'thing';
+  if (BOSS_CORES.includes(e.kind)) return 'core';
+  if (kindOf(e).immune || e.hp >= 1 || platesOf(e) > 0) return 'body';
+  return null;
+}
+
+/**
+ * The path of `thing` shoved along the unit direction `dir` (task 55а, spec 2.3): the same function for the highlight and the dash.
+ * Reads the world only (no state, no random draw).
+ */
+export function shovePath(world: World, thing: Enemy, dir: Vec): ShovePlan {
+  const p = world.params, arena = world.arena, r = bodyRadiusOf(p, thing), from = { x: thing.x, y: thing.y };
+  const most = lengthOf(world, thing.kind);
+  // Walls, trees, the edge, a cliff: marched along the path.
+  let stopAt = most, stop: ShoveStop = 'end', target: number | undefined;
+  for (let t = PATH_STEP; t <= most + 1e-9; t += PATH_STEP) {
+    const q = { x: from.x + dir.x * t, y: from.y + dir.y * t };
+    if (blockedAt(q, r, arena, false)) { stopAt = Math.max(0, t - PATH_STEP); stop = 'wall'; break; }
+    if (arena.terrain && overCliff(q, arena)) { stopAt = t; stop = 'cliff'; break; }
+  }
+  // Bodies: where the thing's circle first touches each (its lane is the thing's diameter wide); ahead of it only.
+  const met: { e: Enemy; at: number; kind: 'thing' | 'core' | 'body' | null }[] = [];
+  for (const e of world.enemies) {
+    if (e === thing) continue;
+    const rx = e.x - from.x, ry = e.y - from.y, along = rx * dir.x + ry * dir.y, lat = Math.abs(rx * dir.y - ry * dir.x), reach = r + bodyRadiusOf(p, e);
+    if (along <= 0 || lat > reach) continue;
+    met.push({ e, at: Math.max(0, along - Math.sqrt(Math.max(0, reach * reach - lat * lat))), kind: stopKind(e) });
+  }
+  met.sort((a, b) => a.at - b.at || a.e.id - b.e.id);
+  const first = met.find(m => m.kind !== null);
+  if (first && first.at < stopAt) { stopAt = first.at; stop = first.kind!; target = first.e.id; }
+  const crushed = met.filter(m => m.kind === null && m.at < stopAt).map(m => ({ id: m.e.id, at: m.at }));
+  // The strike and the wear at the stop.
+  const barrel = thing.kind === BARREL, own = durabilityOf(thing);
+  let ownLeft = barrel ? 0 : own, impact: ShoveImpact | undefined;
+  const wear: { id: number; left: number }[] = [], breaks: number[] = [];
+  const hit = target !== undefined ? world.enemies.find(e => e.id === target)! : null;
+  if (stop === 'wall') ownLeft = barrel ? 0 : own - 1;
+  if ((stop === 'body' || stop === 'core') && hit && !kindOf(hit).immune) {
+    const damage = impactOf(world, thing.kind), plate = platesOf(hit) > 0;
+    if (damage > 0) impact = { id: hit.id, damage, plate, killed: !plate && damage >= hit.hp };
+  }
+  if (stop === 'thing' && hit) {
+    if (!barrel) ownLeft = own - 1;
+    const other = durabilityOf(hit) - 1;
+    wear.push({ id: hit.id, left: Math.max(0, other) });
+    if (other <= 0) breaks.push(hit.id);
+  }
+  wear.unshift({ id: thing.id, left: Math.max(0, ownLeft) });
+  if (stop !== 'cliff' && ownLeft <= 0) breaks.unshift(thing.id);
+  const to = { x: from.x + dir.x * stopAt, y: from.y + dir.y * stopAt };
+  return { thing: thing.id, kind: thing.kind, from, dir: { x: dir.x, y: dir.y }, length: stopAt, to, stop, ...target !== undefined ? { target } : {}, crushed, ...impact ? { impact } : {}, wear, breaks };
+}
+
+/** The thing is sliding now, or a sliding thing is about to strike it (the refusal «в движении», chain.ts). */
+export function sliding(world: World, id: number): boolean {
+  return !!world.shoves?.some(s => s.thing === id || (s.stop === 'thing' && s.target === id));
+}
+
+/** Hooks of the kinds when a shove starts (the wardrobe's topple drops; enemies/castle.ts registers it). */
+const onShoved: ((world: World, thing: Enemy) => void)[] = [];
+export function registerShoved(hook: (world: World, thing: Enemy) => void): void { onShoved.push(hook); }
+
+/** The dash's end runs a fixed plan (the field `world.shoves` appears with it). The thing gone — nothing. */
+export function startShove(world: World, plan: ShovePlan): void {
+  const thing = world.enemies.find(e => e.id === plan.thing);
+  if (!thing || world.status !== 'playing') return;
+  for (const hook of onShoved) hook(world, thing);
+  (world.shoves ??= []).push({ ...JSON.parse(JSON.stringify(plan)) as ShovePlan, run: 0, met: 0 });
+  world.events.push({ type: 'shove', action: 'start', thingId: plan.thing, x: plan.from.x, y: plan.from.y, x1: plan.to.x, y1: plan.to.y, stop: plan.stop, ...plan.target !== undefined ? { target: plan.target } : {} });
+}
+
+/** A thing leaves the arena: broken (`thing` `break`) or fallen (`shove` `fall`) — not a kill. */
+export function removeThing(world: World, thing: Enemy, by: ShoveStop | 'fall'): void {
+  const i = world.enemies.indexOf(thing);
+  if (i < 0) return;
+  world.enemies.splice(i, 1);
+  if (by === 'fall') world.events.push({ type: 'shove', action: 'fall', thingId: thing.id, x: thing.x, y: thing.y });
+  else world.events.push({ type: 'thing', action: 'break', id: thing.id, x: thing.x, y: thing.y, by });
+}
+
+/** The thing arrived: the strike, the wear, the breaks. */
+function arrive(world: World, s: Shove, thing: Enemy): void {
+  world.events.push({ type: 'shove', action: 'stop', thingId: s.thing, x: s.to.x, y: s.to.y, stop: s.stop, ...s.target !== undefined ? { target: s.target } : {} });
+  if (s.stop === 'cliff') { removeThing(world, thing, 'fall'); return; }
+  const target = s.target !== undefined ? world.enemies.find(e => e.id === s.target) : undefined;
+  if (s.impact && target) {
+    world.events.push({ type: 'shove', action: 'impact', thingId: s.thing, x: target.x, y: target.y, target: target.id });
+    damageEnemy(world, target, s.impact.damage, { source: 'shove', credited: true, plates: 1, firing: s.thing });
+  } else if (s.stop === 'wall' || (s.stop === 'thing' && target)) world.events.push({ type: 'shove', action: 'impact', thingId: s.thing, x: s.to.x, y: s.to.y, ...target ? { target: target.id } : {} });
+  if (world.status !== 'playing') return;
+  for (const w of s.wear) { const t = world.enemies.find(e => e.id === w.id); if (t) t.vars.du = w.left; }
+  for (const id of s.breaks) { const t = world.enemies.find(e => e.id === id); if (t) removeThing(world, t, s.stop); }
+}
+
+/**
+ * The shoves' step (world.ts `update`, after the enemies moved, before the parting): each thing slides on (game time), crushes the
+ * bodies it passes, arrives and strikes. The hero is put out of a thing that slid onto him (solid bodies, task 48). Nothing without a
+ * shove.
+ */
+export function updateShoves(world: World, dt: number): void {
+  const list = world.shoves;
+  if (!list?.length || world.status !== 'playing') return;
+  const speed = speedOf(world);
+  for (const s of [...list]) {
+    const thing = world.enemies.find(e => e.id === s.thing);
+    if (!thing) { list.splice(list.indexOf(s), 1); continue; }
+    s.run = Math.min(s.length, s.run + speed * dt);
+    thing.x = s.from.x + s.dir.x * s.run; thing.y = s.from.y + s.dir.y * s.run;
+    while (s.met < s.crushed.length && s.crushed[s.met].at <= s.run + 1e-9) {
+      const c = s.crushed[s.met++], victim = world.enemies.find(e => e.id === c.id);
+      if (!victim) continue;
+      world.events.push({ type: 'shove', action: 'crush', thingId: s.thing, x: victim.x, y: victim.y, target: victim.id });
+      killEnemy(world, victim, { source: 'shove', credited: true });
+      if (world.status !== 'playing') return;
+    }
+    if (s.run >= s.length - 1e-9) { list.splice(list.indexOf(s), 1); arrive(world, s, thing); if (world.status !== 'playing') return; }
+  }
+  if (!list.length) delete world.shoves;
+  pushOutOfSolids(world, world.hero);
+}
