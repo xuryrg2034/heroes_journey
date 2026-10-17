@@ -11,7 +11,40 @@ export type TerrainKind = 'floor' | 'tree' | 'pond' | 'campfire' | 'puddle' | 'w
 /** Enemy colours 0–4: red, green, blue, ochre, amethyst. */
 export const COLORS = [0xca7970, 0x9fba7c, 0x79b0c4, 0xd8b66a, 0xb69ad2];
 export const PALE = 0xf2dfb4;
-export function makePlayer(): Container {
+/** The heroes the view draws: the cat barbarian (the loadout without `hero`) and Ведунья (task 49, `Loadout.hero` `toad`). */
+export type HeroArtId = 'cat' | 'toad';
+/**
+ * Task 49: Ведунья, the second hero — the sprite `toad.png`; without it a drawn toad of ANOTHER silhouette than the cat (a squat wide
+ * body and a huge pointed hat, no ears, no upright tail; the colours slate and deep navy with a turquoise ring, never the chain's five).
+ */
+export function makeToad(size=1):Container{
+  const sprite=characterSprite('toad',84*size,78*size);
+  if(sprite){const c=new Container();sprite.position.set(0,-2*size);c.addChild(sprite);return c;}
+  const c=new Container(),g=new Graphics();c.addChild(g);c.scale.set(size);
+  g.ellipse(0,27,30,7).fill({color:0x0b1512,alpha:0.6});
+  // The squat body and the webbed feet.
+  g.ellipse(0,14,27,16).fill(0x5c6677).stroke({color:0x24251c,width:2.5});
+  g.ellipse(0,18,17,10).fill(0xe3cd8a);
+  g.ellipse(-20,25,10,4.5).fill(0x5c6677).stroke({color:0x24251c,width:2}).ellipse(20,25,10,4.5).fill(0x5c6677).stroke({color:0x24251c,width:2});
+  // The shawl and the staff with its ember.
+  g.poly([-22,6,-8,2,0,10,8,2,22,6,16,20,-16,20]).fill(0x3a2f6a).stroke({color:0x24251c,width:2});
+  g.moveTo(25,24).lineTo(28,-22).stroke({color:0x6b4a2c,width:4,cap:'round'});g.circle(28,-25,4.5).fill(0xf08a3c).stroke({color:0x24251c,width:1.5});
+  // The head is wide and flat, under the hat's wide brim.
+  g.ellipse(0,-3,25,13).fill(0x6a7586).stroke({color:0x24251c,width:2.5});
+  g.moveTo(-17,0).quadraticCurveTo(0,8,17,0).stroke({color:0x24251c,width:2});
+  g.ellipse(-14,1,5,3.5).fill(0xe0856a).ellipse(14,1,5,3.5).fill(0xe0856a);
+  g.ellipse(-9,-7,4.5,3).fill(0xe8d27a).stroke({color:0x24251c,width:1.5}).ellipse(9,-7,4.5,3).fill(0xe8d27a).stroke({color:0x24251c,width:1.5});
+  g.rect(-13,-9.5,8,2.5).fill(0x24251c).rect(5,-9.5,8,2.5).fill(0x24251c);
+  // The pointed hat: a wide brim and a bent tip.
+  g.ellipse(0,-14,34,8).fill(0x2b2358).stroke({color:0x14213d,width:2.5});
+  g.poly([-19,-15,-4,-52,10,-49,2,-42,19,-15]).fill(0x3b2f78).stroke({color:0x14213d,width:2.5});
+  g.rect(-18,-21,36,4).fill(0x4d63b8);
+  // The turquoise ring she draws.
+  g.circle(-30,-4,9).stroke({color:0x3fd6c8,width:3,alpha:0.9});
+  return c;
+}
+export function makePlayer(hero:HeroArtId='cat'):Container{
+  if(hero==='toad')return makeToad();
   const sprite=characterSprite('player',72,70);
   if(sprite){const c=new Container();c.addChild(sprite);return c;}
   const c=new Container(),g=new Graphics();c.addChild(g);

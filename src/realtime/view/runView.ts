@@ -524,6 +524,11 @@ export class RunView {
 
   get state(): RtRunState | null { return this.run; }
   get arenaOpen(): boolean { return this.inArena; }
+  /**
+   * Task 49, spec 6.1: the Jailer's cage hangs in his yard — a run of the meta (no given seed) while Ведунья is not freed in the profile.
+   * A decoration of the view; the host asks it when a fight starts.
+   */
+  cageDue(): boolean { return !!this.meta && !!this.run && !this.run.seeded && !this.profile.heroes().some(h => h.id === 'toad' && h.freed); }
 
   /** Shows the run screen: the map of the saved run, or the start of a new one. */
   open(): void {
