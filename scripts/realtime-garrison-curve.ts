@@ -19,7 +19,7 @@
  * among the runs that reached the Jailer (л5), the forest's final (л10) and the Castellan (г10) — the bosses' walls side by side.
  * `--moat` — the runs take «Ров» and the keymaster (the flag `RT_GARRISON_MOAT_ON` is off until the ui view).
  * `--step2 off` (task 43, part Г) — the runs play the garrison of step 1б (`step2: false`); absent — by the game's flag
- * (`RT_GARRISON_STEP2_ON`). `--garrison-only` — only the pass «гарнизон». Each pass ends with a table of the garrison's fights by arena
+ * (`RT_GARRISON_STEP2_ON`). `--garrison-only` — only the pass «гарнизон»; `--forest-only` (task 48) — only the pass «весь поход». Each pass ends with a table of the garrison's fights by arena
  * (with the loadout's knights `+рN`, crossbowmen `+арб`, deep `+глуб`): fights, deaths, median damage.
  * `--castellan <set>` (task 40, pass 3, design 16.10.2026: the Castellan's sweep) — only the pass «гарнизон», the Castellan's fight
  * played with the set's numbers (`CASTELLAN_SETS`) put on by the SCRIPT into the world it plays (no command, no Params key: the game
@@ -44,7 +44,7 @@ const SEEDS = Number(option('--seeds', '300')), LIMIT = Number(option('--limit',
 /** Task 40: `--moat` — the runs take «Ров» (`moat: true`) whatever `RT_GARRISON_MOAT_ON` says (off until the ui view). */
 const MOAT = args.includes('--moat');
 /** Task 43: `--step2 off` — the garrison of step 1б; `--garrison-only` — the pass «гарнизон» alone. */
-const STEP2_OFF = option('--step2', 'on') === 'off', GARRISON_ONLY = args.includes('--garrison-only');
+const STEP2_OFF = option('--step2', 'on') === 'off', GARRISON_ONLY = args.includes('--garrison-only'), FOREST_ONLY = args.includes('--forest-only');
 
 /**
  * Task 40, pass 3: the Castellan's sets of the sweep — the knobs that matter most, put on by the script only. `plates` — the core's
@@ -249,12 +249,12 @@ if (SET) {
   console.log(`| ${SET_NAME}${BOSS_AIM ? ' (в ядро)' : ''} | ${lost.length} из ${castellanFights.length} (${castellanFights.length ? Math.round(100 * lost.length / castellanFights.length) : 0}%) | ${castellanFights.length ? f1(median(castellanFights.map(f => f.time))) : '—'} | ${top || '—'} | ${garrison.outcomes.victory} | ${castellanFights.length ? f1(median(castellanFights.map(f => f.hpIn))) : '—'} | ${castellanFights.filter(f => f.won).length ? f1(median(castellanFights.filter(f => f.won).map(f => f.time))) : '—'} | ${lost.length ? f1(median(lost.map(f => f.time))) : '—'} |`);
   process.exit(0);
 }
-const whole = GARRISON_ONLY ? null : pass(() => true), garrison = pass(run => !!run.garrisonLevel);
+const whole = GARRISON_ONLY ? null : pass(() => true), garrison = FOREST_ONLY ? null : pass(run => !!run.garrisonLevel);
 if (BOSS_AIM) console.log(`Бот целит в ядро босса (--boss-aim): Тюремщик, Кастелян${TROLL_FIGHT ? ', Тролль (финал леса — «Берлога тролля», --troll)' : '; у финала леса ядра нет'}.\n`);
 const head = (() => { try { return execSync('git rev-parse --short HEAD').toString().trim(); } catch { return '?'; } })();
 console.log(`Задача 40, часть Е: кривая выживания бота через лес и гарнизон, ${SEEDS} seed, предел боя ${LIMIT} с, «Ров» ${MOAT ? 'вкл.' : 'по флагу игры'}, шаг 2 ${STEP2_OFF ? 'выкл.' : 'по флагу игры'} (эвристика, жадный бот), ${new Date().toISOString().slice(0, 10)}, HEAD ${head}, ${Math.round((Date.now() - started) / 1000)} с.\n`);
 if (whole) print('Весь поход: все бои настоящие', whole, ['л', 'г']);
-print('Гарнизон от «Предместья»: бои леса выиграны обходом, бои гарнизона настоящие', garrison, ['г']);
+if (garrison) print('Гарнизон от «Предместья»: бои леса выиграны обходом, бои гарнизона настоящие', garrison, ['г']);
 // Task 43: the Jailer's fights of both passes (the second plays the forest by the walk: only the first's count).
 const jl = jailerFights.filter(f => !f.won).length;
 if (TROLL_FIGHT) {

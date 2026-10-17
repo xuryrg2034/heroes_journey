@@ -97,6 +97,8 @@ export const ARENA_TITLES: Readonly<Record<string, string>> = {
   jailer: 'Тюремщик', 'jailer-yard': 'Тюремщик',
   // Task 38 «Гарнизон»: the garrison's arenas (sim/arenasGarrison.ts; run/garrison.ts).
   'g-yard': 'Плац', 'g-kennel': 'Псарня', 'g-gallery': 'Галерея', 'g-guardroom': 'Караульня', 'g-castellan': 'Двор кастеляна',
+  // Task 48 «Тролль»: the den boss's arena (sim/arenasBoss.ts).
+  troll: 'Берлога тролля',
 };
 export const arenaTitle = (arena: string): string => ARENA_TITLES[arena] ?? arena;
 /** Every arena a run may play (a save naming another one is malformed). */

@@ -68,12 +68,14 @@ interface Fight {
   coreTouch: { landing: number; other: number; dist: number[] };
   /** The bot's play (for the timeouts' review): chains released, chains with the core, game seconds the window stood open, the hero's mean distance to the core, the core's plates and HP at the end. */
   play: { chains: number; coreChains: number; openSeconds: number; distSum: number; ticks: number; plates: number; hp: number };
+  /** The boss's death (`greedStart`: the crowd cleared, the door open), game seconds; null — he lives. A timeout after it is the bot's walk out. */
+  cleared: number | null;
 }
 
 /** One fight by the bot (the boss aim at the Troll and the Jailer); the Troll's events counted. */
 function fight(run: RtRunState, extra: Partial<Params> = {}): Fight {
   const params = Object.assign(rtArenaParams(run, rtRunParams(defaultParams())), extra);
-  const f: Fight = { won: false, time: 0, timeout: false, killer: null, damage: {}, parts: [], windows: {}, blocks: 0, slept: 0, woken: 0, wolves: 0, phase: 1, shift: { core: 0, coreSum: 0, part: 0, ticks: 0, inside: 0, overlap: 0, behind: 0 }, coreTouch: { landing: 0, other: 0, dist: [] }, play: { chains: 0, coreChains: 0, openSeconds: 0, distSum: 0, ticks: 0, plates: 0, hp: 0 } };
+  const f: Fight = { won: false, time: 0, timeout: false, killer: null, damage: {}, parts: [], windows: {}, blocks: 0, slept: 0, woken: 0, wolves: 0, phase: 1, shift: { core: 0, coreSum: 0, part: 0, ticks: 0, inside: 0, overlap: 0, behind: 0 }, coreTouch: { landing: 0, other: 0, dist: [] }, play: { chains: 0, coreChains: 0, openSeconds: 0, distSum: 0, ticks: 0, plates: 0, hp: 0 }, cleared: null };
   let moving = false, landed = -Infinity, dashing = false;
   const kinds = new Map<number, string>(), wolves = new Set<number>();
   let open: { source: string; hit: boolean } | null = null, last: string | null = null;
@@ -126,7 +128,7 @@ function fight(run: RtRunState, extra: Partial<Params> = {}): Fight {
   const played = botFight(run, { params, loadout: rtArenaLoadout(run), limit: LIMIT, aim: [TROLL, JAILER, 'castellan'], seen });
   const w = played.sim.world;
   f.won = w.status === 'victory'; f.time = w.time; f.timeout = played.timeout; f.killer = f.won ? null : played.timeout ? 'timeout' : last ?? played.lastSource;
-  f.wolves = wolves.size;
+  f.wolves = wolves.size; f.cleared = w.greedStart;
   return f;
 }
 
@@ -203,22 +205,22 @@ if (RUN) {
       { title: 'Кастелян полный (тот же узел, кит леса ряда 10)', fights: Array.from({ length: SEEDS }, (_, i) => fight(openRun(i + 1, 'boss', 'g-castellan'))) },
     ],
   ];
-  console.log('| Бой | Смертей | Бой, с, мед. (победа / поражение) | По таймеру | Чем убит |');
+  console.log('| Бой | Смертей | Бой, с, мед. (победа / поражение) | По таймеру (из них босс убит) | Чем убит |');
   console.log('| --- | --- | --- | --- | --- |');
   for (const { title, fights } of rows) {
     const deaths = fights.filter(f => !f.won), killers: Record<string, number> = {};
     for (const f of deaths) killers[f.killer ?? '—'] = (killers[f.killer ?? '—'] ?? 0) + 1;
     const by = Object.entries(killers).sort((a, b) => b[1] - a[1]).map(([s, n]) => `${s} ${n}`).join(', ') || '—';
-    console.log(`| ${title} | ${deaths.length}/${fights.length} (${pct(deaths.length, fights.length)}) | ${f1(median(fights.filter(f => f.won).map(f => f.time)))} / ${f1(median(deaths.map(f => f.time)))} | ${fights.filter(f => f.timeout).length} | ${by} |`);
+    console.log(`| ${title} | ${deaths.length}/${fights.length} (${pct(deaths.length, fights.length)}) | ${f1(median(fights.filter(f => f.won).map(f => f.time)))} / ${f1(median(deaths.map(f => f.time)))} | ${fights.filter(f => f.timeout).length} (${fights.filter(f => f.timeout && f.cleared !== null).length}) | ${by} |`);
   }
   const troll = rows[0].fights;
   // The timeouts' review (spec 24.11): the phase, the windows (opened / with a hit), the parts severed, what the bot did.
   const outs = troll.filter(f => f.timeout);
   if (outs.length) {
-    console.log(`\nБои Тролля по таймеру (${outs.length}): фаза; окна открыто / с попаданием (по источнику); частей отрублено; цепей бота (с ядром); секунд окна открыто; ср. расстояние героя до ядра; пластины / HP ядра в конце.`);
+    console.log(`\nБои Тролля по таймеру (${outs.length}): фаза; окна открыто / с попаданием (по источнику); частей отрублено; цепей бота (с ядром); секунд окна открыто; ср. расстояние героя до ядра; пластины / HP ядра в конце (или когда убит).`);
     for (const f of outs) {
       const win = Object.entries(f.windows).map(([s, [n, h]]) => `${s} ${n}/${h}`).join(' ') || '—', pl = f.play;
-      console.log(`- Ф${f.phase}; окна ${win}; частей ${f.parts.length}; цепей ${pl.chains} (с ядром ${pl.coreChains}); окно ${f1(pl.openSeconds)} с; до ядра ${f1(pl.distSum / Math.max(1, pl.ticks))}; ядро ${pl.plates} пл. / ${pl.hp} HP`);
+      console.log(`- Ф${f.phase}; окна ${win}; частей ${f.parts.length}; цепей ${pl.chains} (с ядром ${pl.coreChains}); окно ${f1(pl.openSeconds)} с; до ядра ${f1(pl.distSum / Math.max(1, pl.ticks))}; ${f.cleared !== null ? `Тролль убит на ${f1(f.cleared)} с, бот не вышел` : `ядро ${pl.plates} пл. / ${pl.hp} HP`}`);
     }
   }
   const total = troll.reduce((s, f) => s + Object.values(f.damage).reduce((a, b) => a + b, 0), 0);

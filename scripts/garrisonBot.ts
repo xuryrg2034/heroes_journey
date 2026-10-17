@@ -159,7 +159,8 @@ export function botFight(run: RtRunState, options: BotFightOptions): BotFight {
   for (let tick = 0; tick < options.limit * 60 && w.status === 'playing'; tick++) {
     if (w.greedStart !== null && !left && !options.stay?.(w)) left = true;
     const leaving = left;
-    if (tick % 30 === 0 && !w.move) {
+    // Task 48: leaving, the walk follows the field every 6 ticks (each 30 overshot the cells: the den's mouth held the hero in a loop).
+    if ((leaving ? tick % 6 === 0 : tick % 30 === 0) && !w.move) {
       if (leaving) {
         const d = stepToward(w, w.arena.door);
         // Task 43: the hero on the full Castellan's gallery (north of the moat, the door in the yard; no walking path): it walks south
