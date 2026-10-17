@@ -167,7 +167,7 @@ const GARRISON_ART: Readonly<Record<string, { id: CharacterArtId; size: number }
   // Task 43: the knight (heavier: a taller box).
   [KNIGHT]: { id: 'garrison-knight', size: 3.7 },
   // Task 55а: the castle's art (a thing has no colour plaque; the rook keeps its colour's plaque and disc).
-  [WARDROBE]: { id: 'castle-wardrobe', size: 3.1 }, [ROOK]: { id: 'castle-rook', size: 2.5 }, [BARREL]: { id: 'castle-barrel', size: 2 },
+  [WARDROBE]: { id: 'castle-wardrobe', size: 3.1 }, [ROOK]: { id: 'castle-rook', size: 3.9 }, [BARREL]: { id: 'castle-barrel', size: 2 },
 };
 /** Task 40: the prisoner's padlock — its width (body radii) and its gap over the drawing's top (radii). */
 const LOCK_SIZE = 0.95, LOCK_GAP = 0.15;
