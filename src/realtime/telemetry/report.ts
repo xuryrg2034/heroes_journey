@@ -1041,13 +1041,13 @@ export function omensSection(runs: readonly RunRecord[], entries: readonly Fight
     const list = on.filter(r => r.levelOmens?.some(l => l.id === def.id));
     return [def.title, list.length, `${list.filter(r => r.outcome === 'victory').length} из ${list.length}`, list.length ? n1(median(list.map(r => r.farRow))) : '—'];
   }).filter(row => row[1] !== 0);
-  const crossroads = on.reduce((n, r) => n + (r.crossroadsSteps ?? 0), 0);
+  const crossroads = on.reduce((n, r) => n + (r.crossroadsSteps ?? 0), 0), fair = on.reduce((n, r) => n + (r.fairRerolls ?? 0), 0);
   return ['Бои походов с приметой (узла или уровня). «Счётчики» — `summary.omenFired`; «Сорочье гнездо» — кристаллы, взятые цепями. Эвристика, не оценка баланса.', '',
     table(['Примета', 'Боёв', 'Победы', 'Урон (медиана)', 'До целей, с (медиана)', 'Цепь (медиана)', 'Счётчики'], fightRows), '',
     'Маршрут: выборы пути, где среди открытых узлов была примета (`omenRoutes`); «взят» — узел с этой приметой; «доля среди открытых» — средняя доля таких узлов. Взят чаще доли — игрок идёт к примете, реже — обходит.', '',
     routeRows.length ? table(['Примета', 'Выборов с ней', 'Взят узел с ней', 'Доля среди открытых'], routeRows) : '_выборов с приметой нет_', '',
     levelRows.length ? table(['Примета уровня', 'Походов', 'Победы', 'Дальний ряд (медиана)'], levelRows) : '_приметы уровня нет_', '',
-    `Шагов вне связей «Перепутья»: ${crossroads}.`].join('\n');
+    `Шагов вне связей «Перепутья»: ${crossroads}. Бесплатных перебросов «Ярмарочного дня»: ${fair}.`].join('\n');
 }
 
 // ---- Task 49 «Второй герой» (RunRecord.hero, .freed; FightSummary.damage.unshielded; from 16.10.2026) ----

@@ -13,7 +13,8 @@ export type MetaItemKind = 'talisman' | 'relic' | 'hammer' | 'form' | 'event';
 export interface MetaPackItem { id: string; kind: MetaItemKind }
 export interface MetaPack { id: string; title: string; items: MetaPackItem[] }
 /** The parts of a run's experience, in the order the end screen lists them. */
-export type MetaXpPart = 'battles' | 'elite' | 'jailer' | 'final' | 'guardroom' | 'castellan' | 'feats' | 'victory' | 'ash' | 'quest';
+/** Task 51г (core): `vows` — Евлампий's vows kept. */
+export type MetaXpPart = 'battles' | 'elite' | 'jailer' | 'final' | 'guardroom' | 'castellan' | 'feats' | 'victory' | 'ash' | 'quest' | 'vows';
 export type NpcId = 'owl' | 'herb' | 'smith';
 
 /** The meta at the end of a run (null — no meta: a given seed, the sandbox, the prologue). */
@@ -32,7 +33,8 @@ export interface MetaEnd {
   /** Task 40: `cart` — what «Повозка» sent (inside `n`); absent — no cart in the run. */
   carry: { n: number; share: number; cap: number; resources: number; cart?: number };
   stock: { before: number; after: number };
-  quest?: { npc: NpcId; id: string; done: boolean; xp: number; stock: number };
+  /** Task 51в (core): `npc` — any quest NPC of the core (Шиш's `gambler` too); the end screen does not read it. */
+  quest?: { npc: string; id: string; done: boolean; xp: number; stock: number };
 }
 
 /** Task 49: the heroes as the camp and «Новый поход» show them (the profile's `heroes()`; the cat always open, Ведунья once freed). */
@@ -113,6 +115,7 @@ export function xpPartLabel(id: MetaXpPart, n?: number): string {
     case 'victory': return 'Победа похода';
     case 'ash': return 'Испытание';
     case 'quest': return 'Задание';
+    case 'vows': return n !== undefined ? `Обеты: ${n}` : 'Обеты';
   }
 }
 

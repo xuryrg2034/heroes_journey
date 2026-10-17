@@ -213,7 +213,8 @@ export const rtHearthStart = (profile: RtProfile, seed: number, hero?: RtHeroId)
 /** Task 36: «✦ новое» for a loaded profile. Task 49: to `hero` (absent — the chosen one). */
 export const rtIsNewOffer = (profile: RtProfile, id: string, hero?: RtHeroId): boolean => rtMetaNewOffer(profile.meta, id, heroOf(profile, hero));
 
-export function createRtProfileStore(storage: RunStorage | null = browserStorage()): RtProfileStore {
+/** Task 51в: `gambler` — Шиш's camp on for this store (default `RT_HEARTH_GAMBLER_ON`; tests turn it on); task 51г: `monk` — Евлампий's. */
+export function createRtProfileStore(storage: RunStorage | null = browserStorage(), options: { gambler?: boolean; monk?: boolean } = {}): RtProfileStore {
   const read = (): RtProfile => { try { return parseRtProfile(storage?.getItem(RT_PROFILE_STORAGE_KEY) ?? null); } catch { return emptyRtProfile(); } };
   const write = (profile: RtProfile): boolean => { try { if (!storage) return false; storage.setItem(RT_PROFILE_STORAGE_KEY, JSON.stringify(profile)); return true; } catch { return false; } };
   return {
@@ -270,7 +271,7 @@ export function createRtProfileStore(storage: RunStorage | null = browserStorage
       if (run.seeded) return null;
       const profile = read();
       if (profile.meta?.applied?.key === rtRunKey(run)) return structuredClone(profile.meta.applied.end);
-      const { meta, end } = rtApplyMeta(profile.meta, run, profile.runs !== undefined ? { viewerRun: profile.runs } : {});
+      const { meta, end } = rtApplyMeta(profile.meta, run, { ...profile.runs !== undefined ? { viewerRun: profile.runs } : {}, ...options.gambler !== undefined ? { gambler: options.gambler } : {}, ...options.monk !== undefined ? { monk: options.monk } : {} });
       write({ ...profile, meta });
       return end;
     },

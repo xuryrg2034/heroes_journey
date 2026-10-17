@@ -24,7 +24,7 @@
 import { generateGarrisonMap, garrisonNodes, rtGarrisonNodeId } from './garrison';
 import { runRow } from './arenaPools';
 import {
-  arenaSeed, createRtRun, healOffer, parseRtRun, rtArenaLoadout, rtArenaParams, rtArenaRules, rtAvailableNodes, rtCrossroadsHidden, rtFightOmens, rtLevelOmen, rtMapNodes, rtNode,
+  arenaSeed, createRtRun, healOffer, rtShopReroll, rtShopRerollView, parseRtRun, rtArenaLoadout, rtArenaParams, rtArenaRules, rtAvailableNodes, rtCrossroadsHidden, rtFightOmens, rtLevelOmen, rtMapNodes, rtNode,
   rtNodeOmen, rtNodeOmenRoll, rtRunParams, serializeRtRun, type RtRunState,
 } from './rtRun';
 import { rtFairItem, rtLevelOmenRoll, rtOmen, rtOmenPool, rtPackOmen, RT_OMEN_IDS, RT_OMENS, RT_OMENS_START, type RtOmenId } from './omens';
@@ -264,6 +264,42 @@ await check('«Ярмарочный день»: +1 consumable in the last place 
     assert(JSON.stringify(stocks.slice(0, plain.length)) === JSON.stringify(plain.slice(0, stocks.length)), `seed ${k}: the stock before the extra place ${stocks} vs ${plain}`);
   }
   assert(shops > 0 && heals > 0, `shops ${shops}, heals ${heals}`);
+});
+
+await check('«Ярмарочный день»: a free reroll at each merchant of the level (the extra place stays); with Шиш\'s the two add up; the saves read back, a reroll mark without the omen — no run', () => {
+  const pool = ALL.filter(id => id !== 'crossroads');
+  let fairShops = 0, both = 0;
+  for (let n = 0, k = 0; n < 6; n++) {
+    k = seedWith('fair', k + 1, pool);
+    for (const shish of [false, true]) {
+      const create = { omens: pool, garrison: false, ...shish ? { locked: [], hearth: { shopRerolls: 1 as const } } : {} };
+      let shop: RtRunState | null = null;
+      walk(k, create, { pickNode: (run, ids) => ids.find(id => rtNode(run, id)?.type === 'shop') ?? null, each: run => { if (!shop && run.pending?.kind === 'shop') shop = structuredClone(run); } });
+      if (!shop) continue;
+      const at: RtRunState = shop, view = rtShopRerollView(at)!;
+      assert(view && view.available && view.fair === true, `seed ${k}: the omen's reroll is offered (${JSON.stringify(view)})`);
+      const first = rtShopReroll(at);
+      assert(first.ok, `seed ${k}: the reroll goes`);
+      const after = first.run, pending = after.pending as Extract<RtRunState['pending'], { kind: 'shop' }>;
+      const items = pending.stock.items;
+      assert(items[items.length - 1] === rtFairItem(arenaSeed(after, pending.nodeId), items.slice(0, -1)) && after.fairRerolls?.[pending.nodeId] === 1 && !after.shopRerolled, `seed ${k}: the extra place after the reroll, the omen's reroll spent`);
+      readsBack(after, `seed ${k}: after the omen's reroll`);
+      fairShops++;
+      const again = rtShopRerollView(after)!;
+      if (!shish) assert(!again.available && again.reason === 'Товар уже переброшен', `seed ${k}: no second reroll without Шиш (${JSON.stringify(again)})`);
+      else {
+        assert(again.available && !again.fair, `seed ${k}: Шиш's reroll after the omen's`);
+        const second = rtShopReroll(after);
+        assert(second.ok && second.run.shopRerolled === true && (second.run.pending as { rerolls?: number }).rerolls === 2, `seed ${k}: the second reroll is Шиш's`);
+        readsBack(second.run, `seed ${k}: after both rerolls`);
+        bad({ ...second.run, shopRerolled: undefined }, `seed ${k}: two rerolls without Шиш's spent`);
+        both++;
+      }
+      bad({ ...after, omens: { ...after.omens!, level: { 1: 'moon' } } }, `seed ${k}: the omen's reroll without the omen`);
+      bad({ ...after, fairRerolls: undefined }, `seed ${k}: the visit's mark without the run's`);
+    }
+  }
+  assert(fairShops >= 3 && both >= 1, `merchants with the omen ${fairShops}, with Шиш too ${both}`);
 });
 
 // ---- The save ----

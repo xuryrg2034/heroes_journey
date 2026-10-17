@@ -324,6 +324,10 @@ export interface RunHearth {
    * «Склянка в гарнизон» — the kinds offered and the one taken; «Правка в гарнизоне» — the garrison's free rerolls given. Absent — none.
    */
   garrisonMaps?: number; garrisonMap?: number; gateItems?: string[]; gateItem?: string; garrisonRerolls?: number;
+  /** Task 51в (Шиш, from 17.10.2026): «Шишова лавка» (1; with «Лавка в гарнизоне» 2) and «Размен» given. */
+  shopRerolls?: number; swap?: true;
+  /** Task 51г (Евлампий, from 17.10.2026): the vows taken. */
+  vows?: string[];
 }
 /** Task 44: the fusions of a run (`RunRecord.fusions`). Rows are run rows (1…). */
 export interface RunFusions {
@@ -440,6 +444,10 @@ export interface RunRecord extends RtHeader {
   /** Task 37: what the camp gave this run at its start; the run's quest. */
   hearth?: RunHearth;
   quest?: RunQuest;
+  /** Task 51в (from 17.10.2026): the NPCs who came to the camp after this run — `path` the deed or the fallback, the viewer's run number. */
+  arrive?: { npc: string; path: 'deed' | 'self'; viewerRun?: number }[];
+  /** Task 51г (from 17.10.2026): the run's vows, each kept or not (counted runs only: the Jailer's row reached). */
+  vows?: { id: string; kept: boolean }[];
   /**
    * Task 44 «Сплавы» (from 16.10.2026): the run has fusions (`RtRunState.fusions`) and what happened to them — the halves taken (their
    * row), the pairs collected, the fusions made at a rest and the rests closed by the heal or the craft with a pair ready. Absent — a
@@ -476,6 +484,8 @@ export interface RunRecord extends RtHeader {
   levelOmens?: { level: number; id: string }[];
   omenRoutes?: RunOmenRoute[];
   crossroadsSteps?: number;
+  /** Task 56 «Ярмарочный день»: the omen's free rerolls spent (merchants). Absent — none. */
+  fairRerolls?: number;
   /** The Params of the run, once per run (decision 3): the journals name them by `params.hash`. Named `runParams` because `params` is the header's `{storage, hash}`. */
   runParams: Params;
 }
@@ -664,7 +674,11 @@ function runMetaOk(r: Record<string, unknown>): boolean {
     // Task 51б: level 3 of the camp.
     && (hearth.garrisonMaps === undefined || whole(hearth.garrisonMaps, 2)) && (hearth.garrisonMap === undefined || whole(hearth.garrisonMap))
     && (hearth.gateItems === undefined || (Array.isArray(hearth.gateItems) && hearth.gateItems.every(id => typeof id === 'string'))) && (hearth.gateItem === undefined || typeof hearth.gateItem === 'string')
-    && (hearth.garrisonRerolls === undefined || whole(hearth.garrisonRerolls, 1)))) return false;
+    && (hearth.garrisonRerolls === undefined || whole(hearth.garrisonRerolls, 1))
+    && (hearth.shopRerolls === undefined || whole(hearth.shopRerolls, 1)) && (hearth.swap === undefined || hearth.swap === true)
+    && (hearth.vows === undefined || (Array.isArray(hearth.vows) && hearth.vows.every(id => typeof id === 'string'))))) return false;
+  if (r.vows !== undefined && !(Array.isArray(r.vows) && r.vows.every(v => plain(v) && typeof v.id === 'string' && typeof v.kept === 'boolean'))) return false;
+  if (r.arrive !== undefined && !(Array.isArray(r.arrive) && r.arrive.every(a => plain(a) && typeof a.npc === 'string' && (a.path === 'deed' || a.path === 'self') && (a.viewerRun === undefined || whole(a.viewerRun, 1))))) return false;
   if (quest !== undefined && !(plain(quest) && typeof quest.npc === 'string' && typeof quest.id === 'string' && (quest.done === undefined || typeof quest.done === 'boolean'))) return false;
   return true;
 }
@@ -1437,5 +1451,6 @@ function runOmensOk(r: Record<string, unknown>): boolean {
       && o.offered.every(n => { const x = n as Record<string, unknown> | null; return !!x && typeof x.nodeId === 'string' && (x.omen === undefined || typeof x.omen === 'string'); });
   }))) return false;
   if (r.crossroadsSteps !== undefined && !(on && Number.isInteger(r.crossroadsSteps) && (r.crossroadsSteps as number) >= 1)) return false;
+  if (r.fairRerolls !== undefined && !(on && Number.isInteger(r.fairRerolls) && (r.fairRerolls as number) >= 1)) return false;
   return true;
 }
