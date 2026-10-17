@@ -8,7 +8,7 @@ import { TOAD_LINES_BY_NPC } from './npcToadLines';
 
 /** Causes of death the lines know (the run's killing blow; design notes: jailer — any blow in the Jailer's fight). */
 export type DeathCause = 'crowd' | 'archer' | 'sapper' | 'jailer' | 'final' | 'fire' | 'other' | 'guardroom' | 'castellan' | 'troll';
-export type LineKey = 'first' | 'first_self' | 'win_first' | 'win' | `death_${DeathCause}` | 'record' | 'buy_1' | 'buy_2'
+export type LineKey = 'first' | 'first_self' | 'win_first' | 'win' | `death_${DeathCause}` | 'record' | 'buy_1' | 'buy_2' | 'buy_3'
   | 'quest_give' | 'quest_give_final' | 'quest_done' | 'quest_fail' | 'idle' | 'about_owl' | 'about_herb' | 'about_smith' | 'locked3' | 'pack'
   | 'win_garrison_first' | 'meet_hello' | 'back_met';
 
@@ -38,7 +38,8 @@ export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly 
     idle: ['Я записываю всё. Даже как ты чешешься.', 'Чернила из бузины. Пахнут лесом, пачкают когти.', 'Найдёшь в лесу моё дупло — бери одно и не шуми.', 'Тише, кот. Летопись не терпит болтовни, а я — тем более.'],
     about_herb: ['Марфа лечит всех подряд. Я бы сначала спросила, за что.', 'Травница опять сушит корни на моих страницах.'],
     about_smith: ['Ерофей не умеет читать. Зато помнит каждое лезвие — завидно.', 'Точильщик говорит три слова в день. Я записываю все три.'],
-    locked3: ['Эту страницу открою после гарнизона. Раньше — не по чину.'],
+    buy_3: ['«Путь в гарнизон». В Предместье покажу две карты — я и над стенами летала.'],
+    locked3: ['Эту страницу открою, когда дойдёшь до гарнизона. Раньше — не по чину.'],
     pack: ['В лесу появилось новое. Я внесла в опись три строки.'],
   },
   herb: {
@@ -65,7 +66,8 @@ export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly 
     idle: ['Подорожник к лапе, крапиву к языку. Последнее — для совы.', 'Травы сохнут, кот хромает. Обычный вечер у Очага.', 'Сядь ближе к огню. Нет, не так близко — шерсть же.', 'Ты ешь хоть что-нибудь, кроме подвигов? Худой, как жердь.'],
     about_owl: ['Сова всё пишет да пишет. Лучше бы бинты резала.', 'Неясыть ворчит, что я сушу травы на её книге. Сушу.'],
     about_smith: ['Ерофей мою мазь продаёт втридорога. Я молчу — он мне ножи точит.', 'Точильщик добрый, только сам не знает. Не говори ему.'],
-    locked3: ['Этот отвар — после гарнизона. Там травы другие, злые.'],
+    buy_3: ['На-ка склянку к воротам. Одну из двух — выбирай, не жадничай.'],
+    locked3: ['Этот отвар — как дойдёшь до гарнизона. Там травы другие, злые.'],
     pack: ['В лесу новое завелось. Принюхайся, прежде чем хватать.'],
   },
   smith: {
@@ -92,7 +94,8 @@ export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly 
     idle: ['Точу. Не стой над душой, малый.', 'Каждое лезвие помнит, кого рубило. Твоё — всех подряд.', 'Колесо скрипит — значит, живое. Смажу к зиме.', 'Спешка лезвие губит. И котов тоже.'],
     about_owl: ['Сова пишет, я точу — каждый своё тупит.', 'Неясыть меня в книгу записала: «молчун». Верно записала.'],
     about_herb: ['Марфа ругается, а мазь у неё лучшая. Не говори ей.', 'Марфину мазь продаю дорого. За хорошее не грех.'],
-    locked3: ['Третья правка — после гарнизона. Там сталь другая.'],
+    buy_3: ['«Правка в гарнизоне». Худая награда в караульне — разок перебросишь.'],
+    locked3: ['Третья правка — как дойдёшь до гарнизона. Там сталь другая.'],
     pack: ['Новое железо в лесу. Бери, да проверь кромку.'],
   },
 };
@@ -118,7 +121,7 @@ export interface LineContext {
   /** The occasions of the last run (said once per camp visit). */
   last?: { won: boolean; firstWin?: boolean; cause?: DeathCause; record?: boolean; questDone?: boolean; questFail?: boolean; pack?: boolean };
   /** Just bought this level. */
-  bought?: 1 | 2;
+  bought?: 1 | 2 | 3;
   /** The other NPC in the camp (for `about_*`). */
   others: NpcId[];
 }
@@ -155,7 +158,7 @@ export function pickLine(npc: NpcId, ctx: LineContext, memory: LineMemory): { ke
   const first = meet ?? (count('first_self') ? null : line('first', true));
   if (first) return first;
   // A purchase line the mark skips (after her run) gives way to the next occasion.
-  const buy = ctx.bought ? line(ctx.bought === 1 ? 'buy_1' : 'buy_2') : null;
+  const buy = ctx.bought ? line(`buy_${ctx.bought}` as LineKey) : null;
   if (buy) return buy;
   const last = ctx.last;
   if (last) {

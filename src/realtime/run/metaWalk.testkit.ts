@@ -12,7 +12,7 @@ import type { ItemKind } from '../forest/types';
 import {
   createRtRun, resolveArena, rtAvailableNodes, rtCasinoLeave, rtCasinoPlay, rtCasinoView, rtChooseEventOption, rtChooseFind, rtItemRefusal, rtChooseGift, rtChooseGiftPick,
   rtChooseHammer, rtChooseTalisman, rtHammerRerollView, rtRerollHammers, rtEnterNode, rtEventView, rtGiftView, rtNode, rtRerollView, rtRerollTalismans, rtRestCraft, rtRestFinish, rtRestHeal,
-  rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun, rtEnterGarrison, rtChooseHabit, rtChooseKnack, rtRestFuse, type RtArenaOutcome, type RtKnackOption, type RtRunState, type RtRunStep,
+  rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun, rtEnterGarrison, rtChooseHabit, rtChooseKnack, rtRestFuse, type RtArenaOutcome, type RtGateChoice, type RtKnackOption, type RtRunState, type RtRunStep,
 } from './rtRun';
 import { RT_HABITS, type RtHabitId } from './rtTalismans';
 
@@ -50,6 +50,8 @@ export interface WalkOptions {
   each?: (run: RtRunState) => void;
   /** Task 40: what «Повозка» takes at «Предместье» (`rtEnterGarrison`'s deposit); absent — the default. */
   deposit?: (run: RtRunState) => number | undefined;
+  /** Task 51б: the choices at «Предместье» (`rtEnterGarrison`'s third argument: the garrison map, the consumable); absent — none. */
+  gate?: (run: RtRunState) => RtGateChoice;
   /** Task 40 (the bot's curve, scripts/realtime-garrison-curve.ts): the open battle played for real; absent or null — the outcome made up. */
   fight?: (run: RtRunState) => RtArenaOutcome | null;
   /** Task 50 «Повадка»: the archetype on the gift of a run with `habits` (null — «Без повадки»); absent — by the seed index. */
@@ -180,7 +182,7 @@ export function walkRun(options: WalkOptions): Walk {
         break;
       }
       // Task 38: «Предместье» — «В гарнизон».
-      case 'outskirts': run = seen(take(rtEnterGarrison(run, options.deposit?.(run)), 'garrison')); break;
+      case 'outskirts': run = seen(take(rtEnterGarrison(run, options.deposit?.(run), options.gate?.(run)), 'garrison')); break;
       // Task 50: the knack screen — the walk's pick by the step (or the caller's).
       case 'knack': {
         const at = step % (pending.options.length + 1), pick = options.knack ? options.knack(run, pending.options) : at < pending.options.length ? pending.options[at] : null;

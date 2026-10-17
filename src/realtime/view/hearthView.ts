@@ -11,7 +11,7 @@
  * View only: the profile (core) holds the stock, the levels and the meetings (`MetaSource`); the run's flags come from it.
  */
 import { KIND_CAPTIONS } from './newSeen';
-import { HEARTH_LEVEL_LOCKED, HEARTH_PLACES, HEARTH_PRICES, NPCS, metaItemCard, xpBar, type HearthState, type MetaHeroId, type MetaSource, type NpcId } from './metaModel';
+import { HEARTH_GATE_LOCK, HEARTH_PLACES, HEARTH_PRICES, NPCS, metaItemCard, xpBar, type HearthState, type MetaHeroId, type MetaSource, type NpcId } from './metaModel';
 import { NPC_LINES, pickLine, questLine, type DeathCause } from './npcLines';
 import { rowWord } from './metaEnd';
 import { toadLine, toadRunKey } from './heroLines';
@@ -83,7 +83,7 @@ export class HearthView {
   private bestiary = false;
   /** The occasion line was said in this visit (then idle lines). */
   private said = new Set<NpcId>();
-  private boughtNow: { npc: NpcId; level: 1 | 2 } | null = null;
+  private boughtNow: { npc: NpcId; level: 1 | 2 | 3 } | null = null;
   private lastLine = '';
   /** Task 49: the line Ведунья says now (one at a time; empty - her place is quiet). */
   private heroLine = '';
@@ -174,13 +174,15 @@ export class HearthView {
     const rows = NPCS[npc].upgrades.map((name, k) => {
       const lv = k + 1, price = HEARTH_PRICES[k];
       let action: string;
-      if (lv >= HEARTH_LEVEL_LOCKED) action = `<span class="rt-hearth-lock" data-testid="up-${npc}-${lv}-lock" title="${esc(NPC_LINES[npc].locked3?.[0] ?? 'После гарнизона')}">🔒</span>`;
+      // Task 51а: level 3 stays under the lock «Закрыто · Дойди до гарнизона» until a hero has entered the garrison.
+      const shut = lv === 3 && !h.gate3 && level < lv;
+      if (shut) action = `<span class="rt-hearth-lock" data-testid="up-${npc}-${lv}-lock" title="${esc(HEARTH_GATE_LOCK.rule)}">🔒</span>`;
       else if (level >= lv) action = `<span class="rt-hearth-bought" data-testid="up-${npc}-${lv}-bought">✓ куплено</span>`;
       // Level 2 only after level 1: a grey price, no reason text (design 15.10.2026).
       else if (lv > level + 1) action = `<button class="rt-hearth-buy rt-hearth-later" disabled data-testid="up-${npc}-${lv}" data-later="true" title="Сначала — «${esc(NPCS[npc].upgrades[level])}»">${ICON}${price}</button>`;
       else if (h.stock < price) action = `<button class="rt-hearth-buy" disabled data-testid="up-${npc}-${lv}" data-lack="true">нужно ${price}, есть ${h.stock}</button>`;
       else action = `<button class="rt-hearth-buy" data-action="buy" data-npc="${npc}" data-level="${lv}" data-testid="up-${npc}-${lv}">${ICON}${price}</button>`;
-      return `<li class="${level >= lv ? 'rt-done' : lv >= HEARTH_LEVEL_LOCKED ? 'rt-locked' : ''}"><div><b>${esc(name)}</b><small>${esc(NPCS[npc].rules[k])}</small></div>${action}</li>`;
+      return `<li class="${level >= lv ? 'rt-done' : shut ? 'rt-locked' : ''}" data-testid="up-${npc}-${lv}-row"><div><b>${esc(shut ? HEARTH_GATE_LOCK.name : name)}</b><small>${esc(shut ? HEARTH_GATE_LOCK.rule : NPCS[npc].rules[k])}</small></div>${action}</li>`;
     }).join('');
     const quest = h.quest?.npc === npc ? `<p class="rt-hearth-quest" data-testid="hearth-quest">${esc(questLine(npc, h.quest.id === 'owl-forest', h.lines))} <small>+10 опыта, +3 запаса</small></p>` : '';
     const book = npc === 'owl' ? '<button class="rt-other rt-hearth-book" data-action="bestiary" data-testid="hearth-bestiary">Бестиарий</button>' : '';
@@ -223,7 +225,9 @@ export class HearthView {
     if (action === 'buy') {
       const npc = target.dataset.npc as NpcId, level = Number(target.dataset.level);
       const result = this.host.meta.buy(npc, level);
-      if (result.ok) { this.shown.bought++; this.boughtNow = { npc, level: level === 2 ? 2 : 1 }; this.host.sound?.('buy'); this.host.bought?.(npc, level, HEARTH_PRICES[level - 1]); this.say(npc, this.host.meta.hearth()); }
+      // Task 51а: a refusal by the gate or the lock is answered in the NPC's own words (no new plate).
+      if (!result.ok && (result.reason === 'gate' || result.reason === 'locked')) { this.lastLine = NPC_LINES[npc].locked3?.[0] ?? HEARTH_GATE_LOCK.rule; this.shown.line = this.lastLine; }
+      if (result.ok) { this.shown.bought++; this.boughtNow = { npc, level: level === 3 ? 3 : level === 2 ? 2 : 1 }; this.host.sound?.('buy'); this.host.bought?.(npc, level, HEARTH_PRICES[level - 1]); this.say(npc, this.host.meta.hearth()); }
       this.draw(); return;
     }
     if (action === 'hero') {

@@ -35,7 +35,7 @@ import {
   encodeJournal, fightKey, fightRecordId, gzipBase64, isIdSegment, journalPartId, makeExport, noteRecordId, nullObserver, packJournal, paramsHash, runKey, runRecordId, SANDBOX_RUN,
   sessionKey, splitParts, prologueKey, prologueRecordId, RT_TELEMETRY_SCHEMA,
   type FightObserver, type FightObserverFactory, type FightOutcome, type FightRecord, type FightSummary, type JournalMeta, type JournalPart, type NoteRecord, type RtHeader, type RtRecord,
-  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, CASINO_SOURCE, FEAT_SOURCE, type FeatSummary, type RunResources, type RunResourceSink, type RunResourceSource, type RunFeat, type RunFirst, type RunDie, type RunItems, type RunMapHeal, type RunMapSign, type RunFx, type RunFusions, type RunKnack, KNACK_SOURCE, RUN_FX_LEVELS, type RunSecondWind, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord, type PrologueFrom, type PrologueRecord,
+  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, CASINO_SOURCE, FEAT_SOURCE, type FeatSummary, type RunResources, type RunResourceSink, type RunResourceSource, type RunFeat, type RunFirst, type RunDie, type RunItems, type RunMapHeal, type RunMapSign, type RunFx, type RunFusions, type RunKnack, KNACK_SOURCE, RUN_FX_LEVELS, type RunSecondWind, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunHearth, type RunNodeVisit, type RunOutcome, type RunRecord, type PrologueFrom, type PrologueRecord,
 } from './schema';
 import { PrologueTally } from './prologue';
 
@@ -60,6 +60,12 @@ const safe = <T>(fallback: T, run: () => T): T => { try { return run(); } catch 
 
 /** The hit that killed the hero (a run's `death`), kept from the hits of the fight. */
 export interface LastHit { enemy?: string; source: string; elite?: boolean; affixes?: string[]; tick: number }
+
+/** Task 51б: the run's choices at «Предместье» (the garrison map, the consumable taken) join its camp record `hearth`; none — nothing. */
+function gateTlm(run: RtRunState, hearth: RunHearth | undefined): { hearth?: RunHearth } {
+  if (run.garrisonMap === undefined && run.gateItem === undefined) return {};
+  return { hearth: { ...hearth, ...run.garrisonMap !== undefined ? { garrisonMap: run.garrisonMap } : {}, ...run.gateItem ? { gateItem: run.gateItem } : {} } };
+}
 
 export class FightTap {
   /** The last tick shown to the observer. */
@@ -718,7 +724,7 @@ export class RtRecorder {
       ...run.habits ? { habitsOn: true as const, ...run.habit ? { habit: run.habit } : {} } : {},
       // Task 49: the run's hero (absent — the cat) and the hero it freed.
       ...run.heroId === 'toad' ? { hero: 'toad' as const } : {}, ...meta.freed ? { freed: { ...meta.freed } } : {},
-      ...meta.featsOn ? { featsOn: true as const } : {}, ...meta.feats?.length ? { feats: meta.feats } : {}, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun, ...meta.viewerRunApprox ? { viewerRunApprox: true as const } : {} } : {}, ...meta.firsts?.length ? { firsts: meta.firsts } : {}, ...meta.resources ? { resources: meta.resources } : {}, ...meta.fx ? { fx: meta.fx } : {}, ...meta.metaTlm ?? {}, ...runLevels(run), runParams,
+      ...meta.featsOn ? { featsOn: true as const } : {}, ...meta.feats?.length ? { feats: meta.feats } : {}, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun, ...meta.viewerRunApprox ? { viewerRunApprox: true as const } : {} } : {}, ...meta.firsts?.length ? { firsts: meta.firsts } : {}, ...meta.resources ? { resources: meta.resources } : {}, ...meta.fx ? { fx: meta.fx } : {}, ...meta.metaTlm ?? {}, ...gateTlm(run, meta.metaTlm?.hearth), ...runLevels(run), runParams,
     };
     void this.put([JSON.parse(JSON.stringify(record)) as RunRecord]);
   }
@@ -753,7 +759,9 @@ export class RtRecorder {
       if (run.locked) (this.meta.metaTlm ??= {}).locked = run.locked.length;
       if (run.hearth) {
         const h = run.hearth, tlm = this.meta.metaTlm ??= {};
-        const hearth = { ...h.maps ? { maps: h.maps } : {}, ...h.startItems ? { startItems: [...h.startItems] } : {}, ...h.jailerRerolls ? { jailerRerolls: h.jailerRerolls } : {}, ...h.hammerAll ? { hammerAll: true as const } : {} };
+        const hearth = { ...h.maps ? { maps: h.maps } : {}, ...h.startItems ? { startItems: [...h.startItems] } : {}, ...h.jailerRerolls ? { jailerRerolls: h.jailerRerolls } : {}, ...h.hammerAll ? { hammerAll: true as const } : {},
+          // Task 51б: level 3 of the camp (the choices at «Предместье» join at `writeRun`).
+          ...h.garrisonMaps ? { garrisonMaps: h.garrisonMaps } : {}, ...h.gateItems ? { gateItems: [...h.gateItems] } : {}, ...h.garrisonRerolls ? { garrisonRerolls: h.garrisonRerolls } : {} };
         if (Object.keys(hearth).length) tlm.hearth = hearth;
         if (h.quest) tlm.quest = { npc: h.quest.npc, id: h.quest.id };
       }

@@ -669,3 +669,15 @@ button { font: inherit; color: inherit; cursor: pointer; }
 @keyframes rt-cage-hop { 0% { transform: translate(-50%, 0) scale(1); } 45% { transform: translate(-50%, -26px) scale(1.04); } 100% { transform: translate(-50%, 0) scale(1.08); } }
 .rt-cage-line { margin: 0 0 12px; font: italic 17px Georgia, serif; color: #e8d7ad; line-height: 1.35; }
 @media (prefers-reduced-motion: reduce) { .rt-cage-scene[data-state="opened"] .rt-cage-img, .rt-cage-scene[data-state="opened"] .rt-cage-toad { animation-duration: .01s; animation-delay: 0s; } }
+
+/* Task 51б «Предместье» of the camp's level 3: «Путь в гарнизон» (2 maps) and «Склянка в гарнизон» (2 consumables) beside the cart. */
+.rt-gate { display: flex; gap: 22px; align-items: flex-start; }
+.rt-gate-part { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.rt-gate .rt-hearth-maps { gap: 10px; }
+.rt-gate .rt-hearth-map { padding: 6px; gap: 3px; cursor: pointer; }
+.rt-gate .rt-hearth-mapsvg { width: 200px; height: 104px; }
+.rt-gate .rt-mp-counts { gap: 6px; font-size: 12px; }
+.rt-gate .rt-hearth-map.rt-chosen, .rt-gate-item.rt-chosen { border-color: #ffd88a; background: #2d3526; }
+.rt-gate-items { display: flex; flex-direction: column; gap: 6px; min-width: 150px; }
+.rt-gate-item { text-align: center; }
+.rt-gate-item:disabled { opacity: .5; }

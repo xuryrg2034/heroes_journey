@@ -117,6 +117,7 @@
     "test:realtime-meta": "tsx src/realtime/run/meta.spec.ts",
     "test:realtime-hero": "tsx src/realtime/run/hero.spec.ts",
     "test:realtime-hearth": "tsx src/realtime/run/hearth.spec.ts",
+    "test:realtime-hearth-l3": "tsx src/realtime/run/hearthL3.spec.ts",
     "test:realtime-fusions-run": "tsx src/realtime/run/fusionsRun.spec.ts",
     "test:realtime-forms-run": "tsx src/realtime/run/formsRun.spec.ts",
     "test:realtime-prologue-bust": "tsx src/realtime/telemetry/prologueBust.spec.ts",

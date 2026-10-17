@@ -61,7 +61,7 @@ import { validDeath, type RtDeath } from './rtRunEnd';
 // Task 16 «Подвиги»: the feat kinds of the simulation (sim/feat.ts).
 import { FEAT_KINDS, isFeatKind, type FeatKind } from '../sim/feat';
 // Tasks 36–37 «Мета» and «Очаг»: the meta catalogue (a leaf module: the packs' ids, the camp's quests).
-import { isRtLockable, isRtQuest, RT_HERO_ID, RT_TOAD_ID, type RtHeroId, type RtQuest } from './metaCatalog';
+import { HEARTH_GMAPS_SALT, isRtLockable, isRtQuest, RT_HERO_ID, RT_TOAD_ID, type RtHeroId, type RtQuest } from './metaCatalog';
 // Task 49 «Второй герой»: the hero's innate items (sim/buildIds.ts; the fight's `Loadout.hero` gives them to the kit).
 import { HERO_INNATE } from '../sim/buildIds';
 import { HAMMER_IDS, RT_HAMMER_OFFER_SIZE } from './rtTalismans';
@@ -646,6 +646,15 @@ export interface RtRunState {
   hearth?: RtHearthFlags;
   /** Task 37 «Правка»: the free rerolls of the Jailer's screens spent (≤ `hearth.jailerRerolls`); absent until the first. */
   jailerRerolled?: number;
+  /**
+   * Task 51б «Путь в гарнизон» (`hearth.garrisonMaps`): the garrison map chosen at «Предместье» — 0 the base one (`garrisonSeed`), 1
+   * the second (`rtGarrisonMaps`); it gives the garrison's seed (`rtGarrisonSeed`). Absent — a run without the flag, or not entered yet.
+   */
+  garrisonMap?: 0 | 1;
+  /** Task 51б «Склянка в гарнизон» (`hearth.gateItems`): the consumable taken at «Предместье»; absent — none taken (or no flag). */
+  gateItem?: ItemKind;
+  /** Task 51б «Правка в гарнизоне»: the free rerolls of the garrison's reward screens spent (≤ `hearth.garrisonRerolls`); absent until the first. */
+  garrisonRerolled?: number;
   /**
    * Task 30 «Формы в походе» (design 15.10.2026; docs/realtime-slice.md, section 8): the run's forms — the first Jailer's screen
    * offers forms (`RT_FORMS`) instead of the hammers, «Застава» a form of the other field in its rare place, the common pool
@@ -1732,7 +1741,12 @@ export function rtRerollView(run: RtRunState): RtRerollView | null {
   const pending = run.pending;
   // Task 37 «Правка»: the Jailer's oath and relic screen rerolls while the camp's free rerolls last (`rtJailerRerollsLeft`).
   // Task 30: the Jailer's form screen (instead of the hammer screen) rerolls the same way.
-  const free = pending?.kind === 'talisman' && (pending.source === 'oath' || pending.source === 'form') && rtJailerRerollsLeft(run) > 0;
+  // Task 51б «Правка в гарнизоне»: on a garrison node every screen that rerolls («Застава», the breakthrough, an event's reward, the chest,
+  // the feat, «Караульня»'s oath screen) rerolls free while the garrison's free rerolls last (`rtGarrisonRerollsLeft`).
+  const jailerFree = pending?.kind === 'talisman' && (pending.source === 'oath' || pending.source === 'form') && rtJailerRerollsLeft(run) > 0;
+  const garrisonFree = pending?.kind === 'talisman' && !!rtGarrisonNodeId(pending.nodeId) && rtGarrisonRerollsLeft(run) > 0
+    && (pending.source === 'oath' || pending.source === 'form' || RT_REROLL_SOURCES.includes(pending.source));
+  const free = jailerFree || garrisonFree;
   if (pending?.kind !== 'talisman' || !(free || RT_REROLL_SOURCES.includes(pending.source))) return null;
   const rerolls = pending.rerolls ?? 0, price = free ? 0 : RT_REROLL_PRICE + rerolls, total = stockTotal(run.materials);
   const shown = [...pending.rerolled ?? [], ...pending.options];
@@ -1755,7 +1769,9 @@ export function rtRerollTalismans(current: RtRunState): RtRunStep {
   const run = structuredClone(current), pending = run.pending as Extract<RtRunPending, { kind: 'talisman' }>;
   const paid = view.free ? emptyMaterials() : shopPayment(run.materials, view.price);
   for (const kind of RESOURCE_KINDS) run.materials[kind] -= paid[kind];
-  if (view.free) run.jailerRerolled = (run.jailerRerolled ?? 0) + 1;
+  // Task 51б: on a garrison node the garrison's free reroll is spent first.
+  if (view.free && rtGarrisonNodeId(pending.nodeId) && rtGarrisonRerollsLeft(run) > 0) run.garrisonRerolled = (run.garrisonRerolled ?? 0) + 1;
+  else if (view.free) run.jailerRerolled = (run.jailerRerolled ?? 0) + 1;
   // Task 44: the guaranteed pair stays on the screen through a reroll — it is not one of the shown ones. Task 50: so does the form of
   // the run's archetype in place 1 of the Jailer's form screen.
   const habitForm = pending.source === 'form' ? rtHabitKept(run, pending.nodeId) : null;
@@ -1956,7 +1972,7 @@ export const isArenaNode = (node: ForestMapNode): boolean => ['battle', 'hard', 
 function draw(run: RtRunState, stream: RunStream, advance: boolean): number {
   // Task 38: in the garrison every draw is the garrison's own stream (its seed, its counters from 0).
   const level = run.garrisonLevel, streams = level ? level.streams : run.streams;
-  const value = streamValue(level ? garrisonSeed(run.seed) : run.seed, stream, streams[stream]);
+  const value = streamValue(level ? rtGarrisonSeed(run) : run.seed, stream, streams[stream]);
   if (advance) streams[stream]++;
   return value;
 }
@@ -2017,9 +2033,10 @@ function arenaPick(run: RtRunState, node: ForestMapNode, advance: boolean): RtAr
 }
 
 /** The arena seed of a node: the run seed and the node id, as the battles of the turn-based run (forestNodeSeed). */
-export const arenaSeed = (run: Pick<RtRunState, 'seed'>, nodeId: string): number =>
-  // Task 38: a garrison node's seed — from the garrison's seed and its generator id (design 1.2), not the forest's.
-  rtGarrisonNodeId(nodeId) ? forestNodeSeed(garrisonSeed(run.seed), nodeId.slice(2)) : forestNodeSeed(run.seed, nodeId);
+export const arenaSeed = (run: Pick<RtRunState, 'seed' | 'garrisonMap'>, nodeId: string): number =>
+  // Task 38: a garrison node's seed — from the garrison's seed and its generator id (design 1.2), not the forest's. Task 51б: the
+  // garrison's seed of the map chosen (`rtGarrisonSeed`; without «Путь в гарнизон» — `garrisonSeed`, as before).
+  rtGarrisonNodeId(nodeId) ? forestNodeSeed(rtGarrisonSeed(run), nodeId.slice(2)) : forestNodeSeed(run.seed, nodeId);
 
 // ---------- Task 26 «Расписание леса» (design 15.10.2026; run/schedule.ts, docs/realtime-slice.md) ----------
 
@@ -3195,7 +3212,15 @@ export function rtChooseGiftPick(current: RtRunState, pick: string): RtRunStep {
  * run at once), `jailerRerolls` — Ерофей's free rerolls of the Jailer's screens (hammer, oath and relics), `hammerAll` — the
  * Jailer's hammer screen shows every hammer not locked, `quest` — the NPC's quest of this run (checked after it, rtMeta.ts).
  */
-export interface RtHearthFlags { maps?: 2 | 3; startItems?: ItemKind[]; jailerRerolls?: number; hammerAll?: true; quest?: RtQuest }
+export interface RtHearthFlags {
+  maps?: 2 | 3; startItems?: ItemKind[]; jailerRerolls?: number; hammerAll?: true; quest?: RtQuest;
+  /**
+   * Task 51б (level 3 of the camp, docs/design-notes/task-51-camp-l3.md, 2.2): `garrisonMaps` — Неясыть's «Путь в гарнизон», 2 garrison
+   * maps at «Предместье»; `gateItems` — Марфа's «Склянка в гарнизон», 2 kinds to take one of there; `garrisonRerolls` — Ерофей's «Правка
+   * в гарнизоне», free rerolls of the garrison's reward screens (the oath and relic screen of «Караульня»). Absent — none, as before.
+   */
+  garrisonMaps?: 2; gateItems?: ItemKind[]; garrisonRerolls?: number;
+}
 /** Баланс (task 37): the most free Jailer rerolls a run may carry (v1 gives 1). */
 export const RT_HEARTH_REROLLS_MAX = 3;
 /** The camp's flags as a run keeps them (unknown or malformed parts dropped; nothing — undefined). */
@@ -3206,6 +3231,10 @@ export function rtCleanHearth(value: unknown): RtHearthFlags | undefined {
   const out: RtHearthFlags = {
     ...value.maps === 2 || value.maps === 3 ? { maps: value.maps } : {}, ...items ? { startItems: items } : {}, ...rerolls !== undefined ? { jailerRerolls: rerolls } : {},
     ...value.hammerAll === true ? { hammerAll: true as const } : {}, ...isRtQuest(value.quest) ? { quest: { npc: value.quest.npc, id: value.quest.id } } : {},
+    // Task 51б: level 3 of the camp (each absent unless given right).
+    ...value.garrisonMaps === 2 ? { garrisonMaps: 2 as const } : {},
+    ...isItemList(value.gateItems) && value.gateItems.length === 2 && new Set(value.gateItems).size === 2 ? { gateItems: [...value.gateItems] } : {},
+    ...isCount(value.garrisonRerolls) && value.garrisonRerolls >= 1 && value.garrisonRerolls <= RT_HEARTH_REROLLS_MAX ? { garrisonRerolls: value.garrisonRerolls } : {},
   };
   return Object.keys(out).length ? out : undefined;
 }
@@ -3218,6 +3247,8 @@ export const rtHeroId = (run: Pick<RtRunState, 'heroId'>): RtHeroId => run.heroI
  * the events (`rtEventCandidates`). Task 30's forms read it too once their pool is in the run.
  */
 export const rtIsLocked = (run: Pick<RtRunState, 'locked'>, id: string): boolean => !!run.locked?.includes(id);
+/** Task 51б «Правка в гарнизоне»: the free rerolls of the garrison's reward screens left in this run. */
+export const rtGarrisonRerollsLeft = (run: Pick<RtRunState, 'hearth' | 'garrisonRerolled'>): number => Math.max(0, (run.hearth?.garrisonRerolls ?? 0) - (run.garrisonRerolled ?? 0));
 /** Task 37 «Правка»: the free rerolls of the Jailer's screens left in this run. */
 export const rtJailerRerollsLeft = (run: Pick<RtRunState, 'hearth' | 'jailerRerolled'>): number => Math.max(0, (run.hearth?.jailerRerolls ?? 0) - (run.jailerRerolled ?? 0));
 /** Task 37: the free reroll of the open Jailer's hammer screen — the rerolls left, whether one is possible now and why not. */
@@ -3300,19 +3331,49 @@ function openOutskirts(run: RtRunState, events: RtRunEvent[]): void {
  * 6»; an integer of 0 … the view's `max`, else refused): they leave the run's stock at once (`shopPayment`: each unit from the kind
  * held most) and are carried 100 % at any end (`RtRunState.cart`).
  */
-export function rtEnterGarrison(current: RtRunState, deposit?: number): RtRunStep {
+export function rtEnterGarrison(current: RtRunState, deposit?: number, choice: RtGateChoice = {}): RtRunStep {
   if (current.pending?.kind !== 'outskirts' || !current.garrison || current.garrisonLevel || current.result) return fail('Сейчас нет пути в гарнизон.');
-  const cart = rtCartView(current);
+  const cart = rtCartView(current), gate = rtGateView(current);
   if (deposit !== undefined && (!cart || !Number.isInteger(deposit) || deposit < 0 || deposit > cart.max)) return fail('Столько в Повозку не положить.');
-  const run = structuredClone(current);
-  run.garrisonLevel = { map: generateGarrisonMap(run.seed), streams: emptyStreams() };
+  // Task 51б: the garrison map (0 — the base one; only with «Путь в гарнизон») and the consumable (only one of «Склянка в гарнизон», not refused).
+  if (choice.map !== undefined && (!gate?.maps || (choice.map !== 0 && choice.map !== 1))) return fail('Этой карты гарнизона нет.');
+  if (choice.item !== undefined && !gate?.items?.some(entry => entry.item === choice.item && entry.available)) return fail('Этот расходник не взять.');
+  const run = structuredClone(current), events: RtRunEvent[] = [];
+  if (gate?.maps) run.garrisonMap = choice.map ?? 0;
+  if (choice.item !== undefined) { gainItems(run, [choice.item], events); run.gateItem = choice.item; }
+  run.garrisonLevel = { map: run.garrisonMap === 1 ? generateForestMap(rtGarrisonSeed(run)) : generateGarrisonMap(run.seed), streams: emptyStreams() };
   run.pending = null;
-  if (!cart) return { ok: true, run, events: [{ type: 'garrison-entered' }] };
+  if (!cart) return { ok: true, run, events: [...events, { type: 'garrison-entered' }] };
   const n = deposit ?? cart.deposit, paid = shopPayment(run.materials, n);
   for (const kind of RESOURCE_KINDS) run.materials[kind] -= paid[kind];
   run.cart = { n, before: cart.stock };
-  return { ok: true, run, events: [{ type: 'garrison-entered', cart: n }] };
+  return { ok: true, run, events: [...events, { type: 'garrison-entered', cart: n }] };
 }
+/** Task 51б: the choices of «Предместье» (`rtEnterGarrison`): `map` — the garrison map (`rtGateView().maps`), `item` — the consumable taken. */
+export interface RtGateChoice { map?: 0 | 1; item?: ItemKind }
+/**
+ * Task 51б (level 3 of the camp): «Предместье»'s offers of a run with the camp's flags — `maps` (Неясыть's «Путь в гарнизон»: the 2
+ * garrison seeds, the base one first; index 0/1 is the choice) and `items` (Марфа's «Склянка в гарнизон»: the 2 kinds, a healing one
+ * unavailable with a full hand — `rtItemRefusal`, the rule of three potions). Null — not on «Предместье», or neither flag.
+ */
+export interface RtGateView { maps?: number[]; items?: { item: ItemKind; available: boolean }[] }
+export function rtGateView(run: RtRunState): RtGateView | null {
+  if (run.pending?.kind !== 'outskirts' || run.garrisonLevel || run.result) return null;
+  const maps = run.hearth?.garrisonMaps ? rtGarrisonMaps(run.seed) : undefined, items = run.hearth?.gateItems;
+  if (!maps && !items) return null;
+  return { ...maps ? { maps } : {}, ...items ? { items: items.map(item => ({ item, available: !rtItemRefusal(run, item) })) } : {} };
+}
+/**
+ * Task 51б «Путь в гарнизон» (spec 2.2): the 2 garrison seeds of a run seed — `garrisonSeed(seed)` first, then the draws of the salt
+ * `hearth-gmaps` from it (the next one when a draw equals the first, as `rtHearthMaps`). No forest output changes.
+ */
+export function rtGarrisonMaps(seed: number): number[] {
+  const first = garrisonSeed(seed), out = [first];
+  for (let k = 1; out.length < 2 && k < 16; k++) { const next = mixSeed(mixSeed(first, HEARTH_GMAPS_SALT), k) >>> 0; if (!out.includes(next)) out.push(next); }
+  return out;
+}
+/** Task 51б: the garrison's seed of a run — the second map's with `garrisonMap` 1, else `garrisonSeed(seed)` as before. */
+export const rtGarrisonSeed = (run: Pick<RtRunState, 'seed' | 'garrisonMap'>): number => (run.garrisonMap === 1 ? rtGarrisonMaps(run.seed)[1] : garrisonSeed(run.seed));
 /** Баланс (task 40, design 4): the cart keeps this much of the stock by default («оставить 6»); it takes at most the forest's cap. */
 export const RT_CART_KEEP = 6;
 export const RT_CART_MAX = 20;
@@ -3536,7 +3597,12 @@ function checkRun(value: unknown): RtRunState | null {
     && Object.keys(value.cart).length === 2 && isCount(value.cart.n) && isCount(value.cart.before) && value.cart.n <= RT_CART_MAX && value.cart.n <= value.cart.before)) return null;
   const garrisonStreams = value.garrisonLevel === undefined ? null : validGarrisonLevel(value);
   if (value.garrisonLevel !== undefined && !garrisonStreams) return null;
-  const level = garrisonStreams ? { seed: garrisonSeed(value.seed as number), streams: garrisonStreams } : { seed: value.seed as number, streams };
+  // Task 51б: the garrison map chosen (only in a run with «Путь в гарнизон», once in the garrison); the consumable taken (one of «Склянка в
+  // гарнизон», only once in the garrison); the garrison's free rerolls spent (1 … the flags' count).
+  if (value.garrisonMap !== undefined && !((value.garrisonMap === 0 || value.garrisonMap === 1) && isRecord(value.hearth) && value.hearth.garrisonMaps === 2 && value.garrisonLevel !== undefined)) return null;
+  if (value.gateItem !== undefined && !(isRecord(value.hearth) && Array.isArray(value.hearth.gateItems) && value.hearth.gateItems.includes(value.gateItem) && value.garrisonLevel !== undefined)) return null;
+  if (value.garrisonRerolled !== undefined && !(isCount(value.garrisonRerolled) && value.garrisonRerolled >= 1 && isRecord(value.hearth) && value.garrisonRerolled <= (value.hearth.garrisonRerolls as number))) return null;
+  const level = garrisonStreams ? { seed: rtGarrisonSeed(value as { seed: number; garrisonMap?: 0 | 1 }), streams: garrisonStreams } : { seed: value.seed as number, streams };
   const run = value as unknown as RtRunState;
   const map = rtRunMap(run), known = (id: unknown): id is string => typeof id === 'string' && !!map.node(id);
   if (!Array.isArray(run.visited) || !run.visited.every(known) || !(run.currentNodeId === null || known(run.currentNodeId))) return null;
@@ -3756,7 +3822,9 @@ function checkRun(value: unknown): RtRunState | null {
       if ((rerolls === undefined) !== (rerolled === undefined)) return null;
       if (rerolls !== undefined) {
         // Task 37 «Правка»: the Jailer's oath screen rerolls only by the camp's free rerolls (counted in `jailerRerolled`).
-        const freeOath = source === 'oath' && isCount(run.jailerRerolled) && isCount(rerolls) && rerolls <= run.jailerRerolled;
+        // Task 51б: on a garrison node the garrison's free rerolls (`garrisonRerolled`) count too.
+        const freeSpent = (run.jailerRerolled ?? 0) + (rtGarrisonNodeId(node.id) ? run.garrisonRerolled ?? 0 : 0);
+        const freeOath = source === 'oath' && freeSpent >= 1 && isCount(rerolls) && rerolls <= freeSpent;
         if (!(RT_REROLL_SOURCES.includes(source as RtTalismanSource) || freeOath) || !isCount(rerolls) || rerolls < 1 || !isTalismanList(rerolled) || rerolled.length < rerolls) return null;
         // Task 16: the feat's first offer is its own draw — its rerolls alone take `talismans` draws.
         if (rerolled.some(id => options.includes(id) || run.talismans.includes(id) || run.talismansGone.includes(id)) || !(level.streams.talismans >= (source === 'feat' ? 0 : 1) + rerolls)) return null;
