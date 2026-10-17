@@ -17,6 +17,8 @@ export const CHARACTER_ART_IDS = [
   'garrison-crossbowman', 'garrison-crossbow',
   // Task 43 «Гарнизон, шаг 2»: the knight (the drawn silhouette stays the fallback).
   'garrison-knight',
+  // Task 49 «Второй герой»: Ведунья (the hero's sprite; the drawn toad stays the fallback) and the Jailer's cage (the drawn cage stays the fallback).
+  'toad', 'jailer-cage',
 ] as const;
 
 export type CharacterArtId = typeof CHARACTER_ART_IDS[number];

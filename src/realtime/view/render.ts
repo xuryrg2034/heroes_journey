@@ -10,7 +10,7 @@
  * drawing) and the «−1 HP» badge on a porcupine link of the drawn chain (`drawChain`).
  */
 import { Application, Container, Graphics, GraphicsContext, Particle, ParticleContainer, Sprite, Text, type Texture } from 'pixi.js';
-import { COLORS, PALE, drawTerrain, makePlayer } from '../art/art';
+import { COLORS, PALE, drawTerrain, makePlayer, type HeroArtId } from '../art/art';
 import { characterSprite, hasCharacterArt, type CharacterArtId } from '../art/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
 import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainAnchors, chainColor, colorGroups, colorJoin, colorShiftIds, colorShiftLeft, colorlessLink, enemyAnchors, forkAnchorOf, heroAnchorOn, jumpLanding, linkPoint, loopCandidates, loopOn, nextCandidates, nextObjectCandidates, planChain, sameColor, twinsNextColor, type ChainPlan } from '../sim/chain';
@@ -36,6 +36,8 @@ import { FIRE_LIFE, FIRE_RADIUS, FIRE_STEP, firePassPreview, hammerFirePoints, r
 import { COUNTER_TALISMANS, FROST_PASS, FUSIONS, HAMMERS, RELICS } from '../sim/buildIds';
 import { fireTextOf } from './buildColumn';
 import { findLoopHint, type LoopHintFigure } from './loopHint';
+import { JailerCageView } from './cageView';
+import { isToad } from './toadLesson';
 // Casino stage 1: «Однорукий гоблин» (the idol, the reels, the odds line; the arrow marks are drawn in `drawSignals`).
 import { SlotView } from './slotView';
 import { slotPlanOdds } from '../sim/slotPlan';
@@ -248,6 +250,8 @@ const CURSE = 0xb57cff, CURSE_DARK = 0x2a1440;
 const FOCUS_GUARD = 0x8fd3ff, NAVY_RIM = 0x18232d;
 /** Task 13: the glow of the after-chain shield and its block spark (warm gold, unlike the focus guard's pale blue). */
 const SHIELD_GLOW = 0xffd36b;
+/** Task 49: real seconds the crack stays on the hero. */
+const CRACK_LIFE = 0.8;
 /** Task 22: the hero's hit flash (scarlet; white is the threats' «it strikes now»). */
 const HURT_FLASH = 0xff3b2f;
 
@@ -618,6 +622,12 @@ export class RealtimeRenderer {
   private hintFigure: LoopHintFigure | null = null;
   private hintFrame = 0;
   private heroArt: Container | null = null;
+  /** Task 49: whose picture the hero wears (the loadout's `hero`: the kit holds her law, view/toadLesson.ts `isToad`) and whether it is the image. */
+  private heroArtId: HeroArtId = 'cat';
+  /** Tests read it: whose picture the hero wears now. */
+  get heroArtKind(): HeroArtId { return this.heroArtId; }
+  /** Task 49, spec 6.1: the Jailer's cage with Ведунья (a decoration, view/cageView.ts; `setJailerCage`). */
+  readonly cage = new JailerCageView();
   private readonly heroRing = new Graphics();
   private arena: ArenaLayout | null = null;
   private clock = 0;
@@ -744,11 +754,11 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.overlay, this.prologueLayer, this.fxLayer, this.snapLayer, this.shardLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.cage.layer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.overlay, this.prologueLayer, this.fxLayer, this.snapLayer, this.shardLayer, this.flash);
     this.heroRoot.addChild(this.reachLayer, this.reachMask, this.heroLayer);
     this.app.stage.addChild(this.root, this.viewBorder, this.heroRoot, this.edgeLayer);
     this.initShards();
-    this.heroArt = makePlayer();
+    this.heroArt = makePlayer(this.heroArtId);
     this.heroLayer.addChild(this.heroRing, this.heroArt);
     this.comboText = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 46, fontWeight: 'bold', fill: 0xfff2c4, stroke: { color: 0x200c08, width: 7 } } });
     this.comboText.anchor.set(0.5, 1);
@@ -2277,7 +2287,17 @@ export class RealtimeRenderer {
   }
 
   private drawHero(world: World, dt: number): void {
-    const hero = world.hero, art = this.heroArt;
+    const hero = world.hero;
+    // Task 49: the hero's picture follows the loadout (the cat; Ведунья when her law is in the kit), swapped when the fight changes.
+    const wanted: HeroArtId = isToad(world) ? 'toad' : 'cat';
+    if (wanted !== this.heroArtId && this.heroArt) {
+      this.heroLayer.removeChild(this.heroArt);
+      this.heroArt.destroy({ children: true });
+      this.heroArtId = wanted;
+      this.heroArt = makePlayer(wanted);
+      this.heroLayer.addChild(this.heroArt);
+    }
+    const art = this.heroArt;
     this.heroLayer.position.set(hero.x * UNIT, hero.y * UNIT);
     // Task 47, С7: the dash starts — the hero stretches up; it ends — he squashes (the drawing only; С1 scales it, 0 — none).
     const dash = dashLike(world);
@@ -2315,9 +2335,27 @@ export class RealtimeRenderer {
     if (this.shieldFailShown) this.crackedRim(ring, this.chainShieldShown ? SHIELD_GLOW : FOCUS_GUARD);
     else if (this.chainShieldShown) {
       const k = Math.min(1, hero.chainShield / Math.max(this.shieldFull, 0.01)), pulse = 0.5 + 0.5 * Math.sin(this.clock * 18);
-      ring.circle(0, 0, UNIT * 0.86).fill({ color: SHIELD_GLOW, alpha: 0.18 + 0.2 * k });
-      ring.circle(0, 0, UNIT * 0.68).stroke({ color: NAVY_RIM, width: 8, alpha: 0.55 * k + 0.2 })
-        .circle(0, 0, UNIT * 0.68).stroke({ color: SHIELD_GLOW, width: 3 + 2.5 * k, alpha: 0.75 + 0.25 * pulse });
+      // Task 49: the first seal's shield glows brighter (the same glow: a stronger fill, a wider rim, a second halo) — where it came from.
+      const boost = this.shieldBoost ? 1 : 0;
+      ring.circle(0, 0, UNIT * 0.86).fill({ color: SHIELD_GLOW, alpha: Math.min(0.62, 0.18 + 0.2 * k + 0.22 * boost) });
+      if (boost) ring.circle(0, 0, UNIT * 1.02).stroke({ color: SHIELD_GLOW, width: 3, alpha: 0.35 + 0.3 * pulse });
+      ring.circle(0, 0, UNIT * 0.68).stroke({ color: NAVY_RIM, width: 8 + 2 * boost, alpha: 0.55 * k + 0.2 })
+        .circle(0, 0, UNIT * 0.68).stroke({ color: SHIELD_GLOW, width: 3 + 2.5 * k + 2.5 * boost, alpha: 0.75 + 0.25 * pulse });
+    }
+    this.shieldBoostShown = this.chainShieldShown && this.shieldBoost && !this.shieldFailShown;
+    // Task 49: the price of her law — the crack on the hero at the first hit after an open chain (a short jagged line through the figure).
+    this.crackShown = this.crackLeft > 0;
+    if (this.crackLeft > 0) {
+      const k = this.crackLeft / CRACK_LIFE, a = Math.min(1, k * 2);
+      const zig = [[-6, -34], [4, -22], [-4, -10], [6, 2], [-3, 14], [5, 28]] as const;
+      ring.moveTo(zig[0][0], zig[0][1]);
+      for (const [x, y] of zig.slice(1)) ring.lineTo(x, y);
+      ring.stroke({ color: NAVY, width: 7, alpha: 0.85 * a, join: 'round', cap: 'round' });
+      ring.moveTo(zig[0][0], zig[0][1]);
+      for (const [x, y] of zig.slice(1)) ring.lineTo(x, y);
+      ring.stroke({ color: 0xf2f6ff, width: 3, alpha: a, join: 'round', cap: 'round' });
+      ring.moveTo(4, -22).lineTo(16, -18).moveTo(-4, -10).lineTo(-16, -8).stroke({ color: 0xf2f6ff, width: 2, alpha: 0.9 * a, cap: 'round' });
+      this.crackLeft = Math.max(0, this.crackLeft - dt);
     }
     // «Щит фокуса»: while the drawn chain guards the hero — a steady pale-blue rim (the focus colour), unlike the gold blink.
     this.focusGuardShown = focusGuarded(world);
@@ -2343,6 +2381,14 @@ export class RealtimeRenderer {
   focusGuardShown = false;
   /** Task 13: the after-chain shield's glow was drawn this frame (tests read it). */
   chainShieldShown = false;
+  /** Task 49 (spec 8): the shield's glow is the brighter one (the viewer's first seal; set by the host's lesson), and was drawn so this frame. */
+  shieldBoost = false;
+  shieldBoostShown = false;
+  /** Task 49: the crack on the hero (the first hit after an open chain; `crackHero`) has this many real seconds left, and was drawn this frame. */
+  private crackLeft = 0;
+  crackShown = false;
+  /** Task 49: the sign of the law on the drawn chain this frame: `dim` — an open chain of Ведунья gives no shield (`ChainPlan.noShield`), `lit` — her ring will. */
+  readonly shieldSign = { dim: false, lit: false };
   /** The shield's length when it was last given and its value last frame (the glow thins with what is left). */
   private shieldFull = 0;
   private shieldLast = 0;
@@ -3306,6 +3352,7 @@ export class RealtimeRenderer {
     this.drawLoop(g, world, plan.seal, ink);
     this.drawPierce(g, world, plan.pierce, ink);
     this.drawFusionEnd(g, world, plan, ink);
+    this.drawShieldSign(g, world, plan);
     this.drawHoned(g, world, plan);
     if (!plan.endsOnSurvivor && !plan.endsOnObject && !plan.seal) {
       if (twinNext !== null) {
@@ -3471,6 +3518,11 @@ export class RealtimeRenderer {
     return this.honedLabels[i];
   }
 
+  /** Task 49: the cage with Ведунья in the Jailer's yard on or off (decoration; the host decides by the run's profile). */
+  setJailerCage(on: boolean): void { this.cage.setOn(on); }
+  /** Task 49 (spec 8): the crack on the hero — the price of her law shown at the first hit after an open chain. */
+  crackHero(): void { this.crackLeft = CRACK_LIFE; }
+
   /** A dashed circle (arcs in turn): navy under, `ink` over. */
   private dashedRing(g: Graphics, x: number, y: number, R: number, ink: number, width: number, steps: number): void {
     for (const [w, c, a] of [[width + 3, NAVY, 0.55], [width, ink, 0.95]] as const) {
@@ -3493,6 +3545,28 @@ export class RealtimeRenderer {
    * - «Иней на клинке»: the snowflake badge and the cold's ring on the survivor and on its neighbour that freezes with it.
    * «Призма» II is energy: nothing is drawn.
    */
+  /**
+   * Task 49 (spec 4.2, 8): the shield sign at the hero while a chain is drawn — only Ведунья's (the law is in her kit). The plan says
+   * what the dash will do (`ChainPlan.noShield`: an open chain, no shield; `seal`: the ring gives it): a dim dashed ring of grey for
+   * «no shield», the gold dashed ring of the shield's own glow for «the ring will give it». Nothing is computed here.
+   */
+  private drawShieldSign(g: Graphics, world: World, plan: ChainPlan): void {
+    this.shieldSign.dim = false; this.shieldSign.lit = false;
+    if (!isToad(world) || plan.kills <= 0) return;
+    const x = world.hero.x * UNIT, y = world.hero.y * UNIT;
+    if (plan.noShield) {
+      for (let k = 0; k < 20; k += 2) {
+        const a0 = k / 20 * Math.PI * 2, a1 = (k + 1) / 20 * Math.PI * 2;
+        g.moveTo(x + Math.cos(a0) * UNIT * 0.68, y + Math.sin(a0) * UNIT * 0.68).arc(x, y, UNIT * 0.68, a0, a1);
+      }
+      g.stroke({ color: 0x8c93a0, width: 3, alpha: 0.5 });
+      this.shieldSign.dim = true;
+    } else if (plan.seal) {
+      this.dashedRing(g, x, y, UNIT * 0.68, SHIELD_GLOW, 4, 20);
+      this.shieldSign.lit = true;
+    }
+  }
+
   private drawHoned(g: Graphics, world: World, plan: ChainPlan): void {
     if (!world.kit?.honed) return;
     const p = world.params, r = enemyDrawRadius(p) * UNIT, shown = this.honedShown;
@@ -4042,6 +4116,7 @@ export class RealtimeRenderer {
     this.updateDying(realDt);
     this.updateClearWaves(realDt);
     this.updateFireFlares(realDt);
+    this.cage.update(world, realDt);
     this.drawObjects(world);
     this.drawMarkers(world);
     this.drawTrails(world);
@@ -4060,6 +4135,7 @@ export class RealtimeRenderer {
     this.drawSleep(world);
     this.bagView.draw(world, this.clock, realDt);
     this.featDoor.draw(world, this.bagView.shown.visible);
+    this.shieldSign.dim = false; this.shieldSign.lit = false;
     this.drawChain(world, ui);
     this.drawPlayerFx(world, realDt);
     this.outlineLeft = Math.max(0, this.outlineLeft - realDt);
@@ -4109,6 +4185,7 @@ export class RealtimeRenderer {
   }
 
   resetEffects(): void {
+    this.crackLeft = 0; this.crackShown = false; this.shieldBoost = false; this.shieldBoostShown = false;
     this.snaps = []; this.drops = []; this.snapLayer.clear(); this.houndAt.clear();
     this.intro = null; this.openedOnBoss = false;
     this.shakeLeft = 0;
