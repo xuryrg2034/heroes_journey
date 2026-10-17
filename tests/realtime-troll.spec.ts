@@ -290,11 +290,13 @@ test('task 48: two parts severed — phase 3: «Храп» (the sleeping drawing
   await shot(page, 'two-parts');
   // The bar: the line of phase 3 is lit.
   await expect.poll(async () => (await snap(page)).bossBar.phase2).toBe(true);
-  // The sleep: the drawing «спит», the arc fills (the cold holds it for the shot).
+  // The sleep: the drawing «спит», its name on his belly at the start (a label of one real second, so read in the frame), the arc fills
+  // (the cold holds it for the shot).
   await heroTo(page, 11.4, 4.2);
-  const asleep = await untilFrame(page, (sn, _arg: null, late) => sn.troll.asleep === 1 && sn.troll.snoreArc > 0.3 ? true : late ? false : undefined, null, 30);
-  expect(asleep, 'the core sleeps').toBe(true);
-  expect((await snap(page)).bossNames).toContain('Храп');
+  const named = await untilFrame(page, (sn, _arg: null, late) => sn.troll.asleep === 1 && sn.bossNames.includes('Храп') ? true : late ? false : undefined, null, 30);
+  expect(named, 'the core sleeps, «Храп» is named').toBe(true);
+  const asleep = await untilFrame(page, (sn, _arg: null, late) => sn.troll.asleep === 1 && sn.troll.snoreArc > 0.3 ? true : late ? false : undefined, null, 3);
+  expect(asleep, 'the arc fills').toBe(true);
   await page.evaluate(([id]) => (window as any).__realtime.chill(id, 15), [core.id] as const);
   await shot(page, 'snore');
   // Struck in his sleep (the window is open all along): the arc crumbles, nothing grows back.
@@ -317,16 +319,18 @@ test('task 48: «Храп» left alone — the arc fills for 4 s and a plate gro
   test.setTimeout(120_000);
   const errors = collectErrors(page);
   await openDen(page, errors);
-  // 2 plates: phase 3 from the first tick; the hero far in the corner, out of every move.
-  await restart(page, 2);
+  // 3 plates (`trollPlates` is the regrowth's ceiling too): the rock severed takes one — 2 plates, phase 3; the hero far in the corner,
+  // out of every move.
+  await restart(page, 3);
   await quiet(page);
+  await sever(page, 'troll-rock', 6);
   await heroTo(page, 1.5, 14);
-  await expect.poll(async () => (await snap(page)).bossBar).toMatchObject({ visible: true, cells: 4, plates: 2, phase2: true });
+  await expect.poll(async () => (await snap(page)).bossBar).toMatchObject({ visible: true, cells: 5, plates: 2, phase2: true });
   expect(await untilFrame(page, (sn, _arg: null, late) => sn.troll.asleep === 1 ? true : late ? false : undefined, null, 20), 'the core sleeps').toBe(true);
   await shot(page, 'bar-phase3');
   await expect.poll(async () => (await snap(page)).troll.regrows, { timeout: 30_000 }).toBe(1);
-  await expect.poll(async () => (await snap(page)).bossBar).toMatchObject({ plates: 3, grown: 1 });
-  expect(kindOf(await snap(page), 'troll')!.armor!.plates).toBe(3);
+  await expect.poll(async () => (await snap(page)).bossBar).toMatchObject({ cells: 5, plates: 3, grown: 1 });
+  expect(kindOf(await snap(page), 'troll')!.armor).toMatchObject({ plates: 3, max: 3 });
   await sameHash(page);
   expect(errors).toEqual([]);
 });
@@ -409,6 +413,8 @@ test('task 48: three parts severed — the final\'s relic screen offers four and
   await expect(page.getByTestId('run-talisman')).toBeVisible();
   await expect(page.getByTestId('run-talisman')).toContainText('Тролль без лап и хвоста — на выбор четыре.');
   await expect(page.locator('[data-testid="run-talisman"] .rt-run-choice')).toHaveCount(4);
+  // The cards come in one by one (task 47 reveal): the shot waits for the last.
+  await page.evaluate(() => Promise.all(document.getAnimations().map(a => a.finished)));
   await shot(page, 'relic-4');
   expect(errors).toEqual([]);
 });
