@@ -62,7 +62,7 @@ import { validDeath, type RtDeath } from './rtRunEnd';
 // Task 16 «Подвиги»: the feat kinds of the simulation (sim/feat.ts).
 import { FEAT_KINDS, isFeatKind, type FeatKind } from '../sim/feat';
 // Tasks 36–37 «Мета» and «Очаг»: the meta catalogue (a leaf module: the packs' ids, the camp's quests).
-import { HEARTH_GMAPS_SALT, HEARTH_SHOP_SALT, isRtLockable, isRtVow, type RtVowId, isRtQuest, RT_HERO_ID, RT_TOAD_ID, type RtHeroId, type RtQuest } from './metaCatalog';
+import { HEARTH_GMAPS_SALT, HEARTH_SHOP_SALT, isRtHearthLeaver, isRtLockable, isRtVow, NPC_MEET_SALT, RT_MEET_ZONES, type RtHearthLeaver, type RtVowId, isRtQuest, RT_HERO_ID, RT_TOAD_ID, type RtHeroId, type RtQuest } from './metaCatalog';
 // Task 49 «Второй герой»: the hero's innate items (sim/buildIds.ts; the fight's `Loadout.hero` gives them to the kit).
 import { HERO_INNATE } from '../sim/buildIds';
 import { HAMMER_IDS, RT_HAMMER_OFFER_SIZE } from './rtTalismans';
@@ -668,6 +668,11 @@ export interface RtRunState {
   /** Task 51г «Без переброса»: a run with that vow rerolled something (a screen, the hammers, the merchant's goods); absent — not. */
   vowRerolled?: true;
   /**
+   * Task 51д «Встреча на привале» (spec 3.4): the NPC away (`hearth.away`) met at the first rest of its zone — that rest's node and the
+   * deal made there (absent — none yet). Absent — not met (yet).
+   */
+  npcMeet?: { nodeId: string; deal?: string };
+  /**
    * Task 30 «Формы в походе» (design 15.10.2026; docs/realtime-slice.md, section 8): the run's forms — the first Jailer's screen
    * offers forms (`RT_FORMS`) instead of the hammers, «Застава» a form of the other field in its rare place, the common pool
    * holds «Близнецы» (`RT_OPENERS`), one form per field (a new one replaces the old), the fights play the counters' chain window
@@ -866,6 +871,9 @@ export type RtRunEvent =
   | { type: 'event-attempt'; nodeId: string; option: string; attempt: number; outcome: number; text: string }
   | { type: 'event-resolved'; nodeId: string; option: string; outcome: number; text: string }
   | { type: 'shop-bought'; nodeId: string; purchase: RtShopPurchase }
+  /** Task 51д: the NPC away met at this rest; the deal made with it. */
+  | { type: 'npc-met'; nodeId: string; npc: RtHearthLeaver }
+  | { type: 'npc-deal'; nodeId: string; npc: RtHearthLeaver; deal: string }
   /** Task 51в: Шиш's «Шишова лавка» drew the goods again; «Размен» changed 3 of `from` for 2 of `to`. */
   | { type: 'shop-rerolled'; nodeId: string; stock: RtShopStock }
   | { type: 'shop-swapped'; nodeId: string; from: ResourceKind; to: ResourceKind }
@@ -2208,7 +2216,12 @@ export function rtEnterNode(current: RtRunState, nodeId: string, oath: OathId | 
     }
     return { ok: true, run, events };
   }
-  if (node.type === 'rest') { run.pending = { kind: 'rest', nodeId, crafted: [] }; return { ok: true, run, events }; }
+  if (node.type === 'rest') {
+    run.pending = { kind: 'rest', nodeId, crafted: [] };
+    // Task 51д: the NPC away waits at the first rest of its zone.
+    if (run.hearth?.away && !run.npcMeet && rtMeetZone(run.hearth.away, node)) { run.npcMeet = { nodeId }; events.push({ type: 'npc-met', nodeId, npc: run.hearth.away }); }
+    return { ok: true, run, events };
+  }
   if (node.type === 'find') { offerFind(run, nodeId, events); return { ok: true, run, events }; }
   if (node.type === 'shop') {
     // The stock of the turn-based merchant from the `merchant` stream (spent, as there): consumables of the open kinds
@@ -2844,6 +2857,63 @@ export function rtShopReroll(current: RtRunState): RtRunStep {
   markVowReroll(run);
   return { ok: true, run, events: [{ type: 'shop-rerolled', nodeId: pending.nodeId, stock: structuredClone(pending.stock) }] };
 }
+// ---------- Task 51д «Уход по делам» and «Встреча на привале» (spec 3.4) ----------
+
+/** Task 51д: `node` is in the zone of the NPC away — its branch (or the trails) and its run rows. */
+export function rtMeetZone(npc: RtHearthLeaver, node: Pick<ForestMapNode, 'id' | 'row'>): boolean {
+  const zone = RT_MEET_ZONES[npc], row = runRow(node.row);
+  if (rtGarrisonNodeId(node.id) || row < zone.rows[0] || row > zone.rows[1]) return false;
+  const branch = node.id.startsWith('den-') ? 'den' : node.id.startsWith('camp-') ? 'camp' : null;
+  return branch === zone.branch;
+}
+/** Баланс (spec 3.4): the deal's price — Марфа's consumable and Ерофей's talisman cost this many resources; Шиш's «Скупка» gives as many. */
+export const RT_MEET_PRICE = 2;
+/** The meeting's deal options (ids): Марфа `item:<kind>` (2 kinds), Ерофей `talisman:<id>` (2 commons), Шиш `sell:<kind>` (a consumable held). */
+export interface RtMeetDeal { id: string; available: boolean; reason: string; item?: ItemKind; talisman?: RtTalismanId; gain?: ResourceKind }
+/** The meeting on the open rest: the NPC, its deals, whether one is made. Null — not the rest of the meeting. */
+export interface RtMeetView { npc: RtHearthLeaver; nodeId: string; deals: RtMeetDeal[]; deal?: string }
+/** The base of a meeting's deals: the stream `npc-meet` of the run seed and the node (no run stream spent). */
+const meetBase = (run: Pick<RtRunState, 'seed'>, nodeId: string): number => mixSeed(mixSeed(run.seed >>> 0, NPC_MEET_SALT), [...nodeId].reduce((h, ch) => Math.imul(h ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5));
+export function rtMeetView(run: RtRunState): RtMeetView | null {
+  const pending = run.pending, npc = run.hearth?.away, meet = run.npcMeet;
+  if (pending?.kind !== 'rest' || !npc || !meet || meet.nodeId !== pending.nodeId) return null;
+  const base = meetBase(run, pending.nodeId), total = stockTotal(run.materials), done = meet.deal !== undefined;
+  const short = total < RT_MEET_PRICE ? `Нужно ресурсов: ${RT_MEET_PRICE}, есть ${total}` : '';
+  let deals: RtMeetDeal[];
+  if (npc === 'herb') {
+    // Марфа: 2 resources → 1 consumable of 2 (the rule of three potions: a healing one with a full hand is not sold).
+    const left = [...ITEM_KINDS], kinds: ItemKind[] = [];
+    for (let k = 0; k < 2; k++) kinds.push(left.splice(mixSeed(base, k) % left.length, 1)[0]);
+    deals = kinds.map(item => { const reason = done ? 'Сделка уже была' : rtItemRefusal(run, item) ? RT_ITEM_REFUSAL_TEXT.handFull : short; return { id: `item:${item}`, item, available: !reason, reason }; });
+  } else if (npc === 'smith') {
+    // Ерофей: 2 resources → 1 common talisman of 2 (as «Заточка» of «Бродячий точильщик»).
+    deals = rtEventTalismanOffer(base, 2, talismanPool(run)).map(talisman => { const reason = done ? 'Сделка уже была' : short; return { id: `talisman:${talisman}`, talisman, available: !reason, reason }; });
+  } else {
+    // Шиш «Скупка»: 1 consumable from the hand → 2 resources of the kind the deal names.
+    const gain = RESOURCE_KINDS[mixSeed(base, 0) % RESOURCE_KINDS.length];
+    deals = ITEM_KINDS.filter(item => run.items[item] > 0).map(item => { const reason = done ? 'Сделка уже была' : ''; return { id: `sell:${item}`, item, gain, available: !reason, reason }; });
+  }
+  return { npc, nodeId: pending.nodeId, deals, ...done ? { deal: meet.deal } : {} };
+}
+/** The meeting's one deal (`rtMeetView().deals[].id`); the rest's own choice (heal, craft, fusion) stays. «Уйти» — no step (nothing lost). */
+export function rtMeetDeal(current: RtRunState, id: string): RtRunStep {
+  const view = rtMeetView(current);
+  if (!view) return fail('Здесь никто не ждёт.');
+  const deal = view.deals.find(entry => entry.id === id);
+  if (!deal) return fail('Такой сделки нет.');
+  if (!deal.available) return fail(deal.reason);
+  const run = structuredClone(current), events: RtRunEvent[] = [{ type: 'npc-deal', nodeId: view.nodeId, npc: view.npc, deal: id }];
+  if (view.npc === 'gambler') { run.items[deal.item!] -= 1; run.materials[deal.gain!] += RT_MEET_PRICE; }
+  else {
+    const paid = shopPayment(run.materials, RT_MEET_PRICE);
+    for (const kind of RESOURCE_KINDS) run.materials[kind] -= paid[kind];
+    if (deal.item) gainItems(run, [deal.item], events);
+    if (deal.talisman) takeTalisman(run, deal.talisman, events);
+  }
+  run.npcMeet = { nodeId: view.nodeId, deal: id };
+  return { ok: true, run, events };
+}
+
 /** Баланс (spec 3.2): «Размен» — this many of one kind for that many of another. */
 export const RT_SWAP_GIVE = 3;
 export const RT_SWAP_GET = 2;
@@ -3314,6 +3384,8 @@ export interface RtHearthFlags {
   shopRerolls?: 1 | 2; swap?: true;
   /** Task 51г (Евлампий, spec 3.3): the vows taken for this run (1 — «Обет», 2 — «Два обета»); checked after the run (rtMeta.ts). */
   vows?: RtVowId[];
+  /** Task 51д (spec 3.4): the NPC away for this run — it waits at the first rest of its zone (`RT_MEET_ZONES`, `npcMeet`). */
+  away?: RtHearthLeaver;
 }
 /** Баланс (task 37): the most free Jailer rerolls a run may carry (v1 gives 1). */
 export const RT_HEARTH_REROLLS_MAX = 3;
@@ -3333,6 +3405,8 @@ export function rtCleanHearth(value: unknown): RtHearthFlags | undefined {
     ...value.shopRerolls === 1 || value.shopRerolls === 2 ? { shopRerolls: value.shopRerolls } : {}, ...value.swap === true ? { swap: true as const } : {},
     // Task 51г: Евлампий's vows — 1 or 2 different known ones.
     ...Array.isArray(value.vows) && value.vows.length >= 1 && value.vows.length <= 2 && value.vows.every(isRtVow) && new Set(value.vows).size === value.vows.length ? { vows: [...value.vows] as RtVowId[] } : {},
+    // Task 51д: the NPC away.
+    ...isRtHearthLeaver(value.away) ? { away: value.away } : {},
   };
   return Object.keys(out).length ? out : undefined;
 }
@@ -3707,6 +3781,9 @@ function checkRun(value: unknown): RtRunState | null {
   if (value.shopRerolled !== undefined && !(value.shopRerolled === true && isRecord(value.hearth) && isCount(value.hearth.shopRerolls) && value.hearth.shopRerolls >= 1)) return null;
   if (value.garrisonShopRerolled !== undefined && !(value.garrisonShopRerolled === true && isRecord(value.hearth) && value.hearth.shopRerolls === 2 && value.garrisonLevel !== undefined)) return null;
   if (value.swapped !== undefined && !(value.swapped === true && isRecord(value.hearth) && value.hearth.swap === true)) return null;
+  // Task 51д: the meeting only in a run with an NPC away, at a rest of its zone (entered or open now).
+  if (value.npcMeet !== undefined && !(isRecord(value.npcMeet) && typeof value.npcMeet.nodeId === 'string' && isRecord(value.hearth) && isRtHearthLeaver(value.hearth.away)
+    && (value.npcMeet.deal === undefined || (typeof value.npcMeet.deal === 'string' && /^(item|talisman|sell):[a-z-]+$/.test(value.npcMeet.deal))))) return null;
   // Task 51г: the reroll mark only in a run with «Без переброса».
   if (value.vowRerolled !== undefined && !(value.vowRerolled === true && isRecord(value.hearth) && Array.isArray(value.hearth.vows) && value.hearth.vows.includes('vow-no-reroll'))) return null;
   const level = garrisonStreams ? { seed: rtGarrisonSeed(value as { seed: number; garrisonMap?: 0 | 1 }), streams: garrisonStreams } : { seed: value.seed as number, streams };
@@ -3714,6 +3791,11 @@ function checkRun(value: unknown): RtRunState | null {
   const map = rtRunMap(run), known = (id: unknown): id is string => typeof id === 'string' && !!map.node(id);
   if (!Array.isArray(run.visited) || !run.visited.every(known) || !(run.currentNodeId === null || known(run.currentNodeId))) return null;
   if ((run.currentNodeId ?? null) !== (run.visited[run.visited.length - 1] ?? null)) return null;
+  // Task 51д: the meeting's rest — a rest of the zone of the NPC away, entered (visited or open now).
+  if (run.npcMeet) {
+    const meetNode = map.node(run.npcMeet.nodeId), open = isRecord(run.pending) && run.pending.kind === 'rest' && run.pending.nodeId === run.npcMeet.nodeId;
+    if (!meetNode || meetNode.type !== 'rest' || !rtMeetZone(run.hearth!.away!, meetNode) || !(open || run.visited.includes(meetNode.id))) return null;
+  }
   // The path goes along the map's edges from a row-5 node.
   for (let n = 0; n < run.visited.length; n++) {
     const from = n === 0 ? map.starts() : map.node(run.visited[n - 1])!.next;
