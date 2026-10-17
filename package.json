@@ -57,6 +57,7 @@
     "test:realtime-honed": "tsx src/realtime/sim/honed.spec.ts",
     "test:realtime-knacks-run": "tsx src/realtime/run/knacks.spec.ts",
     "test:realtime-forms": "tsx src/realtime/sim/forms.spec.ts",
+    "test:realtime-fork-dwell": "tsx src/realtime/sim/forkDwell.spec.ts",
     "test:realtime-form-pairs": "tsx src/realtime/sim/formPairs.spec.ts",
     "test:realtime-spawn-hold": "tsx src/realtime/sim/spawnHold.spec.ts",
     "test:realtime-session": "tsx src/realtime/view/session.spec.ts",
