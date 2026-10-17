@@ -10,7 +10,8 @@
  *   the caps of the newcomers;
  * - the slinger: its lines are fixed at the windup's start; a step aside of 0.6 saves the hero, standing on the middle line costs 1,
  *   standing between the lines at 4 is safe;
- * - the hive: silent nearer than 1.5; the gap at 2 is safe, a ray costs 1; the ring's turn differs by seed and replays;
+ * - the hive: silent nearer than 1.5; the gap at 2 is safe, a ray costs 1; the ring's turn differs by seed and replays; killed while its
+ *   ring hangs, the hanging wasps go out with it; killed after the ring flew, the wasps fly on (design 17.10.2026);
  * - the wisp: the running hero is never touched; the standing one loses 1 and the wisp goes out; a link of the drawn chain stands and
  *   touches nobody, the chain kills it as its highlight says; its flight runs out — out without a kill;
  * - `snuffShots`: the dash and a bomb put the wasps out; without the key they fly on;
@@ -410,6 +411,44 @@ check('the wisp\'s flight runs out: it goes out with no damage and no kill (2 se
   }
 });
 
+// ---- The hive's death and its wasps (design 17.10.2026, question 3) ----
+
+/** The hive at (12, 7) with a weak link before it; the hero at (9, 7); ticks until its ring is born (hanging), then `wait` seconds more. */
+function ringBorn(k: number, wait: number): { sim: Simulation; hive: Enemy; weak: Enemy } {
+  const sim = field(k), w = sim.world;
+  sim.command({ t: 'teleport', x: 9, y: 7 });
+  const weak = place(sim, { x: 10.5, y: 7 }, 0, 'basic', 1), hive = place(sim, { x: 12, y: 7 }, HIVE_HP, HIVE, 1);
+  ticks(sim, ticksOf(4), [], () => !!w.shots?.length);
+  assert(w.shots?.length === 8 && w.shots.every(s => s.hang > 0), `seed ${k}: the ring hangs`);
+  ticks(sim, ticksOf(wait));
+  return { sim, hive, weak };
+}
+
+check('the hive killed while its ring hangs: the hanging wasps go out with it (`shot` `end` by `owner`), the hero standing in the ring takes no damage; killed after its ring flew: the flying wasps fly on and still hurt (4 seeds)', () => {
+  for (const k of [1, 2, 3, 4]) {
+    const hang = ringBorn(k, 0), w = hang.sim.world, hp = w.hero.hp;
+    draw(hang.sim, [hang.weak, hang.hive]);
+    const events = release(hang.sim);
+    ticks(hang.sim, ticksOf(1), events);
+    const owner = of(events, 'shot').filter(e => e.by === 'owner');
+    assert(!w.enemies.includes(hang.hive) && dist(w.hero, hang.hive) < 0.05, `seed ${k}: the chain killed the hive, the hero stands on its spot`);
+    assert(owner.length === 8 && owner.every(e => e.action === 'end') && !w.shots!.length, `seed ${k}: the hanging ring went out with it (${owner.length})`);
+    assert(w.hero.hp === hp && !events.some(e => e.type === 'hit'), `seed ${k}: no damage (${hp} → ${w.hero.hp})`);
+    // After the ring flew (0.3 s hang + 0.2 s of flight): the dash kills the hive, the wasps fly on.
+    const flew = ringBorn(k, 0.5), fw = flew.sim.world;
+    assert(fw.shots!.every(s => s.hang === 0), `seed ${k}: the ring flies`);
+    draw(flew.sim, [flew.weak, flew.hive]);
+    const after = release(flew.sim);
+    assert(!fw.enemies.includes(flew.hive) && fw.shots!.length > 0 && !of(after, 'shot').some(e => e.by === 'owner'), `seed ${k}: the flying wasps fly on (${fw.shots!.length})`);
+    // One of them still hurts: the hero steps onto its way ahead of it.
+    const wasp = fw.shots![0], speed = Math.hypot(wasp.vx, wasp.vy), hp2 = fw.hero.hp;
+    flew.sim.command({ t: 'teleport', x: wasp.x + wasp.vx / speed * 1.2, y: wasp.y + wasp.vy / speed * 1.2 });
+    const hits = ticks(flew.sim, ticksOf(1.5)).filter(e => e.type === 'hit');
+    assert(fw.hero.hp === hp2 - 1 && hits.length === 1 && hits[0].type === 'hit' && hits[0].source === 'wasp', `seed ${k}: a flying wasp of the dead hive hurts (${hp2} → ${fw.hero.hp})`);
+    assert(replays(hang.sim) && replays(flew.sim), `seed ${k}: replay`);
+  }
+});
+
 // ---- Snuffing, the focus ----
 
 /** The hive at (10, 6)'s ring is born; a chain hero (8, 6) → (9, 6) → (11, 6) through it is drawn and released at once. */
@@ -543,6 +582,57 @@ check("telemetry: the observer of a live fight and of its replay give the same `
   const record = { record: { arena: 'fs-field', time: 30, summary: { ...createFightObserver(field(1).world).summary(), forest: { volleys: { hive: 2 }, shots: { hit: { wasp: 1 }, block: {}, snuffDash: 3, snuffBomb: 0 }, wisps: { appeared: 0, chainKills: 0, touched: 0, blocked: 0, faded: 0 } } } }, analysis: null };
   const text = forestShootersSection([record as unknown as Parameters<typeof forestShootersSection>[0][number]]);
   assert(text.includes('Поле стрелков') && text.includes('улей 2') && text.includes('погашено проходом 3'), `the report's section (${text})`);
+});
+
+check('telemetry: the damage of each new source is its own line of `damage.bySource` — `stone`, `wasp`, `wisp` — equal to its hits on the hero; the threats of a hive killed while its ring hangs is interrupted (2 seeds)', () => {
+  for (const k of [1, 2]) {
+    const sim = field(k), w = sim.world, observer = createFightObserver(w), threats = new ThreatTracker(w);
+    const hits: Record<string, number> = {};
+    const tick = (n: number, until: () => boolean = () => false): void => {
+      for (let i = 0; i < n && w.status === 'playing' && !until(); i++) {
+        sim.tick(); observer.tick(w); threats.tick(w);
+        for (const e of w.events) if (e.type === 'hit') hits[e.source] = (hits[e.source] ?? 0) + e.damage;
+        w.events.length = 0;
+      }
+    };
+    // A stone: the hero stays on the slinger's middle line, then the slinger freezes.
+    sim.command({ t: 'teleport', x: 17, y: 7 });
+    const slinger = place(sim, { x: 12, y: 7 }, 0, SLINGER, 1);
+    tick(ticksOf(3.5));
+    sim.command({ t: 'chill', id: slinger.id, seconds: 120 });
+    // A wasp: the hero on a ray of the hive's ring at 2.
+    sim.command({ t: 'teleport', x: 6, y: 3 });
+    const hive = place(sim, { x: 4, y: 3 }, HIVE_HP, HIVE, 2);
+    let points: Vec[] | undefined;
+    for (let i = 0; i < ticksOf(4) && !points; i++) { sim.tick(); observer.tick(w); threats.tick(w); points = of(w.events, 'shooter').find(e => e.action === 'aim' && e.id === hive.id)?.points; for (const e of w.events) if (e.type === 'hit') hits[e.source] = (hits[e.source] ?? 0) + e.damage; w.events.length = 0; }
+    assert(points, `seed ${k}: the hive swells`);
+    const a0 = angleOf(hive, points[0]);
+    sim.command({ t: 'teleport', x: 4 + 2 * Math.cos(a0), y: 3 + 2 * Math.sin(a0) });
+    tick(ticksOf(2));
+    sim.command({ t: 'chill', id: hive.id, seconds: 120 });
+    // The wisp: the hero stands.
+    sim.command({ t: 'teleport', x: 18, y: 11 });
+    place(sim, { x: 21, y: 11 }, 0, WISP, 3);
+    tick(ticksOf(4));
+    const by = observer.summary().damage.bySource;
+    assert((hits.stone ?? 0) >= 1 && (hits.wasp ?? 0) >= 1 && hits.wisp === 1, `seed ${k}: every source hit (${JSON.stringify(hits)})`);
+    assert(by.stone === hits.stone && by.wasp === hits.wasp && by.wisp === hits.wisp, `seed ${k}: bySource ${JSON.stringify(by)} vs hits ${JSON.stringify(hits)}`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+  // The hive's threat: the hero on a ray at the swell (seeds where he was), the hive killed while the ring hangs — interrupted, not dodged.
+  let opened = 0;
+  for (const k of [1, 2, 3, 4, 5, 6, 7, 8]) {
+    const sim = field(k), w = sim.world, threats = new ThreatTracker(w);
+    sim.command({ t: 'teleport', x: 9, y: 7 });
+    const weak = place(sim, { x: 10.5, y: 7 }, 0, 'basic', 1), hive = place(sim, { x: 12, y: 7 }, HIVE_HP, HIVE, 1);
+    for (let i = 0; i < ticksOf(4) && !w.shots?.length; i++) { sim.tick(); threats.tick(w); w.events.length = 0; }
+    draw(sim, [weak, hive]);
+    sim.command({ t: 'release' });
+    for (let i = 0; i < ticksOf(1.5); i++) { sim.tick(); threats.tick(w); w.events.length = 0; }
+    const t = threats.tally().hive;
+    if (t) { opened++; assert(t.warned === 1 && t.interrupted === 1, `seed ${k}: the ring went out with the hive — interrupted (${JSON.stringify(t)})`); }
+  }
+  assert(opened >= 1, `the hive's warning opened on ${opened} seeds`);
 });
 
 console.log(`forest shooters: ${checks} checks passed`);

@@ -41,7 +41,7 @@
  *   fixed lines (a stone's radius + the hero's body), a hive's swell with the hero's body on a ray of its ring within the wasps' flight.
  *   The volley's shots are known at its `loose`: a shot of it hits the hero (`stone` / `wasp` of the shooter) — hit; a shield takes one
  *   (`shot` `block`) — shielded; all of them ended otherwise — dodged (`reason: 'snuff'` when the dash or a bomb put one out); the
- *   shooter died before its volley or the fight ended — interrupted. The wisp («Светляк») from its lighting (`wisp` `lit`), always: its
+ *   shooter died before its volley or while its shots hung (they go out with it), or the fight ended — interrupted. The wisp («Светляк») from its lighting (`wisp` `lit`), always: its
  *   touch hurt — hit, a shield took it — shielded, its flight ran out — dodged (the exit time is the flight it survived), the chain or
  *   anything else killed it — interrupted.
  *
@@ -594,6 +594,8 @@ export class ThreatTracker {
       const shots = v.shots;
       if (this.shotEnds.some(e => e.action === 'block' && shots.has(e.id))) { done('shielded'); continue; }
       if (this.shotEnds.some(e => e.action === 'snuff' && shots.has(e.id))) v.snuffed = true;
+      // Design 17.10.2026: the hanging ring went out with its dead hive (`by: 'owner'`) — interrupted, as a shooter dead before its volley.
+      if (this.shotEnds.some(e => e.by === 'owner' && shots.has(e.id))) { done('interrupted', 'dead'); continue; }
       if (world.status !== 'playing') { done('interrupted', 'end'); continue; }
       if (!(world.shots ?? []).some(s => shots.has(s.id))) done('dodged', v.snuffed ? 'snuff' : undefined);
     }
