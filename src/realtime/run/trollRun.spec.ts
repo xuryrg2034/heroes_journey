@@ -16,7 +16,7 @@
  */
 import { Simulation } from '../sim/simulation';
 import { TROLL, TROLL_CLUB } from '../sim/enemies/troll';
-import { FINAL_ARENA } from './arenaPools';
+import { arenaTitle, FINAL_ARENA } from './arenaPools';
 import { rtDeathCause } from './rtMeta';
 import { rtRunEndLines } from './rtRunEnd';
 import {
@@ -223,6 +223,8 @@ check('the node card line «Враги:» (rtNodeEnemies) of the den boss: the T
         if (!flag || !node.id.startsWith('den-')) { assert(card === null, `seed ${k}, ${branch}, flag ${flag}: null (${JSON.stringify(card)})`); continue; }
         const kinds = (card?.start ?? []).map(e => `${e.kind}×${e.count}`).sort().join();
         assert(card?.arena === TROLL && kinds === 'troll-club×1,troll-rock×1,troll-tail×1,troll×1' && card.newcomers.length === 0, `seed ${k}: ${JSON.stringify(card)}`);
+        // The card's arena name (ARENA_TITLES), not the id.
+        assert(arenaTitle(card.arena) === 'Берлога тролля', `seed ${k}: the arena's name «${arenaTitle(card.arena)}»`);
         const open = ok(rtEnterNode(run, node.id), 'enter boss');
         assert(same(rtNodeEnemies(open, node), card), `seed ${k}: the open battle's card is the preview's`);
       }
