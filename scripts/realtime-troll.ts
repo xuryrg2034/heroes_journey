@@ -66,18 +66,28 @@ interface Fight {
   shift: { core: number; coreSum: number; part: number; ticks: number; inside: number; overlap: number; behind: number };
   /** The core's touches on the hero: in the first 0.5 s after a move of the hero ended (a landing), otherwise; the hero's distance to the core then. */
   coreTouch: { landing: number; other: number; dist: number[] };
+  /** The bot's play (for the timeouts' review): chains released, chains with the core, game seconds the window stood open, the hero's mean distance to the core, the core's plates and HP at the end. */
+  play: { chains: number; coreChains: number; openSeconds: number; distSum: number; ticks: number; plates: number; hp: number };
 }
 
 /** One fight by the bot (the boss aim at the Troll and the Jailer); the Troll's events counted. */
 function fight(run: RtRunState, extra: Partial<Params> = {}): Fight {
   const params = Object.assign(rtArenaParams(run, rtRunParams(defaultParams())), extra);
-  const f: Fight = { won: false, time: 0, timeout: false, killer: null, damage: {}, parts: [], windows: {}, blocks: 0, slept: 0, woken: 0, wolves: 0, phase: 1, shift: { core: 0, coreSum: 0, part: 0, ticks: 0, inside: 0, overlap: 0, behind: 0 }, coreTouch: { landing: 0, other: 0, dist: [] } };
-  let moving = false, landed = -Infinity;
+  const f: Fight = { won: false, time: 0, timeout: false, killer: null, damage: {}, parts: [], windows: {}, blocks: 0, slept: 0, woken: 0, wolves: 0, phase: 1, shift: { core: 0, coreSum: 0, part: 0, ticks: 0, inside: 0, overlap: 0, behind: 0 }, coreTouch: { landing: 0, other: 0, dist: [] }, play: { chains: 0, coreChains: 0, openSeconds: 0, distSum: 0, ticks: 0, plates: 0, hp: 0 } };
+  let moving = false, landed = -Infinity, dashing = false;
   const kinds = new Map<number, string>(), wolves = new Set<number>();
   let open: { source: string; hit: boolean } | null = null, last: string | null = null;
   const seen = (w: World): void => {
     for (const e of w.enemies) { if (!kinds.has(e.id)) kinds.set(e.id, e.kind); if (e.kind === 'wolf') wolves.add(e.id); }
     const core = w.enemies.find(e => e.kind === TROLL);
+    if (core) {
+      const pl = f.play;
+      pl.ticks++; pl.distSum += Math.hypot(w.hero.x - core.x, w.hero.y - core.y); pl.plates = core.armor?.plates ?? 0; pl.hp = core.hp;
+      if (core.vars.wo && !core.vars.wh) pl.openSeconds += 1 / 60;
+      // A chain released this tick (the dash's start): with the core in it or not.
+      if (w.move?.kind === 'dash' && !dashing) { pl.chains++; if (w.move.links.some(l => l.kind === 'enemy' && l.id === core.id)) pl.coreChains++; }
+    }
+    dashing = w.move?.kind === 'dash';
     if (core && core.vars.hx !== undefined && w.status === 'playing') {
       const s = f.shift, off = (e: { x: number; y: number; vars: Record<string, number> }): number => Math.hypot(e.x - e.vars.hx, e.y - e.vars.hy);
       const d = off(core), r = bodyRadiusOf(w.params, core), hd = Math.hypot(w.hero.x - core.x, w.hero.y - core.y);
@@ -202,6 +212,15 @@ if (RUN) {
     console.log(`| ${title} | ${deaths.length}/${fights.length} (${pct(deaths.length, fights.length)}) | ${f1(median(fights.filter(f => f.won).map(f => f.time)))} / ${f1(median(deaths.map(f => f.time)))} | ${fights.filter(f => f.timeout).length} | ${by} |`);
   }
   const troll = rows[0].fights;
+  // The timeouts' review (spec 24.11): the phase, the windows (opened / with a hit), the parts severed, what the bot did.
+  const outs = troll.filter(f => f.timeout);
+  if (outs.length) {
+    console.log(`\nБои Тролля по таймеру (${outs.length}): фаза; окна открыто / с попаданием (по источнику); частей отрублено; цепей бота (с ядром); секунд окна открыто; ср. расстояние героя до ядра; пластины / HP ядра в конце.`);
+    for (const f of outs) {
+      const win = Object.entries(f.windows).map(([s, [n, h]]) => `${s} ${n}/${h}`).join(' ') || '—', pl = f.play;
+      console.log(`- Ф${f.phase}; окна ${win}; частей ${f.parts.length}; цепей ${pl.chains} (с ядром ${pl.coreChains}); окно ${f1(pl.openSeconds)} с; до ядра ${f1(pl.distSum / Math.max(1, pl.ticks))}; ядро ${pl.plates} пл. / ${pl.hp} HP`);
+    }
+  }
   const total = troll.reduce((s, f) => s + Object.values(f.damage).reduce((a, b) => a + b, 0), 0);
   const fromMoves = troll.reduce((s, f) => s + MOVE_SOURCES.reduce((a, src) => a + (f.damage[src] ?? 0), 0), 0);
   const bySource: Record<string, number> = {};

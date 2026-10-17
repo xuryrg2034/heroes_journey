@@ -16,7 +16,7 @@ import {
   RT_GARRISON_STEP2_ON, rtGarrisonNodeId,
 } from './garrison';
 import { walkRun, type Walk, type WalkOptions } from './metaWalk.testkit';
-import { createRtRun, parseRtRun, rtArenaLoadout, rtArenaParams, rtAvailableNodes, rtNode, rtRunParams, serializeRtRun, type RtRunState } from './rtRun';
+import { createRtRun, parseRtRun, rtArenaLoadout, rtArenaParams, rtAvailableNodes, rtNode, rtRunParams, rtTrollNode, serializeRtRun, type RtRunState } from './rtRun';
 import { rtNodeEnemies, type RtNodeEnemies } from './nodeEnemies';
 import { nodePlace } from '../forest/mapGenerator';
 import { defaultParams } from '../sim/params';
@@ -220,7 +220,8 @@ check('the node card (`rtNodeEnemies`): before entering, an available garrison n
         if (!pending) {
           for (const node of rtAvailableNodes(state)) {
             const card = rtNodeEnemies(state, node);
-            if (!rtGarrisonNodeId(node.id)) { assert(card === null, `${node.id}: a forest node has no garrison card`); forest++; continue; }
+            // Task 48: the Troll's node of the den branch has its card too (the ui's line «Враги:»).
+            if (!rtGarrisonNodeId(node.id)) { assert(card === null || (rtTrollNode(state, node) && card.arena === 'troll'), `${node.id}: a forest node has no garrison card`); forest++; continue; }
             if (card) cards.set(node.id, card);
           }
           return;
