@@ -1026,8 +1026,8 @@ export interface FightSummary {
   novelty?: number;
   /**
    * Task 56 «Приметы» (from 17.10.2026; absent — no omen rule acted, older records too): the omens' counters from the world — `storm:strike`,
-   * `storm:kill`, `storm:hero` (hits), `drowse:woke` (the game second), `rollcall:touch`, `harvest:resetAll`; the link's `flood:wet` and
-   * `rollcall:link` come with the chain's flags.
+   * `storm:kill`, `storm:hero` (hits), `drowse:woke` (the game second), `rollcall:touch`, `harvest:resetAll`; the released links taken in
+   * water (`flood:wet`) and of the colour on the roll call (`rollcall:link`).
    */
   omenFired?: Record<string, number>;
 }

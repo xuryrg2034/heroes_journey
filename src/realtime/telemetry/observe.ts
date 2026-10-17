@@ -582,6 +582,9 @@ export function createFightObserver(start: World): FightObserver {
     move = m;
     if (!m || m.kind !== 'dash') return;
     s.chain.count++;
+    // Task 56: the released links taken in water («Половодье») and of the colour on the roll call («Перекличка»).
+    if (m.wet) bump(omenFired, 'flood:wet', m.wet.length);
+    if (m.call) bump(omenFired, 'rollcall:link', m.call.length);
     let enemies = 0, color: number | null = null, toughLater = false;
     for (const link of m.links) {
       if (link.kind !== 'enemy') continue;

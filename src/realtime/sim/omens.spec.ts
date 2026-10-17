@@ -39,6 +39,7 @@ import { rtArenaParams, rtRunParams } from '../run/rtRun';
 import { rtOmenColors } from '../run/omens';
 import { SIM_DT } from './simulation';
 import { planChain } from './chain';
+import { createFightObserver } from '../telemetry/observe';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -665,6 +666,30 @@ check('the highlight is the dash (6 seeds): mixed chains with «Половодь
     assert((w.hero.chainShield > 0) === (plan.kills >= 5), `seed ${k}: the shield of ${plan.kills} kills`);
     assert(w.objects.some(o => o.kind === 'crystal') === (plan.kills >= 6), `seed ${k}: the crystal of ${plan.kills} kills`);
   }
+});
+
+// ---- Telemetry ----
+
+check("telemetry: the fight's `omenFired` counts the storm's strikes, kills and hits, the wake's second, the wet and called links; none without an omen", () => {
+  const observe = (f: Fight) => {
+    let observer: ReturnType<typeof createFightObserver> | null = null;
+    replay(JSON.parse(JSON.stringify(f.sim.exportJournal()!)) as Journal, r => { observer ??= createFightObserver(r.world); observer.tick(r.world); });
+    return observer!.summary();
+  };
+  const f = fight(omenRun('storm', { omenFlood: true, omenRollcall: true, omenDrowse: true }), 2), w = f.sim.world, pool = w.flood!.pools[0];
+  crowd(f);
+  until(f, 7.3);
+  const strikes = stormEvents(f.events, 'strike').length, kills = of(f.events, 'kill').filter(e => e.source === 'storm').length;
+  const call = w.rollcall!.color!, dir = pool.x > 15 ? -1 : 1, points = [{ x: pool.x, y: pool.y }, { x: pool.x + dir * 1.3, y: pool.y }];
+  f.sim.command({ t: 'teleport', x: pool.x - dir * 1.2, y: pool.y });
+  for (const q of points) place(f, q.x, q.y, call);
+  const { hits } = planned(f, points);
+  const s = observe(f).omenFired ?? {};
+  assert(s['storm:strike'] === strikes && strikes >= 1 && (s['storm:kill'] ?? 0) === kills && kills >= 3, `the storm ${JSON.stringify(s)}`);
+  assert(s['flood:wet'] === 1 && s['rollcall:link'] === hits.length && typeof s['drowse:woke'] === 'number' && s['drowse:woke'] <= 4.01, `the links and the wake ${JSON.stringify(s)}`);
+  const plain = fight(quiet(), 2);
+  crowd(plain); until(plain, 8);
+  assert(observe(plain).omenFired === undefined, 'no omen — no counters');
 });
 
 // ---- Repeat ----
