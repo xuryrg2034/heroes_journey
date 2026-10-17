@@ -140,7 +140,8 @@ function finalSave(): string {
       else if (p?.kind === 'rest') run = ok(rtRestHeal(run));
       else if (p?.kind === 'shop') run = ok(rtShopLeave(run));
       else if (p?.kind === 'event') run = ok(rtChooseEventOption(run, rtEventView(run)!.options.find(option => option.safe && option.available)!.id));
-      else if (!p) run = ok(rtEnterNode(run, rtAvailableNodes(run)[0].id));
+      // Task 48: the den branch ends at the Troll — the route keeps to the other branch, whose final is «Последний рубеж».
+      else if (!p) { const open = rtAvailableNodes(run); run = ok(rtEnterNode(run, (open.find(node => !node.id.startsWith('den-')) ?? open[0]).id)); }
       else break;
     }
   }

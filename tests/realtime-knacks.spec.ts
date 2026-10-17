@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, passCage } from './realtimeTest';
 import { untilFrame, gameWait } from './realtimeFrames';
 import { rtAvailableNodes, rtKnackNode, rtNode, serializeRtRun, type RtRunState } from '../src/realtime/run/rtRun';
 import { RT_COUNTER_TALISMANS } from '../src/realtime/run/rtTalismans';
@@ -71,6 +71,7 @@ async function winOpenFight(page: Page): Promise<void> {
 async function toNextFight(page: Page): Promise<void> {
   for (let step = 0; step < 30; step++) {
     if (await page.evaluate(() => (window as any).__realtime.run.arenaOpen())) return;
+    await passCage(page);
     const state = await runState(page), pending = state.pending;
     if (!pending) {
       const nodes = rtAvailableNodes(state), node = nodes.find(n => n.type === 'battle') ?? nodes[0];

@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, passCage } from './realtimeTest';
 import { gameWait, untilFrame } from './realtimeFrames';
 import { serializeRtRun, type RtRunState } from '../src/realtime/run/rtRun';
 import { walkRun } from '../src/realtime/run/metaWalk.testkit';
@@ -370,7 +370,8 @@ test('task 40 view: «Повозка» on «Предместье» of a camp run
   await expect(page.getByTestId('run-title')).toHaveText('Гарнизон');
   const after = await page.evaluate(() => (window as any).__realtime.run.state()) as RtRunState;
   expect(after.cart).toEqual({ n: view.deposit + 1, before: view.stock });
-  // «Новый поход» → «Да, новый»: the run settled — the carry line names the cart.
+  // «Новый поход» → «Да, новый»: the run settled — the carry line names the cart (the cage scene of the first Jailer win passed first).
+  await passCage(page);
   await page.getByTestId('run-reset').click();
   await page.getByTestId('run-reset-confirm').click();
   await expect(page.getByTestId('run-result-abandoned')).toBeVisible();
