@@ -258,7 +258,7 @@ test('task 49: Ведунья\'s rest offers «Сплав: «Ледяная пе
 test('task 49: after her run the camp gives her line of its death or record at her place; after the cat run none', async ({ page }) => {
   test.setTimeout(90_000);
   const errors = collectErrors(page);
-  const hearth = (last: object) => ({ ...HEARTH, lines: { 'owl:first': 2, 'owl:first:toad': 9, 'toad:first_camp': 1 }, last });
+  const hearth = (last: object) => ({ ...HEARTH, lines: { 'owl:first': 9, 'toad:first_camp': 1 }, last });
   const meta = (last: object) => ({ heroes: { toad: { xp: 5, packs: [] } }, hearth: hearth(last), freed: { toad: { row: 5, run: 1 } }, hero: 'toad' });
   await open(page, null, { ...PROFILE_BASE, meta: meta({ won: false, row: 3, beaten: false, cause: 'crowd', hero: 'toad' }) });
   await page.getByTestId('run-hearth').click();
