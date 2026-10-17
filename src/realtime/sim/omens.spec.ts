@@ -15,6 +15,10 @@
  * - «Перекличка»: the first call at the 3rd second, of a colour on the arena (none — of the palette); a touch of that colour hurts
  *   +1; the next call (the 15th second) is another colour; the colours vary over seeds;
  * - «Урожай» (`bagResetAll`, rewards 2 / 4 / 6): a hit after two steps leaves none (`reset` with step 0), the steps fill again;
+ * - the omens that are values of keys of before, with the run's values (`rtArenaParams` of a battle with the omen): «Полнолуние» — a held
+ *   chain keeps the slow-down 4.5 s, the focus refills from 0 in 9 s; «Сорочье гнездо» — a chain of 6 kills drops a crystal, the colour
+ *   frees on the 9th link; «Скудные краски» — newcomers of 30 s take 3 colours, a chain of 4 kills gives no shield, of 5 — gives;
+ *   «Попутный ветер» — a jump at 1 energy to a point 4 away, the spin refused at 6 energy, struck at 7;
  * - every omen's fight replays to the same hash at every checkpoint; with every key off a fight is the world of before.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
@@ -26,6 +30,9 @@ import { defaultParams, enemyBodyRadius, PARAM_DEFS, type Params } from './param
 import { Simulation, replay, type Journal } from './simulation';
 import { OBJECT_RADIUS, goalProgress, waterFactor, type World, type WorldEvent } from './world';
 import { RUN_ARENAS } from '../run/arenaPools';
+import { rtArenaParams, rtRunParams } from '../run/rtRun';
+import { rtOmenColors } from '../run/omens';
+import { SIM_DT } from './simulation';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -451,6 +458,99 @@ check('«Урожай»: without `bagResetAll` the hit after two steps keeps the
   place(f, w.hero.x, w.hero.y, 1);
   for (let i = 0; i < 600 && !of(f.events.slice(before), 'hit').length; i++) tick(f);
   assert(w.bag!.step === 2 && w.bag!.kills === 20 && bagProgress(w)!.total === 6, `the filled steps stay (${JSON.stringify(w.bag)})`);
+});
+
+// ---- The omens that are values of keys of before (the run's values of a battle with the omen) ----
+
+/** The values of a run's battle with `omen` (`rtArenaParams`), quieted: no newcomers, nobody walks, no hit-stop. */
+function omenRun(omen: string, extra: Partial<Params> = {}): Params {
+  const p = rtArenaParams({ omens: [omen as never] }, rtRunParams(defaultParams()));
+  p.baseFloor = 0; p.baseIntervalMin = 1e6; p.baseIntervalMax = 1e6; p.maxEnemies = 1; p.reaperEnabled = false;
+  p.enemySpeed = 0; p.speedSpread = 0; p.contactDamage = 0; p.heroHp = 40; p.hitstop = false; p.survivorKnockback = false; p.finisher = false;
+  return Object.assign(p, extra);
+}
+
+check('«Полнолуние»: a held chain keeps the slow-down 4.5 real s (3 without the omen); the focus refills from 0 in 9 s (3 without)', () => {
+  for (const [omen, hold, refill] of [['moon', 4.5, 9], ['none', 3, 3]] as const) {
+    const f = fight(omenRun(omen), 1), w = f.sim.world;
+    place(f, 4.2, 6);
+    f.sim.command({ t: 'begin', x: 4.2, y: 6 });
+    let real = 0;
+    do { tick(f); if (w.focusing) real += SIM_DT / w.timeScale; } while (w.focusing && w.chain.length);
+    assert(Math.abs(real - hold) < 0.1, `${omen}: the slow-down held ${real.toFixed(2)} s`);
+    f.sim.command({ t: 'cancel' });
+    const start = w.time;
+    while (w.focus < w.params.focusMax - 1e-9) tick(f);
+    assert(Math.abs(w.time - start - refill) < 0.1, `${omen}: the focus refilled in ${(w.time - start).toFixed(2)} s`);
+  }
+});
+
+check('«Сорочье гнездо»: a chain of 6 kills drops a crystal; the colour frees on the 9th link (after 8 of one colour), not on the 8th', () => {
+  for (let k = 1; k <= 3; k++) {
+    const f = fight(omenRun('magpie'), k), w = f.sim.world;
+    const row = (n: number, color = 0) => Array.from({ length: n }, (_, i) => ({ x: 4.4 + 1.4 * i, y: 6, color }));
+    const draw = (points: { x: number; y: number }[]): number => {
+      f.sim.command({ t: 'begin', x: points[0].x, y: points[0].y });
+      for (const q of points.slice(1)) f.sim.command({ t: 'drag', x: q.x, y: q.y, mode: 'full' });
+      return w.chain.length;
+    };
+    const six = row(6);
+    for (const q of six) place(f, q.x, q.y, 0);
+    assert(draw(six) === 6, `seed ${k}: six links`);
+    f.sim.command({ t: 'release' }); settle(f);
+    assert(w.objects.some(o => o.kind === 'crystal'), `seed ${k}: a crystal fell after 6 kills`);
+    f.sim.command({ t: 'clear', keepMarked: false });
+    w.objects = w.objects.filter(o => o.kind !== 'crystal');
+    f.sim.command({ t: 'teleport', x: 3, y: 6 });
+    const seven = row(7), eight = row(8), other = (n: number) => ({ x: 4.4 + 1.4 * n, y: 6 });
+    for (const q of seven) place(f, q.x, q.y, 0);
+    place(f, other(7).x, other(7).y, 1);
+    assert(draw([...seven, other(7)]) === 7, `seed ${k}: after 7 of one colour another one is not taken`);
+    f.sim.command({ t: 'cancel' }); f.sim.command({ t: 'clear', keepMarked: false });
+    for (const q of eight) place(f, q.x, q.y, 0);
+    place(f, other(8).x, other(8).y, 1);
+    assert(draw([...eight, other(8)]) === 9, `seed ${k}: after 8 of one colour the 9th of another is taken`);
+    f.sim.command({ t: 'cancel' });
+  }
+});
+
+check('«Скудные краски»: newcomers of 30 s take 3 colours (4 without); a chain of 4 kills gives no shield, of 5 — gives (3 without the omen)', () => {
+  for (let k = 1; k <= 3; k++) {
+    const colorsOf = (omens: string[]): Set<number> => {
+      const p = rtArenaParams({ omens: omens as never }, rtRunParams(defaultParams()));
+      const sim = new Simulation({ arena: RUN_ARENAS[0], params: p, seed: seedOf(k), loadout: { colors: rtOmenColors(omens, undefined) } });
+      const start = new Set(sim.world.enemies.map(e => e.id)), out = new Set<number>();
+      for (let t = 0; t < 30 * 60 && sim.world.status === 'playing'; t++) { sim.tick(); for (const e of sim.world.enemies) if (!start.has(e.id) && e.color >= 0) out.add(e.color); }
+      return out;
+    };
+    const pale = colorsOf(['pale']), plain = colorsOf([]);
+    assert(pale.size === 3 && plain.size === 4, `seed ${k}: newcomers' colours ${[...pale]} / ${[...plain]}`);
+    for (const [omen, kills, shield] of [['pale', 4, false], ['pale', 5, true], ['none', 3, true]] as const) {
+      const f = fight(omenRun(omen), k), w = f.sim.world;
+      const points = Array.from({ length: kills }, (_, i) => ({ x: 4.4 + 1.4 * i, y: 6 }));
+      for (const q of points) place(f, q.x, q.y, 0);
+      chainOver(f, points);
+      settle(f);
+      assert((w.hero.chainShield > 0) === shield, `seed ${k} ${omen}: a chain of ${kills} kills — shield ${w.hero.chainShield}`);
+    }
+  }
+});
+
+check('«Попутный ветер»: a jump at 1 energy to a point 4 away; the spin refused at 6 energy, struck at 7 (the run\'s jump costs 2, reaches 3)', () => {
+  const f = fight(omenRun('tailwind'), 1), w = f.sim.world;
+  f.sim.command({ t: 'teleport', x: 5, y: 6 });
+  f.sim.command({ t: 'energy', value: 1 });
+  assert(f.sim.command({ t: 'jump', x: 9, y: 6 }) === true, 'the jump at 1 energy starts');
+  settle(f);
+  assert(Math.abs(w.hero.x - 9) < 0.05 && w.energy === 0, `landed 4 away (${w.hero.x.toFixed(2)}), energy ${w.energy}`);
+  f.sim.command({ t: 'energy', value: 6 });
+  assert(f.sim.command({ t: 'spin' }) === false && Number(w.energy) === 6, 'the spin at 6 refused');
+  f.sim.command({ t: 'energy', value: 7 });
+  assert(f.sim.command({ t: 'spin' }) === true && Number(w.energy) === 0, 'the spin at 7 struck');
+  const g = fight(omenRun('none'), 1);
+  g.sim.command({ t: 'teleport', x: 5, y: 6 });
+  g.sim.command({ t: 'energy', value: 1 });
+  assert(g.sim.command({ t: 'jump', x: 8, y: 6 }) === false, 'without the omen a jump at 1 energy is refused');
 });
 
 // ---- Repeat ----

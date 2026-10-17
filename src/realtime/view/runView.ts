@@ -53,6 +53,7 @@ import { HearthView } from './hearthView';
 import { ProfileMeta } from './metaSource';
 import { MAP_KINDS, mapCounts, mapPreview, RunStart } from './runStart';
 import { rtHearthFlagsWith, rtJailerWonRow, rtRunKey, type RtHearthStart, type RtMetaEnd } from '../run/rtMeta';
+import { RT_OMENS_ON } from '../run/omens';
 import { RT_HERO_ID, RT_TOAD_ID, type RtHeroId } from '../run/metaCatalog';
 import { defaultParams } from '../sim/params';
 import { TOAD_LINES } from './heroLines';
@@ -588,7 +589,10 @@ export class RunView {
     // Task 16 «Подвиги»: feats from the run after the first Jailer (the profile's `jailer`); the viewer's run number for telemetry.
     // Task 18 «Испытание I–V»: the level chosen on «Новый поход» (the profile's last choice; 0 while the choice is closed).
     // Task 26 «Расписание леса»: the viewer's history goes into the run as a snapshot (the run ignores it from «Испытание II»).
-    this.run = createRtRun(value, { gift: this.profile.giftKind(seeded), seeded, feats: this.profile.featsOn(), ash: this.profile.ashChoice(), schedule: this.profile.scheduleHistory(() => this.host.scheduleSeed?.() ?? []), ...metaRun, ...seeded && this.host.fixedHero ? { hero: this.host.fixedHero } : {} });
+    const ash = this.profile.ashChoice(), schedule = this.profile.scheduleHistory(() => this.host.scheduleSeed?.() ?? []);
+    // Task 56 «Приметы» (core): the pool the profile opened, past the gates (`?seed=` reads it, changes nothing); `RT_OMENS_ON` off — none.
+    const omens = RT_OMENS_ON ? this.profile.omensStart({ ash, history: schedule, seeded }) : null;
+    this.run = createRtRun(value, { gift: this.profile.giftKind(seeded), seeded, feats: this.profile.featsOn(), ash, schedule, ...metaRun, ...seeded && this.host.fixedHero ? { hero: this.host.fixedHero } : {}, ...omens ? { omens } : {} });
     if (camp?.map !== null && camp?.map !== undefined) this.host.meta?.map?.(this.run, camp.map);
     const viewerRun = this.profile.startRun();
     this.host.session?.clock.runStarted();

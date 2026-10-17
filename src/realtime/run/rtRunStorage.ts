@@ -12,7 +12,10 @@ import { isScheduleElement } from './schedule';
 import { parseRtMeta, rtApplyMeta, rtHearthBuy, rtHearthStartOf, rtHearthView, rtMetaLocked, rtMetaNewOffer, rtRunKey, type RtHearthBuy, type RtHearthStart, type RtHearthView, type RtMeta, type RtMetaEnd } from './rtMeta';
 // Task 49 «Второй герой»: the heroes open and chosen, Ведунья freed by the Jailer, «✦ новое» by hero.
 import { rtChooseHero, rtFreeByJailer, rtHeroChoice, rtHeroesOpen, rtHeroViews, rtMetaMarkOffered, type RtHeroView } from './rtMeta';
-import { isRtHeroId, RT_HERO_ID, type RtHearthNpc, type RtHeroId } from './metaCatalog';
+import { isRtHeroId, RT_HERO_ID, RT_HERO_IDS, type RtHearthNpc, type RtHeroId } from './metaCatalog';
+// Task 56 «Приметы»: the gates of the omens and the pool the profile opened (run/omens.ts).
+import { rtOmenPool, rtOmensGate, type RtOmenId } from './omens';
+import { rtWonLevelOf } from './rtMeta';
 
 /**
  * Casino stage 1, item 2: `-v7` (save version 7, the oath stake: the oath stream's counter, the open battle's offer and oath).
@@ -89,10 +92,13 @@ export function createRtRunStore(storage: RunStorage | null = browserStorage()):
  * the cat's (a profile before it: every win was his, so nothing he opened is taken away); `heroAsh.toad` — Ведунья's (`won`: her first
  * won run without a given seed opens all her levels, v1; `ash`: her level chosen last). The hero chosen, the heroes freed and each
  * hero's XP and packs are in `meta` (`RtMeta.hero`, `freed`, `heroes`).
+ * Task 56 «Приметы» (spec docs/design-notes/task-56-omens.md, 7.1 and 9.3; the same version 1, an optional field):
+ * - `omensOpen` — the omens' gates opened (`omensStart`: «Расписание леса» done, or «Испытание» II and up); it stays once set
+ *   («Обучение» does not take it). The omens open — from the packs, the levels and the camp of `meta` (`rtProfileOmenPool`), no new field.
  * All are absent until set: a profile without them reads and saves as before.
  */
 export interface RtHeroAsh { won?: true; ash?: Exclude<RtAshLevel, 0> }
-export interface RtProfile { version: typeof RT_PROFILE_VERSION; giftFull: boolean; jailer?: true; runs?: number; runsApprox?: true; won?: true; ash?: Exclude<RtAshLevel, 0>; seen?: string[]; seenMute?: number; meta?: RtMeta; heroAsh?: { toad?: RtHeroAsh } }
+export interface RtProfile { version: typeof RT_PROFILE_VERSION; giftFull: boolean; jailer?: true; runs?: number; runsApprox?: true; won?: true; ash?: Exclude<RtAshLevel, 0>; seen?: string[]; seenMute?: number; meta?: RtMeta; heroAsh?: { toad?: RtHeroAsh }; omensOpen?: true }
 export const emptyRtProfile = (): RtProfile => ({ version: RT_PROFILE_VERSION, giftFull: false });
 
 export function parseRtProfile(text: string | null): RtProfile {
@@ -109,7 +115,7 @@ export function parseRtProfile(text: string | null): RtProfile {
     const toad = typeof value.heroAsh === 'object' && value.heroAsh && typeof value.heroAsh.toad === 'object' && value.heroAsh.toad ? value.heroAsh.toad as Partial<RtHeroAsh> : undefined;
     const toadAsh = toad && isRtAshLevel(toad.ash) && toad.ash >= 1 && toad.won === true ? toad.ash as Exclude<RtAshLevel, 0> : undefined;
     const heroAsh = toad?.won === true ? { toad: { won: true as const, ...toadAsh !== undefined ? { ash: toadAsh } : {} } } : undefined;
-    return { version: RT_PROFILE_VERSION, giftFull: value.giftFull === true, ...value.jailer === true || value.giftFull === true ? { jailer: true as const } : {}, ...runs !== undefined ? { runs } : {}, ...runs !== undefined && value.runsApprox === true ? { runsApprox: true as const } : {}, ...value.won === true ? { won: true as const } : {}, ...ash !== undefined ? { ash } : {}, ...seen !== undefined ? { seen } : {}, ...mute !== undefined ? { seenMute: mute } : {}, ...meta ? { meta } : {}, ...heroAsh ? { heroAsh } : {} };
+    return { version: RT_PROFILE_VERSION, giftFull: value.giftFull === true, ...value.jailer === true || value.giftFull === true ? { jailer: true as const } : {}, ...runs !== undefined ? { runs } : {}, ...runs !== undefined && value.runsApprox === true ? { runsApprox: true as const } : {}, ...value.won === true ? { won: true as const } : {}, ...ash !== undefined ? { ash } : {}, ...seen !== undefined ? { seen } : {}, ...mute !== undefined ? { seenMute: mute } : {}, ...meta ? { meta } : {}, ...heroAsh ? { heroAsh } : {}, ...value.omensOpen === true ? { omensOpen: true as const } : {} };
   } catch { return emptyRtProfile(); }
 }
 
@@ -194,6 +200,12 @@ export interface RtProfileStore {
    * `endRunMeta` frees her too if this was not called.
    */
   freeHero(run: RtRunState): RtHeroId | null;
+  /**
+   * Task 56 «Приметы» (spec 7.1): the pool of omens a new run of «Испытание» `ash` takes (`createRtRun(seed, { omens })`), or null — the
+   * gates closed. The gates open once for good (`omensOpen`): «Расписание леса» done in the viewer's `history`, or `ash` ≥ II. A seeded run
+   * (`?seed=`) reads the profile's pool and changes nothing.
+   */
+  omensStart(input: { ash: number; history: readonly string[]; seeded: boolean }): RtOmenId[] | null;
 }
 
 /** Task 37: the camp's start for a loaded profile (`rtHearthStartOf` over its meta). */
@@ -293,7 +305,23 @@ export function createRtProfileStore(storage: RunStorage | null = browserStorage
       write({ ...profile, meta: freed.meta });
       return freed.hero;
     },
+    omensStart: ({ ash, history, seeded }) => {
+      const profile = read();
+      if (!rtOmensGate(profile.omensOpen === true, history, ash)) return null;
+      if (!seeded && profile.omensOpen !== true) write({ ...profile, omensOpen: true });
+      return rtProfileOmenPool(profile);
+    },
   };
+}
+
+/**
+ * Task 56 «Приметы» (spec 7.2, 9.3): the omens a profile opened — the four at once, those of the packs any hero opened, «Перекличка»
+ * once a hero reached the garrison, «Ярмарочный день» once Шиш came to the camp. The gates are `omensOpen` (`omensStart`).
+ */
+export function rtProfileOmenPool(profile: RtProfile): RtOmenId[] {
+  const meta = profile.meta, heroes = RT_HERO_IDS.flatMap(id => (meta?.heroes[id] ? [meta.heroes[id]!] : []));
+  const garrison = heroes.some(hero => !!hero.record && (hero.record.level === 2 || rtWonLevelOf(hero.record) >= 1));
+  return rtOmenPool({ packs: heroes.flatMap(hero => hero.packs), garrison, gambler: meta?.hearth?.met.gambler === true });
 }
 
 /** Task 49: the hero a profile call means — the one given (an open one or not: a run's hero), else the chosen one. */

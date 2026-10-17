@@ -334,6 +334,11 @@ export interface RunFusions {
 }
 /** Task 37: the run's quest and (once the run ended) whether it was done. */
 export interface RunQuest { npc: string; id: string; done?: boolean }
+/**
+ * Task 56 «Приметы»: a choice of the route where an omen stood among the nodes open (`RunRecord.omenRoutes`) — the level and the run row
+ * of the node taken, the nodes open with their omens as the map showed them, the node taken.
+ */
+export interface RunOmenRoute { level: number; row: number; offered: { nodeId: string; omen?: string }[]; chosen: string }
 /** Task 50: a card of the knack screen (`RunKnack`): a counter to rank II (`hone`) or a new one. */
 export interface RunKnackCard { id: string; hone?: true }
 /** Task 50 «Сноровка»: one knack screen of a run (`RunRecord.knacks`) — its node and run row, the cards, the one taken (null — «Пропустить»), real seconds open. */
@@ -461,6 +466,16 @@ export interface RunRecord extends RtHeader {
    * Absent — none.
    */
   freed?: { hero: 'toad'; row: number };
+  /**
+   * Task 56 «Приметы» (from 17.10.2026): the run had the omens (`RtRunState.omens`) — its pool, the levels' omens (as each level began),
+   * the route choices where an omen stood among the nodes open (`omenRoutes`: written only then), the steps off the map's links under
+   * «Перепутье». Absent — a run without them (older records too).
+   */
+  omensOn?: true;
+  omenPool?: string[];
+  levelOmens?: { level: number; id: string }[];
+  omenRoutes?: RunOmenRoute[];
+  crossroadsSteps?: number;
   /** The Params of the run, once per run (decision 3): the journals name them by `params.hash`. Named `runParams` because `params` is the header's `{storage, hash}`. */
   runParams: Params;
 }
@@ -481,6 +496,8 @@ export interface FightRecord extends RtHeader {
   level?: 2;
   /** Task 26 (from 15.10.2026): the scheduled fight's arc (`RunNode.arc`; `practice`); absent — not a scheduled fight (older records too). */
   arc?: string;
+  /** Task 56 «Приметы» (from 17.10.2026): the fight's omens — its node's and its level's (the run's battle card); absent — none (older records too). */
+  omens?: { id: string; scope: 'node' | 'level' }[];
   seed: number;
   outcome: FightOutcome;
   /** Ticks run and game seconds (`world.time`). */
@@ -741,6 +758,8 @@ export function checkRecord(value: unknown): string | null {
       if (r.resources !== undefined && !runResourcesOk(r.resources)) return 'run resources';
       // Tasks 36–37 (15.10.2026): optional — the meta of the run and the camp.
       if (!runMetaOk(r)) return 'run meta';
+      // Task 56 (17.10.2026): optional — the omens of the run.
+      if (!runOmensOk(r)) return 'run omens';
       return null;
     case 'fight': {
       if (r.fight !== parsed.fight || typeof r.arena !== 'string' || !num('seed') || !num('ticks') || !num('time') || !num('hpIn') || !num('hpOut') || typeof r.endHash !== 'string' || !r.summary) return 'fight fields';
@@ -748,6 +767,10 @@ export function checkRecord(value: unknown): string | null {
       if (r.arc !== undefined && !(typeof r.arc === 'string' && r.arc.length > 0)) return 'fight arc';
       // Task 38: the garrison's fights only (a node of the garrison).
       if (r.level !== undefined && !(r.level === 2 && typeof r.nodeId === 'string' && r.nodeId.startsWith('g:'))) return 'fight level';
+      // Task 56: the fight's omens (a run's fight), the counters of the summary.
+      if (r.omens !== undefined && !(typeof r.nodeId === 'string' && Array.isArray(r.omens) && r.omens.length && r.omens.every(o => { const x = o as Record<string, unknown> | null; return !!x && typeof x.id === 'string' && (x.scope === 'node' || x.scope === 'level'); }))) return 'fight omens';
+      const fired = (r.summary as Record<string, unknown>).omenFired;
+      if (fired !== undefined && !(!!fired && typeof fired === 'object' && Object.values(fired).every(v => typeof v === 'number' && Number.isFinite(v) && v >= 0))) return 'fight omenFired';
       const j = r.journal as Record<string, unknown> | undefined;
       if (!j || typeof j.parts !== 'number' || typeof j.chars !== 'number' || typeof j.digest !== 'string' || typeof j.encoding !== 'string') return 'fight journal meta';
       return null;
@@ -1001,6 +1024,12 @@ export interface FightSummary {
    * a replay cannot see them (not compared by `summaryDiff`). Absent — not counted (the sandbox, older records).
    */
   novelty?: number;
+  /**
+   * Task 56 «Приметы» (from 17.10.2026; absent — no omen rule acted, older records too): the omens' counters from the world — `storm:strike`,
+   * `storm:kill`, `storm:hero` (hits), `drowse:woke` (the game second), `rollcall:touch`, `harvest:resetAll`; the link's `flood:wet` and
+   * `rollcall:link` come with the chain's flags.
+   */
+  omenFired?: Record<string, number>;
 }
 
 /** Task 40: the garrison's numbers of a fight (`FightSummary.garrison`). */
@@ -1395,3 +1424,18 @@ export const nullObserver: FightObserverFactory = () => ({ command() { /* nothin
  * view replays the journal up to `tick` and shows that world, paused.
  */
 export type ReplayTo = (journal: Journal, tick: number) => Promise<void>;
+
+/** Task 56 «Приметы»: the omen fields of a run record — only with `omensOn`; the pool and the ids strings; the routes and the count whole. */
+function runOmensOk(r: Record<string, unknown>): boolean {
+  const on = r.omensOn === true, strings = (x: unknown): boolean => Array.isArray(x) && x.every(id => typeof id === 'string');
+  if (r.omensOn !== undefined && !on) return false;
+  if (r.omenPool !== undefined && !(on && strings(r.omenPool))) return false;
+  if (r.levelOmens !== undefined && !(on && Array.isArray(r.levelOmens) && r.levelOmens.every(l => { const o = l as Record<string, unknown> | null; return !!o && Number.isInteger(o.level) && typeof o.id === 'string'; }))) return false;
+  if (r.omenRoutes !== undefined && !(on && Array.isArray(r.omenRoutes) && r.omenRoutes.every(route => {
+    const o = route as Record<string, unknown> | null;
+    return !!o && Number.isInteger(o.level) && Number.isInteger(o.row) && typeof o.chosen === 'string' && Array.isArray(o.offered)
+      && o.offered.every(n => { const x = n as Record<string, unknown> | null; return !!x && typeof x.nodeId === 'string' && (x.omen === undefined || typeof x.omen === 'string'); });
+  }))) return false;
+  if (r.crossroadsSteps !== undefined && !(on && Number.isInteger(r.crossroadsSteps) && (r.crossroadsSteps as number) >= 1)) return false;
+  return true;
+}

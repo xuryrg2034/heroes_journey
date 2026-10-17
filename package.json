@@ -125,6 +125,7 @@
     "test:realtime-feats": "tsx src/realtime/run/feats.spec.ts",
     "test:realtime-bag": "tsx src/realtime/sim/bag.spec.ts",
     "test:realtime-omens": "tsx src/realtime/sim/omens.spec.ts",
+    "test:realtime-omens-run": "tsx src/realtime/run/omens.spec.ts",
     "test:realtime-chest": "tsx src/realtime/sim/chest.spec.ts && tsx src/realtime/run/chestRun.spec.ts",
     "test:realtime-casino": "tsx src/realtime/run/casino.spec.ts",
     "test:realtime-casino-slice": "tsx src/realtime/run/casinoSlice.spec.ts",
