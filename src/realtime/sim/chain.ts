@@ -476,8 +476,10 @@ function planHoned(world: World, out: readonly LinkPlan[], pierce: PiercePreview
     // Task 49: with the law of Ведунья (`sealOnlyShield`) only a closed chain gives the shield (heroLaw.ts reads the dash's seal).
     if (kills >= finisher && kills < base && finisherTopIds(world, links).includes(last.enemy.id) && chainShieldOf(world) > 0 && (!sealOnlyShield(world) || !!seal)) result.shield = true;
   }
-  // «Иней на клинке»: a chain of 3+ enemy links reached, its last one alive after the end's shadows (a wave may finish it).
-  if (frost && last && !last.outcome.killed && dash.links >= FROST_EDGE_LINKS && ended.enemies.some(e => e.id === last.enemy.id)) {
+  // «Иней на клинке»: a chain of 3+ enemy links reached, its last one alive after the end's shadows (a wave may finish it). Task 48:
+  // the Troll's core struck in its window is out of the shadows' lists (one hit a window: they cannot strike it) — alive after them.
+  const spared = last?.enemy.kind === TROLL && trollWindowOn(world) && !ended.enemies.some(e => e.id === last.enemy.id);
+  if (frost && last && !last.outcome.killed && dash.links >= FROST_EDGE_LINKS && (spared || ended.enemies.some(e => e.id === last.enemy.id))) {
     const near = frostNeighbour(world, last.enemy, ended.enemies);
     if (near !== null) result.frost = { survivor: last.enemy.id, near };
   }
