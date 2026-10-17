@@ -70,6 +70,8 @@ export interface EnemyBehavior {
    * `pushOutOfSolids`), and the body itself is never moved by the parting or the crowd. Absent — an ordinary body.
    */
   solid?(world: World, enemy: Enemy): boolean;
+  /** Task 55а (sim/shove.ts `startShove`): a shove of this thing starts (the wardrobe drops its topple). */
+  onShoved?(world: World, thing: Enemy): void;
 }
 
 /**

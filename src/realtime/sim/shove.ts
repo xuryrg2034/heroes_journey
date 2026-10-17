@@ -25,7 +25,7 @@
  * it, chain.ts); `thing` `break` (`by`: `wall`, `thing`, `body`, `core`, `end` — the barrel breaks at any stop).
  */
 import { blockedAt, overCliff, type Vec } from './geometry';
-import { bodyRadiusOf, kindOf } from './enemies/kinds';
+import { behaviorOf, bodyRadiusOf, kindOf } from './enemies/kinds';
 import { BOSS_CORES } from './enemies/jailer';
 import { platesOf } from './elites';
 import { damageEnemy, killEnemy, pushOutOfSolids, type Enemy, type World } from './world';
@@ -142,15 +142,13 @@ export function sliding(world: World, id: number): boolean {
   return !!world.shoves?.some(s => s.thing === id || (s.stop === 'thing' && s.target === id));
 }
 
-/** Hooks of the kinds when a shove starts (the wardrobe's topple drops; enemies/castle.ts registers it). */
-const onShoved: ((world: World, thing: Enemy) => void)[] = [];
-export function registerShoved(hook: (world: World, thing: Enemy) => void): void { onShoved.push(hook); }
-
 /** The dash's end runs a fixed plan (the field `world.shoves` appears with it). The thing gone — nothing. */
 export function startShove(world: World, plan: ShovePlan): void {
   const thing = world.enemies.find(e => e.id === plan.thing);
   if (!thing || world.status !== 'playing') return;
-  for (const hook of onShoved) hook(world, thing);
+  // The kind's own reaction (`EnemyBehavior.onShoved`: the wardrobe drops its topple). No registry here: shove.ts loads world.ts, which
+  // loads the kinds — a registry of this module would not be ready when a kind registers (the cycle of task 57а).
+  behaviorOf(thing).onShoved?.(world, thing);
   (world.shoves ??= []).push({ ...JSON.parse(JSON.stringify(plan)) as ShovePlan, run: 0, met: 0 });
   world.events.push({ type: 'shove', action: 'start', thingId: plan.thing, x: plan.from.x, y: plan.from.y, x1: plan.to.x, y1: plan.to.y, stop: plan.stop, ...plan.target !== undefined ? { target: plan.target } : {} });
 }

@@ -31,7 +31,6 @@
 import { dhypot } from '../detMath';
 import { blockedAt, dist, lineOfSight, pushOutOfObstacles, type Vec } from '../geometry';
 import { heroRadius } from '../params';
-import { registerShoved } from '../shove';
 import { canBeHurt, damageEnemy, hurtHero, noteBlock, pushOutOfSolids, type Enemy, type World } from '../world';
 import { bodyRadiusOf, kindOf, registerBehavior, registerEnemyKind } from './kinds';
 
@@ -93,12 +92,13 @@ function linked(world: World, e: Enemy): boolean {
 // ---- Things ----
 
 /** A thing's body: solid for the hero with the law on (he is put out of it); never walks. */
-const thingBehavior = (id: string, step?: (world: World, e: Enemy, dt: number) => void) => registerBehavior({
+const thingBehavior = (id: string, step?: (world: World, e: Enemy, dt: number) => void, onShoved?: (world: World, thing: Enemy) => void) => registerBehavior({
   id,
   onSpawn(_world, e) { e.vars.du = e.kind === BARREL ? BARREL_DURABILITY : WARDROBE_DURABILITY; if (e.kind === WARDROBE) { e.vars.tr = 0; e.vars.tw = 0; } },
   step(world, e, dt) { e.knock = 0; step?.(world, e, dt); return true; },
   touches: () => false,
   solid: world => !!world.params.shove,
+  ...onShoved ? { onShoved } : {},
 });
 
 const thingKind = (id: string, artScale: number) => registerEnemyKind({
@@ -164,18 +164,18 @@ function stepWardrobe(world: World, e: Enemy, dt: number): void {
   beginTopple(world, e);
 }
 
-thingBehavior(BARREL);
-thingBehavior(WARDROBE, stepWardrobe);
-thingKind(BARREL, 1);
-thingKind(WARDROBE, 1.2);
-
-// A shove drops the wardrobe's windup, stands it up and starts a full rest.
-registerShoved((world, thing) => {
-  if (thing.kind !== WARDROBE) return;
+/** A shove drops the wardrobe's windup, stands it up and starts a full rest. */
+function shovedWardrobe(world: World, thing: Enemy): void {
   const v = thing.vars;
   if (v.tw === 1 || v.lie !== undefined) world.events.push({ type: 'wardrobe', action: 'rise', id: thing.id, x: thing.x, y: thing.y });
   v.tw = 0; delete v.lie; v.tr = wardrobePeriodOf(world);
-});
+}
+
+thingBehavior(BARREL);
+thingBehavior(WARDROBE, stepWardrobe, shovedWardrobe);
+thingKind(BARREL, 1);
+thingKind(WARDROBE, 1.2);
+
 
 // ---- The rook ----
 
