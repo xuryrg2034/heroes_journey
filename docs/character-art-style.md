@@ -183,3 +183,13 @@ NOT smooth plastic surfaces, NOT excessive gradients.
 
 Набор для задачи 58 («Летопись», бестиарий), Codex `image_gen`, промпты — `artifacts/art-prompts/forest-kinds.json`. Проверка `check-art.mjs` 17.10.2026: PASS для шести; глазами — стиль един с `melee.png`, `ranged.png`. В бою виды леса по-прежнему рисует код (диски со знаками); PNG — для карточек книги. Лучник — `ranged.png`, щитоносец — `sentinel.png` (набор 27.09.2026).
 - `public/art/characters/forest-wolf.png`, `forest-boar.png`, `forest-lynx.png`, `forest-porcupine.png`, `forest-sapper.png` (гоблин с бомбой), `forest-shaman.png` (гоблин-шаман с посохом-кристаллом).
+
+### Замок, шаг 1а (17.10.2026)
+
+Набор для задачи 55 (`docs/design-notes/task-55-castle-step1a.md`, раздел 12), Codex `image_gen`, промпты — `artifacts/art-prompts/castle.json`. Проверка `check-art.mjs` 17.10.2026: PASS для пяти спрайтов; глазами — стиль един с Троллем, Главарём и NPC лагеря. Подключение — ui с видом 55а/55б; до него — процедурный резерв.
+- `public/art/characters/castle-wardrobe.png` — живой гардероб: дверцы-пасть с зубами-полками, ящик-язык, латунные ручки-глаза; без яркого цвета (вещь бесцветна), 1190×1200.
+- `public/art/characters/castle-rook.png` — каменная шахматная ладья: зубцы-брови, жерло-рот, светлый камень (цвет звена даёт диск вида), 1200×1120.
+- `public/art/characters/castle-barrel.png` — винная бочка: дуб, медные обручи, винное пятно; отличается от процедурных бочек гарнизона, 796×521.
+- `public/art/characters/warlock.png` — Колдун: шляпа больше тела со знаком колдуна (тот же, что содран с рясы Евлампия), посох-свеча, парит, 1162×1200.
+- `public/art/characters/warlock-dazed.png` — тот же Колдун сбит: шляпа набок, глаза-спирали, свеча погасла; сделан по `warlock.png` как образцу, 1145×1200.
+- `public/art/camp/foothill.png` — фон «Подножия», 1280×720: дорога в гору к замку на скале, сумерки, огни окон; низ в центре спокойнее (там панель).
