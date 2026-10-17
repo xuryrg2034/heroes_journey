@@ -914,7 +914,8 @@ export interface Params {
    */
   trollWindow: boolean;
   /**
-   * Task 48 (design 16.10.2026, docs/design-notes/task-48-troll.md, 24.10): the Troll's core and parts are solid for the hero — he never
+   * Task 48 (design 16.10.2026, docs/design-notes/task-48-troll.md, 24.10): the boss's solid bodies — the Troll's core and parts (task 54:
+   * the Chief's too; the key keeps its name for the journals) are solid for the hero — he never
    * stands inside them (walking, a knockback, the end of a dash or a jump put him out as out of an obstacle; the plan's end and the
    * jump's landing show that point), and the bodies are never moved by the parting or the crowd. Off by default and in journals without
    * the key (the old path: the bodies parted). The arena «Берлога тролля» turns it on for itself.
@@ -1514,7 +1515,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   chiefFeastTime: 4,
   chiefFeastGap: 6,
   chiefFeastBig: 6,
-  chiefCrowd: 0.45,
+  chiefCrowd: 0.3,
   // Task 33 (forms.ts): the sandbox's price of the forms; `RUN_FORCED` turns it off, a run with forms on (task 30, `RT_FORMS_PARAMS`).
   twinsAlternate: true,
   twinsNoShift: true,
@@ -2019,8 +2020,8 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   // Task 48 «Тролль» (enemies/troll.ts, docs/realtime-elite-behaviors.md, «Тролль (задача 48)»).
   { kind: 'bool', key: 'trollWindow', group: 'Тролль', label: 'Окно Тролля', stage: 5,
     hint: 'Ядро Тролля закрыто вне окна: цепь его не берёт («вне окна»), огонь, взрывы, волна, прямая, печать и возврат его не ранят. Окно открывают «Удар дубиной» (1,5 с), «Хвост метёт» (1 с) и «Храп». Одно попадание за окно. Арена «Берлога тролля» включает правило сама.' },
-  { kind: 'bool', key: 'trollSolid', group: 'Тролль', label: 'Тело Тролля — препятствие', stage: 5,
-    hint: 'Герой не входит в тело ядра и частей Тролля: его выталкивает, как от стены; сами тела не сдвигаются. Арена «Берлога тролля» включает правило сама.' },
+  { kind: 'bool', key: 'trollSolid', group: 'Тролль', label: 'Тела босса — препятствие', stage: 5,
+    hint: 'Тела-препятствия босса (Тролль, Главарь): герой не входит в тело ядра и частей — его выталкивает, как от стены; сами тела не сдвигаются. Арены «Берлога тролля» и «Стан Главаря» включают правило сами.' },
   n('trollHp', 'Тролль', 'Тролль: HP ядра', 1, 12, 1, 5, '', 'Со следующего запуска арены.'),
   n('trollPlates', 'Тролль', 'Тролль: пластины ядра', 0, 10, 1, 5, '', 'И потолок отрастания «Храпа». Со следующего запуска арены.'),
   n('trollWindowClub', 'Тролль', 'Окно после «Удара дубиной»', 0.2, 5, 0.1, 5, 'с'),

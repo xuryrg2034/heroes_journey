@@ -87,7 +87,8 @@ export const FEAST_LINKS = 3;
 export const FEAST_TIME = 4;
 export const FEAST_GAP = 6;
 export const FEAST_BIG = 6;
-export const CHIEF_CROWD = 0.45;
+// Design 17.10.2026 (the bot's first measure): the crowd ×0.3 — the Troll's, «±10 п. п. от Тролля»; the grid 0.3 / 0.45 / 0.6.
+export const CHIEF_CROWD = 0.3;
 export const FEAST_GAP_P3 = 4;
 export const LADLE_HP = 3;
 export const LADLE_PLATES = 1;

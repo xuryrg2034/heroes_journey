@@ -74,6 +74,18 @@ const median = (xs: number[]): number => { if (!xs.length) return NaN; const s =
 const f1 = (x: number): string => (Number.isFinite(x) ? x.toFixed(1).replace('.', ',') : '—');
 const pct = (a: number, b: number): string => (b ? `${Math.round(a / b * 100)} %` : '—');
 const MOVE_SOURCES = ['chief-ladle', 'chief-pepper'];
+/** The groups of the hero's damage (design 17.10.2026, as the Troll's): the crowd, the core's touch, the parts' touches, the moves. */
+const CORE_KINDS = ['chief', 'troll', 'jailer', 'castellan'], PART_KINDS = ['chief-ladle', 'chief-sack', 'troll-club', 'troll-rock', 'troll-tail', 'jailer-weight', 'hound', 'castellan-crossbow'];
+const BOSS_MOVES = ['chief-ladle', 'chief-pepper', 'troll-club', 'troll-rock', 'troll-tail', 'flail', 'throw', 'castellan-bolt', 'lunge', 'castellan'];
+function groups(fights: readonly Fight[]): string {
+  const g = { crowd: 0, core: 0, parts: 0, moves: 0 };
+  for (const f of fights) for (const [src, n] of Object.entries(f.damage)) {
+    const kind = src.startsWith('touch:') ? src.slice(6) : null;
+    g[kind ? CORE_KINDS.includes(kind) ? 'core' : PART_KINDS.includes(kind) ? 'parts' : 'crowd' : BOSS_MOVES.includes(src) ? 'moves' : 'crowd'] += n;
+  }
+  const all = g.crowd + g.core + g.parts + g.moves;
+  return `${pct(g.crowd, all)} / ${pct(g.core, all)} / ${pct(g.parts, all)} / ${pct(g.moves, all)}`;
+}
 const PART_TITLES: Record<string, string> = { 'chief-ladle': 'половник', 'chief-sack': 'мешок' };
 
 let head = '?';
@@ -96,7 +108,7 @@ if (STAND) {
   console.log('| --- | --- | --- | --- |');
   for (const [src, xs] of Object.entries(totals)) console.log(`| ${src} | ${f1(xs.reduce((s, x) => s + x, 0) / xs.length)} | ${f1(median(xs))} | ${pct(xs.filter(x => x > 0).length, xs.length)} |`);
 } else {
-  console.log(`Задача 54 «Главарь», --direct: узел босса ветки Главаря, HP похода, параметры и кит ряда 10 без сборки, бот с целью в ядро (окно — очередь цвета варева в ядро, иначе к ближайшей части), ${SEEDS} seed, предел ${LIMIT} с${KEYS ? `, ключи ${JSON.stringify(SET)}` : ''} (эвристика), ${date}, HEAD ${head}.\n`);
+  console.log(`Задача 54 «Главарь», --direct: узел босса ветки Главаря, HP похода, параметры и кит ряда 10 без сборки, бот с целью в ядро (окно — очередь цвета варева в ядро, выбранная подсветкой `planChain`, иначе к ближайшей части), ${SEEDS} seed, предел ${LIMIT} с${KEYS ? `, ключи ${JSON.stringify(SET)}` : ''} (эвристика), ${date}, HEAD ${head}.\n`);
   const rows: { title: string; fights: Fight[] }[] = [
     { title: 'Стан Главаря', fights: Array.from({ length: SEEDS }, (_, i) => fight(openRun(i + 1, 'boss', 'chief'), SET)) },
     ...KEYS ? [] : [
@@ -105,13 +117,13 @@ if (STAND) {
       { title: 'Кастелян полный (узел ветки Главаря, кит леса ряда 10)', fights: Array.from({ length: SEEDS }, (_, i) => fight(openRun(i + 1, 'boss', 'g-castellan'))) },
     ],
   ];
-  console.log('| Бой | Смертей | Бой, с, мед. (победа / поражение) | По таймеру (из них босс убит) | Чем убит |');
-  console.log('| --- | --- | --- | --- | --- |');
+  console.log('| Бой | Смертей | Бой, с, мед. (победа / поражение) | По таймеру (из них босс убит) | Урон героя: толпа / ядро / части / приёмы | Чем убит |');
+  console.log('| --- | --- | --- | --- | --- | --- |');
   for (const { title, fights } of rows) {
     const deaths = fights.filter(f => !f.won), killers: Record<string, number> = {};
     for (const f of deaths) killers[f.killer ?? '—'] = (killers[f.killer ?? '—'] ?? 0) + 1;
     const by = Object.entries(killers).sort((a, b) => b[1] - a[1]).map(([s, n]) => `${s} ${n}`).join(', ') || '—';
-    console.log(`| ${title} | ${deaths.length}/${fights.length} (${pct(deaths.length, fights.length)}) | ${f1(median(fights.filter(f => f.won).map(f => f.time)))} / ${f1(median(deaths.map(f => f.time)))} | ${fights.filter(f => f.timeout).length} (${fights.filter(f => f.timeout && f.cleared !== null).length}) | ${by} |`);
+    console.log(`| ${title} | ${deaths.length}/${fights.length} (${pct(deaths.length, fights.length)}) | ${f1(median(fights.filter(f => f.won).map(f => f.time)))} / ${f1(median(deaths.map(f => f.time)))} | ${fights.filter(f => f.timeout).length} (${fights.filter(f => f.timeout && f.cleared !== null).length}) | ${groups(fights)} | ${by} |`);
   }
   const chief = rows[0].fights;
   const all: Record<string, number> = {};

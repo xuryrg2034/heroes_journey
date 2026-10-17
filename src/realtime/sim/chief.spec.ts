@@ -28,6 +28,7 @@ import type { Loadout } from './kit';
 import { defaultParams, heroRadius, type Params } from './params';
 import { replay, Simulation, SIM_DT } from './simulation';
 import type { Enemy, World, WorldEvent } from './world';
+import { worldState } from './hash';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -487,6 +488,30 @@ check('the core under the feast\'s rule is out of every shadow: the return run t
     for (let i = 0; i < 300 && (w.move || i === 0); i++) { sim.tick(); w.events.length = 0; if (w.move) during++; }
     assert(during > ticksOf(left) && chiefState(w)!.window?.open && Math.abs(chiefState(w)!.window!.left - left) < 0.02, `seed ${k}: the window waited for the dash (${left} → ${chiefState(w)!.window?.left}, ${during} ticks)`);
     assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
+check('the Chief\'s keys are read on his arena only: another arena (the boss arenas, the run\'s, the sandbox\'s) with every `chief*` changed plays the same world but the params', () => {
+  const changed: Partial<Params> = { chiefFeast: true, chiefHp: 9, chiefPlates: 7, chiefFeastLinks: 1, chiefFeastTime: 9, chiefFeastGap: 1, chiefFeastBig: 1, chiefCrowd: 2 };
+  for (const arena of ['jailer', 'troll', 'last-stand', 'outpost', 'glade', 'g-castellan']) {
+    for (const k of [1, 2]) {
+      const play = (extra: Partial<Params>): Simulation => {
+        const p = { ...defaultParams(), heroHp: 999, hitstop: false, ...extra };
+        const sim = new Simulation({ arena, params: p, seed: seedOf(k), record: true }), w = sim.world;
+        for (let t = 0; t < ticksOf(12); t++) {
+          // A chain every second from the nearest candidate (the same journal of commands in both worlds).
+          if (t % 60 === 30 && !w.move && w.status === 'playing') {
+            const near = [...w.enemies].sort((a, b) => Math.hypot(a.x - w.hero.x, a.y - w.hero.y) - Math.hypot(b.x - w.hero.x, b.y - w.hero.y))[0];
+            if (near) { sim.command({ t: 'begin', x: near.x, y: near.y }); sim.command({ t: 'release' }); }
+          }
+          sim.tick();
+        }
+        return sim;
+      };
+      const plain = play({}), keyed = play(changed);
+      const state = (sim: Simulation): string => { const s = worldState(sim.world) as Record<string, unknown>; delete s.params; return JSON.stringify(s); };
+      assert(keyed.world.params.chiefHp === 9 && state(plain) === state(keyed), `${arena}, seed ${k}: the same world`);
+    }
   }
 });
 

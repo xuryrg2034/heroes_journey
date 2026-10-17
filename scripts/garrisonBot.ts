@@ -11,7 +11,7 @@
  * his window shut — a chain towards the nearest living part (each next link the one nearest the part, braziers too); the window
  * open (or the rule off) — a chain into the core; no part left — it waits by the core with the greedy chain.
  */
-import { canJump, jumpDownOpen, nextCandidates, nextObjectCandidates, objectRefusal, reachOf } from '../src/realtime/sim/chain';
+import { canJump, jumpDownOpen, nextCandidates, nextObjectCandidates, objectRefusal, planChain, reachOf } from '../src/realtime/sim/chain';
 import { castellanGrate, gateLeverReady } from '../src/realtime/sim/enemies/garrison';
 import { TROLL, trollState } from '../src/realtime/sim/enemies/troll';
 import { CHIEF, chiefMove, chiefState } from '../src/realtime/sim/enemies/chief';
@@ -139,33 +139,46 @@ const CHIEF_STAGE = 3.3;
 /** The longest queue the bot draws (the spec's bound). */
 const CHIEF_QUEUE_MAX = 8;
 
+/** The candidate chains the queue search tries at most, and the search's steps (a bound on the bot's time, not a rule). */
+const CHIEF_PATHS_MAX = 60, CHIEF_SEARCH_MAX = 4000;
+
 /**
- * Task 54: a chain of the brew's enemy links from the hero that ends on the Chief's core with its queue (`need` or more) — by the
- * reach and sight of the chain's rule (R to the edge, sight from the anchor; the refusal still decides when drawn). The longest
- * found up to the big hit's queue, else the first that is long enough; null — none.
+ * Task 54 (spec 15, question В15): the queue the bot draws in the Chief's window. The candidates — chains of the brew's enemy links
+ * from the hero (up to `CHIEF_QUEUE_MAX`, `need` or more) whose last link reaches the core by the chain's rule of reach and sight;
+ * each is judged by the game's own highlight, `planChain` of its links and the core (no pierce, no return run): the queue's links all
+ * fall or lose a plate, and the core takes a plate or dies. The best — the core dies, else the most plates, else the shortest;
+ * null — none. The refusal still decides when the bot draws it.
  */
 function chiefQueuePath(w: World, core: Enemy): Enemy[] | null {
   const st = chiefState(w);
   if (!st) return null;
-  const need = st.need, best = st.big > 0 ? Math.min(st.big, CHIEF_QUEUE_MAX) : need;
+  const need = st.need;
   const cands = w.enemies.filter(e => e.color === st.brew && e.kind !== CHIEF && e.partOf === undefined);
   const reach = (a: Vec, b: Enemy): boolean => Math.hypot(a.x - b.x, a.y - b.y) <= reachOf(w, enemyArtRadius(w.params, b))
     && (!w.params.lineOfSight || lineOfSight(a, b, w.arena, -w.params.sightSlack));
-  let found: Enemy[] | null = null;
-  const path: Enemy[] = [];
-  const dfs = (at: Vec, used: Set<number>): boolean => {
-    if (path.length >= need && reach(at, core) && (!found || path.length > found.length)) { found = [...path]; if (found.length >= best) return true; }
-    if (path.length >= CHIEF_QUEUE_MAX) return false;
-    const next = cands.filter(e => !used.has(e.id) && reach(at, e)).sort((a, b) => Math.hypot(a.x - core.x, a.y - core.y) - Math.hypot(b.x - core.x, b.y - core.y)).reverse();
-    for (const e of next) {
+  const paths: Enemy[][] = [], path: Enemy[] = [];
+  let steps = 0;
+  const dfs = (at: Vec, used: Set<number>): void => {
+    if (paths.length >= CHIEF_PATHS_MAX || ++steps > CHIEF_SEARCH_MAX) return;
+    if (path.length >= need && reach(at, core)) paths.push([...path]);
+    if (path.length >= CHIEF_QUEUE_MAX) return;
+    for (const e of cands.filter(x => !used.has(x.id) && reach(at, x))) {
       used.add(e.id); path.push(e);
-      if (dfs(e, used)) return true;
+      dfs(e, used);
       path.pop(); used.delete(e.id);
     }
-    return false;
   };
   dfs(w.hero, new Set());
-  return found;
+  let best: { path: Enemy[]; score: number } | null = null;
+  const plates = core.armor?.plates ?? 0;
+  for (const p of paths) {
+    const plan = planChain(w, [...p, core].map(e => ({ kind: 'enemy' as const, id: e.id })), { pierce: false, back: false });
+    const out = plan.links[plan.links.length - 1]?.outcome;
+    if (!out || !(out.killed || out.plate) || !plan.links.slice(0, -1).every(l => l.outcome?.killed || l.outcome?.plate)) continue;
+    const score = (out.killed ? 100 : plates - (out.platesAfter ?? plates)) * 100 - p.length;
+    if (!best || score > best.score) best = { path: p, score };
+  }
+  return best?.path ?? null;
 }
 
 /** Task 54: the Chief's policy — his window open (or the rule off): a queue of the brew into him; «Обед!» winding up: to the seats; else a living part. */
