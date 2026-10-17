@@ -24,6 +24,7 @@ import {
   CLUB_WIDTH, CLUB_WINDUP, PHASE3_WINDUP as TROLL_PHASE3_WINDUP, ROCK_FLIGHT, ROCK_RADIUS, ROCK_WINDUP, TAIL_INNER, TAIL_OUTER, TAIL_WINDUP, TROLL, TROLL_CLUB,
   TROLL_MOVES, TROLL_ROCK, TROLL_TAIL,
 } from './enemies/troll';
+import { BARREL, ROOK, ROOK_HALF, ROOK_WINDUP, TOPPLE_WIDTH, WARDROBE, WARDROBE_WINDUP } from './enemies/castle';
 import { registerArena } from './arenas';
 import { defaultParams, heroRadius, type Params } from './params';
 import { Simulation, SIM_DT } from './simulation';
@@ -83,6 +84,10 @@ const THREATS: readonly Threat[] = [
   // «Хвост метёт» — the ring 1.2–3.2 around the core, the worst point its inner edge (inside 1.2 is the core's body and touch).
   { id: 'troll-club', source: TROLL_CLUB, move: 'club', title: 'Тролль: удар дубиной', window: () => CLUB_WINDUP * TROLL_PHASE3_WINDUP, exit: p => CLUB_WIDTH / 2 + heroRadius(p) },
   { id: 'troll-rock', source: TROLL_ROCK, move: 'rock', title: 'Тролль: бросок камня', window: () => ROCK_WINDUP * TROLL_PHASE3_WINDUP + ROCK_FLIGHT, exit: p => ROCK_RADIUS + heroRadius(p) },
+  // Task 55а (spec 3.2, 3.3): «Падение шкафа» — the lane 3 × 1.2 from the wardrobe, the way out sideways from its axis (the first windup
+  // of a fight ×1.5 is extra); «Удар ладьи» — the axis 0.5 wide, the way out sideways (the first windup 1.5 is extra).
+  { id: 'wardrobe-topple', source: WARDROBE, title: 'шкаф: падение', window: p => p.wardrobeWindup ?? WARDROBE_WINDUP, exit: p => TOPPLE_WIDTH / 2 + heroRadius(p) },
+  { id: 'rook-strike', source: ROOK, title: 'ладья: удар', window: p => p.rookWindup ?? ROOK_WINDUP, exit: p => ROOK_HALF + heroRadius(p) },
   { id: 'troll-tail', source: TROLL_TAIL, move: 'tail', title: 'Тролль: хвост метёт', window: () => TAIL_WINDUP, exit: p => TAIL_OUTER + heroRadius(p) - TAIL_INNER },
 ];
 
@@ -112,6 +117,8 @@ const OUTSIDE: Readonly<Record<string, string>> = {
   keymaster: 'касание, без телеграфа (кандалы держат врага, героя не бьют)',
   // Task 48 «Тролль»: the core's own moves («Рык», «Храп») do not hit the hero — `MOVES_OUTSIDE`.
   [TROLL]: 'касание, без телеграфа (рык и храп героя не бьют; удары — у частей)',
+  // Task 55а: the barrel is a thing — it never strikes (the player shoves it).
+  [BARREL]: 'вещь: не бьёт и не касается; толкает её игрок',
 };
 
 /** A run battle's params (the run's numbers, the short fuse of task 19). */
