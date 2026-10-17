@@ -263,14 +263,22 @@ test('task 52: «Развилка» with the dwell (the sandbox\'s default 0,25 
   for (const [x, y] of [[13.1, 3.6], [9.3, 3.6]] as const) { const at = await screen(page, x, y); await page.mouse.move(at.x, at.y, { steps: 8 }); }
   await gameWait(page, 0.2);
   expect((await snap(page)).chain).toEqual([a1, a2, a3]);
-  // Rest on a1 for more than 0,25 s of game time, then back to d: it joins from a1.
+  // No older anchor chosen yet: no ring glows.
+  expect((await snap(page)).forms.forkLit).toBe(0);
+  // Rest on a1 for more than 0,25 s of game time, then back to d: it joins from a1. Rested on — a1's reach ring glows (the view of
+  // the sim's `forkAnchorNow`, design: the gesture must be seen).
   const a1at = await screen(page, 9.5, 5.5);
   await page.mouse.move(a1at.x, a1at.y, { steps: 4 });
   await gameWait(page, 0.4);
+  await expect.poll(async () => (await snap(page)).forms.forkLit).toBe(1);
+  await page.screenshot({ path: 'artifacts/realtime-forms-fork-anchor-lit.png' });
+  if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/fork-anchor-lit.png` });
   const dat = await screen(page, 9.3, 3.6);
   await page.mouse.move(dat.x, dat.y, { steps: 4 });
   await expect.poll(async () => (await snap(page)).chain).toEqual([a1, a2, a3, d]);
   expect((await snap(page)).forms.forks).toBe(1);
+  // After the fork the anchor is the last link again — the glow is gone.
+  await expect.poll(async () => (await snap(page)).forms.forkLit).toBe(0);
   await page.screenshot({ path: 'artifacts/realtime-forms-fork-dwell.png' });
   await page.mouse.up();
   expect(errors).toEqual([]);
