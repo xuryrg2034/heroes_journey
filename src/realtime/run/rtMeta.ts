@@ -95,7 +95,8 @@ export interface RtHeroMeta { xp: number; packs: string[]; record?: RtDepthRecor
 /** The death cause the camp's lines read (design lines v1): the Jailer's fight, the final, the fire trail, a touch, an arrow, a blast. */
 export type RtDeathCause = 'crowd' | 'archer' | 'sapper' | 'jailer' | 'final' | 'fire' | 'other';
 /** The previous run as the camp's lines read it. `quest` — true done, false failed, absent — the run had no quest. */
-export interface RtHearthLast { won: boolean; row: number; beaten: boolean; cause?: RtDeathCause; quest?: boolean; firstWin?: true; pack?: true }
+/** Task 49 (ui, the camp's lines npc-lines-v2): `hero` — the previous run was Ведунья's (`run.heroId`); absent — the cat's (every `last` before it). */
+export interface RtHearthLast { won: boolean; row: number; beaten: boolean; cause?: RtDeathCause; quest?: boolean; firstWin?: true; pack?: true; hero?: typeof RT_TOAD_ID }
 export interface RtHearthMeta {
   stock: number;
   levels: Record<RtHearthNpc, RtHearthLevel>;
@@ -326,7 +327,7 @@ export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState, optio
     const unmet = (['herb', 'smith'] as const).find(npc => !hearth.met[npc]);
     if (unmet && hearth.quiet >= RT_HEARTH_FALLBACK_RUNS) { hearth.met[unmet] = true; hearth.self = { ...hearth.self, [unmet]: true }; hearth.quiet = 0; }
   }
-  hearth.last = { won: win, row, beaten, ...rtDeathCause(run) ? { cause: rtDeathCause(run) } : {}, ...quest ? { quest: questDone } : {}, ...win && !oldPassed ? { firstWin: true as const } : {}, ...pack ? { pack: true as const } : {} };
+  hearth.last = { won: win, row, beaten, ...rtDeathCause(run) ? { cause: rtDeathCause(run) } : {}, ...quest ? { quest: questDone } : {}, ...win && !oldPassed ? { firstWin: true as const } : {}, ...pack ? { pack: true as const } : {}, ...heroId === RT_TOAD_ID ? { hero: RT_TOAD_ID } : {} };
   hearth.quest = rtNextQuest(run.seed, hearth, record);
   meta.hearth = hearth;
   const end: RtMetaEnd = {
@@ -505,6 +506,12 @@ export function rtHeroViews(meta: RtMeta | undefined): RtHeroView[] {
 const isCount = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 0;
 const isPlain = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
 const level = (value: unknown): RtHearthLevel => (value === 1 || value === 2 ? value : 0);
+/** A stored `last` (task 49: `hero` kept only as `toad`; a `last` without it — as stored, byte for byte). */
+function lastOf(value: Record<string, unknown>): RtHearthLast {
+  const last = structuredClone(value) as unknown as RtHearthLast & { hero?: unknown };
+  if (last.hero !== undefined && last.hero !== RT_TOAD_ID) delete last.hero;
+  return last;
+}
 /** A stored `meta` as the profile reads it (anything malformed falls back to its empty part; absent — undefined). */
 export function parseRtMeta(value: unknown): RtMeta | undefined {
   if (!isPlain(value)) return undefined;
@@ -534,7 +541,8 @@ export function parseRtMeta(value: unknown): RtMeta | undefined {
     lines: isPlain(h.lines) ? Object.fromEntries(Object.entries(h.lines).filter(([, n]) => isCount(n))) as Record<string, number> : {},
     ...isRtQuest(h.quest) ? { quest: { npc: h.quest.npc, id: h.quest.id } } : {},
     quiet: isCount(h.quiet) ? h.quiet : 0,
-    ...isPlain(h.last) ? { last: structuredClone(h.last) as unknown as RtHearthLast } : {},
+    // Task 49: `last.hero` only `toad`; anything else is dropped (the cat's run, as a `last` without the field).
+    ...isPlain(h.last) ? { last: lastOf(h.last) } : {},
   } : undefined;
   const offered = Array.isArray(value.offered) ? [...new Set(value.offered.filter((id): id is string => typeof id === 'string'))] : undefined;
   const applied = isPlain(value.applied) && typeof value.applied.key === 'string' && isPlain(value.applied.end) ? { key: value.applied.key, end: structuredClone(value.applied.end) as unknown as RtMetaEnd } : undefined;
