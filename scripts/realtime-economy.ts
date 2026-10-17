@@ -57,7 +57,7 @@ import { rtCarry, rtHearthItems } from '../src/realtime/run/rtMeta';
 import { outcomeOf } from '../src/realtime/run/runFight.testkit';
 import {
   createRtRun, RT_TASK17_OFF, resolveArena, rtArenaLoadout, rtAvailableNodes, rtCasinoLeave, rtCasinoPlay, rtCasinoView, rtChooseEventOption, rtChooseFind, rtItemRefusal,
-  rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtChooseTalisman, rtEnterNode, rtEventView, rtGiftView, rtNode,
+  rtChooseGift, rtChooseGiftPick, rtChooseHabit, rtChooseHammer, rtChooseTalisman, rtEnterNode, rtEventView, rtGiftView, rtNode,
   rtRerollTalismans, rtRerollView, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtArenaParams, rtRunParams, rtShopBuy, rtShopLeave, rtShopView, healOffer, healOnMap,
   rtEnterGarrison, RT_CART_KEEP, RT_CART_MAX,
   type RtArenaOutcome, type RtRunState, type RtRunStep,
@@ -514,6 +514,8 @@ function walkRun(k: number): RunRecord {
     const before = materials(run);
     switch (pending.kind) {
       case 'gift': {
+        // Task 50: the archetype row of the gift `full` — «Без повадки», the measure of before.
+        if (rtGiftView(run)?.habit && !rtGiftView(run)!.habit!.chosen) run = ok(rtChooseHabit(run, null), 'habit');
         const view = rtGiftView(run)!, on = view.options.filter(entry => entry.available);
         if (view.chosen !== null) { run = ok(rtChooseGiftPick(run, view.picks[0]), 'gift pick'); account(before, run, 'gift', 'gift'); break; }
         const pick = on.length ? on[k % on.length].index : null;

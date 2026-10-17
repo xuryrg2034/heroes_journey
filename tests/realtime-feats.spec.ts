@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
 import { gameWait, untilFrame } from './realtimeFrames';
 import { rtFeatKinds, rtNode, rtNodeFeat, type RtRunState } from '../src/realtime/run/rtRun';
 import { RT_PROFILE_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
@@ -7,6 +7,7 @@ import { seedOf } from '../src/realtime/run/runFight.testkit';
 import { featCardLine, featResultRow } from '../src/realtime/view/featView';
 import { FIRST_MEET_KEY } from '../src/realtime/view/firstMeet';
 import { RESOURCES } from '../src/realtime/forest/resources';
+import { leaveResult } from './realtimeResult';
 
 /**
  * Task 16 «Подвиги», the view (design 13–14.10.2026; src/realtime/view/featView.ts, docs/realtime-slice.md «Подвиги») at
@@ -45,6 +46,7 @@ async function viewer(page: Page, jailer: boolean): Promise<void> {
 /** A new run of seed k (the run hook, as `?seed=`), its gift taken by clicks; the card of `nodeId` opened by a click. */
 async function runCard(page: Page, k: number, nodeId: string): Promise<void> {
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), seedOf(k));
+  await skipHabit(page);
   await page.getByTestId('gift-0').click();
   const pick = page.locator('[data-action="gift-pick"]').first();
   if (await pick.count()) await pick.click();
@@ -137,7 +139,7 @@ test('task 16: the HUD line waits before the goals, grows after them, the door c
   for (const part of row.text.replace(/^\+3 — /, '').split(', ')) expect(names).toContain(part.replace(/^\d+ /, ''));
   await expect(page.getByTestId('result').locator('dt', { hasText: 'Подвиг' })).toHaveCount(1);
   await page.screenshot({ path: 'artifacts/realtime-feat-result.png' });
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   await expect(page.getByTestId('run-map')).toBeVisible();
   const state = await runState(page);
   expect(total(state.materials)).toBe(total(before.materials) + 3);
@@ -161,7 +163,7 @@ test('task 16: a door before the feat — a grey row «не выполнен —
   const cell = page.getByTestId('result-feat');
   await expect(cell).toHaveText(/^не выполнен — [01]\/20 с$/);
   await expect(cell).toHaveClass(/rt-result-grey/);
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   const state = await runState(page);
   expect(total(state.materials)).toBe(total(before.materials));
   expect(state.battles[state.battles.length - 1].feat?.done).toBe(false);
@@ -182,7 +184,7 @@ test('task 16: a talisman reward — the row «талисман на выбор�
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory', { timeout: 15_000 });
   await expect(page.getByTestId('result-feat')).toHaveText('талисман на выбор');
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   const card = page.getByTestId('run-feat-talisman');
   await expect(card).toBeVisible();
   await expect(card.locator('h2')).toHaveText('Подвиг: талисман на выбор');

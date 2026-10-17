@@ -33,7 +33,8 @@ let checks = 0;
 function check(name: string, run: () => void): void { run(); checks++; console.log(`ok - ${name}`); }
 
 /** A walk of seed `k` with the garrison (`garrison` false — without it); every state goes to `each`. */
-const walk = (k: number, garrison: boolean, extra: Partial<WalkOptions> = {}) => walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison }, ...extra });
+// Task 50: the walks refuse the knack screen («Пропустить», RT_KNACKS_ON) — the garrison's checks go the route of before it.
+const walk = (k: number, garrison: boolean, extra: Partial<WalkOptions> = {}) => walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison }, knack: () => null, ...extra });
 /** The run without its garrison flags (to compare with a run without the flag; task 40: `moat` comes only with `garrison`; task 43: `step2` only with `moat`). */
 const withoutFlag = (run: RtRunState): string => { const copy = structuredClone(run) as Partial<RtRunState>; delete copy.garrison; delete copy.moat; delete copy.step2; return JSON.stringify(copy); };
 const forestBoss = (run: RtRunState): boolean => run.visited.some(id => !rtGarrisonNodeId(id) && rtNode(run, id)?.type === 'boss');

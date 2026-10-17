@@ -1,11 +1,12 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
 import { untilFrame } from './realtimeFrames';
 import { createRtRun, serializeRtRun, type RtRunState } from '../src/realtime/run/rtRun';
 import { walkRun } from '../src/realtime/run/metaWalk.testkit';
 import { RT_RUN_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
 import { SCHEDULE_PRACTICE, SCHEDULE_RUN_ARENAS } from '../src/realtime/run/schedule';
 import { JAILER_RUN_ARENAS } from '../src/realtime/sim/arenasBoss';
+import { leaveResult } from './realtimeResult';
 
 /**
  * The run of the real-time game in the browser (stage 2, step 1; docs/realtime-slice.md). Runs through
@@ -34,6 +35,7 @@ async function openRun(page: Page, errors: string[]): Promise<void> {
 async function newRun(page: Page): Promise<RunState> {
   await page.getByTestId('run-new').click();
   await expect(page.getByTestId('run-gift')).toBeVisible();
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await expect(page.getByTestId('run-gift')).toBeHidden();
   return runState(page);
@@ -110,7 +112,7 @@ test('run: a battle node starts its arena with the run HP, a reload starts it ag
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
   const won = await snapshot(page);
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   await expect(page.getByTestId('run')).toBeVisible();
   await expect(page.getByTestId(`node-${nodeId}`)).toHaveAttribute('data-status', 'current');
   const after = await runState(page);
@@ -143,7 +145,7 @@ test('run: a lost arena ends the run, and the end survives a reload', async ({ p
     for (let k = 0; k < 8; k++) rt.place(hero.x + Math.cos(k * Math.PI / 4) * 0.6, hero.y + Math.sin(k * Math.PI / 4) * 0.6, k % 4, 2, 'basic');
   });
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'defeat', { timeout: 45_000 });
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   await expect(page.getByTestId('run-result-defeat')).toBeVisible();
   expect((await runState(page)).result?.outcome).toBe('defeat');
   await page.reload();
@@ -255,12 +257,12 @@ test('run: two runs walk to the final arena — a new run by the schedule (its a
           expect((await runState(page)).result?.outcome).toBe('victory');
           finalWon = true;
         }
-        await page.getByTestId('result-map').click();
+        await leaveResult(page);
         continue;
       }
       if (pending) {
         // A node screen: its first button that is on (the gift, a rest, a find, an event option, the merchant's «Уйти»).
-        await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
+        await page.locator('[data-action="habit"][data-habit="none"]:not([disabled]), [data-action="gift"]:not([disabled]), [data-action="find"]:not([disabled]), [data-action="gift-pick"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
         continue;
       }
       await enterFirstNode(page);
@@ -325,11 +327,11 @@ test('run: a consumable taken at a find goes to the next arena (HUD 2 ×1) and i
       await expect(page.getByTestId('run')).toBeHidden();
       expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
       await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
-      await page.getByTestId('result-map').click();
+      await leaveResult(page);
       continue;
     }
     if (pending) {
-      await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
+      await page.locator('[data-action="habit"][data-habit="none"]:not([disabled]), [data-action="gift"]:not([disabled]), [data-action="find"]:not([disabled]), [data-action="gift-pick"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
       continue;
     }
     const find = page.locator('[data-status="available"][data-type="find"]');
@@ -344,7 +346,7 @@ test('run: a consumable taken at a find goes to the next arena (HUD 2 ×1) and i
   for (let step = 0; step < 10; step++) {
     const state = await runState(page);
     if (state.pending?.kind === 'battle') break;
-    if (state.pending) { await page.locator('[data-action="find"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click(); continue; }
+    if (state.pending) { await page.locator('[data-action="find"]:not([disabled]), [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click(); continue; }
     const battle = page.locator('[data-status="available"][data-type="battle"]');
     const node = (await battle.count()) ? battle.first() : page.locator('[data-status="available"]').first();
     await node.click();
@@ -364,7 +366,7 @@ test('run: a consumable taken at a find goes to the next arena (HUD 2 ×1) and i
   expect((await page.evaluate(() => (window as any).__realtime.snapshot())).enemies.some((e: { id: number }) => e.id === target.id)).toBe(false);
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   expect((await page.evaluate(() => (window as any).__realtime.run.state())).items.bomb).toBe(bombs - 1);
   expect(errors).toEqual([]);
 });
@@ -387,6 +389,7 @@ test('the sandbox opens by the anchor too: a changed #sandbox boots it (a publis
   await expect(page.getByTestId('run')).not.toContainText('#sandbox');
   await expect(page.locator('a[href="#sandbox"]')).toHaveCount(0);
   await page.evaluate(() => (window as any).__realtime.run.newRun(10));
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await expect(page.getByTestId('run-map')).toBeVisible();
   await expect(page.locator('.rt-run-head')).not.toContainText('seed');
@@ -411,6 +414,7 @@ test('run (iteration 2.1, task 6): consumables are noticed — the map says thei
   // The first run: the mini gift, its first button «2 расходника».
   await page.getByTestId('run-new').click();
   await expect(page.getByTestId('run-gift')).toBeVisible();
+  await skipHabit(page);
   await page.getByTestId('gift-0').click();
   await expect(page.getByTestId('run-gift')).toBeHidden();
   const items = (await page.evaluate(() => (window as any).__realtime.run.state())).items as Record<string, number>;
@@ -442,13 +446,17 @@ test('run (iteration 2.1, task 6): consumables are noticed — the map says thei
   const kind = await page.evaluate(() => {
     const rt = (window as any).__realtime, s = rt.snapshot();
     rt.setParam('contactDamage', 0);
+    // The target stands still (design smoke v71: under load it walked out from under the cursor and the bomb was refused).
+    for (const [p, v] of [['enemySpeed', 0], ['speedSpread', 0]] as const) rt.setParam(p, v);
     let k = (['bomb', 'frost', 'fire'] as const).find(x => (s.items[x] ?? 0) > 0) as string | undefined;
     if (!k) { rt.setItems('bomb', 1); k = 'bomb'; }
     rt.place(s.hero.x + 2, s.hero.y, 0, 5, 'basic');
     return k;
   });
+  // Aim at where the placed enemy stands now, right before the key.
   const hero = (await snapshot(page)).hero;
-  const at = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [hero.x + 2, hero.y]);
+  const target = (await snapshot(page)).enemies.reduce((a: { x: number; y: number }, e: { x: number; y: number }) => Math.hypot(e.x - hero.x - 2, e.y - hero.y) < Math.hypot(a.x - hero.x - 2, a.y - hero.y) ? e : a);
+  const at = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [target.x, target.y]);
   await page.mouse.move(at.x, at.y);
   await page.keyboard.press(String(['frost', 'bomb', 'healing', 'fire'].indexOf(kind) + 1));
   // The first item used stops the pulse for good (the viewer's memory).
@@ -456,13 +464,13 @@ test('run (iteration 2.1, task 6): consumables are noticed — the map says thei
   expect(JSON.parse(await page.evaluate(() => localStorage.getItem('ashen-oath-realtime-hints') ?? '{}')).shown.item).toBe(1);
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   expect((await page.evaluate(() => (window as any).__realtime.run.state())).itemUsed).toBe(true);
   // The next arena: no hint (a consumable was used in this run).
   for (let step = 0; step < 10; step++) {
     const state = await runState(page);
     if (state.pending?.kind === 'battle') break;
-    if (state.pending) { await page.locator('[data-action="find"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click(); continue; }
+    if (state.pending) { await page.locator('[data-action="find"]:not([disabled]), [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click(); continue; }
     const battle = page.locator('[data-status="available"][data-type="battle"]');
     const node = (await battle.count()) ? battle.first() : page.locator('[data-status="available"]').first();
     await node.click();
@@ -491,6 +499,7 @@ test('run (phase A, Т2): the node preview names its roster in one line; the car
     await page.reload();
     await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
     if (!saved) await page.getByTestId('run-new').click();
+    await skipHabit(page);
     await page.getByTestId('gift-0').click();
     const pick = page.locator('[data-action="gift-pick"]').first();
     if (await pick.count()) await pick.click();
@@ -501,7 +510,7 @@ test('run (phase A, Т2): the node preview names its roster in one line; the car
     await expect(page.getByTestId('run')).toBeHidden();
     expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
     await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory', { timeout: 15_000 });
-    await page.getByTestId('result-map').click();
+    await leaveResult(page);
     await expect(page.getByTestId('node-r6c0')).toHaveAttribute('data-status', 'available');
   };
   await toRowTwo(11);
@@ -528,11 +537,11 @@ async function walkStep(page: Page, prefer: string): Promise<void> {
   if (state.pending?.kind === 'battle') {
     expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
     await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
-    await page.getByTestId('result-map').click();
+    await leaveResult(page);
     return;
   }
   if (state.pending) {
-    await page.locator('[data-action="gift"]:not([disabled]), [data-action="find"], [data-action="gift-pick"], [data-action="talisman"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
+    await page.locator('[data-action="habit"][data-habit="none"]:not([disabled]), [data-action="gift"]:not([disabled]), [data-action="find"]:not([disabled]), [data-action="gift-pick"], [data-action="talisman"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
     return;
   }
   const preferred = page.locator(`[data-status="available"][data-type="${prefer}"]`);
@@ -804,7 +813,7 @@ test('run: the map\'s «Песочница» opens the sandbox (`#sandbox`) and 
   await expect(page.getByTestId('open-sandbox')).toBeHidden();
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   await expect(page.getByTestId('run')).toBeVisible();
   const before = await runState(page);
   expect(before.visited).toEqual([nodeId]);
@@ -864,6 +873,7 @@ test('run: in an iframe (the published artifact) «Песочница» and «�
   const app = () => page.frames().find(f => f !== page.mainFrame())!;
   await expect.poll(() => app()?.evaluate(() => !!(window as any).__realtime?.run).catch(() => false)).toBe(true);
   await frame.getByTestId('run-new').click();
+  await skipHabit(frame);
   await frame.getByTestId('gift-1').click();
   await expect(frame.getByTestId('run-map')).toBeVisible();
   const before = await app().evaluate(() => (window as any).__realtime.run.state());

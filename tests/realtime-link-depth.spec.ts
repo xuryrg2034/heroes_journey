@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
 import { linkDepths } from '../src/realtime/sim/linkDepth';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
 
@@ -105,6 +105,7 @@ test('run: the gear of the map holds «Глубина звена» (on by defaul
   await page.reload();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
   await page.getByTestId('run-new').click();
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await expect(page.getByTestId('run-gift')).toBeHidden();
   // The gear sits in the map header; its box lists the view settings.

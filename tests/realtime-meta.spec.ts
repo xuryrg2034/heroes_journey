@@ -1,5 +1,6 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
+import { leaveResult } from './realtimeResult';
 
 /**
  * Tasks 36–37 «Мета v1» (design 15.10.2026, docs/design-notes/tasks-36-37-meta.md): the run-end screen — the experience, the
@@ -27,6 +28,7 @@ async function openRun(page: Page, meta?: object): Promise<void> {
 async function newRun(page: Page): Promise<void> {
   await page.getByTestId('run-new').click();
   await expect(page.getByTestId('run-gift')).toBeVisible();
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await expect(page.getByTestId('run-gift')).toBeHidden();
 }
@@ -71,7 +73,7 @@ async function lose(page: Page): Promise<void> {
     for (let k = 0; k < 8; k++) rt.place(hero.x + Math.cos(k * Math.PI / 4) * 0.6, hero.y + Math.sin(k * Math.PI / 4) * 0.6, k % 4, 2, 'basic');
   });
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'defeat', { timeout: 45_000 });
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
 }
 
 /** A run: the first battle won, then death in the next battle. */
@@ -80,7 +82,7 @@ async function winThenDie(page: Page): Promise<void> {
   await toBattle(page);
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   await expect(page.getByTestId('run')).toBeVisible();
   await toBattle(page);
   await lose(page);
@@ -174,6 +176,7 @@ test('tasks 36–37: a run that crosses 60 opens «Охотник» — three ca
   expect(run.locked).not.toContain('elite-hunter');
   expect(run.locked).toContain('return-pass');
   // The same start from «Новый поход» on the map (design 16.10.2026): the choice of maps over the run screen, no camp screen.
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await expect(page.getByTestId('run-gift')).toBeHidden();
   await page.getByTestId('run-reset').click();
@@ -215,7 +218,7 @@ test('smoke v62: «Новый поход» over an open run — «Поход б�
   await toBattle(page);
   expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'victory');
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   await expect(page.getByTestId('run')).toBeVisible();
   await passScreens(page);
   await page.getByTestId('run-reset').click();

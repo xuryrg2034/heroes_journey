@@ -15,6 +15,8 @@
  *   arenas and rosters is the same with and without the flag.
  * Seeds: `Math.imul(k, 2654435761) >>> 0`.
  */
+// Task 50: the knack screen of a run (RT_KNACKS_ON) is passed over — «Пропустить» — where the route knows only the screens of before.
+import { rtChooseKnack } from './rtRun';
 import { arenaTemplate, LEADER_HP_OVER_TOUGH, markedCount, type ArenaTemplate } from '../sim/arenas';
 import '../sim/arenasStage3';
 import { beginChain, cancelChain, dragChain, nextCandidates, planChain } from '../sim/chain';
@@ -86,6 +88,7 @@ function walk(seed: number, k: number, markedGoals?: boolean): Fight[] {
       fights.push({ row: runRow(rtNode(run, pending.nodeId)!.row), arena: pending.arena, ...pending.roster !== undefined ? { roster: pending.roster } : {}, run });
       run = ok(resolveArena(run, { nodeId: pending.nodeId, won: true, hp: run.hp, kills: 0, damage: 0, time: 1 }), 'fake win');
     } else if (pending?.kind === 'hammer') run = ok(rtChooseTalisman(ok(rtChooseHammer(run, null), 'refuse hammer'), null), 'refuse');
+    else if (pending?.kind === 'knack') run = ok(rtChooseKnack(run, null), 'knack');
     else if (pending?.kind === 'talisman') run = ok(rtChooseTalisman(run, null), 'refuse');
     else if (pending?.kind === 'rest') run = ok(rtRestHeal(run), 'rest');
     else if (pending?.kind === 'find') run = ok(rtChooseFind(run, pending.options.find(item => !rtItemRefusal(run, item)) ?? pending.options[0]), 'find');

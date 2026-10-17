@@ -38,7 +38,8 @@ const COUNTERS = RT_COUNTER_TALISMANS.map(def => def.id);
 const tags = (id: string): readonly string[] => rtTalisman(id)?.tags ?? [];
 /** Every state reads back from its save as it is. */
 const readsBack = (state: RtRunState, label: string): void => { assert(serializeRtRun(parseRtRun(serializeRtRun(state))!) === serializeRtRun(state), `${label}: the save reads back`); };
-const walk = (k: number, create: WalkOptions['create'], extra: Partial<WalkOptions> = {}): Walk => walkRun({ k, create, ...extra });
+// Task 50: a walk is of a run without the knack screen unless its `create` says `knacks: true` (RT_KNACKS_ON turned on at the view's step, 16.10.2026).
+const walk = (k: number, create: WalkOptions['create'], extra: Partial<WalkOptions> = {}): Walk => walkRun({ k, create: { knacks: false, ...create }, ...extra });
 /** The run's state without the task-50 fields (to compare with a run without the flags). */
 const plain = (run: RtRunState): string => { const copy = structuredClone(run) as Partial<RtRunState>; delete copy.knacks; delete copy.honed; delete copy.habits; delete copy.habit; return JSON.stringify(copy); };
 /** The states of a walk without the task-50 fields, the knack screens left out, a repeat of the same state (the archetype's step) once. */
@@ -50,12 +51,16 @@ function plainStates(k: number, create: WalkOptions['create'], extra: Partial<Wa
 
 // ---- Flags ----
 
-await check('the flags: off by default (the ui session turns them on), only with the forms, the archetype only with the gift `full`; a run with them off is the run of before', () => {
-  assert(RT_KNACKS_ON === false && RT_HABITS_ON === false, 'the constants are off until the view');
+await check('the flags: a new run takes them from the constants (`knacks` since the view of step 3, `habits` since the view of step 5, 16.10.2026), only with the forms, the archetype only with the gift `full`; a run with them off is the run of before', () => {
+  assert(typeof RT_KNACKS_ON === 'boolean' && typeof RT_HABITS_ON === 'boolean', 'the constants are flags');
   for (let k = 1; k <= 8; k++) {
-    const seed = seedOf(k), base = createRtRun(seed, { gift: 'full' });
-    assert(!('knacks' in base) && !('habits' in base) && !('honed' in base) && !('habit' in base), `seed ${k}: no fields by default`);
+    const seed = seedOf(k), base = createRtRun(seed, { gift: 'full', knacks: false, habits: false });
+    assert(!('knacks' in base) && !('habits' in base) && !('honed' in base) && !('habit' in base), `seed ${k}: no fields with the flags off`);
+    assert(('knacks' in createRtRun(seed, { gift: 'full' })) === RT_KNACKS_ON, `seed ${k}: the constant decides the default`);
     assert(serializeRtRun(createRtRun(seed, { gift: 'full', knacks: false, habits: false })) === serializeRtRun(base), `seed ${k}: off — byte for byte`);
+    const dflt = createRtRun(seed, { gift: 'full' });
+    assert((dflt.habits === true) === RT_HABITS_ON && ('knacks' in dflt) === RT_KNACKS_ON && !('habit' in dflt), `seed ${k}: the constants decide the defaults; the archetype's choice is not made yet`);
+    assert(!('habits' in createRtRun(seed, { gift: 'mini' })), `seed ${k}: no archetype on the mini gift by default`);
     const on = createRtRun(seed, { gift: 'full', knacks: true, habits: true });
     assert(on.knacks === true && on.habits === true, 'on with the forms');
     assert(!createRtRun(seed, { gift: 'full', knacks: true, habits: true, forms: false }).knacks && !createRtRun(seed, { gift: 'full', habits: true, forms: false }).habits, 'never without the forms');
@@ -96,7 +101,7 @@ await check('the knack screen: after an ordinary fight and a breakthrough from r
 
 await check('a walk that refuses every knack is the walk without the flag, state for state — the other screens and the streams\' counters are the same (40 seeds, forest and garrison)', () => {
   for (let k = 1; k <= 40; k++) {
-    const create = { gift: k % 2 ? 'full' as const : 'mini' as const, garrison: k % 3 === 0, ...k % 4 === 0 ? { feats: true } : {} };
+    const create = { gift: k % 2 ? 'full' as const : 'mini' as const, garrison: k % 3 === 0, knacks: false, ...k % 4 === 0 ? { feats: true } : {} };
     const off = plainStates(k, create), on = plainStates(k, { ...create, knacks: true }, { knack: () => null });
     assert(on.length === off.length && on.every((s, i) => s === off[i]), `seed ${k}: ${on.length} states with the screens refused, ${off.length} without (first difference at ${on.findIndex((s, i) => s !== off[i])})`);
   }
@@ -203,6 +208,55 @@ await check('a part keeps its rank in the fusion: the rest fuses a counter on ra
   assert(fused >= 3, `fusions of a part on rank II: ${fused}`);
 });
 
+// ---- «Стужа»: «Иней на клинке» new on the knack screen (design §16, answer 7 (а)) ----
+
+/**
+ * The knack screens of 24 walks (gift `full`, the garrison on even k) per archetype, as the code before the rule of answer 7 (а) made them
+ * (`core/task50` 7e2327a, 16.10.2026; the same SHA-256 of these lines before and after it): the FNV-1a of `k|node|cards` lines. Without
+ * «Стужа» they must stay byte for byte.
+ */
+const KNACKS_BEFORE_COLD_RARE: Readonly<Record<string, string>> = {
+  none: 'f139ee23',
+  flame: 'd84d38bd',
+  shift: '4803608',
+  daring: '54d8ffb',
+};
+const knackDigest = (habit: RtHabitId | null): { digest: string; screens: number } => {
+  let h = 0x811c9dc5, screens = 0;
+  const add = (text: string): void => { for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193) >>> 0; };
+  for (let k = 1; k <= 24; k++) walk(k, { gift: 'full', knacks: true, habits: true, garrison: k % 2 === 0 }, { habit, each: s => { if (s.pending?.kind === 'knack') { add(`${k}|${s.pending.nodeId}|${JSON.stringify(s.pending.options)}
+`); screens++; } } });
+  return { digest: h.toString(16), screens };
+};
+
+await check('«Стужа»: without it (and with the other archetypes) the knack screens are those of before byte for byte (24 seeds); with it «Иней на клинке» comes new on some seeds at weight 1 — never taken, gone or locked', () => {
+  for (const [key, digest] of Object.entries(KNACKS_BEFORE_COLD_RARE)) {
+    const now = knackDigest(key === 'none' ? null : key as RtHabitId);
+    assert(now.digest === digest && now.screens > 100, `${key}: the knack screens changed (${now.screens} screens)`);
+  }
+  let seeds = 0, shown = 0;
+  for (let k = 1; k <= 30; k++) {
+    let here = false;
+    walk(k, { gift: 'full', knacks: true, habits: true, garrison: k % 2 === 0 }, { habit: 'cold', knack: (_run, options) => options.find(o => !o.hone && o.id === 'frost-edge') ?? options[0], each: s => {
+      if (s.pending?.kind !== 'knack') return;
+      for (const o of s.pending.options) {
+        if (o.hone || rtTalisman(o.id)!.rarity !== 'rare') continue;
+        assert(o.id === 'frost-edge' && !s.talismans.includes(o.id) && !s.talismansGone.includes(o.id), `seed ${k}: a rare new card ${o.id}`);
+        here = true; shown++;
+      }
+    } });
+    if (here) seeds++;
+  }
+  assert(seeds >= 3, `«Иней» came new on ${seeds} of 30 seeds (${shown} cards)`);
+  // Locked by the meta — never.
+  for (let k = 1; k <= 20; k++) walk(k, { gift: 'full', knacks: true, habits: true, locked: ['frost-edge'] }, { habit: 'cold', each: s => {
+    if (s.pending?.kind === 'knack') assert(!s.pending.options.some(o => o.id === 'frost-edge'), `seed ${k}: a locked «Иней»`);
+  } });
+  // Weight 1: on the knack screens of «Стужа» it is not drawn more often than an untagged counter would be (×3 would make it the first
+  // pick about three times as often) — the pick is `rtWeightedIndex` with it plain.
+  assert(rtWeightedIndex(4, ['third-chain', 'prism', 'frost-edge'], 'cold', ['frost-edge']) === 1 && rtWeightedIndex(4, ['third-chain', 'prism', 'frost-edge'], 'cold') === 2, 'the plain weight');
+});
+
 // ---- Saves ----
 
 await check('saves: every case «похода нет» of the design (3.4) reads as no run; the controls read', () => {
@@ -232,7 +286,7 @@ await check('saves: every case «похода нет» of the design (3.4) reads
 await check('«Без повадки» is the run without the flag, state for state (30 seeds of the gift `full`); the field leaves with the gift', () => {
   for (let k = 1; k <= 60; k += 2) {
     const create = { gift: 'full' as const, garrison: k % 3 === 0 };
-    const off = plainStates(k, create), on = plainStates(k, { ...create, habits: true }, { habit: null });
+    const off = plainStates(k, { ...create, habits: false }), on = plainStates(k, { ...create, habits: true }, { habit: null });
     assert(on.length === off.length && on.every((s, i) => s === off[i]), `seed ${k}: ${on.length} / ${off.length} states (first difference at ${on.findIndex((s, i) => s !== off[i])})`);
     const end = walk(k, { ...create, habits: true }, { habit: null }).run;
     assert(end.habits === true && !('habit' in end), `seed ${k}: «Без повадки» leaves no field`);
@@ -328,6 +382,18 @@ await check('the Jailer\'s form screen: place 1 — a form of the archetype\'s t
   }
   assert(forced > 10 && screens > 100 && rerolled > 0, `screens ${screens}, place 1 forced ${forced}, rerolled ${rerolled}`);
   console.log(`  form screens ${screens}, place 1 forced ${forced}, with a pair beside it ${pairs}, rerolled ${rerolled}`);
+});
+
+await check('a save of the open gift with «Без повадки» (`habit: null`) loads as the state right after the choice: the same state, view and actions (12 seeds)', () => {
+  for (let k = 1; k <= 12; k++) {
+    const after = ok(rtChooseHabit(createRtRun(seedOf(k), { gift: 'full', habits: true }), null), 'none'), loaded = parseRtRun(serializeRtRun(after));
+    assert(loaded && serializeRtRun(loaded) === serializeRtRun(after) && loaded.habit === null, `seed ${k}: the same state`);
+    assert(JSON.stringify(rtGiftView(loaded)) === JSON.stringify(rtGiftView(after)) && rtGiftView(loaded)!.habit?.chosen === true, `seed ${k}: the same view, the archetype decided`);
+    assert(!rtChooseHabit(loaded, 'cold').ok && !rtChooseHabit(after, 'cold').ok, `seed ${k}: no second choice`);
+    const view = rtGiftView(after)!, at = view.options.find(o => o.available)?.index ?? null;
+    const a = rtChooseGift(after, at), b = rtChooseGift(loaded, at);
+    assert(a.ok && b.ok && serializeRtRun(a.run) === serializeRtRun(b.run) && JSON.stringify(a.events) === JSON.stringify(b.events), `seed ${k}: the gift's button gives the same step`);
+  }
 });
 
 await check('saves of the archetype: every malformed case reads as no run; the open gift with «Без повадки» reads', () => {

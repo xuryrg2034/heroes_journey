@@ -13,6 +13,8 @@
  * - counts (printed, for docs/realtime-phase-a.md, section 4): rosters by run row over 300 runs (the walk of c8df2d4),
  *   the pairs «layout × roster» per run, the kinds that come in 60 s with each roster.
  */
+// Task 50: the knack screen of a run (RT_KNACKS_ON) is passed over — «Пропустить» — where the route knows only the screens of before.
+import { rtChooseKnack } from './rtRun';
 import { replay, Simulation } from '../sim/simulation';
 import { defaultParams, type Params } from '../sim/params';
 import { arenaTemplate } from '../sim/arenas';
@@ -75,6 +77,7 @@ function walk(seed: number, k: number, mix = true): Played[] {
       // Phase B: the Jailer's two screens (hammer, then oath) are one step of the walk, as its one screen before them —
       // the walk's node choices `(k + step)` and so the measure of c8df2d4 stay as they were.
     } else if (pending?.kind === 'hammer') run = ok(rtChooseTalisman(ok(rtChooseHammer(run, null), 'refuse hammer'), null), 'refuse');
+    else if (pending?.kind === 'knack') run = ok(rtChooseKnack(run, null), 'knack');
     else if (pending?.kind === 'talisman') run = ok(rtChooseTalisman(run, null), 'refuse');
     else if (pending?.kind === 'rest') run = ok(rtRestHeal(run), 'rest');
     else if (pending?.kind === 'find') run = ok(rtChooseFind(run, pending.options.find(item => !rtItemRefusal(run, item)) ?? pending.options[0]), 'find');

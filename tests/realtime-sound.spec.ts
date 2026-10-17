@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
 import { untilFrame } from './realtimeFrames';
 
 /**
@@ -27,6 +27,7 @@ async function runMap(page: Page, keep = false): Promise<void> {
   if (!keep) { await page.evaluate(() => localStorage.clear()); await page.reload(); }
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), 10);
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await expect(page.getByTestId('run-gift')).toBeHidden();
 }

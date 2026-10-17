@@ -16,6 +16,8 @@
  *   starts the next arena; the full gift is the turn-based roll as it is;
  * - different seeds give different maps and arena sequences; the real-time keys only are written.
  */
+// Task 50: the knack screen of a run (RT_KNACKS_ON) is passed over — «Пропустить» — where the route knows only the screens of before.
+import { rtChooseKnack } from './rtRun';
 import { generateForestMap } from '../forest/mapGenerator';
 import { forestEvent } from '../forest/forestEvents';
 import { forestNodeSeed } from '../forest/nodeRolls';
@@ -32,7 +34,7 @@ import { arenaCandidates, arenaNewKinds, ARENA_POOLS, ARENA_POOLS_BEFORE_MIX, or
 import { arenaTemplate } from '../sim/arenas';
 import { rtHp, RT_RUN_HP } from './hpScale';
 import { RT_TASK17_OFF,
-  arenaPreview, arenaSeed, createRtRun, nodeArenas, GIFT_POOL, rtMapNodes, parseRtRun, resolveArena, rtArenaLoadout, RT_MILLSTONE_MAX_HP_PRICE, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtItemRefusal, rtChooseGift, rtChooseGiftPick,
+  arenaPreview, arenaSeed, createRtRun, nodeArenas, GIFT_POOL, rtMapNodes, parseRtRun, resolveArena, rtArenaLoadout, RT_MILLSTONE_MAX_HP_PRICE, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtItemRefusal, rtChooseGift, rtChooseGiftPick, rtChooseHabit,
   rtChooseHammer, rtChooseTalisman, rtEnterNode, rtHammerOptions, rtEventView, rtGiftOptions, rtGiftView, rtNode, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun, rtItemHintDue, rtRunParams,
   type RtRunState, type RtRunStep,
 } from './rtRun';
@@ -93,6 +95,8 @@ const outcomeOf = (run: RtRunState, sim: Simulation) => {
 };
 /** Takes the first gift button that is on (and the first of its own choice, if it has one), or passes the gift by. */
 function takeGift(run: RtRunState, prefer?: (kind: string) => boolean): RtRunState {
+  // Task 50: «Без повадки» first when the row is open — the routes of before.
+  if (rtGiftView(run)?.habit && !rtGiftView(run)!.habit!.chosen) run = ok(rtChooseHabit(run, null), 'habit');
   const view = rtGiftView(run)!, on = view.options.filter(entry => entry.available), first = on.find(entry => prefer?.(entry.option.kind)) ?? on[0];
   let next = ok(rtChooseGift(run, first ? first.index : null), 'gift');
   const open = rtGiftView(next);
@@ -284,7 +288,8 @@ check('the start gift: its usual buttons (consumables, energy, resources, maximu
   assert(items.every(item => withItems.items[item] === items.filter(other => other === item).length) && withItems.openItems.length === new Set(items).size, 'two consumables: in hand and open');
   const kinds = new Set<string>();
   for (const seed of SEEDS) {
-    const run = createRtRun(seed, { gift: 'full', garrison: false }), full = rtGiftView(run)!;
+    // The archetype row (task 50) is off here: this check is about the buttons' own choices; the row has its own checks (knacks.spec.ts, tests/realtime-habits.spec.ts).
+    const run = createRtRun(seed, { gift: 'full', garrison: false, habits: false }), full = rtGiftView(run)!;
     for (const entry of full.options) {
       kinds.add(entry.option.kind);
       // «Тихий лес» has no analogue (no anger); a deal or an oath is on while the pool has its talisman.
@@ -455,6 +460,7 @@ function arenaPath(seed: number, k: number, mix: boolean, gentle = false): { pat
       // Phase B: the Jailer's two screens (hammer, then oath) are one step, as its one screen before them: the node choices
       // `(k + step)` and the measure of c8df2d4 stay as they were.
     } else if (pending?.kind === 'hammer') run = ok(rtChooseTalisman(ok(rtChooseHammer(run, null), 'refuse hammer'), null), 'refuse');
+    else if (pending?.kind === 'knack') run = ok(rtChooseKnack(run, null), 'knack');
     else if (pending?.kind === 'talisman') run = ok(rtChooseTalisman(run, null), 'refuse');
     else if (pending?.kind === 'rest') run = ok(rtRestHeal(run), 'rest');
     else if (pending?.kind === 'find') run = ok(rtChooseFind(run, pending.options.find(item => !rtItemRefusal(run, item)) ?? pending.options[0]), 'find');
@@ -681,6 +687,7 @@ check('rest and merchant through real visits (HP and resources prepared on enter
       if (run.pending?.kind === 'find') { run = ok(rtChooseFind(run, run.pending.options.find(item => !rtItemRefusal(run, item)) ?? run.pending.options[0]), 'find'); continue; }
       if (run.pending?.kind === 'talisman') { run = ok(rtChooseTalisman(run, null), 'talisman'); continue; }
       if (run.pending?.kind === 'hammer') { run = ok(rtChooseHammer(run, null), 'hammer'); continue; }
+      if (run.pending?.kind === 'knack') { run = ok(rtChooseKnack(run, null), 'knack'); continue; }
       if (run.pending?.kind === 'event') {
         const view = rtEventView(run)!, safe = view.options.find(option => option.safe && option.available)!;
         run = ok(rtChooseEventOption(run, safe.id), 'safe option'); continue;
@@ -779,6 +786,7 @@ function openNode(salt: number, type: 'find' | 'shop' | 'rest' | 'event', prepar
       if (pending?.kind === 'shop') { run = ok(rtShopLeave(run), 'shop'); continue; }
       if (pending?.kind === 'talisman') { run = ok(rtChooseTalisman(run, null), 'talisman'); continue; }
       if (pending?.kind === 'hammer') { run = ok(rtChooseHammer(run, null), 'hammer'); continue; }
+      if (pending?.kind === 'knack') { run = ok(rtChooseKnack(run, null), 'knack'); continue; }
       if (pending?.kind === 'event') { const safe = rtEventView(run)!.options.find(option => option.safe && option.available)!; run = ok(rtChooseEventOption(run, safe.id), 'event'); continue; }
       const next = rtAvailableNodes(run), pick = next.find(node => node.type === type) ?? next.find(node => node.type === 'battle') ?? next[0];
       run = ok(rtEnterNode(run, pick.id), 'enter');
@@ -806,6 +814,7 @@ function nextArenaStep(run: RtRunState): RtRunState {
   if (pending?.kind === 'shop') return ok(rtShopLeave(run), 'shop');
   if (pending?.kind === 'talisman') return ok(rtChooseTalisman(run, null), 'talisman');
   if (pending?.kind === 'hammer') return ok(rtChooseHammer(run, null), 'hammer');
+  if (pending?.kind === 'knack') return ok(rtChooseKnack(run, null), 'knack');
   if (pending?.kind === 'event') { const safe = rtEventView(run)!.options.find(option => option.safe && option.available)!; return ok(rtChooseEventOption(run, safe.id), 'event'); }
   if (pending?.kind === 'gift') return takeGift(run);
   return run;
@@ -1104,7 +1113,7 @@ check('talismans from the merchant (price by rarity; not bought — gone), from 
   // The gift: a deal pays its price and gives its talisman; an oath is taken.
   let dealt = 0, sworn = 0;
   for (let k = 1; k <= 30; k++) {
-    const run0 = createRtRun(seedOf32(k + 1700), { gift: 'full', garrison: false }), view = rtGiftView(run0)!;
+    const run0 = createRtRun(seedOf32(k + 1700), { gift: 'full', garrison: false, habits: false }), view = rtGiftView(run0)!;
     const deal = view.options.find(entry => entry.option.kind === 'deal' && entry.available), oath = view.options.find(entry => entry.option.kind === 'oath' && entry.available);
     if (deal) {
       let taken = ok(rtChooseGift(run0, deal.index), 'deal');

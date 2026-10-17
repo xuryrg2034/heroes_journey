@@ -13,6 +13,7 @@ import { COUNTER_TALISMANS as T, FORMS as F, FROST_PASS, FUSIONS as U, fusionRec
 import { formIconSvg, fusionIconSvg, hammerIconSvg } from './formIcons';
 import type { World } from '../sim/world';
 import { rtHammer, rtTalisman } from '../run/rtTalismans';
+import { honeLine, rankMarkHtml, wearsRank } from './knackView';
 
 /** What a row of the column is. */
 export type BuildKind = 'talisman' | 'hammer' | 'relic';
@@ -75,6 +76,10 @@ export const BUILD_LABELS: Readonly<Record<string, Label>> = {
   [U.iceSeal]: { short: 'Лёд. печать', glyph: '◎', title: 'Ледяная печать', svg: fusionIconSvg('iceSeal') },
   [U.spear]: { short: 'Копьё', glyph: '↗', title: 'Копьё', svg: fusionIconSvg('spear') },
   [U.boomerang]: { short: 'Бумеранг', glyph: '↺', title: 'Бумеранг', svg: fusionIconSvg('boomerang') },
+  // Task 46 — the three fusions of the dash's end; «Ледяная волна» wraps to two lines (the row's word is not cut).
+  [U.brand]: { short: 'Клеймо', glyph: '♨', title: 'Клеймо', svg: fusionIconSvg('brand') },
+  [U.hunterBlast]: { short: 'Подрыв', glyph: '✹', title: 'Подрыв', svg: fusionIconSvg('hunterBlast') },
+  [U.frostWave]: { short: 'Ледяная волна', glyph: '❄', title: 'Ледяная волна', svg: fusionIconSvg('frostWave') },
   // The view's test module (buildTestModule.ts; sandbox hook only).
   'view-test-counter': { short: 'Тест', glyph: 'T', title: 'Тестовый счётчик (песочница)' },
 };
@@ -107,6 +112,9 @@ export const FIRE_TEXT: Readonly<Record<string, string>> = {
   [U.iceSeal]: 'Лёд',
   [U.spear]: 'Копьё',
   [U.boomerang]: 'Полная сила',
+  [U.brand]: 'Цвет цепи',
+  [U.hunterBlast]: 'Подрыв',
+  [U.frostWave]: 'Мороз',
 };
 
 /**
@@ -216,7 +224,7 @@ export const ARRIVE_HOLD = 0.4;
 export const ARRIVE_FLY = 0.6;
 const ARRIVE_SIZE = 48;
 
-interface Row { id: string; kind: BuildKind; el: HTMLElement; progress: HTMLElement; flash: number }
+interface Row { id: string; kind: BuildKind; el: HTMLElement; progress: HTMLElement; flash: number; /** Task 50: the item wears rank II (two notches under the icon). */ ranked: boolean }
 
 const esc = (t: string): string => t.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!);
 
@@ -235,10 +243,16 @@ export class BuildColumn {
   private key = '';
   /** Task 29: the counters' chain window of the world shown (names and rules of the counters). */
   private counterWindow = false;
+  /** Task 50: the counters on rank II in the world shown (`Kit.honed`). */
+  private honed: readonly string[] = [];
   private bottom = Infinity;
   private fitted = '';
   /** Flashes started so far (tests read it). */
   flashes = 0;
+  /** Task 50: rank II moments shown so far (tests read it). */
+  honings = 0;
+  /** Task 50: flashes of a rank II firing (`talismanFired.rank === 2`) so far (tests read it). */
+  rankFlashes = 0;
   /** Task 29: icon flights started so far, and the ids of those flying now (tests read them). */
   arrivals = 0;
   readonly flying = new Set<string>();
@@ -269,7 +283,8 @@ export class BuildColumn {
   /** Rebuilds the rows when the kit changes, refreshes the progress, runs the flashes down (`dt` — real seconds, 0 in pause). */
   update(world: World, dt: number, hidden: boolean): void {
     this.counterWindow = !!world.params.counterWindow;
-    const entries = buildEntries(world), key = `${this.counterWindow ? 'w|' : ''}${entries.map(e => `${e.kind}:${e.id}`).join('|')}`;
+    this.honed = world.kit?.honed ?? [];
+    const entries = buildEntries(world), key = `${this.counterWindow ? 'w|' : ''}${this.honed.length ? `h:${this.honed.join(',')}|` : ''}${entries.map(e => `${e.kind}:${e.id}`).join('|')}`;
     if (key !== this.key) this.rebuild(entries, key);
     this.el.hidden = hidden || !this.rows.length;
     if (this.el.hidden) this.tip.hidden = true;
@@ -279,7 +294,7 @@ export class BuildColumn {
       row.progress.hidden = !text;
       if (row.flash > 0) {
         row.flash = Math.max(0, row.flash - dt);
-        if (row.flash <= 0) { row.el.classList.remove('rt-build-flash'); this.more?.classList.remove('rt-build-flash'); }
+        if (row.flash <= 0) { row.el.classList.remove('rt-build-flash', 'rt-build-flash2'); this.more?.classList.remove('rt-build-flash', 'rt-build-flash2'); }
       }
     }
     if (!this.el.hidden && this.fitted !== `${this.key}@${this.bottom}`) this.fit();
@@ -289,16 +304,29 @@ export class BuildColumn {
    * An item fired: its icon flashes (0.6 s; a folded one — the «+N» row). Returns false when the column has no such item. `fired`
    * false — the flash of an arrived icon (task 29), not counted among the firings (`flashes`).
    */
-  flash(id: string, fired = true): boolean {
+  flash(id: string, fired = true, rank2 = false): boolean {
     // Task 44: a fusion's part is not a row of its own — its firing flashes the fusion's.
     const row = this.rows.find(r => r.id === id) ?? this.rows.find(r => { const f = fusionRecipe(r.id); return !!f && (f.form === id || f.counter === id); });
     if (!row) return false;
     row.flash = FLASH_TIME;
     const el = row.el.hidden && this.more ? this.more : row.el;
-    el.classList.remove('rt-build-flash');
+    el.classList.remove('rt-build-flash', 'rt-build-flash2');
     void el.offsetWidth;
-    el.classList.add('rt-build-flash');
+    // Task 50: rank II fired — the flash of the icon is gold (the notches under it flash with it).
+    el.classList.add(rank2 ? 'rt-build-flash2' : 'rt-build-flash');
     if (fired) this.flashes++;
+    if (rank2) this.rankFlashes++;
+    return true;
+  }
+
+  /** Task 50: rank II strikes in — the icon flashes and the second notch is driven in (0.4 s). Returns false when the column has no such item. */
+  hone(id: string): boolean {
+    const row = this.rows.find(r => r.id === id) ?? this.rows.find(r => r.ranked && wearsRank([id], r.id));
+    if (!row || !row.ranked) return false;
+    this.flash(row.id, false);
+    const mark = (row.el.hidden && this.more ? this.more : row.el).querySelector('.rt-rank');
+    if (mark) { mark.classList.remove('rt-rank-strike'); void (mark as HTMLElement).offsetWidth; mark.classList.add('rt-rank-strike'); }
+    this.honings++;
     return true;
   }
 
@@ -367,7 +395,7 @@ export class BuildColumn {
     if (event.buttons) return;
     this.tip.innerHTML = rows.map(r => {
       const card = itemCard(r.id, r.kind, this.counterWindow);
-      return `<div><b>${esc(card.name)}</b>${card.rule ? `<span>${esc(card.rule)}</span>` : ''}${card.price ? `<em>Цена: ${esc(card.price)}</em>` : ''}</div>`;
+      return `<div><b>${esc(card.name)}${r.ranked ? ' · Ранг II' : ''}</b>${card.rule ? `<span>${esc(card.rule)}</span>` : ''}${r.ranked ? `<span class="rt-build-rank-rule">${esc(honeLine(fusionRecipe(r.id)?.counter ?? r.id))}</span>` : ''}${card.price ? `<em>Цена: ${esc(card.price)}</em>` : ''}</div>`;
     }).join('');
     this.tip.dataset.id = rows.map(r => r.id).join(' ');
     const box = anchor.getBoundingClientRect();
@@ -399,6 +427,8 @@ export class BuildColumn {
       progress.setAttribute('data-testid', `build-progress-${id}`);
       progress.hidden = true;
       el.append(icon, name, progress);
+      const ranked = wearsRank(this.honed, id);
+      if (ranked) { icon.insertAdjacentHTML('beforeend', rankMarkHtml()); el.dataset.honed = '1'; }
       if (label.price) {
         const price = document.createElement('small');
         price.className = 'rt-build-price';
@@ -406,7 +436,7 @@ export class BuildColumn {
         el.appendChild(price);
       }
       this.el.appendChild(el);
-      const row: Row = { id, kind, el, progress, flash: 0 };
+      const row: Row = { id, kind, el, progress, flash: 0, ranked };
       el.addEventListener('pointerenter', event => this.showTip(el, [row], event));
       el.addEventListener('pointerleave', () => { this.tip.hidden = true; });
       return row;

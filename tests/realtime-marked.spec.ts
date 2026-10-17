@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
 import { untilFrame } from './realtimeFrames';
 
 /**
@@ -115,6 +115,7 @@ test('task 12, the run: the fight plays the run\'s flag; `__realtime.params` tun
   await page.reload();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), 10);
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await page.getByTestId('node-r5c0').click();
   await page.getByTestId('run-enter').click();

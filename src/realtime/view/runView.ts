@@ -17,18 +17,19 @@ import { rosterTitle } from '../sim/rosters';
 import { rtHp } from '../run/hpScale';
 import {
   arenaPreview, createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtEnterNode,
-  rtChooseTalisman, rtRerollTalismans, rtRerollView, rtHammerRerollView, rtRerollHammers, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtFoughtJailer, rtRestCraft, rtRestFinish, rtRestFuse, rtRestHeal, rtRestView, rtFusionRecipe, rtFusionsReady, rtHandFull, rtItemRefusal, rtPotionCap, RT_ITEM_REFUSAL_TEXT, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
+  rtChooseHabit, rtChooseTalisman, rtRerollTalismans, rtRerollView, rtHammerRerollView, rtRerollHammers, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtFoughtJailer, rtRestCraft, rtRestFinish, rtRestFuse, rtRestHeal, rtRestView, rtFusionRecipe, rtFusionsReady, rtHandFull, rtItemRefusal, rtPotionCap, RT_ITEM_REFUSAL_TEXT, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
   rtOathPreview, rtOathStakeOn, rtArenaRules, RT_SECOND_WIND_LAST_ROW, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
   rtCasinoView, rtCasinoPlay, rtCasinoLeave, rtCasinoNode, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE,
   healOffer, healOnMap, healVisible, rtResourceTotal, rtNodeFeat, RT_HEAL_MAP_GAIN, rtAsh, rtAshOptions, rtAshTitle, rtRunWon, isRtAshLevel, rtScheduleMet, RT_JAILER_SEVERED_SLOTS, rtFormReplaces, rtFormSlotField,
-  rtEnterGarrison, rtLevel, rtCartView, type RtCartView,
+  rtEnterGarrison, rtLevel, rtCartView, rtChooseKnack, type RtCartView,
   type RtArenaOutcome, type RtArenaRules, type RtCasinoTable, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
 import { GIFT_HP_PRICE, GIFT_MAX_HP_PRICE } from '../forest/runGift';
-import { RT_RARITY_NAME, rtHammer, rtTalisman, rtTalismanShown, rtTalismanText } from '../run/rtTalismans';
+import { RT_HABITS, RT_RARITY_NAME, rtHammer, rtTalisman, rtTalismanShown, rtTalismanText, type RtHabitId } from '../run/rtTalismans';
 import { FORM_FIELD_TITLES, fusionRecipe, isFusionId, type FusionId } from '../sim/buildIds';
 import { labelOf } from './buildColumn';
+import { honeLine, rankMarkHtml, wearsRank } from './knackView';
 import { createRtProfileStore, createRtRunStore } from '../run/rtRunStorage';
 import { rtRunEndLines } from '../run/rtRunEnd';
 import type { HeroStart } from '../sim/world';
@@ -45,6 +46,7 @@ import type { SoundSetting } from './paramStorage';
 import { FX_LEVELS, countUpTime, countUpValue, fxLevelOf, type FxLevel } from './juice';
 import { SECOND_WIND_HP } from '../sim/world';
 import { featCardLine } from './featView';
+import { habitIconSvg, habitMark, habitSign } from './habitMark';
 import type { FirstMeetId } from './firstMeet';
 import { ICON as STOCK_ICON, MetaEndView, type MetaSound } from './metaEnd';
 import { HearthView } from './hearthView';
@@ -89,6 +91,8 @@ export interface RunHost {
   runStep?(before: RtRunState | null, step: Extract<RtRunStep, { ok: true }>, info?: { realSeconds?: number }): void;
   /** Telemetry: a new run starts; `previous` without a result is abandoned; `viewerRun` — the viewer's run number (task 16, the profile's count). */
   runStarted?(previous: RtRunState | null, run: RtRunState, viewerRun?: number, viewerRunApprox?: boolean): void;
+  /** Task 50: a counter went to rank II (the next fight's column flashes it, with a sound). */
+  honed?(id: string): void;
   /** Telemetry: the «Логи» panel (absent — no button). */
   openLogs?(): void;
   /** The «Песочница» button of the map's header (user request 15.10.2026): opens the sandbox (`#sandbox`); the run stays saved. */
@@ -292,16 +296,25 @@ function recipeHtml(run: RtRunState | null | undefined, id: string): string {
   return `<small class="rt-run-recipe" data-testid="recipe-${id}">Сплав: с «${escapeHtml(partName(of.partner, run))}» → «${escapeHtml(partName(of.fusion, run))}»${held ? ' · пара есть' : ''}</small>`;
 }
 /** Task 44: an item's icon as the build column draws it (a drawn SVG, or its sign). */
-const itemIcon = (id: string): string => { const label = labelOf(id); return `<i class="rt-fuse-icon">${label.svg ?? escapeHtml(label.glyph)}</i>`; };
+const itemIcon = (id: string, ranked = false): string => { const label = labelOf(id); return `<i class="rt-fuse-icon">${label.svg ?? escapeHtml(label.glyph)}${ranked ? rankMarkHtml() : ''}</i>`; };
+
+/** Task 50: the archetype row of the open gift — four cards and «Без повадки»; the chosen one stays lit, the rest wait off. */
+function habitRowHtml(habit: NonNullable<ReturnType<typeof rtGiftView>>['habit'] & object): string {
+  const none = habit.chosen && habit.id === null;
+  const cards = RT_HABITS.map(def => `<button class="rt-habit-card${habit.id === def.id ? ' rt-on' : ''}" data-action="habit" data-habit="${def.id}" data-testid="habit-${def.id}" aria-pressed="${habit.id === def.id}" ${habit.chosen ? 'disabled' : ''}>`
+    + `${habitIconSvg(def.id, 34)}<b>${escapeHtml(def.name)}</b><small>${escapeHtml(def.line)}</small></button>`).join('');
+  return `<div class="rt-habits" data-testid="gift-habits" data-chosen="${habit.chosen}"><div class="rt-habit-cards">${cards}</div>`
+    + `<button class="rt-habit-none${none ? ' rt-on' : ''}" data-action="habit" data-habit="none" data-testid="habit-none" aria-pressed="${!!none}" ${habit.chosen ? 'disabled' : ''}>Без повадки</button></div>`;
+}
 
 function talismanCardLines(id: string, run?: RtRunState | null): string {
   const def = rtTalismanShown(id, !!run?.forms);
   if (!def) return '';
-  if (def.price) return `<small>Плюс: ${escapeHtml(def.effect)}</small><small class="rt-run-reason rt-run-price" data-testid="price-${id}">Цена: ${escapeHtml(def.price)}</small>`;
+  if (def.price) return `${habitMark(run, id)}<small>Плюс: ${escapeHtml(def.effect)}</small><small class="rt-run-reason rt-run-price" data-testid="price-${id}">Цена: ${escapeHtml(def.price)}</small>`;
   const rarity = def.rarity === 'common' || def.rarity === 'uncommon' || def.rarity === 'rare' ? `${RT_RARITY_NAME[def.rarity]} · `
     : def.rarity === 'form' && def.field ? `форма · ${FORM_FIELD_TITLES[def.field].toLowerCase()} · ` : '';
   const replaces = run ? rtFormReplaces(run, id) : null;
-  return `<small>${escapeHtml(rarity + def.effect)}</small>${replaces ? `<small class="rt-run-reason" data-testid="replaces-${id}">Заменит «${escapeHtml(talismanName(replaces, run))}»</small>` : ''}${recipeHtml(run, id)}`;
+  return `${habitMark(run, id)}<small>${escapeHtml(rarity + def.effect)}</small>${replaces ? `<small class="rt-run-reason" data-testid="replaces-${id}">Заменит «${escapeHtml(talismanName(replaces, run))}»</small>` : ''}${recipeHtml(run, id)}`;
 }
 
 /** Task 41 «Три зелья»: the words at a choice the hand cannot take — «Рука полна» (always, not a hint: why the choice is off). */
@@ -668,6 +681,36 @@ export class RunView {
     if (seen?.length && this.run) this.profile.meetSchedule(seen, this.run.seed);
     return notice;
   }
+  /** Task 50: the «Сноровка» screen is open (its cards stand in the fight's result card, or in the run's window after the die / a reload). */
+  get knackOpen(): boolean { return this.run?.pending?.kind === 'knack'; }
+  /** Task 50: take the card `id` (`hone` — rank II; else a new counter) or «Пропустить» (null). Returns the reason of a refusal. */
+  chooseKnack(id: string | null, hone = false): string {
+    if (!this.run || this.run.pending?.kind !== 'knack') return 'Сейчас нет «Сноровки».';
+    const step = rtChooseKnack(this.run, id ? { id, ...hone ? { hone: true as const } : {} } : null);
+    if (step.ok && id && hone) this.host.honed?.(id);
+    return this.apply(step);
+  }
+  /**
+   * Task 50 «Сноровка» (design 3.5): two cards and «Пропустить» — one card, one click. Card А «Ранг II»: the counter, two notches, the
+   * rule it has now and «Ранг II: …»; card Б «Новый»: as a talisman's card (name, rule, the fusion recipe). The cards are the core's
+   * (`pending.options`); the view only draws them.
+   */
+  knackHtml(run: RtRunState): string {
+    const pending = run.pending;
+    if (pending?.kind !== 'knack') return '';
+    const cards = pending.options.map(option => {
+      const hone = !!option.hone, id = option.id;
+      const def = rtTalismanShown(id, !!run.forms), label = labelOf(id, !!run.forms);
+      const icon = `<i class="rt-knack-icon">${label.svg ?? escapeHtml(label.glyph)}${hone ? rankMarkHtml() : ''}</i>`;
+      const head = `<b>${icon}<span>${escapeHtml(talismanName(id, run))}</span><em>${hone ? 'Ранг II' : 'Новый'}</em></b>`;
+      // Task 50, 4.3: the habit's weight acts on both cards of the knack — the tagged one carries the habit's mark (card Б via `talismanCardLines`).
+      const lines = hone ? `${habitMark(run, id)}<small>${escapeHtml(def?.effect ?? '')}</small><small class="rt-knack-hone" data-testid="knack-line-${id}">${escapeHtml(honeLine(id))}</small>` : talismanCardLines(id, run);
+      return `<button class="rt-run-choice rt-knack-card" data-action="knack" data-option="${id}"${hone ? ' data-hone="1"' : ''} data-kind="${hone ? 'hone' : 'new'}" data-testid="knack-${hone ? 'hone' : 'new'}-${id}">${head}${lines}</button>`;
+    }).join('');
+    return `<div class="rt-run-choices rt-knack-cards" data-testid="knack-cards">${cards}</div>`
+      + '<button class="rt-other rt-knack-skip" data-action="knack" data-option="" data-testid="knack-skip">Пропустить</button>';
+  }
+
   /** From the arena's result screen to the run screen: the map, or the end of the run. */
   leaveArena(): void { if (this.inArena) this.open(); }
   /** The run has ended (a lost arena, or the won final arena): the arena's result button leads to the end of the run. */
@@ -798,6 +841,8 @@ export class RunView {
     if (action === 'talisman') { this.apply(rtChooseTalisman(run, target.dataset.option || null)); return; }
     // B5 К10 «Переброс»: a new offer for resources (no animation, П11).
     if (action === 'talisman-reroll') { this.apply(rtRerollTalismans(run)); return; }
+    // Task 50 «Сноровка»: a card (rank II of a counter, or a new one) or «Пропустить» (no option).
+    if (action === 'knack') { this.chooseKnack(target.dataset.option || null, !!target.dataset.hone); return; }
     if (action === 'hammer-reroll') { this.apply(rtRerollHammers(run)); return; }
     if (action === 'hammer') { this.apply(rtChooseHammer(run, (target.dataset.option || null) as Parameters<typeof rtChooseHammer>[1])); return; }
     if (action === 'shop-leave') { this.apply(rtShopLeave(run)); return; }
@@ -811,6 +856,7 @@ export class RunView {
     if (action === 'roll-skip') { this.landChance(); return; }
     if (action === 'roll-close') { this.closeChance(); return; }
     if (action === 'event-option') { this.chooseEventOption(run, target.dataset.option!); return; }
+    if (action === 'habit') { const id = target.dataset.habit; this.apply(rtChooseHabit(run, id === 'none' ? null : (id as RtHabitId))); return; }
     if (action === 'gift') { this.apply(rtChooseGift(run, target.dataset.index === 'skip' ? null : Number(target.dataset.index))); return; }
   }
 
@@ -974,6 +1020,16 @@ export class RunView {
     // Tasks 36–37: the ended run's meta block keeps its element (and its animation) over redraws.
     const slot = this.el.querySelector('[data-meta-slot]');
     if (slot && this.metaEnd) { slot.replaceWith(this.metaEnd.el); this.metaEnd.el.classList.toggle('rt-end-wait', !!this.endStage?.gate); if (!this.el.hidden && !this.endStage?.gate) this.metaEnd.play(this.pressAt); }
+  }
+
+  /**
+   * Task 50 (tests read it, `__realtime.run.habitShown`): the run's archetype (`habit`: its id, null — «Без повадки», undefined — no row
+   * or not yet), whether the open gift shows the row (`row`) and has decided it (`chosen`), `signs` — the header's sign (0 or 1), and on the
+   * screen now `marks` — the item cards that carry the archetype's icon (`marked`: their ids).
+   */
+  habitInfo(): { habit: string | null | undefined; row: boolean; chosen: boolean; signs: number; marks: number; marked: string[] } {
+    const run = this.run, gift = run ? rtGiftView(run) : null, marked = [...this.el.querySelectorAll<HTMLElement>('.rt-habit-mark')].map(el => el.dataset.for ?? '');
+    return { habit: run ? (gift?.habit ? gift.habit.id : run.habit) : undefined, row: !!gift?.habit, chosen: !!gift?.habit?.chosen || (!!run?.habits && !gift), signs: this.el.querySelectorAll('.rt-run-habit').length, marks: marked.length, marked };
   }
 
   /** Task 47 (tests read it): the chords and the staged screens so far, and whether a reveal or a run-end is running now. */
@@ -1197,8 +1253,8 @@ export class RunView {
     const talismans = [
       ...hammer && hp ? [`<span${hp.cls} data-testid="run-hammer-slot" title="Молот: ${escapeHtml(hammer.effect + hp.title)}">⚒ ${escapeHtml(hammer.name)}${hp.sign}</span>`] : [],
       ...run.talismans.map(id => {
-        const m = pairMark(id);
-        return `<span${m.cls}${m.test} title="${escapeHtml(rtTalismanText(id, !!run.forms) + m.title)}"${rtTalisman(id)?.rarity === 'relic' ? ` data-testid="run-relic-${id}"` : ''}>${rtTalisman(id)?.rarity === 'relic' ? '◆ ' : ''}${escapeHtml(talismanName(id, run))}${id === 'ash-ward' && run.wardSpent ? ' (рассыпался)' : ''}${m.sign}</span>`;
+        const m = pairMark(id), ranked = wearsRank(run.honed, id);
+        return `<span${m.cls}${m.test}${ranked ? ` data-honed="1"` : ''} title="${escapeHtml(rtTalismanText(id, !!run.forms) + m.title + (ranked ? ` · Ранг II${honeLine(fusionRecipe(id)?.counter ?? id).replace(/^Ранг II/, '')}` : ''))}"${rtTalisman(id)?.rarity === 'relic' ? ` data-testid="run-relic-${id}"` : ''}>${rtTalisman(id)?.rarity === 'relic' ? '◆ ' : ''}${escapeHtml(talismanName(id, run))}${id === 'ash-ward' && run.wardSpent ? ' (рассыпался)' : ''}${m.sign}${ranked ? rankMarkHtml() : ''}</span>`;
       }),
     ].join(', ');
     const reset = this.confirmReset
@@ -1217,7 +1273,7 @@ export class RunView {
     const ash = rtAshTitle(rtAsh(run));
     // Task 38: the garrison's map is headed «Гарнизон».
     // Task 38: a run that goes on into the garrison names its level by one word — «Лес», then «Гарнизон»; a run without it — «Поход».
-    return `<header class="rt-run-head"><b data-testid="run-title" data-level="${rtLevel(run)}">${levelWord(run)}</b>${ash ? `<span class="rt-run-ash" data-testid="run-ash-title">${ash}</span>` : ''}<span class="rt-run-hp" data-testid="run-hp">HP ${run.hp} / ${run.maxHp}</span>${windHtml}${heal}`
+    return `<header class="rt-run-head"><b data-testid="run-title" data-level="${rtLevel(run)}">${levelWord(run)}</b>${ash ? `<span class="rt-run-ash" data-testid="run-ash-title">${ash}</span>` : ''}<span class="rt-run-hp" data-testid="run-hp">HP ${run.hp} / ${run.maxHp}</span>${windHtml}${habitSign(run)}${heal}`
       + `<span class="rt-run-items" data-testid="run-items">${items}</span>${talismans ? `<span class="rt-run-talismans" data-testid="run-talismans">${talismans}</span>` : ''}`
       + `${run.energy > 0 ? `<span class="rt-run-energy" data-testid="run-energy">⚡ ${run.energy} к арене</span>` : ''}`
       + `${resources}${reset}${this.sandboxButton(run)}${this.logsButton()}${this.settingsHtml()}</header>`
@@ -1453,12 +1509,14 @@ export class RunView {
         }).join('');
         return card(`<h2>Дар в дорогу</h2><p>${escapeHtml(giftText(view.options[view.chosen].option))}: выбери один.</p><div class="rt-run-choices">${picks}</div>`, 'run-gift');
       }
-      const buttons = view.options.map(entry => `<button class="rt-run-choice" data-action="gift" data-index="${entry.index}" data-testid="gift-${entry.index}" ${entry.available ? '' : 'disabled'}>`
+      // Task 50: the buttons wait for the archetype row (off until it is decided; no words on the screen for it).
+      const waiting = !!view.habit && !view.habit.chosen;
+      const buttons = view.options.map(entry => `<button class="rt-run-choice" data-action="gift" data-index="${entry.index}" data-testid="gift-${entry.index}" ${entry.available && !waiting ? '' : 'disabled'}>`
         + `<b>${escapeHtml(giftText(entry.option))}</b>${entry.handFull ? handFullHtml(`gift-${entry.index}`) : entry.reason ? `<small>${escapeHtml(entry.reason)}</small>` : ''}`
         // Task 41 (design 16.10.2026): consumables with healing among others at the cap are taken — the healing does not join.
         + `${!entry.handFull && entry.option.kind === 'items' && entry.option.items.includes('healing') && rtItemRefusal(run, 'healing') ? `<small class="rt-run-reason rt-hand-full" data-testid="hand-full-gift-${entry.index}">${RT_ITEM_REFUSAL_TEXT.handFull}: лечение не войдёт</small>` : ''}</button>`).join('');
-      return card(`<h2>Дар в дорогу</h2><p>${view.kind === 'full' ? 'Полный дар' : 'Малый дар'}: выбери одно. Недоступные варианты выключены.</p><div class="rt-run-choices">${buttons}</div>`
-        + (view.canSkip ? `<button class="rt-other" data-action="gift" data-index="skip" data-testid="gift-skip">Дальше без дара</button>` : ''), 'run-gift');
+      return card(`<h2>Дар в дорогу</h2><p>${view.kind === 'full' ? 'Полный дар' : 'Малый дар'}: выбери одно. Недоступные варианты выключены.</p>${view.habit ? habitRowHtml(view.habit) : ''}<div class="rt-run-choices">${buttons}</div>`
+        + (view.canSkip ? `<button class="rt-other" data-action="gift" data-index="skip" data-testid="gift-skip" ${waiting ? 'disabled' : ''}>Дальше без дара</button>` : ''), 'run-gift');
     }
     if (pending.kind === 'rest') {
       const view = rtRestView(run)!;
@@ -1467,7 +1525,7 @@ export class RunView {
         + `${recipe.handFull ? handFullHtml(`craft-${recipe.resource}`) : ''}</button>`).join('');
       // Task 44 «Сплавы»: both parts held — «Сплав: „…“» with the parts' icons → the fusion's; it takes the rest (no heal, no craft).
       const fusions = view.fusions.map(f => `<button class="rt-run-choice rt-run-fuse" data-action="rest-fuse" data-fusion="${f.fusion}" data-testid="rest-fuse-${f.fusion}" ${f.available ? '' : 'disabled'}>`
-        + `<span class="rt-fuse-recipe">${itemIcon(f.form)}<em>+</em>${itemIcon(f.counter)}<em>→</em>${itemIcon(f.fusion)}</span><b>Сплав: «${escapeHtml(partName(f.fusion, run))}»</b>`
+        + `<span class="rt-fuse-recipe">${itemIcon(f.form)}<em>+</em>${itemIcon(f.counter, wearsRank(run.honed, f.counter))}<em>→</em>${itemIcon(f.fusion, wearsRank(run.honed, f.fusion))}</span><b>Сплав: «${escapeHtml(partName(f.fusion, run))}»</b>`
         + `<small>${f.available ? `«${escapeHtml(partName(f.form, run))}» и «${escapeHtml(partName(f.counter, run))}» станут одним; привал уйдёт на сплав` : 'выбран крафт'}</small></button>`).join('');
       return card(`<h2>Привал</h2><p>${fusions ? 'Лечение, крафт или сплав: сплав занимает привал, первый рецепт отменяет лечение и сплав.' : 'Лечение или крафт: первый рецепт отменяет лечение этого привала.'}${view.crafted.length ? ` Сделано: ${view.crafted.map(item => ITEM_TITLES[item]).join(', ')}.` : ''}</p>`
         + `<div class="rt-run-choices"><button class="rt-run-choice" data-action="rest-heal" data-testid="rest-heal" ${view.heal.available ? '' : 'disabled'}><b>Лечение +${view.heal.amount} HP</b>`
@@ -1521,6 +1579,9 @@ export class RunView {
       return card(`<h2>${title}</h2><p>${pending.options.length ? note : 'Талисманов не осталось.'}</p><div class="rt-run-choices">${options}</div>`
         + rerollHtml + `<button class="rt-other" data-action="talisman" data-option="" data-testid="talisman-refuse">Отказаться</button>`, chest ? 'run-chest' : feat ? 'run-feat-talisman' : formScreen ? 'run-form' : 'run-talisman');
     }
+    // Task 50 «Сноровка»: after a fight the card of the result shows it; here — after the die, or after a reload.
+    // (While the arena's result card is on screen the same cards stand there, `main.ts` — not twice.)
+    if (pending.kind === 'knack') return this.inArena ? '' : card(`<h2>Сноровка</h2>${this.knackHtml(run)}`, 'run-knack');
     if (pending.kind === 'find') {
       // Task 41 «Три зелья»: the healing with a full hand stays shown, off, with «Рука полна» (the find's offers never change).
       const options = pending.options.map(item => {
@@ -1535,7 +1596,7 @@ export class RunView {
       const goods = view.goods.map(good => `<button class="rt-run-choice" data-action="shop-buy" data-good="${good.id}" data-testid="shop-${good.id}" ${good.available ? '' : 'disabled'}>`
         + `<b>${good.label} — ${good.price === 0 ? 'даром' : `${good.price} рес.`}</b><small>${escapeHtml(good.text)}${good.reason ? ` · ${escapeHtml(good.reason)}` : ''}</small>`
         // Task 30 «одна форма на поле»: the form of the same field the purchase replaces.
-        + `${good.replaces ? `<small class="rt-run-reason" data-testid="replaces-${good.replaces}">Заменит «${escapeHtml(talismanName(good.replaces, run))}»</small>` : ''}${good.talisman ? recipeHtml(run, good.talisman) : ''}</button>`).join('');
+        + `${good.replaces ? `<small class="rt-run-reason" data-testid="replaces-${good.replaces}">Заменит «${escapeHtml(talismanName(good.replaces, run))}»</small>` : ''}${good.talisman ? habitMark(run, good.talisman) + recipeHtml(run, good.talisman) : ''}</button>`).join('');
       // Task 15: the header has one number; the merchant names the kinds (he takes from the most numerous).
       const kinds = resourceKindsText(run.materials);
       return card(`<h2>Торговец</h2><p data-testid="shop-resources">Ресурсов: ${view.total}${kinds ? ` (${kinds})` : ''}.</p><div class="rt-run-choices">${goods}</div>`

@@ -82,7 +82,8 @@ const RT_SLICE_TALISMANS: readonly RtTalismanDef[] = [
   turn('millstone-shard', 'Смена цвета на 1 звено раньше: после 5 звеньев одного цвета вместо 6', ['shift']),
   turn('hourglass', 'Фазы после целей начинаются на 10 с позже', ['cold']),
   turn('nimble-paws', 'Прыжок стоит 1 энергию вместо 2'),
-  turn('ash-ward', 'Один раз за поход: удар, который убил бы героя, оставляет его с 1 HP; оберег рассыпается'),
+  // Task 50 (design §16, answer 3): the tag «Стужа» — the bot's share of tagged items for «Стужа» was below half the others' mean.
+  turn('ash-ward', 'Один раз за поход: удар, который убил бы героя, оставляет его с 1 HP; оберег рассыпается', ['cold']),
   { id: 'hero-anchor', name: 'Якорь у героя', rarity: 'rare', effect: 'Следующее звено берётся и в радиусе R от героя (обойти щит им нельзя)', tags: ['shift'] },
   // Phase B, 5а (decision 10.10.2026): the new «Клятва голода» (sim/relics.ts `HUNGER_KILLS`, `HUNGER_HEAL`; relics.spec.ts checks the numbers).
   turn('oath-hunger', '+1 HP за 15 убийств цепью; привал не лечит (крафт остаётся)'),
@@ -266,15 +267,16 @@ export const rtHabitWeight = (id: RtTalismanId, habit?: RtHabitId): number => (h
  * Task 50 (design 4.3): the index a draw `value` picks among `candidates` (in their order) — `value mod Σw`, then the accumulated weights.
  * Without a habit every weight is 1: `value mod n`, the index of before, byte for byte. The rarity roll is not weighed (it came first).
  */
-export function rtWeightedIndex(value: number, candidates: readonly RtTalismanId[], habit?: RtHabitId): number {
+export function rtWeightedIndex(value: number, candidates: readonly RtTalismanId[], habit?: RtHabitId, plain: readonly RtTalismanId[] = []): number {
+  // `plain` — candidates that weigh 1 whatever their tag (task 50: «Иней на клинке» new on the knack screen of «Стужа»).
   if (!habit) return value % candidates.length;
-  const weights = candidates.map(id => rtHabitWeight(id, habit));
+  const weights = candidates.map(id => (plain.includes(id) ? 1 : rtHabitWeight(id, habit)));
   let r = value % weights.reduce((sum, w) => sum + w, 0);
   for (let i = 0; i < weights.length; i++) { if (r < weights[i]) return i; r -= weights[i]; }
   return candidates.length - 1;
 }
 /** `rtWeightedIndex`'s pick. */
-export const rtWeightedPick = (value: number, candidates: readonly RtTalismanId[], habit?: RtHabitId): RtTalismanId => candidates[rtWeightedIndex(value, candidates, habit)];
+export const rtWeightedPick = (value: number, candidates: readonly RtTalismanId[], habit?: RtHabitId, plain: readonly RtTalismanId[] = []): RtTalismanId => candidates[rtWeightedIndex(value, candidates, habit, plain)];
 /**
  * The talismans the rarity draws of a run pick from — one place for every draw (`rtTalismanOffer`, `rtShopTalisman`,
  * `rtTalismanDraw`, `rtTalismanLeft`): the run's catalogue `RT_TALISMANS`; task 30 — with the flag `forms` the openers too

@@ -10,13 +10,19 @@
  * build's size at the end (items and ranks II), distinct builds over the seeds, the mean Jaccard similarity of the builds of seed pairs
  * (k, k + 1), the share of runs with a pair collected and with a fusion made, the share of the archetype's tagged items in the build, and
  * — with `--fights` — the bot's farthest row (median) and victories. The date and HEAD are printed.
+ *
+ * A second table (design 16.10.2026, the trace of the weight 3): the cards OFFERED on every screen the archetype's weight acts on
+ * (design 4.3: the talisman screens — «Застава» with its rare form, an event's reward, the chest, the feat, the Jailer's oaths and
+ * relics, the forest final's relic — each offer and reroll; the merchant's talisman; the knack screen's cards; a talisman of an event's
+ * outcome or of the circle's wheel), and per variant the share of them with each archetype's tag. Not counted: the gift, the Jailer's
+ * form screen, the pair of the guarantee (an owed partner in the last place of a screen, or the merchant's `pair`).
  */
 import { execSync } from 'node:child_process';
 import { defaultParams } from '../src/realtime/sim/params';
 import { runRow } from '../src/realtime/run/arenaPools';
 import { walkRun } from '../src/realtime/run/metaWalk.testkit';
 import { outcomeOf } from '../src/realtime/run/runFight.testkit';
-import { rtArenaLoadout, rtArenaParams, rtFusionsReady, rtNode, rtReachedRow, rtRunParams, type RtRunState } from '../src/realtime/run/rtRun';
+import { rtArenaLoadout, rtArenaParams, rtFusionOwed, rtFusionsReady, rtNode, rtReachedRow, rtRunParams, type RtRunState } from '../src/realtime/run/rtRun';
 import { RT_HABITS, rtTalisman, type RtHabitId } from '../src/realtime/run/rtTalismans';
 import { botFight } from './garrisonBot';
 
@@ -25,6 +31,12 @@ const option = (name: string, fallback: string): string => { const at = args.ind
 const SEEDS = Number(option('--seeds', '200')), FIGHTS = args.includes('--fights'), LIMIT = Number(option('--limit', '240'));
 
 interface Variant { name: string; knacks: boolean; habit?: RtHabitId | null }
+/** Task 50: the offers of a variant — cards counted, cards with each archetype's tag. */
+interface Offers { cards: number; tagged: Record<string, number> }
+const HABIT_IDS = RT_HABITS.map(h => h.id as string);
+const count = (offers: Offers, ids: readonly string[]): void => {
+  for (const id of ids) { offers.cards++; for (const tag of rtTalisman(id)?.tags ?? []) offers.tagged[tag] = (offers.tagged[tag] ?? 0) + 1; }
+};
 const VARIANTS: Variant[] = [
   { name: 'без флагов', knacks: false },
   { name: 'Сноровка, без повадки', knacks: true, habit: null },
@@ -33,6 +45,7 @@ const VARIANTS: Variant[] = [
 const median = (list: number[]): number => { const s = [...list].sort((a, b) => a - b); return s.length ? (s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2) : 0; };
 const n1 = (x: number): string => (Math.round(x * 10) / 10).toLocaleString('ru-RU');
 const pct = (n: number, of: number): string => (of ? `${Math.round(n / of * 100)} %` : '—');
+const pct1 = (n: number, of: number): string => (of ? `${(n / of * 100).toFixed(1).replace('.', ',')} %` : '—');
 /** The build at the end: items (a fusion as itself) and ranks II (`<id>:2`). */
 const buildOf = (run: RtRunState): string[] => [...run.talismans, ...(run.honed ?? []).map(id => `${id}:2`)].sort();
 const jaccard = (a: readonly string[], b: readonly string[]): number => { const x = new Set(a), y = new Set(b), both = [...x].filter(id => y.has(id)).length, any = new Set([...x, ...y]).size; return any ? both / any : 1; };
@@ -42,14 +55,26 @@ try { head = execSync('git rev-parse --short HEAD', { encoding: 'utf8' }).trim()
 console.log(`realtime:knacks — ${new Date().toISOString().slice(0, 10)}, HEAD ${head}, seeds ${SEEDS}, fights ${FIGHTS ? `bot (limit ${LIMIT} s)` : 'made up as won'}`);
 console.log('| Вариант | Выборов за поход | из них «Сноровка» | Размер сборки | Разных сборок | Жаккар (k, k+1) | Пара собрана | Сплав | С тегом | Дальний ряд | Победы |');
 console.log('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+const offerRows: string[] = [];
 for (const v of VARIANTS) {
+  const offers: Offers = { cards: 0, tagged: {} };
   const builds: string[][] = [];
   let choices = 0, knacks = 0, size = 0, paired = 0, fused = 0, tagged = 0, items = 0, won = 0;
   const far: number[] = [];
   for (let k = 1; k <= SEEDS; k++) {
     let pair = false;
     const result = walkRun({ k, create: { gift: 'full', garrison: true, knacks: v.knacks, habits: v.habit !== undefined }, ...v.habit !== undefined ? { habit: v.habit } : {}, fuse: true,
-      onStep: before => {
+      onStep: (before, step) => {
+        // The cards offered on the weighed screens (see the file's comment).
+        const after = step.run, owed = rtFusionOwed(after).map(o => o.partner);
+        for (const ev of step.events) {
+          if ((ev.type === 'talisman-offered' || ev.type === 'talisman-rerolled') && after.pending?.kind === 'talisman' && after.pending.source !== 'form') {
+            const last = ev.options[ev.options.length - 1];
+            count(offers, ev.options.filter(id => !(id === last && owed.includes(id))));
+          } else if (ev.type === 'knack-offered') count(offers, ev.options.map(o => o.id));
+          else if (ev.type === 'talisman-taken' && (before.pending?.kind === 'event' || before.pending?.kind === 'casino')) count(offers, [ev.id]);
+        }
+        if (after.pending?.kind === 'shop' && before.pending?.kind !== 'shop' && after.pending.stock.talisman && !after.pending.stock.pair) count(offers, [after.pending.stock.talisman]);
         const p = before.pending;
         if ((p?.kind === 'talisman' || p?.kind === 'hammer') && p.options.length) choices++;
         if (p?.kind === 'knack') { choices++; knacks++; }
@@ -70,5 +95,11 @@ for (const v of VARIANTS) {
   }
   const distinct = new Set(builds.map(b => b.join())).size;
   const sim = builds.slice(1).map((b, i) => jaccard(builds[i], b)), meanSim = sim.reduce((a, b) => a + b, 0) / Math.max(1, sim.length);
-  console.log(`| ${v.name} | ${n1(choices / SEEDS)} | ${n1(knacks / SEEDS)} | ${n1(size / SEEDS)} | ${distinct} из ${SEEDS} | ${meanSim.toFixed(2)} | ${pct(paired, SEEDS)} | ${pct(fused, SEEDS)} | ${v.habit ? pct(tagged, items) : '—'} | ${FIGHTS ? n1(median(far)) : '—'} | ${FIGHTS ? pct(won, SEEDS) : '—'} |`);
+  offerRows.push(`| ${v.name} | ${n1(offers.cards / SEEDS)} | ${HABIT_IDS.map(h => { const s = pct1(offers.tagged[h] ?? 0, offers.cards); return v.habit === h ? `**${s}**` : s; }).join(' | ')} |`);
+  console.log(`| ${v.name} | ${n1(choices / SEEDS)} | ${n1(knacks / SEEDS)} | ${n1(size / SEEDS)} | ${distinct} из ${SEEDS} | ${meanSim.toFixed(2)} | ${pct(paired, SEEDS)} | ${pct(fused, SEEDS)} | ${v.habit ? pct1(tagged, items) : '—'} | ${FIGHTS ? n1(median(far)) : '—'} | ${FIGHTS ? pct(won, SEEDS) : '—'} |`);
 }
+console.log('');
+console.log(`Предложено на экранах с весом повадки (доля карточек с тегом; жирным — тег своей повадки):`);
+console.log(`| Вариант | Карточек за поход | ${RT_HABITS.map(h => h.name).join(' | ')} |`);
+console.log(`| --- | --- | ${RT_HABITS.map(() => '---').join(' | ')} |`);
+for (const row of offerRows) console.log(row);

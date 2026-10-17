@@ -1,5 +1,6 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
+import { leaveResult } from './realtimeResult';
 
 /**
  * П5 «Журнал удачи» (src/realtime/run/rtLuck.ts, src/realtime/view/runView.ts, docs/realtime-slice.md, section 9): with real
@@ -100,6 +101,7 @@ test('the run-end block «Удача похода»: collapsed; the goblin\'s pu
   await page.reload();
   await ready(page);
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), SEED);
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await page.getByTestId('node-r5c0').click();
   await page.getByTestId('run-enter').click();
@@ -116,7 +118,7 @@ test('the run-end block «Удача похода»: collapsed; the goblin\'s pu
   const won = await runState(page);
   const pullOutcome = { rain: won.luck['slot-rain'].hits as number, volley: won.luck['slot-volley'].hits as number };
   expect(won.luck['slot-rain'].tries).toBe(1);
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   // Task 5: no die after the door — the map.
   await expect(page.getByTestId('run-map')).toBeVisible();
   await expect(page.getByTestId('run-die')).toHaveCount(0);
@@ -132,7 +134,7 @@ test('the run-end block «Удача похода»: collapsed; the goblin\'s pu
     for (let k = 0; k < 8; k++) rt.place(hero.x + Math.cos(k * Math.PI / 4) * 0.6, hero.y + Math.sin(k * Math.PI / 4) * 0.6, k % 4, 2, 'basic');
   });
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'defeat', { timeout: 45_000 });
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   await expect(page.getByTestId('run-result-defeat')).toBeVisible();
 
   // The block: collapsed by default; opened — the goblin (hand-counted: 1/45 → «0», 8/45 → «0,2»); no die line (task 5).
@@ -166,6 +168,7 @@ test('a run without chance: the block says so', async ({ page }) => {
   await page.reload();
   await ready(page);
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), 13);
+  await skipHabit(page);
   await page.getByTestId('gift-1').click();
   await page.locator('[data-status="available"][data-type="battle"]').first().click();
   await page.getByTestId('run-enter').click();
@@ -175,7 +178,7 @@ test('a run without chance: the block says so', async ({ page }) => {
     for (let k = 0; k < 8; k++) rt.place(hero.x + Math.cos(k * Math.PI / 4) * 0.6, hero.y + Math.sin(k * Math.PI / 4) * 0.6, k % 4, 2, 'basic');
   });
   await expect(page.getByTestId('result')).toHaveAttribute('data-outcome', 'defeat', { timeout: 45_000 });
-  await page.getByTestId('result-map').click();
+  await leaveResult(page);
   await page.getByTestId('run-luck-toggle').click();
   await expect(page.getByTestId('luck-none')).toHaveText('В этом походе случая не было.');
   expect(errors).toEqual([]);
