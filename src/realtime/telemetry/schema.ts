@@ -23,10 +23,11 @@ export const RT_TELEMETRY_SCHEMA = 1;
 export const ID_SEGMENT_RE = /^[A-Za-z0-9_-]{1,64}$/;
 /**
  * A record id: `S/R/run`, `S/R/<fight>/fight`, `S/R/<fight>/j<i>of<n>`, `S/R/<fight>/n<tick>` (S — session, R — run);
- * `S/P/prologue` — one playthrough of the prologue «Опушка» (P — its key `prologueKey`; from 13.10.2026).
+ * `S/P/prologue` — one playthrough of the prologue «Опушка» (P — its key `prologueKey`; from 13.10.2026); `S/W/warmup` — one attempt
+ * of the camp's warmup (W — its key `warmupKey`; task 51ж, 17.10.2026).
  * The Vite plugin (ТC) checks every POSTed id with it: a valid id is a safe relative path.
  */
-export const RECORD_ID_RE = /^[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9_-]{1,64}\/(?:run|prologue|[A-Za-z0-9_-]{1,64}\/(?:fight|j(?:0|[1-9][0-9]{0,5})of[1-9][0-9]{0,5}|n(?:0|[1-9][0-9]{0,9})))$/;
+export const RECORD_ID_RE = /^[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9_-]{1,64}\/(?:run|prologue|warmup|[A-Za-z0-9_-]{1,64}\/(?:fight|j(?:0|[1-9][0-9]{0,5})of[1-9][0-9]{0,5}|n(?:0|[1-9][0-9]{0,9})))$/;
 /** The run key of the sandbox fights (decision 8). */
 export const SANDBOX_RUN = 'sandbox';
 
@@ -50,6 +51,8 @@ export function runKey(timeMs: number, seed: number): string { return `r${count(
 
 /** A prologue key: `p<start time base36>-<salt hex>` (one playthrough of the prologue «Опушка»; the header's `run`). */
 export function prologueKey(timeMs: number, salt: number): string { return `p${count(Math.floor(timeMs), 'time').toString(36)}-${(salt >>> 0).toString(16)}`; }
+/** A warmup key: `w<start time base36>-<salt hex>` (one attempt of the camp's warmup; the header's `run`). */
+export function warmupKey(timeMs: number, salt: number): string { return `w${count(Math.floor(timeMs), 'time').toString(36)}-${(salt >>> 0).toString(16)}`; }
 
 /**
  * A fight key: `f<index, 2 digits>-<node>-a<attempt>` (`f03-n5a-a1`). `index` — the fight's number in the run (or the
@@ -64,6 +67,7 @@ export function fightKey(index: number, nodeId: string | null | undefined, attem
 
 export const runRecordId = (session: string, run: string): string => `${segment(session, 'session')}/${segment(run, 'run')}/run`;
 export const prologueRecordId = (session: string, key: string): string => `${segment(session, 'session')}/${segment(key, 'prologue key')}/prologue`;
+export const warmupRecordId = (session: string, key: string): string => `${segment(session, 'session')}/${segment(key, 'warmup key')}/warmup`;
 export const fightRecordId = (session: string, run: string, fight: string): string => `${segment(session, 'session')}/${segment(run, 'run')}/${segment(fight, 'fight')}/fight`;
 export function journalPartId(session: string, run: string, fight: string, index: number, parts: number): string {
   if (count(index, 'part') >= count(parts, 'parts')) throw new Error(`telemetry id: part ${index} of ${parts}`);
@@ -76,6 +80,7 @@ export const noteRecordId = (session: string, run: string, fight: string, tick: 
 export type ParsedRecordId =
   | { kind: 'run'; session: string; run: string }
   | { kind: 'prologue'; session: string; run: string }
+  | { kind: 'warmup'; session: string; run: string }
   | { kind: 'fight'; session: string; run: string; fight: string }
   | { kind: 'journal'; session: string; run: string; fight: string; index: number; parts: number }
   | { kind: 'note'; session: string; run: string; fight: string; tick: number };
@@ -85,6 +90,7 @@ export function parseRecordId(id: unknown): ParsedRecordId | null {
   const [session, run, fight, last] = id.split('/');
   if (fight === 'run' && last === undefined) return { kind: 'run', session, run };
   if (fight === 'prologue' && last === undefined) return { kind: 'prologue', session, run };
+  if (fight === 'warmup' && last === undefined) return { kind: 'warmup', session, run };
   if (last === 'fight') return { kind: 'fight', session, run, fight };
   const part = /^j(\d+)of(\d+)$/.exec(last);
   if (part) {
@@ -96,7 +102,7 @@ export function parseRecordId(id: unknown): ParsedRecordId | null {
 
 // ---- Records ----
 
-export type RtRecordKind = 'run' | 'fight' | 'journal' | 'note' | 'prologue';
+export type RtRecordKind = 'run' | 'fight' | 'journal' | 'note' | 'prologue' | 'warmup';
 
 /** The common header of every record. */
 export interface RtHeader {
@@ -586,7 +592,31 @@ export interface PrologueRecord extends RtHeader {
 /** Rooms of a prologue record without `roomCount` (task 6, before 13.10.2026 task 9). */
 export const PROLOGUE_ROOMS_V1 = 6;
 
-export type RtRecord = RunRecord | FightRecord | JournalPart | NoteRecord | PrologueRecord;
+/** How a warmup attempt ended: its time limit, a clear field, the hero's death, or «Выход» (the view's own end; no score). */
+export type WarmupEndKind = 'limit' | 'clear' | 'death' | 'exit';
+
+/**
+ * The warmup record (`S/W/warmup`, task 51ж, 17.10.2026; telemetry/warmup.ts): one attempt of a camp's warmup layout (run/warmup.ts)
+ * — light, without its journal (the layouts' determinism is checked by the Node tests). Older logs have none; the report's section
+ * «Разминка» reads «нет данных».
+ */
+export interface WarmupRecord extends RtHeader {
+  kind: 'warmup';
+  /** The layout (`warmup-line`, `warmup-mix`, `warmup-gap`). */
+  layout: string;
+  end: WarmupEndKind;
+  /** The attempt's score (`warmupScore`); null — none (a death, an exit, «Пестрота» not cleared, nothing done). */
+  score: number | null;
+  /** The layout's best before the attempt (null — none). */
+  before: number | null;
+  /** The attempt set a new best (the view's line `warmup_record`). */
+  record: boolean;
+  /** Game seconds of the attempt (`world.time`) and real ones (frames without pause), to 0.01. */
+  gameSeconds: number;
+  realSeconds: number;
+}
+
+export type RtRecord = RunRecord | FightRecord | JournalPart | NoteRecord | PrologueRecord | WarmupRecord;
 
 /** A receiver of records (the artifact's `window.__rtTelemetrySink`, the dev-server channel …). A failed write keeps the record in the browser buffer. */
 export interface RtTelemetrySink {
@@ -767,6 +797,14 @@ export function checkRecord(value: unknown): string | null {
           return !!x && typeof x === 'object' && typeof x.inside === 'boolean' && nullNum(x.outAfter) && nullNum(x.damage);
         }))) return 'prologue room busts';
       }
+      return null;
+    }
+    case 'warmup': {
+      if (typeof r.layout !== 'string' || !['limit', 'clear', 'death', 'exit'].includes(r.end as string)) return 'warmup layout or end';
+      const score = (x: unknown): boolean => x === null || (typeof x === 'number' && Number.isFinite(x) && x > 0);
+      if (!score(r.score) || !score(r.before) || typeof r.record !== 'boolean') return 'warmup score, before or record';
+      if (r.record && r.score === null) return 'warmup record without a score';
+      if (!['gameSeconds', 'realSeconds'].every(k => num(k) && (r[k] as number) >= 0)) return 'warmup seconds';
       return null;
     }
   }
