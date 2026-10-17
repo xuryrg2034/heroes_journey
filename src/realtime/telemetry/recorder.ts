@@ -334,7 +334,7 @@ interface RunMeta {
   knacks?: RunKnack[];
   honed?: { id: string; row: number }[];
   /** Tasks 36–37: the run's meta fields (`RunRecord.xp` … `quest`; absent — none yet). */
-  metaTlm?: Partial<Pick<RunRecord, 'xp' | 'pack' | 'record' | 'locked' | 'carry' | 'stock' | 'hearthBuys' | 'npcClicks' | 'hearth' | 'quest' | 'arrive'>>;
+  metaTlm?: Partial<Pick<RunRecord, 'xp' | 'pack' | 'record' | 'locked' | 'carry' | 'stock' | 'hearthBuys' | 'npcClicks' | 'hearth' | 'quest' | 'arrive' | 'vows'>>;
   /** Task 49: the hero this run freed (`heroFreed`). */
   freed?: { hero: 'toad'; row: number };
 }
@@ -763,7 +763,9 @@ export class RtRecorder {
           // Task 51б: level 3 of the camp (the choices at «Предместье» join at `writeRun`).
           ...h.garrisonMaps ? { garrisonMaps: h.garrisonMaps } : {}, ...h.gateItems ? { gateItems: [...h.gateItems] } : {}, ...h.garrisonRerolls ? { garrisonRerolls: h.garrisonRerolls } : {},
           // Task 51в: Шиш.
-          ...h.shopRerolls ? { shopRerolls: h.shopRerolls } : {}, ...h.swap ? { swap: true as const } : {} };
+          ...h.shopRerolls ? { shopRerolls: h.shopRerolls } : {}, ...h.swap ? { swap: true as const } : {},
+          // Task 51г: Евлампий's vows taken.
+          ...h.vows ? { vows: [...h.vows] } : {} };
         if (Object.keys(hearth).length) tlm.hearth = hearth;
         if (h.quest) tlm.quest = { npc: h.quest.npc, id: h.quest.id };
       }
@@ -838,6 +840,7 @@ export class RtRecorder {
       tlm.stock = { ...end.stock };
       if (end.quest) tlm.quest = { npc: end.quest.npc, id: end.quest.id, done: end.quest.done };
       // Task 51в: the NPCs who came after this run.
+      if (end.vows) tlm.vows = end.vows.map(v => ({ ...v }));
       if (end.arrived) tlm.arrive = end.arrived.map(a => ({ npc: a.npc, path: a.self ? 'self' as const : 'deed' as const, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun } : {} }));
       this.saveMeta(); this.writeRun(run);
     });

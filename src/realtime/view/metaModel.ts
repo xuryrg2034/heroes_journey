@@ -13,7 +13,8 @@ export type MetaItemKind = 'talisman' | 'relic' | 'hammer' | 'form' | 'event';
 export interface MetaPackItem { id: string; kind: MetaItemKind }
 export interface MetaPack { id: string; title: string; items: MetaPackItem[] }
 /** The parts of a run's experience, in the order the end screen lists them. */
-export type MetaXpPart = 'battles' | 'elite' | 'jailer' | 'final' | 'guardroom' | 'castellan' | 'feats' | 'victory' | 'ash' | 'quest';
+/** Task 51г (core): `vows` — Евлампий's vows kept. */
+export type MetaXpPart = 'battles' | 'elite' | 'jailer' | 'final' | 'guardroom' | 'castellan' | 'feats' | 'victory' | 'ash' | 'quest' | 'vows';
 export type NpcId = 'owl' | 'herb' | 'smith' | 'gambler';
 
 /** The meta at the end of a run (null — no meta: a given seed, the sandbox, the prologue). */
@@ -115,6 +116,7 @@ export function xpPartLabel(id: MetaXpPart, n?: number): string {
     case 'victory': return 'Победа похода';
     case 'ash': return 'Испытание';
     case 'quest': return 'Задание';
+    case 'vows': return n !== undefined ? `Обеты: ${n}` : 'Обеты';
   }
 }
 
