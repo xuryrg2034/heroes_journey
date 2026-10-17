@@ -45,8 +45,15 @@ export const rtRunCuts = (run: Pick<RtRunState, 'battles'>): number => run.battl
  * «Без привала» — no rest; «Без лечения на карте» — no map heal bought; «Без переброса» — no reroll (`vowRerolled`).
  */
 export function rtVowsOf(run: RtRunState): { id: RtVowId; kept: boolean }[] | null {
+  return rtReachedJailer(run) ? rtVowsNow(run) : null;
+}
+/**
+ * Task 51г (ui: the run's header «сдержано N из M»): the run's vows as they stand now — the same rule as `rtVowsOf` without the Jailer's
+ * row (a vow broken in the middle of the run reads broken at once). Null — no vows.
+ */
+export function rtVowsNow(run: RtRunState): { id: RtVowId; kept: boolean }[] | null {
   const vows = run.hearth?.vows;
-  if (!vows?.length || !rtReachedJailer(run)) return null;
+  if (!vows?.length) return null;
   const entered = (type: string) => [...run.visited, ...run.pending && 'nodeId' in run.pending && run.pending.nodeId ? [run.pending.nodeId] : []].some(id => rtNode(run, id)?.type === type);
   return vows.map(id => ({ id, kept: id === 'vow-no-shop' ? !entered('shop') : id === 'vow-no-rest' ? !entered('rest') : id === 'vow-no-mapheal' ? !run.healBought : !run.vowRerolled }));
 }
