@@ -16,7 +16,7 @@ import { rtGarrisonNodeId } from './garrison';
 import { TROLL_RUN_ARENAS } from '../sim/arenasBoss';
 import { SCHEDULE_KINDS } from './schedule';
 import {
-  HEARTH_HERB_SALT, HEARTH_MAPS_SALT, HEARTH_QUEST_SALT, isRtHearthNpc, isRtHeroId, isRtQuest, RT_HEARTH_GATED_LEVEL, RT_HEARTH_LOCKED, RT_HEARTH_MAX_LEVEL, RT_HEARTH_NPCS, RT_HEARTH_NPCS_L3, RT_HEARTH_PRICES, RT_HERO_ID, RT_HERO_IDS, RT_QUEST_NPC,
+  HEARTH_GATE_SALT, HEARTH_HERB_SALT, HEARTH_MAPS_SALT, HEARTH_QUEST_SALT, isRtHearthNpc, isRtHeroId, isRtQuest, RT_HEARTH_GATED_LEVEL, RT_HEARTH_LOCKED, RT_HEARTH_MAX_LEVEL, RT_HEARTH_NPCS, RT_HEARTH_NPCS_L3, RT_HEARTH_PRICES, RT_HERO_ID, RT_HERO_IDS, RT_QUEST_NPC,
   RT_META_THRESHOLDS, RT_TOAD_ID, rtHeroPacks, rtLockedAfter, type RtHearthGuest, type RtHearthLevel, type RtHearthNpc, type RtHeroId, type RtMetaItem, type RtQuest, type RtQuestId, type RtQuestNpc,
 } from './metaCatalog';
 import { isRtAshLevel, type RtAshLevel } from './rtRun';
@@ -436,15 +436,25 @@ export function rtHearthItems(seed: number, count: number): ItemKind[] {
   for (let k = 0; k < count && left.length; k++) out.push(left.splice(mixSeed(mixSeed(seed >>> 0, HEARTH_HERB_SALT), k) % left.length, 1)[0]);
   return out;
 }
+/** Task 51б «Склянка в гарнизон»: the 2 different kinds Марфа's level 3 offers at «Предместье» — the stream `hearth-gate` of the base seed. */
+export function rtHearthGateItems(seed: number): ItemKind[] {
+  const left = [...ITEM_KINDS], out: ItemKind[] = [];
+  for (let k = 0; k < 2 && left.length; k++) out.push(left.splice(mixSeed(mixSeed(seed >>> 0, HEARTH_GATE_SALT), k) % left.length, 1)[0]);
+  return out;
+}
 /** Task 49: `hero` — the hero of the run being started (default — the chosen one): the owl's quest by its record (`rtQuestFor`). */
 export function rtHearthStartOf(meta: RtMeta | undefined, seed: number, hero: RtHeroId = rtHeroChoice(meta)): RtHearthStart {
   const hearth = meta?.hearth;
   if (!hearth) return { flags: {} };
   const { owl, herb, smith } = hearth.levels;
-  const maps = owl > 0 ? rtHearthMaps(seed, owl + 1) : undefined, items = herb > 0 && hearth.met.herb ? rtHearthItems(seed, herb) : undefined;
+  // Task 51: level 3 keeps level 2's service in the forest (3 maps, 2 kinds) and adds its own in the garrison (the flags below).
+  const maps = owl > 0 ? rtHearthMaps(seed, Math.min(owl, 2) + 1) : undefined, items = herb > 0 && hearth.met.herb ? rtHearthItems(seed, Math.min(herb, 2)) : undefined;
   const flags: RtHearthFlags = {
     ...maps ? { maps: maps.length as 2 | 3 } : {}, ...smith >= 1 && hearth.met.smith ? { jailerRerolls: 1 } : {}, ...smith >= 2 && hearth.met.smith ? { hammerAll: true as const } : {},
     ...hearth.quest ? { quest: rtQuestFor(hearth.quest, meta?.heroes[hero]?.record) } : {},
+    // Task 51б (spec 2.2): «Путь в гарнизон», «Склянка в гарнизон» (2 kinds by the stream `hearth-gate`), «Правка в гарнизоне».
+    ...owl >= 3 ? { garrisonMaps: 2 as const } : {}, ...herb >= 3 && hearth.met.herb ? { gateItems: rtHearthGateItems(seed) } : {},
+    ...smith >= 3 && hearth.met.smith ? { garrisonRerolls: 1 } : {},
   };
   return { ...maps ? { maps } : {}, ...items ? { items } : {}, flags };
 }

@@ -105,3 +105,6 @@ export const metaSalt = (name: string): number => [...name].reduce((hash, ch) =>
 export const HEARTH_HERB_SALT = metaSalt('hearth-herb');
 export const HEARTH_QUEST_SALT = metaSalt('hearth-quest');
 export const HEARTH_MAPS_SALT = metaSalt('hearth-maps');
+/** Task 51б (spec 2.2, 9): «Путь в гарнизон» — the second garrison map's seed; «Склянка в гарнизон» — the kinds offered at «Предместье». */
+export const HEARTH_GMAPS_SALT = metaSalt('hearth-gmaps');
+export const HEARTH_GATE_SALT = metaSalt('hearth-gate');

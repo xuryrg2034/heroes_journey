@@ -317,7 +317,14 @@ export interface RunCarry { n: number; share: number; cap: number; resources: nu
 /** Task 37: an upgrade bought in the camp after the run (`RunRecord.hearthBuys`). */
 export interface RunHearthBuy { npc: string; level: number; price: number }
 /** Task 37: what the camp gave the run at its start (`RunRecord.hearth`): maps offered and the index chosen, the start consumable, Ерофей's flags. */
-export interface RunHearth { maps?: number; map?: number; startItems?: string[]; jailerRerolls?: number; hammerAll?: true }
+export interface RunHearth {
+  maps?: number; map?: number; startItems?: string[]; jailerRerolls?: number; hammerAll?: true;
+  /**
+   * Task 51б (level 3 of the camp, from 17.10.2026): «Путь в гарнизон» offered (`garrisonMaps` 2) and the garrison map chosen (0/1);
+   * «Склянка в гарнизон» — the kinds offered and the one taken; «Правка в гарнизоне» — the garrison's free rerolls given. Absent — none.
+   */
+  garrisonMaps?: number; garrisonMap?: number; gateItems?: string[]; gateItem?: string; garrisonRerolls?: number;
+}
 /** Task 44: the fusions of a run (`RunRecord.fusions`). Rows are run rows (1…). */
 export interface RunFusions {
   halves: { id: string; row: number }[];
@@ -636,7 +643,11 @@ function runMetaOk(r: Record<string, unknown>): boolean {
   if (r.npcClicks !== undefined && !(plain(r.npcClicks) && Object.values(r.npcClicks).every(n => whole(n, 1)))) return false;
   if (hearth !== undefined && !(plain(hearth) && (hearth.maps === undefined || whole(hearth.maps, 2)) && (hearth.map === undefined || whole(hearth.map))
     && (hearth.startItems === undefined || (Array.isArray(hearth.startItems) && hearth.startItems.every(id => typeof id === 'string')))
-    && (hearth.jailerRerolls === undefined || whole(hearth.jailerRerolls, 1)) && (hearth.hammerAll === undefined || hearth.hammerAll === true))) return false;
+    && (hearth.jailerRerolls === undefined || whole(hearth.jailerRerolls, 1)) && (hearth.hammerAll === undefined || hearth.hammerAll === true)
+    // Task 51б: level 3 of the camp.
+    && (hearth.garrisonMaps === undefined || whole(hearth.garrisonMaps, 2)) && (hearth.garrisonMap === undefined || whole(hearth.garrisonMap))
+    && (hearth.gateItems === undefined || (Array.isArray(hearth.gateItems) && hearth.gateItems.every(id => typeof id === 'string'))) && (hearth.gateItem === undefined || typeof hearth.gateItem === 'string')
+    && (hearth.garrisonRerolls === undefined || whole(hearth.garrisonRerolls, 1)))) return false;
   if (quest !== undefined && !(plain(quest) && typeof quest.npc === 'string' && typeof quest.id === 'string' && (quest.done === undefined || typeof quest.done === 'boolean'))) return false;
   return true;
 }
