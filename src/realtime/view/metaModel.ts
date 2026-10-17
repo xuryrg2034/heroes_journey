@@ -84,8 +84,8 @@ export interface MetaSource {
 
 /** Upgrade prices by level (design: 4, 8, 16; task 51а: level 3 is for sale once a hero has entered the garrison, `HearthState.gate3`). */
 export const HEARTH_PRICES = [4, 8, 16] as const;
-/** Task 51а: what a level 3 shows before the gate (the lock's caption: «Под замком · Дойди до гарнизона»). */
-export const HEARTH_GATE_LOCK = { name: 'Под замком', rule: 'Дойди до гарнизона' } as const;
+/** Task 51а: what a level 3 shows before the gate (the lock's caption: «Закрыто · Дойди до гарнизона»). */
+export const HEARTH_GATE_LOCK = { name: 'Закрыто', rule: 'Дойди до гарнизона' } as const;
 
 /** The NPC of v1: names, who they are, their upgrades (level 1–3; task 51б: level 3 serves the garrison). */
 export const NPCS: Readonly<Record<NpcId, { name: string; who: string; upgrades: [string, string, string]; rules: [string, string, string] }>> = {

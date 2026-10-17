@@ -83,7 +83,7 @@ export class HearthView {
   private bestiary = false;
   /** The occasion line was said in this visit (then idle lines). */
   private said = new Set<NpcId>();
-  private boughtNow: { npc: NpcId; level: 1 | 2 } | null = null;
+  private boughtNow: { npc: NpcId; level: 1 | 2 | 3 } | null = null;
   private lastLine = '';
   /** Task 49: the line Ведунья says now (one at a time; empty - her place is quiet). */
   private heroLine = '';
@@ -174,7 +174,7 @@ export class HearthView {
     const rows = NPCS[npc].upgrades.map((name, k) => {
       const lv = k + 1, price = HEARTH_PRICES[k];
       let action: string;
-      // Task 51а: level 3 stays under the lock «Под замком · Дойди до гарнизона» until a hero has entered the garrison.
+      // Task 51а: level 3 stays under the lock «Закрыто · Дойди до гарнизона» until a hero has entered the garrison.
       const shut = lv === 3 && !h.gate3 && level < lv;
       if (shut) action = `<span class="rt-hearth-lock" data-testid="up-${npc}-${lv}-lock" title="${esc(HEARTH_GATE_LOCK.rule)}">🔒</span>`;
       else if (level >= lv) action = `<span class="rt-hearth-bought" data-testid="up-${npc}-${lv}-bought">✓ куплено</span>`;
@@ -227,7 +227,7 @@ export class HearthView {
       const result = this.host.meta.buy(npc, level);
       // Task 51а: a refusal by the gate or the lock is answered in the NPC's own words (no new plate).
       if (!result.ok && (result.reason === 'gate' || result.reason === 'locked')) { this.lastLine = NPC_LINES[npc].locked3?.[0] ?? HEARTH_GATE_LOCK.rule; this.shown.line = this.lastLine; }
-      if (result.ok) { this.shown.bought++; this.boughtNow = level === 3 ? null : { npc, level: level === 2 ? 2 : 1 }; this.host.sound?.('buy'); this.host.bought?.(npc, level, HEARTH_PRICES[level - 1]); this.say(npc, this.host.meta.hearth()); }
+      if (result.ok) { this.shown.bought++; this.boughtNow = { npc, level: level === 3 ? 3 : level === 2 ? 2 : 1 }; this.host.sound?.('buy'); this.host.bought?.(npc, level, HEARTH_PRICES[level - 1]); this.say(npc, this.host.meta.hearth()); }
       this.draw(); return;
     }
     if (action === 'hero') {

@@ -8,7 +8,7 @@ import { generateForestMap } from '../src/realtime/forest/mapGenerator';
 
 /**
  * Task 51 «Лагерь, этап 3», the view of 51а and 51б (docs/design-notes/task-51-camp-l3.md, 2.1, 2.2, 11.1, 11.2): the camp's bubble
- * with level 3 (the lock «Под замком · Дойди до гарнизона» before the gate, the purchase after it), «Предместье» with the two
+ * with level 3 (the lock «Закрыто · Дойди до гарнизона» before the gate, the purchase after it), «Предместье» with the two
  * garrison maps and the two consumables (the choice goes into the garrison), the free reroll of the garrison's screens. Real mouse;
  * the runs are walked in Node by the run's own commands to the screen under test. The rules: core's (run/hearthL3.spec.ts).
  */
@@ -38,7 +38,7 @@ async function open(page: Page, meta: object, run?: RtRunState): Promise<void> {
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
 }
 
-test('task 51а view: the bubble - level 3 under the lock «Под замком · Дойди до гарнизона» before the gate; after the gate it is bought for 16 (Неясыть, Марфа, Ерофей)', async ({ page }) => {
+test('task 51а view: the bubble - level 3 under the lock «Закрыто · Дойди до гарнизона» before the gate; after the gate it is bought for 16 (Неясыть, Марфа, Ерофей)', async ({ page }) => {
   test.setTimeout(90_000);
   const errors = collectErrors(page);
   await open(page, profile(false, { owl: 2, herb: 2, smith: 2 }, 40));
@@ -47,7 +47,7 @@ test('task 51а view: the bubble - level 3 under the lock «Под замком 
   for (const npc of ['owl', 'herb', 'smith']) {
     await page.getByTestId(`hearth-npc-${npc}`).click();
     await expect(page.getByTestId(`up-${npc}-3-lock`)).toBeVisible();
-    await expect(page.getByTestId(`up-${npc}-3-row`)).toContainText('Под замком');
+    await expect(page.getByTestId(`up-${npc}-3-row`)).toContainText('Закрыто');
     await expect(page.getByTestId(`up-${npc}-3-row`)).toContainText('Дойди до гарнизона');
     await expect(page.getByTestId(`up-${npc}-3`)).toHaveCount(0);
   }
@@ -56,6 +56,7 @@ test('task 51а view: the bubble - level 3 under the lock «Под замком 
   await open(page, profile(true, { owl: 2, herb: 2, smith: 2 }, 60));
   await page.getByTestId('run-hearth').click();
   const rows = { owl: ['Путь в гарнизон', 'В Предместье — выбор из 2 карт гарнизона'], herb: ['Склянка в гарнизон', 'расходник из 2'], smith: ['Правка в гарнизоне', '+1 бесплатный переброс в гарнизоне'] } as const;
+  const BUY3 = { owl: '«Путь в гарнизон». В Предместье покажу две карты — я и над стенами летала.', herb: 'На-ка склянку к воротам. Одну из двух — выбирай, не жадничай.', smith: '«Правка в гарнизоне». Худая награда в караульне — разок перебросишь.' } as const;
   let stock = 60;
   for (const npc of ['owl', 'herb', 'smith'] as const) {
     await page.getByTestId(`hearth-npc-${npc}`).click();
@@ -66,6 +67,8 @@ test('task 51а view: the bubble - level 3 under the lock «Под замком 
     await page.getByTestId(`up-${npc}-3`).click();
     stock -= 16;
     await expect(page.getByTestId(`up-${npc}-3-bought`)).toBeVisible();
+    await expect(page.getByTestId('hearth-line')).toHaveText(BUY3[npc]);
+    if (npc === 'owl') await page.screenshot({ path: shot('camp3-buy3-line') });
     await expect(page.getByTestId('hearth-stock').locator('b')).toHaveText(String(stock));
   }
   await page.screenshot({ path: shot('camp3-bought') });
