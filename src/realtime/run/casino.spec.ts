@@ -29,6 +29,7 @@ import { createRtRunStore, RT_RUN_STORAGE_KEY, type RunStorage } from './rtRunSt
 import { RESOURCE_KINDS } from '../forest/resources';
 import { stockTotal } from '../forest/merchant';
 import { eventOption, forestEvent } from '../forest/forestEvents';
+import { rtTalisman, RT_COUNTER_WINDOW } from './rtTalismans';
 import { rtHp } from './hpScale';
 import { runRow } from './arenaPools';
 import { stepChoices, mergeChoice } from '../telemetry/recorder';
@@ -313,6 +314,55 @@ check('«Колесо костей» in the circle: the event\'s outcomes and HP
     if (step.ok) seen.add((lastGame(step.run) as { outcome: number }).outcome);
   }
   assert(seen.size === 6, `all six outcomes come: ${[...seen]}`);
+});
+
+check('a run with forms names the counters by their chain window in the outcome lines: the wheel\'s talisman, an event fight\'s reward («Острие», «Улов», not «Пятое звено», «Третья цепь»)', () => {
+  // The counters the window renames; the line must carry the run's name, not the catalogue's (design 17.10.2026).
+  const renamed = Object.keys(RT_COUNTER_WINDOW).filter(id => RT_COUNTER_WINDOW[id].name);
+  const shownRight = (text: string, id: string): boolean => text.includes(`«${RT_COUNTER_WINDOW[id].name}»`) && !text.includes(rtTalisman(id)!.name);
+  // The wheel: real walks to the circle, one spin; every renamed counter it gives is shown by its window name.
+  const wheelSeen = new Set<string>();
+  for (let k = 1; k < 400 && wheelSeen.size < renamed.length; k++) {
+    const w = walk(k, { circle: true, stopAtCircle: true, materials: 2 });
+    if (w.run.pending?.kind !== 'casino') continue;
+    const step = rtCasinoPlay(w.run, 'wheel');
+    if (!step.ok) continue;
+    const game = lastGame(step.run);
+    if (game.table !== 'wheel' || !game.talisman || !renamed.includes(game.talisman)) continue;
+    assert(step.run.forms === true, `seed ${k}: a new run plays forms`);
+    const played = step.events.find(ev => ev.type === 'casino-played');
+    assert(played?.type === 'casino-played' && shownRight(played.text, game.talisman), `seed ${k}: the game's line ${played?.type === 'casino-played' ? played.text : '—'}`);
+    assert(shownRight(rtCasinoView(step.run)!.last!.text, game.talisman), `seed ${k}: the circle's last line ${rtCasinoView(step.run)!.last!.text}`);
+    wheelSeen.add(game.talisman);
+  }
+  assert(wheelSeen.size === renamed.length, `the wheel gave every renamed counter on 400 seeds: ${[...wheelSeen]}`);
+  // An event's fight: the battle option taken, the fight won, a renamed counter of the reward chosen — the event's line.
+  const eventSeen = new Set<string>();
+  for (let k = 1; k < 400 && eventSeen.size < renamed.length; k++) {
+    let run = takeGift(createRtRun(seedOf(k), { gift: 'mini', garrison: false }));
+    for (let step = 0; step < 200 && !run.result; step++) {
+      const p = run.pending;
+      if (p?.kind === 'event') {
+        const option = rtEventView(run)!.options.find(o => o.battle && o.available);
+        run = option ? ok(rtChooseEventOption(run, option.id), 'battle option') : closeNode(run);
+      } else if (p?.kind === 'battle') run = winFight(run, {} as WalkPlan, step);
+      else if (p?.kind === 'talisman' && p.source === 'event') {
+        const pick = p.options.find(id => renamed.includes(id)) ?? null;
+        const chosen = rtChooseTalisman(run, pick);
+        assert(chosen.ok, 'the reward');
+        if (pick) {
+          assert(chosen.run.forms === true, `seed ${k}: a new run plays forms`);
+          const resolved = chosen.events.find(ev => ev.type === 'event-resolved');
+          assert(resolved?.type === 'event-resolved' && shownRight(resolved.text, pick), `seed ${k}: the event's line ${resolved?.type === 'event-resolved' ? resolved.text : '—'}`);
+          eventSeen.add(pick);
+        }
+        run = chosen.run;
+      } else if (p?.kind === 'talisman') run = ok(rtChooseTalisman(run, null), 'talisman');
+      else if (p) run = closeNode(run);
+      else { const next = rtAvailableNodes(run); run = ok(rtEnterNode(run, (next.find(n => n.type === 'event') ?? next[0]).id, null), 'enter'); }
+    }
+  }
+  assert(eventSeen.size === renamed.length, `an event's fight gave every renamed counter on 400 seeds: ${[...eventSeen]}`);
 });
 
 check('a reload keeps the outcome: the same last game shown, the next game the same as without the reload; a reload at the open circle plays the same first game', () => {
