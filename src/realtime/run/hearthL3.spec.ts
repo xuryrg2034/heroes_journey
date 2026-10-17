@@ -30,7 +30,7 @@ function memoryStorage(): RunStorage & { data: Map<string, string> } {
 }
 /** A profile played: `n` cat runs of the forest (lost at its final when `lose`), the camp's upgrades bought as the stock allows. */
 function played(n: number, lose: boolean, garrison = false): { storage: ReturnType<typeof memoryStorage>; store: ReturnType<typeof createRtProfileStore> } {
-  const storage = memoryStorage(), store = createRtProfileStore(storage);
+  const storage = memoryStorage(), store = createRtProfileStore(storage, { gambler: false, monk: false });
   for (let k = 1; k <= n; k++) {
     store.startRun();
     const walk = walkRun({ k, create: { gift: 'full', garrison, locked: store.locked(), hearth: store.hearthStart(seedOf(k)).flags }, ...lose ? { loseAt: (_r: RtRunState, type: string) => type === 'boss' } : {} });
@@ -80,12 +80,12 @@ check('level 3: not sold before a hero passed the forest (`gate`), sold after fo
   // Евлампий (here by a stored profile: his coming is step 51г): levels 1–2 sold, the 3rd locked whatever the gate.
   assert(store.buyHearth('monk', 1).ok && store.buyHearth('monk', 2).ok && (store.buyHearth('monk', 3) as { reason?: string }).reason === 'locked', 'Евлампий locked at 3');
   // A reload keeps it all.
-  assert(same(createRtProfileStore(storage).hearth().levels, { gambler: 0, monk: 2, owl: 3, herb: 2, smith: 3 }), JSON.stringify(createRtProfileStore(storage).hearth().levels));
+  assert(same(createRtProfileStore(storage, { gambler: false, monk: false }).hearth().levels, { gambler: 0, monk: 2, owl: 3, herb: 2, smith: 3 }), JSON.stringify(createRtProfileStore(storage, { gambler: false, monk: false }).hearth().levels));
 });
 
 check('a quest done counts for its NPC (`done`); the garrison passed the first time for the profile — `last.firstGarrison`, once', () => {
   // Quests: every done one counts (real runs, the quest the camp gave).
-  const storage = memoryStorage(), store = createRtProfileStore(storage);
+  const storage = memoryStorage(), store = createRtProfileStore(storage, { gambler: false, monk: false });
   const done: Record<string, number> = {};
   for (let k = 1; k <= 10; k++) {
     const flags = store.hearthStart(seedOf(k)).flags;
@@ -96,7 +96,7 @@ check('a quest done counts for its NPC (`done`); the garrison passed the first t
   }
   assert(Object.values(done).reduce((a, b) => a + b, 0) >= 3, `quests done ${JSON.stringify(done)}`);
   // The garrison: the first pass marks `firstGarrison`, the next one does not; a forest win does not.
-  const g = createRtProfileStore(memoryStorage());
+  const g = createRtProfileStore(memoryStorage(), { gambler: false, monk: false });
   const forest = walkRun({ k: 1, create: { gift: 'full', garrison: false, locked: g.locked() } });
   g.endRunMeta(forest.run);
   assert(forest.run.result?.outcome === 'victory' && g.hearth().last?.firstWin && !g.hearth().last?.firstGarrison, 'a forest win: no mark');
@@ -114,7 +114,7 @@ check('a quest done counts for its NPC (`done`); the garrison passed the first t
 
 /** A profile whose camp has `levels` (the NPCs met) and a cat who passed the forest (the gate open): a stored profile as setup. */
 function campL3(levels: { owl: number; herb: number; smith: number }): ReturnType<typeof createRtProfileStore> {
-  const storage = memoryStorage(), store = createRtProfileStore(storage);
+  const storage = memoryStorage(), store = createRtProfileStore(storage, { gambler: false, monk: false });
   const won = walkRun({ k: 2, create: { gift: 'full', garrison: false, locked: store.locked() } });
   store.endRunMeta(won.run);
   const p = JSON.parse(storage.data.get(RT_PROFILE_STORAGE_KEY)!);
@@ -150,7 +150,7 @@ check('51б «Путь в гарнизон»: 2 different garrison seeds, the ch
     assert(same(parseRtRun(serializeRtRun(run)), run), 'the save round-trips');
   }
   // A choice without the flag is refused; a run without it keeps no field and the garrison of before.
-  const plain = gateWalk(createRtProfileStore(memoryStorage()), 5);
+  const plain = gateWalk(createRtProfileStore(memoryStorage(), { gambler: false, monk: false }), 5);
   assert(plain.atGate && !rtEnterGarrison(plain.atGate, undefined, { map: 1 }).ok && plain.run.garrisonMap === undefined && same(plain.run.garrisonLevel?.map, generateForestMap(garrisonSeed(plain.run.seed))), 'without the flag');
   // A tampered save: `garrisonMap` without the flag.
   const save = JSON.parse(serializeRtRun(plain.run)); save.garrisonMap = 1;
@@ -176,7 +176,7 @@ check('51б «Склянка в гарнизон»: 2 kinds at «Предмес�
     }
   }
   assert(taken >= 8 && full >= 1, `taken ${taken}, refused for a full hand ${full}`);
-  assert(createRtProfileStore(memoryStorage()).hearthStart(seedOf(1)).flags.gateItems === undefined, 'no flag below level 3');
+  assert(createRtProfileStore(memoryStorage(), { gambler: false, monk: false }).hearthStart(seedOf(1)).flags.gateItems === undefined, 'no flag below level 3');
 });
 
 check('51б «Правка в гарнизоне»: the first reroll of a garrison screen is free, once a run; the forest\'s screens and a run without level 3 pay', () => {

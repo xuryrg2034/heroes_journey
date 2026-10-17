@@ -699,3 +699,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 /* Task 51в: «✦» over a guest who came, until the first click (the same sign as «новое» of the Chronicle; «!» is the quest's). */
 .rt-hearth-new-mark { position: absolute; top: -6px; left: calc(50% - 11px); width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #2a2340; border: 1px solid #c8b0ff; color: #c8b0ff; font: 700 14px Georgia, serif; font-style: normal; pointer-events: none; }
+
+/* Task 51г: Евлампий's vows at the start of a run (2 or 3 cards, take up to 1 or 2). */
+.rt-vow.rt-chosen { border-color: #ffd88a; background: #2d3526; }
+.rt-vow:disabled { opacity: .45; }
+.rt-vow-go { display: block; width: 100%; margin-top: 14px; }
+.rt-hearth-modal .rt-run-note { margin: 0 0 10px; }

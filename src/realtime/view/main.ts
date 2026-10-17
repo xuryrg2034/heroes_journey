@@ -57,7 +57,7 @@ import { BuildColumn, labelOf } from './buildColumn';
 import { registerViewTestModule, VIEW_TEST_MODULE } from './buildTestModule';
 import { RunView, type ArenaItemNotice } from './runView';
 import { runRow } from '../run/arenaPools';
-import { rtFeatKinds, rtNode, rtRunBestChain } from '../run/rtRun';
+import { rtFeatKinds, rtNode, rtRunBestChain, rtShackleCuts } from '../run/rtRun';
 import { NewSeenStore } from './newSeen';
 import { HintStore, purseResultLine } from './hints';
 import { TOAD_LINES } from './heroLines';
@@ -466,6 +466,8 @@ async function boot(): Promise<void> {
   let fightSevered = false;
   /** Task 48: the boss's parts severed in this fight (`partSevered` events) — `RtArenaOutcome.parts` (the run keeps it for the Troll). */
   let fightParts = 0;
+  /** Task 51г: the keymaster's shackles the dash cut in this fight (`tether` `cut` events of kind `shackle`) — `RtArenaOutcome.cuts`. */
+  let fightCuts = 0;
   /** Task 22 «Удар слышен»: one sound of a kind per 0.3 real seconds; the threats' starts read frame by frame (view/soundGate.ts). */
   const soundGate = new SoundGate(), threatWatch = new ThreatWatch();
   /** Task 12: the values of the run's arena (`rtArenaParams`: the run's flag `markedGoals`); null — the sandbox's `params`. */
@@ -480,6 +482,7 @@ async function boot(): Promise<void> {
     deathSeries.reset();
     fightSevered = false;
     fightParts = 0;
+    fightCuts = 0;
     if (simParams) return new Simulation({ arena, params: simParams, seed, record: true, beforeTick: world => { motion.save(world); }, ...hero ? { hero } : {}, ...loadout ? { loadout } : {} });
     return new Simulation({ arena, params: runArenaParams ?? params, seed, record: true, beforeTick: world => { motion.save(world); recorder?.beforeTick(world); deathWatch.seen(world); deathSeries.seen(world); }, ...hero ? { hero } : {}, loadout: loadout ?? sandboxLoadout() });
   };
@@ -872,6 +875,8 @@ async function boot(): Promise<void> {
       ...fightSevered ? { severed: true } : {},
       // Task 48: the Troll's parts severed (all three — the relic 1 of 4).
       ...fightParts ? { parts: fightParts } : {},
+      // Task 51г: the shackles cut (Евлампий's arrival and quest); absent at 0.
+      ...fightCuts ? { cuts: fightCuts } : {},
       ...w.status === 'defeat' && deathWatch.death ? { death: deathWatch.death } : {} });
   };
   /** The result's button only switches the screen: to the map, or to the end of the run. */
@@ -1402,7 +1407,7 @@ async function boot(): Promise<void> {
     }
     // П5: the run fight's chance (the goblin's pulls, the elites' loot) before the frame's events go.
     // П6: the run fight's killing blow, read the same way.
-    if (runView?.arenaOpen && !runArenaRecorded) { observeFightLuck(fightLuck, w.events); deathWatch.read(w, w.events); deathSeries.read(w, w.events); if (w.events.some(e => e.type === 'partSevered')) fightSevered = true; fightParts += w.events.filter(e => e.type === 'partSevered').length; }
+    if (runView?.arenaOpen && !runArenaRecorded) { observeFightLuck(fightLuck, w.events); deathWatch.read(w, w.events); deathSeries.read(w, w.events); if (w.events.some(e => e.type === 'partSevered')) fightSevered = true; fightParts += w.events.filter(e => e.type === 'partSevered').length; fightCuts += rtShackleCuts(w.events); }
     // Task 16 telemetry «Новизна»: the first meetings of a run fight (the kinds and affixes come from the captions, render.ts).
     if (firstMeets && runView?.arenaOpen && !prologue) {
       if (!firstMeets.has('elite') && w.enemies.some(e => e.elite && renderer.sees(e))) meetFirst('elite');

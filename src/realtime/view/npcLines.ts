@@ -9,8 +9,9 @@ import { TOAD_LINES_BY_NPC } from './npcToadLines';
 /** Causes of death the lines know (the run's killing blow; design notes: jailer — any blow in the Jailer's fight). */
 export type DeathCause = 'crowd' | 'archer' | 'sapper' | 'jailer' | 'final' | 'fire' | 'other' | 'guardroom' | 'castellan' | 'troll';
 export type LineKey = 'first' | 'first_self' | 'win_first' | 'win' | `death_${DeathCause}` | 'record' | 'buy_1' | 'buy_2' | 'buy_3'
-  | 'quest_give' | 'quest_give_final' | 'quest_done' | 'quest_fail' | 'idle' | 'about_owl' | 'about_herb' | 'about_smith' | 'about_gambler' | 'locked3' | 'pack'
-  | 'win_garrison_first' | 'meet_hello' | 'back_met' | 'first_won' | 'first_lost' | 'casino_won' | 'casino_lost';
+  | 'quest_give' | 'quest_give_final' | 'quest_done' | 'quest_fail' | 'idle' | 'about_owl' | 'about_herb' | 'about_smith' | 'about_gambler' | 'about_monk' | 'locked3' | 'pack'
+  | 'win_garrison_first' | 'meet_hello' | 'back_met' | 'first_won' | 'first_lost' | 'casino_won' | 'casino_lost'
+  | 'vow_kept' | 'vow_broken' | 'memory_cuts' | 'memory_castellan';
 
 export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly string[]>>>> = {
   owl: {
@@ -38,6 +39,7 @@ export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly 
     idle: ['Я записываю всё. Даже как ты чешешься.', 'Чернила из бузины. Пахнут лесом, пачкают когти.', 'Найдёшь в лесу моё дупло — бери одно и не шуми.', 'Тише, кот. Летопись не терпит болтовни, а я — тем более.'],
     about_herb: ['Марфа лечит всех подряд. Я бы сначала спросила, за что.', 'Травница опять сушит корни на моих страницах.'],
     about_smith: ['Ерофей не умеет читать. Зато помнит каждое лезвие — завидно.', 'Точильщик говорит три слова в день. Я записываю все три.'],
+    about_monk: ['Евлампий требует записать «каялся». Я пишу «ныл» — летопись не исповедь.'],
     about_gambler: ['Шиш боится моих чернил. Правильно: его долги я записала в столбик.'],
     buy_3: ['«Путь в гарнизон». В Предместье покажу две карты — я и над стенами летала.'],
     locked3: ['Эту страницу открою, когда дойдёшь до гарнизона. Раньше — не по чину.'],
@@ -67,6 +69,7 @@ export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly 
     idle: ['Подорожник к лапе, крапиву к языку. Последнее — для совы.', 'Травы сохнут, кот хромает. Обычный вечер у Очага.', 'Сядь ближе к огню. Нет, не так близко — шерсть же.', 'Ты ешь хоть что-нибудь, кроме подвигов? Худой, как жердь.'],
     about_owl: ['Сова всё пишет да пишет. Лучше бы бинты резала.', 'Неясыть ворчит, что я сушу травы на её книге. Сушу.'],
     about_smith: ['Ерофей мою мазь продаёт втридорога. Я молчу — он мне ножи точит.', 'Точильщик добрый, только сам не знает. Не говори ему.'],
+    about_monk: ['Евлампий молится, я лечу. Он хоть не мешает, и на том спасибо.'],
     about_gambler: ['Шиш меня тётушкой зовёт. Лечу бесплатно — с него всё равно нечего взять.'],
     buy_3: ['На-ка склянку к воротам. Одну из двух — выбирай, не жадничай.'],
     locked3: ['Этот отвар — как дойдёшь до гарнизона. Там травы другие, злые.'],
@@ -96,6 +99,7 @@ export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly 
     idle: ['Точу. Не стой над душой, малый.', 'Каждое лезвие помнит, кого рубило. Твоё — всех подряд.', 'Колесо скрипит — значит, живое. Смажу к зиме.', 'Спешка лезвие губит. И котов тоже.'],
     about_owl: ['Сова пишет, я точу — каждый своё тупит.', 'Неясыть меня в книгу записала: «молчун». Верно записала.'],
     about_herb: ['Марфа ругается, а мазь у неё лучшая. Не говори ей.', 'Марфину мазь продаю дорого. За хорошее не грех.'],
+    about_monk: ['С Евлампием сидим, молчим. Добрый собеседник.'],
     about_gambler: ['Шиш должен мне. «Вот-вот отдам» — третий год слышу.'],
     buy_3: ['«Правка в гарнизоне». Худая награда в караульне — разок перебросишь.'],
     locked3: ['Третья правка — как дойдёшь до гарнизона. Там сталь другая.'],
@@ -142,6 +146,7 @@ export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly 
     about_owl: ['Сова мои долги чернилами пишет. Карандашом бы — я бы договорился.'],
     about_herb: ['Тётушка Марфа лечит меня бесплатно. Единственная сделка, где я в плюсе.'],
     about_smith: ['Ерофею я должен, вот-вот отдам. Он точит нож и смотрит — ждёт.'],
+    about_monk: ['Евлампий — сглаз ходячий. Сядет рядом — и кость сразу на единицу.'],
     idle: [
       'Сыграем на интерес, партнёр? На твой интерес — твоими ресурсами.',
       'Эта кость не кривая, у неё характер. Не трогай.',
@@ -149,6 +154,68 @@ export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly 
       'Карта в рукаве — для тепла. Ночи у Очага холодные.',
     ],
     locked3: ['«Лавка в гарнизоне» — как дойдёшь до гарнизона. Раньше там меня не знают.'],
+  },
+  // Task 51г: Евлампий (docs/design-notes/npc-lines-v2.md, «Евлампий, расстрига»).
+  monk: {
+    first: [
+      'Ты разрубил кандалы Ключника. Звон я узнал: сам такие благословлял.',
+      'Я Евлампий, расстрига. Служил колдуну, теперь сижу у твоего костра — и молчу об этом.',
+    ],
+    first_self: ['Кандалов ты не рубил, а я всё равно пришёл. В замке колдуна стало тесно.'],
+    win: [
+      'Победа. Я бы помолился в благодарность, но отвык — и кому?',
+      'Опять победа. Не зазнавайся, чадо: гордыню я знаю изнутри.',
+    ],
+    win_garrison_first: ['Кастелян пал. Колдун теперь знает, где ты, — а значит, и где я.'],
+    death_crowd: ['Толпа задавила. Колдун так и проповедовал: «один — ничто, сто — воля».'],
+    death_archer: ['Лучник метил заранее, чадо. Метка — та же исповедь: всё сказано наперёд.'],
+    death_sapper: ['Сапёр и фитиль. Я бы благословил тебя на бегство — жаль, сан сняли.'],
+    death_jailer: ['Тюремщик. Я за него когда-то молился — видно, молитва дошла.'],
+    death_final: ['Последний рубеж, последняя строка. Не моя вина — впервые за долгое время.'],
+    death_fire: ['Огненный след. Колдун любит огонь, чадо, — не корми его собой.'],
+    death_other: ['Чем тебя уложило, не скажу. Неясыть запишет, а я отмолчусь.'],
+    death_guardroom: [
+      'Караульня. Этих стражников я когда-то наставлял: строй держать до смерти.',
+      'Опять караульня. Строй стоит, как моя совесть, — и не пускает.',
+    ],
+    death_castellan: [
+      'Кастелян за решёткой, за рвом. Колдун его ценил: тот умеет ждать.',
+      'Опять Кастелян. Рычаг, чадо, рычаг — даже я это понял.',
+    ],
+    death_troll: ['Тролль. Лесная тварь, колдуну не служит — хоть тут я ни при чём.'],
+    record: [
+      'Дальше прежнего. Записать бы это в мой послужной список — да его сожгли.',
+      'Опять дальше. Ещё немного — и я в тебя поверю, не торопи.',
+    ],
+    buy_1: ['Обет, чадо. Возьми один — и держи, как я не умел.'],
+    buy_2: ['Два обета разом. Сам бы не взял — я и одного не держу.'],
+    locked3: ['Остальное скажу после замка колдуна. Туда я пока даже не смотрю.'],
+    vow_kept: [
+      'Обет сдержан. Хоть кто-то у этого костра держит слово.',
+      'Опять сдержал. Ты меня позоришь, чадо, — продолжай.',
+    ],
+    vow_broken: [
+      'Обет нарушен. Не стыдись — я свои ломал по три за утро.',
+      'Опять нарушил. Ничего, чадо: обеты для того и дают, чтобы каяться.',
+    ],
+    quest_give: ['Разруби кандалы дважды. Пусть Ключник поймёт, что ковать впустую — тоже грех.'],
+    quest_done: ['Двое кандалов разрублено. Звон слышал отсюда — лучшая служба на моей памяти.'],
+    quest_fail: ['Кандалы целы. Я тоже когда-то не решился рубить, чадо.'],
+    memory_cuts: ['Ты рубил кандалы, и узник кусал своих. Колдун такого не прощает.'],
+    memory_castellan: ['Кастеляна одолел. Я смотрел и впервые не знал, за кого молиться.'],
+    about_owl: [
+      'Неясыть записала, что я «ныл». Я каялся — пусть так и пишет.',
+      'Опять спорили с совой. Она пишет правду, я — то, что можно вынести.',
+    ],
+    about_herb: ['Марфа лечит, а я только молился. Её работа честнее моей.'],
+    about_smith: ['С Ерофеем мы молчим вместе. Лучшая беседа в лагере.'],
+    about_gambler: ['Шиш зовёт меня сглазом, а медяк берёт. Мой медяк он проиграет первым.'],
+    idle: [
+      'Я не прячусь. Я сижу спиной к замку колдуна — это разное.',
+      'Дал обет молчать до утра. Уже нарушил, как видишь.',
+      'Знак колдуна я с рясы содрал, а дыра осталась — сквозит.',
+      'Книгу мою не открывай. Там мои проповеди, и они до сих пор светятся.',
+    ],
   },
 };
 
@@ -164,6 +231,8 @@ export const CAT_MARKED: Readonly<Record<NpcId, Partial<Record<LineKey, readonly
   smith: { first: [1, 2], first_self: [1], win_first: [1], win: [1, 2, 3], death_crowd: [1], death_archer: [1], death_sapper: [2], death_jailer: [2], death_final: [1], death_fire: [1, 2], death_other: [2], record: [1, 2], quest_done: [1, 2], quest_fail: [2], idle: [1, 2, 4] },
   // Task 51в, design table «Метка `cat`» (Шиш, v2): the lines that put a verb about the hero in the masculine.
   gambler: { first_won: [1], first_lost: [1], first_self: [1], win: [1, 2], win_garrison_first: [1], death_fire: [1], death_troll: [1], quest_fail: [1], casino_won: [1], casino_lost: [1] },
+  // Task 51г, design table «Метка `cat`» (Евлампий, v2).
+  monk: { first: [1], first_self: [1], vow_kept: [2], vow_broken: [2], memory_cuts: [1], memory_castellan: [1] },
 };
 
 /** The occasion of a line now. */
@@ -173,7 +242,7 @@ export interface LineContext {
   /** The NPC came by itself (the fallback way) — its meeting line is `first_self`. */
   self?: boolean;
   /** The occasions of the last run (said once per camp visit). */
-  last?: { won: boolean; firstWin?: boolean; cause?: DeathCause; record?: boolean; questDone?: boolean; questFail?: boolean; pack?: boolean; casino?: 'won' | 'lost' };
+  last?: { won: boolean; firstWin?: boolean; cause?: DeathCause; record?: boolean; questDone?: boolean; questFail?: boolean; pack?: boolean; casino?: 'won' | 'lost'; cuts?: number; vows?: 'kept' | 'broken'; castellan?: boolean };
   /** Just bought this level. */
   bought?: 1 | 2 | 3;
   /** The other NPC in the camp (for `about_*`). */
@@ -219,7 +288,9 @@ export function pickLine(npc: NpcId, ctx: LineContext, memory: LineMemory): { ke
   const last = ctx.last;
   if (last) {
     const occasion = (last.questDone && line('quest_done')) || (last.questFail && line('quest_fail')) || (last.firstWin && line('win_first', true))
-      || (last.record && line('record')) || (last.pack && line('pack')) || (last.casino && line(last.casino === 'won' ? 'casino_won' : 'casino_lost')) || (last.won && line('win')) || (last.cause && (line(`death_${last.cause}`) ?? line('death_other')));
+      || (last.record && line('record')) || (last.pack && line('pack')) || (last.casino && line(last.casino === 'won' ? 'casino_won' : 'casino_lost'))
+      // Task 51г (Евлампий): the vows' result, the garrison passed, the shackles cut in the last run.
+      || (last.vows && line(last.vows === 'kept' ? 'vow_kept' : 'vow_broken')) || (last.castellan && line('memory_castellan')) || (last.cuts && line('memory_cuts')) || (last.won && line('win')) || (last.cause && (line(`death_${last.cause}`) ?? line('death_other')));
     if (occasion) return occasion;
   }
   const idle = count('idle'), about = ctx.others.filter(o => o !== npc).map(o => `about_${o}` as LineKey).filter(k => L[k]);

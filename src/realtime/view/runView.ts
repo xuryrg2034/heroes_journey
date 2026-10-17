@@ -53,7 +53,7 @@ import { HearthView } from './hearthView';
 import { ProfileMeta } from './metaSource';
 import { MAP_KINDS, mapCounts, mapPreview, RunStart } from './runStart';
 import { rtHearthFlagsWith, rtJailerWonRow, rtRunKey, type RtHearthStart, type RtMetaEnd } from '../run/rtMeta';
-import { RT_HERO_ID, RT_TOAD_ID, type RtHeroId } from '../run/metaCatalog';
+import { RT_HERO_ID, RT_TOAD_ID, type RtHeroId, type RtVowId } from '../run/metaCatalog';
 import { defaultParams } from '../sim/params';
 import { TOAD_LINES } from './heroLines';
 import type { MetaHeroId } from './metaModel';
@@ -382,8 +382,7 @@ export class RunView {
   readonly el: HTMLDivElement;
   private run: RtRunState | null;
   private readonly store = createRtRunStore();
-  // Task 51в: Шиш's camp is on in the game (`RT_HEARTH_GAMBLER_ON` is the core's default, off).
-  private readonly profile = createRtProfileStore(undefined, { gambler: true });
+  private readonly profile = createRtProfileStore();
   /** «Обучение v1»: the lines on the screens (first two appearances each); absent in the sandbox. */
   private readonly lines: ScreenLines | null;
   private selected: string | null = null;
@@ -513,7 +512,7 @@ export class RunView {
     // An abandoned run is settled first: its end picks the next run's quest, which the plan below carries (design smoke v62).
     this.settleAbandoned();
     const base = Math.floor(Math.random() * 0x100000000) >>> 0;
-    this.runStart.begin(this.profile.hearthStart(base), base, (seed, item, plan, map) => this.newRun(undefined, { seed, item, plan, map }));
+    this.runStart.begin(this.profile.hearthStart(base), base, (seed, item, plan, map, vows) => this.newRun(undefined, { seed, item, plan, map, vows }));
   }
 
   /** Tasks 36–37: the key of the abandoned run already settled (its meta applied, its telemetry sent once). */
@@ -572,7 +571,7 @@ export class RunView {
   }
 
   /** A new run (a given seed — `?seed=` — makes it a seeded run). */
-  newRun(seed?: number, camp?: { seed: number; item: KitItem | null; plan: HearthStart; map: number | null }): RtRunState {
+  newRun(seed?: number, camp?: { seed: number; item: KitItem | null; plan: HearthStart; map: number | null; vows?: string[] }): RtRunState {
     const seeded = seed !== undefined || this.fixedSeed !== null || !!this.host.fixedHero;
     const value = (seed ?? this.fixedSeed ?? camp?.seed ?? Math.floor(Math.random() * 0x100000000)) >>> 0;
     this.hearth?.close();
@@ -585,7 +584,7 @@ export class RunView {
     // The camp's flags (core `hearthStart`): the start's plan with the map and the consumable chosen (`beginRun`); a run started
     // otherwise (a test hook) — the plan of its seed with no map choice. Only a meta run (not `?seed=`, not the sandbox).
     const plan = this.meta && !seeded ? (camp?.plan as RtHearthStart | undefined) ?? this.profile.hearthStart(value) : null;
-    const flags = plan ? rtHearthFlagsWith(camp ? plan : { ...plan, flags: { ...plan.flags, maps: undefined } }, camp?.item ?? plan.items?.[0]) : null;
+    const flags = plan ? rtHearthFlagsWith(camp ? plan : { ...plan, flags: { ...plan.flags, maps: undefined } }, camp?.item ?? plan.items?.[0], (camp?.vows ?? []) as RtVowId[]) : null;
     // Task 49: a meta run takes the chosen hero (its own locked items); `?hero=toad` - a seeded debug run of that hero (the meta does not count).
     const hero = this.meta && !seeded ? this.profile.heroChoice() : null;
     const metaRun = this.meta && !seeded ? { hero: hero!, locked: this.profile.locked(hero!), ...flags && Object.values(flags).some(v => v !== undefined) ? { hearth: flags } : {} } : {};

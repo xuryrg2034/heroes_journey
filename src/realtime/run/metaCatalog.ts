@@ -102,9 +102,9 @@ export const RT_QUEST_NPC = { 'owl-farther': 'owl', 'owl-forest': 'owl', 'herb-f
  * Task 51в: Шиш comes to the camp (by a game of the goblins' circle, by the fallback path) only while this is on — the camp's view of
  * Шиш (ui) turns it on. Off: no profile changes (his flags, quest and lines never come). `rtApplyMeta(…, { gambler })` overrides it.
  */
-export const RT_HEARTH_GAMBLER_ON = false;
+export const RT_HEARTH_GAMBLER_ON = true;
 /** Task 51г: Евлампий comes (by cut shackles, by the fallback path after the garrison) only while this is on — the same rule as Шиш's. */
-export const RT_HEARTH_MONK_ON = false;
+export const RT_HEARTH_MONK_ON = true;
 /**
  * Task 51г «Обет» (Евлампий, spec 3.3): a restriction the player takes for a run; kept — +15 XP (`RT_XP_VOW`), counted only when the run
  * reached the Jailer's row. «Мимо торговцев», «Без привала», «Без лечения на карте», «Без переброса».

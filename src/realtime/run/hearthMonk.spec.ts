@@ -3,7 +3,7 @@
  * Евлампий, the defrocked priest. Node only: `npm run test:realtime-hearth-monk`. Whole runs walked by the run's own commands
  * (metaWalk.testkit.ts); the shackles are cut in a real fight played by journalled commands (a keymaster, its prisoner, a chain across
  * the shackle — the sim's `tether` `cut` events, counted as the view counts them: `rtShackleCuts`) and fed back as the fight's outcome;
- * the profile as the view keeps it (`createRtProfileStore(storage, { monk: true })` — his camp on; the game's default is off):
+ * the profile as the view keeps it (`createRtProfileStore(storage, { monk: true, gambler: false })` — his camp on; the game's default is off):
  * - he comes by shackles cut in a fight of the run, not without; `last.cuts`; with his camp off nothing changes; his fallback — the
  *   third finished run since the profile's first run into the garrison (forest-only runs do not count);
  * - «Обет»: 2 offered, 1 taken; «Два обета»: 3 offered, 2 taken; kept — +15 XP each outside «Испытание»; broken; not counted before the
@@ -76,21 +76,21 @@ function cutting(n: number): WalkOptions['fight'] {
 
 check('Евлампий comes by shackles cut in a real fight of the run, not without; `last.cuts`; his camp off — nothing changes', () => {
   for (const k of [1, 2, 3]) {
-    const on = createRtProfileStore(memoryStorage(), { monk: true }), offStorage = memoryStorage(), off = createRtProfileStore(offStorage);
+    const on = createRtProfileStore(memoryStorage(), { monk: true, gambler: false }), offStorage = memoryStorage(), off = createRtProfileStore(offStorage, { gambler: false, monk: false });
     const walk = walkRun({ k, create: { gift: 'full', garrison: true, locked: on.locked() }, fight: cutting(1) });
     assert(rtRunCuts(walk.run) === 1 && walk.run.battles.some(b => b.cuts === 1 && b.nodeId.startsWith('g:')) && same(parseRtRun(serializeRtRun(walk.run)), walk.run), `seed ${k}: the record keeps the cut`);
     const end = on.endRunMeta(walk.run)!; off.endRunMeta(walk.run);
     assert(on.hearth().met.monk && on.hearth().last?.cuts === 1 && end.arrived?.some(a => a.npc === 'monk' && !a.self), `seed ${k}: came by the deed`);
     const plain = JSON.parse(offStorage.data.get(RT_PROFILE_STORAGE_KEY)!).meta.hearth;
     assert(!plain.met.monk && plain.last.cuts === undefined && plain.monkQuiet === undefined, `seed ${k}: his camp off — nothing`);
-    const none = createRtProfileStore(memoryStorage(), { monk: true });
+    const none = createRtProfileStore(memoryStorage(), { monk: true, gambler: false });
     none.endRunMeta(walkRun({ k, create: { gift: 'full', garrison: true, locked: none.locked() } }).run);
     assert(!none.hearth().met.monk && none.hearth().last?.cuts === undefined, `seed ${k}: no cut — no Евлампий`);
   }
 });
 
 check('his fallback: the third finished run since the profile\'s first run into the garrison; forest-only runs before it do not count', () => {
-  const storage = memoryStorage(), store = createRtProfileStore(storage, { monk: true });
+  const storage = memoryStorage(), store = createRtProfileStore(storage, { monk: true, gambler: false });
   for (let k = 1; k <= 3; k++) store.endRunMeta(walkRun({ k, create: { gift: 'full', garrison: false, locked: store.locked() } }).run);
   assert(!store.hearth().met.monk && JSON.parse(storage.data.get(RT_PROFILE_STORAGE_KEY)!).meta.hearth.monkQuiet === undefined, 'forest-only runs: no count');
   const met: boolean[] = [];
@@ -104,7 +104,7 @@ check('his fallback: the third finished run since the profile\'s first run into 
 /** A profile with Евлампий at `level` (met), his camp on: a stored profile as setup. */
 function monkCamp(level: number): ReturnType<typeof createRtProfileStore> {
   // The setup's run has a seed of its own (a run of the same seed and end would read as already applied: `rtRunKey`).
-  const storage = memoryStorage(), store = createRtProfileStore(storage, { monk: true });
+  const storage = memoryStorage(), store = createRtProfileStore(storage, { monk: true, gambler: false });
   store.endRunMeta(walkRun({ k: 99, create: { gift: 'full', garrison: false, locked: store.locked() } }).run);
   const p = JSON.parse(storage.data.get(RT_PROFILE_STORAGE_KEY)!);
   p.meta.hearth.levels.monk = level; p.meta.hearth.met.monk = true; delete p.meta.hearth.quest;
@@ -172,7 +172,7 @@ check('«Без переброса»: a reroll (a paid screen\'s) breaks it — 
 check('the quest «Разруби кандалы дважды»: done with 2 shackles cut in the run, not with 1', () => {
   const results: boolean[] = [];
   for (const n of [1, 2]) {
-    const storage = memoryStorage(), store = createRtProfileStore(storage, { monk: true });
+    const storage = memoryStorage(), store = createRtProfileStore(storage, { monk: true, gambler: false });
     store.endRunMeta(walkRun({ k: 2, create: { gift: 'full', garrison: false, locked: store.locked() } }).run);
     const p = JSON.parse(storage.data.get(RT_PROFILE_STORAGE_KEY)!);
     p.meta.hearth.met.monk = true; p.meta.hearth.quest = { npc: 'monk', id: 'monk-cuts' };

@@ -15,7 +15,7 @@ export interface MetaPack { id: string; title: string; items: MetaPackItem[] }
 /** The parts of a run's experience, in the order the end screen lists them. */
 /** Task 51г (core): `vows` — Евлампий's vows kept. */
 export type MetaXpPart = 'battles' | 'elite' | 'jailer' | 'final' | 'guardroom' | 'castellan' | 'feats' | 'victory' | 'ash' | 'quest' | 'vows';
-export type NpcId = 'owl' | 'herb' | 'smith' | 'gambler';
+export type NpcId = 'owl' | 'herb' | 'smith' | 'gambler' | 'monk';
 
 /** The meta at the end of a run (null — no meta: a given seed, the sandbox, the prologue). */
 export interface MetaEnd {
@@ -59,7 +59,7 @@ export interface HearthState {
   seen: string[];
   quest?: { npc: NpcId; id: string };
   /** What the last run was: the lines' occasion (`quest` — the quest's result; `firstWin` — the profile's first victory). */
-  last?: { won: boolean; cause?: string; row: number; beaten: boolean; quest?: boolean; firstWin?: boolean; pack?: boolean; hero?: 'toad'; casino?: 'won' | 'lost' };
+  last?: { won: boolean; cause?: string; row: number; beaten: boolean; quest?: boolean; firstWin?: boolean; pack?: boolean; hero?: 'toad'; casino?: 'won' | 'lost'; firstGarrison?: boolean; cuts?: number; vows?: { id: string; kept: boolean }[] };
   /** The NPC who came by themselves (the fallback way): their meeting line is `first_self`. */
   self?: Partial<Record<NpcId, boolean>>;
   /** The lines said so far, by `npc:key` (the profile's `lines`). */
@@ -67,7 +67,8 @@ export interface HearthState {
 }
 
 /** The start of a run from the camp: the maps to choose from (seeds, the base first), the consumables to choose from, the run's flags (core). */
-export interface HearthStart { maps?: number[]; items?: ItemKind[]; flags?: object }
+/** Task 51г: `vows` — Евлампий's vows offered (2 or 3), `vowCount` — how many may be taken (1 or 2; fewer, or none, is a choice too). */
+export interface HearthStart { maps?: number[]; items?: ItemKind[]; vows?: string[]; vowCount?: number; flags?: object }
 
 /** What the view needs of the meta (core's profile; a stub until it lands). */
 export interface MetaSource {
@@ -88,6 +89,9 @@ export const HEARTH_PRICES = [4, 8, 16] as const;
 /** Task 51а: what a level 3 shows before the gate (the lock's caption: «Закрыто · Дойди до гарнизона»). */
 export const HEARTH_GATE_LOCK = { name: 'Закрыто', rule: 'Дойди до гарнизона' } as const;
 
+/** Task 51г: the lock of Евлампий's level 3 (design: «после замка колдуна»; the gate of the others does not open it). */
+export const HEARTH_MONK_LOCK = { name: 'Закрыто', rule: 'После замка колдуна' } as const;
+
 /** The NPC of v1: names, who they are, their upgrades (level 1–3; task 51б: level 3 serves the garrison). */
 export const NPCS: Readonly<Record<NpcId, { name: string; who: string; upgrades: [string, string, string]; rules: [string, string, string] }>> = {
   owl: { name: 'Неясыть', who: 'сова-летописица', upgrades: ['Два пути', 'Три пути', 'Путь в гарнизон'],
@@ -98,9 +102,12 @@ export const NPCS: Readonly<Record<NpcId, { name: string; who: string; upgrades:
     rules: ['+1 бесплатный переброс на экранах Тюремщика', 'Все открытые молоты на экране Тюремщика', '+1 бесплатный переброс в гарнизоне'] },
   gambler: { name: 'Шиш', who: 'гоблин-шулер', upgrades: ['Шишова лавка', 'Размен', 'Лавка в гарнизоне'],
     rules: ['+1 бесплатный переброс у торговца', 'У торговца — обмен ресурсов, раз за поход', '+1 бесплатный переброс у торговца гарнизона'] },
+  // Task 51г: level 3 is never for sale in stage 3 (`HEARTH_MONK_LOCK`).
+  monk: { name: 'Евлампий', who: 'расстрига', upgrades: ['Обет', 'Два обета', 'Закрыто'],
+    rules: ['Перед походом — обет из 2 на выбор', 'Перед походом — 2 обета из 3', 'После замка колдуна'] },
 };
 /** The order of the six places round the fire: the NPC of v1, Шиш on the right stump (task 51в; the left one waits for the next guest), then empty places. */
-export const HEARTH_PLACES: readonly (NpcId | null)[] = ['owl', 'herb', 'smith', null, 'gambler', null];
+export const HEARTH_PLACES: readonly (NpcId | null)[] = ['owl', 'herb', 'smith', null, 'gambler', 'monk'];
 
 /** The end screen's line of each part of the experience. */
 export function xpPartLabel(id: MetaXpPart, n?: number): string {
