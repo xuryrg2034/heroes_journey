@@ -118,7 +118,7 @@ test('task 57а view: a dash across the stones puts them out (`snuffShots`) — 
   test.setTimeout(90_000);
   const errors = collectErrors(page);
   await openSandbox(page);
-  const hero = await quiet(page, [['slingWindup', 1.5], ['snuffShots', true]]);
+  const hero = await quiet(page, [['slingWindup', 1.5], ['snuffShots', true], ['focusSlow', 0.1]]);
   const hp0 = (await snap(page)).hero.hp;
   // Two links of one colour on the middle line between the slinger and the hero.
   const a = await place(page, hero.x - 1.6, hero.y, 2, 0, 'basic'), b = await place(page, hero.x - 3.2, hero.y, 2, 0, 'basic');
@@ -128,9 +128,9 @@ test('task 57а view: a dash across the stones puts them out (`snuffShots`) — 
   await place(page, hero.x - 5.6, hero.y, 1, 0, 'slinger');
   await untilFrame(page, (s, _a: number, late) => s.shooters.lines === 3 || late ? true : undefined, 0, 6);
   expect((await snap(page)).shooters.lines).toBe(3);
-  await untilFrame(page, (s, _a: number, late) => s.shooters.flying === 3 || late ? true : undefined, 0, 6);
+  // The dash must meet the stones: let them fly up to the far link, then release (the dash only puts out what it touches while it runs).
+  await untilFrame(page, (s, nearX: number, late) => s.shots.length === 3 && s.shots.every((x: any) => x.hang === 0 && x.x > nearX) || late ? true : undefined, hero.x - 3.3, 6);
   expect((await snap(page)).shooters.stones).toBe(3);
-  await shot(page, 'slinger-chain-focus');
   await releaseChain(page);
   await untilFrame(page, (s, _a: number, late) => s.shooters.snuffs > 0 || late ? true : undefined, 0, 4);
   const after = await snap(page);
@@ -182,7 +182,7 @@ test('task 57а view: a chain that kills the hive while its wasps hang — they 
   test.setTimeout(90_000);
   const errors = collectErrors(page);
   await openSandbox(page);
-  const hero = await quiet(page, [['hiveSwell', 0.8]], { x: 4.5, y: 5.8 });
+  const hero = await quiet(page, [['hiveSwell', 0.8], ['focusSlow', 0.1]], { x: 4.5, y: 5.8 });
   // The hive is close (1.8, the nearest it still shoots from is 1.5): the dash is short and the wasps still hang when it lands.
   const a = await place(page, hero.x + 0.9, hero.y, 1, 0, 'basic');
   const hive = await place(page, hero.x + 1.8, hero.y, 1, 2, 'hive');
@@ -190,9 +190,8 @@ test('task 57а view: a chain that kills the hive while its wasps hang — they 
   await holdChain(page, [a, hive]);
   await untilFrame(page, (s, _a: number, late) => s.shooters.hanging === 8 || late ? true : undefined, 0, 8);
   expect((await snap(page)).shooters.hanging).toBe(8);
-  await page.keyboard.press('KeyP');
-  await expect.poll(async () => (await page.evaluate(() => (window as any).__realtime.snapshot().paused))).toBe(true);
-  await page.keyboard.press('KeyP');
+  // The cold keeps a hanging pattern hanging while its shooter is frozen (a journalled command): the dash lands on the hung wasps whatever the delays.
+  await page.evaluate(id => (window as any).__realtime.chill(id, 8), hive);
   await releaseChain(page);
   await untilFrame(page, (s, _a: number, late) => s.shooters.fades > 0 || late ? true : undefined, 0, 4);
   await shot(page, 'hive-fade');
@@ -240,11 +239,11 @@ test('task 57а view: the wisp — the light grows, it flies, stands still in th
   await page.evaluate(() => (window as any).__realtime.setParam('focusSlow', 0.25));
   const hp = (await snap(page)).hero.hp, kills = (await snap(page)).kills;
   await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [hero.x - 4, hero.y] as const);
+  const outs = (await snap(page)).shooters.wispOuts;
   await place(page, hero.x + 3, hero.y, 2, 0, 'wisp');
   await untilFrame(page, (s, _a: number, late) => s.shooters.wispsFading === 1 || late ? true : undefined, 0, 6);
   expect((await snap(page)).shooters.wispsFading).toBe(1);
   await shot(page, 'wisp-fading');
-  const outs = (await snap(page)).shooters.wispOuts;
   await untilFrame(page, (s, n: number, late) => s.shooters.wispOuts > n || late ? true : undefined, outs, 4);
   const end = await snap(page);
   expect(end.shooters.wispOuts).toBeGreaterThan(outs);
