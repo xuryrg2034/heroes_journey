@@ -4,11 +4,13 @@
  * Lines of one key go in the order of showing: the first one first, then round and round («опять» only from the second).
  */
 import type { NpcId } from './metaModel';
+import { TOAD_LINES_BY_NPC } from './npcToadLines';
 
 /** Causes of death the lines know (the run's killing blow; design notes: jailer — any blow in the Jailer's fight). */
-export type DeathCause = 'crowd' | 'archer' | 'sapper' | 'jailer' | 'final' | 'fire' | 'other';
+export type DeathCause = 'crowd' | 'archer' | 'sapper' | 'jailer' | 'final' | 'fire' | 'other' | 'guardroom' | 'castellan' | 'troll';
 export type LineKey = 'first' | 'first_self' | 'win_first' | 'win' | `death_${DeathCause}` | 'record' | 'buy_1' | 'buy_2'
-  | 'quest_give' | 'quest_give_final' | 'quest_done' | 'quest_fail' | 'idle' | 'about_owl' | 'about_herb' | 'about_smith' | 'locked3' | 'pack';
+  | 'quest_give' | 'quest_give_final' | 'quest_done' | 'quest_fail' | 'idle' | 'about_owl' | 'about_herb' | 'about_smith' | 'locked3' | 'pack'
+  | 'win_garrison_first' | 'meet_hello' | 'back_met';
 
 export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly string[]>>>> = {
   owl: {
@@ -121,14 +123,16 @@ export type LineMemory = Readonly<Record<string, number>>;
  * one about another NPC present.
  */
 export function pickLine(npc: NpcId, ctx: LineContext, memory: LineMemory): { key: LineKey; text: string; id: string } {
-  const L = NPC_LINES[npc], count = (key: LineKey): number => memory[`${npc}:${key}`] ?? 0;
+  // After her run (`hero` 'toad'): her variants first, then the lines without the mark `cat`, counted apart (`npc:key:toad`).
+  const toad = ctx.hero === 'toad', tail = toad ? ':toad' : '';
+  const L = NPC_LINES[npc], count = (key: LineKey): number => memory[`${npc}:${key}${tail}`] ?? 0;
   const line = (key: LineKey, once = false): { key: LineKey; text: string; id: string } | null => {
-    const all = L[key], marked = ctx.hero === 'toad' ? CAT_MARKED[npc][key] ?? [] : [];
-    const list = all?.filter((_, i) => !marked.includes(i + 1));
-    if (!list?.length) return null;
+    const marked = toad ? CAT_MARKED[npc][key] ?? [] : [];
+    const list = [...toad ? TOAD_LINES_BY_NPC[npc][key] ?? [] : [], ...(L[key] ?? []).filter((_, i) => !marked.includes(i + 1))];
+    if (!list.length) return null;
     const n = count(key);
     if (once && n >= list.length) return null;
-    return { key, text: list[n % list.length], id: `${npc}:${key}` };
+    return { key, text: list[n % list.length], id: `${npc}:${key}${tail}` };
   };
   const meet = ctx.self ? line('first_self', true) : null;
   const first = meet ?? (count('first_self') ? null : line('first', true));
@@ -143,7 +147,7 @@ export function pickLine(npc: NpcId, ctx: LineContext, memory: LineMemory): { ke
     if (occasion) return occasion;
   }
   const idle = count('idle'), about = ctx.others.filter(o => o !== npc).map(o => `about_${o}` as LineKey).filter(k => L[k]);
-  if (about.length && idle % 4 === 3) return { ...line(about[(idle >> 2) % about.length])!, id: `${npc}:idle` };
+  if (about.length && idle % 4 === 3) return { ...line(about[(idle >> 2) % about.length])!, id: `${npc}:idle${tail}` };
   return line('idle')!;
 }
 
