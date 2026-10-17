@@ -1,7 +1,7 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
 import {
-  createRtRun, resolveArena, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHabit, rtChooseHammer, rtChooseTalisman, rtDieChoose,
+  createRtRun, resolveArena, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHabit, rtChooseHammer, rtChooseKnack, rtChooseTalisman, rtDieChoose,
   rtEnterNode, rtEventView, rtGiftView, rtItemRefusal, rtNode, rtRestHeal, rtShopLeave, serializeRtRun, type RtRunState, type RtRunStep,
 } from '../src/realtime/run/rtRun';
 import { RT_HABITS, rtHabit, rtTalisman, type RtHabitId } from '../src/realtime/run/rtTalismans';
@@ -15,7 +15,12 @@ import { RT_HABITS, rtHabit, rtTalisman, type RtHabitId } from '../src/realtime/
 
 const RUN_KEY = 'ashen-oath-rt-run-v7';
 const seedOf = (k: number): number => Math.imul(k, 2654435761) >>> 0;
-const shot = async (page: Page, name: string): Promise<void> => { if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/${name}.png` }); };
+// The cards of a screen come in one by one (task 47 reveal): a shot waits for the last (finite animations only: a pulse never ends).
+const shot = async (page: Page, name: string): Promise<void> => {
+  if (!process.env.SHOT_DIR) return;
+  await page.evaluate(() => Promise.all(document.getAnimations().filter(a => a.effect?.getComputedTiming().endTime !== Infinity).map(a => a.finished)));
+  await page.screenshot({ path: `${process.env.SHOT_DIR}/${name}.png` });
+};
 const shown = (page: Page): Promise<{ habit: string | null | undefined; row: boolean; chosen: boolean; signs: number; marks: number; marked: string[] }> => page.evaluate(() => (window as any).__realtime.run.habitShown());
 
 function collectErrors(page: Page): string[] {
@@ -38,6 +43,7 @@ function advance(run: RtRunState, n: number, take: (run: RtRunState) => string |
   }
   if (p?.kind === 'talisman') return ok(rtChooseTalisman(run, take(run)));
   if (p?.kind === 'hammer') return ok(rtChooseHammer(run, null));
+  if (p?.kind === 'knack') return ok(rtChooseKnack(run, null));
   if (p?.kind === 'die') return ok(rtDieChoose(run, false));
   if (p?.kind === 'find') return ok(rtChooseFind(run, p.options.find(item => !rtItemRefusal(run, item)) ?? p.options[0]));
   if (p?.kind === 'rest') return ok(rtRestHeal(run));
