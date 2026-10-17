@@ -781,7 +781,7 @@ export class RunView {
   }
 
   /**
-   * Task 51г (design 17.10.2026): the sign of the vows taken in the map's header (not in the fight's HUD) - a seal on a dark disc; on a hover a
+   * Task 51г (design 17.10.2026): the sign of the vows taken in the map's header (not in the fight's HUD) - a knot on a rope on a dark disc; on a hover a
    * list of the vows (name and rule). A broken vow is struck through from the start of the run by the core's check of the current state
    * (`rtVowsNow`; the end counts the same, only from the Jailer's row - `rtVowsOf`). `brokenVows` is the one place for it.
    */
