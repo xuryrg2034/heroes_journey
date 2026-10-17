@@ -14,7 +14,7 @@ export interface MetaPackItem { id: string; kind: MetaItemKind }
 export interface MetaPack { id: string; title: string; items: MetaPackItem[] }
 /** The parts of a run's experience, in the order the end screen lists them. */
 export type MetaXpPart = 'battles' | 'elite' | 'jailer' | 'final' | 'guardroom' | 'castellan' | 'feats' | 'victory' | 'ash' | 'quest';
-export type NpcId = 'owl' | 'herb' | 'smith';
+export type NpcId = 'owl' | 'herb' | 'smith' | 'gambler';
 
 /** The meta at the end of a run (null — no meta: a given seed, the sandbox, the prologue). */
 export interface MetaEnd {
@@ -32,8 +32,7 @@ export interface MetaEnd {
   /** Task 40: `cart` — what «Повозка» sent (inside `n`); absent — no cart in the run. */
   carry: { n: number; share: number; cap: number; resources: number; cart?: number };
   stock: { before: number; after: number };
-  /** Task 51в (core): `npc` — any quest NPC of the core (Шиш's `gambler` too); the end screen does not read it. */
-  quest?: { npc: string; id: string; done: boolean; xp: number; stock: number };
+  quest?: { npc: NpcId; id: string; done: boolean; xp: number; stock: number };
 }
 
 /** Task 49: the heroes as the camp and «Новый поход» show them (the profile's `heroes()`; the cat always open, Ведунья once freed). */
@@ -59,7 +58,7 @@ export interface HearthState {
   seen: string[];
   quest?: { npc: NpcId; id: string };
   /** What the last run was: the lines' occasion (`quest` — the quest's result; `firstWin` — the profile's first victory). */
-  last?: { won: boolean; cause?: string; row: number; beaten: boolean; quest?: boolean; firstWin?: boolean; pack?: boolean; hero?: 'toad' };
+  last?: { won: boolean; cause?: string; row: number; beaten: boolean; quest?: boolean; firstWin?: boolean; pack?: boolean; hero?: 'toad'; casino?: 'won' | 'lost' };
   /** The NPC who came by themselves (the fallback way): their meeting line is `first_self`. */
   self?: Partial<Record<NpcId, boolean>>;
   /** The lines said so far, by `npc:key` (the profile's `lines`). */
@@ -96,9 +95,11 @@ export const NPCS: Readonly<Record<NpcId, { name: string; who: string; upgrades:
     rules: ['+1 расходник в начале похода', 'Расходник в дорогу — на выбор из 2', 'В Предместье — расходник из 2 на выбор'] },
   smith: { name: 'Ерофей', who: 'точильщик', upgrades: ['Правка', 'Полный верстак', 'Правка в гарнизоне'],
     rules: ['+1 бесплатный переброс на экранах Тюремщика', 'Все открытые молоты на экране Тюремщика', '+1 бесплатный переброс в гарнизоне'] },
+  gambler: { name: 'Шиш', who: 'гоблин-шулер', upgrades: ['Шишова лавка', 'Размен', 'Лавка в гарнизоне'],
+    rules: ['+1 бесплатный переброс у торговца', 'У торговца — обмен ресурсов, раз за поход', '+1 бесплатный переброс у торговца гарнизона'] },
 };
-/** The order of the six places round the fire: the three NPC of v1, then three empty places. */
-export const HEARTH_PLACES: readonly (NpcId | null)[] = ['owl', 'herb', 'smith', null, null, null];
+/** The order of the six places round the fire: the NPC of v1, Шиш on the left stump (task 51в), then empty places. */
+export const HEARTH_PLACES: readonly (NpcId | null)[] = ['owl', 'herb', 'smith', 'gambler', null, null];
 
 /** The end screen's line of each part of the experience. */
 export function xpPartLabel(id: MetaXpPart, n?: number): string {

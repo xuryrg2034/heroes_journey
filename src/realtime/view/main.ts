@@ -1990,6 +1990,8 @@ async function boot(): Promise<void> {
       habitShown: () => runView.habitInfo(),
       /** Task 51б: «Предместье»'s offers of the camp's level 3 and the choice they hold (null - none). */
       gateShown: () => runView.gateInfo(),
+      /** Task 51в: the merchant's reroll and «Размен» as shown (null — no merchant open). */
+      shopShown: () => runView.shopInfo(),
       /** Task 49: the hero cards of the screen (ids, the chosen one, the best «Испытание» marks, the laws) and the cage scene (null - none). */
       heroesShown: () => runView.heroesShown(),
       /** Task 47, tests only: multiplies the times of the staged screens (С6, С8) by `k` — a slow reveal to act in the middle of it. */

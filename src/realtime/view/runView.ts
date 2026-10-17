@@ -17,7 +17,7 @@ import { rosterTitle } from '../sim/rosters';
 import { rtHp } from '../run/hpScale';
 import {
   arenaPreview, createRtRun, rtRunParams, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtEnterNode,
-  rtChooseHabit, rtChooseTalisman, rtRerollTalismans, rtRerollView, rtHammerRerollView, rtRerollHammers, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtFoughtJailer, rtRestCraft, rtRestFinish, rtRestFuse, rtRestHeal, rtRestView, rtFusionRecipe, rtFusionsReady, rtInnate, rtHandFull, rtItemRefusal, rtPotionCap, RT_ITEM_REFUSAL_TEXT, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
+  rtChooseHabit, rtChooseTalisman, rtRerollTalismans, rtRerollView, rtHammerRerollView, rtRerollHammers, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtFoughtJailer, rtRestCraft, rtRestFinish, rtRestFuse, rtRestHeal, rtRestView, rtFusionRecipe, rtFusionsReady, rtInnate, rtHandFull, rtItemRefusal, rtPotionCap, RT_ITEM_REFUSAL_TEXT, rtShopBuy, rtShopLeave, rtShopView, rtShopReroll, rtShopRerollView, rtShopSwap, rtShopSwapView, RT_SWAP_GIVE, RT_SWAP_GET, rtItemHintDue,
   rtOathPreview, rtOathStakeOn, rtArenaRules, RT_SECOND_WIND_LAST_ROW, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
   rtCasinoView, rtCasinoPlay, rtCasinoLeave, rtCasinoNode, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE,
   healOffer, healOnMap, healVisible, rtResourceTotal, rtNodeFeat, RT_HEAL_MAP_GAIN, rtAsh, rtAshOptions, rtAshTitle, rtRunWon, isRtAshLevel, type RtAshLevel, rtScheduleMet, RT_JAILER_SEVERED_SLOTS, RT_TROLL_ALL_PARTS_SLOTS, rtTrollNode, rtFormReplaces, rtFormSlotField,
@@ -382,7 +382,8 @@ export class RunView {
   readonly el: HTMLDivElement;
   private run: RtRunState | null;
   private readonly store = createRtRunStore();
-  private readonly profile = createRtProfileStore();
+  // Task 51в: Шиш's camp is on in the game (`RT_HEARTH_GAMBLER_ON` is the core's default, off).
+  private readonly profile = createRtProfileStore(undefined, { gambler: true });
   /** «Обучение v1»: the lines on the screens (first two appearances each); absent in the sandbox. */
   private readonly lines: ScreenLines | null;
   private selected: string | null = null;
@@ -429,6 +430,9 @@ export class RunView {
   private outskirtsFrom: number | null = null;
   /** Task 40 «Повозка»: the deposit «−» and «+» chose on «Предместье» (null — the default, `rtCartView`'s «оставить 6»). */
   private cartN: number | null = null;
+  /** Task 51в «Размен»: the kinds chosen at the merchant (given, taken); cleared by a swap and by leaving. */
+  private swapFrom: ResourceKind | null = null;
+  private swapTo: ResourceKind | null = null;
   /** Task 51б: the choices at «Предместье» (null — the default: the base map, the first consumable that can be taken). */
   private gateMap: 0 | 1 | null = null;
   private gateItem: ItemKind | null = null;
@@ -772,6 +776,41 @@ export class RunView {
     this.host.startArena(pending.arena, pending.seed, { hp: this.run.hp, maxHp: this.run.maxHp }, label, rtArenaLoadout(this.run, this.host.loadoutOptions), { blink: arenaBlink(this.run), hint: rtItemHintDue(this.run) }, pending.roster, rtArenaRules(this.run));
   }
 
+  /**
+   * Task 51в (Шиш's levels 1–3, spec 3.2): at the merchant the free reroll of the goods with Шиш's portrait («Шишова лавка», «Лавка в гарнизоне»;
+   * off with its reason) and «Размен» (level 2): 3 of one kind → 2 of another, once a run. Core's views `rtShopRerollView`, `rtShopSwapView`;
+   * no button and no block without the level.
+   */
+  private shopGamblerHtml(run: RtRunState): string {
+    const portrait = `<img class="rt-shop-npc" src="${new URL('art/characters/npc-gambler.png', document.baseURI).href}" alt="" onerror="this.hidden=true">`;
+    const reroll = rtShopRerollView(run), swap = rtShopSwapView(run);
+    let html = '';
+    if (reroll) {
+      const note = reroll.available ? (reroll.garrison ? 'Лавка в гарнизоне (Шиш): товар и талисман выпадут заново, лечение и закалка останутся' : 'Шишова лавка: товар и талисман выпадут заново, лечение и закалка останутся') : reroll.reason;
+      html += `<button class="rt-other rt-shop-reroll" data-action="shop-reroll" data-testid="shop-reroll" title="${escapeHtml(note)}" ${reroll.available ? '' : 'disabled'}>${portrait}<span>Перебросить товар — бесплатно</span></button>`
+        + `<p class="rt-run-note rt-shop-note${reroll.available ? '' : ' rt-run-reason'}" data-testid="shop-reroll-note">${reroll.available ? (reroll.garrison ? 'Лавка в гарнизоне (Шиш)' : 'Шишова лавка') : escapeHtml(reroll.reason)}</p>`;
+    }
+    if (swap) {
+      const from = this.swapFrom && swap.give.includes(this.swapFrom) ? this.swapFrom : null, to = from && this.swapTo !== from ? this.swapTo : null;
+      const chip = (kind: ResourceKind, action: string, on: boolean, off: boolean): string =>
+        `<button class="rt-swap-kind${on ? ' rt-chosen' : ''}" data-action="${action}" data-kind="${kind}" data-testid="${action}-${kind}" aria-pressed="${on}" ${off ? 'disabled' : ''}>${RESOURCES[kind].label} <small>${run.materials[kind]}</small></button>`;
+      const give = RESOURCE_KINDS.map(kind => chip(kind, 'swap-from', from === kind, !swap.available || !swap.give.includes(kind))).join('');
+      const take = RESOURCE_KINDS.map(kind => chip(kind, 'swap-to', to === kind, !swap.available || !from || kind === from)).join('');
+      html += `<div class="rt-shop-swap" data-testid="shop-swap"><div class="rt-swap-head"><span class="rt-cart-head">Размен · ${RT_SWAP_GIVE} → ${RT_SWAP_GET}</span>`
+        + (swap.available ? '' : `<small class="rt-run-reason" data-testid="shop-swap-note">${escapeHtml(swap.reason)}</small>`)
+        + `<button class="rt-other rt-swap-do" data-action="swap-do" data-testid="swap-do" ${swap.available && from && to ? '' : 'disabled'}>Обменять</button></div>`
+        + `<div class="rt-swap-row"><span>Отдать ${RT_SWAP_GIVE}</span>${give}</div><div class="rt-swap-row"><span>Получить ${RT_SWAP_GET}</span>${take}</div></div>`;
+    }
+    return html;
+  }
+  /** Task 51в (tests read it, `__realtime.run.shopShown`): the merchant's reroll and swap as the screen shows them (null — no merchant). */
+  shopInfo(): { reroll: { available: boolean; reason: string; garrison: boolean } | null; swap: { available: boolean; reason: string; give: string[] } | null; from: string | null; to: string | null } | null {
+    const run = this.run;
+    if (!run || run.pending?.kind !== 'shop') return null;
+    const swap = rtShopSwapView(run);
+    return { reroll: rtShopRerollView(run), swap, from: swap && this.swapFrom && swap.give.includes(this.swapFrom) ? this.swapFrom : null, to: this.swapTo };
+  }
+
   /** Task 40 «Повозка»: the deposit shown — the one «−» and «+» chose, within 0 … `max` (none chosen — the default). */
   private cartValue(cart: RtCartView): number { return Math.max(0, Math.min(cart.max, this.cartN ?? cart.deposit)); }
 
@@ -937,7 +976,12 @@ export class RunView {
     if (action === 'knack') { this.chooseKnack(target.dataset.option || null, !!target.dataset.hone); return; }
     if (action === 'hammer-reroll') { this.apply(rtRerollHammers(run)); return; }
     if (action === 'hammer') { this.apply(rtChooseHammer(run, (target.dataset.option || null) as Parameters<typeof rtChooseHammer>[1])); return; }
-    if (action === 'shop-leave') { this.apply(rtShopLeave(run)); return; }
+    if (action === 'shop-leave') { this.swapFrom = this.swapTo = null; this.apply(rtShopLeave(run)); return; }
+    // Task 51в: Шиш's reroll of the goods and «Размен» (the kinds chosen on the screen, then «Обменять»).
+    if (action === 'shop-reroll') { this.apply(rtShopReroll(run)); return; }
+    if (action === 'swap-from') { this.swapFrom = target.dataset.kind as ResourceKind; if (this.swapTo === this.swapFrom) this.swapTo = null; this.draw(); return; }
+    if (action === 'swap-to') { this.swapTo = target.dataset.kind as ResourceKind; this.draw(); return; }
+    if (action === 'swap-do') { const from = this.swapFrom, to = this.swapTo; this.swapFrom = this.swapTo = null; if (from && to) this.apply(rtShopSwap(run, from, to)); return; }
     // Task 38: «В гарнизон» from «Предместье». Task 40: with the cart, the deposit «−» and «+» chose goes with it.
     // Task 51б: the garrison map and the consumable chosen on «Предместье» (the level 3 of the camp) go with it.
     if (action === 'garrison') { const cart = rtCartView(run), gate = rtGateView(run); this.apply(rtEnterGarrison(run, cart ? this.cartValue(cart) : undefined, gate ? this.gateChoice(gate) : undefined)); return; }
@@ -1740,7 +1784,7 @@ export class RunView {
       // Task 15: the header has one number; the merchant names the kinds (he takes from the most numerous).
       const kinds = resourceKindsText(run.materials);
       return card(`<h2>Торговец</h2><p data-testid="shop-resources">Ресурсов: ${view.total}${kinds ? ` (${kinds})` : ''}.</p><div class="rt-run-choices">${goods}</div>`
-        + `<button class="rt-other" data-action="shop-leave" data-testid="shop-leave">Уйти</button>`, 'run-shop');
+        + this.shopGamblerHtml(run) + `<button class="rt-other" data-action="shop-leave" data-testid="shop-leave">Уйти</button>`, 'run-shop');
     }
     const view = rtEventView(run);
     if (!view) return '';

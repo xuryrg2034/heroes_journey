@@ -26,10 +26,10 @@ const ICON = '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"
  * right stump, the front right rug. No two names overlap in any company. `s` — the figure's scale (farther — smaller).
  */
 const PLACE_AT: readonly { x: number; y: number; s: number }[] = [
-  { x: 345, y: 352, s: 0.9 }, { x: 935, y: 356, s: 0.9 }, { x: 305, y: 528, s: 0.95 }, { x: 245, y: 422, s: 1 }, { x: 1045, y: 422, s: 1 }, { x: 965, y: 516, s: 1.1 },
+  { x: 345, y: 352, s: 0.9 }, { x: 935, y: 356, s: 0.9 }, { x: 305, y: 528, s: 0.95 }, { x: 205, y: 428, s: 0.8 }, { x: 1045, y: 422, s: 1 }, { x: 965, y: 516, s: 1.1 },
 ];
 /** The NPC's art (public/art/characters; design, Codex): a stand-in silhouette shows if the image does not load. */
-const NPC_ART: Readonly<Record<NpcId, string>> = { owl: 'npc-owl', herb: 'npc-herbalist', smith: 'npc-smith' };
+const NPC_ART: Readonly<Record<NpcId, string>> = { owl: 'npc-owl', herb: 'npc-herbalist', smith: 'npc-smith', gambler: 'npc-gambler' };
 const artUrl = (path: string): string => new URL(`art/${path}`, document.baseURI).href;
 
 /**
@@ -43,11 +43,14 @@ const HERO_SVG: Readonly<Record<MetaHeroId, string>> = {
   toad: '<svg viewBox="0 0 120 150" aria-hidden="true"><path d="M60 40 Q96 40 100 80 Q106 126 60 132 Q14 126 20 80 Q24 40 60 40 Z" fill="#6a8a4a" stroke="#0d141b" stroke-width="5" stroke-linejoin="round"/><circle cx="40" cy="44" r="14" fill="#e8d7ad" stroke="#0d141b" stroke-width="4"/><circle cx="80" cy="44" r="14" fill="#e8d7ad" stroke="#0d141b" stroke-width="4"/><circle cx="42" cy="46" r="5" fill="#0d141b"/><circle cx="78" cy="46" r="5" fill="#0d141b"/><path d="M38 86 Q60 100 82 86" fill="none" stroke="#0d141b" stroke-width="4" stroke-linecap="round"/></svg>',
 };
 
+/** Stand-in of Шиш (task 51в). */
+const GAMBLER_SVG = '<svg viewBox="0 0 120 150" aria-hidden="true"><path d="M60 40 Q96 44 98 84 Q100 136 60 142 Q20 136 22 84 Q24 44 60 40 Z" fill="#c8962e" stroke="#0d141b" stroke-width="5" stroke-linejoin="round"/><path d="M26 56 L4 40 L24 72 Z M94 56 L116 40 L96 72 Z" fill="#6f8f3a" stroke="#0d141b" stroke-width="4" stroke-linejoin="round"/><ellipse cx="60" cy="58" rx="24" ry="20" fill="#7aa045" stroke="#0d141b" stroke-width="4"/><circle cx="50" cy="56" r="4" fill="#0d141b"/><circle cx="70" cy="56" r="4" fill="#0d141b"/><path d="M48 70 Q60 80 72 70" fill="none" stroke="#0d141b" stroke-width="3.5" stroke-linecap="round"/><rect x="40" y="96" width="14" height="18" rx="2" fill="#e8d7ad" stroke="#0d141b" stroke-width="3" transform="rotate(-10 47 105)"/><path d="M34 92 L86 92" stroke="#e0613f" stroke-width="6" stroke-linecap="round"/></svg>';
 /** Stand-in silhouettes of the NPC until the art (design, Codex): navy shapes with one colour accent. */
 const NPC_SVG: Readonly<Record<NpcId, string>> = {
   owl: '<svg viewBox="0 0 120 150" aria-hidden="true"><path d="M60 22 L40 8 L42 34 Q22 52 24 92 Q28 136 60 142 Q92 136 96 92 Q98 52 78 34 L80 8 Z" fill="#2a3640" stroke="#0d141b" stroke-width="5" stroke-linejoin="round"/><circle cx="46" cy="58" r="13" fill="#e8d7ad" stroke="#0d141b" stroke-width="4"/><circle cx="74" cy="58" r="13" fill="#e8d7ad" stroke="#0d141b" stroke-width="4"/><circle cx="47" cy="59" r="5" fill="#0d141b"/><circle cx="73" cy="59" r="5" fill="#0d141b"/><path d="M60 70 L54 80 L66 80 Z" fill="#c8962e" stroke="#0d141b" stroke-width="3"/><path d="M38 98 Q60 112 82 98 M40 112 Q60 126 80 112" fill="none" stroke="#5a6a76" stroke-width="4"/><rect x="74" y="104" width="30" height="22" rx="3" fill="#8a6a3e" stroke="#0d141b" stroke-width="4" transform="rotate(-12 89 115)"/></svg>',
   herb: '<svg viewBox="0 0 120 150" aria-hidden="true"><path d="M60 14 Q34 16 32 44 Q30 60 40 66 L80 66 Q90 60 88 44 Q86 16 60 14 Z" fill="#7a2e2e" stroke="#0d141b" stroke-width="5" stroke-linejoin="round"/><ellipse cx="60" cy="50" rx="17" ry="19" fill="#e2c7a0" stroke="#0d141b" stroke-width="4"/><path d="M40 66 Q22 110 26 146 L94 146 Q98 110 80 66 Z" fill="#3b5a3a" stroke="#0d141b" stroke-width="5" stroke-linejoin="round"/><path d="M44 96 L76 96 L72 132 L48 132 Z" fill="#cfc29a" stroke="#0d141b" stroke-width="3"/><path d="M92 92 Q104 84 100 72 M96 96 Q110 96 112 84" fill="none" stroke="#6fae5a" stroke-width="4" stroke-linecap="round"/><circle cx="53" cy="49" r="2.6" fill="#0d141b"/><circle cx="67" cy="49" r="2.6" fill="#0d141b"/></svg>',
   smith: '<svg viewBox="0 0 120 150" aria-hidden="true"><path d="M26 70 Q22 140 30 146 L90 146 Q98 140 94 70 Q60 56 26 70 Z" fill="#4a4036" stroke="#0d141b" stroke-width="5" stroke-linejoin="round"/><ellipse cx="60" cy="44" rx="20" ry="22" fill="#d9b48c" stroke="#0d141b" stroke-width="4"/><path d="M40 52 Q60 84 80 52 Q72 66 60 66 Q48 66 40 52 Z" fill="#8a5a32" stroke="#0d141b" stroke-width="3"/><path d="M42 84 L78 84 L82 146 L38 146 Z" fill="#6a4a2a" stroke="#0d141b" stroke-width="4"/><rect x="88" y="62" width="10" height="56" rx="3" fill="#8a6a3e" stroke="#0d141b" stroke-width="3" transform="rotate(18 93 90)"/><rect x="88" y="52" width="28" height="16" rx="3" fill="#7d8a96" stroke="#0d141b" stroke-width="4" transform="rotate(18 102 60)"/><circle cx="52" cy="42" r="2.6" fill="#0d141b"/><circle cx="68" cy="42" r="2.6" fill="#0d141b"/></svg>',
+  gambler: GAMBLER_SVG,
 };
 const FIRE_SVG = '<svg class="rt-hearth-fire" viewBox="0 0 200 170" aria-hidden="true"><ellipse cx="100" cy="150" rx="86" ry="16" fill="#0a0d09"/><g class="rt-hearth-logs"><rect x="34" y="130" width="132" height="18" rx="9" fill="#5a3b22" stroke="#0d141b" stroke-width="4" transform="rotate(-10 100 139)"/><rect x="34" y="130" width="132" height="18" rx="9" fill="#6b4628" stroke="#0d141b" stroke-width="4" transform="rotate(10 100 139)"/></g><path class="rt-flame rt-flame-a" d="M100 18 Q132 64 128 100 Q126 132 100 138 Q74 132 72 100 Q70 64 100 18 Z" fill="#e0562f" stroke="#0d141b" stroke-width="5" stroke-linejoin="round"/><path class="rt-flame rt-flame-b" d="M100 58 Q120 88 116 110 Q112 130 100 132 Q88 130 84 110 Q80 88 100 58 Z" fill="#ffb347"/><path class="rt-flame rt-flame-c" d="M100 90 Q110 106 108 118 Q106 128 100 128 Q94 128 92 118 Q90 106 100 90 Z" fill="#fff2c4"/></svg>';
 const EMPTY_SVG = '<svg viewBox="0 0 120 60" aria-hidden="true"><ellipse cx="60" cy="40" rx="46" ry="14" fill="#0b100a"/><rect x="22" y="22" width="76" height="22" rx="10" fill="#241c14" stroke="#0d141b" stroke-width="4"/><ellipse cx="94" cy="33" rx="6" ry="10" fill="#3a2c1e" stroke="#0d141b" stroke-width="3"/></svg>';
@@ -141,7 +144,7 @@ export class HearthView {
     }).join('');
   }
 
-  private npcsHere(h: HearthState): NpcId[] { return (['owl', 'herb', 'smith'] as const).filter(id => id === 'owl' || h.met[id]); }
+  private npcsHere(h: HearthState): NpcId[] { return (['owl', 'herb', 'smith', 'gambler'] as const).filter(id => id === 'owl' || h.met[id]); }
 
   draw(): void {
     const h = this.host.meta.hearth(), here = this.npcsHere(h);
@@ -209,7 +212,7 @@ export class HearthView {
     const line = pickLine(npc, {
       ...h.self?.[npc] ? { self: true } : {}, ...bought ? { bought } : {}, others: this.npcsHere(h),
       ...h.last?.hero ? { hero: h.last.hero } : {},
-      ...l ? { last: { won: l.won, ...l.firstWin ? { firstWin: true } : {}, ...l.cause ? { cause: l.cause as DeathCause } : {}, ...l.beaten ? { record: true } : {}, ...l.pack ? { pack: true } : {}, ...quest ? (l.quest ? { questDone: true } : { questFail: true }) : {} } } : {},
+      ...l ? { last: { won: l.won, ...l.firstWin ? { firstWin: true } : {}, ...l.cause ? { cause: l.cause as DeathCause } : {}, ...l.beaten ? { record: true } : {}, ...l.pack ? { pack: true } : {}, ...l.casino ? { casino: l.casino } : {}, ...quest ? (l.quest ? { questDone: true } : { questFail: true }) : {} } } : {},
     }, h.lines);
     this.said.add(npc);
     this.boughtNow = null;

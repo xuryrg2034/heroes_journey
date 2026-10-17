@@ -14,7 +14,7 @@ import { TOAD_LINES_BY_NPC } from './npcToadLines';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 function check(name: string, run: () => void): void { run(); console.log(`ok - ${name}`); }
-const NPCS: NpcId[] = ['owl', 'herb', 'smith'];
+const NPCS: NpcId[] = ['owl', 'herb', 'smith', 'gambler'];
 const CAUSES: DeathCause[] = ['crowd', 'archer', 'sapper', 'jailer', 'final', 'fire', 'other'];
 const OCCASIONS: Partial<LineContext>[] = [
   {}, { self: true }, { bought: 2 },
@@ -62,9 +62,9 @@ check('her lines of the run: the record first, then the death by cause (crowd, J
 });
 
 const DOC = readFileSync(new URL('../../../docs/design-notes/npc-lines-v2.md', import.meta.url), 'utf8').split(/\r?\n/);
-const NAMES: Record<string, NpcId | undefined> = { 'Неясыть': 'owl', 'Марфа': 'herb', 'Ерофей': 'smith' };
+const NAMES: Record<string, NpcId | undefined> = { 'Неясыть': 'owl', 'Марфа': 'herb', 'Ерофей': 'smith', 'Шиш': 'gambler' };
 
-check('the 89 variants of the design table: every row of Неясыть, Марфа, Ерофей is in the data under its NPC and key, in the table order, word for word; Шиш and Евлампий rows wait', () => {
+check('the 89 variants of the design table: every row of Неясыть, Марфа, Ерофей, Шиш is in the data under its NPC and key, in the table order, word for word; Евлампий rows wait', () => {
   const from = DOC.findIndex((l: string) => l.startsWith('### Варианты для Ведуньи')), rows: { who: string; key: string; text: string }[] = [];
   for (const l of DOC.slice(from)) {
     if (l.startsWith('| NPC | Метка')) break;
@@ -79,19 +79,20 @@ check('the 89 variants of the design table: every row of Неясыть, Мар�
   for (const npc of NPCS) for (const [key, list] of Object.entries(TOAD_LINES_BY_NPC[npc])) got[`${npc}.${key}`] = [...list!];
   assert(JSON.stringify(Object.keys(expected).sort()) === JSON.stringify(Object.keys(got).sort()), 'the same NPC and key pairs');
   for (const k of Object.keys(expected)) assert(JSON.stringify(expected[k]) === JSON.stringify(got[k]), `${k}: the text of the table`);
-  assert(ours.length === 53 && Object.values(got).flat().length === 53, `${ours.length} rows of the three NPC`);
+  assert(ours.length === 72 && Object.values(got).flat().length === 72, `${ours.length} rows of the four NPC`);
 });
 
 check('the table of the mark cat (v1 rows) is CAT_MARKED, place for place', () => {
   const from = DOC.findIndex((l: string) => l.startsWith('### Метка `cat`')), table: Record<string, number[]> = {};
   for (const l of DOC.slice(from)) {
     if (l.startsWith('### ') && !l.includes('Метка')) break;
-    const m = /^\| (Неясыть|Марфа|Ерофей) \| v1 \| `([a-z_0-9]+)`(?: \((\d+)\))? \|/.exec(l);
-    if (m) (table[`${NAMES[m[1]]}.${m[2]}`] ??= []).push(m[3] ? Number(m[3]) : 1);
+    const m = /^\| (Неясыть|Марфа|Ерофей|Шиш) \| (v1|v2) \| `([a-z_0-9]+)`(?: \((\d+)\))? \|/.exec(l);
+    // rows of Шиш are v2 (all of them in the camp's code); the v2 rows of Марфа and Ерофей are keys the camp does not play yet.
+    if (m && (m[2] === 'v1' || m[1] === 'Шиш')) (table[`${NAMES[m[1]]}.${m[3]}`] ??= []).push(m[4] ? Number(m[4]) : 1);
   }
   const ours: Record<string, number[]> = {};
   for (const npc of NPCS) for (const [key, places] of Object.entries(CAT_MARKED[npc])) ours[`${npc}.${key}`] = [...places!];
-  assert(Object.values(table).flat().length === 53, `${Object.values(table).flat().length} v1 marks in the table`);
+  assert(Object.values(table).flat().length === 64, `${Object.values(table).flat().length} marks in the table`);
   assert(JSON.stringify(Object.keys(table).sort()) === JSON.stringify(Object.keys(ours).sort()), 'the same keys');
   for (const k of Object.keys(table)) assert(JSON.stringify([...table[k]].sort()) === JSON.stringify([...ours[k]].sort()), `${k}: marks ${table[k]} vs ${ours[k]}`);
 });
@@ -118,11 +119,12 @@ check('after her run her variant goes first and is counted apart (npc:key:toad);
 check('design 17.10.2026: the meeting keys are one count for the profile (not met again after her first run); her first win is her variant, else the ordinary win', () => {
   for (const npc of NPCS) {
     // The cat met the NPC (the key's lines are all said): her run brings no meeting, on any occasion.
-    const met = { [`${npc}:first`]: NPC_LINES[npc].first!.length, [`${npc}:first_self`]: 5 };
+    const met = { [`${npc}:first`]: (NPC_LINES[npc].first ?? [NPC_LINES[npc].first_won![0]]).length, [`${npc}:first_self`]: 5 };
     for (const ctx of OCCASIONS) {
       const line = pickLine(npc, { others: NPCS, hero: 'toad', ...ctx }, met);
       assert(line.key !== 'first' && line.key !== 'first_self', `${npc} ${JSON.stringify(ctx)}: met again (${line.key})`);
     }
+    if (!NPC_LINES[npc].win_first) continue; // Шиш has no `win_first` (his first win is the ordinary `win`)
     // The first win of the profile is hers (`firstWin`); the cat's own first win does not count for her.
     const cat = { [`${npc}:first`]: 99, [`${npc}:win_first`]: 1 };
     const variant = TOAD_LINES_BY_NPC[npc].win_first![0];
@@ -144,12 +146,33 @@ check('task 51 (design 17.10.2026): `buy_3` and `locked3` of Неясыть, М�
     if (m) got[`${NAMES[m[1]]}.${m[2]}`] = m[3];
   }
   assert(Object.keys(got).length === 6, `${Object.keys(got).length} rows`);
-  for (const npc of NPCS) for (const key of ['buy_3', 'locked3'] as const) {
+  for (const npc of NPCS.slice(0, 3)) for (const key of ['buy_3', 'locked3'] as const) {
     assert(JSON.stringify(NPC_LINES[npc][key]) === JSON.stringify([got[`${npc}.${key}`]]), `${npc}.${key}: ${NPC_LINES[npc][key]} vs ${got[`${npc}.${key}`]}`);
     assert(!CAT_MARKED[npc][key], `${npc}.${key} has no mark`);
   }
-  for (const npc of NPCS) for (const hero of [undefined, 'toad' as const]) {
+  for (const npc of NPCS.slice(0, 3)) for (const hero of [undefined, 'toad' as const]) {
     const line = pickLine(npc, { others: NPCS, bought: 3, ...hero ? { hero } : {} }, { [`${npc}:first`]: 99 });
     assert(line.key === 'buy_3' && line.text === NPC_LINES[npc].buy_3![0], `${npc} ${hero}: ${line.key}`);
   }
+});
+
+check('task 51в: lines of Шиш are the design table words (the Шиш table, `locked3`; `leave`, `back_*`, `meet_*` wait for 51д); the first meeting is `first_won` / `first_lost` by the circle and one count with `first_self`', () => {
+  const from = DOC.findIndex((l: string) => l.startsWith('## Шиш')), to = DOC.findIndex((l: string) => l.startsWith('## Евлампий')), want: Record<string, string[]> = {};
+  for (const l of DOC.slice(from, to)) { const m = /^\| `([a-z_0-9]+)` \| (.*) \|\s*$/.exec(l); if (m && !/^(leave|back_|meet_|about_monk)/.test(m[1])) (want[m[1]] ??= []).push(m[2]); }
+  for (const l of DOC) { const m = /^\| Шиш \| `locked3` \| [^|]*\| (.*) \|\s*$/.exec(l); if (m) want.locked3 = [m[1]]; }
+  assert(JSON.stringify(Object.keys(want).sort()) === JSON.stringify(Object.keys(NPC_LINES.gambler).sort()), `keys ${Object.keys(want)} vs ${Object.keys(NPC_LINES.gambler)}`);
+  for (const k of Object.keys(want)) assert(JSON.stringify(want[k]) === JSON.stringify(NPC_LINES.gambler[k as LineKey]), `${k}: the text of the table`);
+  const won = pickLine('gambler', { others: NPCS, last: { won: true, casino: 'won' } }, {}), lost = pickLine('gambler', { others: NPCS, last: { won: false, casino: 'lost' } }, {});
+  assert(won.key === 'first_won' && won.text === NPC_LINES.gambler.first_won![0] && won.id === 'gambler:first', `won: ${won.key}`);
+  assert(lost.key === 'first_lost' && lost.id === 'gambler:first', `lost: ${lost.key}`);
+  // Met once (one count): the next camp after any game is the game's line, not a second meeting.
+  const met = { 'gambler:first': 1 };
+  assert(pickLine('gambler', { others: NPCS, last: { won: false, casino: 'lost' } }, met).key === 'casino_lost', 'a game after the meeting');
+  assert(pickLine('gambler', { others: NPCS, last: { won: true, casino: 'won' } }, met).key === 'casino_won', 'a won game');
+  // He came by himself: first_self, and no second meeting by the circle after it.
+  assert(pickLine('gambler', { others: NPCS, self: true }, {}).key === 'first_self', 'first_self');
+  assert(pickLine('gambler', { others: NPCS, last: { won: false, casino: 'lost' } }, { 'gambler:first_self': 1 }).key === 'casino_lost', 'no meeting after first_self');
+  // After her run the marked lines are skipped, the variants first.
+  const hers = pickLine('gambler', { others: NPCS, hero: 'toad', last: { won: false, casino: 'won' } }, {});
+  assert(hers.key === 'first_won' && hers.text === TOAD_LINES_BY_NPC.gambler.first_won![0], 'her meeting line');
 });
