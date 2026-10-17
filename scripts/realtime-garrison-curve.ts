@@ -100,7 +100,16 @@ const CASTELLAN_SETS: Readonly<Record<string, CastellanSet>> = {
  * at the core: the first sweep, 16.10.2026). The forest's final «Последний рубеж» has no core (its goal is kills): there the bot plays
  * as without the flag.
  */
-const BOSS_CORES: readonly string[] = ['castellan', 'jailer', 'troll'];
+const BOSS_CORES: readonly string[] = ['castellan', 'jailer', 'troll', 'chief'];
+/**
+ * Task 54 (`--chief`): the forest's final the run still plays as «Последний рубеж» (the camp's branch: the den's is the Troll's by
+ * the run's flag) is played by the bot as the Chief's fight «Стан Главаря»; `--chief-keys k=v,…` — the Chief's keys over the run's
+ * params (takes the final from `--troll`). Lines of the Chief's fights and of the run's own Troll (the den's final) at the end.
+ */
+const CHIEF_FIGHT = args.includes('--chief');
+const CHIEF_KEYS: Partial<Params> = option('--chief-keys', '') ? Object.fromEntries(option('--chief-keys', '').split(',').map(kv => { const [k, v] = kv.split('='); return [k, Number(v)]; })) : {};
+/** Task 54: the Chief's fights and the run's own Troll's (the den's final): outcome, game time, the hero's HP entering it, the moves' damage. */
+const chiefFights: { won: boolean; time: number; hpIn: number; moves: number; total: number }[] = [], ownTrollFights: { won: boolean; time: number; hpIn: number }[] = [];
 /**
  * Task 48 (`--troll`; design 16.10.2026, spec 24.3): the forest's final («Последний рубеж» on either branch) is played by the bot as the
  * Troll's fight «Берлога тролля» — the script puts the arena on any forest final (the run itself plays him on the den branch only); `--troll-hp N`, `--troll-plates N`,
@@ -152,11 +161,16 @@ function fight(run: RtRunState, t: Tally): RtArenaOutcome {
   }
   t.fights++;
   // Task 48: the forest's final played as the Troll's fight (the outcome is read on the run as it is).
-  const troll = TROLL_FIGHT && pending.arena === FINAL_ARENA && !run.garrisonLevel;
+  // Task 54: the camp's final as the Chief's fight (`--chief` takes it from `--troll`).
+  const chief = CHIEF_FIGHT && pending.arena === FINAL_ARENA && !run.garrisonLevel;
+  if (chief) Object.assign(params, CHIEF_KEYS);
+  const troll = !chief && TROLL_FIGHT && pending.arena === FINAL_ARENA && !run.garrisonLevel;
   if (troll) Object.assign(params, TROLL_KEYS);
+  let chiefMoves = 0, chiefTotal = 0;
   const damage: Record<string, number> = {}, groups: Record<TrollGroup, number> = { crowd: 0, core: 0, parts: 0, moves: 0 }, kinds = new Map<number, string>();
-  const played = botFight(troll ? { ...run, pending: { ...pending, arena: 'troll' } } : run, { params, loadout, limit: LIMIT, ...BOSS_AIM ? { aim: BOSS_CORES } : {},
+  const played = botFight(troll ? { ...run, pending: { ...pending, arena: 'troll' } } : chief ? { ...run, pending: { ...pending, arena: 'chief' } } : run, { params, loadout, limit: LIMIT, ...BOSS_AIM ? { aim: BOSS_CORES } : {},
     ...castellan ? { afterTick: (world: World, tick: number) => tuneCastellan(world, castellan, tick === 0) } : {},
+    ...chief ? { seen: (world: World) => { for (const ev of world.events) if (ev.type === 'hit') { chiefTotal += ev.damage; if (ev.source === 'chief-ladle' || ev.source === 'chief-pepper') chiefMoves += ev.damage; } } } : {},
     ...troll ? { seen: (world: World) => {
       for (const e of world.enemies) if (!kinds.has(e.id)) kinds.set(e.id, e.kind);
       for (const ev of world.events) {
@@ -170,6 +184,8 @@ function fight(run: RtRunState, t: Tally): RtArenaOutcome {
   if (played.timeout) t.timeouts++;
   if (w.enemies.some(e => e.kind === 'jailer') || jailerArena(pending.arena)) jailerFights.push({ won: w.status === 'victory', time: w.time, hpIn: run.hp });
   if (troll) trollFights.push({ won: w.status === 'victory', time: w.time, damage, hpIn: run.hp, groups });
+  if (chief) chiefFights.push({ won: w.status === 'victory', time: w.time, hpIn: run.hp, moves: chiefMoves, total: chiefTotal });
+  if (CHIEF_FIGHT && pending.arena === 'troll') ownTrollFights.push({ won: w.status === 'victory', time: w.time, hpIn: run.hp });
   if (castellan) castellanFights.push({ won: w.status === 'victory', time: w.time, source: w.status === 'defeat' ? lastSource ?? 'timeout' : null, hpIn: run.hp });
   const key = keyOf(run, pending.nodeId);
   t.damage.set(key, [...t.damage.get(key) ?? [], w.stats.damageTaken]);
@@ -286,4 +302,10 @@ const byHp = (fights: readonly { won: boolean; hpIn: number }[]): string => HP_B
   return `HP ${title}: боёв ${bin.length}, поражений ${lost}${bin.length ? ` (${Math.round(100 * lost / bin.length)}%)` : ''}`;
 }).join('; ');
 if (TROLL_FIGHT) console.log(`Тролль по HP на входе: ${byHp(trollFights)}.`);
+if (CHIEF_FIGHT) {
+  const line = (title: string, fights: readonly { won: boolean; time: number; hpIn: number }[]): string => { const lost = fights.filter(f => !f.won).length; return `${title}: боёв ${fights.length}, поражений ${lost} (${fights.length ? Math.round(100 * lost / fights.length) : 0}%), длина боя мед. ${fights.length ? f1(median(fights.map(f => f.time))) : '—'} с, HP героя на входе мед. ${fights.length ? f1(median(fights.map(f => f.hpIn))) : '—'}; ${byHp(fights)}`; };
+  const moves = chiefFights.reduce((a, f) => a + f.moves, 0), total = chiefFights.reduce((a, f) => a + f.total, 0);
+  console.log(`${line(`Главарь (финал ветки Главаря сыгран «Станом Главаря»${Object.keys(CHIEF_KEYS).length ? `, ${JSON.stringify(CHIEF_KEYS)}` : ''})`, chiefFights)}; урон героя ${total}, от приёмов ${moves} (${total ? Math.round(100 * moves / total) : 0}%).`);
+  console.log(`${line('Тролль (свой финал ветки логова)', ownTrollFights)}.`);
+}
 console.log(`Тюремщик по HP на входе: ${byHp(jailerFights)}.`);

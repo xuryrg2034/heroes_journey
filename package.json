@@ -20,6 +20,7 @@
     "realtime:ash-final": "tsx scripts/realtime-ash-final.ts",
     "realtime:garrison-curve": "tsx scripts/realtime-garrison-curve.ts",
     "realtime:troll": "tsx scripts/realtime-troll.ts",
+    "realtime:chief": "tsx scripts/realtime-chief.ts",
     "realtime:report": "tsx scripts/realtime-report.ts",
     "realtime:knacks": "tsx scripts/realtime-knacks.ts",
     "realtime:log-fixtures": "tsx scripts/realtime-make-log-fixtures.ts",
