@@ -16,7 +16,7 @@ import { GARRISON_TITLE, rtGarrisonNodeId } from '../run/garrison';
 import { rosterTitle } from '../sim/rosters';
 import { rtHp } from '../run/hpScale';
 import {
-  arenaPreview, createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtEnterNode,
+  arenaPreview, createRtRun, rtRunParams, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtEnterNode,
   rtChooseHabit, rtChooseTalisman, rtRerollTalismans, rtRerollView, rtHammerRerollView, rtRerollHammers, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtFoughtJailer, rtRestCraft, rtRestFinish, rtRestFuse, rtRestHeal, rtRestView, rtFusionRecipe, rtFusionsReady, rtInnate, rtHandFull, rtItemRefusal, rtPotionCap, RT_ITEM_REFUSAL_TEXT, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
   rtOathPreview, rtOathStakeOn, rtArenaRules, RT_SECOND_WIND_LAST_ROW, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
   rtCasinoView, rtCasinoPlay, rtCasinoLeave, rtCasinoNode, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE,
@@ -54,6 +54,7 @@ import { ProfileMeta } from './metaSource';
 import { RunStart } from './runStart';
 import { rtHearthFlagsWith, rtJailerWonRow, rtRunKey, type RtHearthStart, type RtMetaEnd } from '../run/rtMeta';
 import { RT_HERO_ID, RT_TOAD_ID, type RtHeroId } from '../run/metaCatalog';
+import { defaultParams } from '../sim/params';
 import { TOAD_LINES } from './heroLines';
 import type { MetaHeroId } from './metaModel';
 import type { HearthStart } from './metaModel';
@@ -62,13 +63,15 @@ import { END_STEP, REVEAL_FADE, endShown, endTotal, revealDelays, revealDone, re
 import type { ItemKind as KitItem } from '../sim/kit';
 
 /**
- * Task 49 (spec 7.1): the hero cards of «Новый поход» - the law and the price, two lines of at most 6 words. The cat has no law
- * (the first line says so; the second names his shield by its rule, docs/realtime-damage.md, 4a).
+ * Task 49 (spec 7.1, design 17.10.2026): the hero cards of «Новый поход» - the law and the price, two lines of at most 6 words. The
+ * cat: «Формы находит в походе» (he has no innate form) / «Щит — после трёх убийств» - the number is the run's `chainShieldMinKills`
+ * (`rtRunParams`), said in words. Ведунья: the ring from the first fight, the shield only after it.
  */
-export const HERO_CARD_LINES: Readonly<Record<MetaHeroId, readonly [string, string]>> = {
-  cat: ['Без закона', 'Щит — после цепи с убийствами'],
-  toad: ['Кольцо с первого боя', 'Щит — только после кольца'],
-};
+const KILLS_GENITIVE = ['', 'одного убийства', 'двух убийств', 'трёх убийств', 'четырёх убийств', 'пяти убийств', 'шести убийств', 'семи убийств', 'восьми убийств', 'девяти убийств'];
+export function heroCardLines(id: MetaHeroId, minKills = rtRunParams(defaultParams()).chainShieldMinKills): readonly [string, string] {
+  if (id === 'toad') return ['Кольцо с первого боя', 'Щит — только после кольца'];
+  return ['Формы находит в походе', `Щит — после ${KILLS_GENITIVE[minKills] ?? `${minKills} убийств`}`];
+}
 
 /** Task 47, С5: the chord of a reward screen by its tier (view/reveal.ts `screenTier`). */
 export type RewardSound = 'reward0' | 'reward1' | 'reward2';
@@ -1278,7 +1281,7 @@ export class RunView {
     const heroes = this.meta.heroes().filter(h => h.open);
     if (heroes.length < 2) return '';
     const cards = heroes.map(h => {
-      const [law, price] = HERO_CARD_LINES[h.id];
+      const [law, price] = heroCardLines(h.id);
       return `<button class="rt-hero-card${h.chosen ? ' rt-on' : ''}" data-action="hero-pick" data-hero="${h.id}" data-testid="hero-card-${h.id}" aria-pressed="${h.chosen}">`
         + `<b>${escapeHtml(h.title)}</b><span>${escapeHtml(law)}</span><span>${escapeHtml(price)}</span>`
         + (h.ashBest ? `<em data-testid="hero-ash-${h.id}">${escapeHtml(rtAshTitle(h.ashBest as RtAshLevel))}</em>` : '') + `</button>`;

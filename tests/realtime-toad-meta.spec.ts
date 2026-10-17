@@ -145,6 +145,7 @@ test('task 49: the first win over the Jailer — his screens, then the cage scen
   const info = await shown(page);
   expect(info.chosen).toBe('toad');
   expect(info.laws.toad).toEqual(['Кольцо с первого боя', 'Щит — только после кольца']);
+  expect(info.laws.cat, 'the cat card: the number is the run chainShieldMinKills, in words').toEqual(['Формы находит в походе', 'Щит — после трёх убийств']);
   for (const words of Object.values<string[]>(info.laws)) for (const line of words) expect(line.split(/\s+/).length, `«${line}» is at most 6 words`).toBeLessThanOrEqual(6);
   await expect(page.getByTestId('hero-card-toad')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('run-ash')).toHaveCount(0); // her «Испытание» is closed until her win
@@ -250,5 +251,23 @@ test('task 49: Ведунья\'s rest offers «Сплав: «Ледяная пе
   await expect.poll(async () => (await runState(page)).talismans).toContain('fusion-ice-seal');
   const made = await runState(page);
   expect(made.talismans, '«Иней» is the fusion\'s half and goes into it').not.toContain('frost-edge');
+  expect(errors).toEqual([]);
+});
+
+test('task 49: after her run the camp gives her line of its death or record at her place; after the cat run none', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = collectErrors(page);
+  const hearth = (last: object) => ({ ...HEARTH, lines: { 'owl:first': 2, 'toad:first_camp': 1 }, last });
+  const meta = (last: object) => ({ heroes: { toad: { xp: 5, packs: [] } }, hearth: hearth(last), freed: { toad: { row: 5, run: 1 } }, hero: 'toad' });
+  await open(page, null, { ...PROFILE_BASE, meta: meta({ won: false, row: 3, beaten: false, cause: 'crowd', hero: 'toad' }) });
+  await page.getByTestId('run-hearth').click();
+  await expect(page.getByTestId('hearth-hero-line')).toHaveText(TOAD_LINES.death_crowd[0]);
+  await open(page, null, { ...PROFILE_BASE, meta: meta({ won: false, row: 6, beaten: true, cause: 'crowd', hero: 'toad' }) });
+  await page.getByTestId('run-hearth').click();
+  await expect(page.getByTestId('hearth-hero-line')).toHaveText(TOAD_LINES.record[0]);
+  await open(page, null, { ...PROFILE_BASE, meta: meta({ won: false, row: 3, beaten: false, cause: 'crowd' }) });
+  await page.getByTestId('run-hearth').click();
+  await expect(page.getByTestId('hearth-hero-toad')).toBeVisible();
+  await expect(page.getByTestId('hearth-hero-line')).toHaveCount(0);
   expect(errors).toEqual([]);
 });

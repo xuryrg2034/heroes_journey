@@ -85,8 +85,22 @@ export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly 
   },
 };
 
+/**
+ * Task 49 (design 16–17.10.2026, docs/design-notes/npc-lines-v2.md, «v2.1»): the lines that name the cat (кот, шерсть, топор) or put a verb
+ * about the hero in the masculine carry the mark `cat` — the places (1-based, as the tables of the design list them) in the key's list.
+ * After a run of Ведунья (`LineContext.hero` 'toad') they are skipped: the occasion takes the next line without the mark, else the next
+ * occasion, at last `idle`. After the cat's run, or with no run, every line is said.
+ */
+export const CAT_MARKED: Readonly<Record<NpcId, Partial<Record<LineKey, readonly number[]>>>> = {
+  owl: { first: [1], win: [1, 2], death_crowd: [1, 2], death_archer: [1, 2], death_sapper: [1, 2], death_fire: [1, 2], quest_fail: [1], idle: [4] },
+  herb: { first: [1], first_self: [1], win_first: [1], win: [1, 2], death_crowd: [1], death_sapper: [1, 2], death_final: [1], death_fire: [2], record: [1], buy_2: [1], quest_done: [2], quest_fail: [1], idle: [2, 3, 4] },
+  smith: { first: [1, 2], first_self: [1], win_first: [1], win: [1, 2, 3], death_crowd: [1], death_archer: [1], death_sapper: [2], death_jailer: [2], death_final: [1], death_fire: [1, 2], death_other: [2], record: [1, 2], quest_done: [1, 2], quest_fail: [2], idle: [1, 2, 4] },
+};
+
 /** The occasion of a line now. */
 export interface LineContext {
+  /** Task 49: the hero of the last run — 'toad' (Ведунья); absent — the cat's (or no run yet). */
+  hero?: 'toad';
   /** The NPC came by itself (the fallback way) — its meeting line is `first_self`. */
   self?: boolean;
   /** The occasions of the last run (said once per camp visit). */
@@ -109,7 +123,8 @@ export type LineMemory = Readonly<Record<string, number>>;
 export function pickLine(npc: NpcId, ctx: LineContext, memory: LineMemory): { key: LineKey; text: string; id: string } {
   const L = NPC_LINES[npc], count = (key: LineKey): number => memory[`${npc}:${key}`] ?? 0;
   const line = (key: LineKey, once = false): { key: LineKey; text: string; id: string } | null => {
-    const list = L[key];
+    const all = L[key], marked = ctx.hero === 'toad' ? CAT_MARKED[npc][key] ?? [] : [];
+    const list = all?.filter((_, i) => !marked.includes(i + 1));
     if (!list?.length) return null;
     const n = count(key);
     if (once && n >= list.length) return null;
@@ -118,7 +133,9 @@ export function pickLine(npc: NpcId, ctx: LineContext, memory: LineMemory): { ke
   const meet = ctx.self ? line('first_self', true) : null;
   const first = meet ?? (count('first_self') ? null : line('first', true));
   if (first) return first;
-  if (ctx.bought) return line(ctx.bought === 1 ? 'buy_1' : 'buy_2')!;
+  // A purchase line the mark skips (after her run) gives way to the next occasion.
+  const buy = ctx.bought ? line(ctx.bought === 1 ? 'buy_1' : 'buy_2') : null;
+  if (buy) return buy;
   const last = ctx.last;
   if (last) {
     const occasion = (last.questDone && line('quest_done')) || (last.questFail && line('quest_fail')) || (last.firstWin && line('win_first', true))

@@ -7,10 +7,11 @@
  */
 // Node 20 has no global navigator; pixi.js reads it on load (nodeNavigator.testkit.ts). First import.
 import './nodeNavigator.testkit';
-import { createRtRun } from '../run/rtRun';
+import { createRtRun, rtRunParams } from '../run/rtRun';
 import { createRtProfileStore, RT_PROFILE_STORAGE_KEY, type RunStorage } from '../run/rtRunStorage';
 import { rtHeroPacks, RT_TOAD_ID } from '../run/metaCatalog';
-import { HERO_CARD_LINES, recipeHtml } from './runView';
+import { heroCardLines, recipeHtml } from './runView';
+import { defaultParams } from '../sim/params';
 import { TOAD_LINES, toadLine } from './heroLines';
 import { ProfileMeta } from './metaSource';
 
@@ -38,12 +39,16 @@ check('the camp source: the cat alone before the rescue; the chosen hero\'s bar,
   assert(both.chooseHero('cat') && both.hearth().nextPack?.id === 'return', `the cat's next pack after «Охотник» (${both.hearth().nextPack?.id})`);
 });
 
-check('the hero cards: two lines of at most 6 words each; Ведунья\'s are the law and the price of the spec', () => {
-  for (const [id, lines] of Object.entries(HERO_CARD_LINES)) {
+check('the hero cards: two lines of at most 6 words each; the cat number is the run chainShieldMinKills in words; the toad law and price are the spec', () => {
+  const need = rtRunParams(defaultParams()).chainShieldMinKills;
+  for (const id of ['cat', 'toad'] as const) {
+    const lines = heroCardLines(id);
     assert(lines.length === 2, `${id}: two lines`);
     for (const line of lines) assert(line.split(/\s+/).length <= 6, `${id}: «${line}» at most 6 words`);
   }
-  assert(HERO_CARD_LINES.toad.join(' / ') === 'Кольцо с первого боя / Щит — только после кольца', 'her law and price');
+  assert(need === 3 && heroCardLines('cat').join(' / ') === 'Формы находит в походе / Щит — после трёх убийств', `the cat card (the run number ${need})`);
+  assert(heroCardLines('cat', 2)[1] === 'Щит — после двух убийств' && heroCardLines('cat', 4)[1] === 'Щит — после четырёх убийств', 'the number follows the parameter');
+  assert(heroCardLines('toad').join(' / ') === 'Кольцо с первого боя / Щит — только после кольца', 'her law and price');
 });
 
 check('her lines come in turn by the profile\'s memory (`toad:<key>`); the cage line is the spec\'s example', () => {

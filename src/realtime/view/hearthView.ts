@@ -14,7 +14,7 @@ import { KIND_CAPTIONS } from './newSeen';
 import { HEARTH_LEVEL_LOCKED, HEARTH_PLACES, HEARTH_PRICES, NPCS, metaItemCard, xpBar, type HearthState, type MetaHeroId, type MetaSource, type NpcId } from './metaModel';
 import { NPC_LINES, pickLine, questLine, type DeathCause } from './npcLines';
 import { rowWord } from './metaEnd';
-import { toadLine } from './heroLines';
+import { toadLine, toadRunKey } from './heroLines';
 
 const esc = (s: string): string => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 const ICON = '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M10 2 L17 7 L14.5 17 L5.5 17 L3 7 Z" fill="#e3b45a" stroke="#1a2330" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 7 L10 9 L17 7 M10 9 L10 17" fill="none" stroke="#1a2330" stroke-width="1.2" stroke-linejoin="round"/></svg>';
@@ -109,7 +109,12 @@ export class HearthView {
     this.el.hidden = false; this.bubble = null; this.bestiary = false; this.said.clear();
     // Task 49: the first camp after the rescue - her one line names the deed (`first_camp`, said once).
     this.heroLine = '';
-    if (this.host.meta.heroes().some(h => h.id === 'toad' && h.open) && !this.host.meta.hearth().lines['toad:first_camp']) this.sayHero('first_camp');
+    const camp = this.host.meta.hearth();
+    if (this.host.meta.heroes().some(h => h.id === 'toad' && h.open)) {
+      // Then, after a run of hers, her line of its record or death (`last.hero`; one line a visit).
+      const run = camp.last?.hero === 'toad' ? toadRunKey(camp.last) : null;
+      if (!camp.lines['toad:first_camp']) this.sayHero('first_camp'); else if (run) this.sayHero(run);
+    }
     this.shown.open = true;
     this.host.sound?.('open');
     this.draw();
@@ -117,7 +122,7 @@ export class HearthView {
 
   close(): void { this.el.hidden = true; this.shown.open = false; }
 
-  private sayHero(key: 'first_camp' | 'pick' | 'about_cat'): void {
+  private sayHero(key: Parameters<typeof toadLine>[0]): void {
     const line = toadLine(key, this.host.meta.hearth().lines);
     this.host.meta.markLine(line.id);
     this.heroLine = line.text;
@@ -201,6 +206,7 @@ export class HearthView {
     const bought = this.boughtNow?.npc === npc ? this.boughtNow.level : undefined;
     const line = pickLine(npc, {
       ...h.self?.[npc] ? { self: true } : {}, ...bought ? { bought } : {}, others: this.npcsHere(h),
+      ...h.last?.hero ? { hero: h.last.hero } : {},
       ...l ? { last: { won: l.won, ...l.firstWin ? { firstWin: true } : {}, ...l.cause ? { cause: l.cause as DeathCause } : {}, ...l.beaten ? { record: true } : {}, ...l.pack ? { pack: true } : {}, ...quest ? (l.quest ? { questDone: true } : { questFail: true }) : {} } } : {},
     }, h.lines);
     this.said.add(npc);
