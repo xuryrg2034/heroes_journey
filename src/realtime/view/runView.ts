@@ -21,7 +21,7 @@ import {
   rtOathPreview, rtOathStakeOn, rtArenaRules, RT_SECOND_WIND_LAST_ROW, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
   rtCasinoView, rtCasinoPlay, rtCasinoLeave, rtCasinoNode, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE,
   healOffer, healOnMap, healVisible, rtResourceTotal, rtNodeFeat, RT_HEAL_MAP_GAIN, rtAsh, rtAshOptions, rtAshTitle, rtRunWon, isRtAshLevel, type RtAshLevel, rtScheduleMet, RT_JAILER_SEVERED_SLOTS, RT_TROLL_ALL_PARTS_SLOTS, rtTrollNode, rtFormReplaces, rtFormSlotField,
-  rtEnterGarrison, rtLevel, rtCartView, rtChooseKnack, type RtCartView,
+  rtEnterGarrison, rtLevel, rtCartView, rtGateView, rtChooseKnack, type RtCartView, type RtGateView,
   type RtArenaOutcome, type RtArenaRules, type RtCasinoTable, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
@@ -51,7 +51,7 @@ import type { FirstMeetId } from './firstMeet';
 import { ICON as STOCK_ICON, MetaEndView, type MetaSound } from './metaEnd';
 import { HearthView } from './hearthView';
 import { ProfileMeta } from './metaSource';
-import { RunStart } from './runStart';
+import { MAP_KINDS, mapCounts, mapPreview, RunStart } from './runStart';
 import { rtHearthFlagsWith, rtJailerWonRow, rtRunKey, type RtHearthStart, type RtMetaEnd } from '../run/rtMeta';
 import { RT_HERO_ID, RT_TOAD_ID, type RtHeroId } from '../run/metaCatalog';
 import { defaultParams } from '../sim/params';
@@ -429,6 +429,9 @@ export class RunView {
   private outskirtsFrom: number | null = null;
   /** Task 40 «Повозка»: the deposit «−» and «+» chose on «Предместье» (null — the default, `rtCartView`'s «оставить 6»). */
   private cartN: number | null = null;
+  /** Task 51б: the choices at «Предместье» (null — the default: the base map, the first consumable that can be taken). */
+  private gateMap: 0 | 1 | null = null;
+  private gateItem: ItemKind | null = null;
   private metaEnd: MetaEndView | null = null;
   /**
    * Task 47, С6 «Раскрытие награды»: the choice cards of the screen `key` show one by one (view/reveal.ts); `done` — over or skipped.
@@ -607,7 +610,7 @@ export class RunView {
     if (this.run.pending?.kind === 'outskirts' && before?.pending?.kind !== 'outskirts') {
       const healed = step.events.find(ev => ev.type === 'healed');
       this.outskirtsFrom = healed && healed.type === 'healed' ? Math.max(0, this.run.hp - healed.amount) : null;
-      this.cartN = null;
+      this.cartN = null; this.gateMap = null; this.gateItem = null;
       if (this.outskirtsFrom !== null && this.outskirtsFrom < this.run.hp) this.host.meta?.sound('heal');
     }
     if (this.run.result && !before?.result) {
@@ -784,6 +787,52 @@ export class RunView {
       + `<small class="rt-cart-keep" data-testid="run-cart-keep">Повозка · с собой ${cart.stock - n}</small></div>`;
   }
 
+  /** Task 51б: what «В гарнизон» takes - the map (index) and the consumable shown as chosen (absent: not offered). */
+  private gateChoice(gate: RtGateView): { map?: 0 | 1; item?: ItemKind } {
+    const item = gate.items ? this.gateItemValue(gate) : undefined;
+    return { ...gate.maps ? { map: this.gateMap ?? 0 } : {}, ...item ? { item } : {} };
+  }
+  /** The consumable chosen (a refused one cannot stay chosen); none chosen - the first that can be taken. */
+  private gateItemValue(gate: RtGateView): ItemKind | undefined {
+    const chosen = gate.items?.find(entry => entry.item === this.gateItem && entry.available);
+    return (chosen ?? gate.items?.find(entry => entry.available))?.item;
+  }
+
+  /**
+   * Task 51б «Предместье» of a run with the camp's level 3: «Путь в гарнизон» (Неясыть - the 2 garrison maps drawn as the run map,
+   * the counts that differ lit, as the choice at the start of a run) and «Склянка в гарнизон» (Марфа - 2 consumables, a healing one with
+   * a full hand grey with «Рука полна», the rule of three potions). The maps and the kinds are core's (`rtGateView`).
+   */
+  private gateHtml(gate: RtGateView): string {
+    const maps = gate.maps ? (() => {
+      const counts = gate.maps.map(mapCounts), chosen = this.gateMap ?? 0;
+      const cards = gate.maps.map((seed, i) => {
+        const line = MAP_KINDS.map(k => { const n = counts[i][k.id] ?? 0, differs = counts.some((c, j) => j !== i && (c[k.id] ?? 0) !== n);
+          return `<span class="${differs ? 'rt-mp-diff' : ''}" title="${escapeHtml(k.label)}">${k.icon} ${n}</span>`; }).join('');
+        return `<button class="rt-hearth-map rt-gate-map${chosen === i ? ' rt-chosen' : ''}" data-action="gate-map" data-index="${i}" data-seed="${seed}" data-testid="gate-map-${i}" aria-pressed="${chosen === i}">${mapPreview(seed)}<span class="rt-mp-counts">${line}</span><b>Путь ${i + 1}</b></button>`;
+      }).join('');
+      return `<div class="rt-gate-part"><span class="rt-cart-head">Путь в гарнизон</span><div class="rt-hearth-maps">${cards}</div></div>`;
+    })() : '';
+    const items = gate.items ? (() => {
+      const chosen = this.gateItemValue(gate);
+      const cards = gate.items.map(entry => `<button class="rt-run-choice rt-gate-item${chosen === entry.item ? ' rt-chosen' : ''}" data-action="gate-item" data-item="${entry.item}" data-testid="gate-item-${entry.item}" aria-pressed="${chosen === entry.item}" ${entry.available ? '' : 'disabled'}>`
+        + `<b>${escapeHtml(ITEM_TITLES[entry.item])}</b>${entry.available ? '' : handFullHtml(`gate-${entry.item}`)}</button>`).join('');
+      return `<div class="rt-gate-part"><span class="rt-cart-head">Склянка в гарнизон</span><div class="rt-gate-items">${cards}</div></div>`;
+    })() : '';
+    return `<div class="rt-gate" data-testid="run-gate">${maps}${items}</div>`;
+  }
+  private redrawGate(run: RtRunState): void {
+    const gate = rtGateView(run), block = this.el.querySelector<HTMLElement>('[data-testid="run-gate"]');
+    if (gate && block) block.outerHTML = this.gateHtml(gate); else this.draw();
+  }
+  /** Task 51б (tests read it, `__realtime.run.gateShown`): the maps and consumables offered and the choice «В гарнизон» would take; null - no such offer. */
+  gateInfo(): { maps: number[]; map: number | null; items: { item: string; available: boolean }[]; item: string | null; counts: Record<string, number>[] } | null {
+    const run = this.run, gate = run ? rtGateView(run) : null;
+    if (!run || !gate) return null;
+    const choice = this.gateChoice(gate);
+    return { maps: gate.maps ? [...gate.maps] : [], map: choice.map ?? null, items: gate.items ? gate.items.map(entry => ({ ...entry })) : [], item: choice.item ?? null, counts: gate.maps ? gate.maps.map(mapCounts) : [] };
+  }
+
   /** «−» / «+»: the deposit by 1 within 0 … `max`; the block changes in place (the HP bar's fill is not drawn again). */
   private stepCart(run: RtRunState | null, by: number): void {
     const cart = run ? rtCartView(run) : null;
@@ -890,7 +939,10 @@ export class RunView {
     if (action === 'hammer') { this.apply(rtChooseHammer(run, (target.dataset.option || null) as Parameters<typeof rtChooseHammer>[1])); return; }
     if (action === 'shop-leave') { this.apply(rtShopLeave(run)); return; }
     // Task 38: «В гарнизон» from «Предместье». Task 40: with the cart, the deposit «−» and «+» chose goes with it.
-    if (action === 'garrison') { const cart = rtCartView(run); this.apply(rtEnterGarrison(run, cart ? this.cartValue(cart) : undefined)); return; }
+    // Task 51б: the garrison map and the consumable chosen on «Предместье» (the level 3 of the camp) go with it.
+    if (action === 'garrison') { const cart = rtCartView(run), gate = rtGateView(run); this.apply(rtEnterGarrison(run, cart ? this.cartValue(cart) : undefined, gate ? this.gateChoice(gate) : undefined)); return; }
+    if (action === 'gate-map') { this.gateMap = target.dataset.index === '1' ? 1 : 0; this.redrawGate(run); return; }
+    if (action === 'gate-item') { this.gateItem = target.dataset.item as ItemKind; this.redrawGate(run); return; }
     if (action === 'cart-minus' || action === 'cart-plus') { this.stepCart(run, action === 'cart-plus' ? 1 : -1); return; }
     if (action === 'shop-buy') { this.apply(rtShopBuy(run, target.dataset.good!)); return; }
     // B7 К9: the circle's tables (the outcome fixed at the click, then 1.2 s of rolling), «Уйти»; a click skips the roll.
@@ -1623,11 +1675,12 @@ export class RunView {
       // (public/art/camp/outskirts.png; a cold dusk without it), the hero's HP bar filling to full (the heal's sound), «В гарнизон».
       // No text plate. Task 40 «Повозка» (a run with the camp, `rtCartView`): the cart, the number «в лагерь» over it with «−» and «+».
       const from = this.outskirtsFrom ?? run.hp, k = (hp: number): string => `${(100 * hp / Math.max(1, run.maxHp)).toFixed(1)}%`;
-      const cart = rtCartView(run);
+      const cart = rtCartView(run), gate = rtGateView(run);
       return `<div class="rt-overlay rt-outskirts" data-testid="run-outskirts" style="background-image:url('${new URL('art/camp/outskirts.png', document.baseURI).href}'), linear-gradient(#1c2430, #10151c)">`
         + `<div class="rt-outskirts-panel"><h2>Предместье</h2><div class="rt-outskirts-bar" data-testid="outskirts-bar"><i style="width:${k(from)}" data-to="${k(run.hp)}"></i></div>`
         + `<p class="rt-outskirts-hp" data-testid="outskirts-hp">HP ${run.hp} / ${run.maxHp}</p>`
         + (cart ? this.cartHtml(cart) : '')
+        + (gate ? this.gateHtml(gate) : '')
         + `<button class="rt-again" data-action="garrison" data-testid="run-garrison">В гарнизон</button></div></div>`;
     }
     if (pending.kind === 'hammer') {
@@ -1662,7 +1715,7 @@ export class RunView {
       // Task 37 «Правка» (Ерофей): the Jailer's screen rerolls free while the camp's rerolls last.
       const rerollHtml = reroll ? `<button class="rt-other" data-action="talisman-reroll" data-testid="talisman-reroll" ${reroll.available ? '' : 'disabled'}>Перебросить — ${reroll.free ? 'бесплатно' : resourcesWord(reroll.price)}</button>`
         + `<p class="rt-run-note rt-run-reroll-note${reroll.available ? '' : ' rt-run-reason'}" data-testid="talisman-reroll-note">${reroll.available
-          ? reroll.free ? 'Правка Ерофея. Показанные вернутся в пул, но на этом экране не выпадут.' : `Ресурсов: ${reroll.total}. Показанные вернутся в пул, но на этом экране не выпадут.` : escapeHtml(reroll.reason)}</p>` : '';
+          ? reroll.free ? `${run.pending?.kind === 'talisman' && rtGarrisonNodeId(run.pending.nodeId) ? 'Правка Ерофея в гарнизоне' : 'Правка Ерофея'}. Показанные вернутся в пул, но на этом экране не выпадут.` : `Ресурсов: ${reroll.total}. Показанные вернутся в пул, но на этом экране не выпадут.` : escapeHtml(reroll.reason)}</p>` : '';
       return card(`<h2>${title}</h2><p>${pending.options.length ? note : 'Талисманов не осталось.'}</p><div class="rt-run-choices">${options}</div>`
         + rerollHtml + `<button class="rt-other" data-action="talisman" data-option="" data-testid="talisman-refuse">Отказаться</button>`, chest ? 'run-chest' : feat ? 'run-feat-talisman' : formScreen ? 'run-form' : 'run-talisman');
     }

@@ -78,14 +78,14 @@ export class RunStart {
 }
 
 /** The kinds of nodes the map choice counts (the run map's icons, view/nodeTypes.ts); «Застава» is the checkpoint. */
-const MAP_KINDS: readonly { id: string; icon: string; label: string }[] = [
+export const MAP_KINDS: readonly { id: string; icon: string; label: string }[] = [
   { id: 'battle', icon: RT_NODE_TYPES.battle.icon, label: 'Бои' }, { id: 'hard', icon: RT_NODE_TYPES.hard.icon, label: 'Трудные бои' },
   { id: 'event', icon: RT_NODE_TYPES.event.icon, label: 'События' }, { id: 'rest', icon: RT_NODE_TYPES.rest.icon, label: 'Привалы' },
   { id: 'shop', icon: RT_NODE_TYPES.shop.icon, label: 'Торговцы' }, { id: 'checkpoint', icon: RT_NODE_TYPES.checkpoint.icon, label: 'Заставы' },
 ];
 
 /** A map's nodes counted by kind (a find counts as an event, as the map shows it). */
-function mapCounts(seed: number): Record<string, number> {
+export function mapCounts(seed: number): Record<string, number> {
   const out: Record<string, number> = {};
   for (const n of rtMapNodes(createRtRun(seed))) { const k = n.type === 'find' ? 'event' : n.type; out[k] = (out[k] ?? 0) + 1; }
   return out;
