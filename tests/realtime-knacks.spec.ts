@@ -321,7 +321,7 @@ test('task 50: «Иней на клинке» II — snowflakes on the survivor 
   expect(errors).toEqual([]);
 });
 
-test('task 50: «Охотник на элит» II — «−1 пластина» under the armoured elite; «Длинная рука» II — «+1» under a far link; «Добивание» II — the shield ring round the hero for a chain of one kill', async ({ page }) => {
+test('task 50: «Охотник на элит» II — one word «−2 пластины» over the armoured elite (design §17: one strike takes both); «Длинная рука» II — «+1» under a far link; «Добивание» II — the shield ring round the hero for a chain of one kill', async ({ page }) => {
   test.setTimeout(150_000);
   const errors = await openSandbox(page);
   // «Охотник»: an armoured elite as the only link.
@@ -331,7 +331,7 @@ test('task 50: «Охотник на элит» II — «−1 пластина»
   await drag(page, [[5.4, 5.5]]);
   await expect.poll(async () => (await snap(page)).chain).toEqual([elite]);
   expect((await snap(page)).enemies.find((e: any) => e.id === elite).armor?.plates, 'the elite wears plates').toBeGreaterThan(0);
-  expect((await snap(page)).honedShown.hunter).toBe(1);
+  expect((await snap(page)).honedShown).toMatchObject({ hunter: 1, hunterText: '−2 пластины' });
   await page.screenshot({ path: 'artifacts/realtime-knack-hunter.png' });
   await page.mouse.up();
   await gameWait(page, 1.5);

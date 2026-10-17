@@ -303,7 +303,8 @@ function habitRowHtml(habit: NonNullable<ReturnType<typeof rtGiftView>>['habit']
   const none = habit.chosen && habit.id === null;
   const cards = RT_HABITS.map(def => `<button class="rt-habit-card${habit.id === def.id ? ' rt-on' : ''}" data-action="habit" data-habit="${def.id}" data-testid="habit-${def.id}" aria-pressed="${habit.id === def.id}" ${habit.chosen ? 'disabled' : ''}>`
     + `${habitIconSvg(def.id, 34)}<b>${escapeHtml(def.name)}</b><small>${escapeHtml(def.line)}</small></button>`).join('');
-  return `<div class="rt-habits" data-testid="gift-habits" data-chosen="${habit.chosen}"><div class="rt-habit-cards">${cards}</div>`
+  // Design 17.10.2026 (§17): one word over the four cards, as «Сноровка» over its two.
+  return `<div class="rt-habits" data-testid="gift-habits" data-chosen="${habit.chosen}"><h3 data-testid="gift-habits-title">Повадка</h3><div class="rt-habit-cards">${cards}</div>`
     + `<button class="rt-habit-none${none ? ' rt-on' : ''}" data-action="habit" data-habit="none" data-testid="habit-none" aria-pressed="${!!none}" ${habit.chosen ? 'disabled' : ''}>Без повадки</button></div>`;
 }
 
@@ -320,7 +321,8 @@ function talismanCardLines(id: string, run?: RtRunState | null): string {
 /** Task 41 «Три зелья»: the words at a choice the hand cannot take — «Рука полна» (always, not a hint: why the choice is off). */
 const handFullHtml = (of: string): string => `<small class="rt-run-reason rt-hand-full" data-testid="hand-full-${of}">${RT_ITEM_REFUSAL_TEXT.handFull}</small>`;
 
-function giftText(option: GiftOption): string {
+/** A gift button's words. A run with the counters' window (`run.forms`) names its items by the window («Острие», not «Пятое звено»). */
+function giftText(option: GiftOption, run: Pick<RtRunState, 'forms'> | null): string {
   switch (option.kind) {
     case 'resources': return `${option.resources.length} ресурса крафта: ${option.resources.map(kind => RESOURCES[kind].label).join(', ')}`;
     case 'max-hp': return `+${rtHp(option.amount)} к максимуму HP и +${rtHp(option.amount)} HP`;
@@ -330,10 +332,10 @@ function giftText(option: GiftOption): string {
     case 'calm': return `Тихий лес: ${option.battles} боя без злости до целей`;
     case 'deal': {
       const price = option.price === 'hp' ? `−${rtHp(GIFT_HP_PRICE)} HP сейчас` : option.price === 'max-hp' ? `−${rtHp(GIFT_MAX_HP_PRICE)} к максимуму HP` : 'следующий привал не лечит';
-      const reward = option.reward.kind === 'pick-talisman' ? `талисман на выбор: ${option.reward.talismans.map(id => talismanName(id)).join(' или ')}` : `талисман «${option.reward.talisman ? talismanName(option.reward.talisman) : '—'}»`;
+      const reward = option.reward.kind === 'pick-talisman' ? `талисман на выбор: ${option.reward.talismans.map(id => talismanName(id, run)).join(' или ')}` : `талисман «${option.reward.talisman ? talismanName(option.reward.talisman, run) : '—'}»`;
       return `${reward}; цена: ${price}`;
     }
-    case 'oath': return `Клятва: «${option.oath ? talismanName(option.oath) : '—'}» — ${option.oath ? rtTalisman(option.oath)?.effect ?? '' : 'клятв не осталось'}`;
+    case 'oath': return `Клятва: «${option.oath ? talismanName(option.oath, run) : '—'}» — ${option.oath ? rtTalismanShown(option.oath, !!run?.forms)?.effect ?? '' : 'клятв не осталось'}`;
   }
 }
 
@@ -1504,15 +1506,15 @@ export class RunView {
         const itemPick = view.options[view.chosen].option.kind === 'pick-item';
         const picks = view.picks.map(pick => {
           const refused = itemPick ? rtItemRefusal(run, pick as ItemKind) : null;
-          return `<button class="rt-run-choice" data-action="gift-pick" data-pick="${pick}" data-testid="gift-pick-${pick}" ${refused ? 'disabled' : ''}><b>${escapeHtml(ITEM_TITLES[pick as ItemKind] ?? talismanName(pick))}</b>`
-            + `${rtTalisman(pick) ? `<small>${escapeHtml(rtTalisman(pick)!.effect)}</small>` : ''}${refused ? handFullHtml(`gift-pick-${pick}`) : ''}</button>`;
+          return `<button class="rt-run-choice" data-action="gift-pick" data-pick="${pick}" data-testid="gift-pick-${pick}" ${refused ? 'disabled' : ''}><b>${escapeHtml(ITEM_TITLES[pick as ItemKind] ?? talismanName(pick, run))}</b>`
+            + `${rtTalisman(pick) ? `<small>${escapeHtml(rtTalismanShown(pick, !!run.forms)!.effect)}</small>` : ''}${refused ? handFullHtml(`gift-pick-${pick}`) : ''}</button>`;
         }).join('');
-        return card(`<h2>Дар в дорогу</h2><p>${escapeHtml(giftText(view.options[view.chosen].option))}: выбери один.</p><div class="rt-run-choices">${picks}</div>`, 'run-gift');
+        return card(`<h2>Дар в дорогу</h2><p>${escapeHtml(giftText(view.options[view.chosen].option, run))}: выбери один.</p><div class="rt-run-choices">${picks}</div>`, 'run-gift');
       }
       // Task 50: the buttons wait for the archetype row (off until it is decided; no words on the screen for it).
       const waiting = !!view.habit && !view.habit.chosen;
       const buttons = view.options.map(entry => `<button class="rt-run-choice" data-action="gift" data-index="${entry.index}" data-testid="gift-${entry.index}" ${entry.available && !waiting ? '' : 'disabled'}>`
-        + `<b>${escapeHtml(giftText(entry.option))}</b>${entry.handFull ? handFullHtml(`gift-${entry.index}`) : entry.reason ? `<small>${escapeHtml(entry.reason)}</small>` : ''}`
+        + `<b>${escapeHtml(giftText(entry.option, run))}</b>${entry.handFull ? handFullHtml(`gift-${entry.index}`) : entry.reason ? `<small>${escapeHtml(entry.reason)}</small>` : ''}`
         // Task 41 (design 16.10.2026): consumables with healing among others at the cap are taken — the healing does not join.
         + `${!entry.handFull && entry.option.kind === 'items' && entry.option.items.includes('healing') && rtItemRefusal(run, 'healing') ? `<small class="rt-run-reason rt-hand-full" data-testid="hand-full-gift-${entry.index}">${RT_ITEM_REFUSAL_TEXT.handFull}: лечение не войдёт</small>` : ''}</button>`).join('');
       return card(`<h2>Дар в дорогу</h2><p>${view.kind === 'full' ? 'Полный дар' : 'Малый дар'}: выбери одно. Недоступные варианты выключены.</p>${view.habit ? habitRowHtml(view.habit) : ''}<div class="rt-run-choices">${buttons}</div>`

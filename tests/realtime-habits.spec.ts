@@ -4,7 +4,7 @@ import {
   createRtRun, resolveArena, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHabit, rtChooseHammer, rtChooseKnack, rtChooseTalisman, rtDieChoose,
   rtEnterNode, rtEventView, rtGiftView, rtItemRefusal, rtNode, rtRestHeal, rtShopLeave, serializeRtRun, type RtRunState, type RtRunStep,
 } from '../src/realtime/run/rtRun';
-import { RT_HABITS, rtHabit, rtTalisman, type RtHabitId } from '../src/realtime/run/rtTalismans';
+import { RT_COUNTER_WINDOW, RT_HABITS, rtHabit, rtTalisman, type RtHabitId } from '../src/realtime/run/rtTalismans';
 
 /**
  * Task 50 step 5 «Повадка» (design 16.10.2026, docs/design-notes/task-50-levels-archetype.md, 4.6): the archetype row over the gift `full`
@@ -86,6 +86,8 @@ test('the gift full: the row «Повадка» first, the gift buttons wait for
   await openSave(page, run);
   await expect(page.getByTestId('run-gift')).toBeVisible();
   await expect(page.getByTestId('gift-habits')).toBeVisible();
+  // Design 17.10.2026 (§17): one word over the four cards.
+  await expect(page.getByTestId('gift-habits-title')).toHaveText('Повадка');
   for (const def of RT_HABITS) {
     const card = page.getByTestId(`habit-${def.id}`);
     await expect(card).toContainText(def.name);
@@ -116,7 +118,42 @@ test('the gift full: the row «Повадка» first, the gift buttons wait for
   await expect(page.getByTestId('run-gift')).toHaveCount(0);
   await expect(page.getByTestId('run-habit')).toHaveAttribute('data-habit', 'cold');
   expect(await shown(page)).toMatchObject({ habit: 'cold', signs: 1 });
+  // The sign stands apart from the consumables' line (design §17): a gap of 10 px and more.
+  const sign = (await page.getByTestId('run-habit').boundingBox())!, items = (await page.getByTestId('run-items').boundingBox())!;
+  expect(items.x - (sign.x + sign.width), 'a gap between the sign and «Холод …»').toBeGreaterThanOrEqual(10);
   await shot(page, 'habit-header-sign');
+  expect(errors).toEqual([]);
+});
+
+test('a run with forms names the counters by their chain window on the gift: the button and the screen of the pick say «Острие» / «Улов» and the window\'s rule, not the catalogue\'s', async ({ page }) => {
+  // Defect of 17.10.2026 (design → core → ui): the gift wrote «Пятое звено» and «каждое 5-е звено» in a run with the counters' window.
+  const errors = collectErrors(page);
+  const windowed = Object.keys(RT_COUNTER_WINDOW).filter(id => RT_COUNTER_WINDOW[id].name);
+  let found: { run: RtRunState; index: number; id: string } | null = null;
+  for (let k = 1; k < 80 && !found; k++) {
+    const run = createRtRun(seedOf(k), { gift: 'full', garrison: false });
+    if (!run.forms) continue;
+    for (const entry of rtGiftView(run)!.options) {
+      const option = entry.option;
+      if (!entry.available || option.kind !== 'deal' || option.reward.kind !== 'pick-talisman') continue;
+      const id = option.reward.talismans.find(t => windowed.includes(t));
+      if (id) { found = { run, index: entry.index, id }; break; }
+    }
+  }
+  if (!found) throw new Error('no run of 80 offers a counter in the gift');
+  const { run, index, id } = found, shown = RT_COUNTER_WINDOW[id], catalogue = rtTalisman(id)!;
+  await openSave(page, run);
+  await page.getByTestId('habit-none').click();
+  const button = page.getByTestId(`gift-${index}`);
+  await expect(button).toContainText(shown.name!);
+  await expect(button).not.toContainText(catalogue.name);
+  await button.click();
+  const pick = page.getByTestId(`gift-pick-${id}`);
+  await expect(pick).toContainText(shown.name!);
+  await expect(pick).toContainText(shown.effect);
+  await expect(pick).not.toContainText(catalogue.name);
+  await expect(pick).not.toContainText(catalogue.effect);
+  await shot(page, 'habit-gift-window-names');
   expect(errors).toEqual([]);
 });
 

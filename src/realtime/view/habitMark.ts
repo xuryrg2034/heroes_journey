@@ -18,19 +18,22 @@ const MINT = '#6fe0b8';
 const STEEL = '#8a98a6';
 const DISC = '#233039';
 
-/** A six-armed snowflake: the arms in ice, a pale heart. */
-const snowflake = (): string => {
-  let arms = '';
-  for (let i = 0; i < 3; i++) arms += `<line x1="12" y1="3.2" x2="12" y2="20.8" transform="rotate(${i * 60} 12 12)"/>`;
-  let twigs = '';
-  for (let i = 0; i < 6; i++) twigs += `<path d="M9.6 5.8 L12 8.2 L14.4 5.8" transform="rotate(${i * 60} 12 12)"/>`;
-  return `<g fill="none" stroke-linecap="round" stroke-linejoin="round"><g stroke="${NAVY}" stroke-width="3.6">${arms}${twigs}</g><g stroke="${ICE}" stroke-width="1.8">${arms}${twigs}</g></g>`
-    + `<circle cx="12" cy="12" r="2.2" fill="${PALE}" stroke="${NAVY}" stroke-width="1.2"/>`;
+/**
+ * A cluster of icicles under a frosted ledge: three of uneven length, ice with a pale glint. Not a snowflake — the snowflake is the
+ * consumable «Холод» (design 17.10.2026, task 50 §17).
+ */
+const icicles = (): string => {
+  const one = (d: string, glint: string): string => `<path d="${d}" fill="${ICE}" stroke="${NAVY}" stroke-width="1.5" stroke-linejoin="round"/>`
+    + `<path d="${glint}" stroke="${PALE}" stroke-width="1.1" stroke-linecap="round" fill="none"/>`;
+  return one('M2.4 6.4 L9 6.4 L5.4 17.6 Z', 'M4.6 8 L5.2 12')
+    + one('M8 6.4 L16 6.4 L12 23.2 Z', 'M10.4 8.2 L11.2 15.6')
+    + one('M15 6.4 L21.6 6.4 L18.6 15 Z', 'M17 8 L17.5 11')
+    + `<path d="M1.2 4.4 Q12 0.6 22.8 4.4 L22.4 8 Q12 5.8 1.6 8 Z" fill="${PALE}" stroke="${NAVY}" stroke-width="1.6" stroke-linejoin="round"/>`;
 };
 
 const BODIES: Readonly<Record<RtHabitId, string>> = {
-  // «Стужа»: a snowflake.
-  cold: snowflake(),
+  // «Стужа»: a cluster of icicles.
+  cold: icicles(),
   // «Пламя»: a tongue of flame with a bright heart.
   flame: `<path d="M12 2.6 C14 6.4 18.6 9 18.2 14.4 C17.9 18.6 15.2 21.4 12 21.4 C8.8 21.4 6.1 18.6 5.8 14.4 C5.6 11.6 7.4 10 8.6 8.2 C9.2 10 10.2 10.8 11 10.8 C10.6 7.6 11.2 5 12 2.6 Z" fill="${EMBER}" stroke="${NAVY}" stroke-width="1.6" stroke-linejoin="round"/>`
     + `<path d="M12 12.4 C13.4 14.2 15 15.2 14.8 17.4 C14.6 19 13.5 19.8 12 19.8 C10.5 19.8 9.4 19 9.2 17.4 C9 15.4 11 14.6 12 12.4 Z" fill="${FLAME}" stroke="${NAVY}" stroke-width="1.2" stroke-linejoin="round"/>`,
