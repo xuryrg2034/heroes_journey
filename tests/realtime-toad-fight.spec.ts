@@ -1,4 +1,5 @@
 import { type Page } from '@playwright/test';
+import { writeFileSync } from 'node:fs';
 import { test, expect } from './realtimeTest';
 import { untilFrame, gameWait } from './realtimeFrames';
 import { serializeRtRun, type RtRunState } from '../src/realtime/run/rtRun';
@@ -26,6 +27,30 @@ function collectErrors(page: Page): string[] {
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
   return errors;
+}
+
+/**
+ * The pixels of a 1280×720 shot in a box round the hero (screen px): how many are the outline's pale (#e8e2cf at 85 % over the floor: every channel ≥ 165, spread ≤ 45),
+ * and the 4× zoom of the box as a PNG (nearest pixel, for the design's eye). Read in the page from the shot's own bytes.
+ */
+async function outlinePixels(page: Page, zoomPath: string | null): Promise<number> {
+  const h = await page.evaluate(() => (window as any).__realtime.snapshot().hero);
+  const c = await screen(page, h.x, h.y);
+  const box = { x: Math.round(c.x) - 50, y: Math.round(c.y) - 50, width: 100, height: 100 };
+  const png = await page.screenshot({ clip: box });
+  const out = await page.evaluate(async ([b64, zoom]) => {
+    const img = await createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob());
+    const cv = document.createElement('canvas'); cv.width = img.width; cv.height = img.height;
+    const g = cv.getContext('2d')!; g.drawImage(img, 0, 0);
+    const d = g.getImageData(0, 0, img.width, img.height).data;
+    let n = 0;
+    for (let i = 0; i < d.length; i += 4) { const r = d[i], gr = d[i + 1], b = d[i + 2]; if (Math.min(r, gr, b) >= 165 && Math.max(r, gr, b) - Math.min(r, gr, b) <= 45) n++; }
+    let url: string | null = null;
+    if (zoom) { const z = document.createElement('canvas'); z.width = img.width * 4; z.height = img.height * 4; const zg = z.getContext('2d')!; zg.imageSmoothingEnabled = false; zg.drawImage(img, 0, 0, z.width, z.height); url = z.toDataURL('image/png'); }
+    return { n, url };
+  }, [png.toString('base64'), !!zoomPath] as const);
+  if (zoomPath && out.url) writeFileSync(zoomPath, Buffer.from(out.url.split(',')[1], 'base64'));
+  return out.n;
 }
 
 /** The journal of the fight replays in Node (no view at all) to the hash the page has. */
@@ -227,6 +252,15 @@ test('the mage on the arena against the five colours: her picture stands out and
   const rows = await page.locator('.rt-build-item').evaluateAll(els => els.map(e => e.getAttribute('data-testid')));
   expect(rows.join(' ')).not.toContain('hero-toad');
   await page.screenshot({ path: `${SHOTS}/toad-on-arena-five-colours.png` });
+  // The outline is really drawn in the frame: pale #e8e2cf pixels round her (the cat's picture has next to none).
+  const toadPale = await outlinePixels(page, `${SHOTS}/toad-outline-zoom.png`);
+  await openSandbox(page, null);
+  await page.mouse.move(900, 300);
+  await gameWait(page, 0.3);
+  const catPale = await outlinePixels(page, `${SHOTS}/cat-outline-zoom.png`);
+  console.log(`outline pixels: toad ${toadPale}, cat ${catPale}`);
+  expect(toadPale, 'the outline shows round her').toBeGreaterThan(120);
+  expect(catPale, 'the cat has none').toBeLessThan(toadPale / 5);
   expect(errors).toEqual([]);
 });
 

@@ -3,7 +3,7 @@
  * colours, the pale ink, the hero (the cat barbarian; the PNG when loaded, else the drawn one) and the terrain tiles. Moved
  * without change.
  */
-import { Container, Graphics } from 'pixi.js';
+import { ColorMatrixFilter, Container, Graphics } from 'pixi.js';
 import { characterSprite } from './characterAssets';
 
 /** Terrain tiles the drawing knows (the arena view draws walls and trees). */
@@ -21,8 +21,14 @@ export function makeToad(size=1,outline=false):Container{
   const sprite=characterSprite('toad',84*size,78*size);
   if(sprite){
     const c=new Container();
-    // Task 49 (design): the hero's own thin pale outline (2 px, 85 %) keeps her slate and navy off the dark floor: tinted copies round her.
-    if(outline)for(let k=0;k<8;k++){const a=characterSprite('toad',84*size,78*size);if(!a)break;const t=k/8*Math.PI*2;a.tint=0xe8efe0;a.alpha=0.85;a.position.set(Math.cos(t)*2,-2*size+Math.sin(t)*2);c.addChild(a);}
+    // Task 49 (design): the hero's own thin pale outline (2 px, 85 %, #e8e2cf) keeps her slate and navy off the dark floor. A tint only multiplies the
+    // texture (a dark copy stays dark), so the copies round her go through a colour matrix that paints the silhouette flat; the group's alpha makes 85 % once.
+    if(outline){
+      const ring=new Container(),f=new ColorMatrixFilter();
+      f.matrix=[0,0,0,0,0xe8/255, 0,0,0,0,0xe2/255, 0,0,0,0,0xcf/255, 0,0,0,1,0];
+      for(let k=0;k<12;k++){const a=characterSprite('toad',84*size,78*size);if(!a)break;const t=k/12*Math.PI*2;a.position.set(Math.cos(t)*2,-2*size+Math.sin(t)*2);ring.addChild(a);}
+      ring.filters=[f];ring.alpha=0.85;c.addChild(ring);
+    }
     sprite.position.set(0,-2*size);c.addChild(sprite);return c;
   }
   const c=new Container(),g=new Graphics();c.addChild(g);c.scale.set(size);
