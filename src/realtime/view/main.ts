@@ -208,6 +208,8 @@ async function boot(): Promise<void> {
   const urlParams = new URLSearchParams(location.search);
   const seedText = urlParams.get('seed');
   const fixedSeed = seedText !== null && Number.isFinite(Number(seedText)) ? Number(seedText) >>> 0 : null;
+  /** Task 49: `?hero=toad` - a debug run of Ведунья (a seeded run: the meta does not count); anything else - the profile's chosen hero. */
+  const fixedHero = urlParams.get('hero') === 'toad' ? 'toad' as const : undefined;
   /** The prototype's sandbox (arena menu, debug panel); otherwise the page plays a run. `#sandbox` too: a published
    * build passes a plain anchor to the page but not the query (design 08.10.2026). */
   const sandbox = urlParams.get('sandbox') === '1' || location.hash === '#sandbox';
@@ -778,6 +780,7 @@ async function boot(): Promise<void> {
     // User request 15.10.2026: the map's «Песочница» — the anchor reloads the page as the sandbox (`hashchange` above); the run's save is kept.
     openSandbox: () => { location.hash = '#sandbox'; },
     firstMeet: meetFirst,
+    ...fixedHero ? { fixedHero } : {},
     // Tasks 36–37: the meta outside the sandbox; its sounds follow the run's sound setting.
     ...sandbox ? {} : { meta: {
       sound: (kind: MetaSoundKind) => {
@@ -791,6 +794,7 @@ async function boot(): Promise<void> {
       map: (run, chosen) => recorder?.hearthMap(run, chosen),
       buy: (run, npc, level, price) => { if (run) recorder?.hearthBuy(run, npc, level, price); },
       click: (run, npc) => { if (run) recorder?.hearthClick(run, npc); },
+      heroFreed: (run, hero, row) => recorder?.heroFreed(run, hero, row),
     } },
     // П1, П7: the view settings on the gear of the run map (the fight HUD has none).
     viewToggles: [
@@ -1910,6 +1914,8 @@ async function boot(): Promise<void> {
       screens: () => runView.screensInfo(),
       /** Task 50: the run's archetype, the gift's row and the marked cards on the screen (see `RunView.habitInfo`). */
       habitShown: () => runView.habitInfo(),
+      /** Task 49: the hero cards of the screen (ids, the chosen one, the best «Испытание» marks, the laws) and the cage scene (null - none). */
+      heroesShown: () => runView.heroesShown(),
       /** Task 47, tests only: multiplies the times of the staged screens (С6, С8) by `k` — a slow reveal to act in the middle of it. */
       screenPace: (k: number) => { runView.screenPace = k > 0 ? k : 1; },
       winArena: async () => {

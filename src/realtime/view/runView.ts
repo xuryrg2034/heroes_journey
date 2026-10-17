@@ -17,10 +17,10 @@ import { rosterTitle } from '../sim/rosters';
 import { rtHp } from '../run/hpScale';
 import {
   arenaPreview, createRtRun, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtEnterNode,
-  rtChooseHabit, rtChooseTalisman, rtRerollTalismans, rtRerollView, rtHammerRerollView, rtRerollHammers, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtFoughtJailer, rtRestCraft, rtRestFinish, rtRestFuse, rtRestHeal, rtRestView, rtFusionRecipe, rtFusionsReady, rtHandFull, rtItemRefusal, rtPotionCap, RT_ITEM_REFUSAL_TEXT, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
+  rtChooseHabit, rtChooseTalisman, rtRerollTalismans, rtRerollView, rtHammerRerollView, rtRerollHammers, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtFoughtJailer, rtRestCraft, rtRestFinish, rtRestFuse, rtRestHeal, rtRestView, rtFusionRecipe, rtFusionsReady, rtInnate, rtHandFull, rtItemRefusal, rtPotionCap, RT_ITEM_REFUSAL_TEXT, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
   rtOathPreview, rtOathStakeOn, rtArenaRules, RT_SECOND_WIND_LAST_ROW, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
   rtCasinoView, rtCasinoPlay, rtCasinoLeave, rtCasinoNode, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE,
-  healOffer, healOnMap, healVisible, rtResourceTotal, rtNodeFeat, RT_HEAL_MAP_GAIN, rtAsh, rtAshOptions, rtAshTitle, rtRunWon, isRtAshLevel, rtScheduleMet, RT_JAILER_SEVERED_SLOTS, rtFormReplaces, rtFormSlotField,
+  healOffer, healOnMap, healVisible, rtResourceTotal, rtNodeFeat, RT_HEAL_MAP_GAIN, rtAsh, rtAshOptions, rtAshTitle, rtRunWon, isRtAshLevel, type RtAshLevel, rtScheduleMet, RT_JAILER_SEVERED_SLOTS, rtFormReplaces, rtFormSlotField,
   rtEnterGarrison, rtLevel, rtCartView, rtChooseKnack, type RtCartView,
   type RtArenaOutcome, type RtArenaRules, type RtCasinoTable, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
@@ -52,11 +52,23 @@ import { ICON as STOCK_ICON, MetaEndView, type MetaSound } from './metaEnd';
 import { HearthView } from './hearthView';
 import { ProfileMeta } from './metaSource';
 import { RunStart } from './runStart';
-import { rtHearthFlagsWith, rtRunKey, type RtHearthStart, type RtMetaEnd } from '../run/rtMeta';
+import { rtHearthFlagsWith, rtJailerWonRow, rtRunKey, type RtHearthStart, type RtMetaEnd } from '../run/rtMeta';
+import { RT_HERO_ID, RT_TOAD_ID, type RtHeroId } from '../run/metaCatalog';
+import { TOAD_LINES } from './heroLines';
+import type { MetaHeroId } from './metaModel';
 import type { HearthStart } from './metaModel';
 import { KIND_CAPTIONS } from './newSeen';
 import { END_STEP, REVEAL_FADE, endShown, endTotal, revealDelays, revealDone, revealShown, screenTier, type RewardTier } from './reveal';
 import type { ItemKind as KitItem } from '../sim/kit';
+
+/**
+ * Task 49 (spec 7.1): the hero cards of «Новый поход» - the law and the price, two lines of at most 6 words. The cat has no law
+ * (the first line says so; the second names his shield by its rule, docs/realtime-damage.md, 4a).
+ */
+export const HERO_CARD_LINES: Readonly<Record<MetaHeroId, readonly [string, string]>> = {
+  cat: ['Без закона', 'Щит — после цепи с убийствами'],
+  toad: ['Кольцо с первого боя', 'Щит — только после кольца'],
+};
 
 /** Task 47, С5: the chord of a reward screen by its tier (view/reveal.ts `screenTier`). */
 export type RewardSound = 'reward0' | 'reward1' | 'reward2';
@@ -150,7 +162,11 @@ export interface RunHost {
     map?(run: RtRunState, chosen: number): void;
     buy?(run: RtRunState | null, npc: string, level: number, price: number): void;
     click?(run: RtRunState | null, npc: string): void;
+    /** Task 49 telemetry (core's recorder): the run freed Ведунья (`RtProfileStore.freeHero`); `row` - the Jailer's row of the run. */
+    heroFreed?(run: RtRunState, hero: 'toad', row: number): void;
   };
+  /** Task 49: `?hero=toad` in the address - a debug run of that hero, without the meta (as `?seed=`; the run is a seeded one). */
+  fixedHero?: RtHeroId;
   /** Telemetry (П8): a map choice made while a sign was shown on an available node card. Absent — nothing recorded. */
   mapChoice?(run: RtRunState, choice: MapSignChoice): void;
 }
@@ -289,10 +305,11 @@ const partName = (id: string, run?: Pick<RtRunState, 'forms'> | null): string =>
  * Task 44 «Сплавы» (design 16.10.2026, docs/design-notes/task-44-fusions.md, 4): the recipe line of a half's card — «Сплав: с „…“ →
  * „…“» (`rtFusionRecipe`: a run with fusions, both parts available); the run holds the partner — «· пара есть». Empty — no recipe.
  */
-function recipeHtml(run: RtRunState | null | undefined, id: string): string {
+export function recipeHtml(run: RtRunState | null | undefined, id: string): string {
   const of = run ? rtFusionRecipe(run, id) : null;
   if (!run || !of) return '';
-  const held = run.talismans.includes(of.partner) || run.hammer === of.partner;
+  // Task 49: the hero's innate half (Ведунья's «Печать») is held from the first fight.
+  const held = run.talismans.includes(of.partner) || run.hammer === of.partner || rtInnate(run).includes(of.partner);
   return `<small class="rt-run-recipe" data-testid="recipe-${id}">Сплав: с «${escapeHtml(partName(of.partner, run))}» → «${escapeHtml(partName(of.fusion, run))}»${held ? ' · пара есть' : ''}</small>`;
 }
 /** Task 44: an item's icon as the build column draws it (a drawn SVG, or its sign). */
@@ -478,7 +495,7 @@ export class RunView {
    * given seed (`?seed=`) and the sandbox start as before.
    */
   beginRun(): void {
-    if (!this.meta || this.fixedSeed !== null) { this.newRun(); return; }
+    if (!this.meta || this.fixedSeed !== null || this.host.fixedHero) { this.newRun(); return; }
     // An abandoned run is settled first: its end picks the next run's quest, which the plan below carries (design smoke v62).
     this.settleAbandoned();
     const base = Math.floor(Math.random() * 0x100000000) >>> 0;
@@ -537,7 +554,7 @@ export class RunView {
 
   /** A new run (a given seed — `?seed=` — makes it a seeded run). */
   newRun(seed?: number, camp?: { seed: number; item: KitItem | null; plan: HearthStart; map: number | null }): RtRunState {
-    const seeded = seed !== undefined || this.fixedSeed !== null;
+    const seeded = seed !== undefined || this.fixedSeed !== null || !!this.host.fixedHero;
     const value = (seed ?? this.fixedSeed ?? camp?.seed ?? Math.floor(Math.random() * 0x100000000)) >>> 0;
     this.hearth?.close();
     this.metaEnd?.stop(); this.metaEnd = null;
@@ -550,11 +567,13 @@ export class RunView {
     // otherwise (a test hook) — the plan of its seed with no map choice. Only a meta run (not `?seed=`, not the sandbox).
     const plan = this.meta && !seeded ? (camp?.plan as RtHearthStart | undefined) ?? this.profile.hearthStart(value) : null;
     const flags = plan ? rtHearthFlagsWith(camp ? plan : { ...plan, flags: { ...plan.flags, maps: undefined } }, camp?.item ?? plan.items?.[0]) : null;
-    const metaRun = this.meta && !seeded ? { locked: this.profile.locked(), ...flags && Object.values(flags).some(v => v !== undefined) ? { hearth: flags } : {} } : {};
+    // Task 49: a meta run takes the chosen hero (its own locked items); `?hero=toad` - a seeded debug run of that hero (the meta does not count).
+    const hero = this.meta && !seeded ? this.profile.heroChoice() : null;
+    const metaRun = this.meta && !seeded ? { hero: hero!, locked: this.profile.locked(hero!), ...flags && Object.values(flags).some(v => v !== undefined) ? { hearth: flags } : {} } : {};
     // Task 16 «Подвиги»: feats from the run after the first Jailer (the profile's `jailer`); the viewer's run number for telemetry.
     // Task 18 «Испытание I–V»: the level chosen on «Новый поход» (the profile's last choice; 0 while the choice is closed).
     // Task 26 «Расписание леса»: the viewer's history goes into the run as a snapshot (the run ignores it from «Испытание II»).
-    this.run = createRtRun(value, { gift: this.profile.giftKind(seeded), seeded, feats: this.profile.featsOn(), ash: this.profile.ashChoice(), schedule: this.profile.scheduleHistory(() => this.host.scheduleSeed?.() ?? []), ...metaRun });
+    this.run = createRtRun(value, { gift: this.profile.giftKind(seeded), seeded, feats: this.profile.featsOn(), ash: this.profile.ashChoice(), schedule: this.profile.scheduleHistory(() => this.host.scheduleSeed?.() ?? []), ...metaRun, ...seeded && this.host.fixedHero ? { hero: this.host.fixedHero } : {} });
     if (camp?.map !== null && camp?.map !== undefined) this.host.meta?.map?.(this.run, camp.map);
     const viewerRun = this.profile.startRun();
     this.host.session?.clock.runStarted();
@@ -580,12 +599,19 @@ export class RunView {
       if (this.outskirtsFrom !== null && this.outskirtsFrom < this.run.hp) this.host.meta?.sound('heal');
     }
     if (this.run.result && !before?.result) {
-      this.profile.endRun({ reachedJailer: rtReachedJailer(this.run), seeded: !!this.run.seeded, won: rtRunWon(this.run) });
+      this.profile.endRun({ reachedJailer: rtReachedJailer(this.run), seeded: !!this.run.seeded, won: rtRunWon(this.run), hero: this.run.heroId ?? RT_HERO_ID });
       const meta = this.metaEndOf(this.run, true);
       if (meta) this.host.meta?.end?.(this.run, meta.meta as RtMetaEnd);
     }
     // Task 16: the Jailer fought (won or lost) — the profile's sticky mark, also for a run abandoned later (not a seeded run).
     if (!this.run.seeded && rtFoughtJailer(before, this.run)) this.profile.markJailer();
+    // Task 49 (spec 6.1): the Jailer's reward screens are over (no screen open) - the first win over him frees Ведунья; the cage scene
+    // plays over the map. The outcome, the rewards and the run's streams are not touched (core `freeHero` writes the profile only).
+    if (this.meta && !this.run.seeded && !this.run.pending && !this.run.result && this.profile.freeHero(this.run) === RT_TOAD_ID) {
+      this.cage = 'closed';
+      const row = rtJailerWonRow(this.run);
+      if (row !== null) this.host.meta?.heroFreed?.(this.run, RT_TOAD_ID, row);
+    }
     // Task 16 telemetry: the real seconds the screen of this step's choice was open (since it opened or the last step on it).
     const now = performance.now(), realSeconds = Math.max(0, (now - this.screenSince) / 1000);
     this.screenSince = now;
@@ -801,6 +827,11 @@ export class RunView {
     }
     if (action === 'cancel-reset') { this.confirmReset = false; this.draw(); return; }
     if (action === 'hearth') { this.openHearth(); return; }
+    // Task 49: a hero card of «Новый поход» chooses the hero of the next run (the profile remembers it).
+    if (action === 'hero-pick') { const id = target.dataset.hero as MetaHeroId; if (this.profile.chooseHero(id)) this.draw(); return; }
+    // Task 49: the cage scene - «Открыть клетку» drops the cage and lets her out, her one line, then the way on.
+    if (action === 'cage-open') { this.cage = 'opened'; this.host.meta?.sound('open'); this.draw(); return; }
+    if (action === 'cage-done') { this.cage = null; this.draw(); return; }
     // Task 18: the level of «Испытание» for the next new run (remembered in the profile at once).
     if (action === 'ash') { const level = Number(target.dataset.level); if (isRtAshLevel(level)) this.profile.chooseAsh(level); this.draw(); return; }
     if (action === 'logs') { this.host.openLogs?.(); return; }
@@ -1206,14 +1237,56 @@ export class RunView {
   /** Smoke v62: the end screen of an abandoned run (no facts: it did not end; the meta block, «В лагерь», «Новый поход»). */
   private abandonedHtml(): string {
     return `<div class="rt-overlay rt-run-modal" data-testid="run-result-abandoned"><div class="rt-card"><h2>Поход брошен</h2>${this.metaEnd ? '<div data-meta-slot></div>' : ''}`
+      + this.heroCardsHtml()
       + `<button class="rt-again" data-action="hearth" data-testid="run-to-hearth">В лагерь</button>`
       + `<button class="rt-other" data-action="new-run" data-testid="run-new">Новый поход</button></div></div>`;
   }
 
   private startHtml(): string {
     return `<div class="rt-run-start rt-card"><h2>Поход</h2><p>Карта леса, арены в реальном времени, привалы, события и торговец. Поражение на арене заканчивает поход.</p>`
-      + this.ashHtml() + `<button class="rt-again" data-action="new-run" data-testid="run-new">Новый поход</button>`
+      + this.heroCardsHtml() + this.ashHtml() + `<button class="rt-again" data-action="new-run" data-testid="run-new">Новый поход</button>`
       + (this.meta?.hearthOpen() ? '<button class="rt-other" data-action="hearth" data-testid="run-hearth">Лагерь</button>' : '') + '</div>';
+  }
+
+  /** Task 49: the cage scene of the run now - 'closed' (the cage hangs, the button), 'opened' (the cage fell, her line), null - none. */
+  private cage: 'closed' | 'opened' | null = null;
+
+  /**
+   * Task 49 (spec 6.1): the scene after the Jailer's reward screens of the first win over him. One button: «Открыть клетку»; her one
+   * line (`cage_2`) comes with the opened cage. No choice to leave her, no reward - the scene changes nothing in the run.
+   */
+  private cageHtml(): string {
+    const art = (name: string): string => new URL(`art/characters/${name}.png`, document.baseURI).href, opened = this.cage === 'opened';
+    return `<div class="rt-overlay rt-run-modal rt-cage-scene" data-testid="cage-scene" data-state="${this.cage}"><div class="rt-card">`
+      + `<div class="rt-cage-stage"><img class="rt-cage-toad" src="${art('toad')}" alt=""><img class="rt-cage-img" src="${art('jailer-cage')}" alt=""></div>`
+      + (opened
+        ? `<h2>Ведунья</h2><p class="rt-cage-line" data-testid="cage-line">«${escapeHtml(TOAD_LINES.cage_2[0])}»</p><button class="rt-again" data-action="cage-done" data-testid="cage-done">Дальше</button>`
+        : `<h2>Клетка Тюремщика</h2><button class="rt-again" data-action="cage-open" data-testid="cage-open">Открыть клетку</button>`)
+      + `</div></div>`;
+  }
+
+  /** Task 49 (spec 7.1): after the rescue, two hero cards by the choice of «Испытание»; before it - nothing. The profile remembers the choice. */
+  private heroCardsHtml(): string {
+    if (!this.meta || this.fixedSeed !== null || this.host.fixedHero) return '';
+    const heroes = this.meta.heroes().filter(h => h.open);
+    if (heroes.length < 2) return '';
+    const cards = heroes.map(h => {
+      const [law, price] = HERO_CARD_LINES[h.id];
+      return `<button class="rt-hero-card${h.chosen ? ' rt-on' : ''}" data-action="hero-pick" data-hero="${h.id}" data-testid="hero-card-${h.id}" aria-pressed="${h.chosen}">`
+        + `<b>${escapeHtml(h.title)}</b><span>${escapeHtml(law)}</span><span>${escapeHtml(price)}</span>`
+        + (h.ashBest ? `<em data-testid="hero-ash-${h.id}">${escapeHtml(rtAshTitle(h.ashBest as RtAshLevel))}</em>` : '') + `</button>`;
+    }).join('');
+    return `<div class="rt-heroes" data-testid="run-heroes">${cards}</div>`;
+  }
+
+  /** Task 49 (tests read it): the hero cards on the screen now (their ids, the chosen one, the best «Испытание» marks) and the cage scene. */
+  heroesShown(): { cards: string[]; chosen: string | null; ash: Record<string, string>; cage: 'closed' | 'opened' | null; laws: Record<string, string[]> } {
+    const els = [...this.el.querySelectorAll<HTMLElement>('.rt-hero-card')];
+    return {
+      cards: els.map(el => el.dataset.hero ?? ''), chosen: els.find(el => el.classList.contains('rt-on'))?.dataset.hero ?? null,
+      ash: Object.fromEntries(els.flatMap(el => { const m = el.querySelector('em')?.textContent; return m ? [[el.dataset.hero ?? '', m]] : []; })),
+      cage: this.cage, laws: Object.fromEntries(els.map(el => [el.dataset.hero ?? '', [...el.querySelectorAll('span')].map(n => n.textContent ?? '')])),
+    };
   }
 
   /**
@@ -1442,6 +1515,7 @@ export class RunView {
   }
 
   private modalHtml(run: RtRunState): string {
+    if (this.cage) return this.cageHtml();
     const card = (body: string, testId: string) => `<div class="rt-overlay rt-run-modal" data-testid="${testId}"><div class="rt-card">${body}</div></div>`;
     if (run.result) {
       const won = run.result.outcome === 'victory', kills = run.battles.reduce((sum, b) => sum + b.kills, 0), damage = run.battles.reduce((sum, b) => sum + b.damage, 0);
@@ -1454,7 +1528,7 @@ export class RunView {
         + `<dt>Узлов</dt><dd>${run.visited.length}</dd><dt>Убито</dt><dd>${kills}</dd><dt>Получено урона</dt><dd>${damage}</dd></dl>`
         + this.luckHtml(run)
         + (this.host.session?.on() ? `<p class="rt-run-session" data-testid="run-session-line">${escapeHtml(this.host.session.clock.endLine())}</p>` : '')
-        + this.ashHtml() + (meta ? '<button class="rt-again" data-action="hearth" data-testid="run-to-hearth">В лагерь</button>' : '')
+        + this.heroCardsHtml() + this.ashHtml() + (meta ? '<button class="rt-again" data-action="hearth" data-testid="run-to-hearth">В лагерь</button>' : '')
         + `<button class="${meta ? 'rt-other' : 'rt-again'}" data-action="new-run" data-testid="run-new">Новый поход</button>${this.logsButton('logs-open-result')}`, `run-result-${run.result.outcome}`);
     }
     const pending = run.pending;
@@ -1620,8 +1694,9 @@ export class RunView {
   private newOffers(key: string, ids: readonly string[]): Set<string> {
     if (!this.meta || this.run?.seeded) return new Set();
     if (this.offerNew?.key === key) return this.offerNew.ids;
-    const fresh = new Set(ids.filter(id => this.profile.isNewOffer(id)));
-    if (fresh.size) this.profile.markOffered([...fresh]);
+    const hero = this.run?.heroId ?? RT_HERO_ID;
+    const fresh = new Set(ids.filter(id => this.profile.isNewOffer(id, hero)));
+    if (fresh.size) this.profile.markOffered([...fresh], hero);
     this.offerNew = { key, ids: fresh };
     return fresh;
   }
