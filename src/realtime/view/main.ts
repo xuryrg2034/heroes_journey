@@ -25,7 +25,7 @@ import { AFFIX_IDS, potionHandFull } from '../sim/elites';
 import { enemyLimit, scaledFloor } from '../sim/spawn';
 import { BEHAVIOR_ARENAS } from '../sim/arenasStage3';
 import { CAMERA_ARENAS } from '../sim/arenasCamera';
-import { BOSS_ARENAS } from '../sim/arenasBoss';
+import { BOSS_ARENAS, FOREST_BOSS_ARENAS } from '../sim/arenasBoss';
 // Task 38: the garrison's arenas at the end of the sandbox menu (`?arena=20…24`).
 import { GARRISON_ARENAS } from '../sim/arenasGarrison';
 import { canSpin } from '../sim/abilities';
@@ -100,9 +100,10 @@ const NOTE_FLASH_MS = 1000;
  * Arenas of the sandbox menu, keys 1–9 and 0: the three prototype arenas and arenas 4–10 of the slice (stage 2, steps 2
  * and 4); then the terrain samples of stage 3a (river, cliff, thorns, braziers, gorge), keys ⇧1–⇧5, and the arenas of its
  * new enemies («Рысье логово», «Круг шамана»), keys ⇧6–⇧7; then the camera sample «Большая поляна» 24×15 (key ⇧8,
- * docs/realtime-stage3.md, section 11); then the boss arena «Тюремщик» (task 27, key ⇧9, `?arena=19`). `?arena=1…19` opens one at once.
+ * docs/realtime-stage3.md, section 11); then the boss arena «Тюремщик» (task 27, key ⇧9, `?arena=19`); the garrison's after it; at the end
+ * «Берлога тролля» (task 48, no key, `?arena=30`). `?arena=N` opens one at once.
  */
-const SANDBOX_ARENAS: readonly ArenaTemplate[] = [...ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS, ...BEHAVIOR_ARENAS, ...CAMERA_ARENAS, ...BOSS_ARENAS, ...GARRISON_ARENAS];
+const SANDBOX_ARENAS: readonly ArenaTemplate[] = [...ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS, ...BEHAVIOR_ARENAS, ...CAMERA_ARENAS, ...BOSS_ARENAS, ...GARRISON_ARENAS, ...FOREST_BOSS_ARENAS];
 /** Arenas on the plain digit keys (1–9, 0); the rest are on Shift + digit (stage 3a). */
 const DIGIT_ARENAS = ARENAS.length + SLICE_ARENAS.length;
 /** What an arena forces over the panel's phase table (stage 2): «стай волков и кабанов нет (доли 0)» and the like. */
@@ -311,7 +312,7 @@ async function boot(): Promise<void> {
   menuCard.append(...menuRunButton ? [menuRunButton] : [], el('h2', '', 'Выбери арену'));
   const arenaList = el('div', 'rt-arenas');
   // The camera sample's button has its own test id: the menu counts of the older tests (`arena-*`) stay as they were.
-  const camera0 = DIGIT_ARENAS + TERRAIN_ARENAS.length + BEHAVIOR_ARENAS.length, boss0 = camera0 + CAMERA_ARENAS.length, garrison0 = boss0 + BOSS_ARENAS.length;
+  const camera0 = DIGIT_ARENAS + TERRAIN_ARENAS.length + BEHAVIOR_ARENAS.length, boss0 = camera0 + CAMERA_ARENAS.length, garrison0 = boss0 + BOSS_ARENAS.length, forest0 = garrison0 + GARRISON_ARENAS.length;
   // The menu shows before the art has loaded (`loadCharacterArt`): a pick made meanwhile is kept and played once the game is ready
   // (before, the click reached `start` before it existed and was lost — more art, task 43, made the wait longer).
   let earlyPick: number | null = null;
@@ -325,7 +326,9 @@ async function boot(): Promise<void> {
     if (i === boss0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Босс — каркас и Тюремщик (только песочница)'));
     // Task 38: the garrison's arenas under their own heading, test ids `garrison-arena-N`. Task 40: «Ров» and the keymaster.
     if (i === garrison0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Гарнизон — строй, поводки, Кастелян, кандалы'));
-    const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span data-summary="${i}">${markedGoalArena(arena, params.markedGoals).summary}</span>`, i >= garrison0 ? `garrison-arena-${i - garrison0 + 1}` : i >= boss0 ? `boss-arena-${i - boss0 + 1}` : i >= camera0 ? `camera-arena-${i - camera0 + 1}` : `arena-${i + 1}`);
+    // Task 48: the Troll at the end of the menu (the numbers before stay), test id `boss-arena-2` (after the Jailer's).
+    if (i === forest0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Босс — Тролль (только песочница)'));
+    const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span data-summary="${i}">${markedGoalArena(arena, params.markedGoals).summary}</span>`, i >= forest0 ? `boss-arena-${BOSS_ARENAS.length + i - forest0 + 1}` : i >= garrison0 ? `garrison-arena-${i - garrison0 + 1}` : i >= boss0 ? `boss-arena-${i - boss0 + 1}` : i >= camera0 ? `camera-arena-${i - camera0 + 1}` : `arena-${i + 1}`);
     b.addEventListener('click', () => pick(i));
     arenaList.appendChild(b);
   });
@@ -444,6 +447,8 @@ async function boot(): Promise<void> {
   const deathSeries = new DeathSeries();
   /** Task 28: the Jailer's weight was severed in this fight (a `partSevered` event; read with the death watch) — `RtArenaOutcome.severed`. */
   let fightSevered = false;
+  /** Task 48: the boss's parts severed in this fight (`partSevered` events) — `RtArenaOutcome.parts` (the run keeps it for the Troll). */
+  let fightParts = 0;
   /** Task 22 «Удар слышен»: one sound of a kind per 0.3 real seconds; the threats' starts read frame by frame (view/soundGate.ts). */
   const soundGate = new SoundGate(), threatWatch = new ThreatWatch();
   /** Task 12: the values of the run's arena (`rtArenaParams`: the run's flag `markedGoals`); null — the sandbox's `params`. */
@@ -457,6 +462,7 @@ async function boot(): Promise<void> {
     deathWatch.reset();
     deathSeries.reset();
     fightSevered = false;
+    fightParts = 0;
     if (simParams) return new Simulation({ arena, params: simParams, seed, record: true, beforeTick: world => { motion.save(world); }, ...hero ? { hero } : {}, ...loadout ? { loadout } : {} });
     return new Simulation({ arena, params: runArenaParams ?? params, seed, record: true, beforeTick: world => { motion.save(world); recorder?.beforeTick(world); deathWatch.seen(world); deathSeries.seen(world); }, ...hero ? { hero } : {}, loadout: loadout ?? sandboxLoadout() });
   };
@@ -824,6 +830,8 @@ async function boot(): Promise<void> {
       ...featOutcome(w),
       // Task 28: the weight severed (the run keeps it only on a Jailer arena; a won fight offers 1 of 4).
       ...fightSevered ? { severed: true } : {},
+      // Task 48: the Troll's parts severed (all three — the relic 1 of 4).
+      ...fightParts ? { parts: fightParts } : {},
       ...w.status === 'defeat' && deathWatch.death ? { death: deathWatch.death } : {} });
   };
   /** The result's button only switches the screen: to the map, or to the end of the run. */
@@ -1294,6 +1302,8 @@ async function boot(): Promise<void> {
         else if (ev.type === 'finisher') audio.finisher(soundVolume());
         // Task 38: a tether cut by the dash snaps.
         else if (ev.type === 'tether' && ev.action === 'cut') audio.snap(soundVolume());
+        // Task 48: the Troll's club falls — a dull thud (the one tone of his fight; no sound for «звон» — a dash strikes many bodies).
+        else if (ev.type === 'bossMove' && ev.move === 'club' && ev.stage === 'hit') audio.thud(soundVolume());
         // Task 47, С4: the hammers — the fire's crackle, the end's pop, the cut's swish (one a frame: a dash cuts many), the bell
         // backwards of «Возврат».
         else if (ev.type === 'hammer') {
@@ -1337,7 +1347,7 @@ async function boot(): Promise<void> {
     }
     // П5: the run fight's chance (the goblin's pulls, the elites' loot) before the frame's events go.
     // П6: the run fight's killing blow, read the same way.
-    if (runView?.arenaOpen && !runArenaRecorded) { observeFightLuck(fightLuck, w.events); deathWatch.read(w, w.events); deathSeries.read(w, w.events); if (w.events.some(e => e.type === 'partSevered')) fightSevered = true; }
+    if (runView?.arenaOpen && !runArenaRecorded) { observeFightLuck(fightLuck, w.events); deathWatch.read(w, w.events); deathSeries.read(w, w.events); if (w.events.some(e => e.type === 'partSevered')) fightSevered = true; fightParts += w.events.filter(e => e.type === 'partSevered').length; }
     // Task 16 telemetry «Новизна»: the first meetings of a run fight (the kinds and affixes come from the captions, render.ts).
     if (firstMeets && runView?.arenaOpen && !prologue) {
       if (!firstMeets.has('elite') && w.enemies.some(e => e.elite && renderer.sees(e))) meetFirst('elite');
@@ -1746,6 +1756,14 @@ async function boot(): Promise<void> {
         court: { ...renderer.courtShown },
         /** Task 43: the knight — plate pips, «Рывок» lanes and «Размах» circles drawn in the frame; the sheds and swing hits seen. */
         knight: { ...renderer.knightShown },
+        /**
+         * Task 48 «Тролль» (render.ts `trollShown`): `core` — his drawing this frame, `asleep` («Храп»), `glow` (a window is open), `count` (the whole
+         * seconds over him, '' — none) and `edgeCount` (by his goal arrow, off screen); `sign` (the move's sign now: club, rock, tail, roar) and its fill
+         * `signProgress`, the signs by shape (`strips`, `circles`, `rings`, `gateMarks`), `snoreArc` (its fill, 0 — none); `tail` (his tail's line),
+         * `weapons` (the parts' drawings), `flight` (the rock in the air); since the fight began — `hits` (signs flashed), `sparks` («звон»), `severed`,
+         * `tailFalls`, `unlinks` (white rings of links dropped with the window), `crumbles` (a struck snore's arc), `regrows`, `opens`.
+         */
+        troll: { ...renderer.trollShown },
         /** Task 28: the boss bar of the HUD (`BossBar.shown`) and the names of the boss's moves on screen now. */
         bossBar: bossBar.shown(),
         bossNames: bossLabels.map(l => l.spec.text),

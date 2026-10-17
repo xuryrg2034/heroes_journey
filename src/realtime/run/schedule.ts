@@ -15,6 +15,11 @@ import { FIXED_ROSTER_ARENAS, KIND_ROLE, POOL_ROSTERS } from '../sim/rosters';
 import { arenaKinds } from './arenaKinds';
 import { JAILER_ARENA, JAILER_YARD_ARENA } from '../sim/arenasBoss';
 import { JAILER_WEIGHT } from '../sim/enemies/jailer';
+import { TROLL_CLUB, TROLL_ROCK, TROLL_TAIL } from '../sim/enemies/troll';
+import { TROLL_ARENA } from '../sim/arenasBoss';
+
+/** Task 48: the Troll's parts (a boss with parts: the arc «part»). */
+const TROLL_PARTS: readonly string[] = [TROLL_CLUB, TROLL_ROCK, TROLL_TAIL];
 import { FINAL_ARENA, HARD_ARENA } from './arenaPools';
 
 /** The special kinds (ЖЭ each); the basic enemy is not one. */
@@ -109,6 +114,8 @@ export interface ScheduleContext {
   recent: readonly string[];
   /** Task 28: the run plays the Jailer's fight on its Jailer node (`RtRunState.jailer`); absent — the pools' fight there, as before. */
   jailer?: boolean;
+  /** Task 48: the node is the den branch's boss of a run with `troll` — the Troll's fight (arc null); absent — «Последний рубеж». */
+  troll?: boolean;
 }
 
 /** The elite arcs need a guaranteed elite: not on the Jailer's node (it has none). Task 28 gives the Jailer's node its own arc (`jailerPlan`). */
@@ -123,7 +130,7 @@ export function readyArc(ctx: Pick<ScheduleContext, 'node' | 'row' | 'fight' | '
 /** The plan of a fight (see the module's comment). */
 export function schedulePlan(ctx: ScheduleContext): SchedulePlan {
   const roll = mixSeed(ctx.seed, SCHEDULE_SALT);
-  if (ctx.node === 'boss') return { arena: FINAL_ARENA, arc: null };
+  if (ctx.node === 'boss') return { arena: ctx.troll ? TROLL_ARENA.id : FINAL_ARENA, arc: null };
   if (ctx.node === 'checkpoint' && ctx.jailer) return jailerPlan(ctx.met);
   if (ctx.node === 'hard') {
     // «Застава» once the cliff and the elite are met (its chest is the arc); else a practice stand-in — or the elite's arc.
@@ -197,7 +204,8 @@ export function arenaElements(arena: string, markedGoals: boolean): string[] {
   if (t.braziers?.length) out.add('brazier');
   if (t.chest) out.add('chest');
   // Task 28: a boss with a part stands from the first frame (the Jailer's weight).
-  if (t.enemies.some(e => e.kind === JAILER_WEIGHT)) out.add(PART_ARC);
+  // Task 48: the Troll's parts too.
+  if (t.enemies.some(e => e.kind === JAILER_WEIGHT || TROLL_PARTS.includes(e.kind ?? ''))) out.add(PART_ARC);
   return SCHEDULE_ELEMENTS.filter(id => out.has(id));
 }
 

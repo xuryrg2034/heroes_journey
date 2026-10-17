@@ -36,7 +36,7 @@ import { emptyStreams, parseStreams, streamValue, type RunStream, type RunStream
 import { arenaTitle, FINAL_ARENA, GENTLE_FIRST_MEETING_LAST_ROW, HARD_ARENA, ordinaryArenaChoices, pickArena, pickRoster, ROSTER_SALT, RUN_ARENAS, runArenaPools, runRow } from './arenaPools';
 import { isRoster } from '../sim/rosters';
 import { allowedAffixes, fightElements, isScheduleElement, jailerWithout, PART_ARC, SCHEDULE_RUN_ARENAS, SCHEDULE_HARD_FLOOR, SCHEDULE_KINDS, SCHEDULE_NUMBERS_ROWS, schedulePlan, unmetKinds, type ScheduleNode } from './schedule';
-import { JAILER_ARENA, JAILER_RUN_ARENAS } from '../sim/arenasBoss';
+import { JAILER_ARENA, JAILER_RUN_ARENAS, TROLL_ARENA, TROLL_RUN_ARENAS } from '../sim/arenasBoss';
 import { rtHp, RT_ITEM_HEAL, RT_RUN_HP } from './hpScale';
 import { defaultParams, runParams, type Params } from '../sim/params';
 import { doorPayout, GREED_MULTS, PAYOUT_CAP_MAX, type PurseDoor } from '../sim/purse';
@@ -62,7 +62,7 @@ import { FEAT_KINDS, isFeatKind, type FeatKind } from '../sim/feat';
 import { isRtLockable, isRtQuest, RT_HERO_ID, type RtHeroId, type RtQuest } from './metaCatalog';
 import { HAMMER_IDS, RT_HAMMER_OFFER_SIZE } from './rtTalismans';
 // Task 38 «Гарнизон, шаг 1»: the garrison level after the forest (run/garrison.ts; the flow — section «Task 38» below).
-import { garrisonArena, garrisonBolts, garrisonCombinedMap, garrisonDeep, garrisonKit, garrisonKnights, garrisonRelicOffer, garrisonSeed, generateGarrisonMap, GARRISON_RUN_ARENAS, RT_GARRISON_MOAT_ON, RT_GARRISON_ON, RT_GARRISON_STEP2_ON, rtGarrisonNodeId } from './garrison';
+import { garrisonArena, garrisonBolts, garrisonCombinedMap, garrisonDeep, garrisonKit, garrisonKnights, garrisonRelicOffer, garrisonSeed, GARRISON_RELIC_SLOTS, generateGarrisonMap, GARRISON_RUN_ARENAS, RT_GARRISON_MOAT_ON, RT_GARRISON_ON, RT_GARRISON_STEP2_ON, rtGarrisonNodeId } from './garrison';
 
 /**
  * Version 2 (step 3, 08.10.2026): consumables, open consumables, banked energy, the find's choice, crafting, the merchant's
@@ -516,6 +516,8 @@ export interface RtBattleRecord {
   seen?: string[];
   /** Task 28: the Jailer's weight was severed in this fight (only a fight on a Jailer arena of a run with `jailer`). Absent — not. */
   severed?: true;
+  /** Task 48: the Troll's parts severed in this fight (1–3; only a fight on the Troll's arena of a run with `troll`). Absent — none. */
+  parts?: number;
 }
 /**
  * The arena (or event) a node got when entered. `roster` (phase A, Т2): the arena's roster (sim/rosters.ts); absent — the
@@ -610,6 +612,12 @@ export interface RtRunState {
    * a run saved before it (or created without it): the pool's arena there, to its end.
    */
   jailer?: true;
+  /**
+   * Task 48 «Тролль» (design 16.10.2026; docs/design-notes/task-48-troll.md, 3): the boss node of the den branch (`den-r14c0`) plays the
+   * Troll's fight (sim/arenasBoss.ts `TROLL_ARENA`) — its `pool` draw is spent as before but not read; the camp branch keeps «Последний
+   * рубеж». Set when the run is created (`RT_TROLL_ON`); absent — a run saved before it (or created without it): «Последний рубеж» to its end.
+   */
+  troll?: true;
   /**
    * Task 36 «Опыт героя, открытия» (design 15.10.2026): the items the viewer's meta keeps locked when the run was created (a snapshot,
    * sorted; may be empty — every pack open) — no pool of the run offers them (`rtIsLocked`). Set only for a run of the meta (no given
@@ -876,6 +884,11 @@ export interface RtArenaOutcome {
    * not severed, or not read. A won Jailer's fight with it offers 1 of 4 on its oath and relic screen (`rtOathSlots`).
    */
   severed?: boolean;
+  /**
+   * Task 48 «Тролль»: the boss's parts severed in this fight (`partSevered` events of the sim); absent — none, or not read. The run
+   * keeps it only on the Troll's arena: a won fight with all three offers its relic 1 of 4 (`rtLevelSlots`).
+   */
+  parts?: number;
   /** Iteration 2.1 (interface): consumables used on this arena, and whether its start showed the item hint. */
   itemsUsed?: number;
   itemHint?: boolean;
@@ -898,7 +911,7 @@ export interface RtArenaOutcome {
  * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
  * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
  */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; potionCap?: number } = {}): RtRunState {
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; troll?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; potionCap?: number } = {}): RtRunState {
   const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
   // Task 12 (13.10.2026): the goal layouts of the `marked` arenas, as the mix — on as `RT_RUN_FORCED` says unless the option says.
   const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
@@ -918,6 +931,8 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   const schedule = options.schedule && ash < RT_ASH_TABLES ? [...new Set(options.schedule.filter(isScheduleElement))].sort() : undefined;
   // Task 28 «Тюремщик в походе» (15.10.2026): its own flag, on unless the option says (false — the pool's arena on the Jailer's node, as before).
   const jailer = options.jailer ?? RT_JAILER_ON;
+  // Task 48 «Тролль» (16.10.2026): its own flag, on unless the option says (false — «Последний рубеж» on the den branch, as before).
+  const troll = options.troll ?? RT_TROLL_ON;
   // Tasks 36–37: a run of the meta (no given seed, the viewer's `locked` snapshot) — its locked items and the camp's flags.
   const locked = !options.seeded && options.locked ? [...new Set(options.locked.filter(isRtLockable))].sort() : undefined;
   const hearth = locked && options.hearth ? rtCleanHearth(options.hearth) : undefined;
@@ -936,7 +951,7 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   // Task 41 «Три зелья» (16.10.2026): the cap of healing potions, `RT_POTION_CAP` unless the option says (0 — none, as a save before it).
   const potionCap = Math.max(0, Math.floor(options.potionCap ?? RT_POTION_CAP));
   const run: RtRunState = {
-    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...locked ? { locked, heroId: RT_HERO_ID } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...potionCap ? { potionCap } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked, heroId: RT_HERO_ID } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...potionCap ? { potionCap } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
@@ -1565,7 +1580,8 @@ function drawTalismanOffer(run: RtRunState, nodeId: string, source: RtTalismanSo
   // Task 16 «Подвиги»: the feat's choice of two — drawn as the chest's.
   if (source === 'feat') return rtEventTalismanOffer(base, RT_FEAT_TALISMANS, pool);
   // Task 38: the forest final's reward — a relic 1 of 3.
-  if (source === 'level') return garrisonRelicOffer(base, pool);
+  // Task 48: the Troll's three parts severed in the won final — 1 of 4 (the first three are those of 3).
+  if (source === 'level') return levelOffer(run, nodeId, base, pool);
   if (source === 'oath') return rtTalismanOffer(base, source, pool, rtOathSlots(run, nodeId));
   if (source === 'hard') {
     // Task 30: the rare place of «Застава» holds a form of the other field (`rtFormSlotField`) — by the node's form roll over the
@@ -1818,6 +1834,8 @@ function arenaPick(run: RtRunState, node: ForestMapNode, advance: boolean): RtAr
   if (run.schedule) { draw(run, 'pool', advance); return schedulePick(run, node, history, rtScheduleMet(run)); }
   // Task 28: the Jailer's node of a run with `jailer` — the Jailer's fight; the pool draw is spent as before, not read.
   if (run.jailer && node.type === 'checkpoint') { draw(run, 'pool', advance); return { arena: JAILER_ARENA.id }; }
+  // Task 48: the den branch's boss of a run with `troll` — the Troll's fight; the pool draw is spent as before, not read.
+  if (rtTrollNode(run, node)) { draw(run, 'pool', advance); return { arena: TROLL_ARENA.id }; }
   const roll = draw(run, 'pool', advance), arena = chooseArena(node, history, roll, !!run.rosterMix, rtGentle(run));
   const roster = chooseRoster(run, node, arena, history, run.picks.flatMap(pick => pick.roster !== undefined ? [pick.roster] : []));
   return { arena, ...roster !== undefined ? { roster } : {} };
@@ -1842,7 +1860,9 @@ export function rtScheduleMet(run: Pick<RtRunState, 'schedule' | 'battles'>): Se
 }
 /** Task 26: the arena, roster and arc of a node of a scheduled run after the arenas `history`, with `met` met. */
 function schedulePick(run: RtRunState, node: Pick<ForestMapNode, 'id' | 'type' | 'row'>, history: readonly string[], met: ReadonlySet<string>): RtArenaPick {
-  const plan = schedulePlan({ seed: arenaSeed(run, node.id), node: scheduleNode(node), row: runRow(node.row), fight: history.length + 1, met, recent: history, ...run.jailer ? { jailer: true } : {} });
+  const plan = schedulePlan({ seed: arenaSeed(run, node.id), node: scheduleNode(node), row: runRow(node.row), fight: history.length + 1, met, recent: history, ...run.jailer ? { jailer: true } : {},
+    // Task 48: the den branch's boss of a run with `troll` — the Troll's fight (arc null, as every final).
+    ...rtTrollNode(run, node) ? { troll: true } : {} });
   return { arena: plan.arena, ...plan.roster !== undefined ? { roster: plan.roster } : {}, ...plan.arc !== null ? { arc: plan.arc } : {} };
 }
 /** Task 26: the arc of the open fight of a scheduled run (null — a practice fight, or no schedule). */
@@ -2043,7 +2063,9 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
     // Task 26: what the fight showed (a lost fight's too) — the next arcs and the viewer's history read it.
     ...current.schedule && !rtGarrisonNodeId(pending.nodeId) ? { seen: fightElements({ arena: pending.arena, markedGoals: !!current.markedGoals, arc: rtFightArc(current), kinds: outcome.kinds, elite: outcome.elite === true, affixes: outcome.affixes, bag: !rtArenaLoadout(current).noBag }) } : {},
     // Task 28: the Jailer's weight severed (a lost fight's too: the record keeps what happened).
-    ...outcome.severed === true && current.jailer && JAILER_RUN_ARENAS.includes(pending.arena) ? { severed: true as const } : {} });
+    ...outcome.severed === true && current.jailer && JAILER_RUN_ARENAS.includes(pending.arena) ? { severed: true as const } : {},
+    // Task 48: the Troll's parts severed (a lost fight's too).
+    ...current.troll && TROLL_RUN_ARENAS.includes(pending.arena) && count(outcome.parts ?? 0) >= 1 ? { parts: Math.min(3, count(outcome.parts ?? 0)) } : {} });
   // П5: the fight's chance joins the run's tally (a lost fight's too).
   const luck = addLuck(run.luck, outcome.luck, RT_FIGHT_LUCK_KEYS);
   if (luck) run.luck = luck;
@@ -2582,6 +2604,14 @@ export const RT_HEAL_MAP_ON = true;
  */
 export const RT_JAILER_ON = true;
 /**
+ * Task 48 «Тролль» (design 16.10.2026, docs/design-notes/task-48-troll.md, 3): a new run keeps the flag `troll` (`RtRunState.troll`) and
+ * the boss node of its den branch plays the Troll's fight. Its own flag, independent of the others (`createRtRun`).
+ */
+export const RT_TROLL_ON = true;
+/** Task 48: the node is the forest's boss of the den branch (`den-r14c…`) in a run with `troll` — it plays the Troll. */
+export const rtTrollNode = (run: Pick<RtRunState, 'troll'>, node: Pick<ForestMapNode, 'id' | 'type'>): boolean =>
+  !!run.troll && node.type === 'boss' && !rtGarrisonNodeId(node.id) && node.id.startsWith('den-');
+/**
  * Task 30 «Формы в походе» (design 15.10.2026; docs/realtime-slice.md, section 8, «Формы в походе»): a new run keeps the flag
  * `forms` (`RtRunState.forms`) — the Jailer's screen offers forms, «Застава» a form of the other field in its rare place,
  * «Близнецы» join the common pool, the run's fights play the counters' chain window and the forms' price (`rtArenaParams`). Its
@@ -3023,7 +3053,31 @@ export const rtGarrisonContinues = (run: Pick<RtRunState, 'garrison'>, node: Pic
 export function rtForestCleared(run: Pick<RtRunState, 'garrison' | 'visited' | 'map' | 'garrisonLevel'>): boolean {
   return !!run.garrison && run.visited.some(id => !rtGarrisonNodeId(id) && rtNode(run, id)?.type === 'boss');
 }
-/** The forest final is won: `level-cleared`, then its relic 1 of 3 (the next draw of the forest's `talismans` stream). */
+/**
+ * Task 48 «Тролль» (design 16.10.2026, docs/design-notes/task-48-troll.md, 9): the forest final's relic screen offers 1 of 4 when its
+ * won fight was the Troll's with all three parts severed (`RtBattleRecord.parts`), else 1 of 3 as before (the same `talismans` draw).
+ */
+export const RT_TROLL_ALL_PARTS_SLOTS = 4;
+export function rtLevelSlots(run: Pick<RtRunState, 'battles'>, nodeId: string): number {
+  return run.battles.some(record => record.nodeId === nodeId && record.won && (record.parts ?? 0) >= 3) ? RT_TROLL_ALL_PARTS_SLOTS : GARRISON_RELIC_SLOTS;
+}
+/**
+ * The forest final's relic screen (the same `talismans` draw `base`): the relics of the pool (1 of 3, task 48: up to 4 after the
+ * Troll's three parts); design 16.10.2026 (spec 24.13): the places of the 4 the relics left empty — a rare talisman each, by the pool's
+ * own draw (`rtTalismanOffer` of a hard battle: its rare place, the same `base`; the options shown are out of the pool for the next).
+ * Only the Troll's 1 of 4 fills: the 1 of 3 shows the relics it has, as before.
+ */
+function levelOffer(run: RtRunState, nodeId: string, base: number, pool: RtTalismanPool): RtTalismanOption[] {
+  const slots = rtLevelSlots(run, nodeId), options: RtTalismanOption[] = garrisonRelicOffer(base, pool, slots);
+  if (slots !== RT_TROLL_ALL_PARTS_SLOTS) return options;
+  while (options.length < slots) {
+    const rare = rtTalismanOffer(base, 'hard', { ...pool, gone: [...pool.gone, ...options] }, 1)[0];
+    if (!rare) break;
+    options.push(rare);
+  }
+  return options;
+}
+/** The forest final is won: `level-cleared`, then its relic 1 of 3 (task 48: 1 of 4 after the Troll's three parts; the next draw of the forest's `talismans` stream). */
 function openLevelReward(run: RtRunState, node: ForestMapNode, events: RtRunEvent[]): void {
   events.push({ type: 'level-cleared', level: 1, nodeId: node.id });
   offerTalismans(run, node.id, 'level', talismanOfferOf(run, node.id, 'level', draw(run, 'talismans', true))!, events);
@@ -3216,6 +3270,8 @@ function checkRun(value: unknown): RtRunState | null {
   if (value.secondWind !== undefined && value.secondWind !== true) return null;
   // Task 28 (15.10.2026): a flag; absent — a save before it, whose Jailer's node plays the pool's arena.
   if (value.jailer !== undefined && value.jailer !== true) return null;
+  // Task 48 (16.10.2026): a flag; absent — a save before it, whose den boss plays «Последний рубеж».
+  if (value.troll !== undefined && value.troll !== true) return null;
   // Tasks 36–37: the meta run's snapshot (known lockable ids, sorted, no repeats; never in a seeded run), its hero (only with it),
   // the camp's flags (only with it, as `createRtRun` keeps them) and the free Jailer rerolls spent (1 … the flags' count).
   if (value.locked !== undefined && !(Array.isArray(value.locked) && value.locked.every(isRtLockable) && value.seeded === undefined
@@ -3314,7 +3370,7 @@ function checkRun(value: unknown): RtRunState | null {
   for (const pick of run.picks) {
     if (!isRecord(pick) || !known(pick.nodeId) || run.picks.filter(other => other.nodeId === pick.nodeId).length > 1) return null;
     if (pick.arena !== undefined && !RUN_ARENAS.includes(pick.arena) && !(run.schedule && SCHEDULE_RUN_ARENAS.includes(pick.arena)) && !(run.jailer && JAILER_RUN_ARENAS.includes(pick.arena))
-      && !(rtGarrisonNodeId(pick.nodeId) && GARRISON_RUN_ARENAS.includes(pick.arena))) return null;
+      && !(run.troll && TROLL_RUN_ARENAS.includes(pick.arena)) && !(rtGarrisonNodeId(pick.nodeId) && GARRISON_RUN_ARENAS.includes(pick.arena))) return null;
     if (pick.arc !== undefined && !(run.schedule && pick.arena !== undefined && typeof pick.arc === 'string')) return null;
     if (pick.roster !== undefined && (!isRoster(pick.roster) || pick.arena === undefined)) return null;
     if (pick.eventId !== undefined && (!forestEvent(pick.eventId) || rtIsLocked(run, pick.eventId))) return null;
@@ -3352,6 +3408,12 @@ function checkRun(value: unknown): RtRunState | null {
       history.push(pick.arena);
       continue;
     }
+    // Task 48: the Troll's fight on the den branch's boss of a run with `troll` (no roster).
+    if (rtTrollNode(run, node)) {
+      if (pick.arena !== TROLL_ARENA.id || pick.roster !== undefined) return null;
+      history.push(pick.arena);
+      continue;
+    }
     if (pick.arena !== chooseArena(node.type === 'event' ? { ...node, type: 'battle' } : node, history, streamValue(run.seed, 'pool', history.length), !!run.rosterMix, rtGentle(run))) return null;
     if (pick.roster !== chooseRoster(run, node, pick.arena, history, rosters)) return null;
     history.push(pick.arena);
@@ -3373,6 +3435,8 @@ function checkRun(value: unknown): RtRunState | null {
     if (record.seen !== undefined && !(run.schedule && Array.isArray(record.seen) && record.seen.every(isScheduleElement) && JSON.stringify([...new Set(record.seen)].sort()) === JSON.stringify(record.seen))) return null;
     // Task 28: the weight severed — only a fight on a Jailer arena of a run with `jailer`.
     if (record.severed !== undefined && (record.severed !== true || !run.jailer || !JAILER_RUN_ARENAS.includes(record.arena))) return null;
+    // Task 48: the Troll's parts severed — 1…3, only a fight on the Troll's arena of a run with `troll`.
+    if (record.parts !== undefined && (!isCount(record.parts) || record.parts < 1 || record.parts > 3 || !run.troll || !TROLL_RUN_ARENAS.includes(record.arena))) return null;
     // B6 К7: only «Застава» has the chest.
     if (record.chest !== undefined && (record.chest !== true || record.arena !== HARD_ARENA)) return null;
     // П6: the killing blow only on the run's lost record.
@@ -3405,7 +3469,7 @@ function checkRun(value: unknown): RtRunState | null {
   switch (pending.kind) {
     case 'battle': {
       if (typeof pending.arena !== 'string' || !(RUN_ARENAS.includes(pending.arena) || (run.schedule && SCHEDULE_RUN_ARENAS.includes(pending.arena)) || (run.jailer && JAILER_RUN_ARENAS.includes(pending.arena))
-        || (rtGarrisonNodeId(node.id) && GARRISON_RUN_ARENAS.includes(pending.arena))) || pick?.arena !== pending.arena) return null;
+        || (run.troll && TROLL_RUN_ARENAS.includes(pending.arena)) || (rtGarrisonNodeId(node.id) && GARRISON_RUN_ARENAS.includes(pending.arena))) || pick?.arena !== pending.arena) return null;
       // Phase A (Т2): the roster of the open arena is its pick's, chosen again above.
       if (pending.roster !== pick.roster) return null;
       if (!isSeed(pending.seed) || pending.seed !== arenaSeed(run, pending.nodeId)) return null;

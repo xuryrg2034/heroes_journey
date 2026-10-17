@@ -19,7 +19,7 @@
  * among the runs that reached the Jailer (л5), the forest's final (л10) and the Castellan (г10) — the bosses' walls side by side.
  * `--moat` — the runs take «Ров» and the keymaster (the flag `RT_GARRISON_MOAT_ON` is off until the ui view).
  * `--step2 off` (task 43, part Г) — the runs play the garrison of step 1б (`step2: false`); absent — by the game's flag
- * (`RT_GARRISON_STEP2_ON`). `--garrison-only` — only the pass «гарнизон». Each pass ends with a table of the garrison's fights by arena
+ * (`RT_GARRISON_STEP2_ON`). `--garrison-only` — only the pass «гарнизон»; `--forest-only` (task 48) — only the pass «весь поход». Each pass ends with a table of the garrison's fights by arena
  * (with the loadout's knights `+рN`, crossbowmen `+арб`, deep `+глуб`): fights, deaths, median damage.
  * `--castellan <set>` (task 40, pass 3, design 16.10.2026: the Castellan's sweep) — only the pass «гарнизон», the Castellan's fight
  * played with the set's numbers (`CASTELLAN_SETS`) put on by the SCRIPT into the world it plays (no command, no Params key: the game
@@ -29,7 +29,8 @@
 import { execSync } from 'node:child_process';
 import { defaultParams, type Params } from '../src/realtime/sim/params';
 import type { World } from '../src/realtime/sim/world';
-import { runRow } from '../src/realtime/run/arenaPools';
+import { FINAL_ARENA, runRow } from '../src/realtime/run/arenaPools';
+import '../src/realtime/sim/arenasBoss';
 import { rtGarrisonNodeId } from '../src/realtime/run/garrison';
 import { walkRun } from '../src/realtime/run/metaWalk.testkit';
 import { outcomeOf } from '../src/realtime/run/runFight.testkit';
@@ -43,7 +44,7 @@ const SEEDS = Number(option('--seeds', '300')), LIMIT = Number(option('--limit',
 /** Task 40: `--moat` — the runs take «Ров» (`moat: true`) whatever `RT_GARRISON_MOAT_ON` says (off until the ui view). */
 const MOAT = args.includes('--moat');
 /** Task 43: `--step2 off` — the garrison of step 1б; `--garrison-only` — the pass «гарнизон» alone. */
-const STEP2_OFF = option('--step2', 'on') === 'off', GARRISON_ONLY = args.includes('--garrison-only');
+const STEP2_OFF = option('--step2', 'on') === 'off', GARRISON_ONLY = args.includes('--garrison-only'), FOREST_ONLY = args.includes('--forest-only');
 
 /**
  * Task 40, pass 3: the Castellan's sets of the sweep — the knobs that matter most, put on by the script only. `plates` — the core's
@@ -99,7 +100,20 @@ const CASTELLAN_SETS: Readonly<Record<string, CastellanSet>> = {
  * at the core: the first sweep, 16.10.2026). The forest's final «Последний рубеж» has no core (its goal is kills): there the bot plays
  * as without the flag.
  */
-const BOSS_CORES: readonly string[] = ['castellan', 'jailer'];
+const BOSS_CORES: readonly string[] = ['castellan', 'jailer', 'troll'];
+/**
+ * Task 48 (`--troll`; design 16.10.2026, spec 24.3): the forest's final («Последний рубеж» on either branch) is played by the bot as the
+ * Troll's fight «Берлога тролля» — the script puts the arena on any forest final (the run itself plays him on the den branch only); `--troll-hp N`, `--troll-plates N`,
+ * `--troll-crowd X` — the Troll's keys over the run's params. A line of the Troll's fights at the end.
+ */
+const TROLL_FIGHT = args.includes('--troll');
+const TROLL_KEYS: Partial<Params> = {
+  ...args.includes('--troll-hp') ? { trollHp: Number(option('--troll-hp', '2')) } : {},
+  ...args.includes('--troll-plates') ? { trollPlates: Number(option('--troll-plates', '4')) } : {},
+  ...args.includes('--troll-crowd') ? { trollCrowd: Number(option('--troll-crowd', '0.6')) } : {},
+};
+/** Task 48: the Troll's fights of the run: outcome, game time, the hero's damage by source. */
+const trollFights: { won: boolean; time: number; damage: Record<string, number> }[] = [];
 const BOSS_AIM = args.includes('--boss-aim');
 const SET_NAME = option('--castellan', ''), SET = SET_NAME ? CASTELLAN_SETS[SET_NAME] : undefined;
 if (SET_NAME && !SET) throw new Error(`no set ${SET_NAME}: ${Object.keys(CASTELLAN_SETS).join(', ')}`);
@@ -132,11 +146,17 @@ function fight(run: RtRunState, t: Tally): RtArenaOutcome {
     params.baseIntervalMin /= castellan.crowd; params.baseIntervalMax /= castellan.crowd;
   }
   t.fights++;
-  const played = botFight(run, { params, loadout, limit: LIMIT, ...BOSS_AIM ? { aim: BOSS_CORES } : {},
-    ...castellan ? { afterTick: (world: World, tick: number) => tuneCastellan(world, castellan, tick === 0) } : {} });
+  // Task 48: the forest's final played as the Troll's fight (the outcome is read on the run as it is).
+  const troll = TROLL_FIGHT && pending.arena === FINAL_ARENA && !run.garrisonLevel;
+  if (troll) Object.assign(params, TROLL_KEYS);
+  const damage: Record<string, number> = {};
+  const played = botFight(troll ? { ...run, pending: { ...pending, arena: 'troll' } } : run, { params, loadout, limit: LIMIT, ...BOSS_AIM ? { aim: BOSS_CORES } : {},
+    ...castellan ? { afterTick: (world: World, tick: number) => tuneCastellan(world, castellan, tick === 0) } : {},
+    ...troll ? { seen: (world: World) => { for (const ev of world.events) if (ev.type === 'hit') damage[ev.source] = (damage[ev.source] ?? 0) + ev.damage; } } : {} });
   const w = played.sim.world, lastSource = played.lastSource;
   if (played.timeout) t.timeouts++;
   if (w.enemies.some(e => e.kind === 'jailer') || jailerArena(pending.arena)) jailerFights.push({ won: w.status === 'victory', time: w.time });
+  if (troll) trollFights.push({ won: w.status === 'victory', time: w.time, damage });
   if (castellan) castellanFights.push({ won: w.status === 'victory', time: w.time, source: w.status === 'defeat' ? lastSource ?? 'timeout' : null, hpIn: run.hp });
   const key = keyOf(run, pending.nodeId);
   t.damage.set(key, [...t.damage.get(key) ?? [], w.stats.damageTaken]);
@@ -229,12 +249,18 @@ if (SET) {
   console.log(`| ${SET_NAME}${BOSS_AIM ? ' (в ядро)' : ''} | ${lost.length} из ${castellanFights.length} (${castellanFights.length ? Math.round(100 * lost.length / castellanFights.length) : 0}%) | ${castellanFights.length ? f1(median(castellanFights.map(f => f.time))) : '—'} | ${top || '—'} | ${garrison.outcomes.victory} | ${castellanFights.length ? f1(median(castellanFights.map(f => f.hpIn))) : '—'} | ${castellanFights.filter(f => f.won).length ? f1(median(castellanFights.filter(f => f.won).map(f => f.time))) : '—'} | ${lost.length ? f1(median(lost.map(f => f.time))) : '—'} |`);
   process.exit(0);
 }
-const whole = GARRISON_ONLY ? null : pass(() => true), garrison = pass(run => !!run.garrisonLevel);
-if (BOSS_AIM) console.log('Бот целит в ядро босса (`--boss-aim`): Тюремщик, Кастелян; у финала леса ядра нет.\n');
+const whole = GARRISON_ONLY ? null : pass(() => true), garrison = FOREST_ONLY ? null : pass(run => !!run.garrisonLevel);
+if (BOSS_AIM) console.log(`Бот целит в ядро босса (--boss-aim): Тюремщик, Кастелян${TROLL_FIGHT ? ', Тролль (финал леса — «Берлога тролля», --troll)' : '; у финала леса ядра нет'}.\n`);
 const head = (() => { try { return execSync('git rev-parse --short HEAD').toString().trim(); } catch { return '?'; } })();
 console.log(`Задача 40, часть Е: кривая выживания бота через лес и гарнизон, ${SEEDS} seed, предел боя ${LIMIT} с, «Ров» ${MOAT ? 'вкл.' : 'по флагу игры'}, шаг 2 ${STEP2_OFF ? 'выкл.' : 'по флагу игры'} (эвристика, жадный бот), ${new Date().toISOString().slice(0, 10)}, HEAD ${head}, ${Math.round((Date.now() - started) / 1000)} с.\n`);
 if (whole) print('Весь поход: все бои настоящие', whole, ['л', 'г']);
-print('Гарнизон от «Предместья»: бои леса выиграны обходом, бои гарнизона настоящие', garrison, ['г']);
+if (garrison) print('Гарнизон от «Предместья»: бои леса выиграны обходом, бои гарнизона настоящие', garrison, ['г']);
 // Task 43: the Jailer's fights of both passes (the second plays the forest by the walk: only the first's count).
 const jl = jailerFights.filter(f => !f.won).length;
+if (TROLL_FIGHT) {
+  const tl = trollFights.filter(f => !f.won).length, all: Record<string, number> = {};
+  for (const f of trollFights) for (const [s, n] of Object.entries(f.damage)) all[s] = (all[s] ?? 0) + n;
+  const total = Object.values(all).reduce((a, b) => a + b, 0), moves = ['troll-club', 'troll-rock', 'troll-tail'].reduce((a, s) => a + (all[s] ?? 0), 0);
+  console.log(`Тролль (финал леса сыгран «Берлогой тролля»${Object.keys(TROLL_KEYS).length ? `, ${JSON.stringify(TROLL_KEYS)}` : ''}): боёв ${trollFights.length}, поражений ${tl} (${trollFights.length ? Math.round(100 * tl / trollFights.length) : 0}%), длина боя мед. ${trollFights.length ? f1(median(trollFights.map(f => f.time))) : '—'} с; урон героя ${total}, от приёмов ${moves} (${total ? Math.round(100 * moves / total) : 0}%): ${Object.entries(all).sort((a, b) => b[1] - a[1]).map(([s, n]) => `${s} ${n}`).join(', ')}.`);
+}
 console.log(`Тюремщик (все бои с ним, оба прохода): боёв ${jailerFights.length}, поражений ${jl} (${jailerFights.length ? Math.round(100 * jl / jailerFights.length) : 0}%), длина боя мед. ${jailerFights.length ? f1(median(jailerFights.map(f => f.time))) : '—'} с.`);

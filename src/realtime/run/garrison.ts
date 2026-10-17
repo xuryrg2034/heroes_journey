@@ -254,9 +254,10 @@ export const GARRISON_RELIC_SLOTS = 3;
  * The relics the forest final offers (only relics, design 1.1): `GARRISON_RELIC_SLOTS` different relics of the pool by one draw
  * `base` of the run's `talismans` stream (an empty pool — fewer, or none: only the refusal).
  */
-export function garrisonRelicOffer(base: number, pool: RtTalismanPool): RtTalismanId[] {
+export function garrisonRelicOffer(base: number, pool: RtTalismanPool, slots = GARRISON_RELIC_SLOTS): RtTalismanId[] {
   const options: RtTalismanId[] = [];
-  for (let slot = 0; slot < GARRISON_RELIC_SLOTS; slot++) {
+  // Task 48: `slots` 4 after the Troll's three parts — the same draws, one more slot (the first three are those of 3).
+  for (let slot = 0; slot < slots; slot++) {
     const left = RT_TALISMANS.filter(entry => entry.rarity === 'relic' && rtTalismanEligible(entry.id, pool, options)).map(entry => entry.id);
     if (!left.length) break;
     options.push(left[mixSeed(mixSeed(base >>> 0, RELIC_SALT), slot) % left.length]);

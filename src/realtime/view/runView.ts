@@ -20,7 +20,7 @@ import {
   rtChooseTalisman, rtRerollTalismans, rtRerollView, rtHammerRerollView, rtRerollHammers, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtFoughtJailer, rtRestCraft, rtRestFinish, rtRestFuse, rtRestHeal, rtRestView, rtFusionRecipe, rtFusionsReady, rtHandFull, rtItemRefusal, rtPotionCap, RT_ITEM_REFUSAL_TEXT, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
   rtOathPreview, rtOathStakeOn, rtArenaRules, RT_SECOND_WIND_LAST_ROW, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
   rtCasinoView, rtCasinoPlay, rtCasinoLeave, rtCasinoNode, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE,
-  healOffer, healOnMap, healVisible, rtResourceTotal, rtNodeFeat, RT_HEAL_MAP_GAIN, rtAsh, rtAshOptions, rtAshTitle, rtRunWon, isRtAshLevel, rtScheduleMet, RT_JAILER_SEVERED_SLOTS, rtFormReplaces, rtFormSlotField,
+  healOffer, healOnMap, healVisible, rtResourceTotal, rtNodeFeat, RT_HEAL_MAP_GAIN, rtAsh, rtAshOptions, rtAshTitle, rtRunWon, isRtAshLevel, rtScheduleMet, RT_JAILER_SEVERED_SLOTS, RT_TROLL_ALL_PARTS_SLOTS, rtTrollNode, rtFormReplaces, rtFormSlotField,
   rtEnterGarrison, rtLevel, rtCartView, type RtCartView,
   type RtArenaOutcome, type RtArenaRules, type RtCasinoTable, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
@@ -245,9 +245,11 @@ const STATUS_LABEL = { visited: 'Пройден', current: 'Текущий', ope
  * What the node card says about the node (the rules of this run). An ordinary battle and the breakthrough say nothing here (design
  * 13.10.2026): the card's head already says «Бой · ряд похода N» and its lines the arena.
  */
-const nodeHint = (node: ForestMapNode, run: Pick<RtRunState, 'jailer' | 'forms' | 'talismans' | 'garrison'>): string | undefined => {
+const nodeHint = (node: ForestMapNode, run: Pick<RtRunState, 'jailer' | 'forms' | 'talismans' | 'garrison' | 'troll'>): string | undefined => {
   // Task 30: a run with forms — the form of the other field in the rare place of «Застава» (`rtFormSlotField`).
   const formField = rtFormSlotField(run);
+  // Task 48 «Тролль» (design 16.10.2026, spec 16): the den branch's boss of a run with the Troll — what the fight asks (the window opens after his blows).
+  if (rtTrollNode(run, node)) return 'Тролль: бой с боссом. Отруби лапы и хвост; бей в окно после удара.';
   // Task 38: the garrison's nodes, and the forest final of a run that goes on into the garrison (placeholder lines).
   if (rtGarrisonNodeId(node.id)) {
     if (node.type === 'hard') return `Трудный бой: арена «Караульня». Победа: +${rtHp(FOREST_HARD_HEAL)} HP и талисман на выбор из трёх (один всегда редкий).`;
@@ -1510,6 +1512,7 @@ export class RunView {
       // Task 28: a severed weight gave the Jailer's screen a fourth card (`rtOathSlots`) — the note says why.
       const note = formScreen ? `${pending.options.length >= RT_JAILER_SEVERED_SLOTS ? 'Гиря отрублена — на выбор четыре. ' : ''}Форма меняет цепь на всех следующих аренах. Одна форма на поле. Затем — клятва или реликвия.`
         : pending.source === 'oath' ? `${pending.options.length >= RT_JAILER_SEVERED_SLOTS ? 'Гиря отрублена — на выбор четыре. ' : ''}У клятвы и реликвии есть цена. Не взятые уходят из пула до конца похода.`
+        : pending.source === 'level' && run.troll && pending.options.length >= RT_TROLL_ALL_PARTS_SLOTS ? 'Тролль без лап и хвоста — на выбор четыре. Не взятые уходят из пула до конца похода.'
         : chest ? 'Награда за сундук: талисман на выбор. Не взятые уходят из пула до конца похода.'
         : feat ? 'Награда за подвиг: талисман на выбор. Не взятые уходят из пула до конца похода.' : 'Не взятые уходят из пула до конца похода.';
       // B5 К10 «Переброс»: «Застава», an event's reward and the chest (not the Jailer); the price grows on the screen, off with its reason.

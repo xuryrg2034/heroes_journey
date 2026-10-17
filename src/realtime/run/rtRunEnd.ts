@@ -20,6 +20,7 @@ import type { ForestRunMap } from '../forest/forestMap';
 import { runRow } from './arenaPools';
 // Types only: rtRun.ts reads `validDeath` from here (no import cycle at run time).
 import type { RtBattleRecord, RtRunState } from './rtRun';
+import { TROLL_RUN_ARENAS } from '../sim/arenasBoss';
 
 /**
  * Russian names of the enemy kinds (the telemetry report's names, telemetry/report.ts reads them from here). `basic` names an
@@ -36,6 +37,8 @@ export const RT_KIND_TITLES: Readonly<Record<string, string>> = {
   crossbow: 'арбалетчик', 'castellan-crossbow': 'арбалет Кастеляна',
   // Task 43 «Гарнизон, шаг 2»: the knight (lower case, the decision of task 40).
   knight: 'рыцарь',
+  // Task 48 «Тролль» (a capital for the unique boss; his parts by their own names).
+  troll: 'Тролль', 'troll-club': 'дубина Тролля', 'troll-rock': 'камень Тролля', 'troll-tail': 'хвост Тролля',
 };
 
 /**
@@ -56,6 +59,8 @@ export const RT_DEATH_ABILITY: Readonly<Record<string, string>> = {
   'castellan-bolt': 'болт Кастеляна',
   // Task 43 (spec section 5): the knight's moves (its touch — «рыцарь»).
   'knight-charge': 'рывок рыцаря', 'knight-swing': 'размах рыцаря',
+  // Task 48: the Troll's moves (their touches — the kinds above).
+  'troll-club': 'удар дубиной Тролля', 'troll-rock': 'бросок камня Тролля', 'troll-tail': 'удар хвостом Тролля',
 };
 /**
  * The touch sources (each kind's `hitSource`): the line names the striker's kind, its elite mark, armour and affixes. Task 40 (design
@@ -76,6 +81,9 @@ export const RT_RUN_END_TEXT = {
   /** A defeat on the final arena itself (no rows left). */
   rowFinalLost: (row: number): string => `Ряд ${row} · «Последний рубеж» не пройден`,
   rowFinalWon: (row: number): string => `Ряд ${row} · «Последний рубеж» пройден`,
+  /** Task 48: the forest's final played as the Troll's fight (the den branch). */
+  rowTrollLost: (row: number): string => `Ряд ${row} · Тролль не пройден`,
+  rowTrollWon: (row: number): string => `Ряд ${row} · Тролль пройден`,
   jailerPassed: 'Тюремщик пройден',
   jailerNotPassed: 'Тюремщик не пройден',
   peak: (kills: number, row: number): string => `Лучшая цепь похода: ${kills} ${killsWord(kills)} · ряд ${row}`,
@@ -211,12 +219,14 @@ export function rtRunEndLines(run: RtRunState): RtRunEndLine[] {
   const result = run.result, map = generatedRunMap(run.map), node = result ? map.node(result.nodeId) : undefined;
   if (!result || !node) return [];
   const lines: RtRunEndLine[] = [], row = runRow(node.row), finalRow = rtFinalRow(map), peak = rtRunPeak(map, run.battles);
-  if (result.outcome === 'victory') lines.push({ id: 'row', text: RT_RUN_END_TEXT.rowFinalWon(row) });
+  // Task 48: the result's node played the Troll's fight — his lines instead of «Последний рубеж».
+  const troll = run.picks.some(pick => pick.nodeId === result.nodeId && pick.arena !== undefined && TROLL_RUN_ARENAS.includes(pick.arena));
+  if (result.outcome === 'victory') lines.push({ id: 'row', text: troll ? RT_RUN_END_TEXT.rowTrollWon(row) : RT_RUN_END_TEXT.rowFinalWon(row) });
   else {
     const lost = [...run.battles].reverse().find(record => record.nodeId === result.nodeId && !record.won);
     const killer = rtDeathLine(lost?.death);
     if (killer) lines.push({ id: 'killer', text: killer });
-    lines.push({ id: 'row', text: row >= finalRow ? RT_RUN_END_TEXT.rowFinalLost(row) : RT_RUN_END_TEXT.rowLeft(row, finalRow - row) });
+    lines.push({ id: 'row', text: row >= finalRow ? (troll ? RT_RUN_END_TEXT.rowTrollLost(row) : RT_RUN_END_TEXT.rowFinalLost(row)) : RT_RUN_END_TEXT.rowLeft(row, finalRow - row) });
     lines.push({ id: 'jailer', text: rtJailerPassed(map, run.battles) ? RT_RUN_END_TEXT.jailerPassed : RT_RUN_END_TEXT.jailerNotPassed });
   }
   if (peak) lines.push({ id: 'peak', text: RT_RUN_END_TEXT.peak(peak.kills, peak.row) });

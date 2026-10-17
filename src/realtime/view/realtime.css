@@ -431,6 +431,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-boss-cell.rt-boss-empty { background: #1a1e16; box-shadow: inset 0 0 0 1px #4a4a3c; }
 .rt-boss-cell.rt-boss-lost { animation: rt-boss-lost .35s ease-out; }
 @keyframes rt-boss-lost { 0% { background: #ffffff; box-shadow: 0 0 8px #ffffff; } 100% { box-shadow: none; } }
+/* Task 48: a plate that grew back (the Troll's snore slept through) fills its cell with a lemon flash. */
+.rt-boss-cell.rt-boss-grown { animation: rt-boss-grown .5s ease-out; }
+@keyframes rt-boss-grown { 0% { background: #ffffcc; box-shadow: 0 0 12px #ffff66, inset 0 0 0 1px #ffff66; } 100% { box-shadow: inset 0 0 0 1px #ead9c2; } }
 .rt-boss-phase { position: absolute; top: -5px; bottom: -5px; width: 3px; margin-left: -1.5px; background: #f4efe0; border: 1px solid #18232d; box-sizing: content-box; }
 .rt-boss-bar.rt-boss-phase2 .rt-boss-phase { background: #ff6a4d; box-shadow: 0 0 6px #ff6a4d; }
 /* Tasks 36–37 «Мета v1» (metaEnd.ts): the run-end card gets two columns — the old facts left, the meta right; the meta block —

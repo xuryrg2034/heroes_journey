@@ -17,6 +17,8 @@ export const CHARACTER_ART_IDS = [
   'garrison-crossbowman', 'garrison-crossbow',
   // Task 43 «Гарнизон, шаг 2»: the knight (the drawn silhouette stays the fallback).
   'garrison-knight',
+  // Task 48 «Тролль»: the boss of the forest awake and asleep («Храп»), his club and the rock (the tail's knot is the same rock, smaller).
+  'troll', 'troll-sleep', 'troll-club', 'troll-rock',
 ] as const;
 
 export type CharacterArtId = typeof CHARACTER_ART_IDS[number];

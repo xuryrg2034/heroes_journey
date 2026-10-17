@@ -13,6 +13,7 @@ import { stockTotal } from '../forest/merchant';
 import { runRow } from './arenaPools';
 import { rtForestCleared, rtLevel, rtNode, type RtHearthFlags, type RtRunState } from './rtRun';
 import { rtGarrisonNodeId } from './garrison';
+import { TROLL_RUN_ARENAS } from '../sim/arenasBoss';
 import { SCHEDULE_KINDS } from './schedule';
 import {
   HEARTH_HERB_SALT, HEARTH_MAPS_SALT, HEARTH_QUEST_SALT, isRtHearthNpc, isRtQuest, RT_HEARTH_MAX_LEVEL, RT_HEARTH_NPCS, RT_HEARTH_PRICES, RT_HERO_ID, RT_META_PACKS,
@@ -87,7 +88,7 @@ export function rtDepthBeyond(a: { level?: number; row: number; won?: boolean; w
 }
 export interface RtHeroMeta { xp: number; packs: string[]; record?: RtDepthRecord }
 /** The death cause the camp's lines read (design lines v1): the Jailer's fight, the final, the fire trail, a touch, an arrow, a blast. */
-export type RtDeathCause = 'crowd' | 'archer' | 'sapper' | 'jailer' | 'final' | 'fire' | 'other';
+export type RtDeathCause = 'crowd' | 'archer' | 'sapper' | 'jailer' | 'final' | 'fire' | 'other' | 'guardroom' | 'castellan' | 'troll';
 /** The previous run as the camp's lines read it. `quest` — true done, false failed, absent — the run had no quest. */
 export interface RtHearthLast { won: boolean; row: number; beaten: boolean; cause?: RtDeathCause; quest?: boolean; firstWin?: true; pack?: true }
 export interface RtHearthMeta {
@@ -231,12 +232,18 @@ export function rtMetByEvents(run: Pick<RtRunState, 'picks' | 'eventChoices'>): 
     && run.picks.some(pick => pick.nodeId === choice.nodeId && pick.eventId === RT_NPC_EVENTS[npc].event)));
 }
 
-/** The death cause of a lost run for the camp's lines (design 15.10.2026). */
+/**
+ * The death cause of a lost run for the camp's lines (design 15.10.2026). Task 48 (design 16.10.2026, npc-lines-v1.md, «Задача 48»): by
+ * the level too — the garrison's `checkpoint` (Караульня) `guardroom`, its `boss` (Кастелян) `castellan`; the forest's boss played as
+ * the Troll's fight `troll`; the rest of the forest as before.
+ */
 export function rtDeathCause(run: RtRunState): RtDeathCause | undefined {
   if (run.result?.outcome !== 'defeat') return undefined;
-  const type = rtNode(run, run.result.nodeId)?.type;
+  const nodeId = run.result.nodeId, type = rtNode(run, nodeId)?.type, garrison = !!rtGarrisonNodeId(nodeId);
+  if (garrison && type === 'checkpoint') return 'guardroom';
+  if (garrison && type === 'boss') return 'castellan';
   if (type === 'checkpoint') return 'jailer';
-  if (type === 'boss') return 'final';
+  if (type === 'boss') return run.battles.some(record => record.nodeId === nodeId && TROLL_RUN_ARENAS.includes(record.arena)) ? 'troll' : 'final';
   const death = [...run.battles].reverse().find(record => record.nodeId === run.result!.nodeId && !record.won)?.death;
   const source = death?.source;
   return source === 'fire-trail' ? 'fire' : source === 'touch' || source === 'wolf' || source === 'reaper' ? 'crowd' : source === 'arrow' ? 'archer' : source === 'blast' ? 'sapper' : 'other';

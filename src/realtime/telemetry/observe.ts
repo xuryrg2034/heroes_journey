@@ -94,6 +94,7 @@ import type { Command } from '../sim/commands';
 import { WOLF_RUSH } from '../sim/enemies/wolf';
 import { BOSS_CLEAR, JAILER } from '../sim/enemies/jailer';
 import { CASTELLAN, KNIGHT, houndFrenzied, prisonerRioting } from '../sim/enemies/garrison';
+import { TROLL } from '../sim/enemies/troll';
 import { kindOf } from '../sim/enemies/kinds';
 import { dist, inThorns, inWater } from '../sim/geometry';
 import { heroRadius } from '../sim/params';
@@ -231,12 +232,18 @@ export function createFightObserver(start: World): FightObserver {
   // Task 28: the boss's core at the start (a fight with the boss frame on); its summary.
   // Task 43: the full Castellan's core too (only on his arena: the Castellan v0 keeps no boss summary, as before).
   const fullCastellan = !!start.arena.castellanFull && start.params.bossFrame;
-  const bossCore = start.params.bossFrame ? start.enemies.find(e => e.kind === JAILER || (fullCastellan && e.kind === CASTELLAN)) : undefined;
-  if (bossCore) s.boss = { diedAt: null, severedAt: null, moves: {}, ...fullCastellan ? { castellan: { raises: 0, openSeconds: 0, windowsHit: 0, windowsMissed: 0, parts: [], bolts: { shots: 0, hero: 0, enemies: 0 }, phase: 1 } } : {} };
+  // Task 48: the Troll's core (his own summary `boss.troll`).
+  const bossCore = start.params.bossFrame ? start.enemies.find(e => e.kind === JAILER || e.kind === TROLL || (fullCastellan && e.kind === CASTELLAN)) : undefined;
+  const troll = bossCore?.kind === TROLL;
+  if (bossCore) s.boss = { diedAt: null, severedAt: null, moves: {}, ...fullCastellan ? { castellan: { raises: 0, openSeconds: 0, windowsHit: 0, windowsMissed: 0, parts: [], bolts: { shots: 0, hero: 0, enemies: 0 }, phase: 1 } } : {},
+    ...troll ? { troll: { windows: {}, blocks: {}, snores: { slept: 0, woken: 0 }, wolves: 0, parts: [], phase: 1, unlinks: 0 } } : {} };
+  /** Task 48: the Troll's window open now (what opened it, its hit landed). */
+  let trollWindow: { source: string; hit: boolean } | null = null;
   /** Task 43: the grate's open since (game s; null — down) and the lever's window now (its core hit or not). */
   let grateSince: number | null = null, leverWindow: { hit: boolean } | null = null, leverPulled = false;
   /** Task 43: the full Castellan's parts at the start (his hounds, his crossbow on the stand) by id. */
-  const partKinds = new Map<number, string>(fullCastellan ? start.enemies.filter(e => e.kind === 'hound' || e.kind === 'castellan-crossbow').map(e => [e.id, e.kind] as [number, string]) : []);
+  const partKinds = new Map<number, string>(fullCastellan ? start.enemies.filter(e => e.kind === 'hound' || e.kind === 'castellan-crossbow').map(e => [e.id, e.kind] as [number, string])
+    : troll ? start.enemies.filter(e => e.partOf === bossCore!.id).map(e => [e.id, e.kind] as [number, string]) : []);
   /** Task 20: the hero's body in a lit circle now (world.ts `bustHero`'s rule). */
   const inCircle = (b: Pick<BustWatch, 'x' | 'y' | 'edge'>): boolean => dist(world.hero, b) <= b.edge;
   /** Task 20: the hero's body against the open circles after a tick or a command — an exit (the last one counts) or a return. */
@@ -255,7 +262,7 @@ export function createFightObserver(start: World): FightObserver {
     // Task 25: enemies new since the last look (ids only grow in a world) are remembered for the cause of death.
     let top = seenId;
     for (const e of w.enemies) {
-      if (e.id > seenId) { seen.set(e.id, e); if (e.id > top) top = e.id; if (e.kind === KNIGHT) s.garrison.knights++; }
+      if (e.id > seenId) { seen.set(e.id, e); if (e.id > top) top = e.id; if (e.kind === KNIGHT) s.garrison.knights++; if (e.kind === 'wolf' && s.boss?.troll) s.boss.troll.wolves++; }
       if (e.elite && !elites.has(e.id)) { elites.set(e.id, { born: w.time, chains: 0, lastDash: -1 }); s.elites.count++; }
     }
     seenId = top;
@@ -337,13 +344,34 @@ export function createFightObserver(start: World): FightObserver {
         case 'partSevered': {
           if (s.boss && s.boss.severedAt === null) s.boss.severedAt = round2(world.time);
           // Task 43: the full Castellan's parts in the order lost.
-          const part = s.boss?.castellan ? partKinds.get(ev.id) : undefined;
-          if (part) s.boss!.castellan!.parts.push({ kind: part, at: round2(world.time) });
+          const part = s.boss?.castellan || s.boss?.troll ? partKinds.get(ev.id) : undefined;
+          if (part) (s.boss!.castellan ?? s.boss!.troll)!.parts.push({ kind: part, at: round2(world.time) });
           return;
         }
         // Task 43: the full Castellan's moves (lunge, guard), the grate and its windows, «Болт».
         case 'castellanMove': if (s.boss?.castellan && ev.stage === 'start') bump(s.boss.moves, ev.move); else if (s.boss?.castellan && ev.move === 'guard') bump(s.boss.moves, 'guard'); return;
-        case 'bossPhase': if (s.boss?.castellan) s.boss.castellan.phase = Math.max(s.boss.castellan.phase, ev.phase); return;
+        case 'bossPhase': {
+          const b = s.boss?.castellan ?? s.boss?.troll;
+          if (b) b.phase = Math.max(b.phase, ev.phase);
+          return;
+        }
+        // Task 48: the Troll's window — opened, its hit, the hits blocked, its end (a «Храп» slept through or woken), the core's drop-out.
+        case 'trollWindow': {
+          const t = s.boss?.troll;
+          if (!t) return;
+          if (ev.action === 'open') trollWindow = { source: ev.source, hit: false };
+          else if (ev.action === 'hit') { if (trollWindow) trollWindow.hit = true; }
+          else if (ev.action === 'block') bump(t.blocks, ev.source);
+          else if (ev.action === 'unlink') t.unlinks++;
+          else if (ev.action === 'close' && trollWindow) {
+            const w = t.windows[trollWindow.source] ??= { opened: 0, hit: 0 };
+            w.opened++;
+            if (trollWindow.hit) w.hit++;
+            if (trollWindow.source === 'snore') { if (trollWindow.hit) t.snores.woken++; else t.snores.slept++; }
+            trollWindow = null;
+          }
+          return;
+        }
         case 'grate': {
           const c = s.boss?.castellan;
           if (!c) return;

@@ -18,7 +18,7 @@ import { createFightObserver, median, DEATH_SERIES_WINDOW, WOLF_RUSH_SOURCE } fr
 import {
   checkRecord, emptyFightSummary, orderedParts, unpackJournal, withSummaryDefaults, OATH_STAKE_SOURCE, DIE_SOURCE, CASINO_SOURCE, RT_TELEMETRY_FORMAT, SANDBOX_RUN,
   type DeathGuard, type FightDeath, type FightRecord, type FightSummary, type JournalPart, type NoteRecord, type PrologueFrom, type PrologueRecord, type RtRecord, type RunRecord, type ThreatTally,
-  type RunNodeVisit,
+  type RunNodeVisit, type TrollBossSummary,
 } from './schema';
 import { THREAT_KINDS, ThreatTracker, type ThreatWarning } from './threats';
 import { RT_DEATH_ABILITY, RT_KIND_TITLES } from '../run/rtRunEnd';
@@ -258,6 +258,8 @@ const SOURCE_TITLES: Record<string, string> = {
   hound: 'касание пса', guard: 'касание стражника', handler: 'касание псаря', keymaster: 'касание ключника', castellan: 'касание Кастеляна', lunge: '«Спустить пса»',
   // Task 43: the knight's touch and moves.
   knight: 'касание рыцаря', 'knight-charge': 'рывок рыцаря', 'knight-swing': 'размах рыцаря',
+  // Task 48: the Troll's moves.
+  'troll-club': '«Удар дубиной»', 'troll-rock': '«Бросок камня»', 'troll-tail': '«Хвост метёт»',
 };
 const THREAT_TITLES: Record<string, string> = {
   archer: 'метка лучника', boar: 'полоса кабана', wolf: 'бросок стаи волков', lynx: 'прыжок рыси', sapper: 'фитиль и взрыв сапёра', 'sapper-instant': 'взрыв сапёра без предупреждения',
@@ -1229,9 +1231,13 @@ export function deathSection(fights: readonly FightEntry[]): string {
 /** The Jailer's moves in the order of the report (`bossMove`), their names. */
 const BOSS_MOVES: readonly [string, string][] = [['flail', 'кистень'], ['throw', 'бросок гири'], ['whistle', 'свисток'],
   // Task 43: the full Castellan's moves.
-  ['lunge', 'спустить пса'], ['bolt', 'болт'], ['guard', 'караул']];
+  ['lunge', 'спустить пса'], ['bolt', 'болт'], ['guard', 'караул'],
+  // Task 48: the Troll's moves.
+  ['club', 'удар дубиной'], ['rock', 'бросок камня'], ['tail', 'хвост метёт'], ['roar', 'рык'], ['snore', 'храп']];
 /** The damage sources of the boss's moves (`hit.source`). */
 const BOSS_HIT_SOURCES: readonly string[] = ['flail', 'throw', 'lunge', 'castellan-bolt'];
+/** Task 48: the damage sources of the Troll's moves (his rows list these). */
+const TROLL_HIT_SOURCES: readonly string[] = ['troll-club', 'troll-rock', 'troll-tail'];
 
 /** One boss fight of the report: its entry and the boss summary (the replay's, else the browser's). */
 export interface BossEntry { entry: FightEntry; summary: FightSummary; row: number | null }
@@ -1258,8 +1264,9 @@ export function bossStats(fights: readonly FightEntry[]): BossStats {
 function bossRow(b: BossEntry): (string | number)[] {
   const r = b.entry.record, boss = b.summary.boss!, s = b.summary;
   const moves = BOSS_MOVES.filter(([id]) => boss.moves[id]).map(([id, title]) => `${title} ×${boss.moves[id]}`).join(', ') || '—';
-  const byMove = BOSS_HIT_SOURCES.map(src => `${sourceTitle(src)} ${s.damage.bySource[src] ?? 0}`).join(', ');
-  const other = s.damage.total - BOSS_HIT_SOURCES.reduce((sum, src) => sum + (s.damage.bySource[src] ?? 0), 0);
+  const sources = boss.troll ? TROLL_HIT_SOURCES : BOSS_HIT_SOURCES;
+  const byMove = sources.map(src => `${sourceTitle(src)} ${s.damage.bySource[src] ?? 0}`).join(', ');
+  const other = s.damage.total - sources.reduce((sum, src) => sum + (s.damage.bySource[src] ?? 0), 0);
   return [
     `\`${r.fight}\``, r.run === SANDBOX_RUN ? 'песочница' : `\`${r.run}\``, b.row ?? '—', arenaTitle(r.arena), OUTCOME_TITLES[r.outcome] ?? r.outcome, n1(r.time),
     boss.severedAt === null ? 'нет' : `да, ${n1(boss.severedAt)} с`, boss.diedAt === null ? 'нет' : `${n1(boss.diedAt)} с`, moves,
@@ -1279,6 +1286,7 @@ function bossSection(fights: readonly FightEntry[]): string {
     BOSS_LEGEND, '', table(BOSS_HEAD, list.map(bossRow)), '',
     `Боёв с боссом: ${st.fights}; побед: ${st.won} (${pct(st.won, st.fights)}); босс убит: ${st.killed} (${pct(st.killed, st.fights)}); гиря отрублена: ${st.severed} (${pct(st.severed, st.fights)}). Смерти по приёму: ${deaths}.`,
     ...castellanLines(list),
+    ...trollLines(list),
   ].join('\n');
 }
 /**
@@ -1292,6 +1300,26 @@ function castellanLines(list: readonly BossEntry[]): string[] {
   const sum = (f: (c: NonNullable<FightSummary['boss']>['castellan'] & object) => number): number => own.reduce((a, b) => a + f(b.summary.boss!.castellan!), 0);
   const order = own.map(b => b.summary.boss!.castellan!.parts.map(p => `${p.kind === 'hound' ? 'пёс' : 'арбалет'} ${n1(p.at)} с`).join(' → ') || '—');
   return ['', `Кастелян полный (задача 43): боёв ${own.length}, побед с первой попытки ${won} (${pct(won, own.length)}); длина боя мед. ${n1(median(times))} с; решётка поднята рычагом ${sum(c => c.raises)} раз, открыта ${n1(sum(c => c.openSeconds))} с; окна с ударом по ядру ${sum(c => c.windowsHit)}, без удара ${sum(c => c.windowsMissed)}; решётка выбила звенья из цепи ${sum(c => c.unlinks ?? 0)} раз (звеньев ${sum(c => c.unlinked ?? 0)}); «Болт» — выстрелов ${sum(c => c.bolts.shots)}, в героя ${sum(c => c.bolts.hero)}, во врагов ${sum(c => c.bolts.enemies)}. Части по порядку: ${order.join('; ')}.`];
+}
+/**
+ * Task 48: the Troll's fights (`boss.troll`) — the fight's length, the share won, the deaths by his moves, the parts (all three — the
+ * share), the windows with a hit by what opened them, the hits blocked outside a window, «Храп», the wolves of «Рык».
+ */
+function trollLines(list: readonly BossEntry[]): string[] {
+  const own = list.filter(b => b.summary.boss?.troll);
+  if (!own.length) return [];
+  const won = own.filter(b => b.entry.record.outcome === 'victory').length, times = own.map(b => b.entry.record.time);
+  const t = (b: BossEntry): TrollBossSummary => b.summary.boss!.troll!;
+  const deaths: Record<string, number> = {};
+  for (const b of own) if (b.summary.death) bump(deaths, b.summary.death.source);
+  const windows: Record<string, { opened: number; hit: number }> = {}, blocks: Record<string, number> = {};
+  for (const b of own) {
+    for (const [src, w] of Object.entries(t(b).windows)) { const c = windows[src] ??= { opened: 0, hit: 0 }; c.opened += w.opened; c.hit += w.hit; }
+    for (const [src, n] of Object.entries(t(b).blocks)) bump(blocks, src, n);
+  }
+  const all = own.filter(b => t(b).parts.length >= 3).length, sum = (f: (x: TrollBossSummary) => number): number => own.reduce((a, b) => a + f(t(b)), 0);
+  const list2 = (r: Record<string, number>): string => Object.entries(r).sort((a, b) => b[1] - a[1]).map(([s, n]) => `${sourceTitle(s)} ${n}`).join(', ') || 'нет';
+  return ['', `Тролль (задача 48): боёв ${own.length}, побед с первой попытки ${won} (${pct(won, own.length)}); длина боя мед. ${n1(median(times))} с; смерти: ${list2(deaths)}; все три части отрублены — ${all} (${pct(all, own.length)}); окна (открыто / с попаданием): ${Object.entries(windows).map(([s, w]) => `${s} ${w.opened} / ${w.hit}`).join(', ') || 'нет'}; «звон» вне окна: ${list2(blocks)}; «Храп» — выспался ${sum(x => x.snores.slept)}, прерван ${sum(x => x.snores.woken)}; волков «Рыка» ${sum(x => x.wolves)}; ядро выпало из цепи ${sum(x => x.unlinks)} раз.`];
 }
 // ---- end «Босс» ----
 
@@ -1452,6 +1480,9 @@ export interface AshStat {
   /** Damage to the hero in the final fights (`last-stand`) of these runs, and how many of them were won. */
   finalDamage: number[];
   finalWon: number;
+  /** Task 48: the same for the den branch's final — the Troll's fights (`troll`), apart from «Последний рубеж». */
+  trollDamage: number[];
+  trollWon: number;
   /** Task 45: the median chain length of each ended fight with chains (`summary.chain.lengthMedian`). */
   chainMedian: number[];
 }
@@ -1462,20 +1493,22 @@ export function ashStats(runs: readonly RunRecord[], runFights: readonly FightEn
   return levels.map(ash => {
     const own = runs.filter(r => recordAsh(r) === ash);
     const fights = runFights.filter(e => e.run && recordAsh(e.run) === ash && (e.record.outcome === 'victory' || e.record.outcome === 'defeat'));
-    const finals = fights.filter(e => e.record.arena === 'last-stand');
+    const finals = fights.filter(e => e.record.arena === 'last-stand'), trolls = fights.filter(e => e.record.arena === 'troll');
     return {
       ash, runs: own.length, won: own.filter(r => r.outcome === 'victory').length, lost: own.filter(r => r.outcome === 'defeat').length,
       farRow: own.map(r => r.farRow), damage: fights.map(e => summary(e).damage.total),
       finalDamage: finals.map(e => summary(e).damage.total), finalWon: finals.filter(e => e.record.outcome === 'victory').length,
+      trollDamage: trolls.map(e => summary(e).damage.total), trollWon: trolls.filter(e => e.record.outcome === 'victory').length,
       chainMedian: fights.filter(e => summary(e).chain.count > 0).map(e => summary(e).chain.lengthMedian),
     };
   });
 }
-const ASH_HEAD = ['Испытание', 'Походов', 'Побед', 'Поражений', 'Дальний ряд мед.', 'Урон за бой мед.', 'Финалов (побед)', 'Урон в финале мед.', 'Цепь мед. (боёв)'];
-const ASH_LEGEND = 'Задача 18 «Испытание I–V» (с 14.10.2026): походы по ступени (`RunRecord.ash`; нет поля — 0, и записи до 14.10.2026). Ступень выбирают на «Новом походе» после первой победы. Бои — законченные победой или поражением; финал — «Последний рубеж». Задача 45 (с 16.10.2026): ступени VI–VIII; «Цепь мед.» — медиана по боям медианной длины цепи боя (`chain.lengthMedian`; в скобках — боёв с цепями): на VIII ожидается ниже. Эвристика, не оценка баланса.';
+const ASH_HEAD = ['Испытание', 'Походов', 'Побед', 'Поражений', 'Дальний ряд мед.', 'Урон за бой мед.', 'Финалов (побед)', 'Урон в финале мед.', 'Тролль (побед)', 'Урон у Тролля мед.', 'Цепь мед. (боёв)'];
+const ASH_LEGEND = 'Задача 18 «Испытание I–V» (с 14.10.2026): походы по ступени (`RunRecord.ash`; нет поля — 0, и записи до 14.10.2026). Ступень выбирают на «Новом походе» после первой победы. Бои — законченные победой или поражением; финал — «Последний рубеж» (с задачи 48 — финал ветки лагеря; бои Тролля, финала ветки логова, — в своих столбцах «Тролль»). Задача 45 (с 16.10.2026): ступени VI–VIII; «Цепь мед.» — медиана по боям медианной длины цепи боя (`chain.lengthMedian`; в скобках — боёв с цепями): на VIII ожидается ниже. Эвристика, не оценка баланса.';
 function ashRows(runs: readonly RunRecord[], runFights: readonly FightEntry[]): (string | number)[][] {
   return ashStats(runs, runFights).map(s => [ASH_MARKS[s.ash] ?? String(s.ash), s.runs, s.won, s.lost, s.farRow.length ? n1(median(s.farRow)) : '—',
     s.damage.length ? n1(median(s.damage)) : '—', `${s.finalDamage.length} (${s.finalWon})`, s.finalDamage.length ? n1(median(s.finalDamage)) : '—',
+    `${s.trollDamage.length} (${s.trollWon})`, s.trollDamage.length ? n1(median(s.trollDamage)) : '—',
     s.chainMedian.length ? `${n1(median(s.chainMedian))} (${s.chainMedian.length})` : '—']);
 }
 

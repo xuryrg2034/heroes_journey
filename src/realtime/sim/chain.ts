@@ -53,7 +53,9 @@ import { bagKill } from './bag';
 import { cutTethers, dashPathPoints, dropShackleOf, planTetherCuts, settleTethers, shackled, tethersOn } from './tethers';
 // Task 43: the full Castellan's grate (the refusal) and its levers.
 import { behindGrate, gateLever, grateLinkDrop, jumpDownFree, onGallery } from './enemies/garrison';
-import { NO_COLOR, OBJECT_RADIUS, checkGoals, damageEnemy, doorOf, doorOpen, enemyFrozen, findObject, nextFiring, startShieldWindow, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
+// Task 48: the Troll's window (the refusal, one hit per window, the drop from the drawn chain).
+import { TROLL, trollLinkDrop, trollReserve, trollShut, trollWards, trollWindowOn } from './enemies/troll';
+import { NO_COLOR, OBJECT_RADIUS, checkGoals, damageEnemy, doorOf, doorOpen, pushOutOfSolids, enemyFrozen, findObject, nextFiring, startShieldWindow, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
 
 export { OBJECT_RADIUS };
 export type { ChainAnchor };
@@ -179,6 +181,12 @@ export interface ChainPlan {
    * (event `grate` `unlink`) and this plan is the rest's. A release before it — the dash strikes the core as planned. Absent otherwise.
    */
   grate?: { index: number; left: number };
+  /**
+   * Task 48 «Тролль» (enemies/troll.ts `trollLinkDrop`): the drawn chain holds the Troll's core while his window is open — the core's
+   * link `index` and the seconds `left` before the window ends; then the core and the links after it leave the chain (event
+   * `trollWindow` `unlink`) and this plan is the rest's. Absent otherwise.
+   */
+  trollDrop?: { index: number; left: number };
   /**
    * Task 38 «Гарнизон» (`Params.tethers`, tethers.ts): the tethers the dash of this chain cuts — by their held body — read from the
    * bodies where they stand now along the dash's path (the hero, then the links up to the one it stops on). The release fixes the
@@ -378,7 +386,9 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   if (fire && fused?.paint) fire = { ...fire, paint: fused.paint };
   // Task 43: the core of the drawn chain behind a grate that will drop (the full Castellan only).
   const grate = links === world.chain && !world.move ? grateLinkDrop(world, links) : null;
-  return { ...grate ? { grate } : {}, links: out, endsOnSurvivor, endsOnObject, power, kills, ...seal ? { seal } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {}, ...cuts.length ? { cuts } : {}, ...fused?.blast ? { blast: fused.blast } : {}, ...fused?.wave ? { wave: fused.wave } : {} };
+  // Task 48: the Troll's core of the drawn chain, dropped when his window ends.
+  const trollDrop = links === world.chain && !world.move ? trollLinkDrop(world, links) : null;
+  return { ...grate ? { grate } : {}, ...trollDrop ? { trollDrop } : {}, links: out, endsOnSurvivor, endsOnObject, power, kills, ...seal ? { seal } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {}, ...cuts.length ? { cuts } : {}, ...fused?.blast ? { blast: fused.blast } : {}, ...fused?.wave ? { wave: fused.wave } : {} };
 }
 
 /** The last enemy link the dash of the plan `out` reaches (up to the survivor it stops on, or the object that ends it) and its outcome. */
@@ -579,12 +589,16 @@ function planDashEnd(world: World, out: readonly LinkPlan[], pierce: PiercePrevi
   else if (at !== stop) { at = stop; traceTo(trace, at); }
   const end = { x: stop.x, y: stop.y };
   pushOutOfObstacles(end, heroRadius(world.params), world.arena);
+  // Task 48: out of a solid body as `finishMove` puts the hero — the bodies this dash kills are gone by then.
+  pushOutOfSolids(world, end, new Set([...struck, ...pierce?.bodies.map(b => [b.id, b.outcome] as const) ?? []].flatMap(([id, o]) => (o.killed ? [id] : []))));
   // The world after the first pass: the links struck, the pierce's bodies, the seal's strike on those inside.
   const pierced = new Map((pierce?.bodies ?? []).map(b => [b.id, b.outcome] as const));
   const enemies: Enemy[] = [];
   for (const e of world.enemies) {
     const o = struck.get(e.id) ?? pierced.get(e.id);
     if (o?.killed) continue;
+    // Task 48: one hit a window — the Troll's core struck by the first pass (the links, the pierce, the seal) or closed now: no hit.
+    if (trollShut(world, e) || (e.kind === TROLL && trollWindowOn(world) && (o || (seal && seal.damage > 0 && seal.inside.includes(e.id))))) continue;
     let hp = o ? o.hpAfter : e.hp, plates = o?.plate ? o.platesAfter ?? 0 : platesOf(e);
     if (seal && seal.damage > 0 && seal.inside.includes(e.id)) {
       if (plates > 0) plates--;
@@ -604,7 +618,10 @@ function planReturn(world: World, out: readonly LinkPlan[], endPower: number, pi
   // `returnShadowEnd`: the build modules' end of the same dash, in the order of `onChainEnd` (a wave kills and wounds before the
   // run). A journal without the key — the old shadow.
   const ended = world.params.returnShadowEnd ? endShadowOf(world, { links: dash.links, at: end }, enemies) : null;
-  const after = ended ? ended.enemies : enemies, ends = ended && Object.keys(ended.struck).length ? ended.struck : null;
+  const ends = ended && Object.keys(ended.struck).length ? ended.struck : null;
+  // Task 48: the end of the dash struck the Troll's core in the shadow — its window's hit is spent before the run.
+  const endHit = ends && trollWindowOn(world) ? new Set(Object.values(ends).flat()) : null;
+  const after = (ended ? ended.enemies : enemies).filter(e => !(endHit && e.kind === TROLL && endHit.has(e.id)));
   const full = boomerangFull(world, lastKilled), path = [end, ...route], shadow: World = { ...world, enemies: after }, power = returnPowerFor(world, endPower, lastKilled);
   const hits: ReturnPreview['hits'] = [];
   let left = power;
@@ -631,7 +648,8 @@ function planPierce(world: World, links: readonly ChainLink[], out: readonly Lin
   const plates = piercePlates(world);
   const bodies = shape.bodies.flatMap(b => {
     const e = findEnemy(world, b.id);
-    if (!e) return [];
+    // Task 48: the Troll's core closed now — the pierce passes it by.
+    if (!e || trollShut(world, e)) return [];
     const outcome = strike(power, e.hp, chainFactor(world, e), 0, platesOf(e));
     return [{ id: b.id, t: b.t, outcome: outcome.plate && plates > 1 ? { ...outcome, platesAfter: Math.max(0, platesOf(e) - plates) } : outcome }];
   });
@@ -660,7 +678,8 @@ export function sealPreview(world: World, kind: LoopKind): SealPreview | null {
   if (world.chain.some(l => !linkPoint(world, l))) return null;
   const links = chainEnemyCount(world);
   if (links < loopMinOf(world.params, kind)) return null;
-  const ring = loopRing(world, kind), inside = enemiesInside(world, ring, world.chain), damage = sealDamage(links), hold = sealHoldOf(world.params, links);
+  // Task 48: the Troll's core closed now is no body inside (the seal does not strike it).
+  const ring = loopRing(world, kind), inside = enemiesInside(world, ring, world.chain).filter(e => !trollShut(world, e)), damage = sealDamage(links), hold = sealHoldOf(world.params, links);
   // Task 44 «Ледяная печать»: the survivors of the strike (a plated body loses a plate, not HP) freeze max(hold, 3 s), brittle.
   const cold = iceSealCold(world, hold);
   const ice = cold ? { ids: inside.filter(e => platesOf(e) > 0 || e.hp > damage).map(e => e.id), brittle: cold.brittle } : null;
@@ -1040,7 +1059,7 @@ export function inChain(world: World, enemy: Enemy): number {
  * Why a target cannot be the next link (stage G): the checks of `canLink` / `canLinkObject` in their order, and the
  * text the pointer hint shows. One function decides both, so the hint never disagrees with the chain.
  */
-export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'unlit' | 'color' | 'far' | 'sight' | 'guarded' | 'crossed' | 'sealed' | 'lever' | 'shackled' | 'handFull' | 'grate';
+export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'unlit' | 'color' | 'far' | 'sight' | 'guarded' | 'crossed' | 'sealed' | 'lever' | 'shackled' | 'handFull' | 'grate' | 'outOfWindow';
 export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   move: 'идёт проход',
   colorless: 'не берётся цепью',
@@ -1067,6 +1086,8 @@ export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   handFull: 'рука полна',
   // Task 43 «Кастелян полный»: the core behind the grate (enemies/garrison.ts `behindGrate`) — a lever's chain raises it.
   grate: 'за решёткой',
+  // Task 48 «Тролль»: the Troll's core outside his window (enemies/troll.ts `trollShut`) — his own moves open it.
+  outOfWindow: 'вне окна',
 };
 
 /**
@@ -1126,6 +1147,8 @@ export function enemyRefusal(world: World, enemy: Enemy, plan: ChainPlan = planC
   if (world.tethers && shackled(world, enemy)) return 'shackled';
   // Task 43: the full Castellan's core behind its grate.
   if (behindGrate(world, enemy)) return 'grate';
+  // Task 48: the Troll's core outside his window (or its hit spent).
+  if (trollShut(world, enemy)) return 'outOfWindow';
   if (inChain(world, enemy) >= 0) return 'inChain';
   if (loopClosed(world)) return 'sealed';
   if (plan.endsOnSurvivor) return 'afterSurvivor';
@@ -1366,7 +1389,8 @@ export function releaseChain(world: World): boolean {
   const live = world.status === 'playing' && !world.move, backFixed = live && returnFixedOn(world);
   // Task 46: a fusion of the dash's end fixes its bodies now (the wave, the end blast, the paint), as «Возврат» its run.
   const fusionFix = live && fusionEndOn(world);
-  const full = live && (pierceOn(world) || backFixed || fusionFix) ? planChain(world) : null;
+  // Task 48: the Troll's window holds its hit for the return run the player saw too (`trollReserve`).
+  const full = live && (pierceOn(world) || backFixed || fusionFix || (trollWindowOn(world) && returnOn(world))) ? planChain(world) : null;
   const fusion: FusionRelease | undefined = fusionFix && full ? { ...full.fire?.paint ? { paint: full.fire.paint } : {}, ...full.blast ? { blast: full.blast } : {}, ...full.wave ? { wave: full.wave } : {} } : undefined;
   const pierce = pierceOn(world) ? full?.pierce : undefined, back = backFixed ? full?.back : undefined;
   // Task 38: the tethers the player saw cut — fixed now, cut when the dash ends (only while the law acts and a tether stands).
@@ -1382,6 +1406,8 @@ export function releaseChain(world: World): boolean {
   }
   if (pierce) fixPierce(world, world.move, pierce);
   if (cuts?.length) world.move.cuts = [...cuts];
+  // Task 48: a move whose plan strikes the Troll's core holds his window's hit for itself until it is over.
+  if (trollWindowOn(world)) trollReserve(world, [...links.flatMap(l => (l.kind === 'enemy' ? [l.id] : [])), ...pierce?.bodies.map(b => b.id) ?? [], ...full?.back?.hits.map(h => h.id) ?? [], ...seal?.inside ?? []]);
   // «Смена цвета»: the links that free the colour, as drawn (absent while the rule is off or the chain has none).
   const shifts = colorShiftIds(world, links);
   if (shifts.length) world.move.shifts = shifts;
@@ -1458,6 +1484,8 @@ function piercePoint(pierce: NonNullable<HeroMove['pierce']>, t: number): Vec {
 function pierceHit(world: World, move: HeroMove, id: number): void {
   const pierce = move.pierce!, enemy = findEnemy(world, id);
   if (!enemy) return;
+  // Task 48: the Troll's core closed or its window's hit spent — the run passes it by.
+  if (enemy.kind === TROLL && trollWards(world, enemy, PIERCE_SOURCE)) return;
   const factor = pierce.brittle?.includes(id) ? Math.max(1, world.params.frostFactor) : 1;
   const outcome = strike(move.power, enemy.hp, factor, 0, platesOf(enemy));
   if (move.purse) move.purse.embers += linkEmbers(enemy, outcome);
@@ -1509,7 +1537,10 @@ function jumpTarget(world: World, p: Vec): Vec {
 /** Landing point of a jump towards `p`: clamped to the jump radius; null when it lands in an obstacle or over a cliff. */
 export function jumpLanding(world: World, p: Vec): Vec | null {
   const land = jumpTarget(world, p);
-  return blockedAt(land, heroRadius(world.params), world.arena) ? null : land;
+  if (blockedAt(land, heroRadius(world.params), world.arena)) return null;
+  // Task 48: a landing in a solid body (the Troll's) — next to it, where the hero will stand (the preview's point too).
+  pushOutOfSolids(world, land);
+  return land;
 }
 
 /**
@@ -1655,6 +1686,8 @@ function noteLink(move: HeroMove, link: { id: number; x: number; y: number; elit
 
 function hitEnemy(world: World, enemy: Enemy): void {
   const move = world.move!, p = world.params;
+  // Task 48: the Troll's core closed (never so for a released plan: `trollReserve`) — the dash stops on it, unhurt.
+  if (enemy.kind === TROLL && trollWards(world, enemy, 'chain')) { move.links = []; returnToStop(move); return; }
   const { ctx, outcome } = dashStrike(world, move, enemy);
   // Stage 2 of the transition: the kind's reaction to the hit (the porcupine's quills); the hero's death comes first.
   behaviorOf(enemy).onChainHit?.(world, enemy, outcome);
@@ -1846,6 +1879,8 @@ function finishMove(world: World): void {
   const hero = world.hero, move = world.move!;
   hero.x = move.stop.x; hero.y = move.stop.y;
   pushOutOfObstacles(hero, heroRadius(world.params), world.arena);
+  // Task 48: out of a solid body (the Troll's) — the plan's end does the same (`planDashEnd`).
+  pushOutOfSolids(world, hero);
   world.move = null;
   // Stage 3a (М3, design 09.10.2026): any dash or jump ending in thorns gives the hero a full interval to walk out (also
   // one from thorns into thorns: the timer starts again).

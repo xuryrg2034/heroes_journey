@@ -54,10 +54,13 @@ export const KIND_PLURAL: Readonly<Record<string, string>> = {
   basic: 'обычные', wolf: 'волки', boar: 'кабаны', reaper: 'жнец', shield: 'щитоносцы', archer: 'лучники', sapper: 'сапёры', porcupine: 'дикобразы', lynx: 'рыси', shaman: 'шаманы',
   // Task 43 (the garrison; the kinds with a small letter — task 40; the Castellan is a name).
   guard: 'стражники', handler: 'псари', hound: 'псы', keymaster: 'ключники', crossbow: 'арбалетчики', knight: 'рыцари', castellan: 'Кастелян', 'castellan-crossbow': 'арбалеты на станке',
+  // Task 48 (the Troll's fight at its start: the core and his three parts; the names the run-end lines use).
+  troll: 'Тролль', 'troll-club': 'дубины', 'troll-rock': 'камни', 'troll-tail': 'хвосты',
 };
 /** Task 43: a garrison kind standing once at the fight's start (the card counts the start: «псарь, псы ×2»). */
 export const KIND_ONE: Readonly<Record<string, string>> = {
   basic: 'обычный', guard: 'стражник', handler: 'псарь', hound: 'пёс', keymaster: 'ключник', crossbow: 'арбалетчик', knight: 'рыцарь', castellan: 'Кастелян', 'castellan-crossbow': 'арбалет на станке',
+  troll: 'Тролль', 'troll-club': 'дубина', 'troll-rock': 'камень', 'troll-tail': 'хвост',
 };
 
 /**

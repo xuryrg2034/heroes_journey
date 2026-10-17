@@ -17,7 +17,7 @@ import { ITEM_KINDS } from '../forest/items';
 import { HAMMER_IDS } from '../sim/buildIds';
 import { RT_META_LOCKABLE } from './metaCatalog';
 import { seedOf, walkRun, type WalkOptions } from './metaWalk.testkit';
-import { createRtRun, parseRtRun, rtNode, rtRerollView, serializeRtRun, type RtRunState } from './rtRun';
+import { createRtRun, parseRtRun, rtNode, rtRerollView, rtTrollNode, serializeRtRun, type RtRunState } from './rtRun';
 import { rtHearthFlagsWith, RT_CARRY_CAP_PER_LEVEL, RT_QUEST_STOCK, RT_QUEST_XP } from './rtMeta';
 import { createRtProfileStore, rtHearthStart, RT_PROFILE_STORAGE_KEY, type RtProfileStore, type RunStorage } from './rtRunStorage';
 import { runRow } from './arenaPools';
@@ -235,8 +235,11 @@ await check('the camp view: the last run (cause, first win, pack, record), the b
   store.endRunMeta(walkRun(campRun(store, 3, { loseAt: (_run, type) => type === 'checkpoint' })).run);
   let view = store.hearth();
   assert(view.last?.won === false && view.last.cause === 'jailer' && view.last.row === 5 && view.last.beaten && view.quest?.npc === 'owl', `after the Jailer: ${JSON.stringify(view)}`);
-  store.endRunMeta(walkRun(campRun(store, 4, { loseAt: (_run, type) => type === 'boss' })).run);
-  assert(store.hearth().last?.cause === 'final', 'the final');
+  const lost = walkRun(campRun(store, 4, { loseAt: (_run, type) => type === 'boss' })).run;
+  store.endRunMeta(lost);
+  // Task 48: the den's boss is the Troll — its own cause.
+  const boss = rtNode(lost, lost.battles[lost.battles.length - 1]!.nodeId)!;
+  assert(store.hearth().last?.cause === (rtTrollNode(lost, boss) ? 'troll' : 'final'), `the final: ${store.hearth().last?.cause}`);
   const won = store.endRunMeta(walkRun(campRun(store, 5)).run)!;
   view = store.hearth();
   assert(view.last?.won && view.last.firstWin && view.last.cause === undefined && (view.last.pack === true) === !!won.pack, `the first win: ${JSON.stringify(view.last)}`);

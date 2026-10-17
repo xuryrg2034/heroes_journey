@@ -248,6 +248,12 @@ export interface ArenaTemplate extends ArenaShape {
    * keymaster's behaviour (no keymaster before task 40). Omitted — the keymaster walks as anywhere.
    */
   keymasterBank?: number;
+  /**
+   * Task 48 «Тролль» (sim/arenasBoss.ts «Берлога тролля»): the Troll's arena — the world plays `Params.trollWindow` on when the given
+   * values have it off, and `Params.trollCrowd` `TROLL_CROWD` when they hold 1 (world.ts `createWorld`; the journal keeps that copy);
+   * its crowd's floor and pace go by `trollCrowd` (spawn.ts). Omitted — the values as given.
+   */
+  troll?: boolean;
 }
 
 /**

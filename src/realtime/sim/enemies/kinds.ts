@@ -64,6 +64,12 @@ export interface EnemyBehavior {
    * not put it back on his touch circle (world.ts `separate`). Absent — it is put back, as every body.
    */
   passesHero?(world: World, enemy: Enemy): boolean;
+  /**
+   * Task 48 (`Params.trollSolid`): true — the body is solid for the hero now (the Troll's core and parts, held at their spots): the hero
+   * never stands inside it — walking, a knockback, the end of a dash or a jump put him out of it as out of an obstacle (world.ts
+   * `pushOutOfSolids`), and the body itself is never moved by the parting or the crowd. Absent — an ordinary body.
+   */
+  solid?(world: World, enemy: Enemy): boolean;
 }
 
 /**

@@ -19,6 +19,7 @@ import { OBJECT_RADIUS } from '../sim/chain';
 import { leverOf } from '../sim/slot';
 import { BUILD_SOURCES } from '../sim/buildIds';
 import { KNIGHT } from '../sim/enemies/garrison';
+import { ROCK_RADIUS, TAIL_OUTER, TROLL } from '../sim/enemies/troll';
 
 /** The three labels of the run (the ids are the v1 hints' Б6, Б8, Б9: the memory and the run record keep their keys). */
 export type LabelId = 'b6' | 'b8' | 'b9';
@@ -92,12 +93,16 @@ export function leverKnob(lever: Vec): Vec { return { x: lever.x + OBJECT_RADIUS
  * move at its sign for `BOSS_LABEL_LIFE` real seconds, the first time the move starts in the fight (event `bossMove`, stage
  * 'start'). The Jailer's fight in a run is one (row 5; a death ends the run), so «first in the fight» is «first in the run» — no
  * field in the save. Unlike the labels above, it goes on a timer and marks no viewer memory. «Свисток» has no name label.
+ * Task 48 (design 16.10.2026, spec 16): the Troll's five moves are named the same way — «Удар дубиной» at the lane's end, «Бросок
+ * камня» over the rock's circle, «Хвост метёт» under the ring, «Рык» and «Храп» on his belly (the first start in the fight; no other text).
  */
-export const BOSS_MOVE_TEXT = { flail: 'Кистень', throw: 'Бросок гири' } as const;
+export const BOSS_MOVE_TEXT = { flail: 'Кистень', throw: 'Бросок гири', club: 'Удар дубиной', rock: 'Бросок камня', tail: 'Хвост метёт', roar: 'Рык', snore: 'Храп' } as const;
 /** Real seconds a boss move's name stays. */
 export const BOSS_LABEL_LIFE = 1;
 /** Arena units: how high over the core the flail's name hangs, and over the throw's circle (its radius is 1). */
 const FLAIL_LABEL_LIFT = 1.1, THROW_LABEL_LIFT = 1.15;
+/** Task 48: how high over the club's lane end its name hangs, and how far under the Troll's centre his belly's label stands (units). */
+const TROLL_CLUB_LIFT = 0.9, TROLL_BELLY = 1.0;
 
 /** The names of the moves that start in this frame for the first time (`named` — the moves named in this fight; this adds to it). */
 export function bossMoveLabels(w: World, named: Set<string>): LabelSpec[] {
@@ -108,6 +113,14 @@ export function bossMoveLabels(w: World, named: Set<string>): LabelSpec[] {
     if (!core) continue;
     named.add(ev.move);
     const text = BOSS_MOVE_TEXT[ev.move as keyof typeof BOSS_MOVE_TEXT];
+    if (core.kind === TROLL) {
+      const v = core.vars;
+      if (ev.move === 'club' && v.bx !== undefined) out.push({ id: `boss-${ev.move}`, text, at: { x: v.bx, y: v.by }, place: 'above', lift: TROLL_CLUB_LIFT });
+      else if (ev.move === 'rock' && v.ax !== undefined) out.push({ id: `boss-${ev.move}`, text, at: { x: v.ax, y: v.ay }, place: 'above', lift: ROCK_RADIUS + 0.15 });
+      else if (ev.move === 'tail') out.push({ id: `boss-${ev.move}`, text, at: { x: core.x, y: core.y + TAIL_OUTER }, place: 'below', lift: 0.15 });
+      else out.push({ id: `boss-${ev.move}`, text, at: { x: core.x, y: core.y + TROLL_BELLY }, place: 'below', lift: 0.2 });
+      continue;
+    }
     if (ev.move === 'throw' && core.vars.ax !== undefined) out.push({ id: `boss-${ev.move}`, text, at: { x: core.vars.ax, y: core.vars.ay }, place: 'above', lift: THROW_LABEL_LIFT });
     else out.push({ id: `boss-${ev.move}`, text, at: { x: core.x, y: core.y }, place: 'above', lift: FLAIL_LABEL_LIFT });
   }

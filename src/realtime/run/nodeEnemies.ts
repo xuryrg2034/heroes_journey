@@ -3,14 +3,15 @@
  * its start — read from the very world the fight would start with, not from a copy of the rules. The node's battle is opened on a
  * copy of the run (the arena by its preview, the node's seed and battle kind, as `rtEnterNode` opens it); the loadout and the values
  * are the fight's own (`rtArenaLoadout`, `rtArenaParams` over `rtRunParams`), the world is the simulation's (`Simulation`: the roster,
- * the kinds taken out, `createWorld` with the deep enemies, the crossbowmen and the knights of the loadout). Forest nodes — null: their
- * card keeps its own line (view/nodeCard.ts `nodeDangers`).
+ * the kinds taken out, `createWorld` with the deep enemies, the crossbowmen and the knights of the loadout). Task 48: the den branch's
+ * boss of a run with `troll` too (the Troll and his parts, the crowd's kinds). Other forest nodes — null: their card keeps its own line
+ * (view/nodeCard.ts `nodeDangers`).
  */
 import type { ForestMapNode } from '../forest/forestMap';
 import { Simulation } from '../sim/simulation';
 import { defaultParams } from '../sim/params';
 import { rtGarrisonNodeId } from './garrison';
-import { arenaPreview, arenaSeed, battleKindOf, rtArenaLoadout, rtArenaParams, rtRunParams, type RtRunState } from './rtRun';
+import { arenaPreview, arenaSeed, battleKindOf, rtArenaLoadout, rtArenaParams, rtRunParams, rtTrollNode, type RtRunState } from './rtRun';
 
 /** The enemies of a garrison node's fight at its start (`rtNodeEnemies`). */
 export interface RtNodeEnemies {
@@ -28,10 +29,11 @@ export interface RtNodeEnemies {
 
 /**
  * The start of the fight of the garrison node `node` (an entered node — its battle as it is; an available one — the battle its entry
- * would open now). Null — a forest node, a node without a known arena (not available yet), or a node that is no battle.
+ * would open now; task 48: also the Troll's node of the den branch). Null — another forest node, a node without a known arena (not
+ * available yet), or a node that is no battle.
  */
 export function rtNodeEnemies(run: RtRunState, node: ForestMapNode): RtNodeEnemies | null {
-  if (!rtGarrisonNodeId(node.id)) return null;
+  if (!rtGarrisonNodeId(node.id) && !rtTrollNode(run, node)) return null;
   const pending = run.pending;
   const open = pending?.kind === 'battle' && pending.nodeId === node.id ? pending : null;
   const pick = open ? { arena: open.arena, roster: open.roster } : arenaPreview(run, node);

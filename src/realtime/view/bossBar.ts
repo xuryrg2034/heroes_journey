@@ -8,12 +8,16 @@
  *   its cell from the right — the plates first, as the hits take them. The cells are the bar's divisions.
  * - The phase line: at the border where the core keeps `PHASE2_PLATES` plates (phase 2 begins there, or after
  *   `PHASE2_TIME` s); it lights when phase 2 comes (event `bossPhase`), whatever the cause.
+ * - Task 48 «Тролль»: the same bar — `trollHp` HP cells and `trollPlates` plate cells; the line at `PHASE3_PLATES` plates (his phase 3,
+ *   the «Храп»: it lights when phase 3 comes — his phase 2 comes with a part or by time, so it has no line); a plate that grows back in
+ *   the snore fills its cell again with a lemon flash (the class `rt-boss-grown`, counted in `grown`).
  * - The core's death (it leaves the arena): the bar empties and fades with it (`FADE` s); no text.
  * The pure part (`bossBarState`) is testable in Node; the DOM part (`BossBar`) follows it each frame.
  */
 import type { World } from '../sim/world';
 import { JAILER, PHASE2_PLATES, jailerHpOf } from '../sim/enemies/jailer';
 import { CASTELLAN, CASTELLAN_HP } from '../sim/enemies/garrison';
+import { PHASE3_PLATES, TROLL, TROLL_HP } from '../sim/enemies/troll';
 
 /** Real seconds the bar takes to fade after the core's death. */
 export const BOSS_BAR_FADE = 0.5;
@@ -30,7 +34,7 @@ export interface BossBarState {
   platesMax: number; plates: number;
   /** The phase line: the cell border (0..cells) where phase 2 begins. */
   phaseAt: number;
-  /** Phase 2 has come. */
+  /** Phase 2 has come (the Troll: phase 3, the line's phase). */
   phase2: boolean;
 }
 
@@ -40,20 +44,20 @@ export interface BossBarState {
  */
 export function bossBarState(w: World): BossBarState | null {
   if (!w.params.bossFrame) return null;
-  const core = w.enemies.find(e => (e.kind === JAILER || e.kind === CASTELLAN) && e.partOf === undefined);
+  const core = w.enemies.find(e => (e.kind === JAILER || e.kind === CASTELLAN || e.kind === TROLL) && e.partOf === undefined);
   if (!core) return null;
   const platesMax = core.armor?.max ?? 0, plates = Math.max(0, core.armor?.plates ?? 0);
   // An enemy keeps no max HP: the core's HP at its spawn (task 32: `Params.jailerHp`, the boss arenas 5; a core with more — its HP now).
-  const castellan = core.kind === CASTELLAN;
-  const hpMax = Math.max(1, castellan ? CASTELLAN_HP : jailerHpOf(w.params), core.hp), hp = Math.max(0, core.hp);
+  const castellan = core.kind === CASTELLAN, troll = core.kind === TROLL;
+  const hpMax = Math.max(1, castellan ? CASTELLAN_HP : troll ? Math.round(w.params.trollHp ?? TROLL_HP) : jailerHpOf(w.params), core.hp), hp = Math.max(0, core.hp);
   // The phase line: the Jailer's at `PHASE2_PLATES` plates left; the Castellan's phase 2 comes with its first part lost (a plate) —
   // the border of its last plate cell (or with 35 s: the line lights all the same).
-  const phaseAt = hpMax + (castellan ? Math.max(0, platesMax - 1) : Math.min(platesMax, PHASE2_PLATES));
-  return { id: core.id, hpMax, hp, platesMax, plates, phaseAt, phase2: core.vars.phase === 2 };
+  const phaseAt = hpMax + (castellan ? Math.max(0, platesMax - 1) : Math.min(platesMax, troll ? PHASE3_PLATES : PHASE2_PLATES));
+  return { id: core.id, hpMax, hp, platesMax, plates, phaseAt, phase2: troll ? (core.vars.phase ?? 1) >= 3 : core.vars.phase === 2 };
 }
 
 /** What the bar shows now (the tests read it through `snapshot().bossBar`). */
-export interface BossBarShown { visible: boolean; cells: number; filled: number; hp: number; plates: number; phaseAt: number; phase2: boolean; fading: boolean }
+export interface BossBarShown { visible: boolean; cells: number; filled: number; hp: number; plates: number; phaseAt: number; phase2: boolean; fading: boolean; grown: number }
 
 /** The DOM bar: a row of cells and the phase line; fades out when the core is gone. */
 export class BossBar {
@@ -65,6 +69,8 @@ export class BossBar {
   private fade = 0;
   private dead = false;
   private shape = '';
+  /** Plate cells that filled again (a regrown plate), since the fight began. */
+  private grown = 0;
 
   constructor() {
     this.el = document.createElement('div');
@@ -116,6 +122,8 @@ export class BossBar {
         c.classList.toggle('rt-boss-empty', !full);
         // A unit just lost flashes once (CSS animation on the class).
         if (!full) { c.classList.remove('rt-boss-lost'); void c.offsetWidth; c.classList.add('rt-boss-lost'); }
+        // Task 48: a plate that grew back fills its cell with a lemon flash (the Troll's snore slept through).
+        else if (!this.dead) { c.classList.remove('rt-boss-grown'); void c.offsetWidth; c.classList.add('rt-boss-grown'); this.grown++; }
       }
     }
     this.phaseEl.style.left = `${(st.phaseAt / n) * 100}%`;
@@ -126,16 +134,16 @@ export class BossBar {
 
   shown(): BossBarShown {
     const st = this.last;
-    if (!st || this.el.hidden) return { visible: false, cells: 0, filled: 0, hp: 0, plates: 0, phaseAt: 0, phase2: false, fading: false };
-    return { visible: true, cells: st.hpMax + st.platesMax, filled: st.hp + st.plates, hp: st.hp, plates: st.plates, phaseAt: st.phaseAt, phase2: st.phase2, fading: this.fade > 0 };
+    if (!st || this.el.hidden) return { visible: false, cells: 0, filled: 0, hp: 0, plates: 0, phaseAt: 0, phase2: false, fading: false, grown: this.grown };
+    return { visible: true, cells: st.hpMax + st.platesMax, filled: st.hp + st.plates, hp: st.hp, plates: st.plates, phaseAt: st.phaseAt, phase2: st.phase2, fading: this.fade > 0, grown: this.grown };
   }
 
   /** A new fight: no bar until its world says so. */
-  reset(): void { this.last = null; this.fade = 0; this.dead = false; this.el.hidden = true; this.el.style.opacity = ''; }
+  reset(): void { this.last = null; this.fade = 0; this.dead = false; this.grown = 0; this.shape = ''; this.el.hidden = true; this.el.style.opacity = ''; }
 }
 
 /** Task 28: the bosses by their core's kind — the name the goal shows. */
-export const BOSS_NAMES: Readonly<Record<string, string>> = { [JAILER]: 'Тюремщик', [CASTELLAN]: 'Кастелян' };
+export const BOSS_NAMES: Readonly<Record<string, string>> = { [JAILER]: 'Тюремщик', [CASTELLAN]: 'Кастелян', [TROLL]: 'Тролль' };
 
 /**
  * Task 28 (design 15.10.2026, «одно имя — одно значение»): the goal of a boss fight is the boss itself — the HUD plate and the

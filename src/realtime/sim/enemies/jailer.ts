@@ -50,9 +50,9 @@ export const JAILER = 'jailer';
 export const JAILER_WEIGHT = 'jailer-weight';
 /**
  * Task 38 «Гарнизон»: the boss cores of the frame — the Jailer and the Castellan (enemies/garrison.ts, the same frame): both are
- * colourless with `jailerColorless` and both end the fight with `bossClears`.
+ * colourless with `jailerColorless` and both end the fight with `bossClears`. Task 48: the Troll's core too (enemies/troll.ts).
  */
-export const BOSS_CORES: readonly string[] = [JAILER, 'castellan'];
+export const BOSS_CORES: readonly string[] = [JAILER, 'castellan', 'troll'];
 export type JailerMoveId = 'flail' | 'throw' | 'whistle';
 /** Every move of the Jailer (telegraphWindow.spec.ts checks each has a window record). */
 export const JAILER_MOVES: readonly JailerMoveId[] = ['flail', 'throw', 'whistle'];
