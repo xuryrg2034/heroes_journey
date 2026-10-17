@@ -7,6 +7,7 @@
  * `forestEvent().title`, the characters' art. No rule of the core is here.
  */
 import { FOREST_EVENTS } from '../forest/forestEvents';
+import { RT_META_PACKS } from '../run/metaCatalog';
 import { rtTalisman, rtTalismanText } from '../run/rtTalismans';
 import { BUILD_LABELS, labelOf } from './buildColumn';
 import { NPCS, type NpcId } from './metaModel';
@@ -37,6 +38,12 @@ const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
 export const CASINO_EVENT = 'casino';
 export const CASINO_TITLE = 'Игорный круг гоблинов';
 
+/** The line of a locked card: the pack that opens it (the meta's catalogue, run/metaCatalog.ts; «замок» is a level's word, so «Закрыто»). */
+const lockedLine = (id: string): string => {
+  const pack = RT_META_PACKS.find(p => p.items.some(item => item.id === id));
+  return pack ? `Закрыто: откроется с набором «${pack.title}».` : 'Закрыто: откроется с набором.';
+};
+
 /** The name before the first « — » of a caption and the rest (task 43: «Стражник — ходит строем: строй — готовая цепь» keeps its second dash). */
 function splitCaption(text: string): { name: string; line: string } {
   const at = text.indexOf(' — ');
@@ -60,13 +67,13 @@ export function entryText(page: ChroniclePageId, chapter: string, entry: Chronic
   if (page === 'events') {
     const title = id === CASINO_EVENT ? CASINO_TITLE : FOREST_EVENTS[id]?.title ?? id;
     const branch = id === CASINO_EVENT ? '' : BRANCH_TEXT[FOREST_EVENTS[id]?.branch ?? ''] ?? '';
-    if (entry.state === 'locked') return { name: '', line: 'Под замком: откроется с набором.' };
+    if (entry.state === 'locked') return { name: '', line: lockedLine(id) };
     if (have) return { name: title, line: branch ? `${title} — ${branch}` : title };
     return { name: '', line: branch ? `Бывает: ${branch}.` : 'Страница пуста.' };
   }
   if (page === 'items') {
     const def = rtTalisman(id), name = BUILD_LABELS[id] ? labelOf(id).title : def?.name ?? id;
-    if (entry.state === 'locked') return { name: '', line: 'Под замком: откроется с набором.' };
+    if (entry.state === 'locked') return { name: '', line: lockedLine(id) };
     if (entry.state === 'unknown') {
       const half = entry.half ? (BUILD_LABELS[entry.half] ? labelOf(entry.half).title : rtTalisman(entry.half)?.name ?? entry.half) : '';
       return { name: '', line: half ? `${half} + ?` : 'Страница пуста.' };
@@ -77,7 +84,7 @@ export function entryText(page: ChroniclePageId, chapter: string, entry: Chronic
   if (page === 'heroes') {
     const ash = /^ash:(\w+):(\d+)$/.exec(id);
     if (ash) return { name: ROMAN[Number(ash[2])] ?? ash[2], line: entry.state === 'unknown' ? `Испытание, ступень ${ROMAN[Number(ash[2])] ?? ash[2]} — не пройдена.` : `Испытание, ступень ${ROMAN[Number(ash[2])] ?? ash[2]} — пройдена.` };
-    if (entry.state === 'unknown') return { name: '', line: id === 'toad' ? 'За решёткой.' : '' };
+    if (entry.state === 'unknown') return { name: '', line: id === 'toad' ? 'В клетке Тюремщика.' : '' };
     const name = HERO_NAMES[id] ?? id;
     return { name, line: entry.run ? `${name} — освобождена в походе ${entry.run}` : name };
   }

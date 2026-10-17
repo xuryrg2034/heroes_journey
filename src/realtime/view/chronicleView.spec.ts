@@ -86,6 +86,8 @@ check('items: the «?» keeps the rarity frame and no name; seen is grey with it
   assert(seen.includes('data-state="seen"') && seen.includes('Призма'), 'seen shows the name');
   assert(taken.includes('data-state="taken"') && taken.includes('Иней на клинке'), 'taken');
   assert(locked.includes('data-state="locked"') && !locked.includes('Длинная'), 'locked has no name');
+  assert(entryText('items', 'talismans', { id: 'long-arm', state: 'locked' }).line === 'Закрыто: откроется с набором «Длинные цепи».' && entryText('events', 'forest', { id: 'old-trap', state: 'locked' }).line === 'Закрыто: откроется с набором «Близнецы».', 'a locked card names its pack');
+  assert(locked.includes('data-line="Закрыто: откроется с набором «Длинные цепи».'), 'the strip of a locked card');
   assert(entryText('items', 'talismans', { id: 'prism', state: 'seen' }).line.includes('видел, не взял'), 'the strip says seen-not-taken');
 });
 

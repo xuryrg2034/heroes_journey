@@ -11,6 +11,7 @@ import { FOREST_EVENTS } from '../forest/forestEvents';
 import { AFFIX_IDS } from '../sim/elites';
 import { FUSION_RECIPES } from '../sim/buildIds';
 import { SCHEDULE_KINDS } from '../run/schedule';
+import { RT_META_PACKS } from '../run/metaCatalog';
 import { RT_ASH_MAX } from '../run/rtRun';
 import { RT_FORMS, RT_FUSIONS, RT_OPENERS, RT_RELICS, RT_TALISMANS } from '../run/rtTalismans';
 import type { ChronicleAdded, ChronicleChapter, ChronicleEntry, ChronicleMemory, ChroniclePage, ChroniclePageId, ChronicleSource, ChronicleView } from './chronicleModel';
@@ -18,8 +19,8 @@ import { CASINO_EVENT } from './chronicleView';
 
 const GARRISON_KINDS = ['guard', 'handler', 'hound', 'keymaster', 'crossbow', 'knight'] as const;
 /** The items and events a pack opens (view/metaModel.ts `META_PACKS`): locked until the pack is open. */
-const PACK_ITEMS = ['elite-hunter', 'finishing-blow', 'return-pass', 'relic-swift-feet', 'form-twins', 'prism', 'long-arm', 'third-chain', 'relic-wide-circle', 'frost-edge', 'relic-blood-oath'];
-const PACK_EVENTS = ['bone-wheel', 'porcupine-nest', 'old-trap'];
+const PACK_ITEMS = RT_META_PACKS.flatMap(pack => pack.items.filter(item => item.kind !== 'event').map(item => item.id));
+const PACK_EVENTS = RT_META_PACKS.flatMap(pack => pack.items.filter(item => item.kind === 'event').map(item => item.id));
 
 /** What the stub knows. Everything is optional; an empty state is a viewer who has seen nothing. */
 export interface StubState {
