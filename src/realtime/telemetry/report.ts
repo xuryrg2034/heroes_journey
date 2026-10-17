@@ -176,6 +176,8 @@ export function summaryDiff(browser: FightSummary, replayed: FightSummary): stri
   delete b.tempo.inView;
   // Task 16 telemetry: the first meetings are the view's count — a replay cannot see them.
   delete a.novelty; delete b.novelty;
+  // Task 48: the Troll's damage by group (from 17.10.2026) — a browser of before did not count it.
+  if (a.boss?.troll && !a.boss.troll.damage) delete b.boss?.troll?.damage;
   const out: string[] = [];
   const plain = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
   // `base` — the same place in the empty summary: a field of the schema the browser record lacks is skipped; a key of a map
@@ -1401,7 +1403,16 @@ function trollLines(list: readonly BossEntry[]): string[] {
   }
   const all = own.filter(b => t(b).parts.length >= 3).length, sum = (f: (x: TrollBossSummary) => number): number => own.reduce((a, b) => a + f(t(b)), 0);
   const list2 = (r: Record<string, number>): string => Object.entries(r).sort((a, b) => b[1] - a[1]).map(([s, n]) => `${sourceTitle(s)} ${n}`).join(', ') || 'нет';
-  return ['', `Тролль (задача 48): боёв ${own.length}, побед с первой попытки ${won} (${pct(won, own.length)}); длина боя мед. ${n1(median(times))} с; смерти: ${list2(deaths)}; все три части отрублены — ${all} (${pct(all, own.length)}); окна (открыто / с попаданием): ${Object.entries(windows).map(([s, w]) => `${s} ${w.opened} / ${w.hit}`).join(', ') || 'нет'}; «звон» вне окна: ${list2(blocks)}; «Храп» — выспался ${sum(x => x.snores.slept)}, прерван ${sum(x => x.snores.woken)}; волков «Рыка» ${sum(x => x.wolves)}; ядро выпало из цепи ${sum(x => x.unlinks)} раз.`];
+  return ['', `Тролль (задача 48): боёв ${own.length}, побед с первой попытки ${won} (${pct(won, own.length)}); длина боя мед. ${n1(median(times))} с; смерти: ${list2(deaths)}; все три части отрублены — ${all} (${pct(all, own.length)}); окна (открыто / с попаданием): ${Object.entries(windows).map(([s, w]) => `${s} ${w.opened} / ${w.hit}`).join(', ') || 'нет'}; «звон» вне окна: ${list2(blocks)}; «Храп» — выспался ${sum(x => x.snores.slept)}, прерван ${sum(x => x.snores.woken)}; волков «Рыка» ${sum(x => x.wolves)}; ядро выпало из цепи ${sum(x => x.unlinks)} раз.`,
+    ...trollDamageLine(own.map(t))];
+}
+/** Task 48 (design 17.10.2026): the hero's damage in the Troll's fights by group — the fights whose summary has it (from 17.10.2026). */
+function trollDamageLine(own: readonly TrollBossSummary[]): string[] {
+  const with_ = own.filter(t => t.damage);
+  if (!with_.length) return [];
+  const groups = [['crowd', 'толпа'], ['core', 'касания ядра'], ['parts', 'касания частей'], ['moves', 'приёмы']] as const;
+  const sums = groups.map(([g]) => with_.reduce((a, t) => a + t.damage![g], 0)), all = sums.reduce((a, b) => a + b, 0);
+  return [`Тролль — урон герою по группам (боёв ${with_.length}): ${groups.map(([, title], i) => `${title} ${sums[i]} (${pct(sums[i], all)})`).join(', ')}.`];
 }
 // ---- end «Босс» ----
 

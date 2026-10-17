@@ -1029,7 +1029,7 @@ export interface BossSummary {
  * Task 48 «Тролль» (observe.ts): his windows by what opened them (`club`, `tail`, `snore`: opened, with the window's hit), the hits on
  * his core that did not land (`trollWindow` `block`) by their source, «Храп» slept through (a plate regrown) and woken, the wolves of
  * «Рык» (every wolf of his fight), his parts in the order severed with the game second (`kind`: `troll-club`, `troll-rock`,
- * `troll-tail`), the phase reached, the core's drop-outs of the drawn chain (`unlinks`).
+ * `troll-tail`), the phase reached, the core's drop-outs of the drawn chain (`unlinks`); the hero's damage by group (`damage`).
  */
 export interface TrollBossSummary {
   windows: Record<string, { opened: number; hit: number }>;
@@ -1039,7 +1039,14 @@ export interface TrollBossSummary {
   parts: { kind: string; at: number }[];
   phase: number;
   unlinks: number;
+  /**
+   * The hero's damage in the fight by group (design 17.10.2026, spec 24.17): `crowd` — the touches of his crowd, the wolves of «Рык» and
+   * the rest (the fire's trail …), `core` — the core's touch, `parts` — the touches of his parts, `moves` — «Удар дубиной», «Бросок
+   * камня», «Хвост метёт». Their sum is `damage.total`. Absent in records before 17.10.2026.
+   */
+  damage?: TrollDamage;
 }
+export interface TrollDamage { crowd: number; core: number; parts: number; moves: number }
 /**
  * Task 43 «Кастелян полный» (observe.ts): the grate — raised by a lever (`raises`), seconds it stood open (any cause), the lever's
  * windows with a hit on the core (a chain hit or a kill of it) and without; his parts in the order they were lost with the game

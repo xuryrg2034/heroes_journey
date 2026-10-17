@@ -613,6 +613,43 @@ async function main(): Promise<void> {
     assert(none.includes('_нет данных_') && !none.includes('| Откуда'), none);
   });
 
+  await check('task 48: the Troll\'s fight — the hero\'s damage by group (`boss.troll.damage`: crowd, core, parts, moves) sums to `damage.total`, its moves are the three sources of `damage.bySource`; the browser summary agrees with the replay; the report shows the line', async () => {
+    const p = { ...defaultParams(), heroHp: 999, hitstop: false };
+    const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+    const sim = new Simulation({ arena: 'troll', params: p, seed: Math.imul(1, 2654435761) >>> 0, record: true }), w = sim.world, observer = fightObserver(w);
+    const cmd = (c: Command): void => { sim.command(c); observer.command(c, w); };
+    const run = (seconds: number): void => { for (let i = 0; i < Math.round(seconds * 60); i++) { sim.tick(); observer.tick(w); w.events.length = 0; } };
+    // In the club's and the rock's reach (their strikes), pressed to the core (its touch), at the rock (the part's), then a crowd beside him.
+    cmd({ t: 'teleport', x: 12, y: 6.5 });
+    run(6);
+    cmd({ t: 'teleport', x: 12.45, y: 2.6 });
+    run(5);
+    cmd({ t: 'teleport', x: 13.5, y: 3.25 });
+    run(4);
+    cmd({ t: 'teleport', x: 6, y: 12 });
+    for (const [x, y] of [[6.6, 12], [5.4, 12], [6, 12.6]]) cmd({ t: 'place', x, y, color: 0, hp: 3, kind: 'basic' });
+    run(4);
+    const summary = observer.summary(), g = summary.boss?.troll?.damage, by = summary.damage.bySource;
+    assert(g && g.crowd > 0 && g.core > 0 && g.parts > 0 && g.moves > 0, `every group took a share: ${JSON.stringify(g)} (${JSON.stringify(by)})`);
+    assert(g.crowd + g.core + g.parts + g.moves === summary.damage.total, `the groups sum to the total: ${JSON.stringify(g)} vs ${summary.damage.total}`);
+    assert(g.moves === (by['troll-club'] ?? 0) + (by['troll-rock'] ?? 0) + (by['troll-tail'] ?? 0) && g.core + g.parts <= (by.touch ?? 0), `the moves are their sources, the bodies' touches within «touch»: ${JSON.stringify(g)} ${JSON.stringify(by)}`);
+    const trollSet = collectRecords([{ name: 'troll.json', text: JSON.stringify(await sandboxRecords(sim, summary, 'troll', 'stroll')) }]);
+    assert(!trollSet.problems.length, trollSet.problems.join('; '));
+    const troll = await analyzeRecords(trollSet), entry = troll.fights[0];
+    assert(entry && entry.hashOk && !entry.summaryDiff.length, `replayed with the same hash and summary (${entry?.error ?? entry?.summaryDiff.join('; ')})`);
+    const md6 = reportMarkdown(trollSet, troll, { now: new Date('2026-10-17T12:00:00Z'), source: 'troll' });
+    const pc = (n: number): string => `${Math.round(100 * n / summary.damage.total)}%`;
+    const line = `Тролль — урон герою по группам (боёв 1): толпа ${g.crowd} (${pc(g.crowd)}), касания ядра ${g.core} (${pc(g.core)}), касания частей ${g.parts} (${pc(g.parts)}), приёмы ${g.moves} (${pc(g.moves)}).`;
+    assert(md6.slice(md6.indexOf('## Босс')).includes(line), `the report's line: ${md6.slice(md6.indexOf('Тролль (задача 48)'), md6.indexOf('Тролль (задача 48)') + 700)}`);
+    // A record of before 17.10.2026 (the browser's Troll summary without the groups): valid, no difference with the replay, which counts them.
+    const old = JSON.parse(JSON.stringify(summary)) as FightSummary;
+    delete old.boss!.troll!.damage;
+    const oldRecords = await sandboxRecords(sim, old, 'troll', 'sold');
+    assert(checkRecord(oldRecords[0]) === null, `the old record is valid (${checkRecord(oldRecords[0])})`);
+    const oldEntry = (await analyzeRecords(collectRecords([{ name: 'old.json', text: JSON.stringify(oldRecords) }]))).fights[0];
+    assert(oldEntry.hashOk && !oldEntry.summaryDiff.length && same(oldEntry.analysis!.summary.boss?.troll?.damage, g), `the old record replays without a difference (${oldEntry.summaryDiff.join('; ')})`);
+  });
+
   console.log(`${checks} checks passed`);
 }
 

@@ -94,7 +94,7 @@ import type { Command } from '../sim/commands';
 import { WOLF_RUSH } from '../sim/enemies/wolf';
 import { BOSS_CLEAR, JAILER } from '../sim/enemies/jailer';
 import { CASTELLAN, KNIGHT, houndFrenzied, prisonerRioting } from '../sim/enemies/garrison';
-import { TROLL } from '../sim/enemies/troll';
+import { TROLL, TROLL_CLUB, TROLL_CLUB_SOURCE, TROLL_ROCK, TROLL_ROCK_SOURCE, TROLL_TAIL, TROLL_TAIL_SOURCE } from '../sim/enemies/troll';
 import { kindOf } from '../sim/enemies/kinds';
 import { dist, inThorns, inWater } from '../sim/geometry';
 import { heroRadius } from '../sim/params';
@@ -105,8 +105,16 @@ import { sealOnlyShield } from '../sim/kit';
 import { chainShieldMinKillsOf, chainShieldOf } from '../sim/build';
 import { rtDeathOf } from '../run/rtRunEnd';
 import {
-  emptyFightSummary, type DeathGuard, type DeathSeriesSource, type FightObserver, type FightObserverFactory, type FightSummary, type SlotBustExit, type SlotBustExitBy,
+  emptyFightSummary, type DeathGuard, type DeathSeriesSource, type FightObserver, type FightObserverFactory, type FightSummary, type SlotBustExit, type SlotBustExitBy, type TrollDamage,
 } from './schema';
+
+/** Task 48 (design 17.10.2026): the group of a hit on the hero in the Troll's fight — his moves by source, his core's and parts' touch by the striker. */
+const TROLL_MOVE_SOURCES: readonly string[] = [TROLL_CLUB_SOURCE, TROLL_ROCK_SOURCE, TROLL_TAIL_SOURCE], TROLL_PART_KINDS: readonly string[] = [TROLL_CLUB, TROLL_ROCK, TROLL_TAIL];
+function trollGroup(source: string, striker: string | undefined): keyof TrollDamage {
+  if (TROLL_MOVE_SOURCES.includes(source)) return 'moves';
+  if (striker === TROLL) return 'core';
+  return striker !== undefined && TROLL_PART_KINDS.includes(striker) ? 'parts' : 'crowd';
+}
 
 /** HP at or below this is a «low HP» moment (section 3: «Моменты HP ≤ 3»). */
 export const LOW_HP = 3;
@@ -243,7 +251,7 @@ export function createFightObserver(start: World): FightObserver {
   if (toad) s.damage.unshielded = { hits: 0, damage: 0 };
   let sealDash = false, bare = -1;
   if (bossCore) s.boss = { diedAt: null, severedAt: null, moves: {}, ...fullCastellan ? { castellan: { raises: 0, openSeconds: 0, windowsHit: 0, windowsMissed: 0, parts: [], bolts: { shots: 0, hero: 0, enemies: 0 }, phase: 1 } } : {},
-    ...troll ? { troll: { windows: {}, blocks: {}, snores: { slept: 0, woken: 0 }, wolves: 0, parts: [], phase: 1, unlinks: 0 } } : {} };
+    ...troll ? { troll: { windows: {}, blocks: {}, snores: { slept: 0, woken: 0 }, wolves: 0, parts: [], phase: 1, unlinks: 0, damage: { crowd: 0, core: 0, parts: 0, moves: 0 } } } : {} };
   /** Task 48: the Troll's window open now (what opened it, its hit landed). */
   let trollWindow: { source: string; hit: boolean } | null = null;
   /** Task 43: the grate's open since (game s; null — down) and the lever's window now (its core hit or not). */
@@ -297,6 +305,8 @@ export function createFightObserver(start: World): FightObserver {
           while (recentHits.length && world.time - recentHits[0].time > DEATH_SERIES_WINDOW + WINDOW_EPS) recentHits.shift();
           s.damage.total += ev.damage;
           bump(s.damage.bySource, source, ev.damage);
+          // Task 48 (design 17.10.2026): the Troll's fight — the hit's group by its striker (a touch) or its source (a move).
+          if (s.boss?.troll?.damage) s.boss.troll.damage[trollGroup(ev.source, (world.enemies.find(e => e.id === ev.enemyId) ?? seen.get(ev.enemyId))?.kind)] += ev.damage;
           bump(s.damage.hits, source);
           if (s.damage.unshielded && world.time <= bare + WINDOW_EPS) { s.damage.unshielded.hits++; s.damage.unshielded.damage += ev.damage; }
           // К7: the events stand in the order they happened, so a hit after `chest` and before `curseLifted` was cursed.
