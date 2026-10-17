@@ -24,4 +24,14 @@ export async function skipHabit(page: { getByTestId: Page['getByTestId'] }): Pro
   const none = page.getByTestId('habit-none');
   if (await none.count() && await none.isEnabled()) await none.click();
 }
+/**
+ * Task 49: routes of other mechanics pass the cage scene (a meta run past its first Jailer win frees Ведунья: «Открыть клетку», then
+ * «Дальше»). Nothing when the scene is not open. The scene itself is tested by tests/realtime-toad-meta.spec.ts.
+ */
+export async function passCage(page: { getByTestId: Page['getByTestId'] }): Promise<void> {
+  const open = page.getByTestId('cage-open');
+  if (await open.count() && await open.isVisible()) await open.click();
+  const done = page.getByTestId('cage-done');
+  if (await done.count()) await done.click();
+}
 export { expect };

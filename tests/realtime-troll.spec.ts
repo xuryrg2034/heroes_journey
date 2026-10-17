@@ -3,7 +3,7 @@ import { test, expect } from './realtimeTest';
 import { gameWait, untilFrame } from './realtimeFrames';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
 import {
-  createRtRun, resolveArena, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtItemRefusal, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtChooseTalisman, rtDieChoose,
+  createRtRun, resolveArena, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtItemRefusal, rtChooseGift, rtChooseGiftPick, rtChooseHabit, rtChooseHammer, rtChooseKnack, rtChooseTalisman, rtDieChoose,
   rtEnterNode, rtEventView, rtGiftView, rtRestHeal, rtShopLeave, serializeRtRun, type RtRunState, type RtRunStep,
 } from '../src/realtime/run/rtRun';
 
@@ -350,8 +350,11 @@ function walk(stop: (run: RtRunState) => boolean): RtRunState | null {
       if (p?.kind === 'battle') run = ok(resolveArena(run, { nodeId: p.nodeId, won: true, hp: run.hp, kills: 5, damage: 0, time: 30, bestChain: 2 }));
       else if (p?.kind === 'gift') {
         const view = rtGiftView(run)!;
-        run = view.chosen !== null ? ok(rtChooseGiftPick(run, view.picks[0])) : ok(rtChooseGift(run, view.options.find(entry => entry.available)?.index ?? null));
+        // Task 50: the gift's habit row first («Без повадки»).
+        if (view.habit && !view.habit.chosen) run = ok(rtChooseHabit(run, null));
+        else run = view.chosen !== null ? ok(rtChooseGiftPick(run, view.picks[0])) : ok(rtChooseGift(run, view.options.find(entry => entry.available)?.index ?? null));
       } else if (p?.kind === 'talisman') run = ok(rtChooseTalisman(run, null));
+      else if (p?.kind === 'knack') run = ok(rtChooseKnack(run, null));
       else if (p?.kind === 'hammer') run = ok(rtChooseHammer(run, null));
       else if (p?.kind === 'die') run = ok(rtDieChoose(run, false));
       else if (p?.kind === 'find') run = ok(rtChooseFind(run, p.options.find(item => !rtItemRefusal(run, item)) ?? p.options[0]));
