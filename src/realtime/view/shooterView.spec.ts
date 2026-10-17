@@ -148,7 +148,7 @@ check('a dead hive: its hanging wasps go out with it — a quiet fade each, no s
     assert(rig.sim.command({ t: 'release' }), `seed ${k}: released`);
     rig.run(10, r => !r.w.move);
     const owned = rig.events.filter(e => e.type === 'shot' && e.action === 'end' && e.by === 'owner').length;
-    assert(owned > 0 && rig.view.shown.fades === owned && rig.view.shown.snuffs === 0 && rig.view.shown.hits === 0, `seed ${k}: ${owned} faded, ${rig.view.shown.fades} shown, snuffs ${rig.view.shown.snuffs}`);
+    assert(rig.w.hero.hp === 99 && owned > 0 && rig.view.shown.fades === owned && rig.view.shown.snuffs === 0 && rig.view.shown.hits === 0, `seed ${k}: ${owned} faded, ${rig.view.shown.fades} shown, snuffs ${rig.view.shown.snuffs}`);
     assert(rig.sparks() > 0, `seed ${k}: the fades are alive`);
   }
 });

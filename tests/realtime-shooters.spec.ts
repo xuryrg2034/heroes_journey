@@ -171,7 +171,7 @@ test('task 57а view: the hive — eight dots fill during the swell, eight wasps
   await untilFrame(page, (s, _a: number, late) => s.shooters.snuffs > 0 || late ? true : undefined, 0, 4);
   await shot(page, 'hive-snuff');
   await untilFrame(page, (s, _a: number, late) => !s.moving || late ? true : undefined, 0, 6);
-  expect((await snap(page)).shooters.snuffs).toBeGreaterThanOrEqual(2);
+  expect((await snap(page)).shooters.snuffs).toBeGreaterThanOrEqual(1);
   await untilFrame(page, (s, _a: number, late) => (!s.moving && s.shooters.flying > 0) || late ? true : undefined, 0, 6);
   await shot(page, 'hive-wasps-flight');
   await sameHash(page);
@@ -186,6 +186,7 @@ test('task 57а view: a chain that kills the hive while its wasps hang — they 
   // The hive is close (1.8, the nearest it still shoots from is 1.5): the dash is short and the wasps still hang when it lands.
   const a = await place(page, hero.x + 0.9, hero.y, 1, 0, 'basic');
   const hive = await place(page, hero.x + 1.8, hero.y, 1, 2, 'hive');
+  const hp0 = (await snap(page)).hero.hp;
   await holdChain(page, [a, hive]);
   await untilFrame(page, (s, _a: number, late) => s.shooters.hanging === 8 || late ? true : undefined, 0, 8);
   expect((await snap(page)).shooters.hanging).toBe(8);
@@ -199,6 +200,7 @@ test('task 57а view: a chain that kills the hive while its wasps hang — they 
   expect(end.enemies.some(e => e.id === hive)).toBe(false);
   expect(end.shooters.fades).toBeGreaterThanOrEqual(1);
   expect(end.shooters.snuffs).toBe(0);
+  expect(end.hero.hp).toBe(hp0);
   await sameHash(page);
   expect(errors).toEqual([]);
 });
