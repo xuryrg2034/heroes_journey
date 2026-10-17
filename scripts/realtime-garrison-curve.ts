@@ -279,3 +279,11 @@ if (TROLL_FIGHT) {
   console.log(`Тролль: HP героя на входе в бой, мед. ${trollFights.length ? f1(median(trollFights.map(f => f.hpIn))) : '—'}; урон героя по группам: ${TROLL_GROUPS.map((g, i) => `${TROLL_GROUP_TITLES[g]} ${sums[i]} (${sum ? Math.round(100 * sums[i] / sum) : 0}%)`).join(', ')}.`);
 }
 console.log(`Тюремщик (все бои с ним, оба прохода): боёв ${jailerFights.length}, поражений ${jl} (${jailerFights.length ? Math.round(100 * jl / jailerFights.length) : 0}%), длина боя мед. ${jailerFights.length ? f1(median(jailerFights.map(f => f.time))) : '—'} с, HP героя на входе мед. ${jailerFights.length ? f1(median(jailerFights.map(f => f.hpIn))) : '—'}.`);
+// Task 48 (design 17.10.2026): deaths by the hero's HP entering the fight — the Troll's and the Jailer's, the bins 1–5 / 6–10 / 11+.
+const HP_BINS: readonly [string, number, number][] = [['1–5', -Infinity, 5], ['6–10', 5, 10], ['11+', 10, Infinity]];
+const byHp = (fights: readonly { won: boolean; hpIn: number }[]): string => HP_BINS.map(([title, lo, hi]) => {
+  const bin = fights.filter(f => f.hpIn > lo && f.hpIn <= hi), lost = bin.filter(f => !f.won).length;
+  return `HP ${title}: боёв ${bin.length}, поражений ${lost}${bin.length ? ` (${Math.round(100 * lost / bin.length)}%)` : ''}`;
+}).join('; ');
+if (TROLL_FIGHT) console.log(`Тролль по HP на входе: ${byHp(trollFights)}.`);
+console.log(`Тюремщик по HP на входе: ${byHp(jailerFights)}.`);
