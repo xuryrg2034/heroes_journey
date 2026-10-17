@@ -133,16 +133,23 @@ export type LineMemory = Readonly<Record<string, number>>;
  * one about another NPC present.
  */
 export function pickLine(npc: NpcId, ctx: LineContext, memory: LineMemory): { key: LineKey; text: string; id: string } {
-  // After her run (`hero` 'toad'): her variants first, then the lines without the mark `cat`, counted apart (`npc:key:toad`).
+  // After her run (`hero` 'toad'): her variants first, then the lines without the mark `cat`, counted apart (`npc:key:toad`). Design
+  // 17.10.2026: the meeting keys (`first`, `first_self`) - one count for the profile, the NPC is met once whoever the hero; the first-win keys
+  // (`win_first`, `win_garrison_first`) - by hero: her first win is her news, her variant or, with none, the ordinary `win`.
   const toad = ctx.hero === 'toad', tail = toad ? ':toad' : '';
-  const L = NPC_LINES[npc], count = (key: LineKey): number => memory[`${npc}:${key}${tail}`] ?? 0;
+  const L = NPC_LINES[npc];
+  const meeting = (key: LineKey): boolean => key === 'first' || key === 'first_self';
+  const firstWin = (key: LineKey): boolean => key === 'win_first' || key === 'win_garrison_first';
+  const mark = (key: LineKey): string => (meeting(key) ? '' : tail);
+  const count = (key: LineKey): number => memory[`${npc}:${key}${mark(key)}`] ?? 0;
   const line = (key: LineKey, once = false): { key: LineKey; text: string; id: string } | null => {
-    const marked = toad ? CAT_MARKED[npc][key] ?? [] : [];
-    const list = [...toad ? TOAD_LINES_BY_NPC[npc][key] ?? [] : [], ...(L[key] ?? []).filter((_, i) => !marked.includes(i + 1))];
+    const marked = toad ? CAT_MARKED[npc][key] ?? [] : [], own = toad ? TOAD_LINES_BY_NPC[npc][key] ?? [] : [];
+    const list = [...own, ...toad && firstWin(key) ? [] : (L[key] ?? []).filter((_, i) => !marked.includes(i + 1))];
     if (!list.length) return null;
     const n = count(key);
-    if (once && n >= list.length) return null;
-    return { key, text: list[n % list.length], id: `${npc}:${key}${tail}` };
+    // The meeting ends with the lines the key has for the cat (the same for both heroes).
+    if (once && n >= (meeting(key) ? Math.max(L[key]?.length ?? 0, 1) : list.length)) return null;
+    return { key, text: list[n % list.length], id: `${npc}:${key}${mark(key)}` };
   };
   const meet = ctx.self ? line('first_self', true) : null;
   const first = meet ?? (count('first_self') ? null : line('first', true));
