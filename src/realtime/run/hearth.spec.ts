@@ -3,7 +3,7 @@
  * открытия, лагерь»). Node only: `npm run test:realtime-hearth`. Whole runs walked by the run's own commands (metaWalk.testkit.ts),
  * the meta applied and the camp used through the profile store as the view uses them:
  * - the carry: a victory 100 %, a death 50 % (down) with the floor min(resources, 6), an abandoned run as a death, the cap 20;
- * - purchases and their refusals (the price and the stock; an NPC not in the camp; level 3 locked);
+ * - purchases and their refusals (the price and the stock; an NPC not in the camp; level 3 by the gate of task 51);
  * - the camp's flags on real runs: Марфа's start consumable, Ерофей's free reroll of the Jailer's hammer screen and of its oath and
  *   relic screen, «Полный верстак» (every hammer not locked), Неясыть's 2 and 3 maps (the chosen seed's forest the same);
  * - quests: counted by the real run, not counted without the condition; +10 XP and +3 stock outside the cap;
@@ -87,7 +87,7 @@ await check('the carry: a victory 100 %, a death 50 % with the floor min(resourc
   for (const what of ['cap', 'floor', 'half', 'abandoned', 'full']) assert(seen.has(what), `the cases saw «${what}» (${[...seen]})`);
 });
 
-await check('purchases: the next level for its price; a shortfall shows the price and the stock; an NPC not in the camp, level 3 — refused', () => {
+await check('purchases: the next level for its price; a shortfall shows the price and the stock; an NPC not in the camp — refused; level 3 by the gate of task 51', () => {
   const store = createRtProfileStore(memoryStorage());
   store.endRunMeta(walkRun(campRun(store, 1, { loot: 1, loseAt: run => rowOf(run) >= 2 })).run);
   const have = store.hearth().stock;
@@ -98,8 +98,10 @@ await check('purchases: the next level for its price; a shortfall shows the pric
   assert(same(store.buyHearth('owl', 2), { ok: false, need: 8, have: stock, reason: 'level' }), 'level 2 before level 1');
   assert(store.buyHearth('owl', 1).ok && store.hearth().levels.owl === 1 && store.hearth().stock === stock - 4, 'owl 1 for 4');
   assert(store.buyHearth('owl', 2).ok && store.hearth().levels.owl === 2 && store.hearth().stock === stock - 12, 'owl 2 for 8');
-  assert(!store.buyHearth('owl', 3).ok, 'level 3 is locked in v1');
-  assert(same(store.buyHearth('herb', 1), { ok: false, need: 4, have: stock - 12, reason: 'absent' }), 'Марфа is not in the camp yet');
+  // Task 51 (stage 3): level 3 is sold once a hero passed the forest (`gate3`, test:realtime-hearth-l3); here the walks won it — 16.
+  const gate = store.hearth().gate3, three = store.buyHearth('owl', 3);
+  assert(gate ? three.ok || (!three.ok && three.need === 16 && three.reason === undefined) : !three.ok && three.reason === 'gate', `level 3 by the gate (${gate}): ${JSON.stringify(three)}`);
+  assert(same(store.buyHearth('herb', 1), { ok: false, need: 4, have: store.hearth().stock, reason: 'absent' }), 'Марфа is not in the camp yet');
 });
 
 await check('Марфа and Ерофей come from the real event choice («Перевязать», «Заточка»), not from the other choices; the event and its stream unchanged', () => {
