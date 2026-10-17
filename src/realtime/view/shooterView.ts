@@ -51,12 +51,12 @@ export interface ShooterShown {
   /** The light's growth of the wisp that is lighting now (0…1; 0 — none). */
   wispLight: number;
   /** Sparks shown since the fight began: a shot put out, taken by a shield, a hit, an end of flight; a wisp going out; a ring leaving. */
-  snuffs: number; blocks: number; hits: number; ends: number; wispOuts: number; looses: number;
+  snuffs: number; fades: number; blocks: number; hits: number; ends: number; wispOuts: number; looses: number;
 }
 
 const emptyShown = (): ShooterShown => ({
   lines: 0, lineProgress: 0, dots: 0, swellProgress: 0, shots: 0, hanging: 0, flying: 0, stones: 0, wasps: 0,
-  wispsLighting: 0, wispsFlying: 0, wispsFading: 0, wispsHeld: 0, wispLight: 0, snuffs: 0, blocks: 0, hits: 0, ends: 0, wispOuts: 0, looses: 0,
+  wispsLighting: 0, wispsFlying: 0, wispsFading: 0, wispsHeld: 0, wispLight: 0, snuffs: 0, fades: 0, blocks: 0, hits: 0, ends: 0, wispOuts: 0, looses: 0,
 });
 
 /** The look of a wisp's body this frame (the renderer applies it to the enemy's drawing). */
@@ -214,7 +214,7 @@ export function drawWispGlow(g: Graphics, X: number, Y: number, R: number, st: {
 }
 
 /** A spark: a star of six rays (a shot put out), a ring (a shield took it), a flash (a hit), dust (an end of flight), a ring of motes. */
-function sparkOf(kind: 'snuff' | 'block' | 'hit' | 'end' | 'out' | 'loose', unit: number): { g: Graphics; life: number; grow: boolean } {
+function sparkOf(kind: 'snuff' | 'block' | 'hit' | 'end' | 'out' | 'loose' | 'fade', unit: number): { g: Graphics; life: number; grow: boolean } {
   const g = new Graphics();
   if (kind === 'snuff') {
     for (let i = 0; i < 6; i++) {
@@ -241,6 +241,11 @@ function sparkOf(kind: 'snuff' | 'block' | 'hit' | 'end' | 'out' | 'loose', unit
   if (kind === 'end') {
     g.circle(0, 0, unit * 0.14).fill({ color: STONE_LIGHT, alpha: 0.5 });
     return { g, life: 0.2, grow: true };
+  }
+  if (kind === 'fade') {
+    // The wasps of a dead hive go out with it: a quiet amber puff, no star of a blow.
+    g.circle(0, 0, unit * 0.16).fill({ color: AMBER, alpha: 0.35 }).circle(0, 0, unit * 0.16).stroke({ color: AMBER_DARK, width: 1.5, alpha: 0.6 });
+    return { g, life: 0.5, grow: true };
   }
   if (kind === 'loose') {
     g.circle(0, 0, RING_RADIUS * unit).stroke({ color: AMBER, width: 4, alpha: 0.9 });
@@ -314,6 +319,7 @@ export class ShooterView {
   /** One world event: the sparks of the shots and the shooters (everything else is not ours). Returns true when the event was ours. */
   onEvent(ev: WorldEvent, unit: number): boolean {
     if (ev.type === 'shot') {
+      if (ev.action === 'end' && ev.by === 'owner') { this.shown.fades++; this.spark('fade', ev.x, ev.y, unit); return true; }
       const kind = ev.action === 'snuff' ? 'snuff' : ev.action === 'block' ? 'block' : ev.action === 'hit' ? 'hit' : 'end';
       if (kind === 'snuff') this.shown.snuffs++; else if (kind === 'block') this.shown.blocks++; else if (kind === 'hit') this.shown.hits++; else this.shown.ends++;
       this.spark(kind, ev.x, ev.y, unit);

@@ -21,7 +21,7 @@ const WISP_CAPTION = 'Светляк — летит за тобой: возьм�
 
 interface Shown {
   lines: number; lineProgress: number; dots: number; swellProgress: number; shots: number; hanging: number; flying: number; stones: number; wasps: number;
-  wispsLighting: number; wispsFlying: number; wispsFading: number; wispsHeld: number; wispLight: number; snuffs: number; blocks: number; hits: number; ends: number; wispOuts: number; looses: number;
+  wispsLighting: number; wispsFlying: number; wispsFading: number; wispsHeld: number; wispLight: number; snuffs: number; fades: number; blocks: number; hits: number; ends: number; wispOuts: number; looses: number;
 }
 interface Snap {
   status: string; time: number; chain: number[]; moving: string | null; kills: number;
@@ -174,6 +174,31 @@ test('task 57а view: the hive — eight dots fill during the swell, eight wasps
   expect((await snap(page)).shooters.snuffs).toBeGreaterThanOrEqual(2);
   await untilFrame(page, (s, _a: number, late) => (!s.moving && s.shooters.flying > 0) || late ? true : undefined, 0, 6);
   await shot(page, 'hive-wasps-flight');
+  await sameHash(page);
+  expect(errors).toEqual([]);
+});
+
+test('task 57а view: a chain that kills the hive while its wasps hang — they fade with it (a quiet puff, no snuff star); the journal replays', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = collectErrors(page);
+  await openSandbox(page);
+  const hero = await quiet(page, [['hiveSwell', 0.8]], { x: 4.5, y: 5.8 });
+  // The hive is close (1.8, the nearest it still shoots from is 1.5): the dash is short and the wasps still hang when it lands.
+  const a = await place(page, hero.x + 0.9, hero.y, 1, 0, 'basic');
+  const hive = await place(page, hero.x + 1.8, hero.y, 1, 2, 'hive');
+  await holdChain(page, [a, hive]);
+  await untilFrame(page, (s, _a: number, late) => s.shooters.hanging === 8 || late ? true : undefined, 0, 8);
+  expect((await snap(page)).shooters.hanging).toBe(8);
+  await page.keyboard.press('KeyP');
+  await expect.poll(async () => (await page.evaluate(() => (window as any).__realtime.snapshot().paused))).toBe(true);
+  await page.keyboard.press('KeyP');
+  await releaseChain(page);
+  await untilFrame(page, (s, _a: number, late) => s.shooters.fades > 0 || late ? true : undefined, 0, 4);
+  await shot(page, 'hive-fade');
+  const end = await snap(page);
+  expect(end.enemies.some(e => e.id === hive)).toBe(false);
+  expect(end.shooters.fades).toBeGreaterThanOrEqual(1);
+  expect(end.shooters.snuffs).toBe(0);
   await sameHash(page);
   expect(errors).toEqual([]);
 });

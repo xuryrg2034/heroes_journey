@@ -135,6 +135,24 @@ check('`snuffShots`: the dash through the hanging ring leaves a spark per wasp p
   }
 });
 
+check('a dead hive: its hanging wasps go out with it — a quiet fade each, no snuff star, no hit (2 seeds)', () => {
+  for (const k of [1, 2]) {
+    const rig = new Rig(field(k)), w = rig.w;
+    rig.sim.command({ t: 'teleport', x: 8, y: 6 });
+    const hive = place(rig.sim, 10, 6, HIVE_HP, HIVE, 1);
+    const a = place(rig.sim, 9, 6, 0, 'basic', 1);
+    rig.run(4, () => !!w.shots?.length);
+    assert(w.shots?.length === 8 && w.enemies.includes(hive), `seed ${k}: the ring hangs`);
+    rig.sim.command({ t: 'begin', x: a.x, y: a.y });
+    rig.sim.command({ t: 'drag', x: hive.x, y: hive.y, mode: 'full' });
+    assert(rig.sim.command({ t: 'release' }), `seed ${k}: released`);
+    rig.run(10, r => !r.w.move);
+    const owned = rig.events.filter(e => e.type === 'shot' && e.action === 'end' && e.by === 'owner').length;
+    assert(owned > 0 && rig.view.shown.fades === owned && rig.view.shown.snuffs === 0 && rig.view.shown.hits === 0, `seed ${k}: ${owned} faded, ${rig.view.shown.fades} shown, snuffs ${rig.view.shown.snuffs}`);
+    assert(rig.sparks() > 0, `seed ${k}: the fades are alive`);
+  }
+});
+
 check('the wisp: lights (dim and small, the light grows), flies (whole), is held by a link of the chain, dims and blinks in the last second and goes out with motes (3 seeds)', () => {
   for (const k of [1, 2, 3]) {
     const rig = new Rig(field(k));
