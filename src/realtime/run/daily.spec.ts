@@ -13,8 +13,8 @@
 import { botFight } from '../../../scripts/garrisonBot';
 import { RtFightWatch, rtFightOutcome } from './fightOutcome';
 import {
-  checkDailyProof, createRtDailyRun, rtDailyBetter, rtDailyClaim, rtDailyDate, rtDailyParams, rtDailyProof, rtDailyView, rtStep, RtDailyStore, RT_DAILY_PRESET,
-  RT_DAILY_LOG_DATES, RT_DAILY_PROOF_DATES, type RtDailyProof, type RtStepCall,
+  checkDailyProof, createRtDailyRun, parseRtDailyLog, rtDailyBegin, rtDailyBetter, rtDailyClaim, rtDailyDate, rtDailyFinish, rtDailyParams, rtDailyProof, rtDailyPrune,
+  rtDailyView, rtStep, RtDailyProofStore, RT_DAILY_PRESET, RT_DAILY_LOG_DATES, RT_DAILY_PROOF_DATES, type RtDailyLog, type RtDailyProof, type RtStepCall,
 } from './rtDaily';
 import {
   parseRtRun, rtArenaLoadout, rtArenaParams, rtAvailableNodes, rtDailySeed, rtEventView, rtGiftView, rtItemHintDue, rtItemRefusal, serializeRtRun, type RtRunState,
@@ -175,20 +175,31 @@ await check('the run of the day changes no meta: the profile\'s end and the meta
   assert(JSON.stringify([...storage.map]) === before, 'the profile is unchanged');
 });
 
-await check('the log: attempts by date, the first and the best attempt, the best one\'s proof; 30 dates kept, proofs of 7; the screen\'s model', () => {
-  const storage = memory(), store = new RtDailyStore(storage), [a, b] = played;
-  assert(store.begin(a.date) === 1 && store.begin(a.date) === 2, 'attempts count');
-  const worse: RtDailyProof = { ...a.proof, claim: { ...a.proof.claim, row: 0, wonLevel: 0, level: 1, time: a.proof.claim.time + 100 } };
-  const first = store.finish(a.date, 1, worse);
-  assert(first.first && first.best && store.entry(a.date).first?.row === 0, 'the first attempt is the first and the best');
-  const better = store.finish(a.date, 2, a.proof);
-  assert(!better.first && better.best === rtDailyBetter(a.proof.claim, worse.claim) && store.entry(a.date).first?.row === 0 && store.proof(a.date) !== null, `the best (${JSON.stringify(store.entry(a.date))})`);
-  for (let d = 0; d < 40; d++) { const date = rtDailyDate(new Date(2025, 0, 1 + d)); store.begin(date); store.finish(date, 1, { ...b.proof, date }); }
-  const log = JSON.parse(storage.getItem('ashen-oath-rt-daily-log-v1')!) as Record<string, unknown>, proofs = JSON.parse(storage.getItem('ashen-oath-rt-daily-v1')!) as Record<string, unknown>;
-  assert(Object.keys(log).length === RT_DAILY_LOG_DATES && Object.keys(proofs).length === RT_DAILY_PROOF_DATES, `kept ${Object.keys(log).length} dates, ${Object.keys(proofs).length} proofs`);
-  const view = rtDailyView(store, a.date, { won: true, runOpen: false });
-  assert(view.unlocked && view.canStart && view.seed === rtDailySeed(a.date), 'open');
-  assert(rtDailyView(store, a.date, { won: true, runOpen: true }).reason === 'Сначала закончи поход' && !rtDailyView(store, a.date, { won: false, runOpen: false }).unlocked, 'the reasons');
+await check("the log (the profile's `daily`, pure): attempts by date, the first attempt and the best one with its build; 30 dates; the strict reader; the proofs of 7 dates in their own key; the screen's model", () => {
+  const [a, b] = played;
+  let log: RtDailyLog | undefined;
+  const begin = (date: string): number => { const r = rtDailyBegin(log, date); log = r.log; return r.attempt; };
+  assert(begin(a.date) === 1 && begin(a.date) === 2 && log![a.date].tries === 2 && !log![a.date].first, 'attempts count');
+  const worse = { ...a.proof.claim, row: 0, wonLevel: 0 as const, level: 1 as const, time: a.proof.claim.time + 100 };
+  // Attempt 2 ends first (attempt 1 left): the day's best, not its first.
+  let r = rtDailyFinish(log, a.date, 2, worse, BUILD); log = r.log;
+  assert(!r.first && r.best && !log[a.date].first && log[a.date].best?.row === 0 && log[a.date].build === BUILD, `attempt 2 first done (${JSON.stringify(log[a.date])})`);
+  r = rtDailyFinish(log, a.date, 1, a.proof.claim, 'other'); log = r.log;
+  assert(r.first && r.best === rtDailyBetter(a.proof.claim, worse) && JSON.stringify(log[a.date].first) === JSON.stringify(a.proof.claim), `attempt 1 is the first (${JSON.stringify(log[a.date])})`);
+  assert(JSON.stringify(parseRtDailyLog(JSON.parse(JSON.stringify(log)))) === JSON.stringify(log), 'the log reads back');
+  for (let d = 0; d < 40; d++) { const date = rtDailyDate(new Date(2025, 0, 1 + d)); begin(date); log = rtDailyFinish(log, date, 1, b.proof.claim, BUILD).log; }
+  assert(Object.keys(log).length === RT_DAILY_LOG_DATES && JSON.stringify(rtDailyPrune(log)) === JSON.stringify(log), `30 dates kept (${Object.keys(log).length})`);
+  const bad = (value: unknown, what: string) => assert(parseRtDailyLog(value) === null, `${what} — refused`);
+  bad({ 'not-a-date': { tries: 1 } }, 'a date'); bad({ '2026-10-17': { tries: 0 } }, 'tries 0'); bad({ '2026-10-17': { tries: 1, best: { row: 1 } , build: 'x' } }, 'a claim');
+  bad({ '2026-10-17': { tries: 1, best: a.proof.claim } }, 'best without build'); bad({ '2026-10-17': { tries: 1, extra: 1 } }, 'an unknown key'); bad([], 'a list');
+  bad(Object.fromEntries(Array.from({ length: 31 }, (_, i) => [rtDailyDate(new Date(2025, 5, 1 + i)), { tries: 1 }])), '31 dates');
+  const storage = memory(), proofs = new RtDailyProofStore(storage);
+  for (let d = 0; d < 10; d++) proofs.keep({ ...b.proof, date: rtDailyDate(new Date(2025, 2, 1 + d)) });
+  proofs.keep(a.proof);
+  assert(Object.keys(JSON.parse(storage.getItem('ashen-oath-rt-daily-v1')!)).length === RT_DAILY_PROOF_DATES && proofs.proof(a.date)?.date === a.date, 'proofs of 7 dates');
+  const view = rtDailyView(log, proofs, a.date, { won: true, runOpen: false });
+  assert(view.unlocked && view.canStart && view.seed === rtDailySeed(a.date) && view.tries === 2 && view.proof, 'open');
+  assert(rtDailyView(log, proofs, a.date, { won: true, runOpen: true }).reason === 'Сначала закончи поход' && !rtDailyView(undefined, proofs, a.date, { won: false, runOpen: false }).unlocked, 'the reasons');
 });
 
 await check("telemetry: the run record's `daily` (date, attempt, first, verified); `checkRecord` takes it and refuses a malformed one; the report's section", async () => {

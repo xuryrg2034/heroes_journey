@@ -15,13 +15,14 @@
  *   preset and every step applied (a refused step fails); at every `resolveArena` the next journal must be of that fight — its arena, seed,
  *   roster, loadout, hero and `Params` those the run gives, only player commands — and replay to an end whose outcome (run/fightOutcome.ts)
  *   is the step's argument; at the end the claim must be the run's.
- * - **The log** (`RtDailyStore`, its own `localStorage` keys — not the profile): per date the attempts, the first and the best outcome and
- *   the build (the last 30 dates); the proof of the best attempt of the last 7 dates.
+ * - **The log** — the profile's field `daily` (design 8.1; the profile store keeps it, absent until the first attempt): pure functions
+ *   `rtDailyBegin`, `rtDailyFinish`, `rtDailyPrune` (the last 30 dates), the strict reader `parseRtDailyLog`. **The proofs** of the best
+ *   attempts — their own key `ashen-oath-rt-daily-v1` (design 6.3 and 8.1), the last 7 dates (`RtDailyProofStore`).
  *
  * The view's contract (ui): the button «Поход дня» at the fire under «В поход», `rtDailyView` decides it (open after the first win over the
- * forest, off while an ordinary run is open: «Сначала закончи поход»); «Начать» — `RtDailyStore.begin` and `createRtDailyRun`; every step of
- * that run through `rtStep` (its call appended to the run's journal of steps); every fight's journal kept in order; the run's end —
- * `RtDailyStore.finish` with `rtDailyProof`; «Сохранить» — the proof as `daily-ГГГГ-ММ-ДД.json`; «Проверить» / «Проверить файл» —
+ * forest, off while an ordinary run is open: «Сначала закончи поход»); «Начать» — `rtDailyBegin` on the profile's `daily` and
+ * `createRtDailyRun`; every step of that run through `rtStep` (its call appended to the run's journal of steps); every fight's journal
+ * kept in order; the run's end — `rtDailyFinish` with the claim of `rtDailyProof`, and `RtDailyProofStore.keep` when it is the best; «Сохранить» — the proof as `daily-ГГГГ-ММ-ДД.json`; «Проверить» / «Проверить файл» —
  * `checkDailyProof` («Проверено», «Другая версия игры», or the reason). The end screen shows no XP block.
  */
 import type { OathId } from '../sim/oath';
@@ -189,44 +190,73 @@ export async function checkDailyProof(value: unknown, build: string): Promise<Rt
   return same(claim, proof.claim) ? { ok: true, claim, fights: fight } : { ok: false, reason: 'Заявленный итог не равен итогу повтора.' };
 }
 
-// ---------- The log of attempts (its own keys; not the profile) ----------
+// ---------- The log of attempts (the profile's field `daily`, design 8.1) and the proofs (their own key, design 6.3) ----------
 
-export const RT_DAILY_LOG_KEY = 'ashen-oath-rt-daily-log-v1';
-export const RT_DAILY_PROOF_KEY = 'ashen-oath-rt-daily-v1';
-/** Баланс (design 8.1, 6.3): the dates the log keeps, the dates whose best proof is kept. */
+/** Баланс (design 8.1, 6.3): the dates the profile's log keeps, the dates whose best proof is kept. */
 export const RT_DAILY_LOG_DATES = 30;
 export const RT_DAILY_PROOF_DATES = 7;
-/** One date of the log: the attempts begun, the first finished attempt, the best one, the build of the best. */
+/** One date of the profile's log (design 8.1): the attempts begun, the first finished attempt, the best one and its build. */
 export interface RtDailyEntry { tries: number; first?: RtDailyClaim; best?: RtDailyClaim; build?: string }
-/** The local log of the run of the day (`store` — the page's `localStorage`; null — nothing kept). */
-export class RtDailyStore {
+/** The profile's field `daily` (design 8.1: `{ [date]: { first, best, tries, build } }`): absent until the first attempt. */
+export type RtDailyLog = Record<string, RtDailyEntry>;
+
+const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0;
+/** A claim of the log, strictly: its five fields and no other. */
+export function isRtDailyClaim(value: unknown): value is RtDailyClaim {
+  const c = value as Record<string, unknown> | null;
+  return !!c && typeof c === 'object' && !Array.isArray(c) && Object.keys(c).length === 5 && (c.level === 1 || c.level === 2) && isCount(c.row)
+    && (c.wonLevel === 0 || c.wonLevel === 1 || c.wonLevel === 2) && typeof c.time === 'number' && Number.isFinite(c.time) && c.time >= 0 && typeof c.done === 'boolean';
+}
+/**
+ * The profile's `daily` read strictly: real dates, at most `RT_DAILY_LOG_DATES`, each `{ tries ≥ 1, first?, best?, build? }` with valid
+ * claims (`build` with `best`, both or neither); anything else — null (the profile drops the field, as a malformed part).
+ */
+export function parseRtDailyLog(value: unknown): RtDailyLog | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length > RT_DAILY_LOG_DATES) return null;
+  for (const [date, raw] of entries) {
+    const e = raw as Record<string, unknown> | null;
+    if (!isRtDailyDate(date) || !e || typeof e !== 'object' || Array.isArray(e) || Object.keys(e).some(k => !['tries', 'first', 'best', 'build'].includes(k))) return null;
+    if (!isCount(e.tries) || e.tries < 1 || (e.first !== undefined && !isRtDailyClaim(e.first)) || (e.best !== undefined && !isRtDailyClaim(e.best))) return null;
+    if ((e.best === undefined) !== (e.build === undefined) || (e.build !== undefined && typeof e.build !== 'string')) return null;
+  }
+  return structuredClone(value as RtDailyLog);
+}
+/** The log cut to its last `RT_DAILY_LOG_DATES` dates (the earliest go). */
+export function rtDailyPrune(log: RtDailyLog): RtDailyLog {
+  return Object.fromEntries(Object.keys(log).filter(isRtDailyDate).sort().slice(-RT_DAILY_LOG_DATES).map(date => [date, log[date]]));
+}
+/** «Начать»: one more attempt of `date` — the new log (pruned) and the attempt's number (1 — the first of the day). */
+export function rtDailyBegin(log: RtDailyLog | undefined, date: string): { log: RtDailyLog; attempt: number } {
+  const entry = log?.[date] ?? { tries: 0 };
+  return { log: rtDailyPrune({ ...log, [date]: { ...entry, tries: entry.tries + 1 } }), attempt: entry.tries + 1 };
+}
+/**
+ * The attempt `attempt` of `date` ended with `claim` on `build`: the first finished attempt of the day is kept as `first` (only attempt
+ * 1), the best one as `best` with its build (`rtDailyBetter`). The new log and what changed.
+ */
+export function rtDailyFinish(log: RtDailyLog | undefined, date: string, attempt: number, claim: RtDailyClaim, build: string): { log: RtDailyLog; first: boolean; best: boolean } {
+  const entry = log?.[date] ?? { tries: Math.max(1, attempt) };
+  const first = attempt === 1 && !entry.first, best = !entry.best || rtDailyBetter(claim, entry.best);
+  const next: RtDailyEntry = { ...entry, ...first ? { first: structuredClone(claim) } : {}, ...best ? { best: structuredClone(claim), build } : {} };
+  return { log: rtDailyPrune({ ...log, [date]: next }), first, best };
+}
+
+/** The proofs of the best attempts (design 6.3: its own key, the last `RT_DAILY_PROOF_DATES` dates). */
+export const RT_DAILY_PROOF_KEY = 'ashen-oath-rt-daily-v1';
+export class RtDailyProofStore {
   constructor(private readonly store: KeyValueStore | null) {}
-  private read<T>(key: string): Record<string, T> {
-    try { const value = JSON.parse(this.store?.getItem(key) ?? '{}') as unknown; return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, T> : {}; } catch { return {}; }
+  private read(): Record<string, RtDailyProof> {
+    try { const value = JSON.parse(this.store?.getItem(RT_DAILY_PROOF_KEY) ?? '{}') as unknown; return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, RtDailyProof> : {}; } catch { return {}; }
   }
-  private write(key: string, value: Record<string, unknown>, keep: number): void {
-    const dates = Object.keys(value).filter(isRtDailyDate).sort().slice(-keep);
-    try { this.store?.setItem(key, JSON.stringify(Object.fromEntries(dates.map(d => [d, value[d]])))); } catch { /* full or blocked: the log is a convenience */ }
-  }
-  entry(date: string): RtDailyEntry { return this.read<RtDailyEntry>(RT_DAILY_LOG_KEY)[date] ?? { tries: 0 }; }
-  /** «Начать»: one more attempt of `date`; its number (1 — the first of the day). */
-  begin(date: string): number {
-    const log = this.read<RtDailyEntry>(RT_DAILY_LOG_KEY), entry = log[date] ?? { tries: 0 };
-    log[date] = { ...entry, tries: entry.tries + 1 };
-    this.write(RT_DAILY_LOG_KEY, log, RT_DAILY_LOG_DATES);
-    return entry.tries + 1;
-  }
-  /** The attempt `attempt` of `date` ended with `proof`: the first one is kept as the day's first, the best as the best (with its proof). */
-  finish(date: string, attempt: number, proof: RtDailyProof): { first: boolean; best: boolean } {
-    const log = this.read<RtDailyEntry>(RT_DAILY_LOG_KEY), entry = log[date] ?? { tries: Math.max(1, attempt) };
-    const first = attempt === 1 && !entry.first, best = !entry.best || rtDailyBetter(proof.claim, entry.best);
-    log[date] = { ...entry, ...first ? { first: proof.claim } : {}, ...best ? { best: proof.claim, build: proof.build } : {} };
-    this.write(RT_DAILY_LOG_KEY, log, RT_DAILY_LOG_DATES);
-    if (best) { const proofs = this.read<RtDailyProof>(RT_DAILY_PROOF_KEY); proofs[date] = proof; this.write(RT_DAILY_PROOF_KEY, proofs, RT_DAILY_PROOF_DATES); }
-    return { first, best };
+  /** Keep `proof` as the best of its date (call when `rtDailyFinish` says `best`). */
+  keep(proof: RtDailyProof): void {
+    const all = { ...this.read(), [proof.date]: proof }, dates = Object.keys(all).filter(isRtDailyDate).sort().slice(-RT_DAILY_PROOF_DATES);
+    try { this.store?.setItem(RT_DAILY_PROOF_KEY, JSON.stringify(Object.fromEntries(dates.map(d => [d, all[d]])))); } catch { /* full or blocked: the proof is a convenience */ }
   }
   /** The kept proof of the best attempt of `date` (null — none). */
-  proof(date: string): RtDailyProof | null { return this.read<RtDailyProof>(RT_DAILY_PROOF_KEY)[date] ?? null; }
+  proof(date: string): RtDailyProof | null { return this.read()[date] ?? null; }
 }
 
 /** The screen of the run of the day (and the button at the fire). */
@@ -240,7 +270,7 @@ export interface RtDailyView {
   /** The best attempt's proof is kept («Сохранить», «Проверить»). */
   proof: boolean;
 }
-export function rtDailyView(store: RtDailyStore, date: string, profile: { won: boolean; runOpen: boolean }): RtDailyView {
-  const entry = store.entry(date), reason = !profile.won ? 'Откроется после первой победы в лесу' : profile.runOpen ? 'Сначала закончи поход' : '';
-  return { date, seed: rtDailySeed(date), unlocked: profile.won, canStart: !reason, reason, tries: entry.tries, first: entry.first ?? null, best: entry.best ?? null, proof: !!store.proof(date) };
+export function rtDailyView(log: RtDailyLog | undefined, proofs: RtDailyProofStore, date: string, profile: { won: boolean; runOpen: boolean }): RtDailyView {
+  const entry = log?.[date] ?? { tries: 0 }, reason = !profile.won ? 'Откроется после первой победы в лесу' : profile.runOpen ? 'Сначала закончи поход' : '';
+  return { date, seed: rtDailySeed(date), unlocked: profile.won, canStart: !reason, reason, tries: entry.tries, first: entry.first ?? null, best: entry.best ?? null, proof: !!proofs.proof(date) };
 }
