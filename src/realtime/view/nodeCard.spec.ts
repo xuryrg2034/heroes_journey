@@ -164,8 +164,7 @@ check(`task 43 Г: a garrison node's card counts its own fight's start (every ki
       for (const node of rtAvailableNodes(state)) {
         if (!isArenaNode(node)) continue;
         const g = rtNodeEnemies(state, node), pick = arenaPreview(state, node);
-        // Task 48: the den's Troll node is not a garrison node; its kinds' words on the card are the ui's part.
-        if (!pick || pick.arena === 'troll') continue;
+        if (!pick) continue;
         const lines = Object.fromEntries(nodeDangers({ arena: pick.arena, roster: pick.roster, ...g ? { garrison: g } : {}, ...cardRules(state, node) }).map(line => [line.id, line.text]));
         if (!g) { forest++; assert(!lines.extras && !(lines.enemies ?? '').includes('подходят'), `forest ${pick.arena}: ${lines.enemies}`); continue; }
         cards++;

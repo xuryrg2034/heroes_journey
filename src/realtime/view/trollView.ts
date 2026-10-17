@@ -486,7 +486,8 @@ export class TrollView {
     s.count = windowCount(win.left);
     label.text = s.count;
     label.style.fill = win.left <= 1 ? 0xff8a6a : 0xfff2c4;
-    label.position.set(st.x * U + r * TROLL_ART * 0.5, st.y * U - r * TROLL_ART * TROLL_ART_ASPECT * 0.62);
+    // Right of the head, below the snore arc's right end and the HP plaque (design 17.10.2026, task 48 §24.15: it sat on both).
+    label.position.set(st.x * U + r * TROLL_ART * 0.48, st.y * U - r * TROLL_ART * TROLL_ART_ASPECT * 0.45);
     label.visible = true;
   }
 

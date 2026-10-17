@@ -384,16 +384,34 @@ test('task 48: the map — the den branch\'s boss card says what the fight asks 
   expect(errors).toEqual([]);
 });
 
-test('task 48: the run — the den branch\'s fight is the Troll\'s: the boss bar (HP 2, plates 4), the drawing and the weapons; his name is the goal', async ({ page }) => {
+test('task 48: the run — the den branch\'s fight is the Troll\'s: it opens on him (v65 D2) and glides to the hero in 1.2 s; the boss bar (HP 2, plates 4), the drawing and the weapons; his name is the goal', async ({ page }) => {
   test.setTimeout(90_000);
   const errors = collectErrors(page);
   const run = walk(r => r.pending?.kind === 'battle' && r.pending.arena === 'troll');
   if (!run) throw new Error('no run reached the Troll\'s fight');
+  // The page's clock is Playwright's (as the garrison's glide test): the glide's first frame is held for the shot, then the clock runs.
+  const t0 = Date.parse('2026-10-17T12:00:00Z');
+  await page.clock.install({ time: t0 });
+  await page.clock.pauseAt(t0 + 1000);
   await openSave(page, serializeRtRun(run));
   await expect(page.getByTestId('run-battle-modal')).toBeVisible();
   await page.getByTestId('run-battle').click();
   await expect(page.getByTestId('run')).toBeHidden();
   await expect.poll(async () => (await snap(page)).arena).toBe('troll');
+  await page.clock.runFor(50);
+  // The first frames: the camera on the Troll — his core in the view under the boss bar, the fight at 0:00.
+  const opening = await page.evaluate(() => {
+    const rt = (window as any).__realtime, sn = rt.snapshot(), cam = rt.camera(), core = sn.enemies.find((e: any) => e.kind === 'troll');
+    return { intro: cam.intro, time: sn.time, core: rt.toScreen(core.x, core.y) };
+  });
+  expect(opening.intro, 'the glide is on').toBeGreaterThan(1.0);
+  expect(opening.time).toBeLessThan(0.02);
+  const bar = (await page.getByTestId('boss-bar').boundingBox())!;
+  expect(opening.core.y, 'the core in the view, under the boss bar').toBeGreaterThan(bar.y + bar.height);
+  expect(opening.core.y, 'the core in the view').toBeLessThan(720);
+  await shot(page, 'run-open');
+  await page.clock.runFor(1300);
+  await page.clock.resume();
   await expect.poll(() => page.evaluate(() => (window as any).__realtime.camera().intro)).toBe(0);
   await expect(page.getByTestId('boss-bar')).toBeVisible();
   await expect.poll(async () => (await snap(page)).bossBar).toMatchObject({ visible: true, cells: 6, hp: 2, plates: 4 });
