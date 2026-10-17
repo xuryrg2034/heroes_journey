@@ -39,6 +39,8 @@ export const RT_KIND_TITLES: Readonly<Record<string, string>> = {
   knight: 'рыцарь',
   // Task 48 «Тролль» (a capital for the unique boss; his parts by their own names).
   troll: 'Тролль', 'troll-club': 'дубина Тролля', 'troll-rock': 'камень Тролля', 'troll-tail': 'хвост Тролля',
+  // Task 57а «Лес: стрелки» (the user's name «Светляк», 17.10.2026; not «Огонёк»).
+  slinger: 'пращник', hive: 'улей', wisp: 'светляк',
 };
 
 /**
@@ -61,13 +63,15 @@ export const RT_DEATH_ABILITY: Readonly<Record<string, string>> = {
   'knight-charge': 'рывок рыцаря', 'knight-swing': 'размах рыцаря',
   // Task 48: the Troll's moves (their touches — the kinds above).
   'troll-club': 'удар дубиной Тролля', 'troll-rock': 'бросок камня Тролля', 'troll-tail': 'удар хвостом Тролля',
+  // Task 57а (spec 5): the slinger's stone («камень пращника», not «камень» — the Troll's), the hive's wasp, the wisp's own touch.
+  stone: 'камень пращника', wasp: 'оса улья', wisp: 'светляк',
 };
 /**
  * The touch sources (each kind's `hitSource`): the line names the striker's kind, its elite mark, armour and affixes. Task 40 (design
  * 16.10.2026, spec section 10): the garrison's touches too — the guard, the dog handler, the hound (on its leash or in its frenzy: the
  * same body, «пёс»), the keymaster, the Castellan.
  */
-export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper', 'guard', 'handler', 'hound', 'keymaster', 'castellan', 'crossbow', 'knight'];
+export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper', 'guard', 'handler', 'hound', 'keymaster', 'castellan', 'crossbow', 'knight', 'slinger'];
 
 /** Drafts sent to design 12.10.2026 (pending approval). */
 export const RT_RUN_END_TEXT = {

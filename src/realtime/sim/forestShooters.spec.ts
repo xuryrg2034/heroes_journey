@@ -29,6 +29,10 @@ import { liveShots } from './shots';
 import { kindCount } from './spawn';
 import { Simulation, SIM_DT, replay, type Journal } from './simulation';
 import type { Enemy, World, WorldEvent } from './world';
+import type { Command } from './commands';
+import { createFightObserver } from '../telemetry/observe';
+import { ThreatTracker } from '../telemetry/threats';
+import { forestShootersSection } from '../telemetry/report';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -482,6 +486,63 @@ check('the focus slows the shots with the world: in the same real time a stone f
     assert(w.hero.hp === hp && of(events, 'shot').some(e => e.action === 'block' && e.kind === 'wasp') && events.some(e => e.type === 'block' && e.source === 'wasp'), `seed ${k}: blocked, HP ${hp} → ${w.hero.hp}`);
     assert(replays(sim), `seed ${k}: replay`);
   }
+});
+
+// ---- Telemetry ----
+
+check("telemetry: the summary `forest` counts the windups, the shots' ends and the wisps; the threats `sling` (stayed — hit, stepped off — dodged) and `wisp` (stood — hit, never met — dodged)", () => {
+  for (const k of [1, 2]) {
+    const sim = field(k), w = sim.world, observer = createFightObserver(w), threats = new ThreatTracker(w);
+    const command = (cmd: Command): unknown => { const r = sim.command(cmd); observer.command(cmd, w); return r; };
+    const tick = (n: number): void => { for (let i = 0; i < n && w.status === 'playing'; i++) { sim.tick(); observer.tick(w); threats.tick(w); w.events.length = 0; } };
+    command({ t: 'teleport', x: 17, y: 7 });
+    const slingerId = command({ t: 'place', x: 12, y: 7, color: 1, hp: 0, kind: SLINGER }), slinger = w.enemies.find(e => e.id === slingerId)!;
+    // The first volley: he stays on the middle line (hit); the second: he steps off at its windup (dodged).
+    tick(ticksOf(2.5));
+    for (let i = 0; i < ticksOf(4) && !slingerLines(w, slinger); i++) tick(1);
+    command({ t: 'teleport', x: 17, y: 9.5 });
+    tick(ticksOf(1.5));
+    sim.command({ t: 'chill', id: slinger.id, seconds: 60 });
+    // A wisp he stands for (hit), then one he never meets (its flight runs out: dodged).
+    command({ t: 'teleport', x: 6, y: 7 });
+    command({ t: 'place', x: 9, y: 7, color: 2, hp: 0, kind: WISP });
+    tick(ticksOf(3));
+    command({ t: 'teleport', x: 2, y: 2 });
+    command({ t: 'place', x: 22, y: 12, color: 2, hp: 0, kind: WISP });
+    tick(ticksOf(7.5));
+    const s = observer.summary().forest, tally = threats.tally();
+    assert(s.volleys[SLINGER] === 2 && s.shots.hit.stone === 1 && s.wisps.appeared === 2 && s.wisps.touched === 1 && s.wisps.faded === 1, `seed ${k}: summary ${JSON.stringify(s)}`);
+    assert(tally.sling?.hit === 1 && tally.sling?.dodged === 1 && tally.wisp?.hit === 1 && tally.wisp?.dodged === 1, `seed ${k}: threats ${JSON.stringify(tally)}`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
+check("telemetry: the observer of a live fight and of its replay give the same `forest` summary; the hive's ring in a gap is a dodged `hive` threat; the report's section lists the arena", () => {
+  // The warning opens only with the hero on a ray at the swell's start (the ring's turn is random): the seeds where it did.
+  let opened = 0;
+  for (const k of [1, 2, 3, 4, 5, 6, 7, 8]) {
+    const sim = field(k, { snuffShots: true }), w = sim.world, live = createFightObserver(w), threats = new ThreatTracker(w);
+    const tick = (n: number): void => { for (let i = 0; i < n && w.status === 'playing'; i++) { sim.tick(); live.tick(w); threats.tick(w); w.events.length = 0; } };
+    sim.command({ t: 'teleport', x: 14, y: 7 });
+    const hive = place(sim, { x: 12, y: 7 }, HIVE_HP, HIVE, 1);
+    let points: Vec[] | null = null;
+    for (let i = 0; i < ticksOf(4) && !points; i++) { sim.tick(); live.tick(w); threats.tick(w); points = of(w.events, 'shooter').find(e => e.action === 'aim')?.points ?? null; w.events.length = 0; }
+    assert(points, `seed ${k}: the hive swells`);
+    const a0 = angleOf(hive, points[0]);
+    sim.command({ t: 'teleport', x: 12 + 2 * Math.cos(a0 + Math.PI / 8), y: 7 + 2 * Math.sin(a0 + Math.PI / 8) });
+    tick(ticksOf(4.5));
+    const hiveThreat = threats.tally().hive;
+    if (hiveThreat) { opened++; assert(hiveThreat.warned === 1 && hiveThreat.dodged === 1, `seed ${k}: the ring in a gap — dodged (${JSON.stringify(hiveThreat)})`); }
+    const journal = JSON.parse(JSON.stringify(sim.exportJournal()!)) as Journal;
+    let replayed: ReturnType<typeof createFightObserver> | null = null;
+    replay(journal, x => { replayed ??= createFightObserver(x.world); replayed.tick(x.world); x.world.events.length = 0; });
+    assert(JSON.stringify(replayed!.summary().forest) === JSON.stringify(live.summary().forest), `seed ${k}: live ${JSON.stringify(live.summary().forest)} vs replay ${JSON.stringify(replayed!.summary().forest)}`);
+    assert(live.summary().forest.volleys[HIVE] >= 1, `seed ${k}: the hive's windups counted`);
+  }
+  assert(opened >= 2, `the hive's warning opened on ${opened} seeds`);
+  const record = { record: { arena: 'fs-field', time: 30, summary: { ...createFightObserver(field(1).world).summary(), forest: { volleys: { hive: 2 }, shots: { hit: { wasp: 1 }, block: {}, snuffDash: 3, snuffBomb: 0 }, wisps: { appeared: 0, chainKills: 0, touched: 0, blocked: 0, faded: 0 } } } }, analysis: null };
+  const text = forestShootersSection([record as unknown as Parameters<typeof forestShootersSection>[0][number]]);
+  assert(text.includes('Поле стрелков') && text.includes('улей 2') && text.includes('погашено проходом 3'), `the report's section (${text})`);
 });
 
 console.log(`forest shooters: ${checks} checks passed`);

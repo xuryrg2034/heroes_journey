@@ -263,8 +263,12 @@ const SOURCE_TITLES: Record<string, string> = {
   knight: 'касание рыцаря', 'knight-charge': 'рывок рыцаря', 'knight-swing': 'размах рыцаря',
   // Task 48: the Troll's moves.
   'troll-club': '«Удар дубиной»', 'troll-rock': '«Бросок камня»', 'troll-tail': '«Хвост метёт»',
+  // Task 57а «Лес: стрелки».
+  stone: 'камень пращника', wasp: 'оса улья', wisp: 'светляк', slinger: 'касание пращника',
 };
 const THREAT_TITLES: Record<string, string> = {
+  // Task 57а «Лес: стрелки».
+  sling: 'веер пращника', hive: 'кольцо улья', wisp: 'светляк',
   archer: 'метка лучника', boar: 'полоса кабана', wolf: 'бросок стаи волков', lynx: 'прыжок рыси', sapper: 'фитиль и взрыв сапёра', 'sapper-instant': 'взрыв сапёра без предупреждения',
   flail: 'кистень Тюремщика', throw: 'бросок гири Тюремщика',
   // Task 43: the law of the crossbow (the crossbowman, the Castellan's crossbow).
@@ -1197,6 +1201,8 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Босс', '', bossSection(fights), '',
     // Task 40 «Гарнизон, шаг 1б»: the survival through both levels, the garrison's fights and the cart.
     '## Гарнизон', '', garrisonSection(runs, runFights), '',
+    // Task 57а «Лес: стрелки».
+    '## Лес: новые виды', '', forestShootersSection(fights), '',
     '## Сплавы', '', fusionsSection(runs, fights), '',
     // Task 49 «Второй герой».
     '## Герои', '', heroesSection(runs, runFights), '',
@@ -1742,4 +1748,34 @@ export function garrisonSection(runs: readonly RunRecord[], runFights: readonly 
   const carts = st.carts.length ? `Повозка: походов ${st.carts.length}, сдано мед. ${n1(median(st.carts.map(c => c.n)))}, запас до сдачи мед. ${n1(median(st.carts.map(c => c.before)))}.` : 'Повозка: сдач нет.';
   return [GARRISON_LEGEND, '', table(['Ряд', 'Дошли', 'Доля', 'Смертей'], curve), '', fights, '',
     damage.length ? table(['Урон герою в гарнизоне', 'HP', 'Доля'], damage) : '_урона в боях гарнизона нет_', '', knights, '', carts].join('\n');
+}
+
+/**
+ * Task 57а «Лес: стрелки» (heuristic, not a balance verdict): the fights where a new shooter acted (a windup of a slinger or a hive, a
+ * wisp seen) — by arena: fights, deaths and their sources, the hero's damage from the shots and the wisps and its share of all his
+ * damage there, the fight's length; the volleys, the shots' ends and the wisps in all.
+ */
+const FOREST_SOURCES: readonly string[] = ['stone', 'wasp', 'wisp'];
+const FOREST_LEGEND = 'Задача 57а (с 17.10.2026; эвристика, не оценка баланса): бои, где действовал новый стрелок леса — замах пращника или улья (`forest.volleys`) или светляк на арене (`forest.wisps.appeared`), по аренам: боёв, смертей и их источники, урон герою от камней, ос и светляков (`damage.bySource`: `stone`, `wasp`, `wisp`) и его доля во всём уроне этих боёв, длина боя (игровые секунды, медиана). Ниже — замахи по виду, концы снарядов (попали, щит, погашено проходом и бомбой — `snuffShots`) и светляки (появилось, убито цепью, коснулось героя, щит, погасло само).';
+export function forestShootersSection(fights: readonly FightEntry[]): string {
+  const own = fights.map(e => ({ e, s: e.analysis ? e.analysis.summary : withSummaryDefaults(e.record.summary) }))
+    .filter(({ s }) => Object.keys(s.forest.volleys).length > 0 || s.forest.wisps.appeared > 0);
+  if (!own.length) return `${FOREST_LEGEND}\n\n_боёв с новыми стрелками нет_`;
+  const arenas = [...new Set(own.map(x => x.e.record.arena))].sort();
+  const rows = arenas.map(arena => {
+    const list = own.filter(x => x.e.record.arena === arena), deaths = list.filter(x => x.s.death);
+    const from = list.reduce((a, x) => a + FOREST_SOURCES.reduce((b, id) => b + (x.s.damage.bySource[id] ?? 0), 0), 0), total = list.reduce((a, x) => a + x.s.damage.total, 0);
+    const bySource = FOREST_SOURCES.map(id => `${sourceTitle(id)} ${deaths.filter(x => x.s.death?.source === id).length}`).join(', ');
+    return [arenaTitle(arena), list.length, deaths.length, bySource, from, pct(from, total), n1(median(list.map(x => x.e.record.time)))];
+  });
+  const sum = (f: (s: FightSummary['forest']) => number): number => own.reduce((a, x) => a + f(x.s.forest), 0);
+  const kinds = (pick: (s: FightSummary['forest']) => Record<string, number>, title: (k: string) => string = sourceTitle): string => {
+    const all: Record<string, number> = {};
+    for (const x of own) for (const [k, n] of Object.entries(pick(x.s.forest))) all[k] = (all[k] ?? 0) + n;
+    return Object.keys(all).length ? Object.entries(all).map(([k, n]) => `${title(k)} ${n}`).join(', ') : '—';
+  };
+  const volleys = kinds(s => s.volleys, kindTitle);
+  return [FOREST_LEGEND, '', table(['Арена', 'Боёв', 'Смертей', 'Смертей по источнику', 'Урон от снарядов и светляков, HP', 'Доля урона', 'Длина боя, с мед.'], rows), '',
+    `Замахи: ${volleys}. Снаряды: попали ${kinds(s => s.shots.hit)}; щит ${kinds(s => s.shots.block)}; погашено проходом ${sum(s => s.shots.snuffDash)}, бомбой ${sum(s => s.shots.snuffBomb)}.`,
+    `Светляки: появилось ${sum(s => s.wisps.appeared)}, убито цепью ${sum(s => s.wisps.chainKills)}, коснулось героя ${sum(s => s.wisps.touched)}, щит ${sum(s => s.wisps.blocked)}, погасло само ${sum(s => s.wisps.faded)}.`].join('\n');
 }
