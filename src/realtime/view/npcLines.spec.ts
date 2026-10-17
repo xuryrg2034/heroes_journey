@@ -102,7 +102,7 @@ check('after her run her variant goes first and is counted apart (npc:key:toad);
     if (!variants?.length) continue;
     const ctx = key === 'win' ? { won: true } : key === 'record' ? { won: false, record: true } : { won: false, cause: key === 'death_crowd' ? 'crowd' as const : 'other' as const };
     // The cat has said this key many times: her counter is her own, the first show is her first variant, without «опять».
-    const met = { [`${npc}:first:toad`]: 99, [`${npc}:first_self:toad`]: 99, [`${npc}:win_first:toad`]: 99 };
+    const met = { [`${npc}:first`]: 99, [`${npc}:win_first:toad`]: 99 };
     const first = pickLine(npc, { others: NPCS, hero: 'toad', last: ctx }, { ...met, [`${npc}:${key}`]: 7 });
     assert(first.text === variants[0] && first.id === `${npc}:${key}:toad`, `${npc} ${key}: first ${first.text}`);
     const second = pickLine(npc, { others: NPCS, hero: 'toad', last: ctx }, { ...met, [`${npc}:${key}`]: 7, [`${npc}:${key}:toad`]: 1 });
@@ -112,5 +112,27 @@ check('after her run her variant goes first and is counted apart (npc:key:toad);
       const cat = pickLine(npc, { others: NPCS, last: ctx }, { [`${npc}:first`]: 99, [`${npc}:${key}`]: t, [`${npc}:${key}:toad`]: t });
       assert(!variants.includes(cat.text) && cat.id === `${npc}:${key}`, `${npc} ${key}: the cat hears no variant`);
     }
+  }
+});
+
+check('design 17.10.2026: the meeting keys are one count for the profile (not met again after her first run); her first win is her variant, else the ordinary win', () => {
+  for (const npc of NPCS) {
+    // The cat met the NPC (the key's lines are all said): her run brings no meeting, on any occasion.
+    const met = { [`${npc}:first`]: NPC_LINES[npc].first!.length, [`${npc}:first_self`]: 5 };
+    for (const ctx of OCCASIONS) {
+      const line = pickLine(npc, { others: NPCS, hero: 'toad', ...ctx }, met);
+      assert(line.key !== 'first' && line.key !== 'first_self', `${npc} ${JSON.stringify(ctx)}: met again (${line.key})`);
+    }
+    // The first win of the profile is hers (`firstWin`); the cat's own first win does not count for her.
+    const cat = { [`${npc}:first`]: 99, [`${npc}:win_first`]: 1 };
+    const variant = TOAD_LINES_BY_NPC[npc].win_first![0];
+    const news = pickLine(npc, { others: NPCS, hero: 'toad', last: { won: true, firstWin: true } }, cat);
+    assert(news.key === 'win_first' && news.text === variant && news.id === `${npc}:win_first:toad`, `${npc}: her first win is her variant (${news.text})`);
+    // Said once: the next camp takes her ordinary `win` (her variants first, then the unmarked lines).
+    const next = pickLine(npc, { others: NPCS, hero: 'toad', last: { won: true, firstWin: true } }, { ...cat, [`${npc}:win_first:toad`]: 1 });
+    assert(next.key === 'win' && next.id === `${npc}:win:toad`, `${npc}: then the ordinary win (${next.key})`);
+    // The cat's first win keeps its own counter and its own lines.
+    const his = pickLine(npc, { others: NPCS, last: { won: true, firstWin: true } }, { [`${npc}:first`]: 99 });
+    assert(his.key === 'win_first' && his.id === `${npc}:win_first` && his.text === NPC_LINES[npc].win_first![0], `${npc}: the cat's first win`);
   }
 });
