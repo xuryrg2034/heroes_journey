@@ -210,3 +210,18 @@ check('task 51д: leave, back_met, back_missed, meet_hello, meet_deal, meet_no (
   assert(Object.keys(want).length === 4 + 7 + 7 + 6, `${Object.keys(want).length} keys`);
   for (const [k, texts] of Object.entries(want)) { const [npc, key] = k.split('.'); assert(JSON.stringify(NPC_LINES[npc as NpcId][key as LineKey]) === JSON.stringify(texts), `${k}: the text of the table`); }
 });
+
+check('task 51: the garrison passed — win_garrison_first for the three of v1 once by hero, then the ordinary occasion; memory_castellan of Евлампий at every such run', () => {
+  const won = { won: true, garrisonWon: true } as const;
+  for (const npc of ['owl', 'herb', 'smith'] as const) {
+    const memory = { [`${npc}:first`]: 9, [`${npc}:first_self`]: 9 };
+    const first = pickLine(npc, { others: NPCS, last: won }, memory);
+    assert(first.key === 'win_garrison_first' && first.text === NPC_LINES[npc].win_garrison_first![0], `${npc}: first`);
+    const next = pickLine(npc, { others: NPCS, last: won }, { ...memory, [`${npc}:win_garrison_first`]: 1 });
+    assert(next.key !== 'win_garrison_first', `${npc}: then ${next.key}`);
+    // Her first is her own count: after the cat's, her variant still comes.
+    const hers = pickLine(npc, { others: NPCS, hero: 'toad', last: won }, { ...memory, [`${npc}:win_garrison_first`]: 1 });
+    assert(hers.key === 'win_garrison_first' && hers.text === TOAD_LINES_BY_NPC[npc].win_garrison_first![0], `${npc}: her first`);
+  }
+  for (const n of [0, 1, 2]) assert(pickLine('monk', { others: NPCS, last: { won: true, castellan: true, garrisonWon: true } }, { 'monk:first': 2, 'monk:memory_castellan': n }).key === 'memory_castellan', 'memory_castellan every time');
+});

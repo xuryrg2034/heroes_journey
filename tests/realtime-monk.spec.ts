@@ -3,6 +3,7 @@ import { test, expect, skipHabit } from './realtimeTest';
 import { gameWait } from './realtimeFrames';
 import { serializeRtRun, type RtRunState } from '../src/realtime/run/rtRun';
 import { walkRun } from '../src/realtime/run/metaWalk.testkit';
+import { rtNode } from '../src/realtime/run/rtRun';
 import { RT_RUN_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
 
 /**
@@ -187,29 +188,30 @@ test('task 51г view: a kept vow shows «Обеты: сдержано 1 из 1 �
   await expect(page.getByTestId('meta-part-vows')).toHaveCount(0);
 });
 
-test('task 51г view: the vows taken show a sign in the header of the map, a hover lists them; before the Jailer none is struck, after it the broken one is (the check of the core)', async ({ page }) => {
+test('task 51г view: the vows taken show a sign in the header of the map, a hover lists them; a broken vow is struck through from the start of the run, before the Jailer too (rtVowsNow of the core)', async ({ page }) => {
   test.setTimeout(120_000);
   const errors = collectErrors(page);
-  const { rtVowsOf } = await import('../src/realtime/run/rtMeta');
-  let early: RtRunState | null = null, late: RtRunState | null = null;
-  // «Без переброса» is broken by the walk's reroll, «Без лечения на карте» is kept; the state at the map after the Jailer's row counts them.
-  walkRun({ k: 5, loot: 4, jailerReroll: 'oath', create: { ...CAMP, hearth: { jailerRerolls: 1, vows: ['vow-no-reroll', 'vow-no-mapheal'] } } as never,
-    each: r => { if (r.pending) return; if (!early && !rtVowsOf(r)) early = structuredClone(r); const v = rtVowsOf(r); if (!late && v?.some(x => !x.kept)) late = structuredClone(r); } });
-  expect(early, 'a map before the Jailer').not.toBeNull();
-  expect(late, 'a map after the Jailer with a broken vow').not.toBeNull();
-  await open(page, MONK_PROFILE, early!);
+  const { rtVowsOf, rtVowsNow } = await import('../src/realtime/run/rtMeta');
+  let fresh: RtRunState | null = null, broken: RtRunState | null = null;
+  // «Без привала» is broken by the first rest the walk enters (steered to the rests), «Без лечения на карте» stays kept; the state is before the Jailer's row.
+  walkRun({ k: 5, loot: 4, create: { ...CAMP, hearth: { jailerRerolls: 1, vows: ['vow-no-rest', 'vow-no-mapheal'] } } as never,
+    pickNode: (r, ids) => ids.find(id => rtNode(r, id)?.type === 'rest') ?? null,
+    each: r => { if (r.pending) return; if (!fresh) fresh = structuredClone(r); if (!broken && !rtVowsOf(r) && rtVowsNow(r)?.some(x => !x.kept)) broken = structuredClone(r); } });
+  expect(fresh, 'a map at the start').not.toBeNull();
+  expect(broken, 'a map before the Jailer with a broken vow').not.toBeNull();
+  await open(page, MONK_PROFILE, fresh!);
   await expect(page.getByTestId('run-vows')).toBeVisible();
   await expect(page.getByTestId('run-vows-tip')).toBeHidden();
   await page.getByTestId('run-vows').hover();
   await expect(page.getByTestId('run-vows-tip')).toBeVisible();
-  await expect(page.getByTestId('run-vow-vow-no-reroll')).toContainText('Без переброса');
+  await expect(page.getByTestId('run-vow-vow-no-rest')).toContainText('Без привала');
   await expect(page.getByTestId('run-vow-vow-no-mapheal')).toContainText('Без лечения на карте');
   await expect(page.locator('.rt-vows-tip .rt-broken')).toHaveCount(0);
-  await open(page, MONK_PROFILE, late!);
+  await open(page, MONK_PROFILE, broken!);
   await page.getByTestId('run-vows').hover();
-  await expect(page.getByTestId('run-vow-vow-no-reroll')).toHaveAttribute('data-broken', 'true');
+  await expect(page.getByTestId('run-vow-vow-no-rest')).toHaveAttribute('data-broken', 'true');
   await expect(page.getByTestId('run-vow-vow-no-mapheal')).toHaveAttribute('data-broken', 'false');
-  await expect(page.getByTestId('run-vow-vow-no-reroll')).toHaveCSS('text-decoration-line', 'line-through');
+  await expect(page.getByTestId('run-vow-vow-no-rest')).toHaveCSS('text-decoration-line', 'line-through');
   await page.screenshot({ path: shot('monk-header-vows') });
   // A run without vows has no sign.
   await open(page, MONK_PROFILE, walkRun({ k: 5, create: CAMP, each: () => undefined }).run);

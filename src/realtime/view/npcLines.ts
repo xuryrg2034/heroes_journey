@@ -267,7 +267,7 @@ export interface LineContext {
   /** The NPC came by itself (the fallback way) — its meeting line is `first_self`. */
   self?: boolean;
   /** The occasions of the last run (said once per camp visit). */
-  last?: { won: boolean; firstWin?: boolean; cause?: DeathCause; record?: boolean; questDone?: boolean; questFail?: boolean; pack?: boolean; casino?: 'won' | 'lost'; cuts?: number; vows?: 'kept' | 'broken'; castellan?: boolean; away?: 'met' | 'missed' };
+  last?: { won: boolean; firstWin?: boolean; cause?: DeathCause; record?: boolean; questDone?: boolean; questFail?: boolean; pack?: boolean; casino?: 'won' | 'lost'; cuts?: number; vows?: 'kept' | 'broken'; castellan?: boolean; garrisonWon?: boolean; away?: 'met' | 'missed' };
   /** Just bought this level. */
   bought?: 1 | 2 | 3;
   /** The other NPC in the camp (for `about_*`). */
@@ -314,6 +314,8 @@ export function pickLine(npc: NpcId, ctx: LineContext, memory: LineMemory): { ke
   if (last) {
     // Task 51д: the NPC came back from the road — `back_met` (met on a rest) or `back_missed`.
     const occasion = (last.away && line(last.away === 'met' ? 'back_met' : 'back_missed')) || (last.questDone && line('quest_done')) || (last.questFail && line('quest_fail')) || (last.firstWin && line('win_first', true))
+      // Task 51: the garrison passed - the first time for the hero is `win_garrison_first` (the three of v1, said once by hero like `win_first`), then the ordinary occasion.
+      || (last.garrisonWon && (npc === 'owl' || npc === 'herb' || npc === 'smith') && line('win_garrison_first', true))
       || (last.record && line('record')) || (last.pack && line('pack')) || (last.casino && line(last.casino === 'won' ? 'casino_won' : 'casino_lost'))
       // Task 51г (Евлампий): the vows' result, the garrison passed, the shackles cut in the last run.
       || (last.vows && line(last.vows === 'kept' ? 'vow_kept' : 'vow_broken')) || (last.castellan && line('memory_castellan')) || (last.cuts && line('memory_cuts')) || (last.won && line('win')) || (last.cause && (line(`death_${last.cause}`) ?? line('death_other')));
