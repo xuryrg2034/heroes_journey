@@ -83,7 +83,7 @@ check('level 3: not sold before a hero passed the forest (`gate`), sold after fo
   assert(same(createRtProfileStore(storage).hearth().levels, { gambler: 0, monk: 2, owl: 3, herb: 2, smith: 3 }), JSON.stringify(createRtProfileStore(storage).hearth().levels));
 });
 
-check('a quest done counts for its NPC (`done`); the garrison passed the first time for the profile — `last.firstGarrison`, once', () => {
+check('a quest done counts for its NPC (`done`); the garrison passed — `last.garrisonWon` every time, `last.firstGarrison` once', () => {
   // Quests: every done one counts (real runs, the quest the camp gave).
   const storage = memoryStorage(), store = createRtProfileStore(storage);
   const done: Record<string, number> = {};
@@ -106,8 +106,14 @@ check('a quest done counts for its NPC (`done`); the garrison passed the first t
     const end = g.endRunMeta(walk.run)!;
     assert(walk.run.result?.outcome === 'victory' && end.record.after.wonLevel === 2, `seed ${k}: the garrison passed`);
     passes.push(!!g.hearth().last?.firstGarrison);
+    assert(g.hearth().last?.garrisonWon === true, `seed ${k}: \`garrisonWon\` every pass`);
   }
   assert(same(passes, [true, false]), `marks ${passes}`);
+  // A run that does not pass the garrison: no field; a malformed stored mark is dropped.
+  g.endRunMeta(walkRun({ k: 4, create: { gift: 'full', garrison: false, locked: g.locked() } }).run);
+  assert(!('garrisonWon' in g.hearth().last!) && !('firstGarrison' in g.hearth().last!), 'a forest run: no marks');
+  const stored = parseRtMeta({ heroes: {}, hearth: { stock: 0, levels: { owl: 0, herb: 0, smith: 0 }, met: {}, lines: {}, quiet: 0, last: { won: true, row: 10, beaten: false, garrisonWon: 'yes', firstGarrison: 1 } } })!;
+  assert(!('garrisonWon' in stored.hearth!.last!) && !('firstGarrison' in stored.hearth!.last!), 'malformed marks dropped');
 });
 
 // ---------- 51б: level 3 of Неясыть, Марфа, Ерофей (spec 2.2) ----------

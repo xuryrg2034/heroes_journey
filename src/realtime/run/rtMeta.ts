@@ -133,6 +133,8 @@ export interface RtHearthLast {
   cuts?: number;
   /** Task 51г (`vow_kept`, `vow_broken`): the run's vows, each kept or not — only when the run reached the Jailer's row (counted). */
   vows?: { id: RtVowId; kept: boolean }[];
+  /** Task 51 (ui: Евлампий's `memory_castellan`, every time): this run passed the garrison (won the Castellan); absent — not. */
+  garrisonWon?: true;
   /** Task 51д (`back_met`, `back_missed`): the run was an NPC's away run — the NPC and whether it was met on the road. */
   away?: { npc: RtHearthLeaver; met: boolean };
 }
@@ -423,7 +425,7 @@ export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState, optio
   const cuts = monk ? rtRunCuts(run) : 0;
   // Task 51: the garrison passed the first time for the profile (no hero's record had `wonLevel` 2 before this run).
   const firstGarrison = passed === 2 && !RT_HERO_IDS.some(id => previous?.heroes[id]?.record && rtWonLevelOf(previous.heroes[id]!.record!) >= 2);
-  hearth.last = { won: win, row, beaten, ...rtDeathCause(run) ? { cause: rtDeathCause(run) } : {}, ...quest ? { quest: questDone } : {}, ...win && !oldPassed ? { firstWin: true as const } : {}, ...pack ? { pack: true as const } : {}, ...heroId === RT_TOAD_ID ? { hero: RT_TOAD_ID } : {}, ...firstGarrison ? { firstGarrison: true as const } : {}, ...casino ? { casino } : {}, ...cuts ? { cuts } : {}, ...vows ? { vows } : {}, ...awayRun ? { away: awayRun } : {} };
+  hearth.last = { won: win, row, beaten, ...rtDeathCause(run) ? { cause: rtDeathCause(run) } : {}, ...quest ? { quest: questDone } : {}, ...win && !oldPassed ? { firstWin: true as const } : {}, ...pack ? { pack: true as const } : {}, ...heroId === RT_TOAD_ID ? { hero: RT_TOAD_ID } : {}, ...firstGarrison ? { firstGarrison: true as const } : {}, ...rtRunWonLevel(run) === 2 ? { garrisonWon: true as const } : {}, ...casino ? { casino } : {}, ...cuts ? { cuts } : {}, ...vows ? { vows } : {}, ...awayRun ? { away: awayRun } : {} };
   hearth.quest = rtNextQuest(run.seed, hearth, record);
   meta.hearth = hearth;
   const end: RtMetaEnd = {
@@ -658,6 +660,9 @@ const guests = (value: Record<string, unknown>): Partial<Record<RtHearthGuest, t
 function lastOf(value: Record<string, unknown>): RtHearthLast {
   const last = structuredClone(value) as unknown as RtHearthLast & { hero?: unknown; casino?: unknown };
   if (last.hero !== undefined && last.hero !== RT_TOAD_ID) delete last.hero;
+  // Task 51: `firstGarrison`, `garrisonWon` — only `true`.
+  if ((last as { firstGarrison?: unknown }).firstGarrison !== undefined && (last as { firstGarrison?: unknown }).firstGarrison !== true) delete last.firstGarrison;
+  if ((last as { garrisonWon?: unknown }).garrisonWon !== undefined && (last as { garrisonWon?: unknown }).garrisonWon !== true) delete last.garrisonWon;
   // Task 51в: `casino` only `won` / `lost`.
   if (last.casino !== undefined && last.casino !== 'won' && last.casino !== 'lost') delete last.casino;
   // Task 51г: `cuts` a whole number from 1; `vows` known ids with a boolean.
