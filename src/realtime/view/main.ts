@@ -28,6 +28,9 @@ import { CAMERA_ARENAS } from '../sim/arenasCamera';
 import { BOSS_ARENAS, FOREST_BOSS_ARENAS, JAILER_RUN_ARENAS } from '../sim/arenasBoss';
 // Task 38: the garrison's arenas at the end of the sandbox menu (`?arena=20…24`).
 import { GARRISON_ARENAS } from '../sim/arenasGarrison';
+import { CASTLE_ARENAS } from '../sim/arenasCastle';
+import { rookLine, wardrobeLying, wardrobeTopple, WARDROBE, ROOK } from '../sim/enemies/castle';
+import { durabilityOf, isThing } from '../sim/shove';
 import { canSpin } from '../sim/abilities';
 import { ITEM_REFUSAL_TEXT, itemRefusal } from '../sim/items';
 import { SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
@@ -106,7 +109,7 @@ const NOTE_FLASH_MS = 1000;
  * docs/realtime-stage3.md, section 11); then the boss arena «Тюремщик» (task 27, key ⇧9, `?arena=19`); the garrison's after it; at the end
  * «Берлога тролля» (task 48, no key, `?arena=30`). `?arena=N` opens one at once.
  */
-const SANDBOX_ARENAS: readonly ArenaTemplate[] = [...ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS, ...BEHAVIOR_ARENAS, ...CAMERA_ARENAS, ...BOSS_ARENAS, ...GARRISON_ARENAS, ...FOREST_BOSS_ARENAS];
+const SANDBOX_ARENAS: readonly ArenaTemplate[] = [...ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS, ...BEHAVIOR_ARENAS, ...CAMERA_ARENAS, ...BOSS_ARENAS, ...GARRISON_ARENAS, ...FOREST_BOSS_ARENAS, ...CASTLE_ARENAS];
 /** Arenas on the plain digit keys (1–9, 0); the rest are on Shift + digit (stage 3a). */
 const DIGIT_ARENAS = ARENAS.length + SLICE_ARENAS.length;
 /** What an arena forces over the panel's phase table (stage 2): «стай волков и кабанов нет (доли 0)» and the like. */
@@ -317,7 +320,7 @@ async function boot(): Promise<void> {
   menuCard.append(...menuRunButton ? [menuRunButton] : [], el('h2', '', 'Выбери арену'));
   const arenaList = el('div', 'rt-arenas');
   // The camera sample's button has its own test id: the menu counts of the older tests (`arena-*`) stay as they were.
-  const camera0 = DIGIT_ARENAS + TERRAIN_ARENAS.length + BEHAVIOR_ARENAS.length, boss0 = camera0 + CAMERA_ARENAS.length, garrison0 = boss0 + BOSS_ARENAS.length, forest0 = garrison0 + GARRISON_ARENAS.length;
+  const camera0 = DIGIT_ARENAS + TERRAIN_ARENAS.length + BEHAVIOR_ARENAS.length, boss0 = camera0 + CAMERA_ARENAS.length, garrison0 = boss0 + BOSS_ARENAS.length, forest0 = garrison0 + GARRISON_ARENAS.length, castle0 = forest0 + FOREST_BOSS_ARENAS.length;
   // The menu shows before the art has loaded (`loadCharacterArt`): a pick made meanwhile is kept and played once the game is ready
   // (before, the click reached `start` before it existed and was lost — more art, task 43, made the wait longer).
   let earlyPick: number | null = null;
@@ -333,7 +336,9 @@ async function boot(): Promise<void> {
     if (i === garrison0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Гарнизон — строй, поводки, Кастелян, кандалы'));
     // Task 48: the Troll at the end of the menu (the numbers before stay), test id `boss-arena-2` (after the Jailer's).
     if (i === forest0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Босс — Тролль (только песочница)'));
-    const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span data-summary="${i}">${markedGoalArena(arena, params.markedGoals).summary}</span>`, i >= forest0 ? `boss-arena-${BOSS_ARENAS.length + i - forest0 + 1}` : i >= garrison0 ? `garrison-arena-${i - garrison0 + 1}` : i >= boss0 ? `boss-arena-${i - boss0 + 1}` : i >= camera0 ? `camera-arena-${i - camera0 + 1}` : `arena-${i + 1}`);
+    // Task 55а: the castle's arenas of step 1а at the very end, test ids `castle-arena-N`.
+    if (i === castle0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Замок — толчок, шкафы, ладьи (только песочница)'));
+    const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span data-summary="${i}">${markedGoalArena(arena, params.markedGoals).summary}</span>`, i >= castle0 ? `castle-arena-${i - castle0 + 1}` : i >= forest0 ? `boss-arena-${BOSS_ARENAS.length + i - forest0 + 1}` : i >= garrison0 ? `garrison-arena-${i - garrison0 + 1}` : i >= boss0 ? `boss-arena-${i - boss0 + 1}` : i >= camera0 ? `camera-arena-${i - camera0 + 1}` : `arena-${i + 1}`);
     b.addEventListener('click', () => pick(i));
     arenaList.appendChild(b);
   });
@@ -1839,6 +1844,17 @@ async function boot(): Promise<void> {
         court: { ...renderer.courtShown },
         /** Task 43: the knight — plate pips, «Рывок» lanes and «Размах» circles drawn in the frame; the sheds and swing hits seen. */
         knight: { ...renderer.knightShown },
+        /**
+         * Task 55а «Замок» (the castle's view): the shoves running (`world.shoves`), the things with their durability, the wardrobes
+         * (the topple's lane as the sim gives it, lying seconds, the lane the view drew), the rooks (the line), and what the view drew.
+         */
+        castle: {
+          shoves: (w.shoves ?? []).map(s => ({ thing: s.thing, kind: s.kind, from: { ...s.from }, to: { ...s.to }, stop: s.stop, target: s.target ?? null, run: s.run, length: s.length, crushed: s.crushed.length, met: s.met })),
+          things: w.enemies.filter(e => isThing(e)).map(e => ({ id: e.id, kind: e.kind, x: e.x, y: e.y, durability: durabilityOf(e) })),
+          wardrobe: w.enemies.filter(e => e.kind === WARDROBE).map(e => { const t = wardrobeTopple(w, e); return { id: e.id, x: e.x, y: e.y, topple: t ? { from: { ...t.from }, to: { ...t.to }, half: t.half, progress: t.progress } : null, lying: wardrobeLying(e), drawn: renderer.castleLane(e.id), pose: renderer.castlePose(e.id) }; }),
+          rook: w.enemies.filter(e => e.kind === ROOK).map(e => { const l = rookLine(w, e); return { id: e.id, x: e.x, y: e.y, hp: e.hp, line: l ? { x0: l.x0, y0: l.y0, x1: l.x1, y1: l.y1, axis: l.axis, progress: l.progress } : null }; }),
+          shown: { ...renderer.castleShown },
+        },
         /**
          * Task 48 «Тролль» (render.ts `trollShown`): `core` — his drawing this frame, `asleep` («Храп»), `glow` (a window is open), `count` (the whole
          * seconds over him, '' — none) and `edgeCount` (by his goal arrow, off screen); `sign` (the move's sign now: club, rock, tail, roar) and its fill

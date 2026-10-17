@@ -20,6 +20,7 @@ import { leverOf } from '../sim/slot';
 import { BUILD_SOURCES } from '../sim/buildIds';
 import { KNIGHT } from '../sim/enemies/garrison';
 import { ROCK_RADIUS, TAIL_OUTER, TROLL } from '../sim/enemies/troll';
+import { wardrobeTopple } from '../sim/enemies/castle';
 
 /** The three labels of the run (the ids are the v1 hints' Б6, Б8, Б9: the memory and the run record keep their keys). */
 export type LabelId = 'b6' | 'b8' | 'b9';
@@ -104,10 +105,31 @@ const FLAIL_LABEL_LIFT = 1.1, THROW_LABEL_LIFT = 1.15;
 /** Task 48: how high over the club's lane end its name hangs, and how far under the Troll's centre his belly's label stands (units). */
 const TROLL_CLUB_LIFT = 0.9, TROLL_BELLY = 1.0;
 
+/**
+ * Task 55а (design 17.10.2026, spec 11): the castle's two moves are named the same way — «Падение шкафа» over the end of the fixed lane,
+ * «Удар ладьи» over the rook — at the first windup of each in the fight. The same set `named` holds them (the keys cannot meet the boss moves').
+ */
+export const CASTLE_MOVE_TEXT = { topple: 'Падение шкафа', strike: 'Удар ладьи' } as const;
+const TOPPLE_LABEL_LIFT = 0.9, ROOK_LABEL_LIFT = 1.1;
+
 /** The names of the moves that start in this frame for the first time (`named` — the moves named in this fight; this adds to it). */
 export function bossMoveLabels(w: World, named: Set<string>): LabelSpec[] {
   const out: LabelSpec[] = [];
   for (const ev of w.events) {
+    if (ev.type === 'wardrobe' && ev.action === 'windup' && !named.has('topple')) {
+      const e = w.enemies.find(x => x.id === ev.id), lane = e ? wardrobeTopple(w, e) : null;
+      if (!lane) continue;
+      named.add('topple');
+      out.push({ id: 'castle-topple', text: CASTLE_MOVE_TEXT.topple, at: { x: lane.to.x, y: lane.to.y }, place: 'above', lift: TOPPLE_LABEL_LIFT });
+      continue;
+    }
+    if (ev.type === 'rook' && ev.action === 'aim' && !named.has('strike')) {
+      const e = w.enemies.find(x => x.id === ev.id);
+      if (!e) continue;
+      named.add('strike');
+      out.push({ id: 'castle-strike', text: CASTLE_MOVE_TEXT.strike, at: { x: e.x, y: e.y }, place: 'above', lift: ROOK_LABEL_LIFT });
+      continue;
+    }
     if (ev.type !== 'bossMove' || ev.stage !== 'start' || named.has(ev.move) || !(ev.move in BOSS_MOVE_TEXT)) continue;
     const core = w.enemies.find(e => e.id === ev.id);
     if (!core) continue;

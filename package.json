@@ -109,6 +109,7 @@
     "test:realtime-keymaster": "tsx src/realtime/sim/keymaster.spec.ts",
     "test:realtime-crossbow": "tsx src/realtime/sim/crossbow.spec.ts",
     "test:realtime-castle": "tsx src/realtime/sim/castle.spec.ts",
+    "test:realtime-castle-view": "tsx src/realtime/view/castleView.spec.ts",
     "test:realtime-castellan-full": "tsx src/realtime/sim/castellanFull.spec.ts",
     "test:realtime-knight": "tsx src/realtime/sim/knight.spec.ts",
     "test:realtime-garrison-moat": "tsx src/realtime/run/garrisonMoat.spec.ts",
