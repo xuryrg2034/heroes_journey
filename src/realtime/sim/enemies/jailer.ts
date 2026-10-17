@@ -52,7 +52,7 @@ export const JAILER_WEIGHT = 'jailer-weight';
  * Task 38 «Гарнизон»: the boss cores of the frame — the Jailer and the Castellan (enemies/garrison.ts, the same frame): both are
  * colourless with `jailerColorless` and both end the fight with `bossClears`. Task 48: the Troll's core too (enemies/troll.ts).
  */
-export const BOSS_CORES: readonly string[] = [JAILER, 'castellan', 'troll'];
+export const BOSS_CORES: readonly string[] = [JAILER, 'castellan', 'troll', 'chief'];
 export type JailerMoveId = 'flail' | 'throw' | 'whistle';
 /** Every move of the Jailer (telegraphWindow.spec.ts checks each has a window record). */
 export const JAILER_MOVES: readonly JailerMoveId[] = ['flail', 'throw', 'whistle'];
@@ -142,8 +142,12 @@ export function jailerShieldUp(world: World, e: Enemy): boolean {
 
 /** HP of the core at its spawn: `Params.jailerHp` (a journal without the key — `JAILER_HP`), at least 1. */
 export const jailerHpOf = (params: Params): number => Math.max(1, Math.round(params.jailerHp ?? JAILER_HP));
-/** Task 32: `e` is a colourless core in this world (the frame and `Params.jailerColorless` on). Its parts keep their colours. */
-export const colorlessCore = (world: World, e: Pick<Enemy, 'kind'>): boolean => BOSS_CORES.includes(e.kind) && frameOn(world) && !!world.params.jailerColorless;
+/**
+ * Task 32: `e` is a colourless core in this world (the frame and `Params.jailerColorless` on). Its parts keep their colours. Task 54:
+ * the Chief's core in his open window (`Params.chiefFeast`; `vars.wo` and its hit not spent) is a link of the brew's colour.
+ */
+export const colorlessCore = (world: World, e: Pick<Enemy, 'kind'> & { vars?: Record<string, number> }): boolean => BOSS_CORES.includes(e.kind) && frameOn(world) && !!world.params.jailerColorless
+  && !(e.kind === 'chief' && !!world.params.chiefFeast && !!e.vars?.wo && !e.vars.wh);
 
 // ---- Task 28 «Тюремщик в походе»: the boss's death ends the fight (`Params.bossClears`) ----
 
@@ -216,8 +220,8 @@ export function jailerMove(world: World, e: Enemy): { move: JailerMoveId; progre
   return { move, progress, at: { x: v.ax, y: v.ay }, r: move === 'throw' ? THROW_RADIUS : WHISTLE_RADIUS };
 }
 
-/** The gate of the arena farthest from the hero (the first of equals); null — the arena has none. */
-function farGate(world: World): Vec | null {
+/** The gate of the arena farthest from the hero (the first of equals); null — the arena has none. Task 54: the Chief's «Свисток» too. */
+export function farGate(world: World): Vec | null {
   let best: Vec | null = null, bestD = -1;
   for (const g of world.arena.gates ?? []) { const d = dist(g, world.hero); if (d > bestD) { best = g; bestD = d; } }
   return best;

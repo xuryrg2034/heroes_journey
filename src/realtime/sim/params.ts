@@ -934,6 +934,29 @@ export interface Params {
   trollSnoreRegrow: number;
   trollRoarPeriod: number;
   trollCrowd: number;
+  // ---- Task 54 «Главарь с котелком» (sim/enemies/chief.ts, sim/arenasBoss.ts `chief`; docs/realtime-elite-behaviors.md, «Главарь (задача 54)»). ----
+  /**
+   * The Chief's feast (design 17.10.2026, docs/design-notes/task-54-chief.md, 7): with the frame on, the Chief's core is closed outside
+   * the window «Обед!» opens — the chain refuses it (`outOfWindow`, «вне окна»); in the window it is a link of the brew's colour that a
+   * chain takes only with `chiefFeastLinks` enemy links of that colour before it (`queue`, «в очередь»); one hit per window, the
+   * chain's only — no other source ever hurts the core (event `chiefFeast` `block`). Off by default and in journals without the key:
+   * the core is open always (the feast still recolours and seats its eaters). The arena «Стан Главаря» turns it on for itself
+   * (`ArenaTemplate.chief`).
+   */
+  chiefFeast: boolean;
+  /**
+   * Task 54, the Chief's numbers (read only on his arena — no journal before the task has it; the defaults are the design's): the
+   * core's HP and plates, the queue (enemy links of the brew's colour before the core), the window's and the eaters' seconds, the gap
+   * from a window's end to the next «Обед!»'s windup in phases 1–2, the queue from which the hit takes two plates (0 — never), the
+   * crowd's factor — its density floor and its top-up pace (the groups' interval ÷ it).
+   */
+  chiefHp: number;
+  chiefPlates: number;
+  chiefFeastLinks: number;
+  chiefFeastTime: number;
+  chiefFeastGap: number;
+  chiefFeastBig: number;
+  chiefCrowd: number;
   // ---- Task 33 «Цена „Близнецов“ и „Развилки“» (sim/forms.ts, chain.ts; docs/realtime-prototype.md, 9ф). ----
   /**
    * «Близнецы»: strict alternation (design 15.10.2026). While the chain goes by one colour of the pair, as before; once it took
@@ -1482,6 +1505,16 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   trollSnoreRegrow: 1,
   trollRoarPeriod: 20,
   trollCrowd: 1,
+  // Task 54 «Главарь с котелком» (enemies/chief.ts): the feast off by default (the arena «Стан Главаря» turns it on); his numbers
+  // (hypotheses of the spec, read on his arena only).
+  chiefFeast: false,
+  chiefHp: 2,
+  chiefPlates: 4,
+  chiefFeastLinks: 3,
+  chiefFeastTime: 4,
+  chiefFeastGap: 6,
+  chiefFeastBig: 6,
+  chiefCrowd: 0.45,
   // Task 33 (forms.ts): the sandbox's price of the forms; `RUN_FORCED` turns it off, a run with forms on (task 30, `RT_FORMS_PARAMS`).
   twinsAlternate: true,
   twinsNoShift: true,
@@ -1996,6 +2029,16 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('trollSnoreRegrow', 'Тролль', '«Храп»: пластин за сон', 0, 3, 1, 5, '', '0 — «Храп» без отрастания.'),
   n('trollRoarPeriod', 'Тролль', '«Рык»: раз в', 5, 60, 1, 5, 'с', 'Во второй и третьей фазе; первый — при входе во вторую.'),
   n('trollCrowd', 'Тролль', 'Тролль: толпа', 0.25, 2, 0.05, 5, '×', 'Множитель плотности и темпа пополнения толпы. Арена «Берлога тролля» ставит 0,3, если на панели 1.'),
+  // Task 54 «Главарь с котелком» (enemies/chief.ts, docs/realtime-elite-behaviors.md, «Главарь (задача 54)»).
+  { kind: 'bool', key: 'chiefFeast', group: 'Главарь', label: '«Обед!» Главаря', stage: 5,
+    hint: 'Главарь закрыт вне окна «Обеда!» («вне окна»). В окне его берёт только цепь цвета варева, в которой до него не меньше трёх звеньев этого цвета («в очередь»); одно попадание за окно, другой урон его не ранит. Арена «Стан Главаря» включает правило сама.' },
+  n('chiefHp', 'Главарь', 'Главарь: HP ядра', 1, 12, 1, 5, '', 'Со следующего запуска арены.'),
+  n('chiefPlates', 'Главарь', 'Главарь: пластины ядра', 0, 10, 1, 5, '', 'Со следующего запуска арены.'),
+  n('chiefFeastLinks', 'Главарь', 'Очередь: звеньев цвета варева', 0, 8, 1, 5, '', 'Столько звеньев цвета варева нужно в цепи до Главаря.'),
+  n('chiefFeastTime', 'Главарь', '«Обед!»: окно', 1, 10, 0.5, 5, 'с', 'Столько же сидят едоки.'),
+  n('chiefFeastGap', 'Главарь', '«Обед!»: перерыв', 1, 20, 0.5, 5, 'с', 'От конца окна до замаха следующего «Обеда!» в первой и второй фазе (в третьей — 4 с).'),
+  n('chiefFeastBig', 'Главарь', 'Очередь на два', 0, 12, 1, 5, '', 'Очередь от стольких звеньев снимает две пластины. 0 — никогда.'),
+  n('chiefCrowd', 'Главарь', 'Главарь: толпа', 0.25, 2, 0.05, 5, '×', 'Множитель плотности и темпа пополнения толпы на арене «Стан Главаря».'),
   // Task 38 «Гарнизон, шаг 1» (tethers.ts, enemies/garrison.ts, docs/realtime-elite-behaviors.md).
   { kind: 'bool', key: 'tethers', group: 'Гарнизон', label: 'Закон связи', stage: 5,
     hint: 'Поводок — линия между псарём (или Кастеляном) и псом, не звено. Отрезок прохода цепи, пересекающий поводок, рубит его после прохода; подсветка показывает те же поводки. Прыжок, ходьба, круговой удар и расходники не рубят. Сорвавшийся пёс в ярости кусает всех. В походе включено.' },
