@@ -136,9 +136,9 @@ check('the forest\'s outputs (300 seeds, the run\'s own commands): a run with th
   }
 });
 
-check('a run without the schedule (40 runs, the walk of the reference): the arenas and rosters of every node are those of main before the task (reference made 15.10.2026 on 9c43931; task 28 — a run without the Jailer fight, `jailer: false`); every step saves and reads back the same', () => {
+check('a run without the schedule (40 runs, the walk of the reference): the arenas and rosters of every node are those of main before the task (reference made 15.10.2026 on 9c43931; task 28 — a run without the Jailer fight, `jailer: false, troll: false`); every step saves and reads back the same', () => {
   for (let k = 1; k <= 40; k++) {
-    let run = createRtRun(seedOf(k), { gift: 'mini', jailer: false, garrison: false });
+    let run = createRtRun(seedOf(k), { gift: 'mini', jailer: false, troll: false, garrison: false });
     for (let step = 0; step < 300 && !run.result; step++) {
       const pending = run.pending;
       if (!pending) { const next = rtAvailableNodes(run); run = ok(rtEnterNode(run, next[(k * 7 + step) % next.length].id), 'enter'); }

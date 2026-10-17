@@ -35,6 +35,7 @@ import { RT_TASK17_OFF,
   arenaPreview, arenaSeed, createRtRun, nodeArenas, GIFT_POOL, rtMapNodes, parseRtRun, resolveArena, rtArenaLoadout, RT_MILLSTONE_MAX_HP_PRICE, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtItemRefusal, rtChooseGift, rtChooseGiftPick,
   rtChooseHammer, rtChooseTalisman, rtEnterNode, rtHammerOptions, rtEventView, rtGiftOptions, rtGiftView, rtNode, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun, rtItemHintDue, rtRunParams,
   type RtRunState, type RtRunStep,
+  rtTrollNode,
 } from './rtRun';
 import type { ItemKind } from '../sim/kit';
 import { ITEM_KINDS } from '../forest/items';
@@ -106,7 +107,8 @@ interface Walk { run: RtRunState; arenas: string[]; hards: string[]; finals: str
 
 function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = {}): Walk {
   // Task 30: the walk checks the hammer screen and the old pools — a run without forms (`forms: false`, as a save before it).
-  let run = createRtRun(seed, { gift: options.gift ?? 'mini', forms: false, garrison: false });
+  // Task 48: and «Последний рубеж» on both branches (`troll: false`, a save before the Troll; his run — trollRun.spec.ts).
+  let run = createRtRun(seed, { gift: options.gift ?? 'mini', forms: false, troll: false, garrison: false });
   const walk: Walk = { run, arenas: [], hards: [], finals: [], rowArenas: [], outOfRow: [], events: [], saves: 0, replays: 0, previews: 0, finds: 0, crafts: 0, bought: 0, offers: [], hammers: 0 };
   const save = () => { const loaded = roundTrip(run); assert(loaded && same(loaded, run), `save of seed ${seed} does not load back`); walk.saves++; };
   for (let step = 0; step < 200 && !run.result; step++) {
@@ -119,7 +121,8 @@ function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = 
       // Step 4: a boss node plays the final arena, a hard battle «Застава», the rest the pool of the run row; no stand-ins.
       assert(!('standIn' in pending), `${node.id}: no temporary arena`);
       if (pending.battle === 'final') walk.atFinal = run;
-      if (pending.battle === 'final') { assert(node.type === 'boss' && pending.arena === FINAL_ARENA, `boss: the final arena (${pending.arena})`); walk.finals.push(pending.arena); }
+      // Task 48: the den branch's boss of a new run plays the Troll; the camp's — the final arena.
+      if (pending.battle === 'final') { assert(node.type === 'boss' && pending.arena === (rtTrollNode(run, node) ? 'troll' : FINAL_ARENA), `boss: the final arena (${pending.arena})`); walk.finals.push(pending.arena); }
       else if (pending.battle === 'hard') { assert(node.type === 'hard' && pending.arena === HARD_ARENA, `hard: Застава (${pending.arena})`); walk.hards.push(pending.arena); }
       // Task 28 «Тюремщик в походе»: a new run's Jailer node plays the Jailer's fight (its pool draw spent, not read).
       else if (node.type === 'checkpoint' && run.jailer) assert(pending.arena === 'jailer' && pending.roster === undefined, `${node.id}: the Jailer's fight (${pending.arena})`);
@@ -441,7 +444,7 @@ interface PathArena { row: number; type: string; arena: string }
  * off — the pools before it, the reference measures below). The Jailer's node plays its pool as before task 28 (`jailer: false`), its hammer screen as before task 30 (`forms: false`).
  */
 function arenaPath(seed: number, k: number, mix: boolean, gentle = false): { path: PathArena[]; previews: number } {
-  let run = createRtRun(seed, { gift: 'mini', rosterMix: mix, ...gentle ? {} : RT_TASK17_OFF, jailer: false, forms: false, garrison: false });
+  let run = createRtRun(seed, { gift: 'mini', rosterMix: mix, ...gentle ? {} : RT_TASK17_OFF, jailer: false, troll: false, forms: false, garrison: false });
   const path: PathArena[] = [];
   let previews = 0;
   for (let step = 0; step < 200 && !run.result; step++) {

@@ -63,7 +63,7 @@ interface Played { row: number; type: string; arena: string; roster?: string; ru
  */
 function walk(seed: number, k: number, mix = true): Played[] {
   // A run before the mix is also before the gentle entry (task 17, 13.10.2026) and the Jailer's fight (task 28): its pools are the old ones.
-  let run = createRtRun(seed, { gift: 'mini', garrison: false, rosterMix: mix, ...mix ? {} : { ...RT_TASK17_OFF, jailer: false, forms: false } });
+  let run = createRtRun(seed, { gift: 'mini', garrison: false, rosterMix: mix, ...mix ? {} : { ...RT_TASK17_OFF, jailer: false, troll: false, forms: false } });
   const played: Played[] = [];
   for (let step = 0; step < 200 && !run.result; step++) {
     const pending = run.pending;
@@ -137,6 +137,8 @@ check(`${RUNS} runs: no roster brings a kind not seen on an earlier arena; «П�
       else if (FIXED_ROSTER_ARENAS.includes(entry.arena) || entry.arena === 'glade' && entry.row === 1) assert(entry.roster === undefined, `${entry.arena} row ${entry.row}: ${entry.roster}`);
       // Task 28 «Тюремщик в походе»: a new run's Jailer node plays the Jailer's fight — its own composition, no roster.
       else if (entry.type === 'checkpoint' && entry.arena === 'jailer') assert(entry.roster === undefined, `the Jailer's fight row ${entry.row}: ${entry.roster}`);
+      // Task 48: the Troll's fight (the den branch's final of a new run) has no roster, as the Jailer's.
+      else if (entry.arena === 'troll') assert(entry.roster === undefined, `the Troll's fight row ${entry.row}: ${entry.roster}`);
       else if (anchor) {
         const pure = !seen.has(anchor.kind) && entry.row < ANCHOR_ROLE_ROW;
         assert((entry.roster === undefined) === pure, `${entry.arena} row ${entry.row}: ${entry.roster}, ${anchor.kind} ${seen.has(anchor.kind) ? 'seen' : 'unseen'}`);

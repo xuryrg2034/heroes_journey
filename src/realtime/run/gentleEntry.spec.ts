@@ -117,7 +117,7 @@ check('tough newcomers: a gentle run keeps 1–2 HP on row 5 and gets 3 HP from 
 
 /** The run row and arena of every arena a run meets, its outcomes faked as victories (the run's own commands, no simulation); the old run — without the task-17 flags and the Jailer's fight (task 28: its node plays the pool). */
 function arenaRows(seed: number, k: number, gentle: boolean): [number, string][] {
-  let run = createRtRun(seed, { gift: 'mini', ...gentle ? {} : { ...RT_TASK17_OFF, jailer: false } });
+  let run = createRtRun(seed, { gift: 'mini', ...gentle ? {} : { ...RT_TASK17_OFF, jailer: false, troll: false } });
   const out: [number, string][] = [];
   for (let step = 0; step < 200 && !run.result; step++) {
     const pending = run.pending;
@@ -270,7 +270,8 @@ check('the final of a gentle run whose hero never fought a porcupine: none in it
   let unmet = 0, metRuns = 0, oldFinals = 0, cutThorns = 0;
   const toFinal = (_run: RtRunState, _row: number, battle: RtBattleKind): boolean => battle === 'final';
   for (let k = 1; k <= 150 && (unmet < 4 || metRuns < 2 || oldFinals < 2); k++) {
-    const at = walkFights(seedOf(k + 900), k, {}, 6, toFinal);
+    // Task 48: the gentle rule of «Последний рубеж» (the camp's final; a run without the Troll's flag plays it on both branches).
+    const at = walkFights(seedOf(k + 900), k, { troll: false }, 6, toFinal);
     if (at) {
       const met = at.scanned.has('porcupine'), gone = rtArenaLoadout(at.run).withoutKinds;
       assert(met === rtMetKinds(at.run).has('porcupine') && (met ? gone === undefined : same(gone, ['porcupine'])), `seed ${k}: fought ${met}, without ${gone}`);
@@ -280,7 +281,7 @@ check('the final of a gentle run whose hero never fought a porcupine: none in it
       else if (met && metRuns < 2) { assert(finalPorcupines(at.run, 40, k) > 0, `seed ${k}: the old final`); metRuns++; }
     }
     if (oldFinals < 2) {
-      const old = walkFights(seedOf(k + 900), k, RT_TASK17_OFF, 6, toFinal);
+      const old = walkFights(seedOf(k + 900), k, { ...RT_TASK17_OFF, troll: false }, 6, toFinal);
       if (old) { assert(rtArenaLoadout(old.run).withoutKinds === undefined && finalPorcupines(old.run, 40, k) > 0, `seed ${k}: an old run's final keeps it`); oldFinals++; }
     }
   }

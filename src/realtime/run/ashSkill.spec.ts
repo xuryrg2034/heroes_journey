@@ -169,7 +169,9 @@ check('VIII (walked runs, 3 seeds; forest row 1, rows 2–4, the Jailer (row 5),
       const c8 = colorsOf(sim8, 30), c7 = colorsOf(sim7, 30);
       assert(c8.after.has(4) && [...c8.after].every(c => c >= 0 && c < MAX_COLORS), `seed ${k} ${key}: VIII newcomers ${[...c8.after]}`);
       assert(!c7.after.has(4), `seed ${k} ${key}: VII newcomers ${[...c7.after]}`);
-      assert(same(c8.start, c7.start) && c8.start.every(c => c >= 0 && c <= 3), `seed ${k} ${key}: start ${c8.start} / ${c7.start}`);
+      // Task 48: the Troll's parts take three colours of the fight's palette by the seed (spec 5: at VIII three of five) — not hand-placed.
+      if (sim8.world.arena.id === 'troll') assert(c8.start.every(c => c >= 0 && c < MAX_COLORS) && c7.start.every(c => c >= 0 && c <= 3), `seed ${k} ${key}: the Troll's start ${c8.start} / ${c7.start}`);
+      else assert(same(c8.start, c7.start) && c8.start.every(c => c >= 0 && c <= 3), `seed ${k} ${key}: start ${c8.start} / ${c7.start}`);
       assert(replays(sim8), `seed ${k} ${key}: replay`);
       const journal = journalOf(sim8);
       delete journal.loadout.colors;
