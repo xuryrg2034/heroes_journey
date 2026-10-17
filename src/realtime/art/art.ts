@@ -21,8 +21,8 @@ export function makeToad(size=1,outline=false):Container{
   const sprite=characterSprite('toad',84*size,78*size);
   if(sprite){
     const c=new Container();
-    // Task 49 (design): the hero's own thin pale outline (1.5 px, 60 %) keeps her slate and navy off the dark floor: tinted copies round her.
-    if(outline)for(let k=0;k<8;k++){const a=characterSprite('toad',84*size,78*size);if(!a)break;const t=k/8*Math.PI*2;a.tint=0xe8efe0;a.alpha=0.6;a.position.set(Math.cos(t)*1.5,-2*size+Math.sin(t)*1.5);c.addChild(a);}
+    // Task 49 (design): the hero's own thin pale outline (2 px, 85 %) keeps her slate and navy off the dark floor: tinted copies round her.
+    if(outline)for(let k=0;k<8;k++){const a=characterSprite('toad',84*size,78*size);if(!a)break;const t=k/8*Math.PI*2;a.tint=0xe8efe0;a.alpha=0.85;a.position.set(Math.cos(t)*2,-2*size+Math.sin(t)*2);c.addChild(a);}
     sprite.position.set(0,-2*size);c.addChild(sprite);return c;
   }
   const c=new Container(),g=new Graphics();c.addChild(g);c.scale.set(size);
