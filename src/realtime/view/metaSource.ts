@@ -1,12 +1,13 @@
 /**
  * Tasks 36–37: the view's meta source over the profile (core, run/rtRunStorage.ts and run/rtMeta.ts): the camp's state with the
  * hero's experience, packs and record, the purchases, the start of a run from the camp, the lines' memory. The rules are core's;
- * this file only reshapes them into the view's forms (view/metaModel.ts).
+ * this file only reshapes them into the view's forms (view/metaModel.ts). Task 49: the experience, the next pack and the record
+ * are the chosen hero's (`heroChoice`); the heroes and the choice come from the profile.
  */
-import { RT_HERO_ID, RT_META_PACKS, RT_META_THRESHOLDS } from '../run/metaCatalog';
+import { RT_HERO_TITLES, RT_META_THRESHOLDS } from '../run/metaCatalog';
 import type { RtHearthStart } from '../run/rtMeta';
 import type { RtProfileStore } from '../run/rtRunStorage';
-import type { HearthState, MetaSource, NpcId } from './metaModel';
+import type { HearthState, MetaHero, MetaHeroId, MetaSource, NpcId } from './metaModel';
 
 export class ProfileMeta implements MetaSource {
   constructor(private readonly profile: RtProfileStore) {}
@@ -14,14 +15,18 @@ export class ProfileMeta implements MetaSource {
   /** The camp exists after the first run's end (core keeps `meta.hearth` from then). */
   hearthOpen(): boolean { return !!this.profile.load().meta?.hearth; }
 
+  heroes(): MetaHero[] {
+    return this.profile.heroes().map(h => ({ id: h.id, title: RT_HERO_TITLES[h.id], open: h.open, chosen: h.chosen, xp: h.xp, ...h.ashBest ? { ashBest: h.ashBest } : {} }));
+  }
+
+  chooseHero(id: MetaHeroId): boolean { return this.profile.chooseHero(id); }
+
   hearth(): HearthState {
-    const view = this.profile.hearth(), hero = this.profile.load().meta?.heroes[RT_HERO_ID];
-    const xp = hero?.xp ?? 0, packs = hero?.packs ?? [];
-    const next = RT_META_PACKS.find(p => !packs.includes(p.id));
+    const hero = this.profile.heroChoice(), view = this.profile.hearth(hero), own = this.profile.heroes().find(h => h.id === hero)!;
     return {
-      stock: view.stock, levels: view.levels, met: { owl: true, herb: view.met.herb, smith: view.met.smith }, xp, thresholds: [...RT_META_THRESHOLDS],
-      nextPack: next ? { id: next.id, title: next.title, at: next.at, size: next.items.length } : null,
-      record: hero?.record ? { row: hero.record.row, won: hero.record.won, ...hero.record.level ? { level: hero.record.level } : {}, ...hero.record.wonLevel ? { wonLevel: hero.record.wonLevel } : {} } : null, seen: view.seen, lines: view.lines,
+      hero, stock: view.stock, levels: view.levels, met: { owl: true, herb: view.met.herb, smith: view.met.smith }, xp: own.xp, thresholds: [...RT_META_THRESHOLDS],
+      nextPack: own.nextPack,
+      record: own.record ? { row: own.record.row, won: own.record.won, ...own.record.level ? { level: own.record.level } : {}, ...own.record.wonLevel ? { wonLevel: own.record.wonLevel } : {} } : null, seen: view.seen, lines: view.lines,
       ...view.quest ? { quest: { npc: view.quest.npc as NpcId, id: view.quest.id } } : {},
       ...view.last ? { last: { ...view.last } } : {},
       ...view.self.herb || view.self.smith ? { self: { ...view.self.herb ? { herb: true } : {}, ...view.self.smith ? { smith: true } : {} } } : {},
@@ -30,7 +35,7 @@ export class ProfileMeta implements MetaSource {
 
   buy(npc: NpcId, level: number): { ok: true } | { ok: false; need: number; have: number } { return this.profile.buyHearth(npc, level); }
 
-  /** The camp's start plan for a base seed (core's `hearthStart`; its flags go into the run with the choice made). */
+  /** The camp's start plan for a base seed (core's `hearthStart` of the chosen hero; its flags go into the run with the choice made). */
   start(seed: number): RtHearthStart { return this.profile.hearthStart(seed); }
 
   markLine(id: string): void { this.profile.markLine(id); }

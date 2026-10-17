@@ -35,8 +35,14 @@ export interface MetaEnd {
   quest?: { npc: NpcId; id: string; done: boolean; xp: number; stock: number };
 }
 
+/** Task 49: the heroes as the camp and «Новый поход» show them (the profile's `heroes()`; the cat always open, Ведунья once freed). */
+export type MetaHeroId = 'cat' | 'toad';
+export interface MetaHero { id: MetaHeroId; title: string; open: boolean; chosen: boolean; xp: number; ashBest?: number }
+
 /** The camp as the view shows it. */
 export interface HearthState {
+  /** Task 49: the hero the bar, the pack and the record below are of (the chosen one). */
+  hero: MetaHeroId;
   stock: number;
   levels: Record<NpcId, number>;
   met: Record<NpcId, boolean>;
@@ -50,7 +56,7 @@ export interface HearthState {
   seen: string[];
   quest?: { npc: NpcId; id: string };
   /** What the last run was: the lines' occasion (`quest` — the quest's result; `firstWin` — the profile's first victory). */
-  last?: { won: boolean; cause?: string; row: number; beaten: boolean; quest?: boolean; firstWin?: boolean; pack?: boolean };
+  last?: { won: boolean; cause?: string; row: number; beaten: boolean; quest?: boolean; firstWin?: boolean; pack?: boolean; hero?: 'toad' };
   /** The NPC who came by themselves (the fallback way): their meeting line is `first_self`. */
   self?: Partial<Record<NpcId, boolean>>;
   /** The lines said so far, by `npc:key` (the profile's `lines`). */
@@ -65,6 +71,9 @@ export interface MetaSource {
   /** The camp exists: a run ended at least once (the first run starts as before). */
   hearthOpen(): boolean;
   hearth(): HearthState;
+  /** Task 49: the heroes (the cat first); only an open one can be chosen. */
+  heroes(): MetaHero[];
+  chooseHero(id: MetaHeroId): boolean;
   buy(npc: NpcId, level: number): { ok: true } | { ok: false; need: number; have: number };
   start(seed: number): HearthStart;
   /** A line was said (its `npc:key`): the profile counts it. */

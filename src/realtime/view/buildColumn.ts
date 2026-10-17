@@ -9,7 +9,7 @@
  * the ids of sim/buildIds.ts and run/rtTalismans.ts (an id without a row gets its first letters).
  */
 import { buildModules, moduleActive, type BuildProgress } from '../sim/build';
-import { COUNTER_TALISMANS as T, FORMS as F, FROST_PASS, FUSIONS as U, fusionRecipe, HAMMERS as H, OATH_HUNGER, RELICS as R, RELIC_IDS } from '../sim/buildIds';
+import { COUNTER_TALISMANS as T, FORMS as F, FROST_PASS, FUSIONS as U, fusionRecipe, HAMMERS as H, HERO_LAWS, OATH_HUNGER, RELICS as R, RELIC_IDS } from '../sim/buildIds';
 import { formIconSvg, fusionIconSvg, hammerIconSvg } from './formIcons';
 import type { World } from '../sim/world';
 import { rtHammer, rtTalisman } from '../run/rtTalismans';
@@ -206,9 +206,11 @@ function fusedParts(ids: readonly string[]): Set<string> {
 export function buildEntries(world: World): BuildEntry[] {
   const kit = world.kit;
   if (!kit) return [];
-  const relics = (RELIC_IDS as readonly string[]), fused = fusedParts(kit.talismans);
+  const relics = (RELIC_IDS as readonly string[]), fused = fusedParts(kit.talismans), laws = Object.values(HERO_LAWS) as string[];
+  // Task 49: the hero's law module (`hero-toad`) is no item the hero took — the column does not list it. Her innate «Печать» is the form
+  // she plays with and stays in the column as any form (a law that is not an item has no row: no new element).
   return [
-    ...kit.talismans.filter(id => !relics.includes(id) && !fused.has(id)).map(id => ({ id, kind: 'talisman' as const })),
+    ...kit.talismans.filter(id => !relics.includes(id) && !fused.has(id) && !laws.includes(id)).map(id => ({ id, kind: 'talisman' as const })),
     ...kit.hammer && !fused.has(kit.hammer) ? [{ id: kit.hammer, kind: 'hammer' as const }] : [],
     ...kit.talismans.filter(id => relics.includes(id)).map(id => ({ id, kind: 'relic' as const })),
   ];

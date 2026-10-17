@@ -21,7 +21,8 @@ const MAX_ARC = 5;
 /** Search cap: the nearest bodies to the hero, per colour. */
 const MAX_BODIES = 18;
 
-export function findLoopHint(world: World): LoopHintFigure | null {
+/** `only` (task 49): the lesson of the mage asks for the arc on the hero alone; absent — either figure, as the experiment's highlight. */
+export function findLoopHint(world: World, only?: LoopKind): LoopHintFigure | null {
   const p = world.params;
   // Task 29: the loop is on by the panel or by «Печать» in the kit, never with «Развилка» (`loopOn`).
   if (!loopOn(world) || world.status !== 'playing' || world.move || world.chain.length) return null;
@@ -33,6 +34,7 @@ export function findLoopHint(world: World): LoopHintFigure | null {
   const minFirst = loopMinOf(p, 'first'), minHero = loopMinOf(p, 'hero');
   let best: LoopHintFigure | null = null;
   const offer = (kind: LoopKind, color: number, path: Enemy[], ring: Vec[]): void => {
+    if (only && kind !== only) return;
     const n = countIn(ring, new Set(path.map(e => e.id)));
     if (n >= 1 && (!best || n > best.inside)) best = { kind, color, ring: ring.map(v => ({ x: v.x, y: v.y })), inside: n };
   };

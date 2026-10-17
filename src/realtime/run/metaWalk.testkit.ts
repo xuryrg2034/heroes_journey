@@ -58,6 +58,8 @@ export interface WalkOptions {
   knack?: (run: RtRunState, options: readonly RtKnackOption[]) => RtKnackOption | null;
   /** Task 50 (scripts/realtime-knacks.ts): a rest with a fusion ready makes it (the first one); absent — the rest heals or crafts. */
   fuse?: boolean;
+  /** Task 49: the talisman taken on a talisman screen (null — the walk's own pick); absent — the walk's own pick by the step. */
+  talisman?: (run: RtRunState, options: readonly string[]) => string | null;
   /** Task 50 (telemetry): every step that went through, with the state before it (as the view hands it to the recorder). */
   onStep?: (before: RtRunState, step: Extract<RtRunStep, { ok: true }>) => void;
 }
@@ -126,8 +128,8 @@ export function walkRun(options: WalkOptions): Walk {
       case 'talisman': {
         const reroll = rtRerollView(run);
         if (reroll?.available && (reroll.free ? options.jailerReroll === (pending.source === 'form' ? 'form' : 'oath') : step % 3 === 0)) { run = seen(take(rtRerollTalismans(run), 'reroll')); break; }
-        const options2 = (run.pending as typeof pending).options, at = step % (options2.length + 1);
-        run = seen(take(rtChooseTalisman(run, at < options2.length ? options2[at] : null), 'talisman'));
+        const options2 = (run.pending as typeof pending).options, at = step % (options2.length + 1), wanted = options.talisman?.(run, options2) ?? null;
+        run = seen(take(rtChooseTalisman(run, wanted && options2.includes(wanted) ? wanted : at < options2.length ? options2[at] : null), 'talisman'));
         break;
       }
       case 'hammer':

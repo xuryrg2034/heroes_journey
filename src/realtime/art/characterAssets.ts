@@ -19,6 +19,8 @@ export const CHARACTER_ART_IDS = [
   'garrison-knight',
   // Task 48 «Тролль»: the boss of the forest awake and asleep («Храп»), his club and the rock (the tail's knot is the same rock, smaller).
   'troll', 'troll-sleep', 'troll-club', 'troll-rock',
+  // Task 49 «Второй герой»: Ведунья (the hero's sprite; the drawn toad stays the fallback) and the Jailer's cage (the drawn cage stays the fallback).
+  'toad', 'jailer-cage',
 ] as const;
 
 export type CharacterArtId = typeof CHARACTER_ART_IDS[number];

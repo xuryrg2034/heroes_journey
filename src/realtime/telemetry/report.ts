@@ -1003,6 +1003,33 @@ export function habitsSection(runs: readonly RunRecord[]): string {
     table(['Повадка', 'Походов', 'Взято с тегом', 'Сплавов', 'Победы', 'Дальний ряд (медиана)'], rows)].join('\n');
 }
 
+// ---- Task 49 «Второй герой» (RunRecord.hero, .freed; FightSummary.damage.unshielded; from 16.10.2026) ----
+
+/**
+ * Task 49 «Герои» (spec 12.1): by hero (the cat — runs without `hero`) — runs, victories, the farthest row, the median chain length of
+ * its run fights, seals a fight, the share of empty seals, the share of kills by the seal, Ведунья's `damage.unshielded` (hits a fight
+ * where the cat would stand shielded); the share of runs with Ведунья after the first run that freed her (records in time order).
+ */
+export function heroesSection(runs: readonly RunRecord[], entries: readonly FightEntry[] = []): string {
+  if (!runs.length) return '_походов нет_';
+  const heroes: { id: 'cat' | 'toad'; name: string }[] = [{ id: 'cat', name: 'Кот' }, { id: 'toad', name: 'Ведунья' }];
+  const rows = heroes.map(({ id, name }) => {
+    const list = runs.filter(r => (r.hero ?? 'cat') === id), keys = new Set(list.map(r => r.run));
+    const fights = entries.flatMap(e => (e.analysis?.summary && keys.has(e.record.run) ? [e.analysis.summary] : []));
+    const seals = fights.reduce((n, f) => n + f.chain.seals, 0), empty = fights.reduce((n, f) => n + f.chain.sealsEmpty, 0);
+    const sealKills = fights.reduce((n, f) => n + (f.kills.tools.seal ?? 0), 0), kills = fights.reduce((n, f) => n + f.kills.chain + Object.values(f.kills.tools).reduce((a, b) => a + b, 0), 0);
+    const bare = fights.filter(f => f.damage.unshielded), bareHits = bare.reduce((n, f) => n + f.damage.unshielded!.hits, 0);
+    return [name, list.length, `${list.filter(r => r.outcome === 'victory').length} из ${list.length}`, list.length ? Math.max(...list.map(r => r.farRow)) : '—',
+      fights.length ? n1(median(fights.map(f => f.chain.lengthMedian))) : '—', fights.length ? n1(seals / fights.length) : '—', seals ? pct(empty, seals) : '—',
+      kills ? pct(sealKills, kills) : '—', bare.length ? n1(bareHits / bare.length) : '—'];
+  });
+  const ordered = [...runs].sort((a, b) => a.at.localeCompare(b.at)), first = ordered.findIndex(r => r.freed);
+  const after = first < 0 ? [] : ordered.slice(first + 1), chose = after.filter(r => r.hero === 'toad').length;
+  return ['Бои — бои походов этого героя с повтором журнала. «Без щита» — удары по Ведунье за длину щита цепи после открытой цепи с нужными убийствами (`damage.unshielded`), за бой.', '',
+    table(['Герой', 'Походов', 'Победы', 'Дальний ряд', 'Длина цепи (медиана)', 'Печатей за бой', 'Пустых печатей', 'Убийств печатью', 'Без щита за бой'], rows), '',
+    first < 0 ? 'Спасения Ведуньи в записях нет (`RunRecord.freed`).' : `После спасения (поход ${ordered[first].run}): походов ${after.length}, из них Ведуньей ${chose} (${pct(chose, after.length)}).`].join('\n');
+}
+
 /** Task 50 «Выборы»: build choices a run (`RunRecord.choices` of `BUILD_CHOICE_SOURCES`), all of them and the knack screen's apart. */
 export function choicesSection(runs: readonly RunRecord[]): string {
   if (!runs.length) return '_походов нет_';
@@ -1169,6 +1196,8 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     // Task 40 «Гарнизон, шаг 1б»: the survival through both levels, the garrison's fights and the cart.
     '## Гарнизон', '', garrisonSection(runs, runFights), '',
     '## Сплавы', '', fusionsSection(runs, fights), '',
+    // Task 49 «Второй герой».
+    '## Герои', '', heroesSection(runs, runFights), '',
     '## Сноровка', '', knacksSection(runs), '',
     '## Повадка', '', habitsSection(runs), '',
     '## Выборы', '', choicesSection(runs), '',

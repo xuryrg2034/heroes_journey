@@ -447,6 +447,13 @@ export interface RunRecord extends RtHeader {
    */
   habitsOn?: true;
   habit?: string;
+  /** Task 49 «Второй герой» (from 16.10.2026): the run's hero other than the cat (`RtRunState.heroId`); absent — the cat (older records too). */
+  hero?: 'toad';
+  /**
+   * Task 49: this run freed a hero — the first win over the Jailer in a meta run (`RtProfileStore.freeHero`): the hero and the run row.
+   * Absent — none.
+   */
+  freed?: { hero: 'toad'; row: number };
   /** The Params of the run, once per run (decision 3): the journals name them by `params.hash`. Named `runParams` because `params` is the header's `{storage, hash}`. */
   runParams: Params;
 }
@@ -681,6 +688,9 @@ export function checkRecord(value: unknown): string | null {
       if (r.knacksOn !== undefined && r.knacksOn !== true) return 'run knacksOn';
       if (r.habitsOn !== undefined && r.habitsOn !== true) return 'run habitsOn';
       if (r.habit !== undefined && !(typeof r.habit === 'string' && r.habitsOn === true)) return 'run habit';
+      // Task 49 (16.10.2026): optional — the run's hero (`toad`), the hero this run freed and the row.
+      if (r.hero !== undefined && r.hero !== 'toad') return 'run hero';
+      if (r.freed !== undefined && !(r.freed && typeof r.freed === 'object' && (r.freed as Record<string, unknown>).hero === 'toad' && Number.isInteger((r.freed as Record<string, unknown>).row))) return 'run freed';
       const card = (c: unknown): boolean => { const o = c as Record<string, unknown> | null; return !!o && typeof o === 'object' && typeof o.id === 'string' && (o.hone === undefined || o.hone === true); };
       if (r.knacks !== undefined && !(r.knacksOn === true && Array.isArray(r.knacks) && r.knacks.every(k => {
         const o = k as Record<string, unknown> | null;
@@ -834,6 +844,12 @@ export interface FightSummary {
      * or with `toughTouch` an elite or an enemy with HP ≥ 2) — hits and HP. A subset of `bySource` (`touch`, `wolf-rush` …).
      */
     raisedTouches: { hits: number; damage: number };
+    /**
+     * Task 49 «Второй герой» (from 16.10.2026): Ведунья's fight (the law `hero-toad` in the kit) — hits on her within the after-chain
+     * shield's length after an open chain that killed enough for the cat's shield (the price of her law: where the cat stands shielded).
+     * Absent — the cat's fight (older records too).
+     */
+    unshielded?: { hits: number; damage: number };
   };
   /** Readability of threats by warning kind (`archer`, `boar`, `wolf`, `lynx`, `sapper` …). */
   threats: Record<string, ThreatTally>;

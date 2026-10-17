@@ -12,7 +12,7 @@
  * debug panel and its hooks for development.
  */
 import './realtime.css';
-import { loadCharacterArt } from '../art/characterAssets';
+import { hasCharacterArt, loadCharacterArt } from '../art/characterAssets';
 import { ARENAS, SLICE_ARENAS, TERRAIN_ARENAS, arenaTemplate, markedGoalArena, type ArenaTemplate } from '../sim/arenas';
 import { withRoster } from '../sim/rosters';
 import { bagPayout, bagProgress, bagTotal } from '../sim/bag';
@@ -25,7 +25,7 @@ import { AFFIX_IDS, potionHandFull } from '../sim/elites';
 import { enemyLimit, scaledFloor } from '../sim/spawn';
 import { BEHAVIOR_ARENAS } from '../sim/arenasStage3';
 import { CAMERA_ARENAS } from '../sim/arenasCamera';
-import { BOSS_ARENAS, FOREST_BOSS_ARENAS } from '../sim/arenasBoss';
+import { BOSS_ARENAS, FOREST_BOSS_ARENAS, JAILER_RUN_ARENAS } from '../sim/arenasBoss';
 // Task 38: the garrison's arenas at the end of the sandbox menu (`?arena=20…24`).
 import { GARRISON_ARENAS } from '../sim/arenasGarrison';
 import { canSpin } from '../sim/abilities';
@@ -51,7 +51,7 @@ import { CHAIN_COLORS, FINAL_FLASH, PLAYER_FX, TARGET, RealtimeRenderer, type Re
 import { focusMaxOf } from '../sim/build';
 import { DOOR_HEAT, doorPayout, greedLine, multText, nextHeat } from '../sim/purse';
 import { OATH_BROKEN_MULT, oathMark, OATHS, type OathId } from '../sim/oath';
-import { BUILD_SOURCES, COUNTER_TALISMANS, FORM_FIELD, FORM_FIELD_TITLES, FORM_IDS, FROST_PASS, HAMMERS, OATH_HUNGER, RELICS, isHammerId, type FormField } from '../sim/buildIds';
+import { BUILD_SOURCES, COUNTER_TALISMANS, FORM_FIELD, FORM_FIELD_TITLES, FORM_IDS, FROST_PASS, HAMMERS, OATH_HUNGER, RELICS, isHammerId, isLoadoutHero, type FormField, type LoadoutHero } from '../sim/buildIds';
 import { ActionBar, SELF_ITEMS, type TileId } from './actionBar';
 import { BuildColumn, labelOf } from './buildColumn';
 import { registerViewTestModule, VIEW_TEST_MODULE } from './buildTestModule';
@@ -60,6 +60,9 @@ import { runRow } from '../run/arenaPools';
 import { rtFeatKinds, rtNode, rtRunBestChain } from '../run/rtRun';
 import { NewSeenStore } from './newSeen';
 import { HintStore, purseResultLine } from './hints';
+import { TOAD_LINES } from './heroLines';
+import { ToadLesson, isToad } from './toadLesson';
+import { findLoopHint, type LoopHintFigure } from './loopHint';
 import { ITEM_PULSE_ID, setPulse } from './pulse';
 import { bossMoveLabels, BOSS_LABEL_LIFE, detectLabels, labelActions, LEVER_OVER_LINE, RIOT_LABEL_LIFE, riotLabel, riotStarted, shackleCut, shackleLabel, shackleMet, WorldLabelLayer, type LabelSpec } from './worldLabels';
 import { prologueHandSpot, prologueJumpAim, prologueLoadout, prologueParams, prologueRoom, prologueRoute, prologueShieldLinks, prologueSpinReady } from '../run/prologue';
@@ -209,6 +212,8 @@ async function boot(): Promise<void> {
   const urlParams = new URLSearchParams(location.search);
   const seedText = urlParams.get('seed');
   const fixedSeed = seedText !== null && Number.isFinite(Number(seedText)) ? Number(seedText) >>> 0 : null;
+  /** Task 49: `?hero=toad` - a debug run of Ведунья (a seeded run: the meta does not count); anything else - the profile's chosen hero. */
+  const fixedHero = urlParams.get('hero') === 'toad' ? 'toad' as const : undefined;
   /** The prototype's sandbox (arena menu, debug panel); otherwise the page plays a run. `#sandbox` too: a published
    * build passes a plain anchor to the page but not the query (design 08.10.2026). */
   const sandbox = urlParams.get('sandbox') === '1' || location.hash === '#sandbox';
@@ -434,6 +439,9 @@ async function boot(): Promise<void> {
   const sandboxBuild = loadSandboxBuild();
   /** Casino stage 1, item 2: the sandbox panel's oath (null — none); this page only. */
   let sandboxOath: OathId | null = null;
+  /** Task 49: the sandbox's hero (the panel's «Герой»; null — the cat) goes into the loadout as `hero`; and the cage of the Jailer's yard (`?cage=1`). */
+  let sandboxHero: LoadoutHero | null = null;
+  let sandboxCage = urlParams.get('cage') === '1';
   let buildOverride: { talismans: string[]; hammer?: string; honed?: string[] } | null = null;
   const sandboxLoadout = (): Loadout => {
     const talismans = [...params.sandboxTalismans ? [params.sandboxTalismans] : [], ...buildOverride ? buildOverride.talismans : [sandboxBuild.talisman, sandboxBuild.relic, sandboxBuild.end, sandboxBuild.link, sandboxBuild.path].filter(Boolean)];
@@ -447,6 +455,7 @@ async function boot(): Promise<void> {
       ...honed.length && talismans.length ? { honed: [...new Set(honed)] } : {},
       // Casino «Ставка клятвы»: the panel's oath goes into every next arena too (the loadout is journalled).
       ...sandboxOath ? { oath: sandboxOath } : {},
+      ...sandboxHero ? { hero: sandboxHero } : {},
     };
   };
   /** П6 «Незакрытое дело»: the fight's killing blow (rtRunEnd.ts) — enemies seen before every tick, the events every frame. */
@@ -485,6 +494,14 @@ async function boot(): Promise<void> {
   let hintsOn = loadHintsOn();
   const labelLayer = new WorldLabelLayer(host);
   const hints = { store: hintStore, log: [] as { id: string; t: number }[] };
+  /**
+   * Task 49 «Второй герой» (view/toadLesson.ts, view/cageView.ts): the mage's lesson on the spot (labels at the hero, the ghost hand, the
+   * crack, the brighter shield — once per viewer; the sandbox: per page) and the Jailer's cage with her in it. `toadFigure` — the arc on the
+   * hero of the last search (every 10 frames); `cageLeft` — real seconds her line hangs at the cage (`cageSaid` — said in this fight).
+   */
+  const toadLesson = new ToadLesson(hintStore);
+  let toadFigure: LoopHintFigure | null = null, toadFrame = 0, cageSaid = false, cageLeft = 0;
+  const CAGE_LINE_LIFE = 2.5;
   /**
    * Task 28: the names of the boss's moves (worldLabels.ts `bossMoveLabels`) — the moves named in this fight and the names on
    * screen with their real seconds left. The run and the sandbox; not tied to «Подсказки» (a name of an attack, no memory).
@@ -593,6 +610,9 @@ async function boot(): Promise<void> {
   const startArena = (arena: ArenaTemplate, seed: number, hero?: HeroStart, loadout?: Loadout, notice?: ArenaItemNotice, simParams?: Params): void => {
     renderer.resetEffects();
     sim = newSimulation(arena, seed, hero, loadout, simParams);
+    // Task 49: the lesson's fight state is new; the cage hangs in the Jailer's yard while Ведунья is not freed (the run) or by `?cage=1` (the sandbox).
+    toadLesson.reset(); toadFigure = null; cageSaid = false; cageLeft = 0; renderer.shieldBoost = false;
+    renderer.setJailerCage(!simParams && JAILER_RUN_ARENAS.includes(arena.id) && (sandbox ? sandboxCage : !!runView?.cageDue()));
     const kit = world().kit;
     pendingArrivals = sandbox && kit ? [...kit.talismans.filter(id => !!FORM_FIELD[id]), ...kit.hammer ? [kit.hammer] : []] : [];
     labelLayer.hideAll();
@@ -700,6 +720,9 @@ async function boot(): Promise<void> {
     const none = { value: '', label: 'нет' };
     const option = (id: string) => ({ value: id, label: labelOf(id).title });
     const choose = (key: 'talisman' | 'relic' | 'hammer' | 'end' | 'link' | 'path') => (value: string): void => { sandboxBuild[key] = value; saveSandboxBuild(sandboxBuild); };
+    // Task 49: the hero of the next arena — the cat or Ведунья (her law in the kit: «Печать» innate, the shield only after a ring).
+    panel.addBuildChoice('Герой', 'build-hero', [{ value: '', label: 'кот' }, { value: 'toad', label: 'ведунья' }], sandboxHero ?? '', value => { sandboxHero = isLoadoutHero(value) ? value : null; },
+      'Задача 49: герой с новой арены. Ведунья: «Печать» врождённая, щит цепи — только после кольца.');
     // Task 29 (design 15.10.2026): the forms by their field, so that pairs of different fields are taken in one place; a hammer
     // is a form too — its field stands in the «Молот» list (one hammer slot: two lists could not both hold a hammer).
     const formOption = (field: FormField) => FORM_IDS.filter(id => FORM_FIELD[id] === field).map(option);
@@ -784,6 +807,7 @@ async function boot(): Promise<void> {
     // User request 15.10.2026: the map's «Песочница» — the anchor reloads the page as the sandbox (`hashchange` above); the run's save is kept.
     openSandbox: () => { location.hash = '#sandbox'; },
     firstMeet: meetFirst,
+    ...fixedHero ? { fixedHero } : {},
     // Tasks 36–37: the meta outside the sandbox; its sounds follow the run's sound setting.
     ...sandbox ? {} : { meta: {
       sound: (kind: MetaSoundKind) => {
@@ -797,6 +821,7 @@ async function boot(): Promise<void> {
       map: (run, chosen) => recorder?.hearthMap(run, chosen),
       buy: (run, npc, level, price) => { if (run) recorder?.hearthBuy(run, npc, level, price); },
       click: (run, npc) => { if (run) recorder?.hearthClick(run, npc); },
+      heroFreed: (run, hero, row) => recorder?.heroFreed(run, hero, row),
     } },
     // П1, П7: the view settings on the gear of the run map (the fight HUD has none).
     viewToggles: [
@@ -1012,6 +1037,10 @@ async function boot(): Promise<void> {
   const prologueDom = new PrologueDom();
   const prologueLayer = new PrologueLayer();
   renderer.prologueLayer.addChild(prologueLayer.layer);
+  // Task 49: the mage's ghost hand (the prologue's own hand, a second layer: the lesson of the ring on the hero, view/toadLesson.ts).
+  const toadHand = new PrologueLayer(), toadGuide = new HandGuide({} as never);
+  toadGuide.show = 'hand';
+  renderer.prologueLayer.addChild(toadHand.layer);
   host.append(...prologueDom.elements);
   prologueDom.skip.addEventListener('click', () => skipPrologue());
   /** The log of the prologue on this page (the tests read it); the telemetry takes the same points (`prologueTally`). */
@@ -1419,6 +1448,29 @@ async function boot(): Promise<void> {
         if (spec && renderer.sees(spec.at)) specs = [spec];
       }
       if (!runScreenOpen && !menuOpen) for (const l of bossLabels) if (renderer.sees(l.spec.at)) specs.push(l.spec);
+      // Task 49: the mage's lesson (labels at the hero, the hand, the crack, the brighter shield) — the run follows «Подсказки», the sandbox has its own page memory.
+      {
+        const lessonOn = isToad(w) && (sandbox || (hintsOn && !!runView?.arenaOpen)) && !prologue && !runScreenOpen && !menuOpen && !runArenaRecorded;
+        if (lessonOn) {
+          if (!toadLesson.needsFigure(w)) toadFigure = null;
+          else if (toadFrame++ % 10 === 0) toadFigure = findLoopHint(w, 'hero');
+          const lesson = toadLesson.frame(w, live ? realDt : 0, toadFigure);
+          for (const spec of lesson.specs) if (renderer.sees(spec.at)) specs.push(spec);
+          if (lesson.crack) renderer.crackHero();
+          renderer.shieldBoost = lesson.boost;
+          toadHand.draw(live ? realDt : 0, { lamps: null, door: { x: 0, y: 0 }, arena: w.arena, hero: w.hero, guide: lesson.hand.length ? toadGuide : null, handPoints: lesson.hand });
+        } else { renderer.shieldBoost = false; toadHand.draw(0, { lamps: null, door: { x: 0, y: 0 }, arena: w.arena, hero: w.hero, guide: null, handPoints: [] }); }
+        // Task 49, spec 6.1: she grumbles from the cage — once a fight, at the first blow (`cage_1`), a label at the cage.
+        if (renderer.cage.visible && w.status === 'playing' && !runScreenOpen && !menuOpen) {
+          if (!cageSaid && renderer.cage.shown.jolts > 0) { cageSaid = true; cageLeft = CAGE_LINE_LIFE; }
+          if (cageLeft > 0) {
+            cageLeft -= live ? realDt : 0;
+            // A speech bubble to the right of the cage (she is inside), its tail to her.
+            const at = { x: renderer.cage.shown.x, y: renderer.cage.shown.y - 1.1 };
+            if (renderer.sees(at)) specs.push({ id: 'cage-1', text: TOAD_LINES.cage_1[0], at, place: 'side', lift: 1.3, tail: at });
+          }
+        } else cageLeft = 0;
+      }
       // Task 40: the prisoner's label — from the run's (the fight's) first shackle until the player's dash cuts one.
       const key = shackleKey();
       if (shackleMet(w)) shackleSeen = key;
@@ -1444,7 +1496,7 @@ async function boot(): Promise<void> {
         const half = 0.42 * k, bodies = w.enemies.filter(e => renderer.sees(e) && !specs.some(sp => Math.hypot(sp.at.x - e.x, sp.at.y - e.y) < 0.3)).map(e => { const c = renderer.toScreen(e.x, e.y); return { left: c.x - half, top: c.y - half, right: c.x + half, bottom: c.y + half }; });
         for (const id of labelLayer.update(specs, (x, y) => renderer.toScreen(x, y), k, { left: 0, top, right: stageBox.width, bottom }, renderer.plateRects(), bodies)) {
           hints.log.push({ id, t: now });
-          if (id.startsWith('boss-')) continue;
+          if (id.startsWith('boss-') || id.startsWith('toad-') || id.startsWith('cage-')) continue;
           if (runView && runLabelling) recorder?.hintShown(runView.state, id);
         }
       } else labelLayer.hideAll();
@@ -1822,6 +1874,10 @@ async function boot(): Promise<void> {
         telemetry: recorder ? (({ records, chars, undelivered, notes, bufferFull }) => ({ records, chars, undelivered, notes, bufferFull }))(recorder.stats()) : null,
         noteFlash: !noteFlash.hidden,
         /** «Обучение»: the toggle, the world labels on screen (id, text, rectangle in stage px), the ids in this viewer's memory, the labels shown on this page (id, real ms). */
+        /** Task 49: the hero's picture (the id and whether it is the image), the Jailer's cage, the mage's lesson and the law's signs of the frame. */
+        heroView: { id: renderer.heroArtKind, art: hasCharacterArt(renderer.heroArtKind === 'toad' ? 'toad' : 'player') },
+        cage: { ...renderer.cage.shown, line: cageLeft > 0 },
+        toad: { crack: renderer.crackShown, boost: renderer.shieldBoostShown, sign: { ...renderer.shieldSign }, hand: { ...toadHand.shown }, memory: { ring: hintStore.count('toad-ring'), bare: hintStore.count('toad-bare') } },
         onboarding: { on: hintsOn, labels: labelLayer.shown(), shown: hints.store.shownIds(), log: hints.log.map(h => ({ ...h })) },
         logsOpen: !!logsPanel?.open,
         /** The prologue «Опушка»: room, lamps, the hand and the arrow, the title, the fade, the pulse, the log of its hooks. */
@@ -1868,6 +1924,10 @@ async function boot(): Promise<void> {
       buildOverride = build ? { talismans: [...build.talismans ?? [], ...build.testModule ? [VIEW_TEST_MODULE] : []], ...build.hammer ? { hammer: build.hammer } : {}, ...build.honed?.length ? { honed: [...build.honed] } : {} } : null;
       restart(seed);
     },
+    /** Task 49 (sandbox): the hero of the next arena ('toad' — Ведунья, null — the cat), as the panel's «Герой»; restarts the arena (`seed` fixes it). */
+    useHero: (hero: 'toad' | null, seed?: number) => { if (!sandbox) return; sandboxHero = hero && isLoadoutHero(hero) ? hero : null; restart(seed); },
+    /** Task 49 (sandbox): the Jailer's cage on or off from the next fight (`?cage=1` — on from the start); restarts the arena (`seed` fixes it). */
+    useCage: (on: boolean, seed?: number) => { if (!sandbox) return; sandboxCage = on; restart(seed); },
     /** Restarts the arena; `seed` fixes the new fight's seed. */
     restart: (seed?: number) => restart(seed),
     /** Starts arena `n` (1–18), as keys 1–9, 0 and ⇧1–⇧8 on the menu; `seed` fixes its seed. */
@@ -1928,6 +1988,8 @@ async function boot(): Promise<void> {
       screens: () => runView.screensInfo(),
       /** Task 50: the run's archetype, the gift's row and the marked cards on the screen (see `RunView.habitInfo`). */
       habitShown: () => runView.habitInfo(),
+      /** Task 49: the hero cards of the screen (ids, the chosen one, the best «Испытание» marks, the laws) and the cage scene (null - none). */
+      heroesShown: () => runView.heroesShown(),
       /** Task 47, tests only: multiplies the times of the staged screens (С6, С8) by `k` — a slow reveal to act in the middle of it. */
       screenPace: (k: number) => { runView.screenPace = k > 0 ? k : 1; },
       winArena: async () => {

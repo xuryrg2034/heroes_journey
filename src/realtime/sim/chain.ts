@@ -30,7 +30,7 @@ import { dcos, dhypot, dsin } from './detMath';
 import { behaviorOf, enemyArtRadius, kindOf } from './enemies/kinds';
 import { adoptChainColor, chameleonOpen, eliteDeath, pickLoot, platesOf, potionHandFull, stripPlates, trailAt } from './elites';
 import { curseKill, takeChest } from './chest';
-import { hasTalisman } from './kit';
+import { hasTalisman, sealOnlyShield } from './kit';
 import { afterLinkPowerOf, anchorsOf, buildActive, chainShieldMinKillsOf, chainShieldOf, colorRuleOf, colorShiftOf, crystalEveryOf, endShadowOf, focusMaxOf, hasHook, honedFired, jumpCostOf, linkGainOf, linkPowerOf, linkRadiusOf, nextChainNo, platesBeforeOf, rank2LinksOf, runHook, secondKey, talismanFired, type ChainAnchor, type ChainEnd, type HonedRelease, type LinkContext } from './build';
 import { COUNTER_TALISMANS, FORMS, FUSIONS, HAMMERS } from './buildIds';
 // Task 44 «Сплавы»: the fusions' pure rules (the highlight and the dash read the same ones).
@@ -160,6 +160,12 @@ export interface ChainPlan {
    * Absent while open.
    */
   seal?: SealPreview;
+  /**
+   * Task 49 «Второй герой» (kit.ts `sealOnlyShield`, sim/heroLaw.ts): the hero's law gives no after-chain shield to this chain when it
+   * is released now — the drawn chain is open (no `seal`); a closed one gives the shield by the cat's rule (its kills, the build).
+   * Absent — the cat, a closed chain, not the drawn chain.
+   */
+  noShield?: true;
   /**
    * Casino «Котёл» (purse.ts): the cheque this chain would put into the cauldron — the same embers and heat the dash counts
    * (`HeroMove.purse`). Absent while the cauldron is off.
@@ -415,7 +421,9 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   const trollDrop = links === world.chain && !world.move ? trollLinkDrop(world, links) : null;
   // Task 50: the counters' rank II at the end of the dash (the drawn chain only, not after a chain that ends the fight).
   const honed = honedKit ? planHoned(world, out, pierce, seal, far, options.back !== false && links === world.chain && !over) : null;
-  return { ...grate ? { grate } : {}, ...trollDrop ? { trollDrop } : {}, links: out, endsOnSurvivor, endsOnObject, power, kills, ...seal ? { seal } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {}, ...cuts.length ? { cuts } : {}, ...fused?.blast ? { blast: fused.blast } : {}, ...fused?.wave ? { wave: fused.wave } : {}, ...honed && Object.keys(honed).length ? { honed } : {} };
+  // Task 49: the law of Ведунья — the drawn open chain gives no after-chain shield (the dash: heroLaw.ts, `ChainEnd.endForm`).
+  const noShield = links === world.chain && !seal && sealOnlyShield(world);
+  return { ...grate ? { grate } : {}, ...trollDrop ? { trollDrop } : {}, links: out, endsOnSurvivor, endsOnObject, power, kills, ...seal ? { seal } : {}, ...noShield ? { noShield: true as const } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {}, ...cuts.length ? { cuts } : {}, ...fused?.blast ? { blast: fused.blast } : {}, ...fused?.wave ? { wave: fused.wave } : {}, ...honed && Object.keys(honed).length ? { honed } : {} };
 }
 
 /**
@@ -465,7 +473,8 @@ function planHoned(world: World, out: readonly LinkPlan[], pierce: PiercePreview
       else if (!outcome.plate) break;
     }
     const base = Math.max(1, world.params.chainShieldMinKills), links = out.map(l => l.link);
-    if (kills >= finisher && kills < base && finisherTopIds(world, links).includes(last.enemy.id) && chainShieldOf(world) > 0) result.shield = true;
+    // Task 49: with the law of Ведунья (`sealOnlyShield`) only a closed chain gives the shield (heroLaw.ts reads the dash's seal).
+    if (kills >= finisher && kills < base && finisherTopIds(world, links).includes(last.enemy.id) && chainShieldOf(world) > 0 && (!sealOnlyShield(world) || !!seal)) result.shield = true;
   }
   // «Иней на клинке»: a chain of 3+ enemy links reached, its last one alive after the end's shadows (a wave may finish it).
   if (frost && last && !last.outcome.killed && dash.links >= FROST_EDGE_LINKS && ended.enemies.some(e => e.id === last.enemy.id)) {

@@ -10,7 +10,9 @@ import { isRtAshLevel, parseRtRun, RT_ASH_OPEN, serializeRtRun, type RtAshLevel,
 import { isScheduleElement } from './schedule';
 // Tasks 36–37 «Мета» and «Очаг»: the meta the profile keeps (rtMeta.ts computes it; this store reads and writes it).
 import { parseRtMeta, rtApplyMeta, rtHearthBuy, rtHearthStartOf, rtHearthView, rtMetaLocked, rtMetaNewOffer, rtRunKey, type RtHearthBuy, type RtHearthStart, type RtHearthView, type RtMeta, type RtMetaEnd } from './rtMeta';
-import type { RtHearthNpc } from './metaCatalog';
+// Task 49 «Второй герой»: the heroes open and chosen, Ведунья freed by the Jailer, «✦ новое» by hero.
+import { rtChooseHero, rtFreeByJailer, rtHeroChoice, rtHeroesOpen, rtHeroViews, rtMetaMarkOffered, type RtHeroView } from './rtMeta';
+import { isRtHeroId, RT_HERO_ID, type RtHearthNpc, type RtHeroId } from './metaCatalog';
 
 /**
  * Casino stage 1, item 2: `-v7` (save version 7, the oath stake: the oath stream's counter, the open battle's offer and oath).
@@ -83,9 +85,14 @@ export function createRtRunStore(storage: RunStorage | null = browserStorage()):
  * - `meta` — the hero's XP, opened packs and depth record (`heroes.cat`), the camp (`hearth`: stock, levels, NPCs met, lines shown,
  *   the next quest, the last run), the opened items already offered (`offered`) and the last run applied (`applied`: its key and
  *   result — the end screen reloaded shows the same). rtMeta.ts. Absent — the meta starts from zero.
+ * Task 49 «Второй герой» (design 16.10.2026; the same version 1, an optional field): «Испытание» is the hero's own — `won` and `ash` are
+ * the cat's (a profile before it: every win was his, so nothing he opened is taken away); `heroAsh.toad` — Ведунья's (`won`: her first
+ * won run without a given seed opens all her levels, v1; `ash`: her level chosen last). The hero chosen, the heroes freed and each
+ * hero's XP and packs are in `meta` (`RtMeta.hero`, `freed`, `heroes`).
  * All are absent until set: a profile without them reads and saves as before.
  */
-export interface RtProfile { version: typeof RT_PROFILE_VERSION; giftFull: boolean; jailer?: true; runs?: number; runsApprox?: true; won?: true; ash?: Exclude<RtAshLevel, 0>; seen?: string[]; seenMute?: number; meta?: RtMeta }
+export interface RtHeroAsh { won?: true; ash?: Exclude<RtAshLevel, 0> }
+export interface RtProfile { version: typeof RT_PROFILE_VERSION; giftFull: boolean; jailer?: true; runs?: number; runsApprox?: true; won?: true; ash?: Exclude<RtAshLevel, 0>; seen?: string[]; seenMute?: number; meta?: RtMeta; heroAsh?: { toad?: RtHeroAsh } }
 export const emptyRtProfile = (): RtProfile => ({ version: RT_PROFILE_VERSION, giftFull: false });
 
 export function parseRtProfile(text: string | null): RtProfile {
@@ -98,7 +105,11 @@ export function parseRtProfile(text: string | null): RtProfile {
     const seen = Array.isArray(value.seen) ? [...new Set(value.seen.filter(isScheduleElement))].sort() : undefined;
     const mute = seen !== undefined && typeof value.seenMute === 'number' && Number.isInteger(value.seenMute) && value.seenMute >= 0 ? value.seenMute : undefined;
     const meta = parseRtMeta(value.meta);
-    return { version: RT_PROFILE_VERSION, giftFull: value.giftFull === true, ...value.jailer === true || value.giftFull === true ? { jailer: true as const } : {}, ...runs !== undefined ? { runs } : {}, ...runs !== undefined && value.runsApprox === true ? { runsApprox: true as const } : {}, ...value.won === true ? { won: true as const } : {}, ...ash !== undefined ? { ash } : {}, ...seen !== undefined ? { seen } : {}, ...mute !== undefined ? { seenMute: mute } : {}, ...meta ? { meta } : {} };
+    // Task 49: Ведунья's «Испытание» (anything malformed — none).
+    const toad = typeof value.heroAsh === 'object' && value.heroAsh && typeof value.heroAsh.toad === 'object' && value.heroAsh.toad ? value.heroAsh.toad as Partial<RtHeroAsh> : undefined;
+    const toadAsh = toad && isRtAshLevel(toad.ash) && toad.ash >= 1 && toad.won === true ? toad.ash as Exclude<RtAshLevel, 0> : undefined;
+    const heroAsh = toad?.won === true ? { toad: { won: true as const, ...toadAsh !== undefined ? { ash: toadAsh } : {} } } : undefined;
+    return { version: RT_PROFILE_VERSION, giftFull: value.giftFull === true, ...value.jailer === true || value.giftFull === true ? { jailer: true as const } : {}, ...runs !== undefined ? { runs } : {}, ...runs !== undefined && value.runsApprox === true ? { runsApprox: true as const } : {}, ...value.won === true ? { won: true as const } : {}, ...ash !== undefined ? { ash } : {}, ...seen !== undefined ? { seen } : {}, ...mute !== undefined ? { seenMute: mute } : {}, ...meta ? { meta } : {}, ...heroAsh ? { heroAsh } : {} };
   } catch { return emptyRtProfile(); }
 }
 
@@ -108,15 +119,19 @@ export interface RtProfileStore {
   giftKind(seeded: boolean): 'full' | 'mini';
   /**
    * A run ended: remember whether it reached the Jailer's row and (task 18) whether it was won — `won` opens «Испытание» for good
-   * (not for a seeded run). False when not stored.
+   * (not for a seeded run). False when not stored. Task 49: `hero` — the run's hero (absent — the chosen one, `heroChoice`): a win
+   * opens that hero's «Испытание» (the cat's `won`, Ведунья's `heroAsh.toad.won`).
    */
-  endRun(run: { reachedJailer: boolean; seeded: boolean; won?: boolean }): boolean;
-  /** Task 18: the choice of «Испытание» is open — the viewer won a run without a given seed (`won`). */
-  ashOpen(): boolean;
-  /** Task 18: the level a new run takes by default — the last chosen; 0 while the choice is closed. */
-  ashChoice(): RtAshLevel;
-  /** Task 18: remember the level chosen on «Новый поход» (0 removes the field). False when not stored or the choice is closed. */
-  chooseAsh(level: RtAshLevel): boolean;
+  endRun(run: { reachedJailer: boolean; seeded: boolean; won?: boolean; hero?: RtHeroId }): boolean;
+  /** Task 18: the choice of «Испытание» is open — the viewer won a run without a given seed (`won`). Task 49: of `hero` (absent — the chosen one). */
+  ashOpen(hero?: RtHeroId): boolean;
+  /** Task 18: the level a new run takes by default — the last chosen; 0 while the choice is closed. Task 49: of `hero` (absent — the chosen one). */
+  ashChoice(hero?: RtHeroId): RtAshLevel;
+  /**
+   * Task 18: remember the level chosen on «Новый поход» (0 removes the field). False when not stored or the choice is closed. Task 49:
+   * of `hero` (absent — the chosen one).
+   */
+  chooseAsh(level: RtAshLevel, hero?: RtHeroId): boolean;
   /**
    * Task 16 «Подвиги»: a new run carries feats — the player reached the Jailer in an earlier finished run (`jailer`). A seeded run
    * follows the profile too (core answer 14.10.2026). Pass it to `createRtRun(seed, { feats })`.
@@ -152,26 +167,39 @@ export interface RtProfileStore {
    * carry and quest join the meta once; a second call for the same run returns the same result. Null — a run with a given seed.
    */
   endRunMeta(run: RtRunState): RtMetaEnd | null;
-  /** Task 37: the camp as the screen shows it. */
-  hearth(): RtHearthView;
+  /** Task 37: the camp as the screen shows it. Task 49: the owl's quest by `hero`'s record (absent — the chosen hero). */
+  hearth(hero?: RtHeroId): RtHearthView;
   /** Task 37: buy an NPC's next level (1 or 2; prices `RT_HEARTH_PRICES`); refused with the price and the stock. */
   buyHearth(npc: RtHearthNpc, level: number): RtHearthBuy;
   /** Task 37: a line `npc:key` was shown — its count +1 (the view cycles a key's lines by it). */
   markLine(id: string): boolean;
   /** Task 37: what the camp gives the next run of `seed` (the view shows the choices; `rtHearthFlagsWith` makes the run's flags). */
-  hearthStart(seed: number): RtHearthStart;
-  /** Task 36: the items a new meta run keeps locked (`createRtRun(seed, { locked })`). */
-  locked(): string[];
-  /** Task 36: «✦ новое» — the item was opened by a pack and not offered yet. */
-  isNewOffer(id: string): boolean;
-  /** Task 36: these opened items were offered (the sign shows no more). */
-  markOffered(ids: string | readonly string[]): boolean;
+  hearthStart(seed: number, hero?: RtHeroId): RtHearthStart;
+  /** Task 36: the items a new meta run keeps locked (`createRtRun(seed, { locked })`). Task 49: of `hero` (absent — the chosen one). */
+  locked(hero?: RtHeroId): string[];
+  /** Task 36: «✦ новое» — the item was opened by a pack and not offered yet. Task 49: to `hero` (absent — the chosen one). */
+  isNewOffer(id: string, hero?: RtHeroId): boolean;
+  /** Task 36: these opened items were offered (the sign shows no more). Task 49: to `hero` (absent — the chosen one). */
+  markOffered(ids: string | readonly string[], hero?: RtHeroId): boolean;
+  /** Task 49: the heroes as the camp and «Новый поход» show them (`RtHeroView`: open, chosen, XP, packs, record, the best «Испытание»). */
+  heroes(): RtHeroView[];
+  /** Task 49: the hero the next run takes (`createRtRun(seed, { hero })`) — the chosen one while open; the cat otherwise. */
+  heroChoice(): RtHeroId;
+  /** Task 49: choose the hero of the next run (the camp, «Новый поход»). False — not open (not freed), or not stored. */
+  chooseHero(id: RtHeroId): boolean;
+  /**
+   * Task 49 (spec 6.1): the Jailer's fight was fed back — the first win over him in a run without a given seed frees Ведунья (`freed.toad`
+   * with the row and the viewer's run number). Returns the hero freed now (the view plays the cage scene after the Jailer's reward
+   * screens), or null: a seeded run, no win over the Jailer, freed already. The outcome, rewards and streams of the run are not touched;
+   * `endRunMeta` frees her too if this was not called.
+   */
+  freeHero(run: RtRunState): RtHeroId | null;
 }
 
 /** Task 37: the camp's start for a loaded profile (`rtHearthStartOf` over its meta). */
-export const rtHearthStart = (profile: RtProfile, seed: number): RtHearthStart => rtHearthStartOf(profile.meta, seed);
-/** Task 36: «✦ новое» for a loaded profile. */
-export const rtIsNewOffer = (profile: RtProfile, id: string): boolean => rtMetaNewOffer(profile.meta, id);
+export const rtHearthStart = (profile: RtProfile, seed: number, hero?: RtHeroId): RtHearthStart => rtHearthStartOf(profile.meta, seed, heroOf(profile, hero));
+/** Task 36: «✦ новое» for a loaded profile. Task 49: to `hero` (absent — the chosen one). */
+export const rtIsNewOffer = (profile: RtProfile, id: string, hero?: RtHeroId): boolean => rtMetaNewOffer(profile.meta, id, heroOf(profile, hero));
 
 export function createRtProfileStore(storage: RunStorage | null = browserStorage()): RtProfileStore {
   const read = (): RtProfile => { try { return parseRtProfile(storage?.getItem(RT_PROFILE_STORAGE_KEY) ?? null); } catch { return emptyRtProfile(); } };
@@ -181,13 +209,23 @@ export function createRtProfileStore(storage: RunStorage | null = browserStorage
     giftKind: seeded => seeded || read().giftFull ? 'full' : 'mini',
     // Task 16: `jailer` stays once a run reached the Jailer (`giftFull` is the last run's only).
     // Task 18: `won` stays once an unseeded run was won.
-    endRun: ({ reachedJailer, seeded, won }) => !seeded && write({ ...read(), giftFull: reachedJailer, ...reachedJailer ? { jailer: true as const } : {}, ...won ? { won: true as const } : {} }),
-    ashOpen: () => read().won === true,
+    // Task 49: a win opens the run's hero's «Испытание» (the cat's `won`, Ведунья's `heroAsh.toad`).
+    endRun: ({ reachedJailer, seeded, won, hero }) => {
+      if (seeded) return false;
+      const profile = read(), who = heroOf(profile, hero);
+      const wonNow = won && who !== RT_HERO_ID ? { heroAsh: { ...profile.heroAsh, toad: { ...profile.heroAsh?.toad, won: true as const } } } : {};
+      return write({ ...profile, giftFull: reachedJailer, ...reachedJailer ? { jailer: true as const } : {}, ...won && who === RT_HERO_ID ? { won: true as const } : {}, ...wonNow });
+    },
+    ashOpen: hero => ashOf(read(), hero).won,
     // Task 45: a level above the choice's (`RT_ASH_OPEN`) is not offered — the highest offered one.
-    ashChoice: () => { const profile = read(); return profile.won === true ? Math.min(profile.ash ?? 0, RT_ASH_OPEN) as RtAshLevel : 0; },
-    chooseAsh: level => {
-      const profile = read();
-      if (profile.won !== true || !isRtAshLevel(level) || level > RT_ASH_OPEN) return false;
+    ashChoice: hero => { const own = ashOf(read(), hero); return own.won ? Math.min(own.ash, RT_ASH_OPEN) as RtAshLevel : 0; },
+    chooseAsh: (level, hero) => {
+      const profile = read(), who = heroOf(profile, hero);
+      if (!ashOf(profile, who).won || !isRtAshLevel(level) || level > RT_ASH_OPEN) return false;
+      if (who !== RT_HERO_ID) {
+        const { ash: _own, ...toad } = profile.heroAsh?.toad ?? {};
+        return write({ ...profile, heroAsh: { ...profile.heroAsh, toad: { ...toad, ...level > 0 ? { ash: level as Exclude<RtAshLevel, 0> } : {} } } });
+      }
       const { ash: _old, ...rest } = profile;
       return write(level > 0 ? { ...rest, ash: level as Exclude<RtAshLevel, 0> } : rest);
     },
@@ -220,11 +258,11 @@ export function createRtProfileStore(storage: RunStorage | null = browserStorage
       if (run.seeded) return null;
       const profile = read();
       if (profile.meta?.applied?.key === rtRunKey(run)) return structuredClone(profile.meta.applied.end);
-      const { meta, end } = rtApplyMeta(profile.meta, run);
+      const { meta, end } = rtApplyMeta(profile.meta, run, profile.runs !== undefined ? { viewerRun: profile.runs } : {});
       write({ ...profile, meta });
       return end;
     },
-    hearth: () => { const profile = read(); return rtHearthView(profile.meta, profile.seen); },
+    hearth: hero => { const profile = read(); return rtHearthView(profile.meta, profile.seen, heroOf(profile, hero)); },
     buyHearth: (npc, level) => {
       const profile = read(), { result, meta } = rtHearthBuy(profile.meta, npc, level);
       if (meta) write({ ...profile, meta });
@@ -236,13 +274,36 @@ export function createRtProfileStore(storage: RunStorage | null = browserStorage
       if (!meta.hearth) return false;
       return write({ ...profile, meta: { ...meta, hearth: { ...meta.hearth, lines: { ...meta.hearth.lines, [id]: (meta.hearth.lines[id] ?? 0) + 1 } } } });
     },
-    hearthStart: seed => rtHearthStartOf(read().meta, seed),
-    locked: () => rtMetaLocked(read().meta),
-    isNewOffer: id => rtMetaNewOffer(read().meta, id),
-    markOffered: ids => {
-      const profile = read(), list = (typeof ids === 'string' ? [ids] : [...ids]).filter(id => rtMetaNewOffer(profile.meta, id));
-      if (!list.length || !profile.meta) return false;
-      return write({ ...profile, meta: { ...profile.meta, offered: [...profile.meta.offered ?? [], ...list] } });
+    hearthStart: (seed, hero) => { const profile = read(); return rtHearthStartOf(profile.meta, seed, heroOf(profile, hero)); },
+    locked: hero => { const profile = read(); return rtMetaLocked(profile.meta, heroOf(profile, hero)); },
+    isNewOffer: (id, hero) => { const profile = read(); return rtMetaNewOffer(profile.meta, id, heroOf(profile, hero)); },
+    markOffered: (ids, hero) => {
+      const profile = read(), meta = rtMetaMarkOffered(profile.meta, typeof ids === 'string' ? [ids] : [...ids], heroOf(profile, hero));
+      return !!meta && write({ ...profile, meta });
+    },
+    heroes: () => rtHeroViews(read().meta),
+    heroChoice: () => rtHeroChoice(read().meta),
+    chooseHero: id => {
+      const profile = read(), meta = rtChooseHero(profile.meta, id);
+      return !!meta && write({ ...profile, meta });
+    },
+    freeHero: run => {
+      const profile = read(), freed = rtFreeByJailer(profile.meta, run, profile.runs);
+      if (!freed) return null;
+      write({ ...profile, meta: freed.meta });
+      return freed.hero;
     },
   };
 }
+
+/** Task 49: the hero a profile call means — the one given (an open one or not: a run's hero), else the chosen one. */
+const heroOf = (profile: RtProfile, hero?: RtHeroId): RtHeroId => (isRtHeroId(hero) ? hero : rtHeroChoice(profile.meta));
+/** Task 49: the hero's «Испытание»: open (won) and the level chosen last (0 — none). */
+function ashOf(profile: RtProfile, hero?: RtHeroId): { won: boolean; ash: number } {
+  const who = heroOf(profile, hero);
+  if (who === RT_HERO_ID) return { won: profile.won === true, ash: profile.ash ?? 0 };
+  const own = profile.heroAsh?.toad;
+  return { won: own?.won === true, ash: own?.ash ?? 0 };
+}
+/** Task 49: the heroes open to a loaded profile (the cat, and those freed). */
+export const rtProfileHeroes = (profile: RtProfile): RtHeroId[] => rtHeroesOpen(profile.meta);
