@@ -17,9 +17,14 @@ export type HeroArtId = 'cat' | 'toad';
  * Task 49: Ведунья, the second hero — the sprite `toad.png`; without it a drawn toad of ANOTHER silhouette than the cat (a squat wide
  * body and a huge pointed hat, no ears, no upright tail; the colours slate and deep navy with a turquoise ring, never the chain's five).
  */
-export function makeToad(size=1):Container{
+export function makeToad(size=1,outline=false):Container{
   const sprite=characterSprite('toad',84*size,78*size);
-  if(sprite){const c=new Container();sprite.position.set(0,-2*size);c.addChild(sprite);return c;}
+  if(sprite){
+    const c=new Container();
+    // Task 49 (design): the hero's own thin pale outline (1.5 px, 60 %) keeps her slate and navy off the dark floor: tinted copies round her.
+    if(outline)for(let k=0;k<8;k++){const a=characterSprite('toad',84*size,78*size);if(!a)break;const t=k/8*Math.PI*2;a.tint=0xe8efe0;a.alpha=0.6;a.position.set(Math.cos(t)*1.5,-2*size+Math.sin(t)*1.5);c.addChild(a);}
+    sprite.position.set(0,-2*size);c.addChild(sprite);return c;
+  }
   const c=new Container(),g=new Graphics();c.addChild(g);c.scale.set(size);
   g.ellipse(0,27,30,7).fill({color:0x0b1512,alpha:0.6});
   // The squat body and the webbed feet.
@@ -44,7 +49,7 @@ export function makeToad(size=1):Container{
   return c;
 }
 export function makePlayer(hero:HeroArtId='cat'):Container{
-  if(hero==='toad')return makeToad();
+  if(hero==='toad')return makeToad(1,true);
   const sprite=characterSprite('player',72,70);
   if(sprite){const c=new Container();c.addChild(sprite);return c;}
   const c=new Container(),g=new Graphics();c.addChild(g);

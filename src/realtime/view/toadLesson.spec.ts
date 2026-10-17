@@ -17,6 +17,8 @@ import { rtRunParams, RT_FORMS_PARAMS } from '../run/rtRun';
 import { buildEntries } from './buildColumn';
 import { HintStore } from './hints';
 import { findLoopHint } from './loopHint';
+import { JAILER_RUN_ARENAS } from '../sim/arenasBoss';
+import { cagePlace } from './cageView';
 import { isToad, TOAD_BARE_LIFE, TOAD_HAND_IDLE, TOAD_KEYS, TOAD_TEXT, ToadLesson } from './toadLesson';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -132,6 +134,25 @@ check('the column: the innate «Печать» is a row, the law module has none
   const ids = buildEntries(field(TOAD).world).map(e => e.id);
   assert(ids.includes(FORMS.seal) && !ids.includes(HERO_LAWS.toad), `rows ${ids}`);
   assert(buildEntries(field({}).world).length === 0, 'the cat holds nothing');
+});
+
+check('the cage: in every arena of the Jailer fight of a run it hangs where no newcomer came in 12 seeds (heroes sent round the yard) and inside the first frame (x 0–16, y 1.5–11.5)', () => {
+  for (const id of JAILER_RUN_ARENAS) {
+    const place = cagePlace(id, 14), hot: string[] = [];
+    for (let k = 1; k <= 12; k++) {
+      const sim = new Simulation({ arena: id, params: rtRunParams(defaultParams()), seed: seedOf(k), record: false, hero: { hp: 15, maxHp: 15 }, loadout: {} });
+      const spots = [[10, 12.5], [10, 8], [10, 2], [4, 12], [17, 12], [17, 2], [6, 6], [14, 6], [2, 8], [2, 3]];
+      for (let t = 0; t < 2400; t++) {
+        if (t % 200 === 0) { const [x, y] = spots[(t / 200 + k) % spots.length]; sim.command({ t: 'teleport', x, y }); }
+        const before = new Set(sim.world.enemies.map(e => e.id));
+        sim.tick();
+        for (const e of sim.world.enemies) if (!before.has(e.id) && Math.abs(e.x - place.x) <= 1.3 && e.y >= place.y - 2.3 && e.y <= place.y + 0.6) hot.push(`${e.x.toFixed(1)},${e.y.toFixed(1)}`);
+        sim.world.events.length = 0;
+      }
+    }
+    assert(hot.length === 0, `${id}: newcomers under the cage at ${hot.slice(0, 5)}`);
+    assert(place.x >= 1.3 && place.x <= 14.7 && place.y - 2.3 >= 1.5 && place.y <= 11.5, `${id}: the cage is in the first frame`);
+  }
 });
 
 console.log('toad view: all checks passed');

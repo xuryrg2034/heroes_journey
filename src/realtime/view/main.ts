@@ -60,7 +60,7 @@ import { runRow } from '../run/arenaPools';
 import { rtFeatKinds, rtNode, rtRunBestChain } from '../run/rtRun';
 import { NewSeenStore } from './newSeen';
 import { HintStore, purseResultLine } from './hints';
-import { CAGE_LINE } from './cageView';
+import { TOAD_LINES } from './heroLines';
 import { ToadLesson, isToad } from './toadLesson';
 import { findLoopHint, type LoopHintFigure } from './loopHint';
 import { ITEM_PULSE_ID, setPulse } from './pulse';
@@ -495,7 +495,7 @@ async function boot(): Promise<void> {
    */
   const toadLesson = new ToadLesson(hintStore);
   let toadFigure: LoopHintFigure | null = null, toadFrame = 0, cageSaid = false, cageLeft = 0;
-  const CAGE_LINE_LIFE = 3.4;
+  const CAGE_LINE_LIFE = 2.5;
   /**
    * Task 28: the names of the boss's moves (worldLabels.ts `bossMoveLabels`) — the moves named in this fight and the names on
    * screen with their real seconds left. The run and the sandbox; not tied to «Подсказки» (a name of an attack, no memory).
@@ -1455,8 +1455,9 @@ async function boot(): Promise<void> {
           if (!cageSaid && renderer.cage.shown.jolts > 0) { cageSaid = true; cageLeft = CAGE_LINE_LIFE; }
           if (cageLeft > 0) {
             cageLeft -= live ? realDt : 0;
-            const at = { x: renderer.cage.shown.x, y: renderer.cage.shown.y - 2.3 };
-            if (renderer.sees(at)) specs.push({ id: 'cage-1', text: CAGE_LINE, at, place: 'above', lift: 0.1 });
+            // A speech bubble to the right of the cage (she is inside), its tail to her.
+            const at = { x: renderer.cage.shown.x, y: renderer.cage.shown.y - 1.1 };
+            if (renderer.sees(at)) specs.push({ id: 'cage-1', text: TOAD_LINES.cage_1[0], at, place: 'side', lift: 1.3, tail: at });
           }
         } else cageLeft = 0;
       }

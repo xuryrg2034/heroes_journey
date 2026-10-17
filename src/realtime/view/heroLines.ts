@@ -5,9 +5,10 @@
  */
 import type { LineMemory } from './npcLines';
 
-export type ToadKey = 'cage_2' | 'first_camp' | 'pick' | 'about_cat' | 'record' | 'death_crowd' | 'death_jailer' | 'death_other';
+export type ToadKey = 'cage_1' | 'cage_2' | 'first_camp' | 'pick' | 'about_cat' | 'record' | 'death_crowd' | 'death_jailer' | 'death_other';
 
 export const TOAD_LINES: Readonly<Record<ToadKey, readonly string[]>> = {
+  cage_1: ['Громче бей. Я спать не могу, когда бьют вполсилы.'],
   cage_2: ['Наконец-то. Я не бегаю, я черчу круг — посмотришь.'],
   first_camp: ['Ты разбил его замок. Не жди благодарности.'],
   pick: [
