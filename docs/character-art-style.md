@@ -193,3 +193,4 @@ NOT smooth plastic surfaces, NOT excessive gradients.
 - `public/art/characters/warlock.png` — Колдун: шляпа больше тела со знаком колдуна (тот же, что содран с рясы Евлампия), посох-свеча, парит, 1162×1200.
 - `public/art/characters/warlock-dazed.png` — тот же Колдун сбит: шляпа набок, глаза-спирали, свеча погасла; сделан по `warlock.png` как образцу, 1145×1200.
 - `public/art/camp/foothill.png` — фон «Подножия», 1280×720: дорога в гору к замку на скале, сумерки, огни окон; низ в центре спокойнее (там панель).
+- Задача 57 (17.10.2026, тот же набор и файл промптов): `forest-slinger.png` (Пращник — гоблин с пращой), `forest-hive.png` (Улей), `forest-wisp.png` (Светляк — светящийся жук, не огонь), `forest-rootling.png` (Корневик), `forest-slime.png` (Слизень), `forest-centipede.png` (Сороконожка), `forest-firebrand.png` (Головешка). `check-art.mjs` — PASS для семи; для карточек «Летописи» и вида 57а/57б.
