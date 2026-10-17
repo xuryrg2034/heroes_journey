@@ -187,13 +187,16 @@ test('task 51г view: a kept vow shows «Обеты: сдержано 1 из 1 �
   await expect(page.getByTestId('meta-part-vows')).toHaveCount(0);
 });
 
-test('task 51г view: the vows taken show a sign in the header of the map, a hover lists them (the strike-through of a broken one waits for rtVowsNow of the core)', async ({ page }) => {
+test('task 51г view: the vows taken show a sign in the header of the map, a hover lists them; before the Jailer none is struck, after it the broken one is (the check of the core)', async ({ page }) => {
   test.setTimeout(120_000);
   const errors = collectErrors(page);
-  let early: RtRunState | null = null;
-  walkRun({ k: 5, loot: 4, create: { ...CAMP, hearth: { jailerRerolls: 1, vows: ['vow-no-reroll', 'vow-no-mapheal'] } } as never,
-    each: r => { if (!early && !r.pending) early = structuredClone(r); } });
-  expect(early, 'a map with the vows').not.toBeNull();
+  const { rtVowsOf } = await import('../src/realtime/run/rtMeta');
+  let early: RtRunState | null = null, late: RtRunState | null = null;
+  // «Без переброса» is broken by the walk's reroll, «Без лечения на карте» is kept; the state at the map after the Jailer's row counts them.
+  walkRun({ k: 5, loot: 4, jailerReroll: 'oath', create: { ...CAMP, hearth: { jailerRerolls: 1, vows: ['vow-no-reroll', 'vow-no-mapheal'] } } as never,
+    each: r => { if (r.pending) return; if (!early && !rtVowsOf(r)) early = structuredClone(r); const v = rtVowsOf(r); if (!late && v?.some(x => !x.kept)) late = structuredClone(r); } });
+  expect(early, 'a map before the Jailer').not.toBeNull();
+  expect(late, 'a map after the Jailer with a broken vow').not.toBeNull();
   await open(page, MONK_PROFILE, early!);
   await expect(page.getByTestId('run-vows')).toBeVisible();
   await expect(page.getByTestId('run-vows-tip')).toBeHidden();
@@ -201,6 +204,12 @@ test('task 51г view: the vows taken show a sign in the header of the map, a hov
   await expect(page.getByTestId('run-vows-tip')).toBeVisible();
   await expect(page.getByTestId('run-vow-vow-no-reroll')).toContainText('Без переброса');
   await expect(page.getByTestId('run-vow-vow-no-mapheal')).toContainText('Без лечения на карте');
+  await expect(page.locator('.rt-vows-tip .rt-broken')).toHaveCount(0);
+  await open(page, MONK_PROFILE, late!);
+  await page.getByTestId('run-vows').hover();
+  await expect(page.getByTestId('run-vow-vow-no-reroll')).toHaveAttribute('data-broken', 'true');
+  await expect(page.getByTestId('run-vow-vow-no-mapheal')).toHaveAttribute('data-broken', 'false');
+  await expect(page.getByTestId('run-vow-vow-no-reroll')).toHaveCSS('text-decoration-line', 'line-through');
   await page.screenshot({ path: shot('monk-header-vows') });
   // A run without vows has no sign.
   await open(page, MONK_PROFILE, walkRun({ k: 5, create: CAMP, each: () => undefined }).run);

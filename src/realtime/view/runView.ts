@@ -54,7 +54,7 @@ import { npcLine, type LineKey } from './npcLines';
 import { NPCS, type NpcId } from './metaModel';
 import { ProfileMeta } from './metaSource';
 import { MAP_KINDS, VOW_RULES, mapCounts, mapPreview, RunStart } from './runStart';
-import { rtHearthFlagsWith, rtJailerWonRow, rtRunKey, type RtHearthStart, type RtMetaEnd } from '../run/rtMeta';
+import { rtHearthFlagsWith, rtJailerWonRow, rtRunKey, rtVowsOf, type RtHearthStart, type RtMetaEnd } from '../run/rtMeta';
 import { RT_HERO_ID, RT_TOAD_ID, type RtHeroId, type RtVowId, RT_VOW_TITLES } from '../run/metaCatalog';
 import { defaultParams } from '../sim/params';
 import { TOAD_LINES } from './heroLines';
@@ -782,11 +782,11 @@ export class RunView {
 
   /**
    * Task 51г (design 17.10.2026): the sign of the vows taken in the map's header (not in the fight's HUD) - a seal on a dark disc; on a hover a
-   * list of the vows (name and rule). The strike-through of a broken vow waits for the core's check of the current state (`rtVowsNow`):
-   * `brokenVows` is the one place for it (design 17.10.2026; `rtVowsOf` counts a run only from the Jailer's row, so it is not used here).
+   * list of the vows (name and rule). A broken vow is struck through by the core's check of the end (`rtVowsOf`), which counts a run only from
+   * the Jailer's row - before it the set is empty. `brokenVows` is the one place to swap for the core's `rtVowsNow` (the same check at any time).
    */
-  private brokenVows(_run: RtRunState): ReadonlySet<string> {
-    return new Set();
+  private brokenVows(run: RtRunState): ReadonlySet<string> {
+    return new Set((rtVowsOf(run) ?? []).filter(v => !v.kept).map(v => v.id));
   }
   private vowSign(run: RtRunState): string {
     const vows = run.hearth?.vows;
