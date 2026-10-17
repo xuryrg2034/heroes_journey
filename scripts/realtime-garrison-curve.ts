@@ -113,14 +113,19 @@ const TROLL_KEYS: Partial<Params> = {
   ...args.includes('--troll-crowd') ? { trollCrowd: Number(option('--troll-crowd', '0.6')) } : {},
 };
 /** Task 48: the Troll's fights of the run: outcome, game time, the hero's damage by source. */
-const trollFights: { won: boolean; time: number; damage: Record<string, number> }[] = [];
+// Task 48 (design 17.10.2026): the hero's HP entering the fight; the damage by group — the crowd (its touches, the wolves, the rest), the core's
+// touch, the parts' touches, the moves.
+const trollFights: { won: boolean; time: number; damage: Record<string, number>; hpIn: number; groups: Record<TrollGroup, number> }[] = [];
+type TrollGroup = 'crowd' | 'core' | 'parts' | 'moves';
+const TROLL_GROUPS: readonly TrollGroup[] = ['crowd', 'core', 'parts', 'moves'];
+const TROLL_GROUP_TITLES: Readonly<Record<TrollGroup, string>> = { crowd: 'толпа', core: 'касания ядра', parts: 'касания частей', moves: 'приёмы' };
 const BOSS_AIM = args.includes('--boss-aim');
 const SET_NAME = option('--castellan', ''), SET = SET_NAME ? CASTELLAN_SETS[SET_NAME] : undefined;
 if (SET_NAME && !SET) throw new Error(`no set ${SET_NAME}: ${Object.keys(CASTELLAN_SETS).join(', ')}`);
 /** The Castellan's fights of the sweep: their outcome, game time and the killing blow's source. */
 const castellanFights: { won: boolean; time: number; source: string | null; hpIn: number }[] = [];
 /** Task 43: the Jailer's fights (the reference wall): outcome and game time. */
-const jailerFights: { won: boolean; time: number }[] = [];
+const jailerFights: { won: boolean; time: number; hpIn: number }[] = [];
 const jailerArena = (id: string): boolean => (JAILER_RUN_ARENAS as readonly string[]).includes(id);
 
 interface Tally { reached: Map<string, number>; deaths: Map<string, number>; damage: Map<string, number[]>; outcomes: Record<string, number>; fights: number; timeouts: number; runs: number;
@@ -149,14 +154,22 @@ function fight(run: RtRunState, t: Tally): RtArenaOutcome {
   // Task 48: the forest's final played as the Troll's fight (the outcome is read on the run as it is).
   const troll = TROLL_FIGHT && pending.arena === FINAL_ARENA && !run.garrisonLevel;
   if (troll) Object.assign(params, TROLL_KEYS);
-  const damage: Record<string, number> = {};
+  const damage: Record<string, number> = {}, groups: Record<TrollGroup, number> = { crowd: 0, core: 0, parts: 0, moves: 0 }, kinds = new Map<number, string>();
   const played = botFight(troll ? { ...run, pending: { ...pending, arena: 'troll' } } : run, { params, loadout, limit: LIMIT, ...BOSS_AIM ? { aim: BOSS_CORES } : {},
     ...castellan ? { afterTick: (world: World, tick: number) => tuneCastellan(world, castellan, tick === 0) } : {},
-    ...troll ? { seen: (world: World) => { for (const ev of world.events) if (ev.type === 'hit') damage[ev.source] = (damage[ev.source] ?? 0) + ev.damage; } } : {} });
+    ...troll ? { seen: (world: World) => {
+      for (const e of world.enemies) if (!kinds.has(e.id)) kinds.set(e.id, e.kind);
+      for (const ev of world.events) {
+        if (ev.type !== 'hit') continue;
+        damage[ev.source] = (damage[ev.source] ?? 0) + ev.damage;
+        const kind = ev.source === 'touch' ? kinds.get(ev.enemyId) : undefined;
+        groups[kind === 'troll' ? 'core' : kind?.startsWith('troll-') ? 'parts' : ['troll-club', 'troll-rock', 'troll-tail'].includes(ev.source) ? 'moves' : 'crowd'] += ev.damage;
+      }
+    } } : {} });
   const w = played.sim.world, lastSource = played.lastSource;
   if (played.timeout) t.timeouts++;
-  if (w.enemies.some(e => e.kind === 'jailer') || jailerArena(pending.arena)) jailerFights.push({ won: w.status === 'victory', time: w.time });
-  if (troll) trollFights.push({ won: w.status === 'victory', time: w.time, damage });
+  if (w.enemies.some(e => e.kind === 'jailer') || jailerArena(pending.arena)) jailerFights.push({ won: w.status === 'victory', time: w.time, hpIn: run.hp });
+  if (troll) trollFights.push({ won: w.status === 'victory', time: w.time, damage, hpIn: run.hp, groups });
   if (castellan) castellanFights.push({ won: w.status === 'victory', time: w.time, source: w.status === 'defeat' ? lastSource ?? 'timeout' : null, hpIn: run.hp });
   const key = keyOf(run, pending.nodeId);
   t.damage.set(key, [...t.damage.get(key) ?? [], w.stats.damageTaken]);
@@ -262,5 +275,7 @@ if (TROLL_FIGHT) {
   for (const f of trollFights) for (const [s, n] of Object.entries(f.damage)) all[s] = (all[s] ?? 0) + n;
   const total = Object.values(all).reduce((a, b) => a + b, 0), moves = ['troll-club', 'troll-rock', 'troll-tail'].reduce((a, s) => a + (all[s] ?? 0), 0);
   console.log(`Тролль (финал леса сыгран «Берлогой тролля»${Object.keys(TROLL_KEYS).length ? `, ${JSON.stringify(TROLL_KEYS)}` : ''}): боёв ${trollFights.length}, поражений ${tl} (${trollFights.length ? Math.round(100 * tl / trollFights.length) : 0}%), длина боя мед. ${trollFights.length ? f1(median(trollFights.map(f => f.time))) : '—'} с; урон героя ${total}, от приёмов ${moves} (${total ? Math.round(100 * moves / total) : 0}%): ${Object.entries(all).sort((a, b) => b[1] - a[1]).map(([s, n]) => `${s} ${n}`).join(', ')}.`);
+  const sums = TROLL_GROUPS.map(g => trollFights.reduce((a, f) => a + f.groups[g], 0)), sum = sums.reduce((a, b) => a + b, 0);
+  console.log(`Тролль: HP героя на входе в бой, мед. ${trollFights.length ? f1(median(trollFights.map(f => f.hpIn))) : '—'}; урон героя по группам: ${TROLL_GROUPS.map((g, i) => `${TROLL_GROUP_TITLES[g]} ${sums[i]} (${sum ? Math.round(100 * sums[i] / sum) : 0}%)`).join(', ')}.`);
 }
-console.log(`Тюремщик (все бои с ним, оба прохода): боёв ${jailerFights.length}, поражений ${jl} (${jailerFights.length ? Math.round(100 * jl / jailerFights.length) : 0}%), длина боя мед. ${jailerFights.length ? f1(median(jailerFights.map(f => f.time))) : '—'} с.`);
+console.log(`Тюремщик (все бои с ним, оба прохода): боёв ${jailerFights.length}, поражений ${jl} (${jailerFights.length ? Math.round(100 * jl / jailerFights.length) : 0}%), длина боя мед. ${jailerFights.length ? f1(median(jailerFights.map(f => f.time))) : '—'} с, HP героя на входе мед. ${jailerFights.length ? f1(median(jailerFights.map(f => f.hpIn))) : '—'}.`);
