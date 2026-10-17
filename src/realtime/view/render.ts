@@ -606,7 +606,7 @@ export class RealtimeRenderer {
    * `waveBodies` — rings on the bodies they strike, `shield` — the ring round the hero («Добивание» II), `frost` — snowflake badges
    * on the survivor and its neighbour («Иней»), `prism` — nothing is drawn (its rank II is energy). `fired` — rank II firings said over the hero.
    */
-  readonly honedShown = { edge: 0, catch: 0, arm: 0, hunter: 0, waves: 0, waveBodies: 0, shield: 0, frost: 0, prism: 0, fired: 0 };
+  readonly honedShown = { edge: 0, catch: 0, arm: 0, hunter: 0, hunterText: '', waves: 0, waveBodies: 0, shield: 0, frost: 0, prism: 0, fired: 0 };
   /** Task 50: the words of the rank II highlight («+2», «+1», «−1 пластина»), a pool over the root. */
   private readonly honedLabels: Text[] = [];
   /** Task 46 «Клеймо»: the view's clock at which a body was painted (its new colour fades in over `PAINT_FADE`); the old drawing fades out as a ghost. */
@@ -3105,7 +3105,7 @@ export class RealtimeRenderer {
     Object.assign(this.fusionShown, { paint: 0, blastRadius: 0, blastDetonate: 0, blastNumber: 0, blastMarks: 0, blastPlates: 0, waveRadius: 0, waveIce: 0, waveBrittle: 0, waveKills: 0, wavePlates: 0 });
     for (const label of this.fusionLabels) label.visible = false;
     for (const label of this.honedLabels) label.visible = false;
-    Object.assign(this.honedShown, { edge: 0, catch: 0, arm: 0, hunter: 0, waves: 0, waveBodies: 0, shield: 0, frost: 0, prism: 0 });
+    Object.assign(this.honedShown, { edge: 0, catch: 0, arm: 0, hunter: 0, hunterText: '', waves: 0, waveBodies: 0, shield: 0, frost: 0, prism: 0 });
     if (this.backPowerLabel) this.backPowerLabel.visible = false;
     this.signals.quillBadges = 0;
     this.eliteShown.planPlates = 0;
@@ -3372,7 +3372,10 @@ export class RealtimeRenderer {
         g.circle(bx, by, r * 0.32).fill(ELITE_LEMON).stroke({ color: NAVY, width: 2 });
         g.roundRect(bx - s * 0.8, by - s, s * 1.6, s * 2, s * 0.5).fill(NAVY);
         const label = this.plateLabel(this.eliteShown.planPlates++);
-        label.text = '−1 пластина';
+        // Task 50 «Охотник на элит» II (design 17.10.2026, §17): the one strike takes the hunter's plates too — one word, «−2 пластины».
+        const hunted = lp.honed?.includes(COUNTER_TALISMANS.eliteHunter) ? (p.honeHunterPlates ?? HONE.hunterPlates) : 0;
+        label.text = `−${1 + hunted} ${platesWord(1 + hunted)}`;
+        if (hunted) this.honedShown.hunterText = label.text;
         label.position.set(x, y - R - (armed > 0 ? 36 : 14));
         label.visible = true;
         continue;
@@ -3513,7 +3516,9 @@ export class RealtimeRenderer {
         else if (id === COUNTER_TALISMANS.eliteHunter) {
           const n = p.honeHunterPlates ?? HONE.hunterPlates;
           g.circle(x, y, R + 4).stroke({ color: ELITE_LEMON, width: 3, alpha: 0.9 });
-          say(`−${n} ${platesWord(n)}`, x, y + under, ELITE_LEMON); under += 22; shown.hunter++;
+          // A plate-hit link already says the sum over the body («−2 пластины»); a word of its own only where it has none.
+          if (!lp.outcome?.plate) { say(`−${n} ${platesWord(n)}`, x, y + under, ELITE_LEMON); under += 22; shown.hunterText = `−${n} ${platesWord(n)}`; }
+          shown.hunter++;
         }
       }
     }
