@@ -136,3 +136,20 @@ check('design 17.10.2026: the meeting keys are one count for the profile (not me
     assert(his.key === 'win_first' && his.id === `${npc}:win_first` && his.text === NPC_LINES[npc].win_first![0], `${npc}: the cat's first win`);
   }
 });
+
+check('task 51 (design 17.10.2026): `buy_3` and `locked3` of Неясыть, Марфа, Ерофей are the design table words (`Добавки`, `Сверх счёта 3.5`), no mark cat; a purchase of level 3 says `buy_3`', () => {
+  const from = DOC.findIndex((l: string) => l.startsWith('## Добавки')), to = DOC.findIndex((l: string) => l.startsWith('## v2.1')), got: Record<string, string> = {};
+  for (const l of DOC.slice(from, to)) {
+    const m = /^\| (Неясыть|Марфа|Ерофей) \| `(buy_3|locked3)` \| (?:[^|]*\| )?(.*?) \|\s*$/.exec(l);
+    if (m) got[`${NAMES[m[1]]}.${m[2]}`] = m[3];
+  }
+  assert(Object.keys(got).length === 6, `${Object.keys(got).length} rows`);
+  for (const npc of NPCS) for (const key of ['buy_3', 'locked3'] as const) {
+    assert(JSON.stringify(NPC_LINES[npc][key]) === JSON.stringify([got[`${npc}.${key}`]]), `${npc}.${key}: ${NPC_LINES[npc][key]} vs ${got[`${npc}.${key}`]}`);
+    assert(!CAT_MARKED[npc][key], `${npc}.${key} has no mark`);
+  }
+  for (const npc of NPCS) for (const hero of [undefined, 'toad' as const]) {
+    const line = pickLine(npc, { others: NPCS, bought: 3, ...hero ? { hero } : {} }, { [`${npc}:first`]: 99 });
+    assert(line.key === 'buy_3' && line.text === NPC_LINES[npc].buy_3![0], `${npc} ${hero}: ${line.key}`);
+  }
+});

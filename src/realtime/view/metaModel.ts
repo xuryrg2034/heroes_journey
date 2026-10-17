@@ -45,6 +45,8 @@ export interface HearthState {
   hero: MetaHeroId;
   stock: number;
   levels: Record<NpcId, number>;
+  /** Task 51а: level 3 is for sale (a hero of the profile has entered the garrison); before it the lock «Дойди до гарнизона». */
+  gate3: boolean;
   met: Record<NpcId, boolean>;
   /** The hero's experience now, the thresholds and the next pack (null — all open). */
   xp: number;
@@ -74,24 +76,25 @@ export interface MetaSource {
   /** Task 49: the heroes (the cat first); only an open one can be chosen. */
   heroes(): MetaHero[];
   chooseHero(id: MetaHeroId): boolean;
-  buy(npc: NpcId, level: number): { ok: true } | { ok: false; need: number; have: number };
+  buy(npc: NpcId, level: number): { ok: true } | { ok: false; need: number; have: number; reason?: 'absent' | 'level' | 'gate' | 'locked' };
   start(seed: number): HearthStart;
   /** A line was said (its `npc:key`): the profile counts it. */
   markLine(id: string): void;
 }
 
-/** Upgrade prices by level (design: 4, 8, 16; level 3 — after the garrison, not for sale in v1). */
+/** Upgrade prices by level (design: 4, 8, 16; task 51а: level 3 is for sale once a hero has entered the garrison, `HearthState.gate3`). */
 export const HEARTH_PRICES = [4, 8, 16] as const;
-export const HEARTH_LEVEL_LOCKED = 3;
+/** Task 51а: what a level 3 shows before the gate (the lock's caption: «Закрыто · Дойди до гарнизона»). */
+export const HEARTH_GATE_LOCK = { name: 'Закрыто', rule: 'Дойди до гарнизона' } as const;
 
-/** The NPC of v1: names, who they are, their upgrades (level 1, 2; level 3 is shown locked). */
+/** The NPC of v1: names, who they are, their upgrades (level 1–3; task 51б: level 3 serves the garrison). */
 export const NPCS: Readonly<Record<NpcId, { name: string; who: string; upgrades: [string, string, string]; rules: [string, string, string] }>> = {
-  owl: { name: 'Неясыть', who: 'сова-летописица', upgrades: ['Два пути', 'Три пути', 'Под замком'],
-    rules: ['В начале похода — выбор из 2 карт леса', 'В начале похода — выбор из 3 карт леса', 'После гарнизона'] },
-  herb: { name: 'Марфа', who: 'травница', upgrades: ['Склянка в дорогу', 'Выбор травницы', 'Под замком'],
-    rules: ['+1 расходник в начале похода', 'Расходник в дорогу — на выбор из 2', 'После гарнизона'] },
-  smith: { name: 'Ерофей', who: 'точильщик', upgrades: ['Правка', 'Полный верстак', 'Под замком'],
-    rules: ['+1 бесплатный переброс на экранах Тюремщика', 'Все открытые молоты на экране Тюремщика', 'После гарнизона'] },
+  owl: { name: 'Неясыть', who: 'сова-летописица', upgrades: ['Два пути', 'Три пути', 'Путь в гарнизон'],
+    rules: ['В начале похода — выбор из 2 карт леса', 'В начале похода — выбор из 3 карт леса', 'В Предместье — выбор из 2 карт гарнизона'] },
+  herb: { name: 'Марфа', who: 'травница', upgrades: ['Склянка в дорогу', 'Выбор травницы', 'Склянка в гарнизон'],
+    rules: ['+1 расходник в начале похода', 'Расходник в дорогу — на выбор из 2', 'В Предместье — расходник из 2 на выбор'] },
+  smith: { name: 'Ерофей', who: 'точильщик', upgrades: ['Правка', 'Полный верстак', 'Правка в гарнизоне'],
+    rules: ['+1 бесплатный переброс на экранах Тюремщика', 'Все открытые молоты на экране Тюремщика', '+1 бесплатный переброс в гарнизоне'] },
 };
 /** The order of the six places round the fire: the three NPC of v1, then three empty places. */
 export const HEARTH_PLACES: readonly (NpcId | null)[] = ['owl', 'herb', 'smith', null, null, null];

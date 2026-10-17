@@ -33,6 +33,8 @@ import { curseKill, takeChest } from './chest';
 import { hasTalisman, sealOnlyShield } from './kit';
 import { afterLinkPowerOf, anchorsOf, buildActive, chainShieldMinKillsOf, chainShieldOf, colorRuleOf, colorShiftOf, crystalEveryOf, endShadowOf, focusMaxOf, hasHook, honedFired, jumpCostOf, linkGainOf, linkPowerOf, linkRadiusOf, nextChainNo, platesBeforeOf, rank2LinksOf, runHook, secondKey, talismanFired, type ChainAnchor, type ChainEnd, type HonedRelease, type LinkContext } from './build';
 import { COUNTER_TALISMANS, FORMS, FUSIONS, HAMMERS } from './buildIds';
+// Task 52, Р2: the dwell gesture of «Развилка» (its anchor; the anchors hook reads the same).
+import { forkAnchorNow, forkDwellOn, forkSpent } from './forms';
 // Task 44 «Сплавы»: the fusions' pure rules (the highlight and the dash read the same ones).
 import { blastPlatesOn, boomerangFull, brandOn, brandPaintable, brandReach, endBlastOf, frostWaveCold, fusionEndOn, hunterBlastOn, hunterEnd, iceSealCold, piercePlates } from './fusions';
 // Task 46: the end of the dash in the highlight (the bodies of the wave, the end blast and the paint).
@@ -1124,6 +1126,9 @@ export function chainAnchors(world: World): ChainAnchor[] {
  */
 export function nextLink(world: World, target: ChainLink): ChainLink {
   const plain: ChainLink = { kind: target.kind, id: target.id } as ChainLink;
+  // Task 52, Р2: the dwell chose the anchor — the link is taken from it (the only anchor then, forms.ts).
+  const chosen = world.chain.length ? forkAnchorNow(world) : null;
+  if (chosen) return { ...plain, fork: { kind: chosen.kind, id: chosen.id } };
   if (!((world.params.forkBranches ?? 0) > 0) || !world.chain.length) return plain;
   const point = linkPoint(world, plain), enemy = plain.kind === 'enemy' ? findEnemy(world, plain.id) : undefined;
   if (!point) return plain;
@@ -1347,6 +1352,7 @@ export function beginChain(world: World, p: Vec): boolean {
   if (world.status !== 'playing' || world.move) return false;
   world.chain = [];
   delete world.chainClosed;
+  delete world.forkAnchor;
   const plan = planChain(world, world.chain, NO_PIERCE);
   const target = pick(world, p, e => canLink(world, e, plan), o => canLinkObject(world, o, plan));
   if (!target) return false;
@@ -1366,6 +1372,8 @@ export type DragMode = 'full' | 'sweep' | 'append';
 /** Drag: append a valid link, truncate on a selected one, cancel on the hero. */
 export function dragChain(world: World, p: Vec, mode: DragMode = 'full'): void {
   if (world.status !== 'playing' || world.move) return;
+  // Task 52, Р2: the pointer event left the link it rested on — its dwell done, it stays the anchor (`ready`); not done — no anchor.
+  if (mode === 'full' && world.forkAnchor) leaveForkAnchor(world, p);
   // Loop research, step 2: the loop gesture comes first (only the pointer event itself, never a sweep or the held pointer).
   if (mode === 'full' && loopOn(world) && world.chain.length && loopGesture(world, p)) return;
   // Stage H (user 08.10.2026): the hero is link zero of the step back — with one link the pointer on the hero takes it off
@@ -1389,6 +1397,11 @@ export function dragChain(world: World, p: Vec, mode: DragMode = 'full'): void {
   const index = linkIndex(world, target);
   // Task 39: the held pointer nearest to a link of the chain does nothing (it never truncates).
   if (index >= 0 && mode !== 'full') return;
+  // Task 52, Р2: the pointer event on an older link (not the last, not the one before it) starts its dwell (`forkAnchorNow`).
+  if (index >= 0 && index <= world.chain.length - 3 && forkDwellOn(world) && hasTalisman(world, FORMS.fork) && !forkSpent(world)) {
+    if (!world.forkAnchor || world.forkAnchor.kind !== target.kind || world.forkAnchor.id !== target.id) world.forkAnchor = { kind: target.kind, id: target.id, since: world.time };
+    return;
+  }
   if (index >= 0) {
     // Stage H: one step back only — the second-to-last link takes the last one off; an older link does nothing (after a
     // crystal the pointer often crosses old links). A link taken off and taken again does not refresh focus (stage E).
@@ -1402,9 +1415,23 @@ export function dragChain(world: World, p: Vec, mode: DragMode = 'full'): void {
   const color = chainColor(world), need = twinsNextColor(world);
   const joined = target.kind === 'enemy' ? findEnemy(world, target.id) : undefined, join = joined ? colorJoin(world, joined, color) : null;
   world.chain.push(nextLink(world, target));
+  // Task 52, Р2: the fork is taken — the anchor is the last link again.
+  delete world.forkAnchor;
   // Phase A, T4: a chameleon taken in its window by a chain of another colour takes the chain's colour (task 33: the pair's next).
   if (joined && join === 'chameleon') adoptChainColor(world, joined, need ?? color);
   refreshFocus(world, target);
+}
+
+/**
+ * Task 52, Р2: the pointer event at `p` is not on the link the dwell rests on — done (`forkAnchorNow` held it long enough): it stays
+ * the anchor until a link joins; not done, or no longer an older link — no anchor.
+ */
+function leaveForkAnchor(world: World, p: Vec): void {
+  const fa = world.forkAnchor!;
+  const on = pick(world, p, e => fa.kind === 'enemy' && e.id === fa.id, o => fa.kind === 'object' && o.id === fa.id);
+  if (on) return;
+  if (!fa.ready && forkAnchorNow(world)) fa.ready = true;
+  else if (!fa.ready || !forkAnchorNow(world)) delete world.forkAnchor;
 }
 
 /** Task 39 (`Params.holdNearest`): the held still pointer (`append`) sees the chain's links too — the pointer event always does. */
@@ -1473,7 +1500,7 @@ export function hoverRefusal(world: World, p: Vec, held = false): Refusal | null
   return o ? objectRefusal(world, o, plan) : null;
 }
 
-export function cancelChain(world: World): void { world.chain = []; delete world.chainClosed; }
+export function cancelChain(world: World): void { world.chain = []; delete world.chainClosed; delete world.forkAnchor; }
 
 /**
  * Iteration 2.1: the damage to the hero a chain hit on `enemy` would do now through its armed reaction (`EnemyBehavior.armed`:
@@ -1502,6 +1529,7 @@ export function releaseChain(world: World): boolean {
   const links = world.chain.filter(l => linkPoint(world, l));
   world.chain = [];
   delete world.chainClosed;
+  delete world.forkAnchor;
   if (!links.length || world.status !== 'playing' || world.move) return false;
   world.move = { ...newMove('dash', { x: world.hero.x, y: world.hero.y }, null, world.params.dashSpeed), links };
   if (seal) {

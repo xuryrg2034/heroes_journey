@@ -950,6 +950,13 @@ export interface Params {
    * journals without the key: 0.
    */
   forkBranches: number;
+  /**
+   * Task 52 «Числа», Р2 (docs/design-notes/task-52-numbers.md, 3.5): «Развилка»'s gesture — game seconds the pointer rests on an older
+   * link of the chain (not the last, not the one before it) to make it the fork's anchor; the next link is taken only from it (`fork`).
+   * 0 — the old rule (every link an anchor). The sandbox 0,25 (`DEFAULT_PARAMS`, design 17.10.2026); the run — 0 (`RUN_FORCED`); journals
+   * without the key: 0 (the old rule; their hashes as before).
+   */
+  forkDwell: number;
   // ---- Task 34 «Смена цвета — только точкой курсора» (chain.ts `dragChain`; docs/realtime-prototype.md, «Смена цвета»). ----
   /**
    * While the chain's colour is free by «Смена цвета» (`colorShiftLinks`), an enemy of another colour joins only at the pointer
@@ -1522,6 +1529,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   twinsAlternate: true,
   twinsNoShift: true,
   forkBranches: 1,
+  // Task 52, Р2: the sandbox plays the dwell gesture (0,25 s); the run — 0 (`RUN_FORCED`); journals without the key — 0.
+  forkDwell: 0.25,
   // Task 34 (chain.ts): another colour on a free chain only at the pointer; the run turns it on too (`RUN_FORCED`).
   shiftAtPointer: true,
   // Task 39 (chain.ts `pickAt`): the held pointer takes a body only when it is nearer than every link of the chain.
@@ -2034,6 +2043,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   { kind: 'bool', key: 'twinsNoShift', group: 'Талисманы', label: '«Близнецы» выключают «Смену цвета»', stage: 5,
     hint: 'С «Близнецами» в сборке смена цвета не наступает, даже если «Смена цвета: после … звеньев» больше 0. В походе выключено.' },
   n('forkBranches', 'Талисманы', '«Развилка»: развилок за цепь', 0, 4, 1, 5, '', 'Сколько звеньев цепь может взять не от последнего звена (и не от героя с «Якорем»). Потом якорь — снова только последнее звено. 0 — без предела. В походе — 0.'),
+  n('forkDwell', 'Талисманы', '«Развилка»: задержка на старом звене', 0, 1, 0.05, 5, 'с', 'Задача 52. 0 — прежнее правило: якорь — любое звено цепи. Больше 0 — якорь последнее звено; курсор, неподвижный на старом звене (не на последнем и не на предыдущем — там шаг назад) столько игровых секунд, делает его якорем: следующее звено берётся только от него. Песочница: 0,25 с; поход: 0.'),
   n('jailerHp', 'Босс', 'Тюремщик: HP ядра', 2, 10, 1, 5, '', 'HP ядра при появлении (новый бой). Арена «Тюремщик» ставит 5, если на панели значение по умолчанию (2).'),
   // Task 48 «Тролль» (enemies/troll.ts, docs/realtime-elite-behaviors.md, «Тролль (задача 48)»).
   { kind: 'bool', key: 'trollWindow', group: 'Тролль', label: 'Окно Тролля', stage: 5,
@@ -2152,7 +2162,7 @@ export function defaultParams(): Params { return sanitizeParams(null); }
  * panel holds. Task 29: the counters' chain window (`counterWindow`) — off here; task 30: a run with the flag `forms` turns it on with the
  * forms' price and `returnFixed` (run/rtRun.ts `RT_FORMS_PARAMS`, `rtArenaParams`).
  */
-export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4, loopEnabled: false, loopHint: false, pierceEnabled: false, secondWind: false, endBlastMinLinks: 3, fireMinLinks: 3, returnFixed: false, counterWindow: false, twinsAlternate: false, twinsNoShift: false, forkBranches: 0, shiftAtPointer: true, holdNearest: true, holdHeroLink: true });
+export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4, loopEnabled: false, loopHint: false, pierceEnabled: false, secondWind: false, endBlastMinLinks: 3, fireMinLinks: 3, returnFixed: false, counterWindow: false, twinsAlternate: false, twinsNoShift: false, forkBranches: 0, forkDwell: 0, shiftAtPointer: true, holdNearest: true, holdHeroLink: true });
 /**
  * The values a run arena plays with: the saved panel with the stand-ins of run rules off (`RUN_FORCED`) and the run's own
  * numbers on top (`forced`; iteration 2.1: the healing consumable — `rtRunParams`, run/rtRun.ts).

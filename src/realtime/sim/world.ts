@@ -629,6 +629,12 @@ export interface World {
    * the loop hash as before). Nothing may join a closed chain; the pointer on its last link opens it.
    */
   chainClosed?: LoopKind;
+  /**
+   * Task 52, Р2 (`Params.forkDwell`, «Развилка» in the sandbox): the older link of the drawn chain the pointer event rests on (`since` —
+   * the game time it came there) or left after the dwell was done (`ready`) — the fork's anchor (forms.ts `forkAnchorNow`). Absent
+   * otherwise (worlds without the gesture hash as before); gone when a link joins, the chain is begun, released or cancelled.
+   */
+  forkAnchor?: { kind: 'enemy' | 'object'; id: number; since: number; ready?: true };
   /** Package «Урон имеет значение»: the last firing id given (`nextFiring`; absent until one is — worlds without it hash as before). */
   firing?: number;
   /** Dash along the released chain or a jump; contact damage is off meanwhile. */
