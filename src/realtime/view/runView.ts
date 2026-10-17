@@ -46,7 +46,7 @@ import type { SoundSetting } from './paramStorage';
 import { FX_LEVELS, countUpTime, countUpValue, fxLevelOf, type FxLevel } from './juice';
 import { SECOND_WIND_HP } from '../sim/world';
 import { featCardLine } from './featView';
-import { habitIconSvg, habitMark, habitSign } from './habitMark';
+import { habitIconSvg, habitMark, habitSign, vowIconSvg } from './habitMark';
 import type { FirstMeetId } from './firstMeet';
 import { ICON as STOCK_ICON, MetaEndView, type MetaSound } from './metaEnd';
 import { HearthView, NPC_ART, artUrl } from './hearthView';
@@ -795,8 +795,7 @@ export class RunView {
       const broken = gone.has(id);
       return `<li class="${broken ? 'rt-broken' : ''}" data-testid="run-vow-${id}" data-broken="${broken}"><b>${escapeHtml(RT_VOW_TITLES[id])}</b><small>${escapeHtml(VOW_RULES[id])}</small></li>`;
     }).join('');
-    return `<span class="rt-run-vows" data-testid="run-vows" tabindex="0" aria-label="Обеты похода"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#233039"/>`
-      + `<path d="M12 4.5 L14.4 9.2 L19.6 9.9 L15.8 13.5 L16.8 18.6 L12 16.1 L7.2 18.6 L8.2 13.5 L4.4 9.9 L9.6 9.2 Z" fill="#c9a8ff" stroke="#18232d" stroke-width="1.4" stroke-linejoin="round"/></svg>`
+    return `<span class="rt-run-vows" data-testid="run-vows" tabindex="0" aria-label="Обеты похода">${vowIconSvg(24)}`
       + `<ul class="rt-vows-tip" data-testid="run-vows-tip"><li class="rt-vows-head">Обеты</li>${items}</ul></span>`;
   }
 
