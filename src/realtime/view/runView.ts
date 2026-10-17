@@ -54,7 +54,7 @@ import { npcLine, type LineKey } from './npcLines';
 import { NPCS, type NpcId } from './metaModel';
 import { ProfileMeta } from './metaSource';
 import { MAP_KINDS, VOW_RULES, mapCounts, mapPreview, RunStart } from './runStart';
-import { rtHearthFlagsWith, rtJailerWonRow, rtRunKey, rtVowsOf, type RtHearthStart, type RtMetaEnd } from '../run/rtMeta';
+import { rtHearthFlagsWith, rtJailerWonRow, rtRunKey, type RtHearthStart, type RtMetaEnd } from '../run/rtMeta';
 import { RT_HERO_ID, RT_TOAD_ID, type RtHeroId, type RtVowId, RT_VOW_TITLES } from '../run/metaCatalog';
 import { defaultParams } from '../sim/params';
 import { TOAD_LINES } from './heroLines';
@@ -782,14 +782,17 @@ export class RunView {
 
   /**
    * Task 51г (design 17.10.2026): the sign of the vows taken in the map's header (not in the fight's HUD) - a seal on a dark disc; on a hover a
-   * list of the vows (name and rule). A vow already broken is struck through - by the core's check of the end (`rtVowsOf`), which counts a
-   * run only from the Jailer's row: before it nothing is struck (the vows are not counted yet).
+   * list of the vows (name and rule). The strike-through of a broken vow waits for the core's check of the current state (`rtVowsNow`):
+   * `brokenVows` is the one place for it (design 17.10.2026; `rtVowsOf` counts a run only from the Jailer's row, so it is not used here).
    */
+  private brokenVows(_run: RtRunState): ReadonlySet<string> {
+    return new Set();
+  }
   private vowSign(run: RtRunState): string {
     const vows = run.hearth?.vows;
     if (!vows?.length) return '';
-    const state = rtVowsOf(run), items = vows.map(id => {
-      const broken = state?.find(v => v.id === id)?.kept === false;
+    const gone = this.brokenVows(run), items = vows.map(id => {
+      const broken = gone.has(id);
       return `<li class="${broken ? 'rt-broken' : ''}" data-testid="run-vow-${id}" data-broken="${broken}"><b>${escapeHtml(RT_VOW_TITLES[id])}</b><small>${escapeHtml(VOW_RULES[id])}</small></li>`;
     }).join('');
     return `<span class="rt-run-vows" data-testid="run-vows" tabindex="0" aria-label="Обеты похода"><svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><circle cx="12" cy="12" r="11" fill="#233039"/>`
