@@ -103,12 +103,13 @@ const CASTELLAN_SETS: Readonly<Record<string, CastellanSet>> = {
 const BOSS_CORES: readonly string[] = ['castellan', 'jailer', 'troll'];
 /**
  * Task 48 (`--troll`; design 16.10.2026, spec 24.3): the forest's final («Последний рубеж» on either branch) is played by the bot as the
- * Troll's fight «Берлога тролля» — the script puts the arena on the node (until task 48б the run does not choose it); `--troll-plates N`,
+ * Troll's fight «Берлога тролля» — the script puts the arena on any forest final (the run itself plays him on the den branch only); `--troll-hp N`, `--troll-plates N`,
  * `--troll-crowd X` — the Troll's keys over the run's params. A line of the Troll's fights at the end.
  */
 const TROLL_FIGHT = args.includes('--troll');
 const TROLL_KEYS: Partial<Params> = {
-  ...args.includes('--troll-plates') ? { trollPlates: Number(option('--troll-plates', '5')) } : {},
+  ...args.includes('--troll-hp') ? { trollHp: Number(option('--troll-hp', '2')) } : {},
+  ...args.includes('--troll-plates') ? { trollPlates: Number(option('--troll-plates', '4')) } : {},
   ...args.includes('--troll-crowd') ? { trollCrowd: Number(option('--troll-crowd', '0.6')) } : {},
 };
 /** Task 48: the Troll's fights of the run: outcome, game time, the hero's damage by source. */
