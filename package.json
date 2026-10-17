@@ -107,6 +107,7 @@
     "test:realtime-garrison-run": "tsx src/realtime/run/garrisonRun.spec.ts",
     "test:realtime-keymaster": "tsx src/realtime/sim/keymaster.spec.ts",
     "test:realtime-crossbow": "tsx src/realtime/sim/crossbow.spec.ts",
+    "test:realtime-forest-shooters": "tsx src/realtime/sim/forestShooters.spec.ts",
     "test:realtime-castellan-full": "tsx src/realtime/sim/castellanFull.spec.ts",
     "test:realtime-knight": "tsx src/realtime/sim/knight.spec.ts",
     "test:realtime-garrison-moat": "tsx src/realtime/run/garrisonMoat.spec.ts",

@@ -24,6 +24,10 @@ import './garrison';
 import './crossbow';
 // Task 48 «Тролль»: the boss of the forest — his core and his three parts (`Params.bossFrame`, his window `Params.trollWindow`).
 import './troll';
+// Task 57а «Лес: стрелки»: the slinger, the hive and the wisp («Светляк») — the layer of shots (sim/shots.ts).
+import './slinger';
+import './hive';
+import './wisp';
 
 export { BOAR_ART_SCALE, type BoarState } from './boar';
 export { packmates, wolfHowl, wolfRushLine, wolfState, WOLF_RUSH } from './wolf';
@@ -39,4 +43,8 @@ export { CASTELLAN, GUARD, HANDLER, HOUND, castellanMove, houndFrenzied } from '
 export { KNIGHT, KNIGHT_LANE_WIDTH, knightLane, knightOffensive, knightState, knightSwing } from './garrison';
 // Task 48: the Troll for the view.
 export { TROLL, TROLL_CLUB, TROLL_MOVES, TROLL_ROCK, TROLL_TAIL, trollCore, trollMove, trollState, type TrollMoveId } from './troll';
+// Task 57а: the forest shooters for the view.
+export { SLINGER, slingerLines } from './slinger';
+export { HIVE, hiveSwell } from './hive';
+export { WISP, wispState } from './wisp';
 export * from './kinds';
