@@ -62,6 +62,7 @@ import { CHEST_CURSE_KILLS, cursed } from '../sim/chest';
 import { FLAIL_RADIUS, JAILER, JAILER_WEIGHT, jailerCore, jailerMove, jailerShieldUp, type JailerMoveId } from '../sim/enemies/jailer';
 import { CHAIN_BREAK_LIFE, drawFlailArc, drawFlailChain, drawSeverPip, drawWeight, drawWhistleMark } from './jailerView';
 import { TROLL, TROLL_ROCK, trollCore } from '../sim/enemies/troll';
+import { ShooterView, hiveMarks, slingerMarks, wispMarks } from './shooterView';
 import { TROLL_ART, TROLL_ART_ASPECT, TROLL_FEET, TrollView, buildCore, buildPartArt, coreBadgeAt, corePips, isTrollKind, partBadgeAt, partOutward, posePartArt, type CoreArt, type SignTools } from './trollView';
 
 /**
@@ -449,6 +450,8 @@ export class RealtimeRenderer {
   readonly tetherShown = { lines: 0, cut: 0, marks: 0, snaps: 0, shackles: 0, locks: 0, drops: 0 };
   /** Task 48: the Troll's view — his drawing, window, signs, tail and effects (`trollView.ts`). */
   private readonly troll = new TrollView(UNIT, chainInk);
+  /** Task 57а: the forest shooters' signs, shots and light (shooterView.ts); `shown` is what the tests read. */
+  readonly shooters = new ShooterView();
   /** Task 48 (tests read it): the Troll's frame — the glow, the count, the sign and its fill, the tail, the severed parts, the sparks of «звон». */
   get trollShown(): TrollView['shown'] { return this.troll.shown; }
   /** The real seconds of the frame being drawn (the Troll's pieces fall by it). */
@@ -767,7 +770,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.cage.layer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.troll.layer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.overlay, this.prologueLayer, this.fxLayer, this.snapLayer, this.shardLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.cage.layer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.troll.layer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.shooters.layer, this.overlay, this.prologueLayer, this.fxLayer, this.snapLayer, this.shardLayer, this.flash);
     this.heroRoot.addChild(this.reachLayer, this.reachMask, this.heroLayer);
     this.app.stage.addChild(this.root, this.viewBorder, this.heroRoot, this.edgeLayer);
     this.initShards();
@@ -1178,6 +1181,10 @@ export class RealtimeRenderer {
       ctx.circle(r * 1.22, -r * 1.35, r * 0.24).fill(MAGIC).stroke({ color: NAVY, width: 2.5 });
       for (const a of [-0.5, 0, 0.5]) ctx.poly([Math.sin(a) * r * 0.55, -r * 0.8, Math.sin(a) * r * 1.0 - r * 0.12, -r * 1.55, Math.sin(a) * r * 1.0 + r * 0.12, -r * 1.55]).fill(PALE).stroke({ color: NAVY, width: 2, join: 'round' });
     }
+    // Task 57а: the forest shooters' stand-in silhouettes (the design's art comes later).
+    if (kind === 'slinger') slingerMarks(ctx, r);
+    if (kind === 'hive') hiveMarks(ctx, r);
+    if (kind === 'wisp') wispMarks(ctx, r);
     // Porcupine (iteration 2.1): its quills go up and down — drawn per frame over the texture (`quillGraphics`).
     if (kind === 'sapper') {
       // Sapper: a black powder keg on its back with a short fuse (silhouette, not a color).
@@ -1372,7 +1379,9 @@ export class RealtimeRenderer {
       if (colorless && view.root.visible) colorlessShown++;
       const paintedAt = this.paintAt.get(e.id), fade = paintedAt === undefined ? 1 : Math.min(1, Math.max(0, (this.clock - paintedAt) / PAINT_FADE));
       if (paintedAt !== undefined && fade >= 1) this.paintAt.delete(e.id);
-      view.root.alpha = (mode === 'alpha' ? 1 - dim : 1) * fade;
+      const wl = this.shooters.wispLook(world, e, this.clock);
+      if (wl) view.root.scale.set(scale * pop * enemyArtScale(world.params, e) * wl.scale);
+      view.root.alpha = (mode === 'alpha' ? 1 - dim : 1) * fade * (wl?.alpha ?? 1);
       const shade = Math.round(255 * (mode === 'darken' ? 1 - dim : 1));
       view.root.tint = (shade << 16) | (shade << 8) | shade;
       if (view.grey) view.grey.alpha = mode === 'desaturate' ? dim : 0;
@@ -1780,6 +1789,8 @@ export class RealtimeRenderer {
       this.arrowFlashes++;
     }
     this.archerMarksSeen = marks;
+    // Task 57а: the slinger's lines, the hive's swell, the shots in the air and the wisps' light.
+    this.shooters.draw(g, world, this.clock, UNIT, r, (pt, margin) => this.sees(pt, margin));
     this.drawBoss(world, g);
     this.drawTroll(world, g);
     Object.assign(this.signals, counts);
@@ -2758,6 +2769,8 @@ export class RealtimeRenderer {
       // plate after the dash — «−1 пластина» over it, as an elite's.
       // Task 48: the Troll's events (his moves' hits flash the sign, «звон», the severed parts fall, a plate that grew back) — the rest are the Jailer's.
       if ((ev.type === 'bossMove' || ev.type === 'trollWindow' || ev.type === 'partSevered' || ev.type === 'bossPlate') && this.troll.onEvent(ev, world, this.clock, enemyDrawRadius(world.params) * UNIT)) continue;
+      // Task 57а: the sparks of the shots (put out, taken by a shield, a hit, an end of flight), a wisp going out, a hive's ring leaving.
+      if (this.shooters.onEvent(ev, UNIT)) continue;
       if (ev.type === 'bossMove') {
         const m = ev.stage === 'hit' ? this.bossMovesSeen.get(ev.id) : undefined;
         if (m) { this.bossFlashes.push({ ...m, until: this.clock + 0.3 }); this.bossShown.hits++; }
@@ -4181,6 +4194,7 @@ export class RealtimeRenderer {
     this.updateDying(realDt);
     this.updateClearWaves(realDt);
     this.updateFireFlares(realDt);
+    this.shooters.update(realDt);
     this.cage.update(world, realDt);
     this.drawObjects(world);
     this.drawMarkers(world);
@@ -4273,6 +4287,7 @@ export class RealtimeRenderer {
     this.powerValue = -1;
     for (const sp of this.sparks) sp.g.destroy();
     this.sparks.length = 0;
+    this.shooters.reset();
     for (const f of this.floating) f.text.destroy();
     this.floating.length = 0;
     for (const b of this.bursts) b.g.destroy();

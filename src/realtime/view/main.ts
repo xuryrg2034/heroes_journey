@@ -38,6 +38,8 @@ import { crowdLifetime, defaultParams, type ParamKey, type Params } from '../sim
 import { rtArenaParams, rtPageParams } from '../run/rtRun';
 import { replay, Simulation, type Journal } from '../sim/simulation';
 import { focusGuarded, goalLamps, goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World, type WorldEvent } from '../sim/world';
+// After the world: shots.ts and the enemy kinds import each other, the world's import order settles it.
+import { liveShots } from '../sim/shots';
 import { linkPoint } from '../sim/chain';
 import { ChainAudio } from './audio';
 import { chainFeel, QUIET_GAIN } from './chainFeel';
@@ -1712,6 +1714,8 @@ async function boot(): Promise<void> {
         hero: { ...w.hero },
         enemies: w.enemies.map(e => ({ id: e.id, kind: e.kind, x: e.x, y: e.y, color: e.color, hp: e.hp, marked: e.marked, boar: e.kind === 'boar' ? e.boar : null, age: e.age, vars: { ...e.vars }, chill: e.chill ?? 0, brittle: !!e.brittle, burn: e.burn ? e.burn.left : 0, elite: !!e.elite, leader: !!e.leader, armor: e.armor ? { ...e.armor } : null, partOf: e.partOf ?? null })),
         objects: w.objects.map(o => ({ ...o })),
+        /** Task 57а: the live shots of the forest shooters (sim `liveShots`: empty after the fight). */
+        shots: liveShots(w).map(x => ({ ...x })),
         chain: w.chain.map(l => l.id),
         chainLinks: w.chain.map(l => ({ ...l })),
         moving: w.move?.kind ?? null,
@@ -1837,6 +1841,8 @@ async function boot(): Promise<void> {
         garrison: { ...renderer.garrisonShown },
         /** Task 43: the full Castellan's court and the bolts (render.ts `courtShown`). */
         court: { ...renderer.courtShown },
+        /** Task 57а: the forest shooters — the slinger's lines, the hive's dots, the shots and the wisps' light drawn in the frame; the sparks shown (shooterView.ts). */
+        shooters: { ...renderer.shooters.shown },
         /** Task 43: the knight — plate pips, «Рывок» lanes and «Размах» circles drawn in the frame; the sheds and swing hits seen. */
         knight: { ...renderer.knightShown },
         /**
