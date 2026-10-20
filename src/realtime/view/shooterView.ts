@@ -14,8 +14,6 @@
  * (`liveShots`, `slingerLines`, `hiveSwell`, `wispState`) and the events, never writes the world, never rolls a die.
  */
 import { Container, Graphics, type GraphicsContext } from 'pixi.js';
-// The world first: shots.ts and the enemy kinds import each other, the world's import order settles it (whoever imports this file first).
-import '../sim/world';
 import { hiveSwell, HIVE, RING_RADIUS, WASP_RADIUS } from '../sim/enemies/hive';
 import { SLINGER, slingerLines, STONE_RADIUS } from '../sim/enemies/slinger';
 import { WISP, WISP_FADE, wispState } from '../sim/enemies/wisp';

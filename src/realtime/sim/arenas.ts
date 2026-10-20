@@ -138,6 +138,11 @@ export interface ArenaTemplate extends ArenaShape {
   volleyGap?: number;
   volleyArcher?: true;
   /**
+   * Task 57а: the arena plays the layer's rules of the run with the flag `forestShooters` (`RT_FOREST_SHOOTERS_PARAMS`: the shooters' timer
+   * 2.5 s when the values have none, the snuffing on) — the sandbox arena «Стрелки леса (проба)».
+   */
+  forestShooters?: true;
+  /**
    * К7 «Проклятый сундук» (chest.ts; design 12.10.2026): the authored point of the cursed chest — only «Застава». The chest
    * stands there while `Params.cursedChest` is on; omitted — no chest.
    */

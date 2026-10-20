@@ -2,6 +2,7 @@ import { type Page } from '@playwright/test';
 import { test, expect, skipHabit } from './realtimeTest';
 import { untilFrame } from './realtimeFrames';
 import { leaveResult } from './realtimeResult';
+import { roleOf } from '../src/realtime/view/roles';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
 
 /**
@@ -318,5 +319,27 @@ test('task 57а view: the three shooters side by side — their art over the dis
   await expect.poll(async () => (await page.evaluate(() => (window as any).__realtime.snapshot().paused))).toBe(true);
   await shot(page, 'all-three');
   await page.keyboard.press('KeyP');
+  expect(errors).toEqual([]);
+});
+
+test('task 57а: the sandbox menu opens «Стрелки леса (проба)» by a real click — the three kinds stand there; the shooters wear the role arrow, the wisp none', async ({ page }) => {
+  test.setTimeout(60_000);
+  const errors = collectErrors(page);
+  await page.goto('/?sandbox=1');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
+  const menu = page.getByTestId('menu');
+  await expect(menu).toBeVisible();
+  await menu.getByText('Стрелки леса (проба)').click();
+  await expect(menu).toBeHidden();
+  await expect.poll(async () => (await snap(page)).arena).toBe('forest-shooters-test');
+  await untilFrame(page, (s, _a: number, late) => s.time > 0.4 || late ? true : undefined, 0, 2);
+  const kinds = new Set((await snap(page)).enemies.map(e => e.kind));
+  for (const kind of ['slinger', 'hive', 'wisp']) expect(kinds.has(kind), kind).toBe(true);
+  expect(roleOf('slinger')).toBe('shooter');
+  expect(roleOf('hive')).toBe('shooter');
+  expect(roleOf('wisp')).toBeNull();
+  await shot(page, 'shooters-arena');
   expect(errors).toEqual([]);
 });

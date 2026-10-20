@@ -30,6 +30,8 @@ import { dhypot } from './detMath';
 import { blockedAt, type Vec } from './geometry';
 import { heroRadius } from './params';
 import { canBeHurt, enemyFrozen, heroGuarded, hurtHero, noteBlock, type Enemy, type World } from './world';
+// The kinds register in a module of their own (no cycle with the kinds that world.ts loads).
+import { shooterOf } from './shooterRegistry';
 
 export type ShotKind = 'stone' | 'wasp';
 
@@ -56,19 +58,14 @@ const LIGHT: ReadonlySet<ShotKind> = new Set<ShotKind>(['stone', 'wasp']);
 export const SHOT_DAMAGE = 1;
 /** The circle round a bomb's target that puts out light shots (`snuffShots`; the bomb itself has no circle — design question). */
 export const BOMB_SNUFF_RADIUS = 1;
+/** The arena's shooters' timer of the run with the flag and of the sandbox arena of the shooters (game s; run/rtRun.ts, world.ts). */
+export const FOREST_VOLLEY_GAP = 2.5;
 /** Shots on the arena at most (journals without `shotCap`). */
 export const SHOT_CAP = 24;
 /** The shot's centre is put out by walls and trees within this radius (a point of the line, as the archer's line). */
 const TERRAIN_R = 0.02;
 const TIME_EPS = 1e-9;
 
-/**
- * A kind that obeys the arena's timer: how many shots its volley brings (`size`; 0 — the archer: its arrow is no shot of the
- * layer), and how its windup begins (`begin`, called by the timer when its turn comes).
- */
-export interface ShooterDef { size(world: World, e: Enemy): number; begin(world: World, e: Enemy): void }
-const shooters = new Map<string, ShooterDef>();
-export function registerShooter(kind: string, def: ShooterDef): void { shooters.set(kind, def); }
 
 /** The arena's timer (game s; 0 — none). */
 export const volleyGapOf = (world: World): number => Math.max(0, world.params.volleyGap ?? 0);
@@ -120,14 +117,14 @@ function runVolleyTimer(world: World, dt: number): void {
   if (gap <= 0 || (world.volley ?? 0) > TIME_EPS) return;
   let best: Enemy | null = null;
   for (const e of world.enemies) {
-    const def = shooters.get(e.kind);
+    const def = shooterOf(e.kind);
     if (!def || e.vars.vw === undefined || enemyFrozen(e) || !shotRoom(world, def.size(world, e))) continue;
     if (!best || e.vars.vw < best.vars.vw || (e.vars.vw === best.vars.vw && e.id < best.id)) best = e;
   }
   if (!best) return;
   delete best.vars.vw;
   world.volley = gap;
-  shooters.get(best.kind)!.begin(world, best);
+  shooterOf(best.kind)!.begin(world, best);
 }
 
 /** Puts the shot out with a `shot` event of `action`. */

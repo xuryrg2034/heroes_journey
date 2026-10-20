@@ -12,8 +12,6 @@
  */
 // Node 20 has no global navigator; pixi.js reads it on load (nodeNavigator.testkit.ts). First import.
 import './nodeNavigator.testkit';
-// The world first: shots.ts and the enemy kinds import each other, the world's import order settles it.
-import '../sim/world';
 import { Graphics } from 'pixi.js';
 import { registerArena } from '../sim/arenas';
 import { HIVE, HIVE_HP } from '../sim/enemies/hive';
