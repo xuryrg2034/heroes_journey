@@ -142,7 +142,7 @@ test('the camp: «Чурбаки» stand on the free ground clear of every place
 });
 
 test('«Строй»: label and exit, no tiles; a real chain; the end at the limit; the record, Ерофей\'s line, the profile; «Ещё раз» with an equal score is no record and no line, a better one is the second line; the score is the Node replay\'s', async ({ page }) => {
-  test.setTimeout(150_000);
+  test.setTimeout(240_000);
   const errors = collectErrors(page);
   await openCamp(page);
   await startLayout(page, 'warmup-line');
@@ -173,8 +173,21 @@ test('«Строй»: label and exit, no tiles; a real chain; the end at the lim
   let end: ReturnType<typeof warmupEnd> = null, score: number | null = null;
   replay(rec.journal, sim => { if (!end) { end = warmupEnd(sim.world, 'warmup-line'); if (end) score = warmupScore(sim.world, 'warmup-line', end); } });
   expect([end, score]).toEqual(['limit', 4]);
-  // «Ещё раз»: a fresh attempt (the clock and the label at the start); the same chain again = the same score = no new record, no line.
+  // A WORSE attempt (a chain of 3 under the record 4): the score is shown, no «Новый рекорд!» and no line, the record stays, in the profile and in the choice.
   await page.getByTestId('warmup-again').click();
+  await dragArc(page, 3);
+  s = await untilResult(page, 24);
+  expect(s.final.score).toBe(3);
+  expect(s.panel).toMatchObject({ line: '3 звена', record: 'Рекорд: 4 звена', isRecord: false, say: '' });
+  await expect(page.getByTestId('warmup-record')).not.toContainText('Новый рекорд');
+  expect(await bestOf(page, 'warmup-line')).toBe(4);
+  expect((await profile(page)).meta.hearth.lines['smith:warmup_record'], 'no line for a worse score').toBe(1);
+  await page.getByTestId('warmup-camp').click();
+  await page.getByTestId('hearth-warmup').click();
+  await expect(page.getByTestId('warmup-best-warmup-line')).toHaveText('4 звена');
+  await page.getByTestId('warmup-pick-warmup-line').click();
+  expect(await untilFrame(page, s => s.warmup.active && s.tick > 0 ? true : undefined, 0, 3)).toBe(true);
+  // A fresh attempt from the choice (the clock and the label at the start); the same chain again = the same score = no new record, no line.
   s = await wm(page);
   expect(s.final).toBeNull();
   expect(s.panel.open).toBe(false);
