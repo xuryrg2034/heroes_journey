@@ -263,6 +263,8 @@ const SOURCE_TITLES: Record<string, string> = {
   knight: 'касание рыцаря', 'knight-charge': 'рывок рыцаря', 'knight-swing': 'размах рыцаря',
   // Task 48: the Troll's moves.
   'troll-club': '«Удар дубиной»', 'troll-rock': '«Бросок камня»', 'troll-tail': '«Хвост метёт»',
+  // Task 55а: the castle's moves and the rook's touch; the shove's kills (the player's).
+  'wardrobe-topple': '«Падение шкафа»', 'rook-strike': '«Удар ладьи»', rook: 'касание ладьи', shove: 'толчок',
 };
 const THREAT_TITLES: Record<string, string> = {
   archer: 'метка лучника', boar: 'полоса кабана', wolf: 'бросок стаи волков', lynx: 'прыжок рыси', sapper: 'фитиль и взрыв сапёра', 'sapper-instant': 'взрыв сапёра без предупреждения',

@@ -57,6 +57,8 @@ import { drawBoltLine, drawGateLever, drawGrate } from './courtView';
 import { tetherCrossing } from '../sim/tethers';
 import { castellanMarks, drawFallenShackle, drawFrenzy, drawLeash, drawLock, drawShackle, drawSnap, guardMarks, handlerMarks, houndMarks, keymasterMarks, knightMarks } from './garrisonView';
 import { KnightView } from './knightView';
+import { BARREL, ROOK, WARDROBE } from '../sim/enemies/castle';
+import { CastleView, barrelMarks, drawHanger, drawParquet, isThingKind, rookMarks, wardrobeMarks } from './castleView';
 import { HONE, fifthLinkFiresAt } from '../sim/talismansRt';
 import { LINK_DEPTH_SHOWN, linkDepths, type LinkDepth } from '../sim/linkDepth';
 import { CHEST_CURSE_KILLS, cursed } from '../sim/chest';
@@ -166,6 +168,8 @@ const GARRISON_ART: Readonly<Record<string, { id: CharacterArtId; size: number }
   [CROSSBOW]: { id: 'garrison-crossbowman', size: 3.4 }, [STAND]: { id: 'garrison-crossbow', size: 3.6 },
   // Task 43: the knight (heavier: a taller box).
   [KNIGHT]: { id: 'garrison-knight', size: 3.7 },
+  // Task 55а: the castle's art (a thing has no colour plaque; the rook keeps its colour's plaque and disc).
+  [WARDROBE]: { id: 'castle-wardrobe', size: 3.1 }, [ROOK]: { id: 'castle-rook', size: 3.9 }, [BARREL]: { id: 'castle-barrel', size: 2 },
 };
 /** Task 40: the prisoner's padlock — its width (body radii) and its gap over the drawing's top (radii). */
 const LOCK_SIZE = 0.95, LOCK_GAP = 0.15;
@@ -331,6 +335,9 @@ function weightOutward(world: World, e: Enemy): { x: number; y: number } {
   return d > 1e-6 ? { x: dx / d, y: dy / d } : { x: 0, y: -1 };
 }
 
+/** A body drawn without a team colour: a colourless link (the Jailer's core), or a thing of the castle (task 55а: grey whatever the chain). */
+const colorlessBody = (world: World, e: Pick<Enemy, 'kind'>): boolean => colorlessLink(world, e) || isThingKind(e.kind);
+
 /** A dashed segment (the wolves' pack lines, phase A), in one path — the caller strokes it. */
 function dashedLine(g: Graphics, x0: number, y0: number, x1: number, y1: number, dash: number, gap: number): void {
   const len = Math.hypot(x1 - x0, y1 - y0);
@@ -465,6 +472,12 @@ export class RealtimeRenderer {
   private readonly signTools: SignTools = { strip: threatStrip, head: stripHead, hatchCircle };
   /** Task 43: the knight's view — plate pips, lanes and swing circles of the frame, the sheds and swing hits seen. */
   private readonly knight = new KnightView(UNIT);
+  /** Task 55а: the castle's things, the wardrobe's topple, the rook's line, the shove (`castleView.ts`). */
+  private readonly castle = new CastleView(UNIT);
+  get castleShown(): CastleView['shown'] { return this.castle.shown; }
+  /** The wardrobe's topple lane as drawn last frame (tests). */
+  castleLane(id: number): ReturnType<CastleView['laneOf']> { return this.castle.laneOf(id); }
+  castlePose(id: number): ReturnType<CastleView['poseOf']> { return this.castle.poseOf(id); }
   get knightShown(): KnightView['shown'] { return this.knight.shown; }
   /** Task 38 (tests read it): frenzied hounds drawn in the last frame, the Castellan's lunge lanes, «Караул!» calls shown so far. */
   readonly garrisonShown = { frenzy: 0, lunges: 0, calls: 0, riots: 0 };
@@ -547,6 +560,7 @@ export class RealtimeRenderer {
   readonly captionShown = { texts: [] as string[], live: 0 };
   /** «−1 пластина» badges over armoured links of the drawn chain (reused texts). */
   private readonly plateLabels: Text[] = [];
+  private readonly shoveLabels: Text[] = [];
   /** What the elite view drew (tests read it): last-frame counts and totals since the last reset. */
   readonly eliteShown = { markers: 0, pips: 0, filledPips: 0, windows: 0, hotWindows: 0, planPlates: 0, formationLines: 0, secondLanes: 0, plaques: 0, plaquesSeen: 0, plaqueText: '', stripFlashes: 0, downFlashes: 0, cleanBreaks: 0, edgeArrows: 0 };
   /** Wolf rush lanes drawn in the last frame (carried into `signals`). */
@@ -1041,8 +1055,9 @@ export class RealtimeRenderer {
     this.fitScale();
     const f = this.floor.clear(), w = arena.width * UNIT, h = arena.height * UNIT;
     // Task 38 (design 16.10.2026): the garrison reads at once — a yard of cold grey flagstones (as its map), not the forest's grass.
-    const stone = !!arena.garrison;
-    if (stone) this.stoneFloor(f, arena.width, arena.height);
+    const stone = !!arena.garrison, castle = !!arena.castle;
+    if (castle) drawParquet(f, arena.width, arena.height, UNIT);
+    else if (stone) this.stoneFloor(f, arena.width, arena.height);
     else {
       f.rect(0, 0, w, h).fill(0x1b2617);
       for (let y = 0; y < arena.height; y++) for (let x = 0; x < arena.width; x++)
@@ -1051,14 +1066,18 @@ export class RealtimeRenderer {
       for (let y = 1; y < arena.height; y++) f.moveTo(0, y * UNIT).lineTo(w, y * UNIT);
       f.stroke({ color: 0x2e3d29, width: 1, alpha: 0.6 });
     }
-    f.rect(-4, -4, w + 8, h + 8).stroke({ color: stone ? 0x5b6b7a : 0x5a5a40, width: 6 });
+    f.rect(-4, -4, w + 8, h + 8).stroke({ color: castle ? 0x6b5238 : stone ? 0x5b6b7a : 0x5a5a40, width: 6 });
     this.bustMask.clear().rect(0, 0, w, h).fill(0xffffff);
     this.bustLayer.mask = this.bustMask;
     this.reachMask.clear().rect(0, 0, w, h).fill(0xffffff);
     this.reachLayer.mask = this.reachMask;
     const t = this.terrain.clear();
     for (const o of arena.obstacles) {
-      if (o.shape === 'rect') {
+      if (o.shape === 'rect' && castle) {
+        // Task 55а: the castle's walls to their true size — a column (1 × 1) is a pillar, a thinner or wider one a hanger.
+        if (o.w === 1 && o.h === 1) drawTerrain(t, 'pillar', (o.x + 0.5) * UNIT, (o.y + 0.5) * UNIT);
+        else drawHanger(t, o.x, o.y, o.w, o.h, UNIT);
+      } else if (o.shape === 'rect') {
         for (let y = 0; y < o.h; y++) for (let x = 0; x < o.w; x++) drawTerrain(t, 'wall', (o.x + x + 0.5) * UNIT, (o.y + y + 0.5) * UNIT);
       } else if (o.kind === 'tree') {
         // Task 38: in the garrison a tree's place holds a stone pillar, crates or barrels (the same body for the sim).
@@ -1216,6 +1235,12 @@ export class RealtimeRenderer {
       else if (kind === KEYMASTER) keymasterMarks(ctx, r);
       else if (kind === KNIGHT) knightMarks(ctx, r);
     }
+    // Task 55а: the castle's stand-ins (procedural until the art is registered in characterAssets.ts): the barrel, the wardrobe, the rook.
+    if (!art || !hasCharacterArt(art.id)) {
+      if (kind === BARREL) barrelMarks(ctx, r);
+      else if (kind === WARDROBE) wardrobeMarks(ctx, r);
+      else if (kind === ROOK) rookMarks(ctx, r);
+    }
     return ctx;
   }
 
@@ -1267,10 +1292,12 @@ export class RealtimeRenderer {
       if (sprite) {
         sprite.position.set(0, r * (1 - gart.size / 2));
         body.addChild(sprite);
-        const belt = r * (1 - gart.size * 0.36), plaque = new Graphics();
-        plaque.circle(0, belt, r * 0.34).fill(colorless ? COLORLESS : chainInk(e.color)).stroke({ color: NAVY, width: 2.5 });
-        if (!colorless) drawSigil(plaque.context, e.color, r * 0.19, NAVY, belt);
-        body.addChild(plaque);
+        if (!isThingKind(e.kind)) {
+          const belt = r * (1 - gart.size * 0.36), plaque = new Graphics();
+          plaque.circle(0, belt, r * 0.34).fill(colorless ? COLORLESS : chainInk(e.color)).stroke({ color: NAVY, width: 2.5 });
+          if (!colorless) drawSigil(plaque.context, e.color, r * 0.19, NAVY, belt);
+          body.addChild(plaque);
+        }
       }
     }
     if (e.kind === JAILER && e.color !== NO_COLOR) {
@@ -1332,7 +1359,7 @@ export class RealtimeRenderer {
     for (const e of world.enemies) {
       seen.add(e.id);
       let view = this.enemyViews.get(e.id);
-      const colorless = colorlessLink(world, e);
+      const colorless = colorlessBody(world, e);
       if (view && (view.look !== look || view.color !== e.color || view.colorless !== colorless || (view.hp > 0) !== (e.hp > 0))) {
         // Task 46 «Клеймо»: a painted body's old drawing stays as a ghost and fades out while the new one fades in (`PAINT_FADE`).
         if (view.look === look && view.color !== e.color && this.clock - (this.paintAt.get(e.id) ?? -9) < PAINT_FADE) this.ghosts.push({ root: view.root, life: PAINT_FADE });
@@ -1366,6 +1393,8 @@ export class RealtimeRenderer {
           if (view.weapon) { posePartArt(view.weapon, e.kind, e, core, e.kind === TROLL_ROCK && !!air); this.troll.shown.weapons++; }
         }
       }
+      // Task 55а: the wardrobe leans towards its lane, lies on it, stands up (castleView.ts).
+      if (e.kind === WARDROBE) this.castle.poseWardrobe(world, e, view.body, BASE_ENEMY_RADIUS * UNIT * 0.9, this.frameDt);
       // Task 54a: the Chief's plaque by his head, a part's outside it on the line from the core; the core's drawing is synced (glow, count);
       // a seated eater squats (the bowl is drawn over it).
       if (isChiefKind(e.kind)) {
@@ -1497,6 +1526,9 @@ export class RealtimeRenderer {
       this.knight.shown.lanes++;
     }
     this.knight.drawSwing(g, world, e => this.sees(e, 3));
+    // Task 55а: the wardrobe's topple strip, the rook's line, the running shoves.
+    this.castle.beginFrame();
+    this.castle.drawLanes(g, world, this.signTools, p => this.sees(p, 6));
     // Task 48: the Troll's signs — the club's strip, the rock's circle, the tail's ring, the lairs' circles (the sim's `trollMove`).
     this.troll.drawSigns(g, world, this.signTools, p => this.sees(p, 6));
     // Task 54a: the Chief's signs - the ladle's half-disc, the pepper's circles, the feast's dashed circle and seat marks, the whistle.
@@ -1851,7 +1883,7 @@ export class RealtimeRenderer {
       // Phase A (Т4): the affixes of an elite are rules of the fight — shown whatever the role toggle says, at most two.
       const affixes = e.elite ? eliteAffixes(e).slice(0, AFFIX_MAX_SHOWN) : [];
       if (!role && !affixes.length) continue;
-      const alpha = color !== null && !colorlessLink(world, e) && !sameColor(world, e.color, color) ? 1 - strength : 1;
+      const alpha = color !== null && !colorlessBody(world, e) && !sameColor(world, e.color, color) ? 1 - strength : 1;
       // Under an elite: below its larger drawing and its gold rim.
       const y = e.y * UNIT + r * 1.25 * enemyArtScale(p, e) + (e.elite ? plate * 0.6 : 0);
       const texts = affixes.map(id => { const t = this.affixText(labels++); t.text = AFFIX_SHORT[id]; t.style.fill = AFFIX_INK[id]; t.scale.set(px / 2); return t; });
@@ -1921,7 +1953,7 @@ export class RealtimeRenderer {
   private linkInk(world: World, link: ChainLink, other: number): number {
     if (link.kind !== 'enemy') return other;
     const e = world.enemies.find(x => x.id === link.id);
-    return !e || e.color === NO_COLOR ? other : colorlessLink(world, e) ? COLORLESS : chainInk(e.color);
+    return !e || e.color === NO_COLOR ? other : colorlessBody(world, e) ? COLORLESS : chainInk(e.color);
   }
 
   private drawBoss(world: World, g: Graphics): void {
@@ -2075,6 +2107,8 @@ export class RealtimeRenderer {
     }
     // Task 43: the knight (not an elite): its plate pips over the drawing, the shed's shards and glint, the swing's hit flash.
     this.knight.drawOver(g, world, this.clock, px, enemyDrawRadius(p) * UNIT, hasCharacterArt(GARRISON_ART[KNIGHT].id) ? GARRISON_ART[KNIGHT].size : 1.9, e => this.sees(e, 1.5));
+    // Task 55а: the things' notches and the shove's effects.
+    this.castle.drawOver(g, world, this.clock, px, enemyDrawRadius(p) * UNIT, e => this.sees(e, 1.5));
     shown.pips = pips; shown.filledPips = filled; shown.windows = windows; shown.hotWindows = hot; shown.plaques = this.plaques.size;
   }
 
@@ -2630,6 +2664,8 @@ export class RealtimeRenderer {
   private powerRed = false;
   /** The plan of the drawn chain this frame (drawChain), null — no chain drawn. */
   private drawnPlan: ChainPlan | null = null;
+  /** Task 55а (tests read it): the shove the drawn chain's plan has, or null. */
+  get drawnShove(): NonNullable<ChainPlan['shove']> | null { return this.drawnPlan?.shove ?? null; }
   /** Tests read these: the largest power shown in a dash, how many times the number grew, strike flashes and the closing flashes drawn. */
   powerShown = 0;
   powerGrowths = 0;
@@ -2842,6 +2878,12 @@ export class RealtimeRenderer {
             this.tetherShown.drops++;
           }
         }
+        continue;
+      }
+      // Task 55а: the shove, a broken thing, the wardrobe's topple, the rook's strike.
+      if (ev.type === 'shove' || ev.type === 'thing' || ev.type === 'wardrobe' || ev.type === 'rook') {
+        const kick = this.castle.onEvent(ev, this.clock, enemyDrawRadius(world.params) * UNIT);
+        if (kick > 0 && (this.shakeLeft <= 0.02 || kick > this.shakeAmp)) { this.shakeLeft = this.shakeTotal = 0.12; this.shakeAmp = kick; }
         continue;
       }
       // Task 43: the knight's shed and the swing's hit.
@@ -3243,6 +3285,8 @@ export class RealtimeRenderer {
     this.playerEffects.fireEdge = 0; this.playerEffects.fireEdgePoints = 0;
     for (const label of this.quillLabels) label.visible = false;
     for (const label of this.plateLabels) label.visible = false;
+    for (const label of this.shoveLabels) label.visible = false;
+    this.castle.beginPreview();
     for (const label of this.depthLabels) label.visible = false;
     this.linkDepthShown.labels = [];
     this.pierceShown.arrow = 0; this.pierceShown.marks = 0; this.pierceShown.end = 0;
@@ -3450,6 +3494,11 @@ export class RealtimeRenderer {
     const anchor = chainAnchor(world);
     this.drawLoop(g, world, plan.seal, ink);
     this.drawPierce(g, world, plan.pierce, ink);
+    // Task 55а: the chain ends on a thing — its shove as the plan has it (the path, the crushed, the strike, the wear), nothing recounted.
+    if (plan.shove) {
+      let word = 0;
+      this.castle.drawPreview(g, world, plan.shove, 1 / Math.max(0.1, this.scale), enemyDrawRadius(p) * UNIT, (text, x, y, fill) => { const l = this.shoveLabel(word++); l.text = text; l.style.fill = fill; l.position.set(x, y); l.visible = true; });
+    }
     this.drawFusionEnd(g, world, plan, ink);
     this.drawShieldSign(g, world, plan);
     this.drawHoned(g, world, plan);
@@ -3519,6 +3568,8 @@ export class RealtimeRenderer {
         label.position.set(pt.x * UNIT, pt.y * UNIT - r * 1.55);
         label.visible = true;
       }
+      // A thing (task 55а) is no strike: no mark on it, its shove has the preview above.
+      if (lp.outcome.thing) continue;
       const x = pt.x * UNIT, y = pt.y * UNIT, cx = x - r * 0.7, cy = y - r * 0.75;
       if (lp.outcome.plate) {
         // An armoured elite link: a plate hit, not a kill and not a survivor — a lemon ring and «−1 пластина»; the chain goes on.
@@ -4028,6 +4079,18 @@ export class RealtimeRenderer {
   }
 
   /** «−1 пластина» badges over armoured links of the drawn chain: the `i`-th text (a pool over the root). */
+  /** Task 55а: the `i`-th word of the shove's preview («−1 пластина», «−2 HP» at the end of the thing's path). */
+  private shoveLabel(i: number): Text {
+    while (this.shoveLabels.length <= i) {
+      const text = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 18, fontWeight: 'bold', fill: 0xffffff, stroke: { color: 0x1a2330, width: 5 } } });
+      text.anchor.set(0.5, 1);
+      text.visible = false;
+      this.root.addChild(text);
+      this.shoveLabels.push(text);
+    }
+    return this.shoveLabels[i];
+  }
+
   private plateLabel(i: number): Text {
     while (this.plateLabels.length <= i) {
       const text = new Text({ text: '−1 пластина', style: { fontFamily: 'Georgia, serif', fontSize: 18, fontWeight: 'bold', fill: ELITE_LEMON, stroke: { color: 0x1a2330, width: 5 } } });
@@ -4263,6 +4326,7 @@ export class RealtimeRenderer {
     this.drawEdgeMarkers(world);
     // Task 48: the core's plates and the parts' places of this frame (the next frame's events compare against them).
     this.troll.note(world, enemyDrawRadius(world.params) * UNIT);
+    this.castle.note(world);
     this.chief.note(world, enemyDrawRadius(world.params) * UNIT);
   }
 
@@ -4302,7 +4366,7 @@ export class RealtimeRenderer {
   resetEffects(): void {
     this.crackLeft = 0; this.crackShown = false; this.shieldBoost = false; this.shieldBoostShown = false;
     this.snaps = []; this.drops = []; this.snapLayer.clear(); this.houndAt.clear();
-    this.troll.reset(); this.chief.reset();
+    this.troll.reset(); this.chief.reset(); this.castle.reset();
     this.intro = null; this.openedOnBoss = false;
     this.shakeLeft = 0;
     this.flashLeft = 0;

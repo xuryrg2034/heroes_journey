@@ -24,6 +24,7 @@ import type { Loadout } from '../src/realtime/sim/kit';
 import type { Enemy, World } from '../src/realtime/sim/world';
 import type { RtRunState } from '../src/realtime/run/rtRun';
 import { playChain } from './loopBot';
+import { shoveChain } from './shoveBot';
 
 /** The bot drinks a healing potion at this HP or lower. */
 export const HEAL_AT = 5;
@@ -253,7 +254,8 @@ export function botFight(run: RtRunState, options: BotFightOptions): BotFight {
       sim.command({ t: 'begin', x: w.arena.door.x, y: w.arena.door.y });
       if (w.chain.some(l => l.kind === 'object')) sim.command({ t: 'release' }); else if (w.chain.length) sim.command({ t: 'cancel' });
     }
-    if (tick % 45 === 20) { if (options.aim) aimAtCore(sim, options.aim); else playChain(sim); }
+    // Task 55а: on an arena with things the bot shoves first when it is worth it (scripts/shoveBot.ts; no thing — no command).
+    if (tick % 45 === 20) { if (options.aim) aimAtCore(sim, options.aim); else if (!shoveChain(sim)) playChain(sim); }
     if (tick % 400 === 200) sim.command({ t: 'spin' });
     if (tick % 500 === 300 && canJump(w)) sim.command({ t: 'jump', x: w.hero.x + 2, y: w.hero.y - 1 });
     if (tick % 10 === 0 && w.hero.hp - buffer <= HEAL_AT && (w.kit?.items.healing ?? 0) > 0) sim.command({ t: 'item', kind: 'healing', x: w.hero.x, y: w.hero.y });
