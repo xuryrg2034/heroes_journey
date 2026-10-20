@@ -63,9 +63,9 @@ export function warmupLabelText(id: WarmupId, world: World): string {
   return metric === 'chain' ? `${left} · цепь ${chainSoFar(world)}` : `${left} · убито ${world.stats.kills}`;
 }
 
-/** The label's spec: over the hero (`place: 'above'`), nothing else. */
+/** The label's spec: at the hero's side, on the left when there is room (the score numbers stand over the hero, the HP bar under it). */
 export function warmupLabel(id: WarmupId, world: World): LabelSpec {
-  return { id: 'warmup', text: warmupLabelText(id, world), at: { x: world.hero.x, y: world.hero.y }, place: 'above', lift: 1.25 };
+  return { id: 'warmup', text: warmupLabelText(id, world), at: { x: world.hero.x, y: world.hero.y }, place: 'side', lift: 1.3, away: { x: world.hero.x + 1, y: world.hero.y } };
 }
 
 /** What the result panel says. */

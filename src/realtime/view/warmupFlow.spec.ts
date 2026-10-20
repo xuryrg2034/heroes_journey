@@ -42,10 +42,10 @@ check('the label at the hero on the three layouts: the timer and the number of t
   assert(warmupLabelText('warmup-line', line.world) === '10 с · цепь 0', 'timer runs');
   assert(warmupLabelText('warmup-mix', mix.world) === `${mix.world.time.toFixed(1).replace('.', ',')} с`, 'mix shows the game time');
   const spec = warmupLabel('warmup-line', line.world);
-  assert(spec.id === 'warmup' && spec.place === 'above' && spec.at.x === line.world.hero.x && spec.at.y === line.world.hero.y, 'at the hero');
+  assert(spec.id === 'warmup' && spec.place === 'side' && spec.at.x === line.world.hero.x && spec.at.y === line.world.hero.y, 'at the hero');
 });
 
-check('the label counts the chain going now (as core\'s score does) and never goes below 0 s', () => {
+check('the timer never goes below 0 s', () => {
   const sim = attempt('warmup-line');
   for (let i = 0; i < 1300; i++) sim.tick();
   assert(secondsLeft(sim.world, 'warmup-line') === 0, 'no negative timer');
