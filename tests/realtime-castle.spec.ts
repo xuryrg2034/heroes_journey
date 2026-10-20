@@ -216,8 +216,13 @@ test('task 55а: «Удар ладьи» — with no cover the strike costs the 
   await page.evaluate(() => { const rt = (window as any).__realtime; rt.clear(true); });
   await walkUntil(page, 'KeyW', h => h.y < 4.7);
   await cameraSettled(page);
-  const hp0 = (await snap(page)).hero.hp;
-  const hit = await untilFrame(page, (s, _arg: null, late) => s.castle.shown.shots >= 1 ? s : late ? null : undefined, null, 6);
+  // A strike may come while the hero still walks (then it misses him): wait for a line that reaches the hero where he stands, then
+  // for the next strike after it.
+  const aimed = await untilFrame(page, (s, _arg: null, late) => s.castle.rook.some((r: any) => r.line && r.line.axis === 'row'
+    && Math.min(r.line.x0, r.line.x1) < s.hero.x && s.hero.x < Math.max(r.line.x0, r.line.x1) && Math.abs(r.line.y0 - s.hero.y) < 0.6) ? s : late ? null : undefined, null, 8);
+  expect(aimed, 'a line reaches the hero').not.toBeNull();
+  const hp0 = aimed!.hero.hp, shots0 = aimed!.castle.shown.shots;
+  const hit = await untilFrame(page, (s, n: number, late) => s.castle.shown.shots > n ? s : late ? null : undefined, shots0, 6);
   expect(hit, 'the strike came').not.toBeNull();
   expect(hit!.hero.hp).toBe(hp0 - 2);
   await shot(page, 'rook-hit');
@@ -356,6 +361,55 @@ test('task 55а: a chain that ends on a Wardrobe — the ghost at the stop shows
     expect(Math.hypot(after!.x - pv.to.x, after!.y - pv.to.y)).toBeLessThan(0.15);
   } else expect(after, 'the wardrobe broke where the plan said').toBeUndefined();
   for (const c of pv.crushed) expect(end.enemies.some(e => e.id === c.id), `crushed ${c.id}`).toBe(false);
+  await sameHash(page);
+  expect(errors).toEqual([]);
+});
+
+test('task 55а: a Wardrobe shoved into the wall twice — the first stop takes 1 (2 → 1), the second preview draws the crack on its ghost (design 20.10.2026: a light crack, not the red cross); the dash breaks it', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = collectErrors(page);
+  await openByMenu(page, 1, 'c-hall');
+  await cameraSettled(page);
+  await quiet(page);
+  // The lane runs to the right wall (the hall is 16 wide); nothing but the link and the wardrobe on it.
+  const setup = (thingX: number, thing: number | null) => page.evaluate(([thingX, thing]) => {
+    const rt = (window as any).__realtime;
+    rt.teleport(thingX - 3.2, 5);
+    const link = rt.place(thingX - 1.6, 5, 0, 0, 'basic');
+    return { link, thing: thing ?? rt.place(thingX, 5, 0, 0, 'wardrobe') };
+  }, [thingX, thing] as const);
+  const shove = async (ids: { link: number; thing: number }) => {
+    await mouseTo(page, bodyAt(page, ids.link), 2);
+    await page.mouse.down();
+    await mouseTo(page, thingAt(page, ids.thing));
+    await expect.poll(async () => (await snap(page)).chain).toEqual([ids.link, ids.thing]);
+    return snap(page);
+  };
+  const over = async () => {
+    await page.mouse.up();
+    const done = await untilFrame(page, (sn, _arg: null, late) => sn.castle.shoves.length === 0 && sn.moving === null ? { ok: true } : late ? { ok: false } : undefined, null, 10);
+    expect(done.ok, 'the shove is over').toBe(true);
+  };
+  await page.evaluate(() => (window as any).__realtime.clear(false));
+  const first = await setup(13.6, null);
+  await cameraSettled(page);
+  const a = await shove(first);
+  expect(a.castle.preview!.stop).toBe('wall');
+  expect(a.castle.preview!.breaks, 'the first stop at the wall: 2 → 1, no break').toEqual([]);
+  expect(a.castle.shown.previewBreaks).toBe(0);
+  await over();
+  const worn = (await snap(page)).castle.things.find(t => t.id === first.thing)!;
+  expect(worn.durability).toBe(1);
+  // The second chain on it, again into the wall: the plan breaks it, the view draws the crack.
+  const second = await setup(worn.x, first.thing);
+  await cameraSettled(page);
+  const b = await shove(second);
+  expect(b.castle.preview!.stop).toBe('wall');
+  expect(b.castle.preview!.breaks).toEqual([first.thing]);
+  expect(b.castle.shown.previewBreaks).toBe(1);
+  await shot(page, 'wardrobe-wall-preview');
+  await over();
+  expect((await snap(page)).castle.things.some(t => t.id === first.thing), 'the wardrobe broke where the preview said').toBe(false);
   await sameHash(page);
   expect(errors).toEqual([]);
 });

@@ -25,6 +25,8 @@ const NAVY = 0x18232d;
 const WHITE = 0xffffff;
 const THREAT_OUTLINE = 0x0b0f14;
 const RED = 0xd8402e;
+/** The crack of a thing that will break (light, not red: red is «dies»). */
+const CRACK = 0xe8e2cf;
 /** Oak, dark cabinet wood, copper hoops, brass, stone. */
 const OAK = 0x8a5a2e, OAK_DARK = 0x5f3d1f, WOOD = 0x5b4130, WOOD_LIGHT = 0x7a5a3f, COPPER = 0xb8733a, BRASS = 0xd9b44a, STONE = 0xb9b2a2, STONE_DARK = 0x8c8576;
 /** The grey of a thing's notches and dust. */
@@ -198,6 +200,19 @@ export class CastleView {
     for (let i = 0; i < n; i++) g.roundRect(x - total / 2 + i * (w + gap), top, w, w * 0.7, 2).fill({ color: NOTCH, alpha }).stroke({ color: NAVY, width: 1.6 * Math.max(1, px), alpha });
   }
 
+  /**
+   * The crack of a thing that will break (design 20.10.2026, task-55 §11): a light broken line of three bends across the ghost, not red —
+   * the red cross is «dies» (one name, one meaning). `r` — the thing's drawn radius.
+   */
+  private crack(g: Graphics, x: number, y: number, r: number): void {
+    const pts = [[-0.62, -0.5], [-0.18, -0.08], [0.06, -0.42], [0.3, 0.12], [0.6, 0.48]].map(([a, b]) => [x + a * r, y + b * r] as const);
+    for (const [w, c, a] of [[6.5, THREAT_OUTLINE, 0.8], [3, CRACK, 1]] as const) {
+      g.moveTo(pts[0][0], pts[0][1]);
+      for (const [px2, py2] of pts.slice(1)) g.lineTo(px2, py2);
+      g.stroke({ color: c, width: w, alpha: a, cap: 'round', join: 'round' });
+    }
+  }
+
   /** A red cross (the crush's mark, still): `s` the half arm. */
   private cross(g: Graphics, x: number, y: number, s: number, color: number, width: number): void {
     g.moveTo(x - s, y - s).lineTo(x + s, y + s).moveTo(x + s, y - s).lineTo(x - s, y + s).stroke({ color: THREAT_OUTLINE, width: width + 4, alpha: 0.85, cap: 'round' });
@@ -208,7 +223,8 @@ export class CastleView {
    * The highlight of the shove (`ChainPlan.shove`, nothing recounted): the thing's path from where it stands to where it stops (dashes,
    * an arrow's head), a ghost of the thing at the stop with the durability it will have, a red cross on each body it crushes, the mark
    * of the strike at the end (a cross on the body that dies, a lemon ring and «−1 пластина» for a plate, «−N HP» for a body that
-   * lives), a cross over the ghost of a thing that will break. `say` puts a word at a point (a pool of the host).
+   * lives), a light crack over the ghost of a thing that will break (and over the other thing of a thing-on-thing stop that breaks).
+   * `say` puts a word at a point (a pool of the host).
    */
   drawPreview(g: Graphics, world: World, plan: ShovePlan, px: number, r: number, say: (text: string, x: number, y: number, fill: number) => void): void {
     const u = this.unit, s = this.shown, fx = plan.from.x * u, fy = plan.from.y * u, tx = plan.to.x * u, ty = plan.to.y * u, len = Math.hypot(tx - fx, ty - fy);
@@ -226,7 +242,7 @@ export class CastleView {
     g.circle(tx, ty, r).fill({ color: WHITE, alpha: 0.12 }).stroke({ color: WHITE, width: 2.5, alpha: 0.85 });
     const own = plan.wear.find(w => w.id === plan.thing);
     if (own && own.left > 0) { this.notchRow(g, tx, ty, Math.min(4, own.left), r, px, 0.75); s.previewNotches += Math.min(4, own.left); }
-    if (plan.breaks.includes(plan.thing)) { this.cross(g, tx, ty, r * 0.6, RED, 4); s.previewBreaks++; }
+    if (plan.breaks.includes(plan.thing)) { this.crack(g, tx, ty, r); s.previewBreaks++; }
     // The weak bodies it crushes.
     for (const c of plan.crushed) {
       const e = world.enemies.find(q => q.id === c.id), x = e ? e.x * u : fx + plan.dir.x * c.at * u, y = e ? e.y * u : fy + plan.dir.y * c.at * u;
@@ -251,7 +267,7 @@ export class CastleView {
         s.previewImpact = 'hit';
       }
     }
-    // The other thing of a thing-on-thing stop: its durability left, a cross if it breaks too.
+    // The other thing of a thing-on-thing stop: its durability left, a crack if it breaks too.
     for (const w of plan.wear) {
       if (w.id === plan.thing) continue;
       const other = world.enemies.find(q => q.id === w.id);
@@ -261,7 +277,7 @@ export class CastleView {
     for (const id of plan.breaks) {
       if (id === plan.thing) continue;
       const other = world.enemies.find(q => q.id === id);
-      if (other) { this.cross(g, other.x * u, other.y * u, r * 0.6, RED, 4); s.previewBreaks++; }
+      if (other) { this.crack(g, other.x * u, other.y * u, r); s.previewBreaks++; }
     }
   }
 
