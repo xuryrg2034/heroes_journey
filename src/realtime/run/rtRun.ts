@@ -2999,7 +2999,8 @@ export function rtShopRerollView(run: RtRunState): RtShopRerollView | null {
   if (!fairOn && !shishOn) return null;
   const fair = fairOn && !run.fairRerolls?.[pending.nodeId], spent = garrison ? run.garrisonShopRerolled : run.shopRerolled;
   const bought = pending.bought.some(entry => entry.good === 'item' || entry.good === 'talisman');
-  const reason = fair || (shishOn && !spent) ? (bought ? 'Товар уже куплен' : '') : shishOn && spent && !pending.rerolled ? 'Переброс уже был' : 'Товар уже переброшен';
+  // Design 20.10.2026 (task-56 §158): one reason when the merchant's rerolls are spent, with Шиш's and with «Ярмарочный день»'s alike.
+  const reason = fair || (shishOn && !spent) ? (bought ? 'Товар уже куплен' : '') : 'Перебросов не осталось';
   return { available: !reason, reason, garrison, ...fair ? { fair: true as const } : {} };
 }
 /**
