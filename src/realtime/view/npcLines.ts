@@ -294,7 +294,8 @@ export function pickLine(npc: NpcId, ctx: LineContext, memory: LineMemory): { ke
   const toad = ctx.hero === 'toad', tail = toad ? ':toad' : '';
   const L = NPC_LINES[npc];
   // Task 51в: Шиш's first meeting is `first_won` / `first_lost` (by the last game of the goblins' circle) - one count `npc:first` with `first`.
-  const meeting = (key: LineKey): boolean => key === 'first' || key === 'first_self' || key === 'first_won' || key === 'first_lost';
+  // Task 50 §18: `habit_first` / `knack_first` are said once a profile, whoever the hero (one count, like the meeting).
+  const meeting = (key: LineKey): boolean => key === 'first' || key === 'first_self' || key === 'first_won' || key === 'first_lost' || key === 'habit_first' || key === 'knack_first';
   const memoryKey = (key: LineKey): LineKey => (key === 'first_won' || key === 'first_lost' ? 'first' : key);
   const firstWin = (key: LineKey): boolean => key === 'win_first' || key === 'win_garrison_first';
   const mark = (key: LineKey): string => (meeting(key) ? '' : tail);
