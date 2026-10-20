@@ -6,6 +6,7 @@
  * death (run/warmup.ts `warmupEnd`), never by the door.
  */
 import { registerArena, type ArenaTemplate } from './arenas';
+import { dcos, dsin } from './detMath';
 import { polygon, tree, zone } from './geometry';
 
 const RED = 0, GREEN = 1, BLUE = 2, YELLOW = 3;
@@ -16,7 +17,7 @@ const round = (x: number): number => Math.round(x * 1000) / 1000;
 /** «Строй»: the arc's centre and radius; nine blue every 15° from 160° to 40° over the top, three others between them. */
 const ARC = { cx: 8, cy: 8.2, r: 4.6 } as const;
 const onArc = (deg: number, r: number = ARC.r): { x: number; y: number } =>
-  ({ x: round(ARC.cx + r * Math.cos(deg * Math.PI / 180)), y: round(ARC.cy - r * Math.sin(deg * Math.PI / 180)) });
+  ({ x: round(ARC.cx + r * dcos(deg * Math.PI / 180)), y: round(ARC.cy - r * dsin(deg * Math.PI / 180)) });
 
 /**
  * «Строй» (`warmup-line`, record — the longest chain, 20 s): nine blue in an arc over the hero, 1.2 apart (a link reaches ≈ 2.2), and
@@ -83,7 +84,7 @@ export const WARMUP_CLIFF = { near: 7.2, far: 8.8 } as const;
  * «Через пропасть» (`warmup-gap`, record — kills in 30 s): a cliff band from top to bottom splits the field, as the prologue's room
  * «Пропасть»; weak enemies on both banks, and more keep coming (the inflow of run/warmup.ts: a small floor, a quick pace) — the chain
  * clears one bank, the jump (Space) crosses, the spin (Q) clears a crowd. Nobody walks over the cliff; the hero starts on the left
- * bank with the energy of a jump (`startEnergy`).
+ * bank with the energy of a jump and a spin (`startEnergy` 5: the run's `jumpCost` 2 + `spinCost` 3; design 17.10.2026).
  */
 export const WARMUP_GAP_ARENA: ArenaTemplate = registerArena({
   id: 'warmup-gap',
@@ -91,7 +92,7 @@ export const WARMUP_GAP_ARENA: ArenaTemplate = registerArena({
   summary: 'Разминка: больше убийств за 30 секунд. Враги по обе стороны пропасти — прыжок и круговой удар.',
   goal: 'kills',
   killGoal: 999,
-  startEnergy: 'jump',
+  startEnergy: 5,
   width: 16,
   height: 10,
   heroStart: { x: 3.5, y: 5 },

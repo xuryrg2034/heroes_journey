@@ -57,10 +57,10 @@ const WARMUP_EVERY: Readonly<Partial<Params>> = Object.freeze({ heroHp: 15, cont
 /** «Строй», «Пестрота»: no inflow — only the start enemies (`maxEnemies` 0). */
 const NO_INFLOW: Readonly<Partial<Params>> = Object.freeze({ maxEnemies: 0 });
 /**
- * «Через пропасть» (a hypothesis): the inflow keeps the field busy for 30 s — at least 8 living (`baseFloor`; the arena's goal is never
- * met, so the base pace plays throughout), a group of 1–3 weak (`baseToughShare` 0) every 1–2 s, at most 12 on the field.
+ * «Через пропасть» (design 17.10.2026): the inflow keeps the field busy for 30 s — at least 8 living (`baseFloor`; the arena's goal is
+ * never met, so the base pace plays throughout), a group of 1–3 weak (`baseToughShare` 0) every 1–2 s, at most 10 on the field.
  */
-const GAP_INFLOW: Readonly<Partial<Params>> = Object.freeze({ maxEnemies: 12, baseFloor: 8, baseIntervalMin: 1, baseIntervalMax: 2, baseToughShare: 0, groupMin: 1, groupMax: 3 });
+const GAP_INFLOW: Readonly<Partial<Params>> = Object.freeze({ maxEnemies: 10, baseFloor: 8, baseIntervalMin: 1, baseIntervalMax: 2, baseToughShare: 0, groupMin: 1, groupMax: 3 });
 
 export const WARMUP_LAYOUTS: readonly WarmupLayout[] = Object.freeze([
   Object.freeze({ id: 'warmup-line' as const, title: 'Строй', arena: WARMUP_LINE_ARENA, metric: 'chain' as const, limitTicks: 20 * WARMUP_TICKS_PER_SECOND, forced: Object.freeze({ ...WARMUP_EVERY, ...NO_INFLOW }), unit: 'звеньев' }),
