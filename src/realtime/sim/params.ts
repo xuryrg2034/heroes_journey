@@ -1096,6 +1096,37 @@ export interface Params {
   knightSwingDamage: number;
   /** Task 43: game seconds between the knight's moves in the offensive (and from the shed armour to its first move). */
   knightPause: number;
+  // ---- Task 55а «Замок: толчок» (sim/shove.ts, sim/enemies/castle.ts; docs/realtime-elite-behaviors.md, «Замок: толчок»). ----
+  // The things (the barrel, the wardrobe) and the rook stand only on the castle's arenas; without one no key below is read and no world
+  // field appears. Journals without a key play the default below (the kinds' numbers: `params.x ?? CONST`).
+  /**
+   * Task 55а: the law of the shove — a thing is the last link of a chain; the dash's end shoves it along the chain's last segment: it
+   * crushes the weak on its way and strikes the first tough body (or a wall). Off by default and in journals without the key; the
+   * castle's arenas turn it on for themselves (`ArenaTemplate.castle`), the run will (task 55в).
+   */
+  shove: boolean;
+  /** Task 55а: the wardrobe's shove — its length (units; journals without the key: 3). */
+  shoveDistance: number;
+  /** Task 55а: the speed a shoved thing slides (units / game s; 12). */
+  shoveSpeed: number;
+  /** Task 55а: the wardrobe's strike on the tough body it stops at (HP; 1). */
+  shoveImpact: number;
+  /** Task 55а: the barrel rolls to its first stop, this far at most (units; 16). */
+  barrelRoll: number;
+  /** Task 55а: the barrel's strike on the tough body it stops at (HP; 2). */
+  barrelImpact: number;
+  /** Task 55а «Падение шкафа»: the wardrobe's rest from rising to its next windup (game s; 5). */
+  wardrobePeriod: number;
+  /** Task 55а: the topple's windup — its lane fixed at the start (game s; 1.2; the first of a fight ×1.5). */
+  wardrobeWindup: number;
+  /** Task 55а: the topple's damage to the hero in its lane (2). */
+  wardrobeDamage: number;
+  /** Task 55а «Удар ладьи»: the rook's rest after a strike (game s; 3.5). */
+  rookPeriod: number;
+  /** Task 55а: the strike's windup — the axis fixed at the start (game s; 1.0; the first of a fight 1.5). */
+  rookWindup: number;
+  /** Task 55а: the strike's damage to the hero (2). */
+  rookDamage: number;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -1570,6 +1601,19 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   knightSwingRadius: 1.6,
   knightSwingDamage: 2,
   knightPause: 2,
+  // Task 55а «Замок: толчок»: off by default (the castle's arenas turn it on for themselves).
+  shove: false,
+  shoveDistance: 3,
+  shoveSpeed: 12,
+  shoveImpact: 1,
+  barrelRoll: 16,
+  barrelImpact: 2,
+  wardrobePeriod: 5,
+  wardrobeWindup: 1.2,
+  wardrobeDamage: 2,
+  rookPeriod: 3.5,
+  rookWindup: 1,
+  rookDamage: 2,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -2089,6 +2133,20 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('knightSwingRadius', 'Гарнизон', 'Рыцарь: радиус размаха', 0.5, 4, 0.1, 5, 'ед.', 'Враги в круге теряют 1 HP (элита — пластину); убийства не засчитываются игроку.'),
   n('knightSwingDamage', 'Гарнизон', 'Рыцарь: урон размаха', 0, 5, 1, 5),
   n('knightPause', 'Гарнизон', 'Рыцарь: пауза между приёмами', 0.5, 6, 0.25, 5, 'с'),
+  // Task 55а «Замок: толчок» (sim/shove.ts, sim/enemies/castle.ts).
+  { kind: 'bool', key: 'shove', group: 'Замок', label: 'Толчок', stage: 5,
+    hint: 'Вещь (бочка, шкаф) — последнее звено цепи; конец прохода толкает её по последнему отрезку: давит слабых, бьёт первое крепкое. Арены замка включают сами.' },
+  n('shoveDistance', 'Замок', 'Толчок шкафа: длина', 1, 8, 0.25, 5, 'ед.'),
+  n('shoveSpeed', 'Замок', 'Толчок: скорость', 2, 24, 1, 5, 'ед./с'),
+  n('shoveImpact', 'Замок', 'Шкаф: удар по крепкому', 0, 5, 1, 5),
+  n('barrelRoll', 'Замок', 'Бочка: путь не дальше', 2, 30, 1, 5, 'ед.'),
+  n('barrelImpact', 'Замок', 'Бочка: удар по крепкому', 0, 5, 1, 5),
+  n('wardrobePeriod', 'Замок', 'Падение шкафа: отдых', 1, 15, 0.5, 5, 'с'),
+  n('wardrobeWindup', 'Замок', 'Падение шкафа: замах', 0.2, 3, 0.1, 5, 'с', 'Полоса 3 × 1,2 от шкафа к герою фиксируется в начале замаха. Первый замах боя ×1,5.'),
+  n('wardrobeDamage', 'Замок', 'Падение шкафа: урон героя', 0, 5, 1, 5),
+  n('rookPeriod', 'Замок', 'Ладья: отдых', 0.5, 10, 0.25, 5, 'с'),
+  n('rookWindup', 'Замок', 'Удар ладьи: замах', 0.2, 3, 0.1, 5, 'с', 'Ось через ладью в обе стороны фиксируется в начале замаха; бьёт первое тело на каждой половине. Первый замах боя 1,5 с.'),
+  n('rookDamage', 'Замок', 'Удар ладьи: урон героя', 0, 5, 1, 5),
 ];
 
 const MAX_PHASES = 8;

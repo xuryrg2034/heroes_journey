@@ -70,6 +70,8 @@ export interface EnemyBehavior {
    * `pushOutOfSolids`), and the body itself is never moved by the parting or the crowd. Absent — an ordinary body.
    */
   solid?(world: World, enemy: Enemy): boolean;
+  /** Task 55а (sim/shove.ts `startShove`): a shove of this thing starts (the wardrobe drops its topple). */
+  onShoved?(world: World, thing: Enemy): void;
 }
 
 /**
@@ -99,6 +101,11 @@ export interface EnemyKindDef {
   ownTouch?: true;
   /** Task 43: never an elite (no elite roll, no elite modifier: the knight's plates are its own law). */
   noElite?: true;
+  /**
+   * Task 55а «Замок: толчок» (sim/shove.ts): a thing — a colourless body the shove moves (the barrel, the wardrobe): not in the crowd's
+   * density, a stop of a shove, the shelter of the rook's strike. Absent — an ordinary kind.
+   */
+  thing?: true;
   /** Body (pushing, touch zone, obstacles) and art (drawing, link reach edge, press circle) as a share of the common size. */
   bodyScale: number;
   artScale: number;

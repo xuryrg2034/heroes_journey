@@ -44,6 +44,8 @@ import { withKnights } from './rosters';
 import { spawnEnemy, spawnReaper, toughHpMaxOf, updateSpawning, type QueuedSpawn, type SpawnMarker } from './spawn';
 // К7 «Проклятый сундук» (chest.ts): the chest of «Застава», its touch, the curse on the touch.
 import { curseTouch, placeChest, touchChest, type CurseState } from './chest';
+// Task 55а «Замок: толчок» (shove.ts): the things sliding after a dash.
+import { updateShoves, type Shove, type ShovePlan, type ShoveStop } from './shove';
 
 /**
  * Id of a registered enemy kind (enemies/*): prototype kinds `basic`, `wolf` (fast, hits harder next to other wolves),
@@ -276,6 +278,12 @@ export interface HeroMove {
    * body) — cut when the dash ends, whatever the bodies did on the way. Absent when none (dashes without them hash as before).
    */
   cuts?: number[];
+  /**
+   * Task 55а (`Params.shove`, shove.ts): the shove the release fixed (the plan's `shove`) and whether the dash reached its thing
+   * (`shoveHit`) — the dash's end runs it then, else cancels it. Absent when the chain does not end on a thing.
+   */
+  shove?: ShovePlan;
+  shoveHit?: true;
 }
 
 /**
@@ -565,7 +573,22 @@ export type WorldEvent =
    * Task 43: the knight's move — «Рывок» (`charge`: windup `start`, the run `run`, the run's `end`) or «Размах» (`swing`: windup
    * `start`, the strike `hit`). The rules never read it.
    */
-  | { type: 'knightMove'; id: number; move: 'charge' | 'swing'; stage: 'start' | 'run' | 'end' | 'hit' };
+  | { type: 'knightMove'; id: number; move: 'charge' | 'swing'; stage: 'start' | 'run' | 'end' | 'hit' }
+  /**
+   * Task 55а (shove.ts): a shove — `start` (the plan: from (`x`, `y`) to (`x1`, `y1`), what stops it, the `target`), `crush` (a body
+   * crushed: `target`), `impact` (the strike at the stop: `target`, or the wall), `stop` (the thing stands at its point), `fall` (into a
+   * cliff), `cancel` (the dash did not reach the thing). The rules never read it.
+   */
+  | { type: 'shove'; action: 'start' | 'crush' | 'impact' | 'stop' | 'fall' | 'cancel'; thingId: number; x: number; y: number; x1?: number; y1?: number; stop?: ShoveStop; target?: number }
+  /** Task 55а: a thing broke (`by` — what it stopped at); not a kill. */
+  | { type: 'thing'; action: 'break'; id: number; x: number; y: number; by: ShoveStop }
+  /** Task 55а (enemies/castle.ts): «Падение шкафа» — `windup` (the lane fixed), `hit`, `rise` (it stands up). */
+  | { type: 'wardrobe'; action: 'windup' | 'hit' | 'rise'; id: number; x: number; y: number }
+  /**
+   * Task 55а: «Удар ладьи» — `aim` (the axis fixed both ways, from (`x0`, `y0`) to (`x1`, `y1`)) and `shot` (`plus`, `minus` — what each
+   * half struck: `hero`, `enemy`, `thing` — the shelter; absent — nothing).
+   */
+  | { type: 'rook'; action: 'aim' | 'shot'; id: number; axis: 'row' | 'column'; x0: number; y0: number; x1: number; y1: number; plus?: 'hero' | 'enemy' | 'thing'; minus?: 'hero' | 'enemy' | 'thing' };
 
 export interface World {
   arena: ArenaTemplate;
@@ -707,6 +730,8 @@ export interface World {
    * last is gone: worlds without them hash as before).
    */
   tethers?: Tether[];
+  /** Task 55а (shove.ts): the things sliding now after a dash's shove — absent while none (worlds without a shove hash as before). */
+  shoves?: Shove[];
 }
 
 /**
@@ -808,6 +833,8 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   // Task 54: the Chief's arena plays his feast and the boss's solid bodies (when the values have them off; a journal keeps the copy).
   if (arena.chief && params.chiefFeast === false) params = { ...copyParams(params), chiefFeast: true };
   if (arena.chief && params.trollSolid === false) params = { ...copyParams(params), trollSolid: true };
+  // Task 55а: an arena of the castle plays the law of the shove (when the values have it off; a journal keeps the copy).
+  if (arena.castle && !params.shove) params = { ...copyParams(params), shove: true };
   const maxHp = start ? Math.max(1, Math.floor(start.maxHp)) : params.heroHp;
   const hp = start ? Math.max(1, Math.min(maxHp, Math.floor(start.hp))) : params.heroHp;
   // Stage 2, step 3 («Песочные часы»): the phase table starts later — the delay is the talisman's, read once at the start.
@@ -1373,6 +1400,9 @@ export function noteBlock(world: World, x: number, y: number, source: HitSource,
   if (heroGuarded(world)) world.events.push({ type: 'block', x, y, source, ...enemyId ? { enemyId } : {} });
 }
 
+/** Task 55а: the link `id` is a thing (the barrel, the wardrobe) — never an enemy link for a count. */
+const thingLink = (world: World, id: number): boolean => { const e = world.enemies.find(x => x.id === id); return !!e && !!kindOf(e).thing; };
+
 /**
  * «Щит фокуса» (`focusGuardLinks`, design 12.10.2026): the drawn chain has that many enemy links (an elite with plates is a
  * link) and the focus is not empty (`focusing`: the time slowed) — touches and hits spare the hero. The released dash plays
@@ -1382,7 +1412,8 @@ export function focusGuarded(world: World): boolean {
   const need = world.params.focusGuardLinks;
   if (!(need > 0) || !world.focusing || world.move || world.status !== 'playing') return false;
   let links = 0;
-  for (const link of world.chain) if (link.kind === 'enemy' && ++links >= need) return true;
+  // Task 55а: a thing is no enemy link for the shield (nothing changes without one).
+  for (const link of world.chain) if (link.kind === 'enemy' && !thingLink(world, link.id) && ++links >= need) return true;
   return false;
 }
 
@@ -1994,6 +2025,9 @@ export function update(world: World, dt: number, realDt = dt): void {
   if (world.params.doorWalkIn && !world.move && touchedNow && doorOpen(world)) { win(world, 'walk'); featExit(world, 0); return; }
   updateFlow(world, dt);
   const knocked = moveEnemies(world, dt);
+  // Task 55а (shove.ts): the shoved things slide on, crush and strike — before the parting (nothing without a shove).
+  updateShoves(world, dt);
+  if (world.status !== 'playing') return;
   const shoved = separate(world);
   // Stage 3a (М2): bodies pushed over a cliff fall (only on an arena with a cliff).
   dropIntoCliffs(world, shoved, undefined, knocked);
