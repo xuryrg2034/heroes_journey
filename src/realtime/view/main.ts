@@ -993,6 +993,22 @@ async function boot(): Promise<void> {
     stopAim();
   };
 
+  /**
+   * UI-02 (20.10.2026): whether a run screen was open when this key went down (a capture listener runs before the screens' own, which may
+   * close one — the same key must not then land in the fight), and the held key of a focused button does not press it again.
+   */
+  let screenAtKey = false;
+  const pressesButton = (event: KeyboardEvent): boolean => (event.code === 'Space' || event.key === 'Enter') && !!(event.target as HTMLElement | null)?.closest?.('button, a[href], summary, [role="button"]');
+  window.addEventListener('keydown', event => {
+    screenAtKey = runScreenOpen;
+    if (event.repeat && pressesButton(event)) event.preventDefault();
+  }, { capture: true });
+  // A button pressed with the mouse does not keep the keys (Space is the jump, Enter goes on): the focus goes back to the page.
+  window.addEventListener('click', event => {
+    const button = (event.target as HTMLElement | null)?.closest?.('button');
+    if (button && event.detail > 0 && !runScreenOpen) button.blur();
+  });
+
   window.addEventListener('keydown', event => {
     const target = event.target as HTMLElement | null;
     const typing = !!target && (target.tagName === 'INPUT' || target.tagName === 'SELECT') && (target as HTMLInputElement).type !== 'range' && (target as HTMLInputElement).type !== 'checkbox';
@@ -1006,13 +1022,22 @@ async function boot(): Promise<void> {
       if (!control) { event.preventDefault(); held.add(event.code); }
       return;
     }
+    // UI-02: a held key does not repeat (the jump aim, the pause and the item keys flicker), and a focused button keeps its Space and Enter.
+    if (event.repeat || pressesButton(event)) return;
     // Design smoke v65 (D2): the boss's glide ignores the keys (as the fight's start it is not yet).
     if (renderer.bossIntroOn()) return;
     const ended = world().status !== 'playing';
+    /** UI-02: Esc cancels what is drawn or aimed; with nothing to cancel it is the pause (like P) — and it goes on from the pause. */
+    const escape = (): void => {
+      if (paused) { paused = false; return; }
+      const w = world();
+      if (dragging || w.chain.length > 0 || ui.jumpMode || itemAim !== null) { command({ t: 'cancel' }); dragging = false; stopAim(); }
+      else if (running()) paused = true;
+    };
     if (!sandbox) {
       // The run: no arena menu, no restart (a lost arena ends the run); Enter on a finished arena goes on.
-      if (runScreenOpen) return;
-      if (event.key === 'Escape') { command({ t: 'cancel' }); dragging = false; stopAim(); }
+      if (runScreenOpen || screenAtKey) return;
+      if (event.key === 'Escape') escape();
       // The prologue shows only the room's tiles (task 9, `PrologueRoom.tiles`): a key of a hidden tile does nothing (no jump aiming, no
       // command, no press for the hand) — design 13.10.2026. The last room has them all.
       else if (event.code === 'Space') { event.preventDefault(); if (!actionBar.allows('jump')) return; if (!dragging) toggleJump(); }
@@ -1027,7 +1052,7 @@ async function boot(): Promise<void> {
     if (digit >= 0 && (menuOpen || ended)) { start(digit); return; }
     if (event.code === 'KeyM') { if (menuOpen && !ended) { menuOpen = false; menu.hidden = true; } else showMenu(); return; }
     if (menuOpen) return;
-    if (event.key === 'Escape') { command({ t: 'cancel' }); dragging = false; stopAim(); }
+    if (event.key === 'Escape') escape();
     else if (event.code === 'Space') { event.preventDefault(); if (!dragging) toggleJump(); }
     else if (event.code === 'KeyQ') { if (running()) { command({ t: 'spin' }); stopAim(); } }
     else if (itemKey(event.code) >= 0) useItemKey(itemKey(event.code));

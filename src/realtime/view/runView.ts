@@ -332,6 +332,15 @@ function habitRowHtml(habit: NonNullable<ReturnType<typeof rtGiftView>>['habit']
     + `<button class="rt-habit-none${none ? ' rt-on' : ''}" data-action="habit" data-habit="none" data-testid="habit-none" aria-pressed="${!!none}" ${habit.chosen ? 'disabled' : ''}>Без повадки</button></div>`;
 }
 
+/**
+ * UI-05 (20.10.2026): the line of a card that replaces a form — what goes (`replaces`) and its rule, as the other cards show it
+ * (the counters' window, the price of a relic). One card is still one click.
+ */
+const goesLineHtml = (replaces: string, run: RtRunState): string => {
+  const text = rtTalismanText(replaces, !!run.forms);
+  return `<small class="rt-run-reason" data-testid="replaces-${replaces}">Уйдёт: «${escapeHtml(talismanName(replaces, run))}»${text ? ` — ${escapeHtml(text)}` : ''}</small>`;
+};
+
 function talismanCardLines(id: string, run?: RtRunState | null): string {
   const def = rtTalismanShown(id, !!run?.forms);
   if (!def) return '';
@@ -339,7 +348,7 @@ function talismanCardLines(id: string, run?: RtRunState | null): string {
   const rarity = def.rarity === 'common' || def.rarity === 'uncommon' || def.rarity === 'rare' ? `${RT_RARITY_NAME[def.rarity]} · `
     : def.rarity === 'form' && def.field ? `форма · ${FORM_FIELD_TITLES[def.field].toLowerCase()} · ` : '';
   const replaces = run ? rtFormReplaces(run, id) : null;
-  return `${habitMark(run, id)}<small>${escapeHtml(rarity + def.effect)}</small>${replaces ? `<small class="rt-run-reason" data-testid="replaces-${id}">Заменит «${escapeHtml(talismanName(replaces, run))}»</small>` : ''}${recipeHtml(run, id)}`;
+  return `${habitMark(run, id)}<small>${escapeHtml(rarity + def.effect)}</small>${replaces && run ? goesLineHtml(replaces, run) : ''}${recipeHtml(run, id)}`;
 }
 
 /** Task 41 «Три зелья»: the words at a choice the hand cannot take — «Рука полна» (always, not a hint: why the choice is off). */
@@ -479,6 +488,14 @@ export class RunView {
     });
     // Task 35, С3: the tokens of a gain fly from the last press (the button that took the reward, the fight's «Дальше»).
     window.addEventListener('pointerdown', event => { this.pressAt = { x: event.clientX, y: event.clientY }; }, { capture: true });
+    // UI-06: Enter or Space on a focused node opens its card (the click's path); a held key does not repeat it.
+    this.el.addEventListener('keydown', event => {
+      const node = (event.target as HTMLElement).closest<HTMLElement>('[data-node][tabindex]');
+      if (!node || (event.key !== 'Enter' && event.code !== 'Space')) return;
+      event.preventDefault();
+      if (event.repeat) return;
+      this.selected = node.dataset.node!; this.notice = ''; this.draw();
+    });
     // Task 8c: Esc closes the node card (the map shows whole).
     window.addEventListener('keydown', event => {
       if (event.key !== 'Escape' || this.el.hidden || !this.selected || !this.el.querySelector('[data-testid="run-detail"]')) return;
@@ -1212,7 +1229,10 @@ export class RunView {
     // П7: on the map (not in a fight, not at the end) a due nudge is taken once and stays until the map is left.
     const session = this.host.session;
     if (session?.on() && !run.result && !this.inArena && this.sessionNudge === null) this.sessionNudge = session.clock.takeNudge();
+    // UI-06: the redraw keeps the keyboard focus on the node it stood on.
+    const active = document.activeElement as HTMLElement | null, focusedNode = active && this.el.contains(active) ? active.closest<HTMLElement>('[data-node]')?.dataset.node : undefined;
     this.el.innerHTML = `${this.headerHtml(run)}${this.pickLineHtml(run)}<div class="rt-run-body">${this.mapHtml(run)}${run.pending || run.result ? '' : this.detailHtml(run)}</div>${this.modalHtml(run)}${this.dieRollHtml()}${this.chanceHtml()}`;
+    if (focusedNode) this.el.querySelector<SVGElement>(`[data-node="${focusedNode}"][tabindex]`)?.focus({ preventScroll: true });
     this.flyResources(run);
     this.stageScreens(run);
     // Task 38: «Предместье»'s bar fills to the HP after the heal (once: then it is drawn full).
@@ -1596,7 +1616,9 @@ export class RunView {
       const status = rtNodeStatus(run, node, available), info = RT_NODE_TYPES[node.type], shown = node.type === 'event' && rtNodeTitle(run, node) === 'Находка' ? RT_NODE_TYPES.find : info;
       // B7 К9: the circle's node keeps the event's place on the map; once entered, it shows a die.
       const icon = run.casino?.nodeId === node.id ? CASINO_ICON : shown.icon;
-      return `<g class="rt-node rt-${status}${this.selected === node.id ? ' rt-selected' : ''}" data-node="${node.id}" data-testid="node-${node.id}" data-status="${status}" data-type="${node.type}" transform="translate(${x(node)},${y(node)})">`
+      // UI-06 (20.10.2026): an available node takes the keyboard focus (Tab; Enter or Space opens its card like a click, never the fight).
+      const focusable = status === 'available' || status === 'open' ? ` tabindex="0" role="button" aria-label="${escapeHtml(rtNodeTitle(run, node))}"` : '';
+      return `<g class="rt-node rt-${status}${this.selected === node.id ? ' rt-selected' : ''}" data-node="${node.id}"${focusable} data-testid="node-${node.id}" data-status="${status}" data-type="${node.type}" transform="translate(${x(node)},${y(node)})">`
         + `<circle r="17"/><text dy="6">${icon}</text><title>${escapeHtml(rtNodeTitle(run, node))}</title>`
         // Task 38: the garrison's exams seen from the start — «Караульня» (row 5) and «Кастелян» (row 10) under their circles.
         + (rtLevel(run) === 2 && (node.type === 'checkpoint' || node.type === 'boss') ? `<text class="rt-node-cap" dy="36" data-testid="map-cap-${node.type}">${escapeHtml(rtNodeTitle(run, node))}</text>` : '') + '</g>';
@@ -1845,7 +1867,7 @@ export class RunView {
       const goods = view.goods.map(good => `<button class="rt-run-choice" data-action="shop-buy" data-good="${good.id}" data-testid="shop-${good.id}" ${good.available ? '' : 'disabled'}>`
         + `<b>${good.label} — ${good.price === 0 ? 'даром' : `${good.price} рес.`}</b><small>${escapeHtml(good.text)}${good.reason ? ` · ${escapeHtml(good.reason)}` : ''}</small>`
         // Task 30 «одна форма на поле»: the form of the same field the purchase replaces.
-        + `${good.replaces ? `<small class="rt-run-reason" data-testid="replaces-${good.replaces}">Заменит «${escapeHtml(talismanName(good.replaces, run))}»</small>` : ''}${good.talisman ? habitMark(run, good.talisman) + recipeHtml(run, good.talisman) : ''}</button>`).join('');
+        + `${good.replaces ? goesLineHtml(good.replaces, run) : ''}${good.talisman ? habitMark(run, good.talisman) + recipeHtml(run, good.talisman) : ''}</button>`).join('');
       // Task 15: the header has one number; the merchant names the kinds (he takes from the most numerous).
       const kinds = resourceKindsText(run.materials);
       return card(`<h2>Торговец</h2><p data-testid="shop-resources">Ресурсов: ${view.total}${kinds ? ` (${kinds})` : ''}.</p><div class="rt-run-choices">${goods}</div>`
