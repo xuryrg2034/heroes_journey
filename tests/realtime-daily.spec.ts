@@ -16,6 +16,8 @@ import { rtAvailableNodes } from '../src/realtime/run/rtRun';
 const PROFILE = 'ashen-oath-rt-profile-v1';
 const PROOFS = 'ashen-oath-rt-daily-v1';
 const DATE = '2026-10-20';
+/** The date as the player reads it (the file and the seed keep the ISO form). */
+const DATE_TEXT = '20.10.2026';
 const SHOTS = process.env.SHOT_DIR ?? 'artifacts';
 const META = { heroes: { cat: { xp: 5, packs: [], record: { row: 3, won: false, xp: 5 } } }, hearth: { stock: 2, levels: { owl: 0, herb: 0, smith: 0 }, met: {}, lines: { 'owl:first': 2 }, quiet: 0 } };
 
@@ -97,9 +99,17 @@ test('the run of the day: start, a fight, the end screen without experience, the
   const panel = (await page.locator('.rt-hearth-center').boundingBox())!;
   expect(panel.y + panel.height).toBeLessThanOrEqual(720);
 
+  const runsBefore = await page.evaluate(() => (window as any).__realtime.run.session.info().runs);
   await page.getByTestId('hearth-daily').click();
   await expect(page.getByTestId('daily-panel')).toBeVisible();
-  await expect(page.getByTestId('daily-date')).toContainText(DATE);
+  await expect(page.getByTestId('daily-date')).toContainText(DATE_TEXT);
+  await expect(page.getByTestId('daily-date')).not.toContainText(DATE);
+  // Before the first attempt there is no proof: «Сохранить» and «Проверить» are off with the tip, «Проверить файл» is on.
+  for (const id of ['daily-save', 'daily-verify']) {
+    await expect(page.getByTestId(id)).toBeDisabled();
+    await expect(page.getByTestId(id)).toHaveAttribute('title', 'Сначала пройди поход дня');
+  }
+  await expect(page.getByTestId('daily-file-pick')).toBeEnabled();
   await page.screenshot({ path: `${SHOTS}/daily-panel.png` });
 
   // The attempt 1: the run of the date (flagged, seeded), its steps in the session.
@@ -110,7 +120,11 @@ test('the run of the day: start, a fight, the end screen without experience, the
   expect(run.result.outcome).toBe('defeat');
   // No experience block on the end screen; the claim and the buttons are there.
   await expect(page.locator('[data-testid^="meta-"]')).toHaveCount(0);
-  await expect(page.getByTestId('daily-claim')).toContainText(DATE);
+  await expect(page.getByTestId('daily-claim')).toContainText(DATE_TEXT);
+  await expect(page.getByTestId('daily-claim')).not.toContainText(DATE);
+  // The run of the day is no run of the viewer's: the profile's count and the session's «походов» are as before; the line does not lie.
+  expect(await page.evaluate(() => (window as any).__realtime.run.session.info().runs)).toBe(runsBefore);
+  await expect(page.getByTestId('run-session-line')).toHaveText('В игре меньше минуты · походов 1');
   await expect(page.getByTestId('daily-save')).toBeEnabled({ timeout: 15_000 });
   await page.screenshot({ path: `${SHOTS}/daily-end.png` });
   // The log (tries 1, first = best) and the proof under its own key.
@@ -130,7 +144,7 @@ test('the run of the day: start, a fight, the end screen without experience, the
 
   // «Проверить»: the replay passes.
   await page.getByTestId('daily-verify').click();
-  await expect(page.getByTestId('daily-status')).toContainText('Проверено', { timeout: 30_000 });
+  await expect(page.getByTestId('daily-status')).toContainText(`Проверено: ${DATE_TEXT}`, { timeout: 30_000 });
   await page.screenshot({ path: `${SHOTS}/daily-verified.png` });
 
   // «Сохранить»: the file daily-ГГГГ-ММ-ДД.json.

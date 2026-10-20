@@ -9,6 +9,8 @@ import { checkDailyProof, rtDailyClaimText, type RtDailyClaim, type RtDailyProof
 import type { Journal } from '../sim/simulation';
 import type { KeyValueStore } from '../telemetry/buffer';
 
+/** The date for the player: `ГГГГ-ММ-ДД` (the seed's and the file's form) as `ДД.ММ.ГГГГ`. */
+export const dailyDateText = (date: string): string => date.split('-').reverse().join('.');
 const esc = (s: string): string => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
 /** One attempt in progress: the date, the attempt's number, the run's steps, the fights' journals in order; `broken` — a step or a journal is missing (no proof). */
@@ -40,6 +42,9 @@ export class DailySessionStore {
   clear(): void { try { this.store?.removeItem(DAILY_SESSION_KEY); this.store?.removeItem(DAILY_FIGHTS_KEY); } catch { /* optional */ } }
 }
 
+/** The tip of «Сохранить» and «Проверить» while the date has no proof. */
+const NO_PROOF = 'Сначала пройди поход дня';
+
 /** «Сохранить», «Проверить», «Проверить файл» of the best attempt's proof of a date (the buttons stand in the camp's panel and on the run's end screen). */
 export class DailyTools {
   /** The last answer of a check or a save (shown under the buttons). */
@@ -55,8 +60,8 @@ export class DailyTools {
   /** The buttons (and the hidden file input) for the proof of `date`; `has` — the best attempt's proof is kept. */
   buttonsHtml(date: string, has: boolean): string {
     return `<div class="rt-daily-proof" data-testid="daily-proof">`
-      + `<button class="rt-other" data-action="daily-save" data-date="${date}" data-testid="daily-save"${has ? '' : ' disabled'}>Сохранить</button>`
-      + `<button class="rt-other" data-action="daily-verify" data-date="${date}" data-testid="daily-verify"${has ? '' : ' disabled'}>Проверить</button>`
+      + `<button class="rt-other" data-action="daily-save" data-date="${date}" data-testid="daily-save"${has ? '' : ` disabled title="${NO_PROOF}"`}>Сохранить</button>`
+      + `<button class="rt-other" data-action="daily-verify" data-date="${date}" data-testid="daily-verify"${has ? '' : ` disabled title="${NO_PROOF}"`}>Проверить</button>`
       + `<button class="rt-other" data-action="daily-file-pick" data-testid="daily-file-pick">Проверить файл</button>`
       + `<input type="file" accept=".json,application/json" hidden data-action="daily-file" data-testid="daily-file"></div>`
       + `<p class="rt-daily-status" data-testid="daily-status">${esc(this.status)}</p>`;
@@ -103,7 +108,7 @@ export class DailyTools {
     try { result = await checkDailyProof(value, this.build()); } catch { this.say('Проверка не удалась.'); return; }
     if (result.ok) {
       this.verified((value as { date: string }).date);
-      this.say(`Проверено: ${rtDailyClaimText(result.claim)}`);
+      this.say(`Проверено: ${dailyDateText((value as { date: string }).date)} · ${rtDailyClaimText(result.claim)}`);
     } else this.say(result.otherBuild ? `${result.reason}: этот файл не проверить.` : `Не прошло: ${result.reason}`);
   }
   private say(text: string): void { this.status = text; this.redraw(); }
@@ -129,7 +134,7 @@ export function dailyPanelHtml(view: RtDailyView, tools: DailyTools): string {
     ? `<button class="rt-again" data-action="daily-start" data-testid="daily-start">${view.tries ? 'Ещё попытка' : 'Начать'}</button>`
     : `<button class="rt-again" disabled data-testid="daily-start">Начать</button><p class="rt-run-note" data-testid="daily-reason">${esc(view.reason)}</p>`;
   return `<div class="rt-overlay rt-hearth-modal" data-action="daily-close" data-testid="daily-panel"><div class="rt-card rt-daily-card">`
-    + `<h2>Поход дня</h2><p class="rt-daily-date" data-testid="daily-date">${esc(view.date)} · один лес для всех</p>`
+    + `<h2>Поход дня</h2><p class="rt-daily-date" data-testid="daily-date">${dailyDateText(view.date)} · один лес для всех</p>`
     + `<p class="rt-run-note">Опыт и награды в лагерь не идут. Итог можно сохранить в файл и проверить повтором.</p>`
     + `${tries}${results}${start}${tools.buttonsHtml(view.date, view.proof)}`
     + `<button class="rt-other" data-action="daily-close" data-testid="daily-close">Закрыть</button></div></div>`;
@@ -138,6 +143,6 @@ export function dailyPanelHtml(view: RtDailyView, tools: DailyTools): string {
 /** The end screen's block of a run of the day: the claim, whether it is the best, the proof's buttons (no experience block here). */
 export function dailyEndHtml(date: string, claim: RtDailyClaim, view: RtDailyView, best: boolean | null, tools: DailyTools): string {
   const note = best === false ? 'Это не лучшая попытка дня: сохранена лучшая.' : '';
-  return `<div class="rt-daily-end" data-testid="daily-end"><p class="rt-daily-claim" data-testid="daily-claim">Поход дня ${esc(date)}: ${esc(rtDailyClaimText(claim))}</p>`
+  return `<div class="rt-daily-end" data-testid="daily-end"><p class="rt-daily-claim" data-testid="daily-claim">Поход дня ${dailyDateText(date)}: ${esc(rtDailyClaimText(claim))}</p>`
     + `${note ? `<p class="rt-run-note" data-testid="daily-note">${note}</p>` : ''}${tools.buttonsHtml(date, view.proof)}</div>`;
 }
