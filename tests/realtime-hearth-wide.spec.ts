@@ -37,19 +37,24 @@ async function openCamp(page: Page): Promise<void> {
   await expect(page.getByTestId('hearth')).toBeVisible();
 }
 
-for (const [width, height] of [[1280, 720], [1600, 900], [1920, 1080]] as const) {
-  test(`UI-01: the camp at ${width}×${height} — the scene is the picture's 1280×720 box in the window's middle; every hero and NPC stands on the picture and answers a click`, async ({ page }) => {
+for (const [width, height] of [[1280, 720], [1600, 900], [1920, 1080], [2560, 1440]] as const) {
+  test(`UI-01б: the camp at ${width}×${height} — the scene is 1280·s × 720·s in the middle (one scale); every NPC answers a click and its panel covers no other figure; «В поход» leaves`, async ({ page }) => {
     const errors = collectErrors(page);
     await page.setViewportSize({ width, height });
     await openCamp(page);
-    // The picture: 1280×720 centred in the window (the background's own rule); the scene's box is the same.
-    const art = { x: (width - 1280) / 2, y: (height - 720) / 2, w: 1280, h: 720 };
+    const s = Math.max(1, Math.min(width / 1280, height / 720));
+    const art = { x: (width - 1280 * s) / 2, y: (height - 720 * s) / 2, w: 1280 * s, h: 720 * s };
     const stage = (await page.locator('.rt-hearth-stage').boundingBox())!;
     expect(Math.abs(stage.x - art.x), 'the scene starts where the picture does').toBeLessThan(1.5);
     expect(Math.abs(stage.y - art.y)).toBeLessThan(1.5);
-    expect(Math.abs(stage.width - art.w)).toBeLessThan(1.5);
-    expect(Math.abs(stage.height - art.h)).toBeLessThan(1.5);
-    // Every place (the heroes, the NPC) stands inside the picture.
+    expect(Math.abs(stage.width - art.w), 'the scene is 1280·s wide').toBeLessThan(1.5);
+    expect(Math.abs(stage.height - art.h), 'the scene is 720·s high').toBeLessThan(1.5);
+    // The title and the stock stay in the window's corners (not scaled).
+    const head = (await page.locator('.rt-hearth-head > b').boundingBox())!;
+    expect(head.x < 40 && head.y < 40 && head.height < 40, 'the title in the window corner, not scaled').toBe(true);
+    const stock = (await page.getByTestId('hearth-stock').boundingBox())!;
+    expect(stock.x + stock.width > width - 40 && stock.y < 40, 'the stock in the window corner').toBe(true);
+    // Every place stands inside the scene.
     const places = page.locator('.rt-hearth-place');
     const count = await places.count();
     expect(count, 'both heroes and the five NPC').toBeGreaterThanOrEqual(7);
@@ -58,16 +63,26 @@ for (const [width, height] of [[1280, 720], [1600, 900], [1920, 1080]] as const)
       const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
       expect(cx > art.x && cx < art.x + art.w && cy > art.y && cy < art.y + art.h, `place ${i} on the picture (${cx.toFixed(0)}, ${cy.toFixed(0)})`).toBe(true);
     }
-    // The panel («В поход») is on the picture too.
     const go = (await page.locator('.rt-hearth-go').boundingBox())!;
     expect(go.x >= art.x && go.x + go.width <= art.x + art.w && go.y + go.height <= art.y + art.h).toBe(true);
-    // A real click on Неясыть opens her bubble, inside the window.
-    await page.getByTestId('hearth-npc-owl').click();
-    const bubble = page.getByTestId('hearth-bubble');
-    await expect(bubble).toBeVisible();
-    const b = (await bubble.boundingBox())!;
-    expect(b.x >= 0 && b.y >= 0 && b.x + b.width <= width && b.y + b.height <= height, 'the bubble in the window').toBe(true);
-    await page.screenshot({ path: shot(`hearth-wide-${width}x${height}`) });
+    // A real click on every NPC opens their panel in the window; the panel covers no other figure or name.
+    for (const npc of ['owl', 'herb', 'smith', 'gambler', 'monk']) {
+      await page.getByTestId(`hearth-npc-${npc}`).click();
+      const bubble = page.getByTestId('hearth-bubble');
+      await expect(bubble).toBeVisible();
+      await expect(bubble).toHaveAttribute('data-npc', npc);
+      const b = (await bubble.boundingBox())!;
+      expect(b.x >= 0 && b.y >= 0 && b.x + b.width <= width && b.y + b.height <= height, `${npc}: the panel in the window`).toBe(true);
+      for (let i = 0; i < count; i++) {
+        const box = (await places.nth(i).boundingBox())!;
+        const cross = box.x < b.x + b.width && box.x + box.width > b.x && box.y < b.y + b.height && box.y + box.height > b.y;
+        expect(cross, `${npc}: the panel does not cross place ${i} (${await places.nth(i).getAttribute('data-testid')})`).toBe(false);
+      }
+      if (npc === 'monk') await page.screenshot({ path: shot(`hearth-scale-${width}x${height}`) });
+    }
+    // «В поход» leaves the camp.
+    await page.getByTestId('hearth-go').click();
+    await expect(page.getByTestId('hearth')).toBeHidden();
     expect(errors).toEqual([]);
   });
 }

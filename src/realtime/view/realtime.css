@@ -506,10 +506,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-kind-event { outline-color: #8fd18a; }
 
 /* Task 37 «Очаг» (hearthView.ts): the camp, one screen 1280×720 — the fire in the centre, six places round it, the stock on top. */
-.rt-hearth { position: absolute; inset: 0; z-index: 8; color: var(--rt-ink); overflow: hidden; background: #0a0e09 center / 1280px 720px no-repeat; }
+.rt-hearth { position: absolute; inset: 0; z-index: 8; color: var(--rt-ink); overflow: hidden; background: #0a0e09; }
+/* UI-01б: the picture's edges beyond the scaled scene — the same art, blurred and dimmed, covering the window. */
+.rt-hearth::before { content: ''; position: absolute; inset: -24px; background: var(--hearth-art, none) center / cover no-repeat; filter: blur(14px) brightness(.5); pointer-events: none; }
 .rt-hearth.rt-hearth-noart { background: radial-gradient(ellipse 46% 52% at 50% 58%, #4a2a14 0%, #2a1c10 26%, #131a10 60%, #0a0e09 100%); }
 .rt-hearth-fire-wrap { display: none; position: absolute; left: 640px; top: 300px; transform: translateX(-50%); }
 .rt-hearth-noart .rt-hearth-fire-wrap { display: block; }
+.rt-hearth-noart::before { display: none; }
 .rt-hearth-glow { position: absolute; left: 640px; top: 400px; width: 520px; height: 360px; transform: translate(-50%, -50%); background: radial-gradient(closest-side, #ffb34733, #ff8a3c14 55%, transparent); pointer-events: none; animation: rt-hearth-glow 2.4s ease-in-out infinite alternate; }
 @keyframes rt-hearth-glow { 0% { opacity: .65; transform: translate(-50%, -50%) scale(.97); } 100% { opacity: 1; transform: translate(-50%, -50%) scale(1.03); } }
 .rt-hearth:not(.rt-hearth-noart) .rt-hearth-empty { visibility: hidden; }
@@ -521,7 +524,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-hearth-stock { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; padding: 4px 12px; border: 1px solid #82774e; background: #1a1e16; }
 .rt-hearth-stock b { font: 700 20px system-ui, sans-serif; color: #ffd88a; font-variant-numeric: tabular-nums; }
 /* UI-01 (20.10.2026): the scene is the art's own box — 1280×720 in the window's middle, where the background lies (centred at its size); the places, the fire, the panel and the bubble keep their 1280×720 coordinates inside it, so on a wide window they stand on the picture. */
-.rt-hearth-stage { position: absolute; left: 50%; top: 50%; width: 1280px; height: 720px; transform: translate(-50%, -50%); }
+.rt-hearth-stage { position: absolute; left: 50%; top: 50%; width: 1280px; height: 720px; transform: translate(-50%, -50%) scale(var(--s, 1)); background: var(--hearth-art, none) center / 100% 100% no-repeat; }
+/* UI-01б: `--s` = max(1, min(window width / 1280, window height / 720)) is set by hearthView.ts; the whole scene (picture, figures, names, panels) scales by it. */
 .rt-hearth-center { position: absolute; left: 640px; top: 548px; transform: translateX(-50%); width: 340px; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px 14px 12px; background: #0a0e09b3; border: 1px solid #5a5234; }
 .rt-hearth-fire { width: 240px; height: 204px; filter: drop-shadow(0 0 40px #ff8a3c88); }
 .rt-flame { transform-origin: 100px 138px; animation: rt-flame 1.4s ease-in-out infinite alternate; }
