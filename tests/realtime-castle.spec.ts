@@ -166,7 +166,7 @@ test('task 55а: «Падение шкафа» — the hero who stays in the lan
   expect(errors).toEqual([]);
 });
 
-test('task 55а: «Удар ладьи» — the line stands both ways along the axis and fills; the hero between the two wardrobes is sheltered; off the axis he is safe too', async ({ page }) => {
+test('task 55а: «Удар ладьи» — the line stands both ways along the axis and fills, cut at the first wardrobe (the cover — design 20.10.2026); the hero between the two wardrobes is sheltered; off the axis he is safe too', async ({ page }) => {
   test.setTimeout(120_000);
   const errors = collectErrors(page);
   await openByMenu(page, 2, 'c-enfilade');
@@ -184,7 +184,13 @@ test('task 55а: «Удар ладьи» — the line stands both ways along the
   const line = aimed!.castle.rook.find(r => r.line)!.line!;
   expect(line.axis).toBe('row');
   expect(Math.abs(line.y1 - line.y0)).toBeLessThan(1e-6);
-  expect(line.x1 - line.x0).toBeGreaterThan(10);
+  // The sign stops at the first cover on its way (the core's rookLine — the same cover as the strike): the hero stands between the two
+  // wardrobes (x 8 and 14), so the line ends at a wardrobe and does not reach him; bodies of enemies do not cut it.
+  const hx = aimed!.hero.x, wardrobes = aimed!.castle.things.filter(t => t.kind === 'wardrobe').map(t => t.x);
+  const reaches = line.x0 < hx && hx < line.x1;
+  expect(reaches, 'the line does not reach the hero behind the wardrobe').toBe(false);
+  const end = Math.abs(line.x1 - hx) < Math.abs(line.x0 - hx) ? line.x1 : line.x0;
+  expect(Math.min(...wardrobes.map(x => Math.abs(x - end))), 'the near end is at a wardrobe').toBeLessThan(1.2);
   expect(aimed!.castle.shown.rookLines).toBeGreaterThan(0);
   await shot(page, 'rook-aim');
   const shot1 = await untilFrame(page, (s, _arg: null, late) => s.castle.shown.shots >= 1 ? s : late ? null : undefined, null, 4);
