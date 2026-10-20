@@ -42,6 +42,7 @@
     "test:realtime-behavior": "tsx src/realtime/sim/behavior.spec.ts",
     "test:realtime-detmath": "tsx src/realtime/sim/detMath.spec.ts",
     "test:realtime-camera": "tsx src/realtime/view/camera.spec.ts",
+    "test:realtime-daily-view": "tsx src/realtime/view/dailyView.spec.ts",
     "test:realtime-big-arenas": "tsx src/realtime/sim/bigArenas.spec.ts",
     "test:realtime-schedule-arenas": "tsx src/realtime/sim/scheduleArenas.spec.ts",
     "test:realtime-affixes": "tsx src/realtime/sim/affixes.spec.ts",

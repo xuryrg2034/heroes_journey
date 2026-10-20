@@ -53,6 +53,9 @@ import type { FirstMeetId } from './firstMeet';
 import { ICON as STOCK_ICON, MetaEndView, type MetaSound } from './metaEnd';
 import { HearthView, NPC_ART, artUrl } from './hearthView';
 import type { WarmupId, WarmupMerge } from '../run/warmup';
+import { DailySessionStore, DailyTools, dailyEndHtml, type DailySession } from './dailyView';
+import { RT_STEP_FNS, createRtDailyRun, rtDailyClaim, rtDailyProof, rtDailyView, rtStep, RtDailyProofStore, type RtDailyView, type RtStepCall, type RtStepFn } from '../run/rtDaily';
+import type { Journal } from '../sim/simulation';
 import { npcLine, type LineKey } from './npcLines';
 import { NPCS, type NpcId } from './metaModel';
 import { ProfileMeta } from './metaSource';
@@ -178,6 +181,12 @@ export interface RunHost {
   };
   /** Task 49: `?hero=toad` in the address - a debug run of that hero, without the meta (as `?seed=`; the run is a seeded one). */
   fixedHero?: RtHeroId;
+  /**
+   * Task 51з «Поход дня»: the run of the day (absent — no button at the fire). `date` - today's `ГГГГ-ММ-ДД` (the address `?daily=` sets it
+   * for tests), `build` - this build's id (the proof's), `fight` - the journal of the fight that just ended (the proof holds each), the
+   * telemetry: the attempt began, a proof passed the check.
+   */
+  daily?: { date(): string; build(): string; fight(): Journal | null; attempt?(run: RtRunState, attempt: number): void; verified?(run: RtRunState): void };
   /** Telemetry (П8): a map choice made while a sign was shown on an available node card. Absent — nothing recorded. */
   mapChoice?(run: RtRunState, choice: MapSignChoice): void;
 }
@@ -476,6 +485,11 @@ export class RunView {
   /** Task 47 (tests read it via `screensInfo`): chords by tier and the last one; screens revealed, run-ends staged, and the skips. */
   private readonly screenCount = { chords: [0, 0, 0], last: null as RewardTier | null, reveals: 0, revealSkips: 0, ends: 0, endSkips: 0 };
   readonly hearth: HearthView | null;
+  /** Task 51з «Поход дня»: the attempt in progress (its steps and fights, kept across a reload), the proof's tools, and the store of the session. */
+  private daily: DailySession | null = null;
+  private readonly dailySessions = new DailySessionStore(typeof localStorage === 'undefined' ? null : localStorage);
+  private readonly dailyTools = new DailyTools(new RtDailyProofStore(typeof localStorage === 'undefined' ? null : localStorage), () => this.host.daily?.build() ?? 'unknown',
+    date => { if (this.run?.daily === date) this.host.daily?.verified?.(this.run); }, () => { if (!this.hearth?.isOpen) this.draw(); else this.hearth.draw(); });
   /** Tasks 36–37: the one start of a new run with the camp's choices (the camp's «В поход» and «Новый поход»). */
   readonly runStart = new RunStart();
   /** Task 35, С3 (tests read it): flights started, tokens thrown, the number now and whether it is counting. */
@@ -493,6 +507,7 @@ export class RunView {
     });
     this.el.addEventListener('change', event => {
       const target = event.target as HTMLSelectElement;
+      if (this.dailyTools.change(target)) return;
       if (target.dataset.action === 'fx-level') this.host.fx?.set(fxLevelOf(target.value));
       if (target.dataset.action === 'sound-volume') this.host.sound?.preview();
     });
@@ -505,6 +520,8 @@ export class RunView {
     });
     this.run = this.store.load();
     if (this.run?.result) this.endBase = rtRunKey(this.run);
+    // Task 51з: a run of the day open at load is continued with its session (a lost one: the run plays on, its proof is not made).
+    if (this.run?.daily && !this.run.result) { const session = this.dailySessions.load(); this.daily = session?.date === this.run.daily ? session : { date: this.run.daily, attempt: 1, steps: [], journals: [], broken: true }; }
     // Task 47, С6/С8: a click on the bare screen or a key shows the revealed cards / the run-end lines at once. A shown card or a
     // button acts as always (the reveal never takes a press aimed at a visible control).
     this.el.addEventListener('click', event => {
@@ -522,6 +539,7 @@ export class RunView {
       bought: (npc, level, price) => this.host.meta?.buy?.(this.run, npc, level, price),
       back: () => this.open(),
       sound: kind => this.host.meta?.sound(kind),
+      ...host.daily ? { daily: { view: () => this.dailyViewNow(), start: () => this.startDaily(), tools: this.dailyTools } } : {},
       beasts: () => { const seen = this.host.newSeen?.store; return seen ? Object.keys(KIND_CAPTIONS).filter(k => seen.hasKind(k)) : []; },
       ...host.warmup ? { warmup: { records: () => this.profile.warmup(), start: (id: WarmupId) => this.host.warmup?.start(id) } } : {},
     }) : null;
@@ -617,6 +635,7 @@ export class RunView {
     const value = (seed ?? this.fixedSeed ?? camp?.seed ?? Math.floor(Math.random() * 0x100000000)) >>> 0;
     this.hearth?.close();
     this.metaEnd?.stop(); this.metaEnd = null;
+    this.daily = null; this.dailySessions.clear();
     // Smoke v62: the run abandoned on its end screen is the previous one (settled already, `abandon`).
     const previous = this.run ?? this.abandoned;
     this.abandoned = null;
@@ -646,6 +665,69 @@ export class RunView {
     return this.run;
   }
 
+  /**
+   * Task 51з: THE place a run step is made. An ordinary run calls `direct` (as always: its options, its saves, its hashes are untouched). A
+   * run of the day goes through the core's `rtStep` and the call joins the attempt's journal of steps - the proof replays exactly
+   * these. A step `rtStep` cannot make (`rtMeetDeal`, `rtShopReroll`, `rtShopSwap`: the camp's, never open in the run of the day) is refused
+   * there, never made without a record.
+   */
+  private go(run: RtRunState, fn: string, args: unknown[], direct: () => RtRunStep): RtRunStep {
+    const daily = this.daily;
+    if (!run.daily || !daily) return direct();
+    if (!(RT_STEP_FNS as readonly string[]).includes(fn)) return { ok: false, reason: 'В походе дня этого нет.' };
+    const call: RtStepCall = { fn: fn as RtStepFn, args: JSON.parse(JSON.stringify(args)) as unknown[] };
+    const step = rtStep(run, call);
+    if (step.ok) { daily.steps.push(call); this.dailySessions.save(daily); }
+    return step;
+  }
+
+  /** The end screen's block of a run of the day (its claim and the proof's buttons); '' for an ordinary run. */
+  private dailyEndNow(run: RtRunState): string {
+    if (!run.daily || !this.host.daily) return '';
+    const view = this.dailyViewNow(run.daily), claim = rtDailyClaim(run);
+    // Not the best attempt of the day: the log's best is better than this claim (the kept proof is the best's).
+    const best = view.best ? JSON.stringify(view.best) === JSON.stringify(claim) : null;
+    return dailyEndHtml(run.daily, claim, view, best, this.dailyTools);
+  }
+
+  /** The screen's model of the run of the day (the button at the fire, its panel, the end block). */
+  private dailyViewNow(date = this.host.daily?.date() ?? ''): RtDailyView {
+    return rtDailyView(this.profile.dailyLog(), this.dailyTools.proofs, date, { won: this.profile.load().won === true, runOpen: !!this.run && !this.run.result });
+  }
+
+  /** «Начать» of the panel: one more attempt of today (the core's log counts it), the run of the date, the first screen of the run. */
+  startDaily(): void {
+    const host = this.host.daily;
+    if (!host || !this.meta) return;
+    const date = host.date();
+    if (!this.dailyViewNow(date).canStart) return;
+    this.hearth?.close();
+    this.metaEnd?.stop(); this.metaEnd = null;
+    const previous = this.run ?? this.abandoned;
+    this.abandoned = null;
+    const attempt = this.profile.dailyBegin(date) ?? 1;
+    this.run = createRtDailyRun(date);
+    this.daily = { date, attempt, steps: [], journals: [], broken: false };
+    this.dailySessions.save(this.daily, true);
+    this.host.session?.clock.runStarted();
+    this.store.save(this.run);
+    this.host.runStarted?.(previous, this.run);
+    host.attempt?.(this.run, attempt);
+    this.selected = null; this.notice = ''; this.confirmReset = false; this.luckOpen = false;
+    this.open();
+  }
+
+  /** The run of the day ended: the log (the core's), the best attempt's proof kept (made by the core's `rtDailyProof`), the end block redrawn. */
+  private finishDaily(run: RtRunState): void {
+    const daily = this.daily, host = this.host.daily;
+    this.daily = null;
+    this.dailySessions.clear();
+    if (!daily || !host || !run.daily || daily.date !== run.daily) return;
+    const done = this.profile.dailyFinish(daily.date, daily.attempt, rtDailyClaim(run), host.build());
+    if (daily.broken || !done?.best) return;
+    rtDailyProof(daily.date, host.build(), daily.steps, daily.journals, run).then(proof => { this.dailyTools.proofs.keep(proof); if (this.run === run || this.run?.daily === run.daily) this.draw(); }, () => { /* no proof: the log stands */ });
+  }
+
   /** Apply a run step: save it, note what happened, start an arena if one is ready, redraw. Returns the reason of a refusal. */
   apply(step: RtRunStep): string {
     if (!step.ok) { this.notice = step.reason; this.draw(); return step.reason; }
@@ -661,6 +743,7 @@ export class RunView {
       if (this.outskirtsFrom !== null && this.outskirtsFrom < this.run.hp) this.host.meta?.sound('heal');
     }
     if (this.run.result && !before?.result) {
+      if (this.run.daily) this.finishDaily(this.run);
       this.profile.endRun({ reachedJailer: rtReachedJailer(this.run), seeded: !!this.run.seeded, won: rtRunWon(this.run), hero: this.run.heroId ?? RT_HERO_ID });
       const meta = this.metaEndOf(this.run, true);
       if (meta) this.host.meta?.end?.(this.run, meta.meta as RtMetaEnd);
@@ -744,7 +827,7 @@ export class RunView {
   /** Enter a node; an oath node — under `oath` (casino stage 1, item 2; null — «Без клятвы»). */
   enter(nodeId: string, oath: OathId | null = null): string {
     if (!this.run) return 'Нет похода.';
-    const step = rtEnterNode(this.run, nodeId, oath, { goblinCircle: !!this.host.goblinCircle, oathStake: rtOathStakeOn(this.host.oathStake) });
+    const step = this.go(this.run, 'rtEnterNode', [nodeId, oath], () => rtEnterNode(this.run!, nodeId, oath, { goblinCircle: !!this.host.goblinCircle, oathStake: rtOathStakeOn(this.host.oathStake) }));
     // Task 8c: the card closes with the step (back on the map nothing is chosen).
     if (step.ok) this.selected = null;
     // П8: a choice made with the sign shown is recorded (only then): which nodes wore it, which was chosen.
@@ -763,9 +846,13 @@ export class RunView {
   recordArena(outcome: Omit<RtArenaOutcome, 'nodeId'>): string {
     const pending = this.run?.pending;
     if (!this.run || pending?.kind !== 'battle') return 'Нет открытого боя.';
-    const notice = this.apply(resolveArena(this.run, { ...outcome, nodeId: pending.nodeId }));
+    const run = this.run, arrived = { ...outcome, nodeId: pending.nodeId }, journal = this.daily ? this.host.daily?.fight() ?? null : null;
+    const step = this.go(run, 'resolveArena', [arrived], () => resolveArena(run, arrived));
+    // Task 51з: the fight's journal joins the attempt's, in order of the `resolveArena` steps (one is missing - the attempt makes no proof).
+    if (this.daily && step.ok) { if (journal) this.daily.journals.push(structuredClone(journal)); else this.daily.broken = true; this.dailySessions.save(this.daily, true); }
+    const notice = this.apply(step);
     // Task 26: what a scheduled fight showed joins the viewer's history (a lost fight's too).
-    const seen = this.run?.schedule ? this.run.battles.at(-1)?.seen : undefined;
+    const seen = this.run?.schedule && !this.run.daily ? this.run.battles.at(-1)?.seen : undefined;
     if (seen?.length && this.run) this.profile.meetSchedule(seen, this.run.seed);
     return notice;
   }
@@ -774,7 +861,7 @@ export class RunView {
   /** Task 50: take the card `id` (`hone` — rank II; else a new counter) or «Пропустить» (null). Returns the reason of a refusal. */
   chooseKnack(id: string | null, hone = false): string {
     if (!this.run || this.run.pending?.kind !== 'knack') return 'Сейчас нет «Сноровки».';
-    const step = rtChooseKnack(this.run, id ? { id, ...hone ? { hone: true as const } : {} } : null);
+    const option = id ? { id, ...hone ? { hone: true as const } : {} } : null, step = this.go(this.run, 'rtChooseKnack', [option], () => rtChooseKnack(this.run!, option));
     if (step.ok && id && hone) this.host.honed?.(id);
     return this.apply(step);
   }
@@ -1017,6 +1104,7 @@ export class RunView {
     const run = this.run;
     if (target.dataset.node) { this.selected = target.dataset.node; this.notice = ''; this.draw(); return; }
     const action = target.dataset.action!;
+    if (this.dailyTools.click(target)) return;
     if (action === 'new-run') {
       if (run && !run.result && !this.confirmReset) { this.confirmReset = true; this.draw(); return; }
       this.confirmReset = false;
@@ -1056,57 +1144,57 @@ export class RunView {
     if (action === 'enter-oath' && this.selected && isOathId(target.dataset.oath)) { this.enter(this.selected, target.dataset.oath); return; }
     if (action === 'battle') { this.enterArena(); return; }
     // Task 15: the map heal (the map, a node card, the window «Бой» before «В бой»; never in a started fight).
-    if (action === 'map-heal') { this.apply(healOnMap(run, { arenaOpen: this.inArena })); return; }
+    if (action === 'map-heal') { this.apply(this.go(run, 'healOnMap', [{ arenaOpen: this.inArena }], () => healOnMap(run, { arenaOpen: this.inArena }))); return; }
     // Casino stage 1, item 4: the die at the door; a click on the rolling die skips its animation, «Дальше» closes it.
     if (action === 'die-roll') { this.throwDie(run); return; }
-    if (action === 'die-take') { this.apply(rtDieChoose(run, false)); return; }
+    if (action === 'die-take') { this.apply(this.go(run, 'rtDieChoose', [false], () => rtDieChoose(run, false))); return; }
     if (action === 'die-skip') { this.landDie(); return; }
     if (action === 'die-close') { this.closeDie(); return; }
-    if (action === 'rest-heal') { this.apply(rtRestHeal(run)); return; }
-    if (action === 'rest-fuse') { const fusion = target.dataset.fusion; if (isFusionId(fusion)) this.apply(rtRestFuse(run, fusion)); return; }
-    if (action === 'rest-craft') { this.apply(rtRestCraft(run, target.dataset.resource as ResourceKind)); return; }
-    if (action === 'rest-finish') { this.apply(rtRestFinish(run)); return; }
-    if (action === 'find') { this.apply(rtChooseFind(run, target.dataset.item as ItemKind)); return; }
-    if (action === 'gift-pick') { this.apply(rtChooseGiftPick(run, target.dataset.pick!)); return; }
-    if (action === 'talisman') { this.apply(rtChooseTalisman(run, target.dataset.option || null)); return; }
+    if (action === 'rest-heal') { this.apply(this.go(run, 'rtRestHeal', [], () => rtRestHeal(run))); return; }
+    if (action === 'rest-fuse') { const fusion = target.dataset.fusion; if (isFusionId(fusion)) this.apply(this.go(run, 'rtRestFuse', [fusion], () => rtRestFuse(run, fusion))); return; }
+    if (action === 'rest-craft') { const resource = target.dataset.resource as ResourceKind; this.apply(this.go(run, 'rtRestCraft', [resource], () => rtRestCraft(run, resource))); return; }
+    if (action === 'rest-finish') { this.apply(this.go(run, 'rtRestFinish', [], () => rtRestFinish(run))); return; }
+    if (action === 'find') { const item = target.dataset.item as ItemKind; this.apply(this.go(run, 'rtChooseFind', [item], () => rtChooseFind(run, item))); return; }
+    if (action === 'gift-pick') { const pick = target.dataset.pick!; this.apply(this.go(run, 'rtChooseGiftPick', [pick], () => rtChooseGiftPick(run, pick))); return; }
+    if (action === 'talisman') { const id = target.dataset.option || null; this.apply(this.go(run, 'rtChooseTalisman', [id], () => rtChooseTalisman(run, id))); return; }
     // B5 К10 «Переброс»: a new offer for resources (no animation, П11).
-    if (action === 'talisman-reroll') { this.apply(rtRerollTalismans(run)); return; }
+    if (action === 'talisman-reroll') { this.apply(this.go(run, 'rtRerollTalismans', [], () => rtRerollTalismans(run))); return; }
     // Task 50 «Сноровка»: a card (rank II of a counter, or a new one) or «Пропустить» (no option).
     if (action === 'knack') { this.chooseKnack(target.dataset.option || null, !!target.dataset.hone); return; }
-    if (action === 'hammer-reroll') { this.apply(rtRerollHammers(run)); return; }
-    if (action === 'hammer') { this.apply(rtChooseHammer(run, (target.dataset.option || null) as Parameters<typeof rtChooseHammer>[1])); return; }
+    if (action === 'hammer-reroll') { this.apply(this.go(run, 'rtRerollHammers', [], () => rtRerollHammers(run))); return; }
+    if (action === 'hammer') { const id = (target.dataset.option || null) as Parameters<typeof rtChooseHammer>[1]; this.apply(this.go(run, 'rtChooseHammer', [id], () => rtChooseHammer(run, id))); return; }
     // Task 51д: the meeting at the rest — the window of the NPC's deal, the deal, «Уйти» (no step; the NPC's refusal line).
     if (action === 'meet-open') { const meet = rtMeetView(run); if (meet && this.meetSay) { this.meetOpen = true; this.meetSay.deal = this.meetLine(meet.npc, 'meet_deal'); this.draw(); } return; }
     if (action === 'meet-leave') { const meet = rtMeetView(run); this.meetOpen = false; if (meet && this.meetSay) this.meetSay.no = this.meetLine(meet.npc, 'meet_no'); this.draw(); return; }
-    if (action === 'meet-deal') { this.meetOpen = false; this.apply(rtMeetDeal(run, target.dataset.deal!)); return; }
-    if (action === 'shop-leave') { this.swapFrom = this.swapTo = null; this.apply(rtShopLeave(run)); return; }
+    if (action === 'meet-deal') { this.meetOpen = false; const deal = target.dataset.deal!; this.apply(this.go(run, 'rtMeetDeal', [deal], () => rtMeetDeal(run, deal))); return; }
+    if (action === 'shop-leave') { this.swapFrom = this.swapTo = null; this.apply(this.go(run, 'rtShopLeave', [], () => rtShopLeave(run))); return; }
     // Task 51в: Шиш's reroll of the goods and «Размен» (the kinds chosen on the screen, then «Обменять»).
-    if (action === 'shop-reroll') { this.apply(rtShopReroll(run)); return; }
+    if (action === 'shop-reroll') { this.apply(this.go(run, 'rtShopReroll', [], () => rtShopReroll(run))); return; }
     if (action === 'swap-from') { this.swapFrom = target.dataset.kind as ResourceKind; if (this.swapTo === this.swapFrom) this.swapTo = null; this.draw(); return; }
     if (action === 'swap-to') { this.swapTo = target.dataset.kind as ResourceKind; this.draw(); return; }
-    if (action === 'swap-do') { const from = this.swapFrom, to = this.swapTo; this.swapFrom = this.swapTo = null; if (from && to) this.apply(rtShopSwap(run, from, to)); return; }
+    if (action === 'swap-do') { const from = this.swapFrom, to = this.swapTo; this.swapFrom = this.swapTo = null; if (from && to) this.apply(this.go(run, 'rtShopSwap', [from, to], () => rtShopSwap(run, from, to))); return; }
     // Task 38: «В гарнизон» from «Предместье». Task 40: with the cart, the deposit «−» and «+» chose goes with it.
     // Task 51б: the garrison map and the consumable chosen on «Предместье» (the level 3 of the camp) go with it.
-    if (action === 'garrison') { const cart = rtCartView(run), gate = rtGateView(run); this.apply(rtEnterGarrison(run, cart ? this.cartValue(cart) : undefined, gate ? this.gateChoice(gate) : undefined)); return; }
+    if (action === 'garrison') { const cart = rtCartView(run), gate = rtGateView(run), deposit = cart ? this.cartValue(cart) : undefined, choice = gate ? this.gateChoice(gate) : undefined; this.apply(this.go(run, 'rtEnterGarrison', deposit === undefined ? [] : [deposit], () => rtEnterGarrison(run, deposit, choice))); return; }
     if (action === 'gate-map') { this.gateMap = target.dataset.index === '1' ? 1 : 0; this.redrawGate(run); return; }
     if (action === 'gate-item') { this.gateItem = target.dataset.item as ItemKind; this.redrawGate(run); return; }
     if (action === 'cart-minus' || action === 'cart-plus') { this.stepCart(run, action === 'cart-plus' ? 1 : -1); return; }
-    if (action === 'shop-buy') { this.apply(rtShopBuy(run, target.dataset.good!)); return; }
+    if (action === 'shop-buy') { const good = target.dataset.good!; this.apply(this.go(run, 'rtShopBuy', [good], () => rtShopBuy(run, good))); return; }
     // B7 К9: the circle's tables (the outcome fixed at the click, then 1.2 s of rolling), «Уйти»; a click skips the roll.
     if (action === 'casino-play') { this.playCasino(run, target.dataset.table as RtCasinoTable); return; }
-    if (action === 'casino-leave') { this.apply(rtCasinoLeave(run)); return; }
+    if (action === 'casino-leave') { this.apply(this.go(run, 'rtCasinoLeave', [], () => rtCasinoLeave(run))); return; }
     if (action === 'roll-skip') { this.landChance(); return; }
     if (action === 'roll-close') { this.closeChance(); return; }
     if (action === 'event-option') { this.chooseEventOption(run, target.dataset.option!); return; }
-    if (action === 'habit') { const id = target.dataset.habit; this.apply(rtChooseHabit(run, id === 'none' ? null : (id as RtHabitId))); return; }
-    if (action === 'gift') { this.apply(rtChooseGift(run, target.dataset.index === 'skip' ? null : Number(target.dataset.index))); return; }
+    if (action === 'habit') { const id = target.dataset.habit; const habit = id === 'none' ? null : (id as RtHabitId); this.apply(this.go(run, 'rtChooseHabit', [habit], () => rtChooseHabit(run, habit))); return; }
+    if (action === 'gift') { const index = target.dataset.index === 'skip' ? null : Number(target.dataset.index); this.apply(this.go(run, 'rtChooseGift', [index], () => rtChooseGift(run, index))); return; }
   }
 
   // ---------- The die at the door (casino stage 1, item 4) ----------
 
   /** «Бросить»: the run pays by the face fixed at the showing; the die rolls 1.2 s over the next screen, then lands. */
   private throwDie(run: RtRunState): void {
-    const step = rtDieChoose(run, true);
+    const step = this.go(run, 'rtDieChoose', [true], () => rtDieChoose(run, true));
     const resolved = step.ok ? step.events.find(event => event.type === 'die-resolved') : undefined;
     this.clearDieTimers();
     this.dieRoll = resolved?.type === 'die-resolved' ? { face: resolved.face, paid: resolved.resources.length, kinds: [...resolved.resources],
@@ -1154,7 +1242,7 @@ export class RunView {
 
   /** A table of the circle: the run applies the game (its outcome fixed now), the picture rolls 1.2 s over the next screen. */
   private playCasino(run: RtRunState, table: RtCasinoTable): void {
-    const step = rtCasinoPlay(run, table);
+    const step = this.go(run, 'rtCasinoPlay', [table], () => rtCasinoPlay(run, table));
     const played = step.ok ? step.events.find(event => event.type === 'casino-played') : undefined;
     if (played?.type === 'casino-played') {
       const game = played.game;
@@ -1170,7 +1258,7 @@ export class RunView {
    * the live wheel; every other option as before. The flash (LDW): more resources than the one paid, or a talisman taken.
    */
   private chooseEventOption(run: RtRunState, optionId: string): void {
-    const event = rtEventView(run)?.event, step = rtChooseEventOption(run, optionId);
+    const event = rtEventView(run)?.event, step = this.go(run, 'rtChooseEventOption', [optionId], () => rtChooseEventOption(run, optionId));
     const resolved = step.ok ? step.events.find(entry => entry.type === 'event-resolved') : undefined;
     if (event?.id === CASINO_WHEEL_EVENT && optionId === 'spin' && resolved?.type === 'event-resolved') {
       const rolled = eventOption(event, optionId)!.outcomes[resolved.outcome], gave = step.ok && step.events.some(entry => entry.type === 'talisman-taken');
@@ -1757,13 +1845,13 @@ export class RunView {
       const facts = rtRunEndLines(run).map(line => `<li data-testid="run-end-${line.id}">${escapeHtml(line.text)}</li>`).join('');
       // Tasks 36–37: the meta block (experience, pack, record, the carry) — its element is put in after the redraw (`draw`).
       const meta = this.metaEndOf(run, false);
-      return card(`<h2>${won ? 'Поход пройден' : 'Поход окончен'}</h2>${run.garrison ? `<p class="rt-run-level-word" data-testid="run-end-level">${levelWord(run)}</p>` : ''}${meta ? '<div data-meta-slot></div>' : ''}${facts ? `<ul class="rt-run-end-facts" data-testid="run-end-facts">${facts}</ul>` : ''}`
+      return card(`<h2>${won ? 'Поход пройден' : 'Поход окончен'}</h2>${run.garrison ? `<p class="rt-run-level-word" data-testid="run-end-level">${levelWord(run)}</p>` : ''}${meta ? '<div data-meta-slot></div>' : ''}${this.dailyEndNow(run)}${facts ? `<ul class="rt-run-end-facts" data-testid="run-end-facts">${facts}</ul>` : ''}`
         + `<dl class="rt-result-stats"><dt>Арен пройдено</dt><dd>${run.battles.filter(b => b.won).length}</dd>`
         + `<dt>Узлов</dt><dd>${run.visited.length}</dd><dt>Убито</dt><dd>${kills}</dd><dt>Получено урона</dt><dd>${damage}</dd></dl>`
         + this.luckHtml(run)
         + (this.host.session?.on() ? `<p class="rt-run-session" data-testid="run-session-line">${escapeHtml(this.host.session.clock.endLine())}</p>` : '')
-        + this.heroCardsHtml() + this.ashHtml() + (meta ? '<button class="rt-again" data-action="hearth" data-testid="run-to-hearth">В лагерь</button>' : '')
-        + `<button class="${meta ? 'rt-other' : 'rt-again'}" data-action="new-run" data-testid="run-new">Новый поход</button>${this.logsButton('logs-open-result')}`, `run-result-${run.result.outcome}`);
+        + (run.daily ? '' : this.heroCardsHtml() + this.ashHtml()) + (meta || (run.daily && this.hearth) ? '<button class="rt-again" data-action="hearth" data-testid="run-to-hearth">В лагерь</button>' : '')
+        + `<button class="${meta || run.daily ? 'rt-other' : 'rt-again'}" data-action="new-run" data-testid="run-new">Новый поход</button>${this.logsButton('logs-open-result')}`, `run-result-${run.result.outcome}`);
     }
     const pending = run.pending;
     if (!pending) return '';

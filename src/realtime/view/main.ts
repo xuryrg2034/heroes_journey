@@ -38,7 +38,7 @@ import { ENERGY_MAX, JUMP_REFUSAL_TEXT, REFUSAL_TEXT, canJump, colorShiftIds, co
 import type { Command } from '../sim/commands';
 import { inThorns, inWater, overCliff, setFlowClock, type Vec } from '../sim/geometry';
 import { crowdLifetime, defaultParams, type ParamKey, type Params } from '../sim/params';
-import { rtArenaParams, rtPageParams } from '../run/rtRun';
+import { isRtDailyDate, rtArenaParams, rtPageParams } from '../run/rtRun';
 import { replay, Simulation, type Journal } from '../sim/simulation';
 import { focusGuarded, goalLamps, goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World, type WorldEvent } from '../sim/world';
 import { linkPoint } from '../sim/chain';
@@ -81,7 +81,8 @@ import { bustBlasts, goblinOf } from '../sim/slot';
 import { SoundGate, ThreatWatch } from './soundGate';
 import type { FightObserverFactory, ReplayTo, RtRecord } from '../telemetry/schema';
 import { fightObserver, skipKey } from '../telemetry/observe';
-import { RtRecorder, type FightContext } from '../telemetry/recorder';
+import { RtRecorder, buildId, type FightContext } from '../telemetry/recorder';
+import { rtDailyDate } from '../run/rtDaily';
 import type { PrologueTally } from '../telemetry/prologue';
 import { WARMUP_SEED, warmupEnd, warmupLayout, warmupLoadout, warmupParams, warmupScore, type WarmupEnd, type WarmupId } from '../run/warmup';
 import { warmupBody } from '../telemetry/warmup';
@@ -225,6 +226,7 @@ async function boot(): Promise<void> {
   /** The prototype's sandbox (arena menu, debug panel); otherwise the page plays a run. `#sandbox` too: a published
    * build passes a plain anchor to the page but not the query (design 08.10.2026). */
   const sandbox = urlParams.get('sandbox') === '1' || location.hash === '#sandbox';
+  const dailyParam = urlParams.get('daily');
   // Task 17 hygiene (design answer 1, 13.10.2026): the run plays the defaults with its own numbers (`rtRunParams`), never the
   // saved sandbox panel — the panel changes only the sandbox; the run is tuned only by `RT_RUN_FORCED` (`rtPageParams`).
   const params = rtPageParams(sandbox, loadParams);
@@ -838,6 +840,14 @@ async function boot(): Promise<void> {
     ...fixedHero ? { fixedHero } : {},
     // Task 51ж: «Чурбаки» of the camp start an attempt here (the records and the line come through the run view).
     ...sandbox ? {} : { warmup: { start: (id: WarmupId) => startWarmup(id) } },
+    // Task 51з «Поход дня»: today's date (the address `?daily=ГГГГ-ММ-ДД` sets it, for tests), this build's id, the fight's journal for the proof.
+    daily: {
+      date: () => (isRtDailyDate(dailyParam) ? dailyParam : rtDailyDate(new Date())),
+      build: buildId,
+      fight: () => sim.exportJournal(),
+      attempt: (run, attempt) => recorder?.dailyAttempt(run, attempt),
+      verified: run => recorder?.dailyVerified(run),
+    },
     // Tasks 36–37: the meta outside the sandbox; its sounds follow the run's sound setting.
     ...sandbox ? {} : { meta: {
       sound: (kind: MetaSoundKind) => {

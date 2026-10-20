@@ -782,3 +782,17 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-warmup-card .rt-warmup-record.rt-new { color: #ffd88a; font-weight: 700; }
 .rt-warmup-card .rt-warmup-say { margin: 8px 0 12px; padding: 6px 10px; background: #f1e6c8; color: #1b2017; border: 2px solid #18232d; font: italic 14px Georgia, serif; line-height: 1.35; }
 .rt-warmup-card .rt-warmup-say b { font-style: normal; }
+/* Task 51з «Поход дня»: the button under «В поход» at the fire, its panel, the end screen's block. */
+.rt-hearth-gorow { display: flex; gap: 8px; align-items: stretch; width: 100%; }
+.rt-hearth-gorow .rt-hearth-go { flex: 1 1 0; min-width: 0; }
+.rt-hearth-daily { flex: 1 1 0; min-width: 0; font-size: 14px; padding: 5px 8px; }
+.rt-hearth-daily:disabled { opacity: .55; }
+.rt-hearth-daily-reason { margin: -3px 0 -4px; color: #c9c5a8; font-size: 11px; text-align: center; }
+.rt-daily-card { width: 420px; }
+.rt-daily-date, .rt-daily-tries { margin: 0 0 6px; }
+.rt-daily-results { margin: 0 0 10px; padding: 0 0 0 18px; }
+.rt-daily-proof { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 4px; }
+.rt-daily-status { min-height: 1.3em; margin: 4px 0 10px; font-size: 13px; }
+.rt-daily-end { margin: 0 0 10px; }
+.rt-daily-claim { margin: 0 0 6px; font-weight: 700; }
+.rt-run-modal .rt-daily-proof .rt-other, .rt-daily-proof .rt-other { width: auto; flex: 1 1 auto; margin: 0; padding: 8px 10px; }
