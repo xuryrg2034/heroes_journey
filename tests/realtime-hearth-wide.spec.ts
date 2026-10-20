@@ -63,6 +63,18 @@ for (const [width, height] of [[1280, 720], [1600, 900], [1920, 1080], [2560, 14
       const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
       expect(cx > art.x && cx < art.x + art.w && cy > art.y && cy < art.y + art.h, `place ${i} on the picture (${cx.toFixed(0)}, ${cy.toFixed(0)})`).toBe(true);
     }
+    // Task 51ж: «Чурбаки» — the design's picture loaded, 115·s px high, the name under it, clear of every other place and of the fire's panel.
+    const dummies = page.getByTestId('hearth-warmup'), dArt = page.getByTestId('hearth-warmup-art');
+    expect(await dArt.evaluate((img: HTMLImageElement) => img.naturalWidth), 'the dummies picture loaded').toBeGreaterThan(0);
+    const dh = (await dArt.boundingBox())!, dn = (await dummies.locator('.rt-hearth-name').boundingBox())!, db = (await dummies.boundingBox())!;
+    expect(Math.abs(dh.height - 115 * s), `the picture's height ${dh.height} at scale ${s}`).toBeLessThan(3);
+    expect(dn.y >= dh.y + dh.height - 6 * s, 'the name under the dummies').toBe(true);
+    const others = page.locator('.rt-hearth-place:not(.rt-hearth-warmup), .rt-hearth-center, .rt-hearth-go');
+    for (let i = 0; i < await others.count(); i++) {
+      const b = await others.nth(i).boundingBox();
+      if (!b || b.width === 0) continue;
+      expect(db.x < b.x + b.width && db.x + db.width > b.x && db.y < b.y + b.height && db.y + db.height > b.y, `«Чурбаки» cross no other place (${await others.nth(i).getAttribute('data-testid') ?? 'panel'})`).toBe(false);
+    }
     const go = (await page.locator('.rt-hearth-go').boundingBox())!;
     expect(go.x >= art.x && go.x + go.width <= art.x + art.w && go.y + go.height <= art.y + art.h).toBe(true);
     // A real click on every NPC opens their panel in the window; the panel covers no other figure or name.

@@ -51,6 +51,7 @@ async function openCamp(page: Page, meta = metaOf()): Promise<void> {
   await expect(page.getByTestId('hearth')).toBeVisible();
 }
 
+const box0 = (b: { y: number; height: number }): { bottom: number } => ({ bottom: b.y + b.height });
 const profile = (page: Page): Promise<any> => page.evaluate(() => JSON.parse(localStorage.getItem('ashen-oath-rt-profile-v1') ?? '{}'));
 
 /** From the camp: «Чурбаки» → the layout's row → the attempt is on (the first frame played). */
@@ -109,6 +110,13 @@ test('the camp: «Чурбаки» stand on the free ground clear of every place
   await expect(spot).toBeVisible();
   await expect(spot).toContainText('Чурбаки');
   await page.screenshot({ path: shot('51w-hearth') });
+  // The design's picture is loaded (not the reserve drawing), about 115 px high on the 1280×720 scene, the name under it.
+  const art = page.getByTestId('hearth-warmup-art');
+  await expect(art).toBeVisible();
+  expect(await art.evaluate((img: HTMLImageElement) => img.naturalWidth), 'the picture loaded').toBeGreaterThan(0);
+  const ab = (await art.boundingBox())!, nb = (await spot.locator('.rt-hearth-name').boundingBox())!;
+  expect(ab.height >= 105 && ab.height <= 125, `the picture's height ${ab.height}`).toBe(true);
+  expect(nb.y >= ab.y + ab.height - 6 && nb.y + nb.height <= box0(ab).bottom + 40, 'the name stands under the dummies').toBe(true);
   const box = (await spot.boundingBox())!, stage = (await page.locator('.rt-hearth-stage').boundingBox())!;
   expect(box.x >= stage.x && box.y >= stage.y && box.x + box.width <= stage.x + stage.width && box.y + box.height <= stage.y + stage.height, 'inside the 1280×720 scene').toBe(true);
   expect(box.y + box.height <= 720 - 40, 'not on the edge of the first screen').toBe(true);
@@ -142,7 +150,7 @@ test('the camp: «Чурбаки» stand on the free ground clear of every place
 });
 
 test('«Строй»: label and exit, no tiles; a real chain; the end at the limit; the record, Ерофей\'s line, the profile; «Ещё раз» with an equal score is no record and no line, a better one is the second line; the score is the Node replay\'s', async ({ page }) => {
-  test.setTimeout(150_000);
+  test.setTimeout(240_000);
   const errors = collectErrors(page);
   await openCamp(page);
   await startLayout(page, 'warmup-line');
@@ -173,8 +181,21 @@ test('«Строй»: label and exit, no tiles; a real chain; the end at the lim
   let end: ReturnType<typeof warmupEnd> = null, score: number | null = null;
   replay(rec.journal, sim => { if (!end) { end = warmupEnd(sim.world, 'warmup-line'); if (end) score = warmupScore(sim.world, 'warmup-line', end); } });
   expect([end, score]).toEqual(['limit', 4]);
-  // «Ещё раз»: a fresh attempt (the clock and the label at the start); the same chain again = the same score = no new record, no line.
+  // A WORSE attempt (a chain of 3 under the record 4): the score is shown, no «Новый рекорд!» and no line, the record stays, in the profile and in the choice.
   await page.getByTestId('warmup-again').click();
+  await dragArc(page, 3);
+  s = await untilResult(page, 24);
+  expect(s.final.score).toBe(3);
+  expect(s.panel).toMatchObject({ line: '3 звена', record: 'Рекорд: 4 звена', isRecord: false, say: '' });
+  await expect(page.getByTestId('warmup-record')).not.toContainText('Новый рекорд');
+  expect(await bestOf(page, 'warmup-line')).toBe(4);
+  expect((await profile(page)).meta.hearth.lines['smith:warmup_record'], 'no line for a worse score').toBe(1);
+  await page.getByTestId('warmup-camp').click();
+  await page.getByTestId('hearth-warmup').click();
+  await expect(page.getByTestId('warmup-best-warmup-line')).toHaveText('4 звена');
+  await page.getByTestId('warmup-pick-warmup-line').click();
+  expect(await untilFrame(page, s => s.warmup.active && s.tick > 0 ? true : undefined, 0, 3)).toBe(true);
+  // A fresh attempt from the choice (the clock and the label at the start); the same chain again = the same score = no new record, no line.
   s = await wm(page);
   expect(s.final).toBeNull();
   expect(s.panel.open).toBe(false);
