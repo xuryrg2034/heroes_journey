@@ -328,6 +328,8 @@ export interface RunHearth {
   shopRerolls?: number; swap?: true;
   /** Task 51г (Евлампий, from 17.10.2026): the vows taken. */
   vows?: string[];
+  /** Task 51д (from 17.10.2026): the NPC away for this run. */
+  away?: string;
 }
 /** Task 44: the fusions of a run (`RunRecord.fusions`). Rows are run rows (1…). */
 export interface RunFusions {
@@ -448,6 +450,8 @@ export interface RunRecord extends RtHeader {
   arrive?: { npc: string; path: 'deed' | 'self'; viewerRun?: number }[];
   /** Task 51г (from 17.10.2026): the run's vows, each kept or not (counted runs only: the Jailer's row reached). */
   vows?: { id: string; kept: boolean }[];
+  /** Task 51д (from 17.10.2026): the NPC away of this run — met at a rest of its zone (its node, the deal) or not («не дождался»). */
+  npcMeet?: { npc: string; met: boolean; nodeId?: string; deal?: string };
   /**
    * Task 44 «Сплавы» (from 16.10.2026): the run has fusions (`RtRunState.fusions`) and what happened to them — the halves taken (their
    * row), the pairs collected, the fusions made at a rest and the rests closed by the heal or the craft with a pair ready. Absent — a
@@ -676,7 +680,8 @@ function runMetaOk(r: Record<string, unknown>): boolean {
     && (hearth.gateItems === undefined || (Array.isArray(hearth.gateItems) && hearth.gateItems.every(id => typeof id === 'string'))) && (hearth.gateItem === undefined || typeof hearth.gateItem === 'string')
     && (hearth.garrisonRerolls === undefined || whole(hearth.garrisonRerolls, 1))
     && (hearth.shopRerolls === undefined || whole(hearth.shopRerolls, 1)) && (hearth.swap === undefined || hearth.swap === true)
-    && (hearth.vows === undefined || (Array.isArray(hearth.vows) && hearth.vows.every(id => typeof id === 'string'))))) return false;
+    && (hearth.vows === undefined || (Array.isArray(hearth.vows) && hearth.vows.every(id => typeof id === 'string'))) && (hearth.away === undefined || typeof hearth.away === 'string'))) return false;
+  if (r.npcMeet !== undefined && !(plain(r.npcMeet) && typeof r.npcMeet.npc === 'string' && typeof r.npcMeet.met === 'boolean' && (r.npcMeet.nodeId === undefined || typeof r.npcMeet.nodeId === 'string') && (r.npcMeet.deal === undefined || typeof r.npcMeet.deal === 'string'))) return false;
   if (r.vows !== undefined && !(Array.isArray(r.vows) && r.vows.every(v => plain(v) && typeof v.id === 'string' && typeof v.kept === 'boolean'))) return false;
   if (r.arrive !== undefined && !(Array.isArray(r.arrive) && r.arrive.every(a => plain(a) && typeof a.npc === 'string' && (a.path === 'deed' || a.path === 'self') && (a.viewerRun === undefined || whole(a.viewerRun, 1))))) return false;
   if (quest !== undefined && !(plain(quest) && typeof quest.npc === 'string' && typeof quest.id === 'string' && (quest.done === undefined || typeof quest.done === 'boolean'))) return false;

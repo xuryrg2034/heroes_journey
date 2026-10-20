@@ -51,6 +51,9 @@ function quiet(extra: Partial<Params> = {}): Params {
   p.baseFloor = 0; p.baseIntervalMin = 1e6; p.baseIntervalMax = 1e6; p.maxEnemies = 1;
   p.enemySpeed = 0; p.speedSpread = 0; p.contactDamage = 0; p.heroHp = 40; p.hitstop = false; p.survivorKnockback = false;
   p.loopEnabled = false; p.pierceEnabled = false;
+  // Task 52, Р2: these checks play «Развилка»'s rule without the dwell gesture (the run's rule, `forkDwell` 0; the sandbox's default 0,25 —
+  // forkDwell.spec.ts).
+  p.forkDwell = 0;
   return Object.assign(p, extra);
 }
 function fight(talismans: string[], extra: Partial<Params> = {}, loadout: Loadout = {}, k = 1): Simulation {
@@ -399,7 +402,8 @@ check('task 33: journals without the keys play the old forms (the free pair, the
   assert(ids(sim).length === 3 && !('twinsAlternate' in sim.world.params), 'A-Б-Б joins without the key');
   assert(replay(JSON.parse(JSON.stringify(sim.exportJournal()!))).hash() === sim.hash(), 'replays');
   const run = runParams(defaultParams());
-  assert(!run.twinsAlternate && !run.twinsNoShift && run.forkBranches === 0 && defaultParams().twinsAlternate && defaultParams().twinsNoShift && defaultParams().forkBranches === 1, 'sandbox on, run off');
+  assert(!run.twinsAlternate && !run.twinsNoShift && run.forkBranches === 0 && defaultParams().twinsAlternate && defaultParams().twinsNoShift && defaultParams().forkBranches === 1
+    && defaultParams().forkDwell === 0.25 && run.forkDwell === 0, 'sandbox on, run off');
 });
 
 // ---- «Возврат» in the highlight ----

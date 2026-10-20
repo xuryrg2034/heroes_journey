@@ -53,6 +53,21 @@ export function habitIconSvg(habit: RtHabitId, size = 24): string {
     + `<circle cx="12" cy="12" r="11.2" fill="${DISC}" stroke="${NAVY}" stroke-width="1.2"/><g transform="translate(2.4 2.4) scale(0.8)">${BODIES[habit]}</g></svg>`;
 }
 
+/**
+ * Task 51г (design 17.10.2026): the sign of the vows taken - a knot on a rope (a vow is tied, not starred: the star is «Охотник на элит»).
+ * The same make as the archetypes' icons: a dark disc, a navy outline, flat colours, no text.
+ */
+const ROPE = '#d9b878', ROPE_SHADE = '#a8844a';
+export function vowIconSvg(size = 24): string {
+  return `<svg class="rt-vow-icon" width="${size}" height="${size}" viewBox="0 0 24 24" aria-hidden="true">`
+    + `<circle cx="12" cy="12" r="11.2" fill="${DISC}" stroke="${NAVY}" stroke-width="1.2"/>`
+    + `<path d="M4 19.4 C8 18.6 10.4 15.6 12 12.6 C14 8.8 19 9.4 18.6 13 C18.2 16.6 12.6 16 11.6 12 C10.8 8.6 14 5.4 20 5" fill="none" stroke="${NAVY}" stroke-width="4.4" stroke-linecap="round" stroke-linejoin="round"/>`
+    + `<path d="M4 19.4 C8 18.6 10.4 15.6 12 12.6 C14 8.8 19 9.4 18.6 13 C18.2 16.6 12.6 16 11.6 12 C10.8 8.6 14 5.4 20 5" fill="none" stroke="${ROPE}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>`
+    + `<ellipse cx="12" cy="12.4" rx="3.4" ry="2.7" transform="rotate(-35 12 12.4)" fill="${ROPE}" stroke="${NAVY}" stroke-width="1.5"/>`
+    + `<path d="M10.2 13.4 C11 11.2 13 10.8 14 11.6" fill="none" stroke="${ROPE_SHADE}" stroke-width="1.2" stroke-linecap="round"/>`
+    + `<path d="M3.2 20.6 L2.2 22.2 M5.6 20.8 L5.4 22.6" fill="none" stroke="${NAVY}" stroke-width="1.2" stroke-linecap="round"/></svg>`;
+}
+
 /** The archetypes in the order of the row (`RT_HABITS`). */
 export const HABIT_IDS: readonly RtHabitId[] = RT_HABITS.map(def => def.id);
 

@@ -914,7 +914,8 @@ export interface Params {
    */
   trollWindow: boolean;
   /**
-   * Task 48 (design 16.10.2026, docs/design-notes/task-48-troll.md, 24.10): the Troll's core and parts are solid for the hero — he never
+   * Task 48 (design 16.10.2026, docs/design-notes/task-48-troll.md, 24.10): the boss's solid bodies — the Troll's core and parts (task 54:
+   * the Chief's too; the key keeps its name for the journals) are solid for the hero — he never
    * stands inside them (walking, a knockback, the end of a dash or a jump put him out as out of an obstacle; the plan's end and the
    * jump's landing show that point), and the bodies are never moved by the parting or the crowd. Off by default and in journals without
    * the key (the old path: the bodies parted). The arena «Берлога тролля» turns it on for itself.
@@ -934,6 +935,29 @@ export interface Params {
   trollSnoreRegrow: number;
   trollRoarPeriod: number;
   trollCrowd: number;
+  // ---- Task 54 «Главарь с котелком» (sim/enemies/chief.ts, sim/arenasBoss.ts `chief`; docs/realtime-elite-behaviors.md, «Главарь (задача 54)»). ----
+  /**
+   * The Chief's feast (design 17.10.2026, docs/design-notes/task-54-chief.md, 7): with the frame on, the Chief's core is closed outside
+   * the window «Обед!» opens — the chain refuses it (`outOfWindow`, «вне окна»); in the window it is a link of the brew's colour that a
+   * chain takes only with `chiefFeastLinks` enemy links of that colour before it (`queue`, «в очередь»); one hit per window, the
+   * chain's only — no other source ever hurts the core (event `chiefFeast` `block`). Off by default and in journals without the key:
+   * the core is open always (the feast still recolours and seats its eaters). The arena «Стан Главаря» turns it on for itself
+   * (`ArenaTemplate.chief`).
+   */
+  chiefFeast: boolean;
+  /**
+   * Task 54, the Chief's numbers (read only on his arena — no journal before the task has it; the defaults are the design's): the
+   * core's HP and plates, the queue (enemy links of the brew's colour before the core), the window's and the eaters' seconds, the gap
+   * from a window's end to the next «Обед!»'s windup in phases 1–2, the queue from which the hit takes two plates (0 — never), the
+   * crowd's factor — its density floor and its top-up pace (the groups' interval ÷ it).
+   */
+  chiefHp: number;
+  chiefPlates: number;
+  chiefFeastLinks: number;
+  chiefFeastTime: number;
+  chiefFeastGap: number;
+  chiefFeastBig: number;
+  chiefCrowd: number;
   // ---- Task 33 «Цена „Близнецов“ и „Развилки“» (sim/forms.ts, chain.ts; docs/realtime-prototype.md, 9ф). ----
   /**
    * «Близнецы»: strict alternation (design 15.10.2026). While the chain goes by one colour of the pair, as before; once it took
@@ -950,6 +974,13 @@ export interface Params {
    * journals without the key: 0.
    */
   forkBranches: number;
+  /**
+   * Task 52 «Числа», Р2 (docs/design-notes/task-52-numbers.md, 3.5): «Развилка»'s gesture — game seconds the pointer rests on an older
+   * link of the chain (not the last, not the one before it) to make it the fork's anchor; the next link is taken only from it (`fork`).
+   * 0 — the old rule (every link an anchor). The sandbox 0,25 (`DEFAULT_PARAMS`, design 17.10.2026); the run — 0 (`RUN_FORCED`); journals
+   * without the key: 0 (the old rule; their hashes as before).
+   */
+  forkDwell: number;
   // ---- Task 34 «Смена цвета — только точкой курсора» (chain.ts `dragChain`; docs/realtime-prototype.md, «Смена цвета»). ----
   /**
    * While the chain's colour is free by «Смена цвета» (`colorShiftLinks`), an enemy of another colour joins only at the pointer
@@ -1518,10 +1549,22 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   trollSnoreRegrow: 1,
   trollRoarPeriod: 20,
   trollCrowd: 1,
+  // Task 54 «Главарь с котелком» (enemies/chief.ts): the feast off by default (the arena «Стан Главаря» turns it on); his numbers
+  // (hypotheses of the spec, read on his arena only).
+  chiefFeast: false,
+  chiefHp: 2,
+  chiefPlates: 4,
+  chiefFeastLinks: 3,
+  chiefFeastTime: 4,
+  chiefFeastGap: 6,
+  chiefFeastBig: 6,
+  chiefCrowd: 0.3,
   // Task 33 (forms.ts): the sandbox's price of the forms; `RUN_FORCED` turns it off, a run with forms on (task 30, `RT_FORMS_PARAMS`).
   twinsAlternate: true,
   twinsNoShift: true,
   forkBranches: 1,
+  // Task 52, Р2: the sandbox plays the dwell gesture (0,25 s); the run — 0 (`RUN_FORCED`); journals without the key — 0.
+  forkDwell: 0.25,
   // Task 34 (chain.ts): another colour on a free chain only at the pointer; the run turns it on too (`RUN_FORCED`).
   shiftAtPointer: true,
   // Task 39 (chain.ts `pickAt`): the held pointer takes a body only when it is nearer than every link of the chain.
@@ -2041,12 +2084,13 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   { kind: 'bool', key: 'twinsNoShift', group: 'Талисманы', label: '«Близнецы» выключают «Смену цвета»', stage: 5,
     hint: 'С «Близнецами» в сборке смена цвета не наступает, даже если «Смена цвета: после … звеньев» больше 0. В походе выключено.' },
   n('forkBranches', 'Талисманы', '«Развилка»: развилок за цепь', 0, 4, 1, 5, '', 'Сколько звеньев цепь может взять не от последнего звена (и не от героя с «Якорем»). Потом якорь — снова только последнее звено. 0 — без предела. В походе — 0.'),
+  n('forkDwell', 'Талисманы', '«Развилка»: задержка на старом звене', 0, 1, 0.05, 5, 'с', 'Задача 52. 0 — прежнее правило: якорь — любое звено цепи. Больше 0 — якорь последнее звено; курсор, неподвижный на старом звене (не на последнем и не на предыдущем — там шаг назад) столько игровых секунд, делает его якорем: следующее звено берётся только от него. Песочница: 0,25 с; поход: 0.'),
   n('jailerHp', 'Босс', 'Тюремщик: HP ядра', 2, 10, 1, 5, '', 'HP ядра при появлении (новый бой). Арена «Тюремщик» ставит 5, если на панели значение по умолчанию (2).'),
   // Task 48 «Тролль» (enemies/troll.ts, docs/realtime-elite-behaviors.md, «Тролль (задача 48)»).
   { kind: 'bool', key: 'trollWindow', group: 'Тролль', label: 'Окно Тролля', stage: 5,
     hint: 'Ядро Тролля закрыто вне окна: цепь его не берёт («вне окна»), огонь, взрывы, волна, прямая, печать и возврат его не ранят. Окно открывают «Удар дубиной» (1,5 с), «Хвост метёт» (1 с) и «Храп». Одно попадание за окно. Арена «Берлога тролля» включает правило сама.' },
-  { kind: 'bool', key: 'trollSolid', group: 'Тролль', label: 'Тело Тролля — препятствие', stage: 5,
-    hint: 'Герой не входит в тело ядра и частей Тролля: его выталкивает, как от стены; сами тела не сдвигаются. Арена «Берлога тролля» включает правило сама.' },
+  { kind: 'bool', key: 'trollSolid', group: 'Тролль', label: 'Тела босса — препятствие', stage: 5,
+    hint: 'Тела-препятствия босса (Тролль, Главарь): герой не входит в тело ядра и частей — его выталкивает, как от стены; сами тела не сдвигаются. Арены «Берлога тролля» и «Стан Главаря» включают правило сами.' },
   n('trollHp', 'Тролль', 'Тролль: HP ядра', 1, 12, 1, 5, '', 'Со следующего запуска арены.'),
   n('trollPlates', 'Тролль', 'Тролль: пластины ядра', 0, 10, 1, 5, '', 'И потолок отрастания «Храпа». Со следующего запуска арены.'),
   n('trollWindowClub', 'Тролль', 'Окно после «Удара дубиной»', 0.2, 5, 0.1, 5, 'с'),
@@ -2055,6 +2099,16 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('trollSnoreRegrow', 'Тролль', '«Храп»: пластин за сон', 0, 3, 1, 5, '', '0 — «Храп» без отрастания.'),
   n('trollRoarPeriod', 'Тролль', '«Рык»: раз в', 5, 60, 1, 5, 'с', 'Во второй и третьей фазе; первый — при входе во вторую.'),
   n('trollCrowd', 'Тролль', 'Тролль: толпа', 0.25, 2, 0.05, 5, '×', 'Множитель плотности и темпа пополнения толпы. Арена «Берлога тролля» ставит 0,3, если на панели 1.'),
+  // Task 54 «Главарь с котелком» (enemies/chief.ts, docs/realtime-elite-behaviors.md, «Главарь (задача 54)»).
+  { kind: 'bool', key: 'chiefFeast', group: 'Главарь', label: '«Обед!» Главаря', stage: 5,
+    hint: 'Главарь закрыт вне окна «Обеда!» («вне окна»). В окне его берёт только цепь цвета варева, в которой до него не меньше трёх звеньев этого цвета («в очередь»); одно попадание за окно, другой урон его не ранит. Арена «Стан Главаря» включает правило сама.' },
+  n('chiefHp', 'Главарь', 'Главарь: HP ядра', 1, 12, 1, 5, '', 'Со следующего запуска арены.'),
+  n('chiefPlates', 'Главарь', 'Главарь: пластины ядра', 0, 10, 1, 5, '', 'Со следующего запуска арены.'),
+  n('chiefFeastLinks', 'Главарь', 'Очередь: звеньев цвета варева', 0, 8, 1, 5, '', 'Столько звеньев цвета варева нужно в цепи до Главаря.'),
+  n('chiefFeastTime', 'Главарь', '«Обед!»: окно', 1, 10, 0.5, 5, 'с', 'Столько же сидят едоки.'),
+  n('chiefFeastGap', 'Главарь', '«Обед!»: перерыв', 1, 20, 0.5, 5, 'с', 'От конца окна до замаха следующего «Обеда!» в первой и второй фазе (в третьей — 4 с).'),
+  n('chiefFeastBig', 'Главарь', 'Очередь на два', 0, 12, 1, 5, '', 'Очередь от стольких звеньев снимает две пластины. 0 — никогда.'),
+  n('chiefCrowd', 'Главарь', 'Главарь: толпа', 0.25, 2, 0.05, 5, '×', 'Множитель плотности и темпа пополнения толпы на арене «Стан Главаря».'),
   // Task 38 «Гарнизон, шаг 1» (tethers.ts, enemies/garrison.ts, docs/realtime-elite-behaviors.md).
   { kind: 'bool', key: 'tethers', group: 'Гарнизон', label: 'Закон связи', stage: 5,
     hint: 'Поводок — линия между псарём (или Кастеляном) и псом, не звено. Отрезок прохода цепи, пересекающий поводок, рубит его после прохода; подсветка показывает те же поводки. Прыжок, ходьба, круговой удар и расходники не рубят. Сорвавшийся пёс в ярости кусает всех. В походе включено.' },
@@ -2171,7 +2225,7 @@ export function defaultParams(): Params { return sanitizeParams(null); }
  * panel holds. Task 29: the counters' chain window (`counterWindow`) — off here; task 30: a run with the flag `forms` turns it on with the
  * forms' price and `returnFixed` (run/rtRun.ts `RT_FORMS_PARAMS`, `rtArenaParams`).
  */
-export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4, loopEnabled: false, loopHint: false, pierceEnabled: false, secondWind: false, endBlastMinLinks: 3, fireMinLinks: 3, returnFixed: false, counterWindow: false, twinsAlternate: false, twinsNoShift: false, forkBranches: 0, shiftAtPointer: true, holdNearest: true, holdHeroLink: true });
+export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4, loopEnabled: false, loopHint: false, pierceEnabled: false, secondWind: false, endBlastMinLinks: 3, fireMinLinks: 3, returnFixed: false, counterWindow: false, twinsAlternate: false, twinsNoShift: false, forkBranches: 0, forkDwell: 0, shiftAtPointer: true, holdNearest: true, holdHeroLink: true });
 /**
  * The values a run arena plays with: the saved panel with the stand-ins of run rules off (`RUN_FORCED`) and the run's own
  * numbers on top (`forced`; iteration 2.1: the healing consumable — `rtRunParams`, run/rtRun.ts).

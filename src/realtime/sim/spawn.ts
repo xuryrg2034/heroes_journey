@@ -421,6 +421,8 @@ function relocateMarker(world: World, m: SpawnMarker): void {
  */
 function crowdFactorOf(world: World): number {
   if (world.arena.troll) return world.params.trollCrowd ?? 1;
+  // Task 54: the Chief's crowd (`Params.chiefCrowd`; read on his arena only).
+  if (world.arena.chief) return world.params.chiefCrowd ?? 1;
   return world.arena.castellanFull ? world.params.castellanCrowd ?? 1 : 1;
 }
 
