@@ -130,7 +130,7 @@ test('task 51в view: the merchant — the free reroll with his portrait changes
   const before = JSON.stringify((await snap(page)).pending.stock);
   await page.getByTestId('shop-reroll').click();
   await expect(page.getByTestId('shop-reroll')).toBeDisabled();
-  await expect(page.getByTestId('shop-reroll-note')).toContainText('Переброс уже был');
+  await expect(page.getByTestId('shop-reroll-note')).toContainText('Перебросов не осталось');
   const after = await snap(page);
   expect(JSON.stringify(after.pending.stock)).not.toBe(before);
   expect(after.shopRerolled).toBe(true);

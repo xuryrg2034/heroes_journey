@@ -88,6 +88,11 @@ export function worldState(world: World): unknown {
     ...world.tethers?.length ? { tethers: world.tethers } : {},
     // Task 55а «Замок: толчок» (shove.ts): the things sliding now (absent while none — worlds without a shove hash as before).
     ...world.shoves ? { shoves: world.shoves } : {},
+    // Task 56 «Приметы» (omens.ts): the storm, the sleep, the pools, the roll call (each absent until its rule acts — worlds hash as before).
+    ...world.storm ? { storm: world.storm } : {},
+    ...world.drowse ? { drowse: world.drowse } : {},
+    ...world.flood ? { flood: world.flood } : {},
+    ...world.rollcall ? { rollcall: world.rollcall } : {},
   };
 }
 

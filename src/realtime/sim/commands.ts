@@ -16,6 +16,7 @@ import { spawnBurst, spawnEnemy } from './spawn';
 import { goblinOf, summonGoblin } from './slot';
 import { chooseOath, isOathId } from './oath';
 import { completeGoals, type EnemyKind, type World } from './world';
+import { drowseWake } from './omens';
 
 export type Command =
   /** Walking input (WASD / arrows): components in −1…1; journalled when it changes. */
@@ -86,7 +87,8 @@ export function applyCommand(world: World, cmd: Command): CommandResult {
     case 'begin': if (world.asleep && world.status === 'playing' && !(world.arena.sleepOnDoor && world.stage === 'greed') && !(world.arena.sleepAfterPull && (goblinOf(world)?.pulls ?? 0) > 0)) delete world.asleep; return beginChain(world, { x: cmd.x, y: cmd.y });
     case 'drag': dragChain(world, { x: cmd.x, y: cmd.y }, cmd.mode); return;
     case 'sweep': dragChainAlong(world, { x: cmd.fx, y: cmd.fy }, { x: cmd.x, y: cmd.y }); return;
-    case 'release': return releaseChain(world);
+    // Task 56 «Сонный час» (omens.ts): the first dash of a chain wakes the sleepers (nothing without the rule).
+    case 'release': { const dashed = releaseChain(world); if (dashed && world.drowse) drowseWake(world, 'pass'); return dashed; }
     case 'cancel': cancelChain(world); return;
     case 'jump': return jump(world, { x: cmd.x, y: cmd.y });
     case 'spin': return spin(world);

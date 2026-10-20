@@ -697,6 +697,21 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-gate-item { text-align: center; }
 .rt-gate-item:disabled { opacity: .5; }
 
+/* Task 56 «Приметы» (omenMark.ts): the sign in the map's header, the badge at a node, the grey «?» of «Перепутье», the card's line, the pack's omen card. */
+.rt-run-omen { display: inline-flex; align-items: center; cursor: help; margin: 0 14px 0 6px; vertical-align: middle; }
+.rt-omen-badge { cursor: help; }
+.rt-node.rt-hidden circle { fill: #1b1f19; stroke: #3b3d30; stroke-dasharray: 4 3; }
+.rt-node.rt-hidden text { fill: #6d705e; }
+.rt-node.rt-hidden.rt-available circle { stroke: #8f8a6c; }
+.rt-run-dangers li.rt-omen-line { display: flex; align-items: center; gap: 8px; border-left-color: #8fb7d6; }
+.rt-run-dangers li.rt-omen-line .rt-omen-icon { flex: none; }
+.rt-omen-text { flex: 1; }
+.rt-omen-level { display: inline-flex; align-items: center; gap: 6px; flex: none; margin-left: auto; padding-left: 8px; border-left: 1px solid #4a4d39; cursor: help; }
+.rt-omen-level b { color: #e0d4ad; font-weight: 600; }
+.rt-omen-note { display: flex; align-items: center; gap: 6px; }
+.rt-meta-omens { margin: 0; font-size: 15px; color: #e5dcc0; }
+.rt-meta-omens b { font: 700 18px system-ui, sans-serif; color: #ffd88a; font-variant-numeric: tabular-nums; }
+.rt-kind-omen { outline-color: #8fb7d6; }
 /* Task 51в: Шиш at the merchant — the reroll with his portrait, «Размен» (3 of one kind for 2 of another); compact: the card stays in 720 px. */
 .rt-run-modal .rt-shop-reroll { display: flex; align-items: center; justify-content: center; gap: 10px; padding-top: 3px; padding-bottom: 3px; }
 .rt-shop-npc { height: 36px; width: auto; }
@@ -739,3 +754,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-vows-tip small { color: #5a5234; font-size: 12px; }
 .rt-vows-tip .rt-broken { text-decoration: line-through; opacity: .65; }
 .rt-vows-tip b { color: #1b2017; font: 700 14px Georgia, serif; }
+
+/* Task 56в: a merchant with more than 4 goods (fair, Шиш, «Размен») must fit 1280×720 without scrolling — the goods in two columns, a wider card. */
+.rt-run-modal:has(.rt-shop-two) .rt-card { width: min(780px, calc(100vw - 32px)); }
+.rt-shop-two { grid-template-columns: 1fr 1fr; gap: 6px; }
+.rt-shop-two .rt-run-choice { padding: 6px 10px; }
+.rt-run-modal:has(.rt-shop-two) h2 { font-size: 26px; margin: 0 0 4px; }

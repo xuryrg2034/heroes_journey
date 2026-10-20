@@ -25,6 +25,7 @@ import { RT_DEATH_ABILITY, RT_KIND_TITLES } from '../run/rtRunEnd';
 import { HINT_IDS, HINT_TITLES } from '../view/hints';
 import { PROLOGUE_ROOMS } from '../run/prologue';
 import { RT_HABITS, rtTalisman } from '../run/rtTalismans';
+import { RT_OMENS } from '../run/omens';
 
 // ---- Replay with the observers ----
 
@@ -1007,6 +1008,50 @@ export function habitsSection(runs: readonly RunRecord[]): string {
     table(['Повадка', 'Походов', 'Взято с тегом', 'Сплавов', 'Победы', 'Дальний ряд (медиана)'], rows)].join('\n');
 }
 
+// ---- Task 56 «Приметы» (RunRecord.omensOn, .levelOmens, .omenRoutes; FightRecord.omens; FightSummary.omenFired; from 17.10.2026) ----
+
+/**
+ * Task 56 «Приметы» (spec 10.1): by omen — the run fights that played it (of the node, of the level), victories, the medians of the
+ * damage, the time to the goals and the chain, its counters (`omenFired`; «Сорочье гнездо» — the crystals the chains took); the route —
+ * how often a node with the omen was taken where one was open, against its share among the nodes open; the level's omen — runs,
+ * victories and the farthest row by it.
+ */
+export function omensSection(runs: readonly RunRecord[], entries: readonly FightEntry[]): string {
+  const on = runs.filter(r => r.omensOn);
+  if (!on.length) return 'Походов с приметами нет (`RunRecord.omensOn`, с 17.10.2026).';
+  const fightRows = RT_OMENS.map(def => {
+    const list = entries.filter(e => e.record.omens?.some(o => o.id === def.id)), done = list.filter(e => e.record.outcome === 'victory' || e.record.outcome === 'defeat');
+    const nodeN = list.filter(e => e.record.omens!.some(o => o.id === def.id && o.scope === 'node')).length;
+    const sums: Record<string, number> = {};
+    for (const e of list) for (const [k, v] of Object.entries(e.record.summary.omenFired ?? {})) if (k.startsWith(`${def.id}:`) && k !== 'drowse:woke') sums[k] = (sums[k] ?? 0) + v;
+    if (def.id === 'magpie') sums['magpie:crystal'] = list.reduce((n, e) => n + e.record.summary.chain.crystals, 0);
+    const woke = list.flatMap(e => (e.record.summary.omenFired?.['drowse:woke'] !== undefined ? [e.record.summary.omenFired['drowse:woke']] : []));
+    if (woke.length) sums['drowse:woke (медиана, с)'] = Number(n1(median(woke)));
+    const goals = done.flatMap(e => (e.record.summary.tempo.toGoals !== null ? [e.record.summary.tempo.toGoals] : []));
+    return [def.title, `${list.length} (узла ${nodeN})`, `${done.filter(e => e.record.outcome === 'victory').length} из ${done.length}`,
+      done.length ? n1(median(done.map(e => e.record.summary.damage.total))) : '—', goals.length ? n1(median(goals)) : '—',
+      done.length ? n1(median(done.map(e => e.record.summary.chain.lengthMedian))) : '—', Object.entries(sums).map(([k, v]) => `${k} ${v}`).join(', ') || '—'];
+  });
+  const routes = on.flatMap(r => r.omenRoutes ?? []);
+  const routeRows = RT_OMENS.filter(def => def.where === 'fight').map(def => {
+    const with_ = routes.filter(route => route.offered.some(o => o.omen === def.id));
+    const chosen = with_.filter(route => route.offered.find(o => o.nodeId === route.chosen)?.omen === def.id).length;
+    const share = with_.reduce((n, route) => n + route.offered.filter(o => o.omen === def.id).length / route.offered.length, 0);
+    return [def.title, with_.length, with_.length ? `${chosen} (${pct(chosen, with_.length)})` : '—', with_.length ? `${Math.round(100 * share / with_.length)}%` : '—'];
+  }).filter(row => row[1] !== 0);
+  const levelRows = RT_OMENS.map(def => {
+    const list = on.filter(r => r.levelOmens?.some(l => l.id === def.id));
+    return [def.title, list.length, `${list.filter(r => r.outcome === 'victory').length} из ${list.length}`, list.length ? n1(median(list.map(r => r.farRow))) : '—'];
+  }).filter(row => row[1] !== 0);
+  const crossroads = on.reduce((n, r) => n + (r.crossroadsSteps ?? 0), 0), fair = on.reduce((n, r) => n + (r.fairRerolls ?? 0), 0);
+  return ['Бои походов с приметой (узла или уровня). «Счётчики» — `summary.omenFired`; «Сорочье гнездо» — кристаллы, взятые цепями. Эвристика, не оценка баланса.', '',
+    table(['Примета', 'Боёв', 'Победы', 'Урон (медиана)', 'До целей, с (медиана)', 'Цепь (медиана)', 'Счётчики'], fightRows), '',
+    'Маршрут: выборы пути, где среди открытых узлов была примета (`omenRoutes`); «взят» — узел с этой приметой; «доля среди открытых» — средняя доля таких узлов. Взят чаще доли — игрок идёт к примете, реже — обходит.', '',
+    routeRows.length ? table(['Примета', 'Выборов с ней', 'Взят узел с ней', 'Доля среди открытых'], routeRows) : '_выборов с приметой нет_', '',
+    levelRows.length ? table(['Примета уровня', 'Походов', 'Победы', 'Дальний ряд (медиана)'], levelRows) : '_приметы уровня нет_', '',
+    `Шагов вне связей «Перепутья»: ${crossroads}. Бесплатных перебросов «Ярмарочного дня»: ${fair}.`].join('\n');
+}
+
 // ---- Task 49 «Второй герой» (RunRecord.hero, .freed; FightSummary.damage.unshielded; from 16.10.2026) ----
 
 /**
@@ -1204,6 +1249,8 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Герои', '', heroesSection(runs, runFights), '',
     '## Сноровка', '', knacksSection(runs), '',
     '## Повадка', '', habitsSection(runs), '',
+    // Task 56 «Приметы».
+    '## Приметы', '', omensSection(runs, runFights), '',
     '## Выборы', '', choicesSection(runs), '',
     '## Элиты', '', ELITE_LEGEND, '', table(ELITE_HEAD, eliteRows(runFights, sandbox)), '',
     '## Однорукий гоблин', '', SLOT_LEGEND, '', table(SLOT_HEAD, [slotRow('походы', runFights), slotRow('песочница', sandbox)].filter((r): r is (string | number)[] => !!r)), '',

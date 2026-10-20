@@ -61,6 +61,8 @@ import { behindGrate, gateLever, grateLinkDrop, jumpDownFree, onGallery } from '
 import { TROLL, trollLinkDrop, trollReserve, trollShut, trollWards, trollWindowOn } from './enemies/troll';
 import { CHIEF, chiefGuarded, chiefHitOutcome, chiefLinkDrop, chiefQueue, chiefQueueShort, chiefRelease, chiefShut, chiefWards } from './enemies/chief';
 import { NO_COLOR, OBJECT_RADIUS, checkGoals, damageEnemy, doorOf, doorOpen, pushOutOfSolids, enemyFrozen, findObject, nextFiring, startShieldWindow, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
+// Task 56 «Приметы» (omens.ts): the marks of a link taken in water or of the colour on the roll call.
+import { callEnergy, fixOmenLinks, omenLink, wetHit } from './omens';
 
 export { OBJECT_RADIUS };
 export type { ChainAnchor };
@@ -402,7 +404,7 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
     const ctx: LinkContext | null = build ? { chain, index: ++index, enemy, id: enemy.id, elite: !!enemy.elite, elitesBefore: elites, power, plan: true, crystalsBefore: crystals, ...colorless ? { colorlessBefore: colorless } : {}, ...far?.has(enemy.id) ? { far: true as const } : {} } : null;
     // Task 50 («Охотник на элит» II): plates the link loses before its hit — the strike takes the rest.
     const pre = honedKit && ctx ? platesBeforeOf(world, ctx, platesOf(enemy)) : 0, marks = honedKit && ctx ? rank2LinksOf(world, ctx) : [];
-    let outcome = strike(ctx ? power + linkPowerOf(world, ctx) : power, enemy.hp, chainFactor(world, enemy), gain, platesOf(enemy) - pre);
+    let outcome = strike((ctx ? power + linkPowerOf(world, ctx) : power) + wetHit(world, link.kind === 'enemy' && !!link.wet), enemy.hp, chainFactor(world, enemy), gain, platesOf(enemy) - pre);
     // Task 54: the Chief's core — a queue of `chiefFeastBig` links takes two plates (the dash reads the same, `dashStrike`).
     if (enemy.kind === CHIEF) outcome = chiefHitOutcome(world, enemy, outcome, chiefQueue(world, enemy, links, linkIndex));
     power = outcome.powerAfter;
@@ -1419,7 +1421,8 @@ export function beginChain(world: World, p: Vec): boolean {
   const plan = planChain(world, world.chain, NO_PIERCE);
   const target = pick(world, p, e => canLink(world, e, plan), o => canLinkObject(world, o, plan));
   if (!target) return false;
-  world.chain = [target];
+  // Task 56: «Половодье» and «Перекличка» mark the link as it is taken (omens.ts `omenLink`; nothing without them).
+  world.chain = [omenLink(world, target, target.kind === 'enemy' ? findEnemy(world, target.id) : undefined)];
   // A chain always starts with the full reserve: its first link refreshes focus too.
   world.focusRefreshed = new Set();
   refreshFocus(world, target);
@@ -1477,7 +1480,7 @@ export function dragChain(world: World, p: Vec, mode: DragMode = 'full'): void {
   if (!world.chain.length) world.focusRefreshed = new Set();
   const color = chainColor(world), need = twinsNextColor(world);
   const joined = target.kind === 'enemy' ? findEnemy(world, target.id) : undefined, join = joined ? colorJoin(world, joined, color) : null;
-  world.chain.push(nextLink(world, target));
+  world.chain.push(omenLink(world, nextLink(world, target), joined));
   // Task 52, Р2: the fork is taken — the anchor is the last link again.
   delete world.forkAnchor;
   // Phase A, T4: a chameleon taken in its window by a chain of another colour takes the chain's colour (task 33: the pair's next).
@@ -1625,6 +1628,8 @@ export function releaseChain(world: World): boolean {
   // Stage 2, step 3: the links struck ×2 by this dash — frozen and brittle now (the ×2 is fixed at the release).
   const brittle = links.flatMap(l => { const e = l.kind === 'enemy' ? findEnemy(world, l.id) : undefined; return e && chainFactor(world, e) > 1 ? [e.id] : []; });
   if (brittle.length) world.move.brittle = brittle;
+  // Task 56: the links taken in water and of the colour on the roll call (omens.ts; nothing without them).
+  fixOmenLinks(world.move, links);
   // Iteration 2.1: links whose chain-hit reaction is armed now (the porcupine with its quills up) — fixed at the release, as the ×2.
   const armed = links.flatMap(l => { const e = l.kind === 'enemy' ? findEnemy(world, l.id) : undefined; return e && armedDamage(world, e) > 0 ? [e.id] : []; });
   if (armed.length) world.move.armed = armed;
@@ -1877,7 +1882,9 @@ function dashStrike(world: World, move: HeroMove, enemy: Enemy): { ctx: LinkCont
   const ctx: LinkContext | null = b ? { chain: b.chain, index: b.links + 1, enemy, id: enemy.id, elite: !!enemy.elite, elitesBefore: b.elites, power: move.power, plan: false, crystalsBefore: move.broken, ...b.colorless ? { colorlessBefore: b.colorless } : {} } : null;
   // Task 50 («Охотник на элит» II): plates the link loses before its hit (`hitEnemy` strips them) — the strike takes the rest, as the plan.
   const honed = !!ctx && !!world.kit?.honed, pre = honed ? platesBeforeOf(world, ctx!, platesOf(enemy)) : 0;
-  const outcome = strike(ctx ? move.power + linkPowerOf(world, ctx) : move.power, enemy.hp, dashFactor(world, enemy), linkGainOf(world), platesOf(enemy) - pre);
+  // Task 56 «Половодье»: a link taken in water hits +1, as the plan's (`wetHit`; 0 without it).
+  const wet = wetHit(world, !!move.wet?.includes(enemy.id));
+  const outcome = strike((ctx ? move.power + linkPowerOf(world, ctx) : move.power) + wet, enemy.hp, dashFactor(world, enemy), linkGainOf(world), platesOf(enemy) - pre);
   // Task 54: the Chief's core — the queue fixed at the release (`chiefRelease`) takes two plates when long (the plan's rule).
   return { ctx, pre, marks: honed ? rank2LinksOf(world, ctx!) : [], outcome: enemy.kind === CHIEF ? chiefHitOutcome(world, enemy, outcome, enemy.vars.wq ?? 0) : outcome };
 }
@@ -1914,7 +1921,8 @@ function hitEnemy(world: World, enemy: Enemy): void {
   if (world.oath) oathLink(world);
   move.power = outcome.powerAfter;
   move.hits++;
-  world.energy = Math.min(ENERGY_MAX, world.energy + p.energyPerKill);
+  // Task 56 «Перекличка»: a link of the colour called when it was taken adds its energy (0 without it).
+  world.energy = Math.min(ENERGY_MAX, world.energy + p.energyPerKill + callEnergy(world, move, enemy.id));
   enemy.hurtFlash = Math.max(p.hitFlash, 0.01);
   world.events.push({ type: 'chainHit', enemyId: enemy.id, damage: outcome.damage, killed: outcome.killed, x: enemy.x, y: enemy.y, combo: move.hits, ...outcome.plate ? { plates: outcome.platesAfter } : {} });
   // «Смена цвета» (design answer 12.10.2026): the link that freed the colour — killed or a plate taken; a survivor ends the

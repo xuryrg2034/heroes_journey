@@ -1127,6 +1127,42 @@ export interface Params {
   rookWindup: number;
   /** Task 55а: the strike's damage to the hero (2). */
   rookDamage: number;
+  // ---- Task 56 «Приметы» (sim/omens.ts, docs/realtime-slice.md, «Приметы»; spec docs/design-notes/task-56-omens.md). ----
+  // Every rule is off by default; journals without a key play as before (the numbers — their defaults, `omenNum`). The run turns a
+  // rule on for the fight of a node or a level with that omen (run/omens.ts); the sandbox — the panel group «Приметы».
+  /** «Гроза»: the storm's marks and strikes (`World.storm`). */
+  omenStorm: boolean;
+  /** «Гроза»: the first mark's game second, then a mark every this many s (from the last mark). */
+  omenStormFirst: number;
+  omenStormEvery: number;
+  /** «Гроза»: game seconds from the mark to its strike; the mark's radius (units). */
+  omenStormFuse: number;
+  omenStormRadius: number;
+  /** «Гроза»: damage to every enemy whose body touches the circle (credited; an armoured elite — a plate) and to the hero whose centre is in it. */
+  omenStormDamage: number;
+  omenStormHero: number;
+  /** «Гроза»: enemies within the radius of the best point a mark needs (fewer — the count waits). */
+  omenStormMin: number;
+  /** «Сонный час»: the enemies of the first `omenDrowseTime` s sleep until the first dash (`World.drowse`, `Enemy.sleep`). */
+  omenDrowse: boolean;
+  omenDrowseTime: number;
+  /** «Сонный час»: the woken walk ×`omenWakeWalk` for `omenWakeTime` s (`Enemy.rage`). */
+  omenWakeWalk: number;
+  omenWakeTime: number;
+  /** «Половодье»: pools placed at the start by the stream `omen` (`World.flood`); a link taken in water hits +`omenFloodHit`. */
+  omenFlood: boolean;
+  omenFloodPools: number;
+  omenFloodRadius: number;
+  omenFloodHit: number;
+  /** «Перекличка»: a colour on the roll call (`World.rollcall`) from `omenRollcallFirst` s, every `omenRollcallEvery` s. */
+  omenRollcall: boolean;
+  omenRollcallFirst: number;
+  omenRollcallEvery: number;
+  /** «Перекличка»: energy a link of that colour adds over the usual; damage a touch of that colour adds. */
+  omenRollcallEnergy: number;
+  omenRollcallTouch: number;
+  /** «Урожай» (bag.ts `bagHurt`): a real HP loss takes every step of the bag, the filled ones too (event `bag` `reset` with step 0). */
+  bagResetAll: boolean;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -1614,6 +1650,29 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   rookPeriod: 3.5,
   rookWindup: 1,
   rookDamage: 2,
+  // Task 56 «Приметы» (sim/omens.ts, bag.ts): every rule off; the numbers of the spec (section 2.2).
+  omenStorm: false,
+  omenStormFirst: 6,
+  omenStormEvery: 7,
+  omenStormFuse: 1.2,
+  omenStormRadius: 1,
+  omenStormDamage: 3,
+  omenStormHero: 2,
+  omenStormMin: 3,
+  omenDrowse: false,
+  omenDrowseTime: 4,
+  omenWakeWalk: 1.25,
+  omenWakeTime: 4,
+  omenFlood: false,
+  omenFloodPools: 3,
+  omenFloodRadius: 1,
+  omenFloodHit: 1,
+  omenRollcall: false,
+  omenRollcallFirst: 3,
+  omenRollcallEvery: 12,
+  omenRollcallEnergy: 0.5,
+  omenRollcallTouch: 1,
+  bagResetAll: false,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -2147,6 +2206,34 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('rookPeriod', 'Замок', 'Ладья: отдых', 0.5, 10, 0.25, 5, 'с'),
   n('rookWindup', 'Замок', 'Удар ладьи: замах', 0.2, 3, 0.1, 5, 'с', 'Ось через ладью в обе стороны фиксируется в начале замаха; бьёт первое тело на каждой половине. Первый замах боя 1,5 с.'),
   n('rookDamage', 'Замок', 'Удар ладьи: урон героя', 0, 5, 1, 5),
+  // Task 56 «Приметы» (sim/omens.ts): the sandbox's toggles of the omens that are new rules (off; the run sets them by its omens).
+  { kind: 'bool', key: 'omenStorm', group: 'Приметы', label: '«Гроза»', stage: 5,
+    hint: 'Раз в 7 с (первая — на 6-й) метка у самой плотной толпы (от 3 врагов); через 1,2 с удар: враги в круге −3 в зачёт, элита — пластина; герой в круге −2 (не в проходе, не в прыжке, щиты не спасают). Жнец и боссы — не цель.' },
+  n('omenStormFirst', 'Приметы', '«Гроза»: первая метка', 0, 30, 0.5, 5, 'с'),
+  n('omenStormEvery', 'Приметы', '«Гроза»: метка раз в', 1, 30, 0.5, 5, 'с'),
+  n('omenStormFuse', 'Приметы', '«Гроза»: от метки до удара', 0.2, 5, 0.1, 5, 'с'),
+  n('omenStormRadius', 'Приметы', '«Гроза»: радиус', 0.5, 3, 0.1, 5, 'ед.'),
+  n('omenStormDamage', 'Приметы', '«Гроза»: урон врагам', 0, 6, 1, 5),
+  n('omenStormHero', 'Приметы', '«Гроза»: урон герою', 0, 5, 1, 5),
+  n('omenStormMin', 'Приметы', '«Гроза»: врагов для метки', 1, 8, 1, 5),
+  { kind: 'bool', key: 'omenDrowse', group: 'Приметы', label: '«Сонный час»', stage: 5,
+    hint: 'Враги первых 4 с спят: стоят, не касаются, не стреляют. Будит первый проход цепи или конец 4 с; разбуженные 4 с ходят ×1,25. Действует со следующего запуска арены.' },
+  n('omenDrowseTime', 'Приметы', '«Сонный час»: сон', 0, 15, 0.5, 5, 'с'),
+  n('omenWakeWalk', 'Приметы', '«Сонный час»: ярость, ходьба', 1, 3, 0.05, 5, '×'),
+  n('omenWakeTime', 'Приметы', '«Сонный час»: ярость', 0, 15, 0.5, 5, 'с'),
+  { kind: 'bool', key: 'omenFlood', group: 'Приметы', label: '«Половодье»', stage: 5,
+    hint: 'Лужи на арене (вода, как пруд: ходьба ×0,5). Звено врага, взятое в воде, бьёт +1. Со следующего запуска арены.' },
+  n('omenFloodPools', 'Приметы', '«Половодье»: луж', 0, 6, 1, 5),
+  n('omenFloodRadius', 'Приметы', '«Половодье»: радиус лужи', 0.5, 2, 0.1, 5, 'ед.'),
+  n('omenFloodHit', 'Приметы', '«Половодье»: сила мокрого звена', 0, 3, 1, 5, '+'),
+  { kind: 'bool', key: 'omenRollcall', group: 'Приметы', label: '«Перекличка»', stage: 5,
+    hint: 'Раз в 12 с (первая — на 3-й) один цвет на перекличке: его звено +0,5 энергии, касание врага этого цвета +1 урона.' },
+  n('omenRollcallFirst', 'Приметы', '«Перекличка»: первая', 0, 30, 0.5, 5, 'с'),
+  n('omenRollcallEvery', 'Приметы', '«Перекличка»: раз в', 1, 60, 1, 5, 'с'),
+  n('omenRollcallEnergy', 'Приметы', '«Перекличка»: энергия звена', 0, 2, 0.5, 5, '+'),
+  n('omenRollcallTouch', 'Приметы', '«Перекличка»: касание', 0, 3, 1, 5, '+'),
+  { kind: 'bool', key: 'bagResetAll', group: 'Приметы', label: '«Урожай»: удар сбрасывает всю котомку', stage: 5,
+    hint: 'Потеря HP сбрасывает все ступени котомки у двери, и заполненные. Цены ступеней «Урожая» (2 / 4 / 6) — в группе «Котомка у двери».' },
 ];
 
 const MAX_PHASES = 8;

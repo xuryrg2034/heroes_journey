@@ -21,7 +21,7 @@ import {
   rtOathPreview, rtOathStakeOn, rtArenaRules, RT_SECOND_WIND_LAST_ROW, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
   rtCasinoView, rtCasinoPlay, rtCasinoLeave, rtCasinoNode, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE,
   healOffer, healOnMap, healVisible, rtResourceTotal, rtNodeFeat, RT_HEAL_MAP_GAIN, rtAsh, rtAshOptions, rtAshTitle, rtRunWon, isRtAshLevel, type RtAshLevel, rtScheduleMet, RT_JAILER_SEVERED_SLOTS, RT_TROLL_ALL_PARTS_SLOTS, rtTrollNode, rtFormReplaces, rtFormSlotField,
-  rtEnterGarrison, rtLevel, rtCartView, rtGateView, rtChooseKnack, type RtCartView, type RtGateView,
+  rtCrossroadsHidden, rtFightOmens, rtNodeOmen, rtEnterGarrison, rtLevel, rtCartView, rtGateView, rtChooseKnack, type RtCartView, type RtGateView,
   type RtArenaOutcome, type RtArenaRules, type RtCasinoTable, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
@@ -30,7 +30,7 @@ import { RT_FORMS, RT_HABITS, RT_RARITY_NAME, RT_TALISMANS, rtHammer, rtTalisman
 import { FORM_FIELD_TITLES, fusionRecipe, isFusionId, type FusionId } from '../sim/buildIds';
 import { labelOf } from './buildColumn';
 import { honeLine, rankMarkHtml, wearsRank } from './knackView';
-import { createRtProfileStore, createRtRunStore } from '../run/rtRunStorage';
+import { createRtProfileStore, createRtRunStore, rtProfileOmenPool } from '../run/rtRunStorage';
 import { rtRunEndLines } from '../run/rtRunEnd';
 import type { HeroStart } from '../sim/world';
 import { RT_NODE_TYPES } from './nodeTypes';
@@ -47,6 +47,8 @@ import { FX_LEVELS, countUpTime, countUpValue, fxLevelOf, type FxLevel } from '.
 import { SECOND_WIND_HP } from '../sim/world';
 import { featCardLine } from './featView';
 import { habitIconSvg, habitMark, habitSign, vowIconSvg } from './habitMark';
+import { omenBadge, omenCardHtml, omenIconSvg, omenSign, omensEnd } from './omenMark';
+import { rtOmen, rtOmensGate, type RtFightOmens } from '../run/omens';
 import type { FirstMeetId } from './firstMeet';
 import { ICON as STOCK_ICON, MetaEndView, type MetaSound } from './metaEnd';
 import { HearthView, NPC_ART, artUrl } from './hearthView';
@@ -55,10 +57,11 @@ import { NPCS, type NpcId } from './metaModel';
 import { ProfileMeta } from './metaSource';
 import { MAP_KINDS, VOW_RULES, mapCounts, mapPreview, RunStart } from './runStart';
 import { rtHearthFlagsWith, rtJailerWonRow, rtRunKey, rtVowsNow, type RtHearthStart, type RtMetaEnd } from '../run/rtMeta';
+import { RT_OMENS_ON } from '../run/omens';
 import { RT_HERO_ID, RT_TOAD_ID, type RtHeroId, type RtVowId, RT_VOW_TITLES } from '../run/metaCatalog';
 import { defaultParams } from '../sim/params';
 import { TOAD_LINES } from './heroLines';
-import type { MetaHeroId } from './metaModel';
+import type { MetaEnd, MetaHeroId } from './metaModel';
 import type { HearthStart } from './metaModel';
 import { KIND_CAPTIONS } from './newSeen';
 import { END_STEP, REVEAL_FADE, endShown, endTotal, revealDelays, revealDone, revealShown, screenTier, type RewardTier } from './reveal';
@@ -564,10 +567,23 @@ export class RunView {
     if (this.metaEnd?.key === key) return this.metaEnd;
     this.metaEnd?.stop();
     // Core: the first call for a run applies it (experience, pack, record, carry), a repeated one returns the same.
+    const poolBefore = RT_OMENS_ON ? rtProfileOmenPool(this.profile.load()) : [];
     const end = this.profile.endRunMeta(run);
-    this.metaEnd = end ? new MetaEndView(end, key, s => this.host.meta?.sound(s)) : null;
+    this.metaEnd = end ? new MetaEndView(this.withOmens(run, end, poolBefore), key, s => this.host.meta?.sound(s)) : null;
     if (this.metaEnd && !play) this.metaEnd.finish();
     return this.metaEnd;
+  }
+
+  /**
+   * Task 56 «Приметы» (spec 7.2): the end's omens — «Приметы: +N» by the pool before and after the end (a pack, the garrison or Шиш
+   * opened one) and the pack's omen as a card after its items. Only for a viewer the gates are open for: the run played with omens, or the
+   * gates opened with this run (then the whole pool is new). A reloaded end screen finds the pool settled: no line then.
+   */
+  private withOmens(run: RtRunState, end: RtMetaEnd, before: readonly string[]): MetaEnd {
+    if (!RT_OMENS_ON) return end as MetaEnd;
+    const profile = this.profile.load();
+    const { gained, card } = omensEnd({ playedWith: !!run.omens, gateOpen: rtOmensGate(profile.omensOpen === true, profile.seen ?? [], rtAsh(run)), before, after: rtProfileOmenPool(profile), packId: end.pack?.id });
+    return { ...end, ...gained > 0 ? { omens: gained } : {}, ...card && end.pack ? { pack: { ...end.pack, items: [...end.pack.items, card] } } : {} } as MetaEnd;
   }
 
   get state(): RtRunState | null { return this.run; }
@@ -609,7 +625,10 @@ export class RunView {
     // Task 16 «Подвиги»: feats from the run after the first Jailer (the profile's `jailer`); the viewer's run number for telemetry.
     // Task 18 «Испытание I–V»: the level chosen on «Новый поход» (the profile's last choice; 0 while the choice is closed).
     // Task 26 «Расписание леса»: the viewer's history goes into the run as a snapshot (the run ignores it from «Испытание II»).
-    this.run = createRtRun(value, { gift: this.profile.giftKind(seeded), seeded, feats: this.profile.featsOn(), ash: this.profile.ashChoice(), schedule: this.profile.scheduleHistory(() => this.host.scheduleSeed?.() ?? []), ...metaRun, ...seeded && this.host.fixedHero ? { hero: this.host.fixedHero } : {} });
+    const ash = this.profile.ashChoice(), schedule = this.profile.scheduleHistory(() => this.host.scheduleSeed?.() ?? []);
+    // Task 56 «Приметы» (core): the pool the profile opened, past the gates (`?seed=` reads it, changes nothing); `RT_OMENS_ON` off — none.
+    const omens = RT_OMENS_ON ? this.profile.omensStart({ ash, history: schedule, seeded }) : null;
+    this.run = createRtRun(value, { gift: this.profile.giftKind(seeded), seeded, feats: this.profile.featsOn(), ash, schedule, ...metaRun, ...seeded && this.host.fixedHero ? { hero: this.host.fixedHero } : {}, ...omens ? { omens } : {} });
     if (camp?.map !== null && camp?.map !== undefined) this.host.meta?.map?.(this.run, camp.map);
     const viewerRun = this.profile.startRun();
     this.host.session?.clock.runStarted();
@@ -857,9 +876,11 @@ export class RunView {
     const reroll = rtShopRerollView(run), swap = rtShopSwapView(run);
     let html = '';
     if (reroll) {
-      const note = reroll.available ? (reroll.garrison ? 'Лавка в гарнизоне (Шиш): товар и талисман выпадут заново, лечение и закалка останутся' : 'Шишова лавка: товар и талисман выпадут заново, лечение и закалка останутся') : reroll.reason;
-      html += `<button class="rt-other rt-shop-reroll" data-action="shop-reroll" data-testid="shop-reroll" title="${escapeHtml(note)}" ${reroll.available ? '' : 'disabled'}>${portrait}<span>Перебросить товар — бесплатно</span></button>`
-        + `<p class="rt-run-note rt-shop-note${reroll.available ? '' : ' rt-run-reason'}" data-testid="shop-reroll-note">${reroll.available ? (reroll.garrison ? 'Лавка в гарнизоне (Шиш)' : 'Шишова лавка') : escapeHtml(reroll.reason)}</p>`;
+      // Task 56: one button — the omen's reroll (it goes first, `fair`) carries the fair's icon and says «от приметы», Шиш's — his portrait.
+      const fairName = rtOmen('fair')?.title ?? '', source = reroll.fair ? `от приметы «${fairName}»` : reroll.garrison ? 'Лавка в гарнизоне (Шиш)' : 'Шишова лавка';
+      const note = reroll.fair && reroll.available ? `${source}: товар и талисман выпадут заново, лечение и закалка останутся` : reroll.available ? (reroll.garrison ? 'Лавка в гарнизоне (Шиш): товар и талисман выпадут заново, лечение и закалка останутся' : 'Шишова лавка: товар и талисман выпадут заново, лечение и закалка останутся') : reroll.reason;
+      html += `<button class="rt-other rt-shop-reroll" data-action="shop-reroll" data-testid="shop-reroll" data-fair="${reroll.fair ? 1 : 0}" title="${escapeHtml(note)}" ${reroll.available ? '' : 'disabled'}>${reroll.fair ? omenIconSvg('fair', 30) : portrait}<span>Перебросить товар — бесплатно</span></button>`
+        + `<p class="rt-run-note rt-shop-note${reroll.available ? '' : ' rt-run-reason'}" data-testid="shop-reroll-note">${reroll.available ? escapeHtml(source) : escapeHtml(reroll.reason)}</p>`;
     }
     if (swap) {
       const from = this.swapFrom && swap.give.includes(this.swapFrom) ? this.swapFrom : null, to = from && this.swapTo !== from ? this.swapTo : null;
@@ -1545,7 +1566,7 @@ export class RunView {
     const ash = rtAshTitle(rtAsh(run));
     // Task 38: the garrison's map is headed «Гарнизон».
     // Task 38: a run that goes on into the garrison names its level by one word — «Лес», then «Гарнизон»; a run without it — «Поход».
-    return `<header class="rt-run-head"><b data-testid="run-title" data-level="${rtLevel(run)}">${levelWord(run)}</b>${ash ? `<span class="rt-run-ash" data-testid="run-ash-title">${ash}</span>` : ''}<span class="rt-run-hp" data-testid="run-hp">HP ${run.hp} / ${run.maxHp}</span>${windHtml}${habitSign(run)}${this.vowSign(run)}${heal}`
+    return `<header class="rt-run-head"><b data-testid="run-title" data-level="${rtLevel(run)}">${levelWord(run)}</b>${omenSign(run)}${ash ? `<span class="rt-run-ash" data-testid="run-ash-title">${ash}</span>` : ''}<span class="rt-run-hp" data-testid="run-hp">HP ${run.hp} / ${run.maxHp}</span>${windHtml}${habitSign(run)}${this.vowSign(run)}${heal}`
       + `<span class="rt-run-items" data-testid="run-items">${items}</span>${talismans ? `<span class="rt-run-talismans" data-testid="run-talismans">${talismans}</span>` : ''}`
       + `${run.energy > 0 ? `<span class="rt-run-energy" data-testid="run-energy">⚡ ${run.energy} к арене</span>` : ''}`
       + `${resources}${reset}${this.sandboxButton(run)}${this.logsButton()}${this.settingsHtml()}</header>`
@@ -1623,12 +1644,14 @@ export class RunView {
     })).join('');
     const circles = nodes.map(node => {
       const status = rtNodeStatus(run, node, available), info = RT_NODE_TYPES[node.type], shown = node.type === 'event' && rtNodeTitle(run, node) === 'Находка' ? RT_NODE_TYPES.find : info;
+      // Task 56 «Перепутье»: a node beyond the next row is a grey «?» — no type, no omen (core `rtCrossroadsHidden`, `rtNodeOmen`).
+      const hidden = rtCrossroadsHidden(run, node), omen = hidden ? undefined : rtNodeOmen(run, node);
       // B7 К9: the circle's node keeps the event's place on the map; once entered, it shows a die.
-      const icon = run.casino?.nodeId === node.id ? CASINO_ICON : shown.icon;
-      return `<g class="rt-node rt-${status}${this.selected === node.id ? ' rt-selected' : ''}" data-node="${node.id}" data-testid="node-${node.id}" data-status="${status}" data-type="${node.type}" transform="translate(${x(node)},${y(node)})">`
-        + `<circle r="17"/><text dy="6">${icon}</text><title>${escapeHtml(rtNodeTitle(run, node))}</title>`
+      const icon = hidden ? '?' : run.casino?.nodeId === node.id ? CASINO_ICON : shown.icon;
+      return `<g class="rt-node rt-${status}${hidden ? ' rt-hidden' : ''}${this.selected === node.id ? ' rt-selected' : ''}" data-node="${node.id}" data-testid="node-${node.id}" data-status="${status}" data-type="${hidden ? 'hidden' : node.type}"${omen ? ` data-omen="${omen}"` : ''} transform="translate(${x(node)},${y(node)})">`
+        + `<circle r="17"/><text dy="6">${icon}</text><title>${hidden ? 'Тип узла скрыт «Перепутьем»' : escapeHtml(rtNodeTitle(run, node))}</title>${omen ? omenBadge(omen) : ''}`
         // Task 38: the garrison's exams seen from the start — «Караульня» (row 5) and «Кастелян» (row 10) under their circles.
-        + (rtLevel(run) === 2 && (node.type === 'checkpoint' || node.type === 'boss') ? `<text class="rt-node-cap" dy="36" data-testid="map-cap-${node.type}">${escapeHtml(rtNodeTitle(run, node))}</text>` : '') + '</g>';
+        + (!hidden && rtLevel(run) === 2 && (node.type === 'checkpoint' || node.type === 'boss') ? `<text class="rt-node-cap" dy="36" data-testid="map-cap-${node.type}">${escapeHtml(rtNodeTitle(run, node))}</text>` : '') + '</g>';
     }).join('');
     return `<svg class="rt-run-map${rtLevel(run) === 2 ? ' rt-map-garrison' : ''}" viewBox="0 0 ${W} ${H}" data-testid="run-map" data-level="${rtLevel(run)}">${edges}${circles}</svg>`;
   }
@@ -1646,7 +1669,7 @@ export class RunView {
    * Task 8c: the dangers of a battle node, one line each (goal, enemies, elites, terrain; view/nodeCard.ts) — the card of the
    * chosen node and the window «Бой» after a reload.
    */
-  private dangersHtml(run: RtRunState, node: ForestMapNode | undefined, arena: string, roster: string | undefined, newKinds: readonly string[] = [], met?: ReadonlySet<string>): string {
+  private dangersHtml(run: RtRunState, node: ForestMapNode | undefined, arena: string, roster: string | undefined, newKinds: readonly string[] = [], met?: ReadonlySet<string>, omens?: RtFightOmens): string {
     // Task 17: the rules the fight of this node will play (`cardRules` — the conditions of `rtArenaLoadout`): the card equals the fight.
     // Task 43, part Г: a garrison node — its fight's own start (`rtNodeEnemies`: the world the fight starts with) and the additions.
     const garrison = node ? rtNodeEnemies(run, node) : null;
@@ -1655,7 +1678,7 @@ export class RunView {
     const items = lines.map(line => {
       const sign = line.newKinds?.length || line.newTerrain?.length ? ` <span class="rt-new-sign" data-testid="run-new-sign">${NEW_SIGN}</span>` : '';
       return `<li data-testid="run-danger-${line.id}"><b>${line.label}:</b> ${escapeHtml(line.text)}${sign}</li>`;
-    }).join('');
+    }).join('') + omenCardHtml(omens);
     return `<ul class="rt-run-dangers" data-testid="run-dangers">${items}</ul>`;
   }
 
@@ -1671,12 +1694,17 @@ export class RunView {
     if (!node) return '';
     const available = rtAvailableNodes(run);
     const status = rtNodeStatus(run, node, available), info = RT_NODE_TYPES[node.type];
-    const arena = isArenaNode(node) ? arenaPreview(run, node) : null;
+    // Task 56 «Перепутье»: the card of a node beyond the next row says the type is hidden (no title, no arena, no omen).
+    const hidden = rtCrossroadsHidden(run, node);
+    if (hidden) return `<div class="rt-overlay rt-run-node" data-testid="run-node-card"><div class="rt-card rt-run-detail" data-testid="run-detail" data-card="${node.id}" data-hidden="1"><h2>?</h2><p class="rt-run-meta">ряд похода ${runRow(node.row)} · ${STATUS_LABEL[status]}</p><p class="rt-run-note">Тип узла скрыт «Перепутьем».</p></div></div>`;
+    const arena = isArenaNode(node) ? arenaPreview(run, node) : null, omens = rtFightOmens(run, node);
     const fresh = arena && status === 'available' && this.hasNewSign(run, node) ? this.freshKinds(run, node, arena) : [];
     const body = `<h2>${info.icon} ${escapeHtml(rtNodeTitle(run, node))}</h2>`
       + `<p class="rt-run-meta">${info.label} · ряд похода ${runRow(node.row)} · ${STATUS_LABEL[status]}</p>`
-      + (arena ? this.arenaHead(arena.arena, arena.roster) + this.dangersHtml(run, node, arena.arena, arena.roster, fresh, status === 'available' ? this.terrainMet(run, node) : undefined)
-        : isArenaNode(node) && status === 'locked' ? '<p class="rt-run-note">Арена станет известна, когда узел откроется.</p>' : '')
+      + (arena ? this.arenaHead(arena.arena, arena.roster) + this.dangersHtml(run, node, arena.arena, arena.roster, fresh, status === 'available' ? this.terrainMet(run, node) : undefined, omens)
+        // Task 56: the badge on the map is the node's own — a locked node's card names its omen too (the arena is not known yet; the omen is the roll's).
+        : isArenaNode(node) && status === 'locked' ? '<p class="rt-run-note">Арена станет известна, когда узел откроется.</p>'
+          + (omens.node || omens.level ? `<ul class="rt-run-dangers">${omenCardHtml(omens)}</ul>` : '') : '')
       + (status === 'available' ? this.featHtml(run, node) : '')
       + (nodeHint(node, run) ? `<p class="rt-run-hint">${escapeHtml(nodeHint(node, run)!)}</p>` : '')
       // B7 К9 (no hidden odds): an event node the circle may still stand on says so, with its chance; the terms in small
@@ -1739,7 +1767,7 @@ export class RunView {
       const pendingNode = rtNode(run, pending.nodeId);
       // Task 15: the window covers the map header — the heal button stands here, over «В бой» (design 14.10.2026).
       const heal = this.healHtml(run);
-      return card(`<h2>Бой</h2>${this.arenaHead(pending.arena, pending.roster)}${this.dangersHtml(run, pendingNode, pending.arena, pending.roster)}${this.featHtml(run, pendingNode)}${oath}<p class="rt-run-note">Начатая арена не сохраняется: после перезагрузки она начинается заново.</p>`
+      return card(`<h2>Бой</h2>${this.arenaHead(pending.arena, pending.roster)}${this.dangersHtml(run, pendingNode, pending.arena, pending.roster, [], undefined, pending.omens)}${this.featHtml(run, pendingNode)}${oath}<p class="rt-run-note">Начатая арена не сохраняется: после перезагрузки она начинается заново.</p>`
         + (heal ? `<p class="rt-run-heal-line">HP ${run.hp} / ${run.maxHp} ${heal}</p>` : '')
         + `<button class="rt-again" data-action="battle" data-testid="run-battle">В бой</button>`, 'run-battle-modal');
     }
@@ -1877,7 +1905,7 @@ export class RunView {
         + `${good.replaces ? `<small class="rt-run-reason" data-testid="replaces-${good.replaces}">Заменит «${escapeHtml(talismanName(good.replaces, run))}»</small>` : ''}${good.talisman ? habitMark(run, good.talisman) + recipeHtml(run, good.talisman) : ''}</button>`).join('');
       // Task 15: the header has one number; the merchant names the kinds (he takes from the most numerous).
       const kinds = resourceKindsText(run.materials);
-      return card(`<h2>Торговец</h2><p data-testid="shop-resources">Ресурсов: ${view.total}${kinds ? ` (${kinds})` : ''}.</p><div class="rt-run-choices">${goods}</div>`
+      return card(`<h2>Торговец</h2><p data-testid="shop-resources">Ресурсов: ${view.total}${kinds ? ` (${kinds})` : ''}.</p><div class="rt-run-choices${view.goods.length > 4 ? ' rt-shop-two' : ''}" data-testid="shop-goods">${goods}</div>`
         + this.shopGamblerHtml(run) + `<button class="rt-other" data-action="shop-leave" data-testid="shop-leave">Уйти</button>`, 'run-shop');
     }
     const view = rtEventView(run);
