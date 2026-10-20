@@ -1132,6 +1132,21 @@ export function choicesSection(runs: readonly RunRecord[]): string {
   return `Выборов сборки за поход: среднее ${n1(all.reduce((a, b) => a + b, 0) / runs.length)}, медиана ${n1(median(all))}; из них «Сноровка» — среднее ${n1(knack.reduce((a, b) => a + b, 0) / runs.length)} (походов: ${runs.length}).`;
 }
 
+// ---- Task 51з «Поход дня» (RunRecord.daily, from 17.10.2026) ----
+
+/** Task 51з: the runs of the day by date — attempts, the first attempt's farthest row against the best one's, the share verified. */
+export function dailySection(runs: readonly RunRecord[]): string {
+  const days = new Map<string, RunRecord[]>();
+  for (const r of runs) if (r.daily) days.set(r.daily.date, [...days.get(r.daily.date) ?? [], r]);
+  if (!days.size) return 'Походов дня нет (`RunRecord.daily`, с 17.10.2026).';
+  const rows = [...days.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([date, list]) => {
+    const first = list.find(r => r.daily!.first), best = Math.max(...list.map(r => r.farRow));
+    return [date, Math.max(...list.map(r => r.daily!.attempt)), first ? first.farRow : '—', best, `${list.filter(r => r.daily!.verified).length} из ${list.length}`];
+  });
+  return ['Попытки — наибольший номер попытки даты среди записей; ряд — дальний ряд похода (`farRow`); проверено — доказательство прошло повтор.', '',
+    table(['Дата', 'Попыток', 'Первая: ряд', 'Лучшая: ряд', 'Проверено'], rows)].join('\n');
+}
+
 // ---- Task 20 «Ресурсы похода» (RunRecord.resources, from 14.10.2026) ----
 const RESOURCE_SOURCE_TITLES: Record<string, string> = { gift: 'дар', event: 'события', casino: 'игорный круг', loot: 'добыча элит', bag: 'котомка', feat: 'подвиги', merchant: 'торговец', other: 'прочее' };
 const RESOURCE_SINK_TITLES: Record<string, string> = { craft: 'крафт', healMap: 'лечение на карте', merchant: 'торговец', event: 'события', casino: 'игорный круг', reroll: 'переброс', cart: 'Повозка', other: 'прочее' };
@@ -1297,6 +1312,7 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     // Task 56 «Приметы».
     '## Приметы', '', omensSection(runs, runFights), '',
     '## Выборы', '', choicesSection(runs), '',
+    '## Поход дня', '', dailySection(runs), '',
     '## Элиты', '', ELITE_LEGEND, '', table(ELITE_HEAD, eliteRows(runFights, sandbox)), '',
     '## Однорукий гоблин', '', SLOT_LEGEND, '', table(SLOT_HEAD, [slotRow('походы', runFights), slotRow('песочница', sandbox)].filter((r): r is (string | number)[] => !!r)), '',
     // Task 20: how the hero left the lit idol's circle.

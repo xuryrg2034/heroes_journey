@@ -342,6 +342,8 @@ interface RunMeta {
   /** Task 56: the route choices where an omen stood among the nodes open (absent — none yet). */
   omenRoutes?: RunOmenRoute[];
   honed?: { id: string; row: number }[];
+  /** Task 51з: the run of the day's attempt (`dailyAttempt`; absent — not reported, or an ordinary run). */
+  daily?: { date: string; attempt: number; first: boolean; verified?: true };
   /** Tasks 36–37: the run's meta fields (`RunRecord.xp` … `quest`; absent — none yet). */
   metaTlm?: Partial<Pick<RunRecord, 'xp' | 'pack' | 'record' | 'locked' | 'carry' | 'stock' | 'hearthBuys' | 'npcClicks' | 'hearth' | 'quest' | 'arrive' | 'vows'>>;
   /** Task 49: the hero this run freed (`heroFreed`). */
@@ -733,6 +735,8 @@ export class RtRecorder {
       ...run.habits ? { habitsOn: true as const, ...run.habit ? { habit: run.habit } : {} } : {},
       // Task 56 «Приметы»: the pool, the levels' omens, the route choices with an omen, the steps of «Перепутье».
       ...run.omens ? { omensOn: true as const, omenPool: [...run.omens.pool], ...run.omens.level ? { levelOmens: Object.entries(run.omens.level).map(([level, id]) => ({ level: Number(level), id: id! })) } : {}, ...meta.omenRoutes?.length ? { omenRoutes: meta.omenRoutes } : {}, ...run.crossroadsFree ? { crossroadsSteps: run.crossroadsFree } : {}, ...run.fairRerolls ? { fairRerolls: Object.keys(run.fairRerolls).length } : {} } : {},
+      // Task 51з: the run of the day — the date and the attempt the view reported (`dailyAttempt`).
+      ...run.daily && meta.daily?.date === run.daily ? { daily: meta.daily } : {},
       // Task 49: the run's hero (absent — the cat) and the hero it freed.
       ...run.heroId === 'toad' ? { hero: 'toad' as const } : {}, ...meta.freed ? { freed: { ...meta.freed } } : {},
       // Task 51д: the meeting on the road (absent — no NPC away in this run).
@@ -898,6 +902,28 @@ export class RtRecorder {
   }
 
   /** «Обучение v1»: a fight hint started in this run; its id goes into the run record once (the record is written again). */
+  /** Task 51з «Поход дня»: the run of the day began as attempt `attempt` of its date (run/rtDaily.ts `RtDailyStore.begin`). */
+  dailyAttempt(run: RtRunState, attempt: number): void {
+    if (!run.daily || !(attempt >= 1)) return;
+    safe(undefined, () => {
+      const meta = this.metaFor(run);
+      meta.daily = { date: run.daily!, attempt, first: attempt === 1 };
+      this.saveMeta();
+      this.writeRun(run);
+    });
+  }
+
+  /** Task 51з: the run of the day's proof passed the check by replay (the view's «Проверить»). */
+  dailyVerified(run: RtRunState): void {
+    safe(undefined, () => {
+      const meta = this.metaFor(run);
+      if (!run.daily || meta.daily?.date !== run.daily || meta.daily.verified) return;
+      meta.daily.verified = true;
+      this.saveMeta();
+      this.writeRun(run);
+    });
+  }
+
   hintShown(run: RtRunState | null, id: string): void {
     if (!run) return;
     safe(undefined, () => {

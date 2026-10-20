@@ -192,9 +192,10 @@ export class Simulation {
  * tick the commands stamped with it are applied, then the tick runs; commands stamped after the last tick are applied
  * at the end. `onTick` sees the world after each tick (checkpoints).
  */
-export function replay(journal: Journal, onTick?: (sim: Simulation) => void): Simulation {
+export function replay(journal: Journal, onTick?: (sim: Simulation) => void, beforeTick?: (world: World) => void): Simulation {
   if (journal.version !== JOURNAL_VERSION) throw new Error(`journal version ${journal.version}, expected ${JOURNAL_VERSION}`);
-  const sim = new Simulation({ arena: journal.arena, params: copyParams(journal.params), seed: journal.seed, ...journal.hero ? { hero: { ...journal.hero } } : {}, ...journal.loadout ? { loadout: JSON.parse(JSON.stringify(journal.loadout)) as Loadout } : {}, ...journal.roster !== undefined ? { roster: journal.roster } : {} });
+  // Task 51з: `beforeTick` — a reader of the world before each tick (run/fightOutcome.ts `RtFightWatch.seen`), as the view's.
+  const sim = new Simulation({ arena: journal.arena, params: copyParams(journal.params), seed: journal.seed, ...beforeTick ? { beforeTick } : {}, ...journal.hero ? { hero: { ...journal.hero } } : {}, ...journal.loadout ? { loadout: JSON.parse(JSON.stringify(journal.loadout)) as Loadout } : {}, ...journal.roster !== undefined ? { roster: journal.roster } : {} });
   let next = 0;
   const applyUpTo = (tick: number): void => {
     while (next < journal.commands.length && journal.commands[next].tick <= tick) sim.command(journal.commands[next++].cmd);
