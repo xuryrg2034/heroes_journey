@@ -181,9 +181,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-node.rt-open circle { fill: #2c4a63; stroke: #9ad1ff; stroke-width: 3; }
 .rt-node.rt-lost circle { fill: #5a2a24; stroke: #e0a596; }
 .rt-node.rt-selected circle { stroke: #ffffff; stroke-width: 4; }
-.rt-node:focus { outline: none; }
-.rt-node:focus-visible circle { stroke: #ffffff; stroke-width: 4; stroke-dasharray: 6 3; }
-.rt-node:focus-visible { filter: drop-shadow(0 0 5px #fff8); }
 /* Task 8c (design 13.10.2026): the chosen node's card in the middle of the map (it was the right column); its backdrop covers
    the map only (the header — gear, «Логи», «Новый поход» — stays usable), is light, and a click on it closes the card. */
 /* Under the header (its gear's box drops over the map), over the map; the other run modals stay over everything (z 8). */
