@@ -62,7 +62,7 @@ import { validDeath, type RtDeath } from './rtRunEnd';
 // Task 16 «Подвиги»: the feat kinds of the simulation (sim/feat.ts).
 import { FEAT_KINDS, isFeatKind, type FeatKind } from '../sim/feat';
 // Tasks 36–37 «Мета» and «Очаг»: the meta catalogue (a leaf module: the packs' ids, the camp's quests).
-import { HEARTH_GMAPS_SALT, HEARTH_SHOP_SALT, isRtLockable, isRtVow, type RtVowId, isRtQuest, RT_HERO_ID, RT_TOAD_ID, type RtHeroId, type RtQuest } from './metaCatalog';
+import { HEARTH_GMAPS_SALT, HEARTH_SHOP_SALT, isRtHearthLeaver, isRtLockable, isRtVow, NPC_MEET_SALT, RT_MEET_ZONES, type RtHearthLeaver, type RtVowId, isRtQuest, RT_HERO_ID, RT_TOAD_ID, type RtHeroId, type RtQuest } from './metaCatalog';
 // Task 49 «Второй герой»: the hero's innate items (sim/buildIds.ts; the fight's `Loadout.hero` gives them to the kit).
 import { HERO_INNATE } from '../sim/buildIds';
 import { HAMMER_IDS, RT_HAMMER_OFFER_SIZE } from './rtTalismans';
@@ -688,6 +688,11 @@ export interface RtRunState {
   /** Task 51г «Без переброса»: a run with that vow rerolled something (a screen, the hammers, the merchant's goods); absent — not. */
   vowRerolled?: true;
   /**
+   * Task 51д «Встреча на привале» (spec 3.4): the NPC away (`hearth.away`) met at the first rest of its zone — that rest's node and the
+   * deal made there (absent — none yet). Absent — not met (yet).
+   */
+  npcMeet?: { nodeId: string; deal?: string };
+  /**
    * Task 30 «Формы в походе» (design 15.10.2026; docs/realtime-slice.md, section 8): the run's forms — the first Jailer's screen
    * offers forms (`RT_FORMS`) instead of the hammers, «Застава» a form of the other field in its rare place, the common pool
    * holds «Близнецы» (`RT_OPENERS`), one form per field (a new one replaces the old), the fights play the counters' chain window
@@ -750,6 +755,14 @@ export interface RtRunState {
    * before it: the garrison of step 1б, its pools byte for byte, to its end.
    */
   step2?: true;
+  /**
+   * Task 51 (design 17.10.2026, task-51 spec section 17, one rule for every relic screen): the relic screens fill their empty places — the
+   * forest final's relic (1 of 3, the Troll's 1 of 4) and «Караульня»'s oath and relic screen, whose relics and oaths the Jailer's screen and
+   * the screens before spend (since task 38 the final showed 1–2 of 3, «Караульня» 0–1) — with a rare talisman each by the same draw
+   * (`rtFillRares`; the Jailer's screen is not touched). Set when a run with the garrison is created (`RT_RELIC_FILL_ON`); absent — a run saved
+   * before it: the screens of before, to its end (the Troll's 1 of 4 filled as before).
+   */
+  relicFill?: true;
   /**
    * Task 41 «Три зелья» (design 16.10.2026, docs/design-notes/task-41-prisoner-potions.md): at most this many healing potions in hand
    * (`RT_POTION_CAP`) — a healing choice of a find, the merchant, the gift or a rest's craft is refused with a full hand
@@ -896,6 +909,9 @@ export type RtRunEvent =
   | { type: 'event-attempt'; nodeId: string; option: string; attempt: number; outcome: number; text: string }
   | { type: 'event-resolved'; nodeId: string; option: string; outcome: number; text: string }
   | { type: 'shop-bought'; nodeId: string; purchase: RtShopPurchase }
+  /** Task 51д: the NPC away met at this rest; the deal made with it. */
+  | { type: 'npc-met'; nodeId: string; npc: RtHearthLeaver }
+  | { type: 'npc-deal'; nodeId: string; npc: RtHearthLeaver; deal: string }
   /** Task 51в: Шиш's «Шишова лавка» drew the goods again; «Размен» changed 3 of `from` for 2 of `to`. */
   | { type: 'shop-rerolled'; nodeId: string; stock: RtShopStock }
   | { type: 'shop-swapped'; nodeId: string; from: ResourceKind; to: ResourceKind }
@@ -1016,7 +1032,7 @@ export interface RtArenaOutcome {
  * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
  * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
  */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; troll?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; potionCap?: number; knacks?: boolean; habits?: boolean; hero?: RtHeroId; omens?: readonly string[] } = {}): RtRunState {
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; troll?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; relicFill?: boolean; potionCap?: number; knacks?: boolean; habits?: boolean; hero?: RtHeroId; omens?: readonly string[] } = {}): RtRunState {
   const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
   // Task 12 (13.10.2026): the goal layouts of the `marked` arenas, as the mix — on as `RT_RUN_FORCED` says unless the option says.
   const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
@@ -1055,6 +1071,8 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   // Task 43 «Гарнизон, шаг 2» (16.10.2026): «Ристалище», «Бойницы», knights and crossbowmen — only with «Ров», by `RT_GARRISON_STEP2_ON`
   // unless the option says.
   const step2 = moat && (options.step2 ?? RT_GARRISON_STEP2_ON);
+  // Task 51 (design 17.10.2026): the relic screens filled — its own flag, only with the garrison (the relic screens are its).
+  const relicFill = garrison && (options.relicFill ?? RT_RELIC_FILL_ON);
   // Task 41 «Три зелья» (16.10.2026): the cap of healing potions, `RT_POTION_CAP` unless the option says (0 — none, as a save before it).
   const potionCap = Math.max(0, Math.floor(options.potionCap ?? RT_POTION_CAP));
   // Task 49: Ведунья's run keeps her id (with or without the meta); the cat's — `cat` with the meta's snapshot only, as before.
@@ -1062,7 +1080,7 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   // Task 56 «Приметы»: the pool the profile opened (spec 7.2: a snapshot, the catalogue's order); none given or empty — a run without omens.
   const pool = options.omens ? RT_OMEN_IDS.filter(id => options.omens!.includes(id)) : [];
   const run: RtRunState = {
-    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked } : {}, ...heroId ? { heroId } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...potionCap ? { potionCap } : {}, ...pool.length ? { omens: { pool } } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked } : {}, ...heroId ? { heroId } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...relicFill ? { relicFill: true as const } : {}, ...potionCap ? { potionCap } : {}, ...pool.length ? { omens: { pool } } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
@@ -1768,7 +1786,11 @@ function drawTalismanOffer(run: RtRunState, nodeId: string, source: RtTalismanSo
   // Task 38: the forest final's reward — a relic 1 of 3.
   // Task 48: the Troll's three parts severed in the won final — 1 of 4 (the first three are those of 3).
   if (source === 'level') return levelOffer(run, nodeId, base, pool);
-  if (source === 'oath') return rtTalismanOffer(base, source, pool, rtOathSlots(run, nodeId));
+  if (source === 'oath') {
+    const options = rtTalismanOffer(base, source, pool, rtOathSlots(run, nodeId));
+    // Task 51: «Караульня» of a run with the flag — the places the oaths and relics left empty take a rare talisman each (the same draw).
+    return run.relicFill && rtGarrisonNodeId(nodeId) ? rtFillRares(options, rtOathSlots(run, nodeId), base, pool) : options;
+  }
   if (source === 'hard') {
     // Task 30: the rare place of «Застава» holds a form of the other field (`rtFormSlotField`) — by the node's form roll over the
     // forms of that field not shown on this screen; the other places are the offer's own (the same `talismans` draw).
@@ -1816,8 +1838,19 @@ export function rtRerollView(run: RtRunState): RtRerollView | null {
   const shown = [...pending.rerolled ?? [], ...pending.options];
   // Task 30: the form screen — some form of the pool not shown on it yet (its reroll fills the places left from those shown).
   const left = pending.source === 'form' ? rtFormPool(run).some(id => !shown.includes(id)) : (talismanOfferOf(run, pending.nodeId, pending.source, 0, shown, false) ?? []).length > 0;
-  const reason = !left ? (pending.source === 'form' ? 'Других форм нет' : 'Других талисманов не осталось') : total < price ? `Нужно ресурсов: ${price}, есть ${total}` : '';
+  // Task 51 (17.10.2026): a screen whose every option stays through a reroll (the guaranteed pair, the archetype's form) has nothing to
+  // reroll — a reroll would take no shown talisman (a save with such a reroll is malformed).
+  const kept = rerollKept(run, pending), nothing = pending.options.every(id => kept.includes(id));
+  const reason = nothing ? 'Нечего перебрасывать' : !left ? (pending.source === 'form' ? 'Других форм нет' : 'Других талисманов не осталось') : total < price ? `Нужно ресурсов: ${price}, есть ${total}` : '';
   return { price, total, rerolls, available: !reason, reason, ...free ? { free: true as const } : {} };
+}
+/**
+ * The options a reroll keeps on the screen: task 44 — the guaranteed pair (not one of the shown ones); task 50 — the form of the run's
+ * archetype in place 1 of the Jailer's form screen. The reroll and its view read the same.
+ */
+function rerollKept(run: RtRunState, pending: Extract<RtRunPending, { kind: 'talisman' }>): RtTalismanId[] {
+  const habitForm = pending.source === 'form' ? rtHabitKept(run, pending.nodeId) : null;
+  return [...rtFusionOwed(run).map(o => o.partner), ...habitForm ? [habitForm] : []];
 }
 /**
  * «Перебросить» (design 12.10.2026): pay the price from the most numerous resources (`shopPayment`), take the next draw of
@@ -1837,11 +1870,7 @@ export function rtRerollTalismans(current: RtRunState): RtRunStep {
   markVowReroll(run);
   if (view.free && rtGarrisonNodeId(pending.nodeId) && rtGarrisonRerollsLeft(run) > 0) run.garrisonRerolled = (run.garrisonRerolled ?? 0) + 1;
   else if (view.free) run.jailerRerolled = (run.jailerRerolled ?? 0) + 1;
-  // Task 44: the guaranteed pair stays on the screen through a reroll — it is not one of the shown ones. Task 50: so does the form of
-  // the run's archetype in place 1 of the Jailer's form screen.
-  const habitForm = pending.source === 'form' ? rtHabitKept(run, pending.nodeId) : null;
-  const pairs = [...rtFusionOwed(run).map(o => o.partner), ...habitForm ? [habitForm] : []];
-  const rerolled = [...pending.rerolled ?? [], ...pending.options.filter(id => !pairs.includes(id))];
+  const rerolled = [...pending.rerolled ?? [], ...pending.options.filter(id => !rerollKept(run, pending).includes(id))];
   // Task 30: the form screen rerolls by the node's form roll — no `talismans` draw.
   const options = talismanOfferOf(run, pending.nodeId, pending.source, pending.source === 'form' ? 0 : draw(run, 'talismans', true), rerolled)!;
   run.pending = { ...pending, options, rerolls: view.rerolls + 1, rerolled };
@@ -2337,7 +2366,12 @@ export function rtEnterNode(current: RtRunState, nodeId: string, oath: OathId | 
     }
     return { ok: true, run, events };
   }
-  if (node.type === 'rest') { run.pending = { kind: 'rest', nodeId, crafted: [] }; return { ok: true, run, events }; }
+  if (node.type === 'rest') {
+    run.pending = { kind: 'rest', nodeId, crafted: [] };
+    // Task 51д: the NPC away waits at the first rest of its zone.
+    if (run.hearth?.away && !run.npcMeet && rtMeetZone(run.hearth.away, node)) { run.npcMeet = { nodeId }; events.push({ type: 'npc-met', nodeId, npc: run.hearth.away }); }
+    return { ok: true, run, events };
+  }
   if (node.type === 'find') { offerFind(run, nodeId, events); return { ok: true, run, events }; }
   if (node.type === 'shop') {
     // The stock of the turn-based merchant from the `merchant` stream (spent, as there): consumables of the open kinds
@@ -2988,6 +3022,63 @@ export function rtShopReroll(current: RtRunState): RtRunStep {
   markVowReroll(run);
   return { ok: true, run, events: [{ type: 'shop-rerolled', nodeId: pending.nodeId, stock: structuredClone(pending.stock) }] };
 }
+// ---------- Task 51д «Уход по делам» and «Встреча на привале» (spec 3.4) ----------
+
+/** Task 51д: `node` is in the zone of the NPC away — its branch (or the trails) and its run rows. */
+export function rtMeetZone(npc: RtHearthLeaver, node: Pick<ForestMapNode, 'id' | 'row'>): boolean {
+  const zone = RT_MEET_ZONES[npc], row = runRow(node.row);
+  if (rtGarrisonNodeId(node.id) || row < zone.rows[0] || row > zone.rows[1]) return false;
+  const branch = node.id.startsWith('den-') ? 'den' : node.id.startsWith('camp-') ? 'camp' : null;
+  return branch === zone.branch;
+}
+/** Баланс (spec 3.4): the deal's price — Марфа's consumable and Ерофей's talisman cost this many resources; Шиш's «Скупка» gives as many. */
+export const RT_MEET_PRICE = 2;
+/** The meeting's deal options (ids): Марфа `item:<kind>` (2 kinds), Ерофей `talisman:<id>` (2 commons), Шиш `sell:<kind>` (a consumable held). */
+export interface RtMeetDeal { id: string; available: boolean; reason: string; item?: ItemKind; talisman?: RtTalismanId; gain?: ResourceKind }
+/** The meeting on the open rest: the NPC, its deals, whether one is made. Null — not the rest of the meeting. */
+export interface RtMeetView { npc: RtHearthLeaver; nodeId: string; deals: RtMeetDeal[]; deal?: string }
+/** The base of a meeting's deals: the stream `npc-meet` of the run seed and the node (no run stream spent). */
+const meetBase = (run: Pick<RtRunState, 'seed'>, nodeId: string): number => mixSeed(mixSeed(run.seed >>> 0, NPC_MEET_SALT), [...nodeId].reduce((h, ch) => Math.imul(h ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5));
+export function rtMeetView(run: RtRunState): RtMeetView | null {
+  const pending = run.pending, npc = run.hearth?.away, meet = run.npcMeet;
+  if (pending?.kind !== 'rest' || !npc || !meet || meet.nodeId !== pending.nodeId) return null;
+  const base = meetBase(run, pending.nodeId), total = stockTotal(run.materials), done = meet.deal !== undefined;
+  const short = total < RT_MEET_PRICE ? `Нужно ресурсов: ${RT_MEET_PRICE}, есть ${total}` : '';
+  let deals: RtMeetDeal[];
+  if (npc === 'herb') {
+    // Марфа: 2 resources → 1 consumable of 2 (the rule of three potions: a healing one with a full hand is not sold).
+    const left = [...ITEM_KINDS], kinds: ItemKind[] = [];
+    for (let k = 0; k < 2; k++) kinds.push(left.splice(mixSeed(base, k) % left.length, 1)[0]);
+    deals = kinds.map(item => { const reason = done ? 'Сделка уже была' : rtItemRefusal(run, item) ? RT_ITEM_REFUSAL_TEXT.handFull : short; return { id: `item:${item}`, item, available: !reason, reason }; });
+  } else if (npc === 'smith') {
+    // Ерофей: 2 resources → 1 common talisman of 2 (as «Заточка» of «Бродячий точильщик»).
+    deals = rtEventTalismanOffer(base, 2, talismanPool(run)).map(talisman => { const reason = done ? 'Сделка уже была' : short; return { id: `talisman:${talisman}`, talisman, available: !reason, reason }; });
+  } else {
+    // Шиш «Скупка»: 1 consumable from the hand → 2 resources of the kind the deal names.
+    const gain = RESOURCE_KINDS[mixSeed(base, 0) % RESOURCE_KINDS.length];
+    deals = ITEM_KINDS.filter(item => run.items[item] > 0).map(item => { const reason = done ? 'Сделка уже была' : ''; return { id: `sell:${item}`, item, gain, available: !reason, reason }; });
+  }
+  return { npc, nodeId: pending.nodeId, deals, ...done ? { deal: meet.deal } : {} };
+}
+/** The meeting's one deal (`rtMeetView().deals[].id`); the rest's own choice (heal, craft, fusion) stays. «Уйти» — no step (nothing lost). */
+export function rtMeetDeal(current: RtRunState, id: string): RtRunStep {
+  const view = rtMeetView(current);
+  if (!view) return fail('Здесь никто не ждёт.');
+  const deal = view.deals.find(entry => entry.id === id);
+  if (!deal) return fail('Такой сделки нет.');
+  if (!deal.available) return fail(deal.reason);
+  const run = structuredClone(current), events: RtRunEvent[] = [{ type: 'npc-deal', nodeId: view.nodeId, npc: view.npc, deal: id }];
+  if (view.npc === 'gambler') { run.items[deal.item!] -= 1; run.materials[deal.gain!] += RT_MEET_PRICE; }
+  else {
+    const paid = shopPayment(run.materials, RT_MEET_PRICE);
+    for (const kind of RESOURCE_KINDS) run.materials[kind] -= paid[kind];
+    if (deal.item) gainItems(run, [deal.item], events);
+    if (deal.talisman) takeTalisman(run, deal.talisman, events);
+  }
+  run.npcMeet = { nodeId: view.nodeId, deal: id };
+  return { ok: true, run, events };
+}
+
 /** Баланс (spec 3.2): «Размен» — this many of one kind for that many of another. */
 export const RT_SWAP_GIVE = 3;
 export const RT_SWAP_GET = 2;
@@ -3460,6 +3551,8 @@ export interface RtHearthFlags {
   shopRerolls?: 1 | 2; swap?: true;
   /** Task 51г (Евлампий, spec 3.3): the vows taken for this run (1 — «Обет», 2 — «Два обета»); checked after the run (rtMeta.ts). */
   vows?: RtVowId[];
+  /** Task 51д (spec 3.4): the NPC away for this run — it waits at the first rest of its zone (`RT_MEET_ZONES`, `npcMeet`). */
+  away?: RtHearthLeaver;
 }
 /** Баланс (task 37): the most free Jailer rerolls a run may carry (v1 gives 1). */
 export const RT_HEARTH_REROLLS_MAX = 3;
@@ -3479,6 +3572,8 @@ export function rtCleanHearth(value: unknown): RtHearthFlags | undefined {
     ...value.shopRerolls === 1 || value.shopRerolls === 2 ? { shopRerolls: value.shopRerolls } : {}, ...value.swap === true ? { swap: true as const } : {},
     // Task 51г: Евлампий's vows — 1 or 2 different known ones.
     ...Array.isArray(value.vows) && value.vows.length >= 1 && value.vows.length <= 2 && value.vows.every(isRtVow) && new Set(value.vows).size === value.vows.length ? { vows: [...value.vows] as RtVowId[] } : {},
+    // Task 51д: the NPC away.
+    ...isRtHearthLeaver(value.away) ? { away: value.away } : {},
   };
   return Object.keys(out).length ? out : undefined;
 }
@@ -3552,7 +3647,15 @@ export function rtLevelSlots(run: Pick<RtRunState, 'battles'>, nodeId: string): 
  */
 function levelOffer(run: RtRunState, nodeId: string, base: number, pool: RtTalismanPool): RtTalismanOption[] {
   const slots = rtLevelSlots(run, nodeId), options: RtTalismanOption[] = garrisonRelicOffer(base, pool, slots);
-  if (slots !== RT_TROLL_ALL_PARTS_SLOTS) return options;
+  // Task 51: a run with `relicFill` fills every final relic screen (1 of 3 too); without it — only the Troll's 1 of 4, as before.
+  return slots === RT_TROLL_ALL_PARTS_SLOTS || run.relicFill ? rtFillRares(options, slots, base, pool) : options;
+}
+/**
+ * Task 48 (spec 24.13) and task 51 (design 17.10.2026, one rule for the relic screens): the places of `slots` the relics (and oaths) left empty
+ * take a rare talisman each — by the screen's own draw `base` (`rtTalismanOffer` of a hard battle, its rare place), the talismans shown on
+ * the screen out of the pool for the next one. Changes and returns `options`.
+ */
+export function rtFillRares(options: RtTalismanOption[], slots: number, base: number, pool: RtTalismanPool): RtTalismanOption[] {
   while (options.length < slots) {
     const rare = rtTalismanOffer(base, 'hard', { ...pool, gone: [...pool.gone, ...options] }, 1)[0];
     if (!rare) break;
@@ -3623,6 +3726,8 @@ export function rtGarrisonMaps(seed: number): number[] {
 }
 /** Task 51б: the garrison's seed of a run — the second map's with `garrisonMap` 1, else `garrisonSeed(seed)` as before. */
 export const rtGarrisonSeed = (run: Pick<RtRunState, 'seed' | 'garrisonMap'>): number => (run.garrisonMap === 1 ? rtGarrisonMaps(run.seed)[1] : garrisonSeed(run.seed));
+/** Task 51 (design 17.10.2026): a new run with the garrison fills its relic screens' empty places (`RtRunState.relicFill`). */
+export const RT_RELIC_FILL_ON = true;
 /** Баланс (task 40, design 4): the cart keeps this much of the stock by default («оставить 6»); it takes at most the forest's cap. */
 export const RT_CART_KEEP = 6;
 export const RT_CART_MAX = 20;
@@ -3838,6 +3943,8 @@ function checkRun(value: unknown): RtRunState | null {
   // Task 40: a flag, only with the garrison; the cart only in a run with it and the camp, once in the garrison (n of 0 … the
   // cart's most, not above the stock it was taken from).
   if (value.moat !== undefined && !(value.moat === true && value.garrison === true)) return null;
+  // Task 51: the relic screens filled — a flag, only with the garrison.
+  if (value.relicFill !== undefined && !(value.relicFill === true && value.garrison === true)) return null;
   // Task 43: a flag, only with «Ров».
   if (value.step2 !== undefined && !(value.step2 === true && value.moat === true)) return null;
   // Task 41: the cap of healing potions, a whole number from 1; absent — a save before it (no cap).
@@ -3858,6 +3965,9 @@ function checkRun(value: unknown): RtRunState | null {
   if (value.shopRerolled !== undefined && !(value.shopRerolled === true && isRecord(value.hearth) && isCount(value.hearth.shopRerolls) && value.hearth.shopRerolls >= 1)) return null;
   if (value.garrisonShopRerolled !== undefined && !(value.garrisonShopRerolled === true && isRecord(value.hearth) && value.hearth.shopRerolls === 2 && value.garrisonLevel !== undefined)) return null;
   if (value.swapped !== undefined && !(value.swapped === true && isRecord(value.hearth) && value.hearth.swap === true)) return null;
+  // Task 51д: the meeting only in a run with an NPC away, at a rest of its zone (entered or open now).
+  if (value.npcMeet !== undefined && !(isRecord(value.npcMeet) && typeof value.npcMeet.nodeId === 'string' && isRecord(value.hearth) && isRtHearthLeaver(value.hearth.away)
+    && (value.npcMeet.deal === undefined || (typeof value.npcMeet.deal === 'string' && /^(item|talisman|sell):[a-z-]+$/.test(value.npcMeet.deal))))) return null;
   // Task 51г: the reroll mark only in a run with «Без переброса».
   if (value.vowRerolled !== undefined && !(value.vowRerolled === true && isRecord(value.hearth) && Array.isArray(value.hearth.vows) && value.hearth.vows.includes('vow-no-reroll'))) return null;
   const level = garrisonStreams ? { seed: rtGarrisonSeed(value as { seed: number; garrisonMap?: 0 | 1 }), streams: garrisonStreams } : { seed: value.seed as number, streams };
@@ -3865,6 +3975,11 @@ function checkRun(value: unknown): RtRunState | null {
   const map = rtRunMap(run), known = (id: unknown): id is string => typeof id === 'string' && !!map.node(id);
   if (!Array.isArray(run.visited) || !run.visited.every(known) || !(run.currentNodeId === null || known(run.currentNodeId))) return null;
   if ((run.currentNodeId ?? null) !== (run.visited[run.visited.length - 1] ?? null)) return null;
+  // Task 51д: the meeting's rest — a rest of the zone of the NPC away, entered (visited or open now).
+  if (run.npcMeet) {
+    const meetNode = map.node(run.npcMeet.nodeId), open = isRecord(run.pending) && run.pending.kind === 'rest' && run.pending.nodeId === run.npcMeet.nodeId;
+    if (!meetNode || meetNode.type !== 'rest' || !rtMeetZone(run.hearth!.away!, meetNode) || !(open || run.visited.includes(meetNode.id))) return null;
+  }
   // The path goes along the map's edges from a row-5 node. Task 56: a step off them only under «Перепутье» of its level, counted.
   let offLinks = 0;
   const offLink = (fromId: string | undefined, id: string): boolean | null => {

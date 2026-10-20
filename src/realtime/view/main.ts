@@ -57,7 +57,7 @@ import { BuildColumn, labelOf } from './buildColumn';
 import { registerViewTestModule, VIEW_TEST_MODULE } from './buildTestModule';
 import { RunView, type ArenaItemNotice } from './runView';
 import { runRow } from '../run/arenaPools';
-import { rtFeatKinds, rtNode, rtRunBestChain } from '../run/rtRun';
+import { rtFeatKinds, rtNode, rtRunBestChain, rtShackleCuts } from '../run/rtRun';
 import { NewSeenStore } from './newSeen';
 import { HintStore, purseResultLine } from './hints';
 import { TOAD_LINES } from './heroLines';
@@ -333,6 +333,8 @@ async function boot(): Promise<void> {
     if (i === garrison0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Гарнизон — строй, поводки, Кастелян, кандалы'));
     // Task 48: the Troll at the end of the menu (the numbers before stay), test id `boss-arena-2` (after the Jailer's).
     if (i === forest0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Босс — Тролль (только песочница)'));
+    // Task 54a: the Chief's yard under its own heading (the Troll's arena is the first of this group, the numbers before stay).
+    if (i === forest0 + 1) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Босс — Главарь (только песочница)'));
     const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span data-summary="${i}">${markedGoalArena(arena, params.markedGoals).summary}</span>`, i >= forest0 ? `boss-arena-${BOSS_ARENAS.length + i - forest0 + 1}` : i >= garrison0 ? `garrison-arena-${i - garrison0 + 1}` : i >= boss0 ? `boss-arena-${i - boss0 + 1}` : i >= camera0 ? `camera-arena-${i - camera0 + 1}` : `arena-${i + 1}`);
     b.addEventListener('click', () => pick(i));
     arenaList.appendChild(b);
@@ -466,6 +468,8 @@ async function boot(): Promise<void> {
   let fightSevered = false;
   /** Task 48: the boss's parts severed in this fight (`partSevered` events) — `RtArenaOutcome.parts` (the run keeps it for the Troll). */
   let fightParts = 0;
+  /** Task 51г: the keymaster's shackles the dash cut in this fight (`tether` `cut` events of kind `shackle`) — `RtArenaOutcome.cuts`. */
+  let fightCuts = 0;
   /** Task 22 «Удар слышен»: one sound of a kind per 0.3 real seconds; the threats' starts read frame by frame (view/soundGate.ts). */
   const soundGate = new SoundGate(), threatWatch = new ThreatWatch();
   /** Task 12: the values of the run's arena (`rtArenaParams`: the run's flag `markedGoals`); null — the sandbox's `params`. */
@@ -480,6 +484,7 @@ async function boot(): Promise<void> {
     deathSeries.reset();
     fightSevered = false;
     fightParts = 0;
+    fightCuts = 0;
     if (simParams) return new Simulation({ arena, params: simParams, seed, record: true, beforeTick: world => { motion.save(world); }, ...hero ? { hero } : {}, ...loadout ? { loadout } : {} });
     return new Simulation({ arena, params: runArenaParams ?? params, seed, record: true, beforeTick: world => { motion.save(world); recorder?.beforeTick(world); deathWatch.seen(world); deathSeries.seen(world); }, ...hero ? { hero } : {}, loadout: loadout ?? sandboxLoadout() });
   };
@@ -877,6 +882,8 @@ async function boot(): Promise<void> {
       ...fightSevered ? { severed: true } : {},
       // Task 48: the Troll's parts severed (all three — the relic 1 of 4).
       ...fightParts ? { parts: fightParts } : {},
+      // Task 51г: the shackles cut (Евлампий's arrival and quest); absent at 0.
+      ...fightCuts ? { cuts: fightCuts } : {},
       ...w.status === 'defeat' && deathWatch.death ? { death: deathWatch.death } : {} });
   };
   /** The result's button only switches the screen: to the map, or to the end of the run. */
@@ -993,6 +1000,22 @@ async function boot(): Promise<void> {
     stopAim();
   };
 
+  /**
+   * UI-02 (20.10.2026): whether a run screen was open when this key went down (a capture listener runs before the screens' own, which may
+   * close one — the same key must not then land in the fight), and the held key of a focused button does not press it again.
+   */
+  let screenAtKey = false;
+  const pressesButton = (event: KeyboardEvent): boolean => (event.code === 'Space' || event.key === 'Enter') && !!(event.target as HTMLElement | null)?.closest?.('button, a[href], summary, [role="button"]');
+  window.addEventListener('keydown', event => {
+    screenAtKey = runScreenOpen;
+    if (event.repeat && pressesButton(event)) event.preventDefault();
+  }, { capture: true });
+  // A button pressed with the mouse does not keep the keys (Space is the jump, Enter goes on): the focus goes back to the page.
+  window.addEventListener('click', event => {
+    const button = (event.target as HTMLElement | null)?.closest?.('button');
+    if (button && event.detail > 0 && !runScreenOpen) button.blur();
+  });
+
   window.addEventListener('keydown', event => {
     const target = event.target as HTMLElement | null;
     const typing = !!target && (target.tagName === 'INPUT' || target.tagName === 'SELECT') && (target as HTMLInputElement).type !== 'range' && (target as HTMLInputElement).type !== 'checkbox';
@@ -1006,13 +1029,22 @@ async function boot(): Promise<void> {
       if (!control) { event.preventDefault(); held.add(event.code); }
       return;
     }
+    // UI-02: a held key does not repeat (the jump aim, the pause and the item keys flicker), and a focused button keeps its Space and Enter.
+    if (event.repeat || pressesButton(event)) return;
     // Design smoke v65 (D2): the boss's glide ignores the keys (as the fight's start it is not yet).
     if (renderer.bossIntroOn()) return;
     const ended = world().status !== 'playing';
+    /** UI-02: Esc cancels what is drawn or aimed; with nothing to cancel it is the pause (like P) — and it goes on from the pause. */
+    const escape = (): void => {
+      if (paused) { paused = false; return; }
+      const w = world();
+      if (dragging || w.chain.length > 0 || ui.jumpMode || itemAim !== null) { command({ t: 'cancel' }); dragging = false; stopAim(); }
+      else if (running()) paused = true;
+    };
     if (!sandbox) {
       // The run: no arena menu, no restart (a lost arena ends the run); Enter on a finished arena goes on.
-      if (runScreenOpen) return;
-      if (event.key === 'Escape') { command({ t: 'cancel' }); dragging = false; stopAim(); }
+      if (runScreenOpen || screenAtKey) return;
+      if (event.key === 'Escape') escape();
       // The prologue shows only the room's tiles (task 9, `PrologueRoom.tiles`): a key of a hidden tile does nothing (no jump aiming, no
       // command, no press for the hand) — design 13.10.2026. The last room has them all.
       else if (event.code === 'Space') { event.preventDefault(); if (!actionBar.allows('jump')) return; if (!dragging) toggleJump(); }
@@ -1027,7 +1059,7 @@ async function boot(): Promise<void> {
     if (digit >= 0 && (menuOpen || ended)) { start(digit); return; }
     if (event.code === 'KeyM') { if (menuOpen && !ended) { menuOpen = false; menu.hidden = true; } else showMenu(); return; }
     if (menuOpen) return;
-    if (event.key === 'Escape') { command({ t: 'cancel' }); dragging = false; stopAim(); }
+    if (event.key === 'Escape') escape();
     else if (event.code === 'Space') { event.preventDefault(); if (!dragging) toggleJump(); }
     else if (event.code === 'KeyQ') { if (running()) { command({ t: 'spin' }); stopAim(); } }
     else if (itemKey(event.code) >= 0) useItemKey(itemKey(event.code));
@@ -1407,7 +1439,7 @@ async function boot(): Promise<void> {
     }
     // П5: the run fight's chance (the goblin's pulls, the elites' loot) before the frame's events go.
     // П6: the run fight's killing blow, read the same way.
-    if (runView?.arenaOpen && !runArenaRecorded) { observeFightLuck(fightLuck, w.events); deathWatch.read(w, w.events); deathSeries.read(w, w.events); if (w.events.some(e => e.type === 'partSevered')) fightSevered = true; fightParts += w.events.filter(e => e.type === 'partSevered').length; }
+    if (runView?.arenaOpen && !runArenaRecorded) { observeFightLuck(fightLuck, w.events); deathWatch.read(w, w.events); deathSeries.read(w, w.events); if (w.events.some(e => e.type === 'partSevered')) fightSevered = true; fightParts += w.events.filter(e => e.type === 'partSevered').length; fightCuts += rtShackleCuts(w.events); }
     // Task 16 telemetry «Новизна»: the first meetings of a run fight (the kinds and affixes come from the captions, render.ts).
     if (firstMeets && runView?.arenaOpen && !prologue) {
       if (!firstMeets.has('elite') && w.enemies.some(e => e.elite && renderer.sees(e))) meetFirst('elite');
@@ -1853,6 +1885,14 @@ async function boot(): Promise<void> {
          * `tailFalls`, `unlinks` (white rings of links dropped with the window), `crumbles` (a struck snore's arc), `regrows`, `opens`.
          */
         troll: { ...renderer.trollShown },
+        /**
+         * Task 54a «Главарь» (render.ts `chiefShown`): `core` (his drawing this frame), `glow` (the window is open; `brew` — the brew's colour, −1 none),
+         * `count` (whole seconds over him) and `edgeCount` (by his goal arrow, off screen); `cauldron` (drawn), `steam` (puffs); `sign` (the move's
+         * sign now) and its fill `signProgress`, the signs by shape (`halfDiscs`, `circles`, `rings`, `gateMarks`, `seatMarks`); the queue — `dots`
+         * drawn, `litDots`, `dotColor`, `dropping` (the drawn chain's core blinks); `bowls` (seated eaters), `parts` (the parts' drawings);
+         * since the fight began — `hits` (signs flashed), `sparks` («звон»), `severed`, `unlinks`, `recolors`, `opens`, `feastHits`, `feastBig`, `supplies`, `brews`.
+         */
+        chief: { ...renderer.chiefShown },
         /** Task 28: the boss bar of the HUD (`BossBar.shown`) and the names of the boss's moves on screen now. */
         bossBar: bossBar.shown(),
         bossNames: bossLabels.map(l => l.spec.text),
@@ -2005,6 +2045,10 @@ async function boot(): Promise<void> {
       habitShown: () => runView.habitInfo(),
       /** Task 51б: «Предместье»'s offers of the camp's level 3 and the choice they hold (null - none). */
       gateShown: () => runView.gateInfo(),
+      /** Task 51в: the merchant's reroll and «Размен» as shown (null — no merchant open). */
+      shopShown: () => runView.shopInfo(),
+      /** Task 51д: the meeting at the open rest (the NPC, its deals, the deal made, the window open). */
+      meetShown: () => runView.meetInfo(),
       /** Task 49: the hero cards of the screen (ids, the chosen one, the best «Испытание» marks, the laws) and the cage scene (null - none). */
       heroesShown: () => runView.heroesShown(),
       /** Task 47, tests only: multiplies the times of the staged screens (С6, С8) by `k` — a slow reveal to act in the middle of it. */

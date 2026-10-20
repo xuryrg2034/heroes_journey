@@ -24,6 +24,8 @@ import './garrison';
 import './crossbow';
 // Task 48 «Тролль»: the boss of the forest — his core and his three parts (`Params.bossFrame`, his window `Params.trollWindow`).
 import './troll';
+// Task 54 «Главарь с котелком»: the boss of the camp's branch — his core and his two parts (`Params.bossFrame`, his feast `Params.chiefFeast`).
+import './chief';
 
 export { BOAR_ART_SCALE, type BoarState } from './boar';
 export { packmates, wolfHowl, wolfRushLine, wolfState, WOLF_RUSH } from './wolf';
@@ -39,4 +41,6 @@ export { CASTELLAN, GUARD, HANDLER, HOUND, castellanMove, houndFrenzied } from '
 export { KNIGHT, KNIGHT_LANE_WIDTH, knightLane, knightOffensive, knightState, knightSwing } from './garrison';
 // Task 48: the Troll for the view.
 export { TROLL, TROLL_CLUB, TROLL_MOVES, TROLL_ROCK, TROLL_TAIL, trollCore, trollMove, trollState, type TrollMoveId } from './troll';
+// Task 54: the Chief for the view.
+export { CHIEF, CHIEF_LADLE, CHIEF_MOVES, CHIEF_SACK, chiefCore, chiefMove, chiefState, whistleColors, type ChiefMoveId } from './chief';
 export * from './kinds';

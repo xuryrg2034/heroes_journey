@@ -697,3 +697,45 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-meta-omens { margin: 0; font-size: 15px; color: #e5dcc0; }
 .rt-meta-omens b { font: 700 18px system-ui, sans-serif; color: #ffd88a; font-variant-numeric: tabular-nums; }
 .rt-kind-omen { outline-color: #8fb7d6; }
+/* Task 51в: Шиш at the merchant — the reroll with his portrait, «Размен» (3 of one kind for 2 of another); compact: the card stays in 720 px. */
+.rt-run-modal .rt-shop-reroll { display: flex; align-items: center; justify-content: center; gap: 10px; padding-top: 3px; padding-bottom: 3px; }
+.rt-shop-npc { height: 36px; width: auto; }
+.rt-shop-note { margin: 2px 0 0; font-size: 12px; }
+.rt-shop-swap { display: grid; gap: 4px; padding: 6px 0 0; margin-top: 6px; border-top: 1px solid #4a4d39; }
+.rt-swap-head { display: flex; align-items: center; gap: 10px; }
+.rt-swap-head .rt-cart-head { margin: 0 auto 0 0; }
+.rt-run-modal .rt-swap-do { width: auto; margin: 0; padding: 4px 14px; }
+.rt-swap-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; color: #a7ad93; font-size: 13px; }
+.rt-swap-row > span { min-width: 84px; }
+.rt-swap-kind { padding: 3px 10px; background: #262d21; border: 1px solid #4a4d39; color: var(--rt-ink); cursor: pointer; }
+.rt-swap-kind small { color: #a7ad93; }
+.rt-swap-kind.rt-chosen { border-color: #ffd88a; background: #2d3526; }
+.rt-swap-kind:disabled { opacity: .4; cursor: default; }
+
+/* Task 51в: «✦» over a guest who came, until the first click (the same sign as «новое» of the Chronicle; «!» is the quest's). */
+.rt-hearth-new-mark { position: absolute; top: -6px; left: calc(50% - 11px); width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #2a2340; border: 1px solid #c8b0ff; color: #c8b0ff; font: 700 14px Georgia, serif; font-style: normal; pointer-events: none; }
+
+/* Task 51г: Евлампий's vows at the start of a run (2 or 3 cards, take up to 1 or 2). */
+.rt-vow.rt-chosen { border-color: #ffd88a; background: #2d3526; }
+.rt-vow:disabled { opacity: .45; }
+.rt-vow-go { display: block; width: 100%; margin-top: 14px; }
+.rt-hearth-modal .rt-run-note { margin: 0 0 10px; }
+
+/* Task 51д: the trace of an NPC away (on its place) and the meeting at the rest (portrait button, deal window). */
+.rt-hearth-trace .rt-hearth-art { filter: drop-shadow(0 4px 6px #000a); }
+.rt-hearth-trace:hover .rt-hearth-art { transform: translateY(-3px); }
+.rt-run-choice.rt-meet { display: flex; align-items: center; gap: 12px; }
+.rt-meet > span { display: grid; gap: 2px; }
+.rt-meet-npc { height: 56px; width: auto; flex: none; }
+.rt-meet-head { display: flex; align-items: center; justify-content: center; gap: 12px; }
+.rt-meet-head .rt-meet-npc { height: 52px; }
+
+/* Task 51г: the vows' sign in the map's header; a hover shows the list, a broken vow is struck through. */
+.rt-run-vows { position: relative; display: inline-flex; align-items: center; cursor: help; margin-right: 14px; }
+.rt-vows-tip { display: none; position: absolute; top: calc(100% + 8px); left: 0; z-index: 30; margin: 0; padding: 8px 12px; list-style: none; width: 260px; background: #f1e6c8; color: #1b2017; border: 2px solid #18232d; box-shadow: 0 6px 18px #000a; font: 13px Georgia, serif; }
+.rt-run-vows:hover .rt-vows-tip, .rt-run-vows:focus .rt-vows-tip { display: block; }
+.rt-vows-tip li { display: grid; padding: 3px 0; }
+.rt-vows-tip .rt-vows-head { font-weight: 700; border-bottom: 1px solid #c9b98a; margin-bottom: 3px; }
+.rt-vows-tip small { color: #5a5234; font-size: 12px; }
+.rt-vows-tip .rt-broken { text-decoration: line-through; opacity: .65; }
+.rt-vows-tip b { color: #1b2017; font: 700 14px Georgia, serif; }

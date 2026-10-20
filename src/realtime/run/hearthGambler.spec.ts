@@ -1,8 +1,7 @@
 /**
  * Task 51 «Лагерь, этап 3», step 51в (docs/design-notes/task-51-camp-l3.md, section 3.2; docs/realtime-slice.md, «Лагерь, этап 3»): Шиш,
  * the goblin card sharp. Node only: `npm run test:realtime-hearth-gambler`. Whole runs walked by the run's own commands (metaWalk.testkit.ts),
- * the profile as the view keeps it (`createRtProfileStore(storage, { gambler: true })` — his camp on; the game's default is off until the
- * camp's view of Шиш):
+ * the profile as the view keeps it (`createRtProfileStore(storage, { gambler: true, monk: false })` — his camp on; the game's default is on since the camp's view of Шиш; the other NPC's camps are off here):
  * - he comes by a real game of the goblins' circle, not without one; `last.casino` — the last game won or lost; with his camp off nothing
  *   changes (no arrival, no field); the fallback queue Марфа → Ерофей → Шиш;
  * - «Шишова лавка»: a forest merchant's goods drawn again once a run (the stream `hearth-shop`, the same by the seed), before a good is
@@ -31,7 +30,7 @@ check('Шиш comes by a real game of the circle, not without one; `last.casino`
   let came = 0, without = 0;
   const outcomes = new Set<string>();
   for (let k = 1; k <= 30; k++) {
-    const on = createRtProfileStore(memoryStorage(), { gambler: true }), off = memoryStorage(), offStore = createRtProfileStore(off);
+    const on = createRtProfileStore(memoryStorage(), { gambler: true, monk: false }), off = memoryStorage(), offStore = createRtProfileStore(off, { gambler: false, monk: false });
     const walk = walkRun({ k, create: { gift: 'full', garrison: false, locked: on.locked() }, circle: true, pickNode: toEvents });
     const end = on.endRunMeta(walk.run)!; offStore.endRunMeta(walk.run);
     const games = walk.run.casino?.games ?? [];
@@ -53,7 +52,7 @@ check('Шиш comes by a real game of the circle, not without one; `last.casino`
 });
 
 check('the fallback queue Марфа → Ерофей → Шиш: three quiet runs each; his camp off — Шиш never comes by it', () => {
-  const on = createRtProfileStore(memoryStorage(), { gambler: true }), offStorage = memoryStorage(), off = createRtProfileStore(offStorage);
+  const on = createRtProfileStore(memoryStorage(), { gambler: true, monk: false }), offStorage = memoryStorage(), off = createRtProfileStore(offStorage, { gambler: false, monk: false });
   const order: string[] = [];
   for (let k = 1; k <= 14; k++) {
     // Quiet runs: no event node (no choice brings anyone), no circle.
@@ -67,7 +66,7 @@ check('the fallback queue Марфа → Ерофей → Шиш: three quiet ru
 
 /** A profile with Шиш at `level` (met), his camp on: a stored profile as setup (the camp's levels are bought in the camp's view). */
 function gamblerCamp(level: number, quest?: boolean): ReturnType<typeof createRtProfileStore> {
-  const storage = memoryStorage(), store = createRtProfileStore(storage, { gambler: true });
+  const storage = memoryStorage(), store = createRtProfileStore(storage, { gambler: true, monk: false });
   store.endRunMeta(walkRun({ k: 2, create: { gift: 'full', garrison: false, locked: store.locked() } }).run);
   const p = JSON.parse(storage.data.get(RT_PROFILE_STORAGE_KEY)!);
   p.meta.hearth.levels.gambler = level; p.meta.hearth.met.gambler = true;

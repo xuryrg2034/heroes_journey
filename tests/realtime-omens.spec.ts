@@ -422,10 +422,12 @@ test('«Ярмарочный день»: the merchant\'s «Перебросит�
   await expect(page.getByTestId('run-shop')).toBeVisible();
   const reroll = page.getByTestId('shop-reroll');
   await expect(reroll).toBeEnabled();
-  await expect(reroll).toHaveText('Перебросить — бесплатно');
+  await expect(reroll).toHaveText('Перебросить товар — бесплатно');
+  await expect(page.locator('[data-action="shop-reroll"]')).toHaveCount(1);
   await expect(reroll).toHaveAttribute('data-fair', '1');
-  await expect(page.getByTestId('shop-reroll-fair')).toContainText('от приметы «Ярмарочный день»');
-  await expect(page.getByTestId('shop-reroll-fair').locator('.rt-omen-icon')).toHaveAttribute('data-omen', 'fair');
+  await expect(page.getByTestId('shop-reroll-note')).toHaveText('от приметы «Ярмарочный день»');
+  await expect(reroll.locator('.rt-omen-icon')).toHaveAttribute('data-omen', 'fair');
+  await expect(page.getByTestId('shop-swap')).toHaveCount(0);
   const goods = (): Promise<string[]> => page.locator('[data-testid^="shop-"][data-action="shop-buy"]').evaluateAll(els => els.map(el => el.getAttribute('data-testid')!));
   const before = await goods();
   await shot(page, 't56-shop');
@@ -550,5 +552,35 @@ test('«Урожай»: the sack stands at the open door with «Удар — в�
   expect((await snap(page)).onboarding.shown).toContain('omen-harvest');
   const recorded = await page.evaluate(() => { const rt = (window as any).__realtime; return { journal: rt.journal(), hash: rt.hash() }; }) as { journal: Journal; hash: string };
   expect(replay(recorded.journal).hash()).toBe(recorded.hash);
+  expect(errors).toEqual([]);
+});
+
+test('the merchant with «Ярмарочный день» and Шиш: one button — the omen's reroll first (icon, «от приметы»), then Шиш's (portrait, «Шишова лавка»); «Размен» stays; the screen fits 720 px', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = collectErrors(page);
+  const { run, nodeId } = mapWhere(['fair'], (_r, n) => n.type === 'shop', { hearth: { shopRerolls: 1, swap: true } as never });
+  await openSave(page, run);
+  await page.locator(`[data-node="${nodeId}"]`).click();
+  await page.getByTestId('run-enter').click();
+  await expect(page.getByTestId('run-shop')).toBeVisible();
+  const reroll = page.getByTestId('shop-reroll');
+  await expect(page.locator('[data-action="shop-reroll"]')).toHaveCount(1);
+  await expect(reroll).toHaveAttribute('data-fair', '1');
+  await expect(page.getByTestId('shop-reroll-note')).toHaveText('от приметы «Ярмарочный день»');
+  await expect(page.getByTestId('shop-swap')).toBeVisible();
+  const fits = async (): Promise<void> => { const box = await page.getByTestId('run-shop').locator('.rt-card').boundingBox(); expect(box!.y + box!.height).toBeLessThanOrEqual(720); };
+  await fits();
+  await shot(page, 't56-shop-fair-shish');
+  await reroll.click();
+  // The omen's is spent: the same single button is now Шиш's.
+  await expect(page.locator('[data-action="shop-reroll"]')).toHaveCount(1);
+  await expect(reroll).toHaveAttribute('data-fair', '0');
+  await expect(reroll).toBeEnabled();
+  await expect(page.getByTestId('shop-reroll-note')).toHaveText('Шишова лавка');
+  await expect(reroll.locator('.rt-shop-npc')).toHaveCount(1);
+  await fits();
+  await shot(page, 't56-shop-shish');
+  await reroll.click();
+  await expect(reroll).toBeDisabled();
   expect(errors).toEqual([]);
 });
