@@ -1849,7 +1849,8 @@ export class RunView {
         + `<dl class="rt-result-stats"><dt>Арен пройдено</dt><dd>${run.battles.filter(b => b.won).length}</dd>`
         + `<dt>Узлов</dt><dd>${run.visited.length}</dd><dt>Убито</dt><dd>${kills}</dd><dt>Получено урона</dt><dd>${damage}</dd></dl>`
         + this.luckHtml(run)
-        + (this.host.session?.on() ? `<p class="rt-run-session" data-testid="run-session-line">${escapeHtml(this.host.session.clock.endLine())}</p>` : '')
+        // Design 21.10.2026: the run of the day is no run of the session or the profile — its end has no «В игре … · походов N».
+        + (this.host.session?.on() && !run.daily ? `<p class="rt-run-session" data-testid="run-session-line">${escapeHtml(this.host.session.clock.endLine())}</p>` : '')
         + (run.daily ? '' : this.heroCardsHtml() + this.ashHtml()) + (meta || (run.daily && this.hearth) ? '<button class="rt-again" data-action="hearth" data-testid="run-to-hearth">В лагерь</button>' : '')
         + `<button class="${meta || run.daily ? 'rt-other' : 'rt-again'}" data-action="new-run" data-testid="run-new">Новый поход</button>${this.logsButton('logs-open-result')}`, `run-result-${run.result.outcome}`);
     }

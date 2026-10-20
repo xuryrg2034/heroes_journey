@@ -122,9 +122,10 @@ test('the run of the day: start, a fight, the end screen without experience, the
   await expect(page.locator('[data-testid^="meta-"]')).toHaveCount(0);
   await expect(page.getByTestId('daily-claim')).toContainText(DATE_TEXT);
   await expect(page.getByTestId('daily-claim')).not.toContainText(DATE);
-  // The run of the day is no run of the viewer's: the profile's count and the session's «походов» are as before; the line does not lie.
+  // The run of the day is no run of the viewer's: the profile's count and the session's «походов» are as before, and its end has no
+  // session line «В игре … · походов N» (design 21.10.2026; an ordinary run's end keeps it — realtime-session.spec.ts).
   expect(await page.evaluate(() => (window as any).__realtime.run.session.info().runs)).toBe(runsBefore);
-  await expect(page.getByTestId('run-session-line')).toHaveText('В игре меньше минуты · походов 1');
+  await expect(page.getByTestId('run-session-line')).toHaveCount(0);
   await expect(page.getByTestId('daily-save')).toBeEnabled({ timeout: 15_000 });
   await page.screenshot({ path: `${SHOTS}/daily-end.png` });
   // The log (tries 1, first = best) and the proof under its own key.
