@@ -286,7 +286,7 @@ await check('«Ярмарочный день»: a free reroll at each merchant o
       readsBack(after, `seed ${k}: after the omen's reroll`);
       fairShops++;
       const again = rtShopRerollView(after)!;
-      if (!shish) assert(!again.available && again.reason === 'Товар уже переброшен', `seed ${k}: no second reroll without Шиш (${JSON.stringify(again)})`);
+      if (!shish) assert(!again.available && again.reason === 'Перебросов не осталось', `seed ${k}: no second reroll without Шиш (${JSON.stringify(again)})`);
       else {
         assert(again.available && !again.fair, `seed ${k}: Шиш's reroll after the omen's`);
         const second = rtShopReroll(after);
