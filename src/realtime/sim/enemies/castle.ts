@@ -19,9 +19,10 @@
  * **«Удар ладьи»** (`rook-strike`): the rook stands at its post (no walk; a knockback does not move it; mass 3), HP `ROOK_HP`, a link of
  * its colour, never an elite, touches as a tough enemy (source `rook`). Its rest (`rookPeriod`) over, the hero within `AXIS_REACH` of one
  * of its two axes (the row or the column through it; the nearer) — the windup (`rookWindup`; the first of a fight `ROOK_FIRST_WINDUP`):
- * the axis both ways to the first wall, fixed now. The strike: on each half the FIRST body on it (its circle touches the lane,
- * `ROOK_HALF` each side): the hero — `rookDamage` (a shield blocks); an enemy dies (an elite loses a plate) — not the player's; a thing
- * shelters (the strike stops on it, it is whole). Frozen — it waits; its death drops the strike.
+ * the axis both ways to the first wall, its direction and width fixed now. Its sign: each half up to the first thing on it NOW
+ * (`rookCover`, design 17.10.2026: a thing shoved onto the axis or off it moves the sign's end; bodies do not end it). The strike: on each
+ * half the FIRST body before that cover (its circle touches the lane, `ROOK_HALF` each side): the hero — `rookDamage` (a shield blocks);
+ * an enemy dies (an elite loses a plate) — not the player's; none and a thing at the cover — it shelters (the thing is whole). Frozen — it waits; its death drops the strike.
  *
  * State in `enemy.vars`: things — `du` durability; the wardrobe — `tr` rest left, `tw` 1 winding up, `tc` windup left, `tt` its length,
  * `tf` 1 after its first windup, `lx`/`ly` the lane's start, `dx`/`dy` its direction, `lie` lying left; the rook — `rr` rest left, `rw` 1
@@ -185,12 +186,37 @@ function rayLength(world: World, x: number, y: number, dx: number, dy: number): 
   return MAX_LINE;
 }
 
-/** The rook's strike now (the view): the axis both ways from its post (fixed at the windup's start) and the windup's share, or null. */
+/** Where a body is along the half of the axis from the rook's post along (dx, dy) — its centre's distance — if its circle touches the lane. */
+function alongAxis(e: Enemy, dx: number, dy: number, len: number, b: Vec, r: number): number | null {
+  const rx = b.x - e.vars.ox, ry = b.y - e.vars.oy, t = rx * dx + ry * dy;
+  if (t <= 0 || t > len) return null;
+  return Math.abs(rx * dy - ry * dx) <= ROOK_HALF + r ? t : null;
+}
+
+/**
+ * The cover of a half of the axis (design 17.10.2026, task-55 §22): the first thing on it now (the barrel, the wardrobe; walls and
+ * columns already end the half at the windup's start) — its centre's distance along the half; none — the half's length to the wall.
+ * One rule for the sign (`rookLine`, read live: a thing shoved onto the axis or off it moves the sign's end) and for the strike.
+ */
+function rookCover(world: World, e: Enemy, dx: number, dy: number, len: number): number {
+  let cover = len;
+  for (const other of world.enemies) {
+    if (other === e || !kindOf(other).thing) continue;
+    const t = alongAxis(e, dx, dy, len, other, bodyRadiusOf(world.params, other));
+    if (t !== null && t < cover) cover = t;
+  }
+  return cover;
+}
+
+/**
+ * The rook's sign now (the view): the axis both ways from its post — its direction and width fixed at the windup's start, each half up to
+ * its first thing-cover now (bodies do not end it: they walk) — and the windup's share, or null.
+ */
 export function rookLine(world: World, e: Enemy): { x0: number; y0: number; x1: number; y1: number; axis: 'row' | 'column'; half: number; progress: number } | null {
   const v = e.vars;
   if (e.kind !== ROOK || v.rw !== 1 || world.status !== 'playing') return null;
-  const dx = v.ra === 0 ? 1 : 0, dy = v.ra === 0 ? 0 : 1;
-  return { x0: v.ox - dx * v.ln, y0: v.oy - dy * v.ln, x1: v.ox + dx * v.lp, y1: v.oy + dy * v.lp, axis: v.ra === 0 ? 'row' : 'column', half: ROOK_HALF, progress: Math.max(0, Math.min(1, 1 - v.rc / Math.max(1e-6, v.rt))) };
+  const dx = v.ra === 0 ? 1 : 0, dy = v.ra === 0 ? 0 : 1, plus = rookCover(world, e, dx, dy, v.lp), minus = rookCover(world, e, -dx, -dy, v.ln);
+  return { x0: v.ox - dx * minus, y0: v.oy - dy * minus, x1: v.ox + dx * plus, y1: v.oy + dy * plus, axis: v.ra === 0 ? 'row' : 'column', half: ROOK_HALF, progress: Math.max(0, Math.min(1, 1 - v.rc / Math.max(1e-6, v.rt))) };
 }
 
 function beginRook(world: World, e: Enemy, axis: 0 | 1): void {
@@ -201,18 +227,16 @@ function beginRook(world: World, e: Enemy, axis: 0 | 1): void {
   world.events.push({ type: 'rook', action: 'aim', id: e.id, axis: line.axis, x0: line.x0, y0: line.y0, x1: line.x1, y1: line.y1 });
 }
 
-/** One half of the strike: the first body along (dx, dy) within `len` — the hero, an enemy, or a thing (shelter). */
+/**
+ * One half of the strike: the first body along (dx, dy) before the half's cover (`rookCover`, the sign's end) — the hero or an enemy;
+ * none before it and a thing at it — the thing shelters (`thing`); nothing — null.
+ */
 function strikeHalf(world: World, e: Enemy, dx: number, dy: number, len: number): 'hero' | 'enemy' | 'thing' | null {
-  const p = world.params, o = { x: e.vars.ox, y: e.vars.oy };
-  const along = (b: Vec, r: number): number | null => {
-    const rx = b.x - o.x, ry = b.y - o.y, t = rx * dx + ry * dy;
-    if (t <= 0 || t > len) return null;
-    return Math.abs(rx * dy - ry * dx) <= ROOK_HALF + r ? t : null;
-  };
-  let best: Enemy | null = null, bestT = along(world.hero, heroRadius(p)), hero = bestT !== null;
+  const p = world.params, cover = rookCover(world, e, dx, dy, len);
+  let best: Enemy | null = null, bestT = alongAxis(e, dx, dy, cover, world.hero, heroRadius(p)), hero = bestT !== null;
   for (const other of world.enemies) {
-    if (other === e) continue;
-    const t = along(other, bodyRadiusOf(p, other));
+    if (other === e || kindOf(other).thing) continue;
+    const t = alongAxis(e, dx, dy, cover, other, bodyRadiusOf(p, other));
     if (t !== null && (bestT === null || t < bestT)) { best = other; bestT = t; hero = false; }
   }
   if (hero) {
@@ -220,10 +244,11 @@ function strikeHalf(world: World, e: Enemy, dx: number, dy: number, len: number)
     else noteBlock(world, world.hero.x, world.hero.y, ROOK_SOURCE, e.id);
     return 'hero';
   }
-  if (!best) return null;
-  if (kindOf(best).thing) return 'thing';
-  damageEnemy(world, best, Math.max(1, best.hp + 1), { source: ROOK_SOURCE, credited: false, firing: e.id });
-  return 'enemy';
+  if (best) {
+    damageEnemy(world, best, Math.max(1, best.hp + 1), { source: ROOK_SOURCE, credited: false, firing: e.id });
+    return 'enemy';
+  }
+  return cover < len ? 'thing' : null;
 }
 
 function stepRook(world: World, e: Enemy, dt: number): boolean {
@@ -236,9 +261,11 @@ function stepRook(world: World, e: Enemy, dt: number): boolean {
     v.rw = 0; v.rr = rookPeriodOf(world);
     if (world.status !== 'playing') return true;
     const dx = v.ra === 0 ? 1 : 0, dy = v.ra === 0 ? 0 : 1;
+    // The sign's ends at the strike (each half to its cover now), then the two halves.
+    const plusEnd = rookCover(world, e, dx, dy, v.lp), minusEnd = rookCover(world, e, -dx, -dy, v.ln);
     const plus = strikeHalf(world, e, dx, dy, v.lp);
     const minus = world.status === 'playing' ? strikeHalf(world, e, -dx, -dy, v.ln) : null;
-    world.events.push({ type: 'rook', action: 'shot', id: e.id, axis: v.ra === 0 ? 'row' : 'column', x0: v.ox - dx * v.ln, y0: v.oy - dy * v.ln, x1: v.ox + dx * v.lp, y1: v.oy + dy * v.lp, ...plus ? { plus } : {}, ...minus ? { minus } : {} });
+    world.events.push({ type: 'rook', action: 'shot', id: e.id, axis: v.ra === 0 ? 'row' : 'column', x0: v.ox - dx * minusEnd, y0: v.oy - dy * minusEnd, x1: v.ox + dx * plusEnd, y1: v.oy + dy * plusEnd, ...plus ? { plus } : {}, ...minus ? { minus } : {} });
     return true;
   }
   v.rr = Math.max(0, (v.rr ?? 0) - dt);

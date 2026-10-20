@@ -295,6 +295,42 @@ check('the rook: the column when the hero is nearer it; out of 2.5 of both axes 
   assert(!of(after, 'rook').length && dw.hero.hp === hp4, 'its death dropped the strike');
 });
 
+check("the rook's sign (design 17.10.2026): each half ends at its first thing-cover now — a wardrobe shoved onto the axis during the windup moves the end onto it and shelters the body behind it; shoved off — the sign reaches the wall again; an enemy on the axis does not end the sign and takes the strike (3 seeds)", () => {
+  for (const k of [1, 2, 3]) {
+    // Onto the axis: the west half ends at the wardrobe; the weak one behind it lives.
+    const on = field(k), w = on.world;
+    on.command({ t: 'teleport', x: 17, y: 7.5 });
+    const rook = place(on, { x: 12, y: 7 }, ROOK_HP, ROOK, 1), behind = place(on, { x: 5, y: 7 }, 0, 'basic', 2);
+    const wr = place(on, { x: 8, y: 9.5 }, 0, WARDROBE);
+    ticks(on, ticksOf(1), [], x => !!rookLine(x, rook));
+    const before = rookLine(w, rook)!;
+    assert(before.x0 < 0.1, `seed ${k}: the west half to the edge (${before.x0})`);
+    run(on, shovePath(w, wr, unit(0, -1)));
+    const after = rookLine(w, rook)!;
+    assert(Math.abs(wr.y - 6.5) < 1e-6 && Math.abs(after.x0 - 8) < 1e-6 && after.y0 === before.y0, `seed ${k}: the end moved onto the wardrobe (${after.x0})`);
+    const shot = of(ticks(on, ticksOf(2)), 'rook').find(e => e.action === 'shot');
+    assert(shot?.minus === 'thing' && w.enemies.includes(behind) && Math.abs(shot.x0 - 8) < 1e-6, `seed ${k}: sheltered (${JSON.stringify(shot)})`);
+    // Off the axis: the sign reaches the edge again.
+    const off = field(k), ow = off.world;
+    off.command({ t: 'teleport', x: 17, y: 7.5 });
+    const r2 = place(off, { x: 12, y: 7 }, ROOK_HP, ROOK, 1), w2 = place(off, { x: 8, y: 7 }, 0, WARDROBE);
+    ticks(off, ticksOf(1), [], x => !!rookLine(x, r2));
+    assert(Math.abs(rookLine(ow, r2)!.x0 - 8) < 1e-6, `seed ${k}: the end on the wardrobe`);
+    run(off, shovePath(ow, w2, unit(0, 1)));
+    assert(rookLine(ow, r2)!.x0 < 0.1, `seed ${k}: shoved off — the sign to the edge (${rookLine(ow, r2)!.x0})`);
+    // An enemy before the cover: the sign does not end on it, the strike kills it.
+    const body = field(k), bw = body.world;
+    body.command({ t: 'teleport', x: 17, y: 7.5 });
+    const r3 = place(body, { x: 12, y: 7 }, ROOK_HP, ROOK, 1), weak = place(body, { x: 10, y: 7 }, 0, 'basic', 3);
+    place(body, { x: 8, y: 7 }, 0, WARDROBE);
+    ticks(body, ticksOf(1), [], x => !!rookLine(x, r3));
+    assert(Math.abs(rookLine(bw, r3)!.x0 - 8) < 1e-6, `seed ${k}: the body does not end the sign`);
+    const s3 = of(ticks(body, ticksOf(2)), 'rook').find(e => e.action === 'shot');
+    assert(s3?.minus === 'enemy' && !bw.enemies.includes(weak), `seed ${k}: the strike killed the enemy before the cover`);
+    assert(replays(body), `seed ${k}: replay`);
+  }
+});
+
 // ---- Determinism ----
 
 check('the keys: a journal without the 12 new keys plays the same world (things, the topple, the rook); a fight without things keeps its world with the law on', () => {
