@@ -568,7 +568,11 @@ test('the merchant with «Ярмарочный день» and Шиш: one button
   await expect(reroll).toHaveAttribute('data-fair', '1');
   await expect(page.getByTestId('shop-reroll-note')).toHaveText('от приметы «Ярмарочный день»');
   await expect(page.getByTestId('shop-swap')).toBeVisible();
-  const fits = async (): Promise<void> => { const box = await page.getByTestId('run-shop').locator('.rt-card').boundingBox(); expect(box!.y + box!.height).toBeLessThanOrEqual(720); };
+  // The whole screen stands in the window with no scrolling: the card does not scroll; «Уйти», the reroll and «Размен» lie inside 0…720.
+  const fits = async (): Promise<void> => {
+    expect(await page.getByTestId('run-shop').locator('.rt-card').evaluate(el => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
+    for (const id of ['shop-leave', 'shop-reroll', 'shop-swap']) { const box = (await page.getByTestId(id).boundingBox())!; expect(box.y, id).toBeGreaterThanOrEqual(0); expect(box.y + box.height, id).toBeLessThanOrEqual(720); }
+  };
   await fits();
   await shot(page, 't56-shop-fair-shish');
   await reroll.click();
@@ -582,5 +586,24 @@ test('the merchant with «Ярмарочный день» and Шиш: one button
   await shot(page, 't56-shop-shish');
   await reroll.click();
   await expect(reroll).toBeDisabled();
+  await page.getByTestId('shop-leave').click();
+  await expect(page.getByTestId('run-shop')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('an ordinary merchant (no omen, no Шиш) is not broken: its goods, no reroll, «Уйти» in the window', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = collectErrors(page);
+  const { run, nodeId } = mapWhere(['moon'], (_r, n) => n.type === 'shop');
+  await openSave(page, run);
+  await page.locator(`[data-node="${nodeId}"]`).click();
+  await page.getByTestId('run-enter').click();
+  await expect(page.getByTestId('run-shop')).toBeVisible();
+  await expect(page.locator('[data-action="shop-reroll"]')).toHaveCount(0);
+  const leave = (await page.getByTestId('shop-leave').boundingBox())!;
+  expect(leave.y + leave.height).toBeLessThanOrEqual(720);
+  await shot(page, 't56-shop-plain');
+  await page.getByTestId('shop-leave').click();
+  await expect(page.getByTestId('run-shop')).toHaveCount(0);
   expect(errors).toEqual([]);
 });

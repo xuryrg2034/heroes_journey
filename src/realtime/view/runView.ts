@@ -1876,7 +1876,7 @@ export class RunView {
         + `${good.replaces ? `<small class="rt-run-reason" data-testid="replaces-${good.replaces}">Заменит «${escapeHtml(talismanName(good.replaces, run))}»</small>` : ''}${good.talisman ? habitMark(run, good.talisman) + recipeHtml(run, good.talisman) : ''}</button>`).join('');
       // Task 15: the header has one number; the merchant names the kinds (he takes from the most numerous).
       const kinds = resourceKindsText(run.materials);
-      return card(`<h2>Торговец</h2><p data-testid="shop-resources">Ресурсов: ${view.total}${kinds ? ` (${kinds})` : ''}.</p><div class="rt-run-choices">${goods}</div>`
+      return card(`<h2>Торговец</h2><p data-testid="shop-resources">Ресурсов: ${view.total}${kinds ? ` (${kinds})` : ''}.</p><div class="rt-run-choices${view.goods.length > 4 ? ' rt-shop-two' : ''}" data-testid="shop-goods">${goods}</div>`
         + this.shopGamblerHtml(run) + `<button class="rt-other" data-action="shop-leave" data-testid="shop-leave">Уйти</button>`, 'run-shop');
     }
     const view = rtEventView(run);

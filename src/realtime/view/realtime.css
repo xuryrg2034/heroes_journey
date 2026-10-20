@@ -739,3 +739,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-vows-tip small { color: #5a5234; font-size: 12px; }
 .rt-vows-tip .rt-broken { text-decoration: line-through; opacity: .65; }
 .rt-vows-tip b { color: #1b2017; font: 700 14px Georgia, serif; }
+
+/* Task 56в: a merchant with more than 4 goods (fair, Шиш, «Размен») must fit 1280×720 without scrolling — the goods in two columns, a wider card. */
+.rt-run-modal:has(.rt-shop-two) .rt-card { width: min(780px, calc(100vw - 32px)); }
+.rt-shop-two { grid-template-columns: 1fr 1fr; gap: 6px; }
+.rt-shop-two .rt-run-choice { padding: 6px 10px; }
+.rt-run-modal:has(.rt-shop-two) h2 { font-size: 26px; margin: 0 0 4px; }
