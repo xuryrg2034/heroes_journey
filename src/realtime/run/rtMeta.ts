@@ -20,6 +20,7 @@ import {
   HEARTH_VOW_SALT, isRtHearthLeaver, RT_HEARTH_AWAY_ON, RT_HEARTH_GAMBLER_ON, RT_HEARTH_MONK_ON, type RtHearthLeaver, RT_META_THRESHOLDS, RT_VOW_IDS, type RtVowId, RT_TOAD_ID, rtHeroPacks, rtLockedAfter, type RtHearthGuest, type RtHearthLevel, type RtHearthNpc, type RtHeroId, type RtMetaItem, type RtQuest, type RtQuestId, type RtQuestNpc,
 } from './metaCatalog';
 import { isRtAshLevel, rtCasinoResult, rtKnackShown, rtReachedJailer, type RtAshLevel } from './rtRun';
+import { isWarmupBest, type WarmupRecords } from './warmup';
 
 export { RT_HEARTH_PRICES, RT_META_PACKS, RT_META_THRESHOLDS } from './metaCatalog';
 
@@ -189,6 +190,8 @@ export interface RtMeta {
   offered?: string[];
   /** The last run applied (its key) and its result: a second call for the same run returns it. */
   applied?: { key: string; end: RtMetaEnd };
+  /** Task 51ж «Разминка»: the warmup layouts' records (run/warmup.ts `warmupMerge`); absent until the first attempt with a score. */
+  warmup?: WarmupRecords;
 }
 
 // ---------- The end of a run (the view's contract) ----------
@@ -733,5 +736,8 @@ export function parseRtMeta(value: unknown): RtMeta | undefined {
   } : undefined;
   const offered = Array.isArray(value.offered) ? [...new Set(value.offered.filter((id): id is string => typeof id === 'string'))] : undefined;
   const applied = isPlain(value.applied) && typeof value.applied.key === 'string' && isPlain(value.applied.end) ? { key: value.applied.key, end: structuredClone(value.applied.end) as unknown as RtMetaEnd } : undefined;
-  return { heroes, ...hero ? { hero } : {}, ...freed ? { freed } : {}, ...hearth ? { hearth } : {}, ...offered ? { offered } : {}, ...applied ? { applied } : {} };
+  // Task 51ж: the warmup records — only valid ones (`isWarmupBest`); none — absent (a profile before it reads as stored).
+  const warmupEntries = isPlain(value.warmup) ? Object.entries(value.warmup).filter(([id, record]) => isWarmupBest(id, record)) : [];
+  const warmup = warmupEntries.length ? Object.fromEntries(warmupEntries.map(([id, record]) => [id, { best: (record as { best: number }).best }])) as WarmupRecords : undefined;
+  return { heroes, ...hero ? { hero } : {}, ...freed ? { freed } : {}, ...hearth ? { hearth } : {}, ...offered ? { offered } : {}, ...applied ? { applied } : {}, ...warmup ? { warmup } : {} };
 }

@@ -16,6 +16,8 @@ import { isRtHeroId, RT_HERO_ID, RT_HERO_IDS, type RtHearthNpc, type RtHeroId } 
 // Task 56 «Приметы»: the gates of the omens and the pool the profile opened (run/omens.ts).
 import { rtOmenPool, rtOmensGate, type RtOmenId } from './omens';
 import { rtWonLevelOf } from './rtMeta';
+import { parseRtDailyLog, rtDailyBegin, rtDailyFinish, type RtDailyClaim, type RtDailyLog } from './rtDaily';
+import { warmupMerge, type WarmupId, type WarmupMerge, type WarmupRecords } from './warmup';
 
 /**
  * Casino stage 1, item 2: `-v7` (save version 7, the oath stake: the oath stream's counter, the open battle's offer and oath).
@@ -98,7 +100,7 @@ export function createRtRunStore(storage: RunStorage | null = browserStorage()):
  * All are absent until set: a profile without them reads and saves as before.
  */
 export interface RtHeroAsh { won?: true; ash?: Exclude<RtAshLevel, 0> }
-export interface RtProfile { version: typeof RT_PROFILE_VERSION; giftFull: boolean; jailer?: true; runs?: number; runsApprox?: true; won?: true; ash?: Exclude<RtAshLevel, 0>; seen?: string[]; seenMute?: number; meta?: RtMeta; heroAsh?: { toad?: RtHeroAsh }; omensOpen?: true }
+export interface RtProfile { version: typeof RT_PROFILE_VERSION; giftFull: boolean; jailer?: true; runs?: number; runsApprox?: true; won?: true; ash?: Exclude<RtAshLevel, 0>; seen?: string[]; seenMute?: number; meta?: RtMeta; heroAsh?: { toad?: RtHeroAsh }; omensOpen?: true; daily?: RtDailyLog }
 export const emptyRtProfile = (): RtProfile => ({ version: RT_PROFILE_VERSION, giftFull: false });
 
 export function parseRtProfile(text: string | null): RtProfile {
@@ -115,12 +117,25 @@ export function parseRtProfile(text: string | null): RtProfile {
     const toad = typeof value.heroAsh === 'object' && value.heroAsh && typeof value.heroAsh.toad === 'object' && value.heroAsh.toad ? value.heroAsh.toad as Partial<RtHeroAsh> : undefined;
     const toadAsh = toad && isRtAshLevel(toad.ash) && toad.ash >= 1 && toad.won === true ? toad.ash as Exclude<RtAshLevel, 0> : undefined;
     const heroAsh = toad?.won === true ? { toad: { won: true as const, ...toadAsh !== undefined ? { ash: toadAsh } : {} } } : undefined;
-    return { version: RT_PROFILE_VERSION, giftFull: value.giftFull === true, ...value.jailer === true || value.giftFull === true ? { jailer: true as const } : {}, ...runs !== undefined ? { runs } : {}, ...runs !== undefined && value.runsApprox === true ? { runsApprox: true as const } : {}, ...value.won === true ? { won: true as const } : {}, ...ash !== undefined ? { ash } : {}, ...seen !== undefined ? { seen } : {}, ...mute !== undefined ? { seenMute: mute } : {}, ...meta ? { meta } : {}, ...heroAsh ? { heroAsh } : {}, ...value.omensOpen === true ? { omensOpen: true as const } : {} };
+    return { version: RT_PROFILE_VERSION, giftFull: value.giftFull === true, ...value.jailer === true || value.giftFull === true ? { jailer: true as const } : {}, ...runs !== undefined ? { runs } : {}, ...runs !== undefined && value.runsApprox === true ? { runsApprox: true as const } : {}, ...value.won === true ? { won: true as const } : {}, ...ash !== undefined ? { ash } : {}, ...seen !== undefined ? { seen } : {}, ...mute !== undefined ? { seenMute: mute } : {}, ...meta ? { meta } : {}, ...heroAsh ? { heroAsh } : {}, ...value.omensOpen === true ? { omensOpen: true as const } : {}, ...dailyOf(value.daily) };
   } catch { return emptyRtProfile(); }
 }
 
 export interface RtProfileStore {
   load(): RtProfile;
+  /** Task 51ж «Разминка»: the layouts' records (`meta.warmup`; absent — none yet). */
+  warmup(): WarmupRecords | undefined;
+  /**
+   * Task 51ж: an attempt of layout `id` ended with `score` (null — none: death, «Выход», no clear field): merged into the records
+   * (`warmupMerge`) and stored when it set a new best. The view says `warmup_record` on `record`.
+   */
+  warmupResult(id: WarmupId, score: number | null): WarmupMerge;
+  /** Task 51з «Поход дня»: the attempts log (`daily`; absent — none yet), the last 30 dates. */
+  dailyLog(): RtDailyLog | undefined;
+  /** Task 51з: a run of the day of `date` begins — its attempt number (1, 2, …); null when not stored. */
+  dailyBegin(date: string): number | null;
+  /** Task 51з: the attempt `attempt` of `date` ended with `claim` on build `build` — whether it is the first and the best; null when not stored. */
+  dailyFinish(date: string, attempt: number, claim: RtDailyClaim, build: string): { first: boolean; best: boolean } | null;
   /** The gift a new run gets: a given seed — always the full one. */
   giftKind(seeded: boolean): 'full' | 'mini';
   /**
@@ -219,6 +234,21 @@ export function createRtProfileStore(storage: RunStorage | null = browserStorage
   const write = (profile: RtProfile): boolean => { try { if (!storage) return false; storage.setItem(RT_PROFILE_STORAGE_KEY, JSON.stringify(profile)); return true; } catch { return false; } };
   return {
     load: read,
+    warmup: () => read().meta?.warmup,
+    warmupResult: (id, score) => {
+      const profile = read(), merge = warmupMerge(profile.meta?.warmup, id, score);
+      if (merge.record && merge.records) write({ ...profile, meta: { heroes: {}, ...profile.meta, warmup: merge.records } });
+      return merge;
+    },
+    dailyLog: () => read().daily,
+    dailyBegin: date => {
+      const profile = read(), next = rtDailyBegin(profile.daily, date);
+      return write({ ...profile, daily: next.log }) ? next.attempt : null;
+    },
+    dailyFinish: (date, attempt, claim, build) => {
+      const profile = read(), next = rtDailyFinish(profile.daily, date, attempt, claim, build);
+      return write({ ...profile, daily: next.log }) ? { first: next.first, best: next.best } : null;
+    },
     giftKind: seeded => seeded || read().giftFull ? 'full' : 'mini',
     // Task 16: `jailer` stays once a run reached the Jailer (`giftFull` is the last run's only).
     // Task 18: `won` stays once an unseeded run was won.
@@ -325,6 +355,8 @@ export function rtProfileOmenPool(profile: RtProfile): RtOmenId[] {
   return rtOmenPool({ packs: heroes.flatMap(hero => hero.packs), garrison, gambler: meta?.hearth?.met.gambler === true });
 }
 
+/** Task 51з: the profile's attempts log as stored, only a valid one (`parseRtDailyLog`); none — no field. */
+const dailyOf = (value: unknown): { daily?: RtDailyLog } => { const log = parseRtDailyLog(value); return log ? { daily: log } : {}; };
 /** Task 49: the hero a profile call means — the one given (an open one or not: a run's hero), else the chosen one. */
 const heroOf = (profile: RtProfile, hero?: RtHeroId): RtHeroId => (isRtHeroId(hero) ? hero : rtHeroChoice(profile.meta));
 /** Task 49: the hero's «Испытание»: open (won) and the level chosen last (0 — none). */

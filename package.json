@@ -58,6 +58,7 @@
     "test:realtime-fusions-v2": "tsx src/realtime/sim/fusionsV2.spec.ts",
     "test:realtime-honed": "tsx src/realtime/sim/honed.spec.ts",
     "test:realtime-knacks-run": "tsx src/realtime/run/knacks.spec.ts",
+    "test:realtime-profile-extras": "tsx src/realtime/run/profileExtras.spec.ts",
     "test:realtime-daily": "tsx src/realtime/run/daily.spec.ts",
     "test:realtime-forms": "tsx src/realtime/sim/forms.spec.ts",
     "test:realtime-fork-dwell": "tsx src/realtime/sim/forkDwell.spec.ts",
