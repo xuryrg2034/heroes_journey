@@ -11,6 +11,7 @@
  * 4. «В лагерь: +N» — the resources fly from the header's number to it and it counts up; task 40 — «(Повозка +M)» beside it.
  * View only: the profile already holds the result (`MetaEnd`).
  */
+import { RT_XP_VOW } from '../run/rtMeta';
 import { GARRISON_TITLE } from '../run/garrison';
 import { countUpValue } from './juice';
 import { metaItemCard, xpBar, xpPartLabel, type MetaEnd } from './metaModel';
@@ -41,7 +42,10 @@ const hasRecord = (r: { row: number; wonLevel?: number; level?: number }): boole
 
 /** The block: the experience, the bar, the record, the carry, the pack's cards face down. */
 function blockHtml(m: MetaEnd): string {
-  const parts = m.xp.parts.filter(p => p.xp !== 0).map(p => `<li data-testid="meta-part-${p.id}"><span>${esc(xpPartLabel(p.id, p.n))}</span><b>+${p.xp}</b></li>`).join('');
+  // Task 51г (design 17.10.2026): «Обеты: сдержано N из M · +15×N» — the broken ones are seen by the number (a line even at N = 0).
+  const kept = m.vows?.filter(v => v.kept).length ?? 0;
+  const vows = m.vows?.length ? `<li data-testid="meta-part-vows"><span>Обеты: сдержано ${kept} из ${m.vows.length}</span><b>+${RT_XP_VOW}×${kept}</b></li>` : '';
+  const parts = m.xp.parts.filter(p => p.xp !== 0 && !(p.id === 'vows' && m.vows?.length)).map(p => `<li data-testid="meta-part-${p.id}"><span>${esc(xpPartLabel(p.id, p.n))}</span><b>+${p.xp}</b></li>`).join('') + vows;
   const bar = xpBar(m.xp.before, m.thresholds);
   const rec = m.record.after, before = m.record.before;
   const word = rowWord(rec.row, rec.wonLevel ?? 0, rec.level);

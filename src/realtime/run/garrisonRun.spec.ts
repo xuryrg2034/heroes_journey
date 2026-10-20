@@ -36,7 +36,8 @@ function check(name: string, run: () => void): void { run(); checks++; console.l
 // Task 50: the walks refuse the knack screen («Пропустить», RT_KNACKS_ON) — the garrison's checks go the route of before it.
 const walk = (k: number, garrison: boolean, extra: Partial<WalkOptions> = {}) => walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison }, knack: () => null, ...extra });
 /** The run without its garrison flags (to compare with a run without the flag; task 40: `moat` comes only with `garrison`; task 43: `step2` only with `moat`). */
-const withoutFlag = (run: RtRunState): string => { const copy = structuredClone(run) as Partial<RtRunState>; delete copy.garrison; delete copy.moat; delete copy.step2; return JSON.stringify(copy); };
+// Task 51: `guardroomFill` — a flag of a run with the garrison too.
+const withoutFlag = (run: RtRunState): string => { const copy = structuredClone(run) as Partial<RtRunState>; delete copy.garrison; delete copy.moat; delete copy.step2; delete copy.guardroomFill; return JSON.stringify(copy); };
 const forestBoss = (run: RtRunState): boolean => run.visited.some(id => !rtGarrisonNodeId(id) && rtNode(run, id)?.type === 'boss');
 
 check('with the flag the forest final goes on: level-cleared (no run-won), a relic 1 of 3 (only relics), «Предместье» with full HP, «В гарнизон» — the garrison\'s map', () => {
