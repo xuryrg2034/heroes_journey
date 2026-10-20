@@ -103,7 +103,23 @@ test('the gift full: the row «Повадка» first, the gift buttons wait for
     for (const id of icons[def.id]) expect(rtTalisman(id)?.tags, `${id} carries ${def.id}`).toContain(def.id);
     await expect(page.getByTestId(`habit-items-${def.id}`).locator('.rt-habit-item')).toHaveCount(icons[def.id].length);
   }
+  // Design 20.10.2026: a real hover on an item's icon gives the same bubble as the habit's mark, with the item's name alone (no effect).
+  for (const def of RT_HABITS) {
+    const icon = page.getByTestId(`habit-items-${def.id}`).locator('.rt-habit-item').first();
+    await icon.hover();
+    const tip = (await icon.getAttribute('data-tip'))!, shownText = await icon.evaluate(el => getComputedStyle(el, '::after').content);
+    expect(tip.length, `${def.id}: the name`).toBeGreaterThan(1);
+    expect(tip).not.toContain('—');
+    expect(shownText, `${def.id}: the bubble shows the name`).toBe(`"${tip}"`);
+    expect(await icon.getAttribute('title')).toBeNull();
+    if (def.id === 'cold') await shot(page, 'habit-item-tip');
+  }
+  await page.mouse.move(0, 0);
   const gifts = page.locator('[data-testid^="gift-"][data-action="gift"]');
+  // Design 20.10.2026: the oath's button says the name once — «Клятва голода» — effect (not «Клятва: «Клятва голода» — …»).
+  const texts = await gifts.allInnerTexts();
+  expect(texts.some(text => /^«Клятва голода» — /.test(text)), `an oath button: ${texts.join(' | ')}`).toBe(true);
+  expect(texts.every(text => !text.includes('Клятва: «')), 'the word is not said twice').toBe(true);
   expect(await gifts.count()).toBeGreaterThan(0);
   for (let i = 0; i < await gifts.count(); i++) await expect(gifts.nth(i)).toBeDisabled();
   expect(await shown(page)).toMatchObject({ row: true, chosen: false, signs: 0, habit: null });
