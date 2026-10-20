@@ -11,9 +11,12 @@
  * his window shut — a chain towards the nearest living part (each next link the one nearest the part, braziers too); the window
  * open (or the rule off) — a chain into the core; no part left — it waits by the core with the greedy chain.
  */
-import { canJump, jumpDownOpen, nextCandidates, nextObjectCandidates, objectRefusal } from '../src/realtime/sim/chain';
+import { canJump, jumpDownOpen, nextCandidates, nextObjectCandidates, objectRefusal, planChain, reachOf } from '../src/realtime/sim/chain';
 import { castellanGrate, gateLeverReady } from '../src/realtime/sim/enemies/garrison';
 import { TROLL, trollState } from '../src/realtime/sim/enemies/troll';
+import { CHIEF, chiefMove, chiefState } from '../src/realtime/sim/enemies/chief';
+import { enemyArtRadius } from '../src/realtime/sim/enemies/kinds';
+import { lineOfSight } from '../src/realtime/sim/geometry';
 import { blockedAt, type Vec } from '../src/realtime/sim/geometry';
 import { heroRadius, type Params } from '../src/realtime/sim/params';
 import { Simulation } from '../src/realtime/sim/simulation';
@@ -21,6 +24,7 @@ import type { Loadout } from '../src/realtime/sim/kit';
 import type { Enemy, World } from '../src/realtime/sim/world';
 import type { RtRunState } from '../src/realtime/run/rtRun';
 import { playChain } from './loopBot';
+import { shoveChain } from './shoveBot';
 
 /** The bot drinks a healing potion at this HP or lower. */
 export const HEAL_AT = 5;
@@ -56,6 +60,8 @@ export function aimAtCore(sim: Simulation, kinds: readonly string[]): void {
   if (!core || w.move || w.chain.length || w.status !== 'playing' || w.greedStart !== null) { playChain(sim); return; }
   // Task 48: the Troll — the core only in his window, else his parts.
   if (core.kind === TROLL) { aimAtTroll(sim, core); return; }
+  // Task 54: the Chief — in his window a queue of the brew into the core, else his parts.
+  if (core.kind === CHIEF) { aimAtChief(sim, core); return; }
   // Task 43: the full Castellan behind his grate — the bot goes to the nearest ready lever and pulls it (a chain of one link);
   // no lever ready — the greedy chain. With the grate up it hunts the core as below.
   const grate = castellanGrate(w);
@@ -129,6 +135,77 @@ function aimAtTroll(sim: Simulation, core: Enemy): void {
   playChain(sim);
 }
 
+/** Task 54: the bot waits for «Обед!» this far south of the Chief's core (out of the swing's reach, the seats within R). */
+const CHIEF_STAGE = 3.3;
+/** The longest queue the bot draws (the spec's bound). */
+const CHIEF_QUEUE_MAX = 8;
+
+/** The candidate chains the queue search tries at most, and the search's steps (a bound on the bot's time, not a rule). */
+const CHIEF_PATHS_MAX = 60, CHIEF_SEARCH_MAX = 4000;
+
+/**
+ * Task 54 (spec 15, question В15): the queue the bot draws in the Chief's window. The candidates — chains of the brew's enemy links
+ * from the hero (up to `CHIEF_QUEUE_MAX`, `need` or more) whose last link reaches the core by the chain's rule of reach and sight;
+ * each is judged by the game's own highlight, `planChain` of its links and the core (no pierce, no return run): the queue's links all
+ * fall or lose a plate, and the core takes a plate or dies. The best — the core dies, else the most plates, else the shortest;
+ * null — none. The refusal still decides when the bot draws it.
+ */
+function chiefQueuePath(w: World, core: Enemy): Enemy[] | null {
+  const st = chiefState(w);
+  if (!st) return null;
+  const need = st.need;
+  const cands = w.enemies.filter(e => e.color === st.brew && e.kind !== CHIEF && e.partOf === undefined);
+  const reach = (a: Vec, b: Enemy): boolean => Math.hypot(a.x - b.x, a.y - b.y) <= reachOf(w, enemyArtRadius(w.params, b))
+    && (!w.params.lineOfSight || lineOfSight(a, b, w.arena, -w.params.sightSlack));
+  const paths: Enemy[][] = [], path: Enemy[] = [];
+  let steps = 0;
+  const dfs = (at: Vec, used: Set<number>): void => {
+    if (paths.length >= CHIEF_PATHS_MAX || ++steps > CHIEF_SEARCH_MAX) return;
+    if (path.length >= need && reach(at, core)) paths.push([...path]);
+    if (path.length >= CHIEF_QUEUE_MAX) return;
+    for (const e of cands.filter(x => !used.has(x.id) && reach(at, x))) {
+      used.add(e.id); path.push(e);
+      dfs(e, used);
+      path.pop(); used.delete(e.id);
+    }
+  };
+  dfs(w.hero, new Set());
+  let best: { path: Enemy[]; score: number } | null = null;
+  const plates = core.armor?.plates ?? 0;
+  for (const p of paths) {
+    const plan = planChain(w, [...p, core].map(e => ({ kind: 'enemy' as const, id: e.id })), { pierce: false, back: false });
+    const out = plan.links[plan.links.length - 1]?.outcome;
+    if (!out || !(out.killed || out.plate) || !plan.links.slice(0, -1).every(l => l.outcome?.killed || l.outcome?.plate)) continue;
+    const score = (out.killed ? 100 : plates - (out.platesAfter ?? plates)) * 100 - p.length;
+    if (!best || score > best.score) best = { path: p, score };
+  }
+  return best?.path ?? null;
+}
+
+/** Task 54: the Chief's policy — his window open (or the rule off): a queue of the brew into him; «Обед!» winding up: to the seats; else a living part. */
+function aimAtChief(sim: Simulation, core: Enemy): void {
+  const w = sim.world, st = chiefState(w);
+  const stage = { x: core.x, y: core.y + CHIEF_STAGE }, toStage = (): void => {
+    const d = Math.hypot(stage.x - w.hero.x, stage.y - w.hero.y);
+    sim.command({ t: 'walk', x: d > 0.4 ? (stage.x - w.hero.x) / d : 0, y: d > 0.4 ? (stage.y - w.hero.y) / d : 0 });
+  };
+  if (!st?.rule) { chainToward(sim, core, core); return; }
+  if (st.window?.open) {
+    const path = chiefQueuePath(w, core);
+    if (!path) { toStage(); playChain(sim); return; }
+    sim.command({ t: 'begin', x: path[0].x, y: path[0].y });
+    for (const e of [...path.slice(1), core]) sim.command({ t: 'drag', x: e.x, y: e.y, mode: 'full' });
+    sim.command(w.chain.some(l => l.kind === 'enemy' && l.id === core.id) ? { t: 'release' } : { t: 'cancel' });
+    return;
+  }
+  if (chiefMove(w)?.move === 'feast') { toStage(); return; }
+  const dist2 = (e: Vec): number => (e.x - w.hero.x) ** 2 + (e.y - w.hero.y) ** 2;
+  const part = w.enemies.filter(e => e.partOf === core.id).sort((a, b) => dist2(a) - dist2(b))[0];
+  if (part) { chainToward(sim, part, core); return; }
+  toStage();
+  playChain(sim);
+}
+
 export interface BotFightOptions {
   params: Params;
   loadout: Loadout;
@@ -177,7 +254,8 @@ export function botFight(run: RtRunState, options: BotFightOptions): BotFight {
       sim.command({ t: 'begin', x: w.arena.door.x, y: w.arena.door.y });
       if (w.chain.some(l => l.kind === 'object')) sim.command({ t: 'release' }); else if (w.chain.length) sim.command({ t: 'cancel' });
     }
-    if (tick % 45 === 20) { if (options.aim) aimAtCore(sim, options.aim); else playChain(sim); }
+    // Task 55а: on an arena with things the bot shoves first when it is worth it (scripts/shoveBot.ts; no thing — no command).
+    if (tick % 45 === 20) { if (options.aim) aimAtCore(sim, options.aim); else if (!shoveChain(sim)) playChain(sim); }
     if (tick % 400 === 200) sim.command({ t: 'spin' });
     if (tick % 500 === 300 && canJump(w)) sim.command({ t: 'jump', x: w.hero.x + 2, y: w.hero.y - 1 });
     if (tick % 10 === 0 && w.hero.hp - buffer <= HEAL_AT && (w.kit?.items.healing ?? 0) > 0) sim.command({ t: 'item', kind: 'healing', x: w.hero.x, y: w.hero.y });

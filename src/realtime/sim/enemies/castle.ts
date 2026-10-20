@@ -105,8 +105,8 @@ const thingBehavior = (id: string, step?: (world: World, e: Enemy, dt: number) =
 const thingKind = (id: string, artScale: number) => registerEnemyKind({
   id, behavior: id, thing: true, immune: true, noElite: true, hp: () => 0, speed: () => 0,
   bodyScale: 1, artScale, touchDamage: () => 0, mass: () => THING_MASS, spread: false,
-  // Task 55а: the chain takes a thing as its last link with the law on (chain.ts, the last step of 55а); until then it is no link.
-  chainable: false, hitSource: id,
+  // Task 55а: the chain takes a thing as its last link with the law on (chain.ts; the law off — the refusal `colorless`).
+  chainable: true, hitSource: id,
 });
 
 /** The wardrobe's topple now (the view): its lane and the windup's share, or null. */

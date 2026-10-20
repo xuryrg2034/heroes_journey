@@ -12,7 +12,7 @@ import { BARREL, ROOK, ROOK_HP, TOPPLE_SOURCE, ROOK_SOURCE, WARDROBE, rookLine, 
 import { wall, type Vec } from './geometry';
 import { worldState } from './hash';
 import { itemRefusal } from './items';
-import { nextCandidates } from './chain';
+import { enemyRefusal, nextCandidates, planChain, REFUSAL_TEXT } from './chain';
 import { CASTLE_ARENAS } from './arenasCastle';
 import { defaultParams, type Params } from './params';
 import { durabilityOf, shovePath, startShove, type ShovePlan } from './shove';
@@ -331,6 +331,152 @@ check("the rook's sign (design 17.10.2026): each half ends at its first thing-co
   }
 });
 
+// ---- The thing in the chain (chain.ts): the highlight = the dash, by journalled commands ----
+
+/** Draws a chain through `points` (journalled begin / drag). */
+function draw(sim: Simulation, points: readonly Vec[]): void {
+  sim.command({ t: 'begin', x: points[0].x, y: points[0].y });
+  for (const q of points.slice(1)) sim.command({ t: 'drag', x: q.x, y: q.y, mode: 'full' });
+}
+/** Releases the drawn chain and ticks until the dash and the shove are over. */
+function release(sim: Simulation): WorldEvent[] {
+  assert(sim.command({ t: 'release' }), 'the chain is released');
+  return ticks(sim, ticksOf(4), [], w => !w.move && !w.shoves);
+}
+
+check('a thing is the chain\'s last link: after it any link is refused «цепь закончена»; it may be the first and only one; the law off — it is no link', () => {
+  const sim = field(1), w = sim.world;
+  sim.command({ t: 'teleport', x: 3, y: 7 });
+  const a = place(sim, { x: 4.6, y: 7 }, 0), barrel = place(sim, { x: 6.2, y: 7 }, 0, BARREL), after = place(sim, { x: 7.8, y: 7 }, 0, 'basic', 1);
+  draw(sim, [a, barrel]);
+  assert(w.chain.length === 2 && planChain(w).endsOnThing === true && enemyRefusal(w, after) === 'afterObject' && REFUSAL_TEXT.afterObject === 'цепь закончена', `after the barrel: ${enemyRefusal(w, after)}`);
+  sim.command({ t: 'cancel' });
+  draw(sim, [barrel]);
+  assert((w.chain.length as number) === 0, 'the barrel beyond the reach from the hero is not taken');
+  sim.command({ t: 'teleport', x: 5, y: 7.6 });
+  draw(sim, [barrel]);
+  assert((w.chain.length as number) === 1 && planChain(w).shove?.thing === barrel.id, 'the barrel as the first and only link');
+  sim.command({ t: 'cancel' });
+  sim.command({ t: 'param', key: 'shove', value: false });
+  assert(enemyRefusal(w, barrel) === 'colorless', 'the law off — no link');
+});
+
+check('the highlight = the dash (8 seeds, the crowd walks): a chain [weak, barrel] — the plan\'s crushed die and only they, the tough stop takes −2, the barrel breaks; the dash\'s kills and the shove\'s are the player\'s; the walked-off crushed still die; replay', () => {
+  for (let k = 1; k <= 8; k++) {
+    const p = quiet({ enemySpeed: 1.2 }), sim = new Simulation({ arena: 'castle-field', params: p, seed: seedOf(k), record: true }), w = sim.world;
+    sim.command({ t: 'clear', keepMarked: false });
+    sim.command({ t: 'teleport', x: 3, y: 7 });
+    const a = place(sim, { x: 4.6, y: 7 }, 0), barrel = place(sim, { x: 6.2, y: 7 }, 0, BARREL);
+    const off = (k % 4) * 0.15;
+    [place(sim, { x: 8.2, y: 7 + off }, 0, 'basic', 1), place(sim, { x: 9.6, y: 7.5 - off }, 0, 'basic', 2), place(sim, { x: 11, y: 6.4 + off }, 0, 'basic', 3), place(sim, { x: 10.5, y: 8.7 }, 0, 'basic', 0)];
+    const tough = place(sim, { x: 13.5, y: 7 }, 3, 'basic', 1);
+    draw(sim, [a, barrel]);
+    const plan = planChain(w).shove!;
+    assert(plan && plan.stop === 'body' && plan.target === tough.id && plan.impact?.damage === 2 && plan.breaks[0] === barrel.id, `seed ${k}: the plan ${JSON.stringify(plan && { stop: plan.stop, target: plan.target, impact: plan.impact })}`);
+    const kills = w.stats.kills, events = release(sim);
+    const crushed = of(events, 'shove').filter(e => e.action === 'crush').map(e => e.target);
+    assert(JSON.stringify(crushed) === JSON.stringify(plan.crushed.map(c => c.id)), `seed ${k}: crushed ${crushed} vs plan ${plan.crushed.map(c => c.id)}`);
+    assert(tough.hp === 1 && !w.enemies.includes(barrel) && of(events, 'thing').some(e => e.id === barrel.id), `seed ${k}: tough → ${tough.hp}, the barrel broke`);
+    assert(w.stats.kills === kills + 1 + plan.crushed.length && events.filter(e => e.type === 'kill').every(e => e.type === 'kill' && e.credited), `seed ${k}: kills ${w.stats.kills - kills}`);
+    assert(Math.abs(w.hero.x - 4.6) < 0.3 && Math.abs(w.hero.y - 7) < 0.3, `seed ${k}: the hero back at the last free spot (where the first link died) (${w.hero.x.toFixed(2)}, ${w.hero.y.toFixed(2)})`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
+check('the plan is the release\'s (spec 2.4, risk Р1): a tough body that comes into the lane during the dash neither stops the barrel nor is struck; the planned ones are crushed and struck (3 seeds)', () => {
+  for (const k of [1, 2, 3]) {
+    const sim = field(k), w = sim.world;
+    sim.command({ t: 'teleport', x: 3, y: 7 });
+    const a = place(sim, { x: 4.6, y: 7 }, 0), barrel = place(sim, { x: 6.2, y: 7 }, 0, BARREL);
+    const far = place(sim, { x: 12, y: 7 }, 0, 'basic', 2), stop = place(sim, { x: 15, y: 7 }, 3, 'basic', 3);
+    draw(sim, [a, barrel]);
+    const plan = planChain(w).shove!;
+    assert(plan.target === stop.id && plan.crushed.some(c => c.id === far.id), `seed ${k}: the plan`);
+    assert(sim.command({ t: 'release' }), 'released');
+    ticks(sim, 3);
+    assert(w.move, `seed ${k}: the dash runs`);
+    // A tough body on the lane ahead of the barrel, after the release.
+    const intruder = place(sim, { x: 9, y: 7 }, 3, 'basic', 1);
+    const events = ticks(sim, ticksOf(3), [], x => !x.move && !x.shoves);
+    assert(intruder.hp === 3 && !w.enemies.includes(far) && stop.hp === 1, `seed ${k}: intruder ${intruder.hp}, far dead ${!w.enemies.includes(far)}, stop ${stop.hp}`);
+    assert(of(events, 'shove').some(e => e.action === 'stop' && e.target === stop.id), `seed ${k}: the barrel stopped at the planned body`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
+check('the direction is the chain\'s last segment: the same barrel taken from the west and from the north slides east and south (different bodies crushed)', () => {
+  const go = (from: Vec): { sim: Simulation; plan: ShovePlan } => {
+    const sim = field(2), w = sim.world;
+    // The hero off the line of the link and the barrel: the hero → barrel direction is not the chain's last segment.
+    sim.command({ t: 'teleport', x: from.x === 10.5 ? 10 : 13.5, y: from.x === 10.5 ? 8.9 : 4.6 });
+    const link = place(sim, from, 0), barrel = place(sim, { x: 12, y: 7 }, 0, BARREL);
+    place(sim, { x: 15, y: 7 }, 0, 'basic', 1); place(sim, { x: 12, y: 10 }, 0, 'basic', 2);
+    draw(sim, [link, barrel]);
+    return { sim, plan: planChain(w).shove! };
+  };
+  const west = go({ x: 10.5, y: 7 }), north = go({ x: 12, y: 5.5 });
+  assert(west.plan.dir.x > 0.99 && north.plan.dir.y > 0.99, `directions ${JSON.stringify(west.plan.dir)} ${JSON.stringify(north.plan.dir)}`);
+  assert(west.plan.crushed.length === 1 && north.plan.crushed.length === 1 && west.plan.crushed[0].id !== north.plan.crushed[0].id, 'different bodies');
+  release(west.sim); release(north.sim);
+  assert(replays(west.sim) && replays(north.sim), 'replay');
+});
+
+check('the wardrobe by the chain: into the wall 2 → 1, then broken; into another wardrobe — both −1, the struck one does not slide and is refused «в движении» while the shove runs; into an elite — a plate (4 seeds)', () => {
+  for (const k of [1, 2, 3, 4]) {
+    const sim = field(k, { eliteArmor: true, wardrobeWindup: 3 }), w = sim.world;
+    sim.command({ t: 'teleport', x: 17.2, y: 3 });
+    const wr = place(sim, { x: 19, y: 3 }, 0, WARDROBE);
+    draw(sim, [wr]);
+    assert(planChain(w).shove?.wear[0].left === 1, `seed ${k}: the plan — 2 → 1`);
+    release(sim);
+    assert(durabilityOf(wr) === 1 && Math.abs(wr.x - (22 - 0.32)) < 0.06, `seed ${k}: at the wall, 2 → 1 (${wr.x})`);
+    sim.command({ t: 'teleport', x: 19.8, y: 3 });
+    draw(sim, [wr]);
+    assert(planChain(w).shove?.breaks[0] === wr.id, `seed ${k}: the plan — broken`);
+    release(sim);
+    assert(!w.enemies.includes(wr), `seed ${k}: broken`);
+    sim.command({ t: 'teleport', x: 3.2, y: 11 });
+    const a = place(sim, { x: 5, y: 11 }, 0, WARDROBE), b = place(sim, { x: 7.5, y: 11 }, 0, WARDROBE);
+    draw(sim, [a]);
+    assert(sim.command({ t: 'release' }), 'released');
+    let refused = false;
+    for (let i = 0; i < ticksOf(2) && (w.move || w.shoves || i === 0); i++) { sim.tick(); w.events.length = 0; if (w.shoves && enemyRefusal(w, b) === 'sliding' && enemyRefusal(w, a) !== null) refused = true; }
+    assert(refused && durabilityOf(a) === 1 && durabilityOf(b) === 1 && Math.abs(b.x - 7.5) < 1e-9, `seed ${k}: both −1, «в движении» (${refused})`);
+    sim.command({ t: 'teleport', x: 3.2, y: 2 });
+    const c = place(sim, { x: 5, y: 2 }, 0, WARDROBE), elite = place(sim, { x: 7.2, y: 2 }, 2, 'basic', 1, true);
+    const plates = elite.armor?.plates ?? 0;
+    draw(sim, [c]);
+    assert(planChain(w).shove?.impact?.plate === true, `seed ${k}: the plan — a plate`);
+    release(sim);
+    assert(plates > 0 && elite.armor!.plates === plates - 1 && elite.hp === 2, `seed ${k}: elite plates ${plates} → ${elite.armor?.plates}`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
+check('the shove\'s kills count for the chain\'s shield (3+): a lone barrel crushing 3 weak gives the shield; the wardrobe in the drawn chain does not topple until the dash ends, and the shove drops its windup', () => {
+  const sim = field(3, { chainShieldMinKills: 3, chainShield: 0.5 }), w = sim.world;
+  sim.command({ t: 'teleport', x: 4.5, y: 7 });
+  const barrel = place(sim, { x: 6.2, y: 7 }, 0, BARREL);
+  [8, 9.5, 11].forEach((x, i) => place(sim, { x, y: 7 }, 0, 'basic', i));
+  draw(sim, [barrel]);
+  assert(planChain(w).shove?.crushed.length === 3, 'the plan crushes 3');
+  assert(sim.command({ t: 'release' }), 'released');
+  ticks(sim, ticksOf(1), [], x => !x.move);
+  assert(w.hero.chainShield > 0, `the shield after the dash (${w.hero.chainShield})`);
+  // The wardrobe: its windup ends while it is a link of the drawn chain — no hit; the release's shove drops it.
+  const t = field(4), tw = t.world;
+  t.command({ t: 'teleport', x: 12.5, y: 7 });
+  const wr = place(t, { x: 10.6, y: 7 }, 0, WARDROBE);
+  ticks(t, ticksOf(1), [], x => !!wardrobeTopple(x, wr));
+  draw(t, [wr]);
+  assert(tw.chain.length === 1, 'the wardrobe in the chain');
+  const held = ticks(t, ticksOf(2.2));
+  assert(!held.some(e => e.type === 'wardrobe' && e.action === 'hit') && wardrobeTopple(tw, wr), 'no hit while it is a link; the windup holds');
+  const events = release(t);
+  assert(!events.some(e => e.type === 'wardrobe' && e.action === 'hit') && (wr.vars.tw as number) === 0 && Math.abs(wr.vars.tr - 5) < 0.5, `the shove dropped the windup (rest ${wr.vars.tr})`);
+  assert(replays(sim) && replays(t), 'replay');
+});
+
 // ---- Determinism ----
 
 check('the keys: a journal without the 12 new keys plays the same world (things, the topple, the rook); a fight without things keeps its world with the law on', () => {
@@ -358,7 +504,7 @@ check('the keys: a journal without the 12 new keys plays the same world (things,
   }
 });
 
-check("the castle's arenas («Прихожая», «Анфилада», «Бальный зал», the deep fight too): 40 s of a greedy bot replay from the journal to the same hash at every checkpoint; things stay whole; seeds differ", () => {
+check("the castle's arenas («Прихожая», «Анфилада», «Бальный зал», the deep fight too): 40 s of a greedy bot (its chains may end on things) replay from the journal to the same hash at every checkpoint; seeds differ", () => {
   for (const arena of CASTLE_ARENAS) {
     const hashes: string[] = [];
     for (const [k, deep] of [[1, false], [2, true]] as const) {
@@ -375,7 +521,7 @@ check("the castle's arenas («Прихожая», «Анфилада», «Бал
         sim.tick(); w.events.length = 0;
         if (w.tick % 300 === 0) checkpoints.push(sim.hash());
       }
-      assert(w.enemies.filter(e => e.kind === BARREL || e.kind === WARDROBE).length === things, `${arena.id}: things whole (no shove yet without the chain)`);
+      assert(w.enemies.filter(e => e.kind === BARREL || e.kind === WARDROBE).length <= things, `${arena.id}: things never come anew`);
       const again: string[] = [];
       const re = replay(JSON.parse(JSON.stringify(sim.exportJournal()!)), x => { if (x.world.tick % 300 === 0) again.push(x.hash()); });
       assert(re.hash() === sim.hash() && JSON.stringify(again) === JSON.stringify(checkpoints), `${arena.id} seed ${k}: replay`);

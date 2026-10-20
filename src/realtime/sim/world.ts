@@ -29,6 +29,8 @@ import { dropShackleOf, shackled } from './tethers';
 import { riotStep } from './enemies/garrison';
 // Task 48: the Troll's window guards his core from every source (enemies/troll.ts).
 import { TROLL, TROLL_CROWD, trollWards } from './enemies/troll';
+// Task 54: the Chief's feast guards his core from every source but the chain in his window (enemies/chief.ts).
+import { CHIEF, chiefWards, seatedEater } from './enemies/chief';
 // Casino stage 1 («Однорукий гоблин», slot.ts): the slot's state and step.
 import { goblinOf, placeArenaGoblin, updateSlot, type SlotOutcome, type SlotState, type SlotSymbol } from './slot';
 import { fallenEmbers, greedHurt, purseDoor, purseKill, type DoorExit, type PurseMove, type PurseWorld } from './purse';
@@ -43,7 +45,7 @@ import { spawnEnemy, spawnReaper, toughHpMaxOf, updateSpawning, type QueuedSpawn
 // К7 «Проклятый сундук» (chest.ts): the chest of «Застава», its touch, the curse on the touch.
 import { curseTouch, placeChest, touchChest, type CurseState } from './chest';
 // Task 55а «Замок: толчок» (shove.ts): the things sliding after a dash.
-import { updateShoves, type Shove, type ShoveStop } from './shove';
+import { updateShoves, type Shove, type ShovePlan, type ShoveStop } from './shove';
 
 /**
  * Id of a registered enemy kind (enemies/*): prototype kinds `basic`, `wolf` (fast, hits harder next to other wolves),
@@ -276,6 +278,12 @@ export interface HeroMove {
    * body) — cut when the dash ends, whatever the bodies did on the way. Absent when none (dashes without them hash as before).
    */
   cuts?: number[];
+  /**
+   * Task 55а (`Params.shove`, shove.ts): the shove the release fixed (the plan's `shove`) and whether the dash reached its thing
+   * (`shoveHit`) — the dash's end runs it then, else cancels it. Absent when the chain does not end on a thing.
+   */
+  shove?: ShovePlan;
+  shoveHit?: true;
 }
 
 /**
@@ -517,7 +525,7 @@ export type WorldEvent =
    * a part died (`partSevered`: its id and spot; only while its core lives); after the dash the core lost plates to severed parts
    * (`bossPlate`: plates left) or entered a phase (`bossPhase`). The rules never read them.
    */
-  | { type: 'bossMove'; id: number; move: 'flail' | 'throw' | 'whistle' | 'club' | 'rock' | 'tail' | 'roar' | 'snore'; stage: 'start' | 'hit' }
+  | { type: 'bossMove'; id: number; move: 'flail' | 'throw' | 'whistle' | 'club' | 'rock' | 'tail' | 'roar' | 'snore' | 'swing' | 'pepper' | 'feast' | 'season'; stage: 'start' | 'hit' }
   | { type: 'partSevered'; id: number; x: number; y: number }
   | { type: 'bossPlate'; id: number; plates: number }
   | { type: 'bossPhase'; id: number; phase: number }
@@ -550,6 +558,15 @@ export type WorldEvent =
    * `dropped`, left the chain). The rules never read them.
    */
   | { type: 'trollWindow'; action: 'open' | 'hit' | 'block' | 'close' | 'unlink'; id: number; source: string; x: number; y: number; dropped?: number[] }
+  /**
+   * Task 54 «Главарь с котелком» (enemies/chief.ts): the window of the Chief's core — `open` («Обед!» struck; `colour` — the brew's),
+   * `hit` / `big` (the chain's hit landed, one plate / two; `links` — its queue), `block` (any other hit, or one outside the window or
+   * after its hit: no damage; `source` — the damage's), `close`, `unlink` (the core and the links after it, `dropped`, left the drawn
+   * chain: the window closed, or a link of its queue died). The rules never read them.
+   */
+  | { type: 'chiefFeast'; action: 'open' | 'hit' | 'big' | 'block' | 'close' | 'unlink'; id: number; colour: number; x: number; y: number; source?: string; links?: number; dropped?: number[] }
+  /** Task 54: the Chief's brew took a colour (at his spawn and each «Приправа»). The rules never read it. */
+  | { type: 'chiefBrew'; id: number; colour: number }
   /** Task 43 (enemies/garrison.ts «Рыцарь»): the knight's last plate went with the pass — it sheds its armour (the offensive starts). */
   | { type: 'knightShed'; id: number; x: number; y: number }
   /**
@@ -813,6 +830,9 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   // Task 48: the Troll's arena plays his window and his crowd (when the values hold the old ones; a journal keeps the copy).
   if (arena.troll && params.trollWindow === false) params = { ...copyParams(params), trollWindow: true };
   if (arena.troll && params.trollCrowd === DEFAULT_PARAMS.trollCrowd) params = { ...copyParams(params), trollCrowd: TROLL_CROWD };
+  // Task 54: the Chief's arena plays his feast and the boss's solid bodies (when the values have them off; a journal keeps the copy).
+  if (arena.chief && params.chiefFeast === false) params = { ...copyParams(params), chiefFeast: true };
+  if (arena.chief && params.trollSolid === false) params = { ...copyParams(params), trollSolid: true };
   // Task 55а: an arena of the castle plays the law of the shove (when the values have it off; a journal keeps the copy).
   if (arena.castle && !params.shove) params = { ...copyParams(params), shove: true };
   const maxHp = start ? Math.max(1, Math.floor(start.maxHp)) : params.heroHp;
@@ -1380,6 +1400,9 @@ export function noteBlock(world: World, x: number, y: number, source: HitSource,
   if (heroGuarded(world)) world.events.push({ type: 'block', x, y, source, ...enemyId ? { enemyId } : {} });
 }
 
+/** Task 55а: the link `id` is a thing (the barrel, the wardrobe) — never an enemy link for a count. */
+const thingLink = (world: World, id: number): boolean => { const e = world.enemies.find(x => x.id === id); return !!e && !!kindOf(e).thing; };
+
 /**
  * «Щит фокуса» (`focusGuardLinks`, design 12.10.2026): the drawn chain has that many enemy links (an elite with plates is a
  * link) and the focus is not empty (`focusing`: the time slowed) — touches and hits spare the hero. The released dash plays
@@ -1389,7 +1412,8 @@ export function focusGuarded(world: World): boolean {
   const need = world.params.focusGuardLinks;
   if (!(need > 0) || !world.focusing || world.move || world.status !== 'playing') return false;
   let links = 0;
-  for (const link of world.chain) if (link.kind === 'enemy' && ++links >= need) return true;
+  // Task 55а: a thing is no enemy link for the shield (nothing changes without one).
+  for (const link of world.chain) if (link.kind === 'enemy' && !thingLink(world, link.id) && ++links >= need) return true;
   return false;
 }
 
@@ -1531,6 +1555,8 @@ export function damageEnemy(world: World, e: Enemy, damage: number, cause: KillC
   if (damage <= 0 || kindOf(e).immune || !world.enemies.includes(e)) return;
   // Task 48: the Troll's core outside his window (or its hit spent) is not hurt (event `trollWindow` `block`; nothing on other kinds).
   if (e.kind === TROLL && trollWards(world, e, cause.source)) return;
+  // Task 54: the Chief's core — the chain's hit in his window only (event `chiefFeast` `block`; nothing on other kinds).
+  if (e.kind === CHIEF && chiefWards(world, e, cause.source)) return;
   // Package «Урон имеет значение»: an armoured elite with plates loses plates, not HP (elites.ts — the one place of the rule).
   if (platesOf(e) > 0) { stripPlates(world, e, cause); return; }
   const killed = damage >= e.hp;
@@ -1631,7 +1657,8 @@ function moveEnemies(world: World, dt: number): Set<Enemy> | null {
     // A frozen enemy stands: no own step (its timers wait), no walk.
     if (enemyFrozen(e)) continue;
     // Task 40: the keymaster's prisoner stands — no own step, no walk (a knockback still slides it; tethers.ts `shackled`).
-    const held = !!world.tethers && shackled(world, e);
+    // Task 54: an eater of the Chief's «Обед!» sits its time (`vars.sit`: only his eaters have it).
+    const held = (!!world.tethers && shackled(world, e)) || seatedEater(e);
     // Task 41: a prisoner a cut shackle set loose riots (the hound's law; only with `prisonerRiot`, never a hound: its own step).
     if (!calm && !held && e.kind !== 'hound' && (e.vars.loose || e.vars.fz) && riotStep(world, e, dt)) continue;
     // A behaviour with its own movement (the boar's windup, charge and rest) skips the common walk this step.
