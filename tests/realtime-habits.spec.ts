@@ -21,7 +21,7 @@ const shot = async (page: Page, name: string): Promise<void> => {
   await page.evaluate(() => Promise.all(document.getAnimations().filter(a => a.effect?.getComputedTiming().endTime !== Infinity).map(a => a.finished)));
   await page.screenshot({ path: `${process.env.SHOT_DIR}/${name}.png` });
 };
-const shown = (page: Page): Promise<{ habit: string | null | undefined; row: boolean; chosen: boolean; signs: number; marks: number; marked: string[] }> => page.evaluate(() => (window as any).__realtime.run.habitShown());
+const shown = (page: Page): Promise<{ habit: string | null | undefined; row: boolean; chosen: boolean; signs: number; marks: number; marked: string[]; flashes: number; flashing: number; items: Record<string, string[]>; hint: string }> => page.evaluate(() => (window as any).__realtime.run.habitShown());
 
 function collectErrors(page: Page): string[] {
   const errors: string[] = [];
@@ -94,6 +94,15 @@ test('the gift full: the row «Повадка» first, the gift buttons wait for
     await expect(card).toContainText(def.line);
   }
   await expect(page.getByTestId('habit-none')).toHaveText('Без повадки');
+  // Design 20.10.2026 (§18): the line under the title says what the choice does; each card shows 2-3 opened items of its tag beside the words.
+  await expect(page.getByTestId('gift-habits-hint')).toHaveText('Предметы с этим знаком будут попадаться чаще');
+  const icons = (await shown(page)).items;
+  for (const def of RT_HABITS) {
+    expect(icons[def.id].length, `${def.id}: 2-3 item icons`).toBeGreaterThanOrEqual(2);
+    expect(icons[def.id].length).toBeLessThanOrEqual(3);
+    for (const id of icons[def.id]) expect(rtTalisman(id)?.tags, `${id} carries ${def.id}`).toContain(def.id);
+    await expect(page.getByTestId(`habit-items-${def.id}`).locator('.rt-habit-item')).toHaveCount(icons[def.id].length);
+  }
   const gifts = page.locator('[data-testid^="gift-"][data-action="gift"]');
   expect(await gifts.count()).toBeGreaterThan(0);
   for (let i = 0; i < await gifts.count(); i++) await expect(gifts.nth(i)).toBeDisabled();
@@ -105,6 +114,7 @@ test('the gift full: the row «Повадка» first, the gift buttons wait for
   await expect(page.getByTestId('gift-0')).toBeDisabled();
   await page.getByTestId('habit-cold').click();
   expect(await shown(page)).toMatchObject({ row: true, chosen: true, habit: 'cold' });
+  await expect(page.getByTestId('gift-habits-hint'), 'the line goes once the habit is chosen').toHaveCount(0);
   await expect(page.getByTestId('habit-cold')).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('habit-flame')).toBeDisabled();
   const available = rtGiftView(run)!.options.filter(entry => entry.available).map(entry => entry.index);
@@ -171,12 +181,24 @@ test('a talisman screen: the icon stands in the corner of exactly the cards that
     expect(info.marks).toBeGreaterThan(0);
     expect(info.marks).toBeLessThan(options.length);
     for (const id of options) await expect(page.getByTestId(`habit-mark-${id}`)).toHaveCount(want.includes(id) ? 1 : 0);
-    // The mark has no caption and sits in the card's corner.
+    // The mark has no caption and sits in the card's corner (measured after the flash: its scale is an animation).
+    await page.evaluate(() => Promise.all(document.getAnimations().filter(a => a.effect?.getComputedTiming().endTime !== Infinity).map(a => a.finished.catch(() => null))));
     const card = await page.getByTestId(`talisman-${want[0]}`).boundingBox(), mark = await page.getByTestId(`habit-mark-${want[0]}`).boundingBox();
     expect(mark!.x + mark!.width).toBeLessThanOrEqual(card!.x + card!.width);
     expect(mark!.y).toBeLessThan(card!.y + card!.height / 2);
     await expect(page.getByTestId(`habit-mark-${want[0]}`)).toHaveText('');
+    // Design 20.10.2026 (§18): a hover on the mark gives a readable bubble, not a bare title; the first screen with marks flashes them once a run.
+    const tip = `Повадка «${def.name}»: такие предметы попадаются чаще`;
+    await expect(page.getByTestId(`habit-mark-${want[0]}`)).toHaveAttribute('data-tip', tip);
+    expect(info.flashes, `${def.id}: the first screen with marks flashed once`).toBe(1);
+    expect(info.flashing).toBe(info.marks);
+    await page.getByTestId(`habit-mark-${want[0]}`).hover();
+    expect(await page.getByTestId(`habit-mark-${want[0]}`).evaluate(el => getComputedStyle(el, '::after').content)).toBe(`"${tip}"`);
+    if (def.id === 'cold') await shot(page, 'habit-mark-tip');
+    await page.mouse.move(0, 0);
     if (def.id === 'cold') await shot(page, 'habit-mark-talisman');
+    // A redraw of the same screen does not flash again.
+    expect((await shown(page)).flashes).toBe(1);
   }
   expect(errors).toEqual([]);
 });

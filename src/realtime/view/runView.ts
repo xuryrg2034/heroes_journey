@@ -17,7 +17,7 @@ import { rosterTitle } from '../sim/rosters';
 import { rtHp } from '../run/hpScale';
 import {
   arenaPreview, createRtRun, rtRunParams, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtEnterNode,
-  rtChooseHabit, rtFormPool, rtChooseTalisman, rtRerollTalismans, rtRerollView, rtHammerRerollView, rtRerollHammers, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtFoughtJailer, rtRestCraft, rtRestFinish, rtRestFuse, rtRestHeal, rtRestView, rtFusionRecipe, rtFusionsReady, rtInnate, rtHandFull, rtItemRefusal, rtPotionCap, RT_ITEM_REFUSAL_TEXT, rtShopBuy, rtShopLeave, rtShopView, rtMeetView, rtMeetDeal, RT_MEET_PRICE, rtShopReroll, rtShopRerollView, rtShopSwap, rtShopSwapView, RT_SWAP_GIVE, RT_SWAP_GET, rtItemHintDue,
+  rtChooseHabit, rtChooseTalisman, rtRerollTalismans, rtRerollView, rtHammerRerollView, rtRerollHammers, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtFoughtJailer, rtRestCraft, rtRestFinish, rtRestFuse, rtRestHeal, rtRestView, rtFusionRecipe, rtFusionsReady, rtInnate, rtHandFull, rtItemRefusal, rtPotionCap, RT_ITEM_REFUSAL_TEXT, rtShopBuy, rtShopLeave, rtShopView, rtMeetView, rtMeetDeal, RT_MEET_PRICE, rtShopReroll, rtShopRerollView, rtShopSwap, rtShopSwapView, RT_SWAP_GIVE, RT_SWAP_GET, rtItemHintDue,
   rtOathPreview, rtOathStakeOn, rtArenaRules, RT_SECOND_WIND_LAST_ROW, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
   rtCasinoView, rtCasinoPlay, rtCasinoLeave, rtCasinoNode, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE,
   healOffer, healOnMap, healVisible, rtResourceTotal, rtNodeFeat, RT_HEAL_MAP_GAIN, rtAsh, rtAshOptions, rtAshTitle, rtRunWon, isRtAshLevel, type RtAshLevel, rtScheduleMet, RT_JAILER_SEVERED_SLOTS, RT_TROLL_ALL_PARTS_SLOTS, rtTrollNode, rtFormReplaces, rtFormSlotField,
@@ -26,7 +26,7 @@ import {
 } from '../run/rtRun';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
 import { GIFT_HP_PRICE, GIFT_MAX_HP_PRICE } from '../forest/runGift';
-import { RT_HABITS, RT_RARITY_NAME, rtHammer, rtTalisman, rtTalismanShown, rtTalismanText, type RtHabitId } from '../run/rtTalismans';
+import { RT_FORMS, RT_HABITS, RT_RARITY_NAME, RT_TALISMANS, rtHammer, rtTalisman, rtTalismanShown, rtTalismanText, type RtHabitId } from '../run/rtTalismans';
 import { FORM_FIELD_TITLES, fusionRecipe, isFusionId, type FusionId } from '../sim/buildIds';
 import { labelOf } from './buildColumn';
 import { honeLine, rankMarkHtml, wearsRank } from './knackView';
@@ -330,7 +330,9 @@ export const HABIT_HINT = 'Предметы с этим знаком будут 
 /** The line under «Сноровка» (the same design decision). */
 export const KNACK_HINT = 'Усиль счётчик, который у тебя есть, или возьми новый';
 function habitItems(run: RtRunState, habit: RtHabitId): string[] {
-  return rtFormPool(run).filter(id => rtTalisman(id)?.tags?.includes(habit)).slice(0, HABIT_ITEMS_SHOWN);
+  // The catalogue's opened items of the tag (not locked by the meta, not a relic: those come by the Jailer's gift), in the catalogue's order.
+  const seen = new Set<string>(), ids = [...RT_TALISMANS, ...RT_FORMS].filter(def => def.rarity !== 'relic' && def.tags?.includes(habit) && !run.locked?.includes(def.id) && !seen.has(def.id) && !!seen.add(def.id)).map(def => def.id);
+  return ids.slice(0, HABIT_ITEMS_SHOWN);
 }
 function habitRowHtml(habit: NonNullable<ReturnType<typeof rtGiftView>>['habit'] & object, run: RtRunState): string {
   const none = habit.chosen && habit.id === null;
