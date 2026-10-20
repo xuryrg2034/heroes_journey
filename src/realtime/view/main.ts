@@ -67,7 +67,7 @@ import { TOAD_LINES } from './heroLines';
 import { ToadLesson, isToad } from './toadLesson';
 import { findLoopHint, type LoopHintFigure } from './loopHint';
 import { ITEM_PULSE_ID, setPulse } from './pulse';
-import { bossMoveLabels, BOSS_LABEL_LIFE, detectLabels, labelActions, LEVER_OVER_LINE, RIOT_LABEL_LIFE, riotLabel, riotStarted, shackleCut, shackleLabel, shackleMet, WorldLabelLayer, type LabelSpec } from './worldLabels';
+import { barrelLabel, bossMoveLabels, BOSS_LABEL_LIFE, detectLabels, labelActions, LEVER_OVER_LINE, RIOT_LABEL_LIFE, riotLabel, riotStarted, shackleCut, shackleLabel, shackleMet, WorldLabelLayer, type LabelSpec } from './worldLabels';
 import { prologueHandSpot, prologueJumpAim, prologueLoadout, prologueParams, prologueRoom, prologueRoute, prologueShieldLinks, prologueSpinReady } from '../run/prologue';
 import { RT_RUN_HP } from '../run/hpScale';
 import { HAND_IDLE, HandGuide, PROLOGUE_ROOM_COUNT, SHIELD_HAND_IDLE, PrologueStore, TITLE_SECONDS, prologueCarry, prologueEntryRoom, prologueGoalLine, prologueLabel, prologueSeed, roomTitle, type PrologueHooks, type PrologueLabelMemo, type RoomOutcome } from './prologueFlow';
@@ -521,6 +521,8 @@ async function boot(): Promise<void> {
   let fightNo = 0, shackleSeen: string | null = null, shackleDone: string | null = null;
   /** Task 41: «На волю!» — `riotShown` the key whose flash came (once a run, the sandbox: a fight); `riot` — the flash on now. */
   let riotShown: string | null = null, riot: { id: number; life: number } | null = null;
+  /** Task 55а: «Кончи цепь на бочке — покатится» — `barrelShown` the key whose first barrel came into view (once a run, the sandbox: a fight), `barrelLife` real seconds left. */
+  let barrelShown: string | null = null, barrelLife = 0;
   const shackleKey = (): string => (sandbox ? `fight:${fightNo}` : `run:${runView?.state?.seed ?? ''}`);
   /** Task 28: the fight has a boss — the arena's band under the HUD keeps room for the boss bar (`relayout`). */
   let bossBand = false;
@@ -621,7 +623,7 @@ async function boot(): Promise<void> {
     const kit = world().kit;
     pendingArrivals = sandbox && kit ? [...kit.talismans.filter(id => !!FORM_FIELD[id]), ...kit.hammer ? [kit.hammer] : []] : [];
     labelLayer.hideAll();
-    bossNamed.clear(); bossLabels = []; riot = null;
+    bossNamed.clear(); bossLabels = []; riot = null; barrelLife = 0;
     fightNo++;
     bossBar.reset();
     bossBand = !!bossBarState(world());
@@ -1493,6 +1495,14 @@ async function boot(): Promise<void> {
         if (!spec) riot = null;
         else if (!runScreenOpen && !menuOpen && renderer.sees(spec.at)) specs.push(spec);
       }
+      // Task 55а: «Кончи цепь на бочке — покатится» — the first barrel in view, once a run (the sandbox: a fight), the shackle's rule for the run.
+      if (barrelShown !== key && w.status === 'playing' && !runScreenOpen && !menuOpen && (sandbox || (hintsOn && !!runView?.arenaOpen)) && barrelLabel(w, p => renderer.sees(p))) { barrelShown = key; barrelLife = BOSS_LABEL_LIFE; }
+      if (barrelLife > 0) {
+        barrelLife -= live ? realDt : 0;
+        const spec = barrelLife > 0 && w.status === 'playing' ? barrelLabel(w, p => renderer.sees(p)) : null;
+        if (!spec) barrelLife = 0;
+        else if (!runScreenOpen && !menuOpen) specs.push(spec);
+      }
       if (specs.length) {
         const stageBox = stage.getBoundingClientRect();
         const barTop = actionBar.el.hidden ? stageBox.bottom : actionBar.el.getBoundingClientRect().top, top = Math.max(0, Math.max(hud.getBoundingClientRect().bottom, bossBar.el.hidden ? 0 : bossBar.el.getBoundingClientRect().bottom) - stageBox.top), bottom = Math.min(stageBox.height, barTop - stageBox.top);
@@ -1674,7 +1684,7 @@ async function boot(): Promise<void> {
     motion.clear();
     renderer.resetEffects();
     sim = replayed;
-    bossNamed.clear(); bossLabels = []; riot = null; bossBar.reset(); bossBand = !!bossBarState(world());
+    bossNamed.clear(); bossLabels = []; riot = null; barrelLife = 0; bossBar.reset(); bossBand = !!bossBarState(world());
     renderer.buildArena(world().arena);
     paused = true;
     menuOpen = false; menu.hidden = true;
@@ -1853,6 +1863,9 @@ async function boot(): Promise<void> {
           things: w.enemies.filter(e => isThing(e)).map(e => ({ id: e.id, kind: e.kind, x: e.x, y: e.y, durability: durabilityOf(e) })),
           wardrobe: w.enemies.filter(e => e.kind === WARDROBE).map(e => { const t = wardrobeTopple(w, e); return { id: e.id, x: e.x, y: e.y, topple: t ? { from: { ...t.from }, to: { ...t.to }, half: t.half, progress: t.progress } : null, lying: wardrobeLying(e), drawn: renderer.castleLane(e.id), pose: renderer.castlePose(e.id) }; }),
           rook: w.enemies.filter(e => e.kind === ROOK).map(e => { const l = rookLine(w, e); return { id: e.id, x: e.x, y: e.y, hp: e.hp, line: l ? { x0: l.x0, y0: l.y0, x1: l.x1, y1: l.y1, axis: l.axis, progress: l.progress } : null }; }),
+          /** The shove's preview of the drawn chain (`ChainPlan.shove`; null — the chain does not end on a thing) and the first-barrel label now. */
+          preview: renderer.drawnShove ? { thing: renderer.drawnShove.thing, kind: renderer.drawnShove.kind, from: { ...renderer.drawnShove.from }, to: { ...renderer.drawnShove.to }, dir: { ...renderer.drawnShove.dir }, stop: renderer.drawnShove.stop, target: renderer.drawnShove.target ?? null, crushed: renderer.drawnShove.crushed.map(c => ({ ...c })), impact: renderer.drawnShove.impact ? { ...renderer.drawnShove.impact } : null, wear: renderer.drawnShove.wear.map(x => ({ ...x })), breaks: [...renderer.drawnShove.breaks] } : null,
+          label: barrelLife > 0 ? 'barrel' : '',
           shown: { ...renderer.castleShown },
         },
         /**

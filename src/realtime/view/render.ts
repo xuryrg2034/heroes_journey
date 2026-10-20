@@ -553,6 +553,7 @@ export class RealtimeRenderer {
   readonly captionShown = { texts: [] as string[], live: 0 };
   /** «−1 пластина» badges over armoured links of the drawn chain (reused texts). */
   private readonly plateLabels: Text[] = [];
+  private readonly shoveLabels: Text[] = [];
   /** What the elite view drew (tests read it): last-frame counts and totals since the last reset. */
   readonly eliteShown = { markers: 0, pips: 0, filledPips: 0, windows: 0, hotWindows: 0, planPlates: 0, formationLines: 0, secondLanes: 0, plaques: 0, plaquesSeen: 0, plaqueText: '', stripFlashes: 0, downFlashes: 0, cleanBreaks: 0, edgeArrows: 0 };
   /** Wolf rush lanes drawn in the last frame (carried into `signals`). */
@@ -2629,6 +2630,8 @@ export class RealtimeRenderer {
   private powerRed = false;
   /** The plan of the drawn chain this frame (drawChain), null — no chain drawn. */
   private drawnPlan: ChainPlan | null = null;
+  /** Task 55а (tests read it): the shove the drawn chain's plan has, or null. */
+  get drawnShove(): NonNullable<ChainPlan['shove']> | null { return this.drawnPlan?.shove ?? null; }
   /** Tests read these: the largest power shown in a dash, how many times the number grew, strike flashes and the closing flashes drawn. */
   powerShown = 0;
   powerGrowths = 0;
@@ -3246,6 +3249,8 @@ export class RealtimeRenderer {
     this.playerEffects.fireEdge = 0; this.playerEffects.fireEdgePoints = 0;
     for (const label of this.quillLabels) label.visible = false;
     for (const label of this.plateLabels) label.visible = false;
+    for (const label of this.shoveLabels) label.visible = false;
+    this.castle.beginPreview();
     for (const label of this.depthLabels) label.visible = false;
     this.linkDepthShown.labels = [];
     this.pierceShown.arrow = 0; this.pierceShown.marks = 0; this.pierceShown.end = 0;
@@ -3453,6 +3458,11 @@ export class RealtimeRenderer {
     const anchor = chainAnchor(world);
     this.drawLoop(g, world, plan.seal, ink);
     this.drawPierce(g, world, plan.pierce, ink);
+    // Task 55а: the chain ends on a thing — its shove as the plan has it (the path, the crushed, the strike, the wear), nothing recounted.
+    if (plan.shove) {
+      let word = 0;
+      this.castle.drawPreview(g, world, plan.shove, 1 / Math.max(0.1, this.scale), enemyDrawRadius(p) * UNIT, (text, x, y, fill) => { const l = this.shoveLabel(word++); l.text = text; l.style.fill = fill; l.position.set(x, y); l.visible = true; });
+    }
     this.drawFusionEnd(g, world, plan, ink);
     this.drawShieldSign(g, world, plan);
     this.drawHoned(g, world, plan);
@@ -3522,6 +3532,8 @@ export class RealtimeRenderer {
         label.position.set(pt.x * UNIT, pt.y * UNIT - r * 1.55);
         label.visible = true;
       }
+      // A thing (task 55а) is no strike: no mark on it, its shove has the preview above.
+      if (lp.outcome.thing) continue;
       const x = pt.x * UNIT, y = pt.y * UNIT, cx = x - r * 0.7, cy = y - r * 0.75;
       if (lp.outcome.plate) {
         // An armoured elite link: a plate hit, not a kill and not a survivor — a lemon ring and «−1 пластина»; the chain goes on.
@@ -4031,6 +4043,18 @@ export class RealtimeRenderer {
   }
 
   /** «−1 пластина» badges over armoured links of the drawn chain: the `i`-th text (a pool over the root). */
+  /** Task 55а: the `i`-th word of the shove's preview («−1 пластина», «−2 HP» at the end of the thing's path). */
+  private shoveLabel(i: number): Text {
+    while (this.shoveLabels.length <= i) {
+      const text = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 18, fontWeight: 'bold', fill: 0xffffff, stroke: { color: 0x1a2330, width: 5 } } });
+      text.anchor.set(0.5, 1);
+      text.visible = false;
+      this.root.addChild(text);
+      this.shoveLabels.push(text);
+    }
+    return this.shoveLabels[i];
+  }
+
   private plateLabel(i: number): Text {
     while (this.plateLabels.length <= i) {
       const text = new Text({ text: '−1 пластина', style: { fontFamily: 'Georgia, serif', fontSize: 18, fontWeight: 'bold', fill: ELITE_LEMON, stroke: { color: 0x1a2330, width: 5 } } });

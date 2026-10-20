@@ -13,14 +13,14 @@
  * - The numbers in the texts come from the code (`sim/chest.ts`), not from literals.
  */
 import type { Vec } from '../sim/geometry';
-import type { World } from '../sim/world';
+import type { Enemy, World } from '../sim/world';
 import { CHEST_CURSE_KILLS, CHEST_CURSE_TOUCH } from '../sim/chest';
 import { OBJECT_RADIUS } from '../sim/chain';
 import { leverOf } from '../sim/slot';
 import { BUILD_SOURCES } from '../sim/buildIds';
 import { KNIGHT } from '../sim/enemies/garrison';
 import { ROCK_RADIUS, TAIL_OUTER, TROLL } from '../sim/enemies/troll';
-import { wardrobeTopple } from '../sim/enemies/castle';
+import { BARREL, wardrobeTopple } from '../sim/enemies/castle';
 
 /** The three labels of the run (the ids are the v1 hints' Б6, Б8, Б9: the memory and the run record keep their keys). */
 export type LabelId = 'b6' | 'b8' | 'b9';
@@ -111,6 +111,23 @@ const TROLL_CLUB_LIFT = 0.9, TROLL_BELLY = 1.0;
  */
 export const CASTLE_MOVE_TEXT = { topple: 'Падение шкафа', strike: 'Удар ладьи' } as const;
 const TOPPLE_LABEL_LIFT = 0.9, ROOK_LABEL_LIFT = 1.1;
+
+/**
+ * Task 55а (design 17.10.2026, spec 3.1): «Кончи цепь на бочке — покатится» over the first barrel of the run in view (the sandbox: of the
+ * fight) for `BOSS_LABEL_LIFE` s; one label, no plate. The host keeps the once; null — no barrel in view.
+ */
+export const BARREL_LABEL_TEXT = 'Кончи цепь на бочке — покатится';
+const BARREL_LABEL_LIFT = 0.8;
+export function barrelLabel(w: World, onScreen: (p: Vec) => boolean): LabelSpec | null {
+  const hero = w.hero;
+  let best: Enemy | null = null, d = Infinity;
+  for (const e of w.enemies) {
+    if (e.kind !== BARREL || !onScreen(e)) continue;
+    const de = (e.x - hero.x) ** 2 + (e.y - hero.y) ** 2;
+    if (de < d) { d = de; best = e; }
+  }
+  return best ? { id: 'castle-barrel', text: BARREL_LABEL_TEXT, at: { x: best.x, y: best.y }, place: 'above', lift: BARREL_LABEL_LIFT } : null;
+}
 
 /** The names of the moves that start in this frame for the first time (`named` — the moves named in this fight; this adds to it). */
 export function bossMoveLabels(w: World, named: Set<string>): LabelSpec[] {

@@ -15,9 +15,10 @@
  */
 import type { Graphics, GraphicsContext } from 'pixi.js';
 import { BARREL, ROOK, ROOK_HALF, TOPPLE_LENGTH, WARDROBE, rookLine, wardrobeLying, wardrobeTopple } from '../sim/enemies/castle';
-import { durabilityOf } from '../sim/shove';
+import { durabilityOf, type ShovePlan } from '../sim/shove';
 import type { Enemy, World, WorldEvent } from '../sim/world';
 import { drawBoltLine } from './courtView';
+import { ELITE_LEMON } from './eliteView';
 import type { SignTools } from './trollView';
 
 const NAVY = 0x18232d;
@@ -51,6 +52,8 @@ export class CastleView {
   /** What the last frame drew and what the events brought (the test's snapshot). */
   readonly shown = {
     notches: 0, topples: 0, rookLines: 0, runs: 0, trails: 0,
+    /** The shove's preview of the frame (the drawn chain ends on a thing): 0/1, the weak bodies marked, the strike's mark ('' none, kill, plate, hit), the ghost's notches, the breaks marked. */
+    preview: 0, previewCrushed: 0, previewImpact: '' as '' | 'kill' | 'plate' | 'hit', previewNotches: 0, previewBreaks: 0,
     starts: 0, crushes: 0, impacts: 0, stops: 0, breaks: 0, falls: 0, cancels: 0, windups: 0, hits: 0, rises: 0, aims: 0, shots: 0, kicks: 0,
   };
   private fx: Fx[] = [];
@@ -98,6 +101,9 @@ export class CastleView {
 
   /** The counters of the frame start from zero (the event counts stay). */
   beginFrame(): void { this.shown.notches = 0; this.shown.topples = 0; this.shown.rookLines = 0; this.shown.runs = 0; this.shown.trails = 0; }
+
+  /** The chain's drawing starts a frame: no preview yet (it is drawn with the chain, a different place in the frame than the lanes). */
+  beginPreview(): void { Object.assign(this.shown, { preview: 0, previewCrushed: 0, previewImpact: '', previewNotches: 0, previewBreaks: 0 }); }
 
   /** The end of a frame: the kinds of the things (a broken thing's debris takes its colours from them), the lanes of the wardrobes. */
   note(world: World): void {
@@ -179,15 +185,84 @@ export class CastleView {
       if (!isThingKind(e.kind) || !sees(e)) continue;
       const n = Math.max(0, Math.min(4, durabilityOf(e)));
       if (n <= 0) continue;
-      const w = Math.max(8, r * 0.3), gap = w * 0.45, total = n * w + (n - 1) * gap, y = e.y * u + r * 1.12;
-      for (let i = 0; i < n; i++) {
-        const x = e.x * u - total / 2 + i * (w + gap);
-        g.roundRect(x, y, w, w * 0.7, 2).fill(NOTCH).stroke({ color: NAVY, width: 1.6 * Math.max(1, px) });
-      }
+      this.notchRow(g, e.x * u, e.y * u, n, r, px, 1);
       this.shown.notches += n;
     }
     this.fx = this.fx.filter(f => clock - f.born < f.life);
     for (const f of this.fx) this.drawFx(g, f, Math.max(0, Math.min(1, (clock - f.born) / f.life)), px);
+  }
+
+  /** `n` notches in a row at a thing's feet (`alpha` below 1 — a ghost's: the durability left after the shove). */
+  private notchRow(g: Graphics, x: number, y: number, n: number, r: number, px: number, alpha: number): void {
+    const w = Math.max(8, r * 0.3), gap = w * 0.45, total = n * w + (n - 1) * gap, top = y + r * 1.12;
+    for (let i = 0; i < n; i++) g.roundRect(x - total / 2 + i * (w + gap), top, w, w * 0.7, 2).fill({ color: NOTCH, alpha }).stroke({ color: NAVY, width: 1.6 * Math.max(1, px), alpha });
+  }
+
+  /** A red cross (the crush's mark, still): `s` the half arm. */
+  private cross(g: Graphics, x: number, y: number, s: number, color: number, width: number): void {
+    g.moveTo(x - s, y - s).lineTo(x + s, y + s).moveTo(x + s, y - s).lineTo(x - s, y + s).stroke({ color: THREAT_OUTLINE, width: width + 4, alpha: 0.85, cap: 'round' });
+    g.moveTo(x - s, y - s).lineTo(x + s, y + s).moveTo(x + s, y - s).lineTo(x - s, y + s).stroke({ color, width, alpha: 1, cap: 'round' });
+  }
+
+  /**
+   * The highlight of the shove (`ChainPlan.shove`, nothing recounted): the thing's path from where it stands to where it stops (dashes,
+   * an arrow's head), a ghost of the thing at the stop with the durability it will have, a red cross on each body it crushes, the mark
+   * of the strike at the end (a cross on the body that dies, a lemon ring and «−1 пластина» for a plate, «−N HP» for a body that
+   * lives), a cross over the ghost of a thing that will break. `say` puts a word at a point (a pool of the host).
+   */
+  drawPreview(g: Graphics, world: World, plan: ShovePlan, px: number, r: number, say: (text: string, x: number, y: number, fill: number) => void): void {
+    const u = this.unit, s = this.shown, fx = plan.from.x * u, fy = plan.from.y * u, tx = plan.to.x * u, ty = plan.to.y * u, len = Math.hypot(tx - fx, ty - fy);
+    s.preview = 1;
+    if (len > 4) {
+      const ux = (tx - fx) / len, uy = (ty - fy) / len;
+      for (const [w, c, a] of [[6, THREAT_OUTLINE, 0.55], [3, WHITE, 0.9]] as const) {
+        for (let t = r; t < len - r * 0.4; t += 24) { const e = Math.min(len - r * 0.4, t + 13); g.moveTo(fx + ux * t, fy + uy * t).lineTo(fx + ux * e, fy + uy * e); }
+        g.stroke({ color: c, width: w, alpha: a, cap: 'round' });
+      }
+      const hx = tx - ux * r * 1.3, hy = ty - uy * r * 1.3, nx = -uy, ny = ux, hw = r * 0.5;
+      g.poly([hx + ux * r * 0.55, hy + uy * r * 0.55, hx + nx * hw, hy + ny * hw, hx - nx * hw, hy - ny * hw]).fill({ color: WHITE, alpha: 0.95 }).stroke({ color: THREAT_OUTLINE, width: 2.5 });
+    }
+    // The ghost at the stop; the durability it will have.
+    g.circle(tx, ty, r).fill({ color: WHITE, alpha: 0.12 }).stroke({ color: WHITE, width: 2.5, alpha: 0.85 });
+    const own = plan.wear.find(w => w.id === plan.thing);
+    if (own && own.left > 0) { this.notchRow(g, tx, ty, Math.min(4, own.left), r, px, 0.75); s.previewNotches += Math.min(4, own.left); }
+    if (plan.breaks.includes(plan.thing)) { this.cross(g, tx, ty, r * 0.6, RED, 4); s.previewBreaks++; }
+    // The weak bodies it crushes.
+    for (const c of plan.crushed) {
+      const e = world.enemies.find(q => q.id === c.id), x = e ? e.x * u : fx + plan.dir.x * c.at * u, y = e ? e.y * u : fy + plan.dir.y * c.at * u;
+      this.cross(g, x, y, r * 0.55, RED, 4.5);
+      s.previewCrushed++;
+    }
+    // The strike at the end.
+    const hit = plan.impact, target = hit ? world.enemies.find(q => q.id === hit.id) : undefined;
+    if (hit && target) {
+      const x = target.x * u, y = target.y * u;
+      if (hit.killed) {
+        g.circle(x - r * 0.7, y - r * 0.75, r * 0.32).fill(0xf4efe0).stroke({ color: NAVY, width: 2 });
+        this.cross(g, x - r * 0.7, y - r * 0.75, r * 0.2, 0xa8322a, 3);
+        s.previewImpact = 'kill';
+      } else if (hit.plate) {
+        g.circle(x, y, r + 4).stroke({ color: ELITE_LEMON, width: 4 });
+        say('−1 пластина', x, y + r + 16, ELITE_LEMON);
+        s.previewImpact = 'plate';
+      } else if (hit.damage > 0) {
+        g.circle(x, y, r + 4).stroke({ color: 0xffa040, width: 4 });
+        say(`−${hit.damage} HP`, x, y + r + 16, 0xffa040);
+        s.previewImpact = 'hit';
+      }
+    }
+    // The other thing of a thing-on-thing stop: its durability left, a cross if it breaks too.
+    for (const w of plan.wear) {
+      if (w.id === plan.thing) continue;
+      const other = world.enemies.find(q => q.id === w.id);
+      if (!other) continue;
+      if (w.left > 0) { this.notchRow(g, other.x * u, other.y * u, Math.min(4, w.left), r, px, 0.75); s.previewNotches += Math.min(4, w.left); }
+    }
+    for (const id of plan.breaks) {
+      if (id === plan.thing) continue;
+      const other = world.enemies.find(q => q.id === id);
+      if (other) { this.cross(g, other.x * u, other.y * u, r * 0.6, RED, 4); s.previewBreaks++; }
+    }
   }
 
   private drawFx(g: Graphics, f: Fx, k: number, px: number): void {
