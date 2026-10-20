@@ -4,7 +4,7 @@
  *
  * Whole runs walked by the run's own commands (enter, the arena fed back with an outcome as the view builds it, every screen chosen;
  * metaWalk.testkit.ts) and what the player meets:
- * - with the flag: the forest final does not end the run — `level-cleared`, a relic 1 of 3 (only relics), «Предместье» with HP at the
+ * - with the flag: the forest final does not end the run — `level-cleared`, a relic 1 of 3 (the relics left, then rares — task 51), «Предместье» with HP at the
  *   maximum, «В гарнизон»: the garrison's map (10 rows, «Караульня» on row 5, «Кастелян» on row 10), its fights — «Плац» first, the
  *   checkpoint «Караульня», the boss «Двор кастеляна»; the victory over the Castellan wins the run;
  * - the garrison's maps differ across seeds, the same seed — the same map; the forest's map is the same as without the flag;
@@ -36,11 +36,11 @@ function check(name: string, run: () => void): void { run(); checks++; console.l
 // Task 50: the walks refuse the knack screen («Пропустить», RT_KNACKS_ON) — the garrison's checks go the route of before it.
 const walk = (k: number, garrison: boolean, extra: Partial<WalkOptions> = {}) => walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison }, knack: () => null, ...extra });
 /** The run without its garrison flags (to compare with a run without the flag; task 40: `moat` comes only with `garrison`; task 43: `step2` only with `moat`). */
-// Task 51: `guardroomFill` — a flag of a run with the garrison too.
-const withoutFlag = (run: RtRunState): string => { const copy = structuredClone(run) as Partial<RtRunState>; delete copy.garrison; delete copy.moat; delete copy.step2; delete copy.guardroomFill; return JSON.stringify(copy); };
+// Task 51: `relicFill` — a flag of a run with the garrison too.
+const withoutFlag = (run: RtRunState): string => { const copy = structuredClone(run) as Partial<RtRunState>; delete copy.garrison; delete copy.moat; delete copy.step2; delete copy.relicFill; return JSON.stringify(copy); };
 const forestBoss = (run: RtRunState): boolean => run.visited.some(id => !rtGarrisonNodeId(id) && rtNode(run, id)?.type === 'boss');
 
-check('with the flag the forest final goes on: level-cleared (no run-won), a relic 1 of 3 (only relics), «Предместье» with full HP, «В гарнизон» — the garrison\'s map', () => {
+check('with the flag the forest final goes on: level-cleared (no run-won), a relic 1 of 3 (the relics left, then rares — task 51), «Предместье» with full HP, «В гарнизон» — the garrison\'s map', () => {
   let full = 0;
   for (const k of [1, 2, 3, 4, 5, 6, 7, 8]) {
     let before: RtRunState | null = null;
@@ -55,7 +55,9 @@ check('with the flag the forest final goes on: level-cleared (no run-won), a rel
     assert(won.events.some(e => e.type === 'level-cleared') && !won.events.some(e => e.type === 'run-won') && won.run.result === null, `seed ${k}: the run goes on`);
     const offer = won.run.pending;
     const left = RT_TALISMANS.filter(entry => entry.rarity === 'relic' && rtTalismanEligible(entry.id, { taken: won.run.talismans, gone: won.run.talismansGone })).length;
-    assert(offer?.kind === 'talisman' && offer.source === 'level' && offer.options.length === Math.min(3, left) && offer.options.every(id => rtTalisman(id)?.rarity === 'relic'), `seed ${k}: a relic 1 of 3 (of ${left} left: ${JSON.stringify(offer)})`);
+    // Task 51 (`relicFill`, a new run's flag): the relics first (as many as are left, up to 3), the empty places a rare talisman each.
+    const relicsShown = offer?.kind === 'talisman' ? offer.options.filter(id => rtTalisman(id)?.rarity === 'relic') : [];
+    assert(offer?.kind === 'talisman' && offer.source === 'level' && relicsShown.length === Math.min(3, left) && JSON.stringify(offer.options.slice(0, relicsShown.length)) === JSON.stringify(relicsShown) && offer.options.length === 3 && offer.options.slice(relicsShown.length).every(id => !['relic', 'oath'].includes(rtTalisman(id)?.rarity ?? 'relic')), `seed ${k}: a relic 1 of 3 (of ${left} left: ${JSON.stringify(offer)})`);
     full += offer.options.length === 3 ? 1 : 0;
     assert(won.run.hp === 3, 'HP as the fight left it');
     const pickRelic = offer.options.length ? offer.options[k % offer.options.length] : null, chosen = ok(rtChooseTalisman(won.run, pickRelic), 'relic');
@@ -184,7 +186,9 @@ check('a meta run\'s locked relics never come at the forest final (fewer offered
       if (p?.kind !== 'talisman' || p.source !== 'level') return;
       offers++;
       const left = RT_TALISMANS.filter(entry => entry.rarity === 'relic' && !RT_META_LOCKABLE.includes(entry.id) && rtTalismanEligible(entry.id, { taken: state.talismans, gone: state.talismansGone })).length;
-      assert(p.options.every(id => !rtIsLocked(state, id)) && p.options.length === Math.min(3, left), `seed ${k}: ${p.options} (of ${left} unlocked)`);
+      // Task 51 (`relicFill`): the unlocked relics left come first; the empty places take rare talismans (never locked ones).
+      const relicsShown = p.options.filter(id => rtTalisman(id)?.rarity === 'relic');
+      assert(p.options.every(id => !rtIsLocked(state, id)) && relicsShown.length === Math.min(3, left) && p.options.length === 3, `seed ${k}: ${p.options} (of ${left} unlocked)`);
       assert(serializeRtRun(parseRtRun(serializeRtRun(state))!) === serializeRtRun(state), `seed ${k}: the save reads back`);
     } });
   }
