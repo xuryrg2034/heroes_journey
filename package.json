@@ -121,7 +121,7 @@
     "test:realtime-hero": "tsx src/realtime/run/hero.spec.ts",
     "test:realtime-hearth": "tsx src/realtime/run/hearth.spec.ts",
     "test:realtime-hearth-l3": "tsx src/realtime/run/hearthL3.spec.ts",
-    "test:realtime-guardroom": "tsx src/realtime/run/guardroom.spec.ts",
+    "test:realtime-relic-fill": "tsx src/realtime/run/relicFill.spec.ts",
     "test:realtime-hearth-gambler": "tsx src/realtime/run/hearthGambler.spec.ts",
     "test:realtime-hearth-monk": "tsx src/realtime/run/hearthMonk.spec.ts",
     "test:realtime-hearth-away": "tsx src/realtime/run/hearthAway.spec.ts",

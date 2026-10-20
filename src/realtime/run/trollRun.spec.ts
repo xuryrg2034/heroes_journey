@@ -153,8 +153,9 @@ check('the won Troll\'s fight with all three parts severed offers 1 of 4: the re
     const all = ok(resolveArena(run, outcome(run, true, { parts: 3 })), 'won 3'), two = ok(resolveArena(run, outcome(run, true, { parts: 2 })), 'won 2');
     const four = (all.pending as { kind: string; source?: string; options?: string[] }), three = (two.pending as { kind: string; source?: string; options?: string[] });
     assert(four.kind === 'talisman' && four.source === 'level' && three.kind === 'talisman' && three.source === 'level', `seed ${k}: the relic screens`);
-    const relics = three.options!, opts = four.options!;
-    assert(relics.every(id => rtTalisman(id)?.rarity === 'relic') && relics.length <= 3, `seed ${k}: 1 of 3 — relics (${relics})`);
+    const opts = four.options!, relics = three.options!.filter(id => rtTalisman(id)?.rarity === 'relic');
+    // Task 51 (`relicFill`, a new run's flag): 1 of 3 is full too — the relics first, the empty places rare; 1 of 4 starts with it.
+    assert(same(three.options!.slice(0, relics.length), relics) && three.options!.length === 3 && same(opts.slice(0, 3), three.options), `seed ${k}: 1 of 3 — relics, then rares (${three.options}); 1 of 4 ${opts}`);
     // Four places whenever the pool has rare talismans: the relics first (those of 1 of 3), then rare ones, no repeats.
     assert(opts.length === RT_TROLL_ALL_PARTS_SLOTS && same(opts.slice(0, relics.length), relics) && new Set(opts).size === opts.length, `seed ${k}: ${opts} vs ${relics}`);
     const extra = opts.slice(relics.length).map(id => rtTalisman(id)?.rarity);
