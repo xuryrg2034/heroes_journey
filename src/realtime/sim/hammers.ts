@@ -38,6 +38,7 @@
  *
  * A dash that ends in the door (victory) has no end: no blast, no return (build.ts: `onChainEnd` is not called).
  */
+import { noteRefused, recruitInOrder } from './enemies/recruit';
 import { buildStateOf, chainEnemyLinks, registerBuildModule, setBuildState, talismanFired } from './build';
 import { BUILD_SOURCES, FUSIONS, HAMMERS } from './buildIds';
 import { buildHit, buildHitAll, enemiesInCircle, enemiesNearPath } from './buildHits';
@@ -354,6 +355,8 @@ registerBuildModule({
  * the HP removed; an armoured elite with plates takes a plate and 1 power (the package «Урон имеет значение»).
  */
 function returnHit(world: World, move: HeroMove, e: Enemy): void {
+  // Task 59а: a recruit out of order — the hit goes out, the power stays (the plan's `planReturn` reads the same).
+  if (!recruitInOrder(world, e)) { noteRefused(world, e, BUILD_SOURCES.hammerReturn); return; }
   const power = move.power;
   move.power = returnStrike(power, e).powerAfter;
   buildHit(world, e, power, BUILD_SOURCES.hammerReturn);

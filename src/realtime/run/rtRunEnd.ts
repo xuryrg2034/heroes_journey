@@ -37,6 +37,8 @@ export const RT_KIND_TITLES: Readonly<Record<string, string>> = {
   crossbow: 'арбалетчик', 'castellan-crossbow': 'арбалет Кастеляна',
   // Task 43 «Гарнизон, шаг 2»: the knight (lower case, the decision of task 40).
   knight: 'рыцарь',
+  // Task 59а «Гарнизон, шаг 3» (lower case, the decision of task 40).
+  recruit: 'новобранец',
   // Task 48 «Тролль» (a capital for the unique boss; his parts by their own names).
   troll: 'Тролль', 'troll-club': 'дубина Тролля', 'troll-rock': 'камень Тролля', 'troll-tail': 'хвост Тролля',
 };
@@ -67,7 +69,7 @@ export const RT_DEATH_ABILITY: Readonly<Record<string, string>> = {
  * 16.10.2026, spec section 10): the garrison's touches too — the guard, the dog handler, the hound (on its leash or in its frenzy: the
  * same body, «пёс»), the keymaster, the Castellan.
  */
-export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper', 'guard', 'handler', 'hound', 'keymaster', 'castellan', 'crossbow', 'knight'];
+export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper', 'guard', 'handler', 'hound', 'keymaster', 'castellan', 'crossbow', 'knight', 'recruit'];
 
 /** Drafts sent to design 12.10.2026 (pending approval). */
 export const RT_RUN_END_TEXT = {

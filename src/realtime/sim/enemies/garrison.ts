@@ -135,7 +135,7 @@ const walkStep = (world: World, e: Enemy, dt: number): number => enemySpeed(worl
 // ---------- Стражник ----------
 
 /** The group step of the guards: each formation of 2+ gives its members their places on the line across the way to the hero. */
-function formLines(world: World, members: readonly Enemy[]): void {
+export function formLines(world: World, members: readonly Enemy[]): void {
   const lines = new Map<number, Enemy[]>();
   for (const e of members) {
     delete e.vars.ox; delete e.vars.oy; delete e.vars.oa;
@@ -164,7 +164,7 @@ function formLines(world: World, members: readonly Enemy[]): void {
 }
 
 /** A guard (or a knight in armour) walks to its place on the line; false — the common walk this step. */
-function lineStep(world: World, e: Enemy, dt: number): boolean {
+export function lineStep(world: World, e: Enemy, dt: number): boolean {
   if (!world.params.guardFormation || e.vars.ox === undefined || e.knock > 0) return false;
   const to = { x: e.vars.ox, y: e.vars.oy };
   if (!lineOfSight(e, to, world.arena, bodyRadiusOf(world.params, e) * 0.9, true)) return false;
@@ -178,7 +178,8 @@ registerBehavior({
   id: GUARD,
   beforeStep(world, members) {
     // Task 43: a knight in armour of a formation stands in its line (absent any knight — the guards alone, as before).
-    if (world.params.guardFormation) formLines(world, world.enemies.some(knightInLine) ? world.enemies.filter(e => e.kind === GUARD || knightInLine(e)) : members);
+    // Task 59а: the recruits of a formation stand in its line too (absent any — the guards alone, as before).
+    if (world.params.guardFormation) formLines(world, world.enemies.some(inLine) ? world.enemies.filter(e => e.kind === GUARD || inLine(e)) : members);
   },
   step: lineStep,
 });
@@ -872,6 +873,8 @@ export const knightSwingRadius = (world: World): number => Math.max(0, world.par
 export const knightOffensive = (e: Enemy): boolean => e.kind === KNIGHT && !!e.vars.of;
 /** A knight in armour of a formation: it walks in the guards' line (`formLines`). */
 function knightInLine(e: Enemy): boolean { return e.kind === KNIGHT && !e.vars.of && e.vars.fm !== undefined; }
+/** Task 59а: a body of a formation that walks in the guards' line besides the guards — a knight in armour, a recruit. */
+const inLine = (e: Enemy): boolean => knightInLine(e) || (e.kind === 'recruit' && e.vars.fm !== undefined);
 
 /** The offensive starts: the armour goes (the event for the view), the first move after the pause. */
 function shedArmor(world: World, e: Enemy): void {

@@ -12,6 +12,7 @@
  *   the cold (`chill`) without the ×2 brittleness.
  * - Deterministic: comparisons and `+ − × ÷` only (the crossing test is the sign of cross products).
  */
+import { orderRecruits } from './enemies/recruit';
 import { kindOf } from './enemies/kinds';
 import { chiefGuarded, chiefWards } from './enemies/chief';
 import { talismanFired } from './build';
@@ -59,7 +60,8 @@ export function closingEdgeCrosses(ring: readonly Vec[]): boolean {
 export function enemiesInside(world: World, ring: readonly Vec[], links: readonly ChainLink[]): Enemy[] {
   if (ring.length < 3) return [];
   const own = new Set(links.filter(l => l.kind === 'enemy').map(l => l.id));
-  return world.enemies.filter(e => !own.has(e.id) && !kindOf(e).immune && insidePolygon(ring, e));
+  // Task 59а: a formation's recruits by their numbers (the strike goes one by one, the law of order takes them in turn).
+  return orderRecruits(world.enemies.filter(e => !own.has(e.id) && !kindOf(e).immune && insidePolygon(ring, e)));
 }
 
 /** The seal's strike at the end of the dash: the hit on those still on the arena, then the hold on the survivors. */

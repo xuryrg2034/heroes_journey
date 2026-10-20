@@ -1,0 +1,191 @@
+/**
+ * Task 59а «Гарнизон, шаг 3», Б — «Новобранцы» and the law of order (enemies/recruit.ts; docs/realtime-elite-behaviors.md, «Гарнизон, шаг
+ * 3»). Node only: `npm run test:realtime-recruits`.
+ *
+ * Every check plays journalled commands (begin, drag, release, items, item, teleport, param) and looks at what the player meets:
+ * - the numbers 1–4: neighbours at most two places apart, never in line order, different by seed, the same for the same seed; the route
+ *   1 → 2 → 3 → 4 is always one chain;
+ * - the chain takes only the current number (refusal «не по порядку», a press on another starts nothing); 1 → 4 by one chain: all fall,
+ *   the highlight = the dash, +2 energy; a formation begun by an earlier chain gives none;
+ * - out of order nothing hurts a recruit (the bomb: no damage, event `recruit` `refused`); the current one dies;
+ * - a hit on many at once (a sapper's blast) takes a formation by its numbers: all inside — all fall; the current one outside — none;
+ * - «Прямая»: the run passes the formation in its order — the highlight marks the refused, the run does the same;
+ * - the law off — plain slow enemies of a line; a journal without the keys plays the same world.
+ * Seeds `Math.imul(k, 2654435761) >>> 0`.
+ */
+import { registerArena } from './arenas';
+import { enemyRefusal, planChain, REFUSAL_TEXT } from './chain';
+import { RECRUIT } from './enemies/recruit';
+import type { Vec } from './geometry';
+import { worldState } from './hash';
+import { defaultParams, type Params } from './params';
+import { Simulation, SIM_DT, replay, type Journal } from './simulation';
+import type { Enemy, World, WorldEvent } from './world';
+
+function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
+let checks = 0;
+function check(name: string, run: () => void): void { run(); checks++; console.log(`ok - ${name}`); }
+const seedOf = (k: number): number => Math.imul(k, 2654435761) >>> 0;
+const ticksOf = (seconds: number): number => Math.round(seconds / SIM_DT);
+
+/** A formation of 4 recruits of colour 0 across the yard at y = 4 (places 0…3 west to east), the hero below. */
+const LINE = [8.65, 9.55, 10.45, 11.35];
+registerArena({
+  id: 'recruit-yard', name: 'Двор новобранцев', summary: 'Тест новобранцев', goal: 'kills', killGoal: 999, width: 20, height: 12,
+  heroStart: { x: 10, y: 5.6 }, obstacles: [], buttons: [], door: { x: 19.3, y: 6 }, garrison: true,
+  enemies: LINE.map(x => ({ x, y: 4, color: 0, kind: RECRUIT, formation: 1 })),
+});
+
+/** Nothing comes, nobody walks; the hero has 99 HP. */
+function quiet(extra: Partial<Params> = {}): Params {
+  const p = defaultParams();
+  p.baseFloor = 0; p.baseIntervalMin = 1e6; p.baseIntervalMax = 1e6; p.speedSpread = 0; p.contactDamage = 0; p.heroHp = 99; p.hitstop = false; p.enemySpeed = 0;
+  p.recruits = true;
+  return Object.assign(p, extra);
+}
+function yard(k: number, extra: Partial<Params> = {}): Simulation {
+  const sim = new Simulation({ arena: 'recruit-yard', params: quiet(extra), seed: seedOf(k), record: true });
+  sim.tick();
+  return sim;
+}
+function ticks(sim: Simulation, n: number, out: WorldEvent[] = [], until: (w: World) => boolean = () => false): WorldEvent[] {
+  for (let i = 0; i < n && sim.world.status === 'playing' && !until(sim.world); i++) { sim.tick(); out.push(...sim.world.events); sim.world.events.length = 0; }
+  return out;
+}
+const of = <T extends WorldEvent['type']>(events: readonly WorldEvent[], type: T): Extract<WorldEvent, { type: T }>[] => events.filter((e): e is Extract<WorldEvent, { type: T }> => e.type === type);
+const replays = (sim: Simulation): boolean => replay(JSON.parse(JSON.stringify(sim.exportJournal()!))).hash() === sim.hash();
+/** The recruits by their numbers 1…4. */
+const byNumber = (w: World): Enemy[] => w.enemies.filter(e => e.kind === RECRUIT).sort((a, b) => a.vars.rn - b.vars.rn);
+function draw(sim: Simulation, points: readonly Vec[]): void {
+  sim.command({ t: 'begin', x: points[0].x, y: points[0].y });
+  for (const q of points.slice(1)) sim.command({ t: 'drag', x: q.x, y: q.y, mode: 'full' });
+}
+function release(sim: Simulation): WorldEvent[] {
+  assert(sim.command({ t: 'release' }), 'the chain is released');
+  return ticks(sim, ticksOf(3), [], w => !w.move);
+}
+const place = (sim: Simulation, at: Vec, hp: number, kind = 'basic', color = 0): Enemy => {
+  const id = sim.command({ t: 'place', x: at.x, y: at.y, color, hp, kind }) as number;
+  return sim.world.enemies.find(e => e.id === id)!;
+};
+
+check('the numbers 1–4: neighbours at most two places apart, never in line order; different on 8 seeds, the same for the same seed; the route 1 → 4 is one chain on every seed', () => {
+  const seen = new Set<string>();
+  for (let k = 1; k <= 8; k++) {
+    const sim = yard(k), w = sim.world, line = byNumber(w);
+    assert(line.length === 4 && line.map(e => e.vars.rn).join() === '1,2,3,4', `seed ${k}: numbers ${line.map(e => e.vars.rn)}`);
+    const placeOf = line.map(e => LINE.findIndex(x => Math.abs(x - e.x) < 0.3));
+    const key = placeOf.join('-');
+    assert(placeOf.every((p, i) => i === 0 || Math.abs(p - placeOf[i - 1]) <= 2) && key !== '0-1-2-3' && key !== '3-2-1-0', `seed ${k}: places ${key}`);
+    seen.add(key);
+    assert(yard(k).world.enemies.filter(e => e.kind === RECRUIT).sort((a, b) => a.vars.rn - b.vars.rn).map(e => e.id).join() === line.map(e => e.id).join(), `seed ${k}: the same numbers again`);
+    draw(sim, line);
+    assert(w.chain.length === 4, `seed ${k}: 1 → 4 in one chain (${w.chain.length})`);
+  }
+  assert(seen.size >= 3, `the orders differ by seed (${[...seen].join(', ')})`);
+});
+
+check('the chain takes only the current number: a press on another starts nothing (refusal «не по порядку»); 1 → 4 by one chain — all fall as the highlight says, +2 energy (event `drill`), the player\'s kills (4 seeds)', () => {
+  for (const k of [1, 2, 3, 4]) {
+    const sim = yard(k), w = sim.world, line = byNumber(w);
+    assert(enemyRefusal(w, line[1]) === 'order' && REFUSAL_TEXT.order === 'не по порядку', `seed ${k}: #2 refused`);
+    sim.command({ t: 'begin', x: line[1].x, y: line[1].y });
+    assert(w.chain.length === 0, `seed ${k}: a press on #2 starts nothing`);
+    draw(sim, line);
+    const plan = planChain(w);
+    assert(plan.links.every(l => l.outcome?.killed), `seed ${k}: the highlight — all fall`);
+    const energy = w.energy, kills = w.stats.kills, events = release(sim);
+    assert(byNumber(w).length === 0 && w.stats.kills === kills + 4, `seed ${k}: all fell`);
+    const drill = of(events, 'recruit').find(e => e.action === 'drill');
+    assert(drill?.energy === 2 && w.energy === Math.min(7, energy + 2 + 4 * w.params.energyPerKill), `seed ${k}: +2 energy (${energy} → ${w.energy})`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
+check('a formation begun by an earlier chain gives no bonus: #1 alone, then 2 → 4 (2 seeds)', () => {
+  for (const k of [1, 2]) {
+    const sim = yard(k), w = sim.world, line = byNumber(w);
+    draw(sim, [line[0]]); release(sim);
+    sim.command({ t: 'teleport', x: line[1].x, y: 5.6 });
+    draw(sim, line.slice(1));
+    assert(w.chain.length === 3, `seed ${k}: 2 → 4 drawn`);
+    const events = release(sim);
+    assert(byNumber(w).length === 0 && !of(events, 'recruit').some(e => e.action === 'drill'), `seed ${k}: no bonus`);
+  }
+});
+
+check('out of order nothing hurts a recruit: the bomb on #3 with #1 alive — no damage, event `recruit` `refused`; the bomb on #1 — it dies (3 seeds)', () => {
+  for (const k of [1, 2, 3]) {
+    const sim = yard(k), w = sim.world, line = byNumber(w);
+    sim.command({ t: 'items', kind: 'bomb', count: 2 });
+    assert(sim.command({ t: 'item', kind: 'bomb', x: line[2].x, y: line[2].y }), `seed ${k}: thrown at #3`);
+    const refused = of(w.events, 'recruit').find(e => e.action === 'refused');
+    assert(w.enemies.includes(line[2]) && refused?.id === line[2].id && refused.source === 'bomb', `seed ${k}: #3 untouched`);
+    w.events.length = 0;
+    assert(sim.command({ t: 'item', kind: 'bomb', x: line[0].x, y: line[0].y }) && !w.enemies.includes(line[0]), `seed ${k}: #1 died`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
+check('a hit on many at once takes a formation by its numbers: a sapper\'s blast round all four — all fall; round the formation without the current one — none (2 seeds)', () => {
+  let partRuns = 0;
+  for (const k of [1, 2, 3, 4, 5, 6]) {
+    const all = yard(k, { sapperRadius: 2.5 }), w = all.world;
+    const sapper = place(all, { x: 10, y: 2.6 }, 0, 'sapper', 1);
+    all.command({ t: 'items', kind: 'bomb', count: 1 });
+    assert(all.command({ t: 'item', kind: 'bomb', x: sapper.x, y: sapper.y }), 'the sapper bombed');
+    ticks(all, ticksOf(1.5));
+    assert(byNumber(w).length === 0, `seed ${k}: all four fell (${byNumber(w).length} left)`);
+    // Without the current one in the circle: a small blast round the other three's middle.
+    const part = yard(k, { sapperRadius: 0.9 }), pw = part.world, line = byNumber(pw), first = line[0];
+    const rest = line.slice(1), cx = rest.reduce((a, e) => a + e.x, 0) / 3;
+    if (rest.some(e => Math.abs(e.x - cx) > 1.3) || Math.abs(first.x - cx) < 1.3) continue;
+    const s2 = place(part, { x: cx, y: 2.9 }, 0, 'sapper', 1);
+    part.command({ t: 'items', kind: 'bomb', count: 1 });
+    part.command({ t: 'item', kind: 'bomb', x: s2.x, y: s2.y });
+    const events = ticks(part, ticksOf(1.5));
+    assert(byNumber(pw).length === 4 && of(events, 'recruit').some(e => e.action === 'refused'), `seed ${k}: none fell without the current one`);
+    partRuns++;
+  }
+  assert(partRuns >= 1, `a seed with the current one at an end of the line (${partRuns})`);
+});
+
+check('«Прямая»: the run passes the formation in its order — the highlight marks the refused (`order`), the run kills and refuses the same (4 seeds)', () => {
+  let marked = 0;
+  for (const k of [1, 2, 3, 4]) {
+    const sim = yard(k, { pierceEnabled: true, pierceLength: 4 }), w = sim.world;
+    sim.command({ t: 'teleport', x: 2, y: 4 });
+    // Three weak links west of the formation, in its line: the straight tail runs on through it.
+    const links = [place(sim, { x: 3.5, y: 4 }, 0, 'basic', 1), place(sim, { x: 5, y: 4 }, 0, 'basic', 1), place(sim, { x: 6.5, y: 4 }, 0, 'basic', 1)];
+    draw(sim, links);
+    const pierce = planChain(w).pierce;
+    if (!pierce) continue;
+    const plannedKills = pierce.bodies.filter(b => b.outcome.killed).map(b => b.id).sort();
+    const plannedOrder = pierce.bodies.filter(b => b.outcome.order).map(b => b.id).sort();
+    marked += plannedOrder.length;
+    const events = release(sim);
+    ticks(sim, ticksOf(1), events);
+    const died = of(events, 'kill').filter(e => e.source === 'pierce').map(e => e.enemyId).sort();
+    const refused = of(events, 'recruit').filter(e => e.action === 'refused').map(e => e.id).sort();
+    assert(JSON.stringify(died) === JSON.stringify(plannedKills) && JSON.stringify(refused) === JSON.stringify(plannedOrder), `seed ${k}: plan kills ${plannedKills} / order ${plannedOrder}, run kills ${died} / refused ${refused}`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+  assert(marked > 0, 'some seed passes a recruit out of order');
+});
+
+check('the law off: no numbers, plain links; a journal without the keys plays the same world (2 seeds)', () => {
+  for (const k of [1, 2]) {
+    const off = yard(k, { recruits: false }), w = off.world, line = w.enemies.filter(e => e.kind === RECRUIT);
+    assert(line.every(e => e.vars.rn === undefined) && enemyRefusal(w, line[3]) !== 'order', `seed ${k}: no numbers, no refusal`);
+    const sim = yard(k), sw = sim.world, nums = byNumber(sw);
+    draw(sim, nums.slice(0, 2)); release(sim);
+    ticks(sim, ticksOf(2));
+    const journal = sim.exportJournal()! as Journal;
+    delete (journal.params as unknown as Record<string, unknown>).recruitBonus;
+    const again = replay(JSON.parse(JSON.stringify(journal)));
+    const strip = (x: World): string => JSON.stringify({ ...(worldState(x) as Record<string, unknown>), params: null });
+    assert(strip(again.world) === strip(sw), `seed ${k}: without recruitBonus the same world`);
+  }
+});
+
+console.log(`recruits: ${checks} checks passed`);

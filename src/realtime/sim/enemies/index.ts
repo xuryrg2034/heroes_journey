@@ -26,6 +26,8 @@ import './crossbow';
 import './troll';
 // Task 54 «Главарь с котелком»: the boss of the camp's branch — his core and his two parts (`Params.bossFrame`, his feast `Params.chiefFeast`).
 import './chief';
+// Task 59а «Гарнизон, шаг 3»: the recruits (the law of order).
+import './recruit';
 
 export { BOAR_ART_SCALE, type BoarState } from './boar';
 export { packmates, wolfHowl, wolfRushLine, wolfState, WOLF_RUSH } from './wolf';
@@ -43,4 +45,6 @@ export { KNIGHT, KNIGHT_LANE_WIDTH, knightLane, knightOffensive, knightState, kn
 export { TROLL, TROLL_CLUB, TROLL_MOVES, TROLL_ROCK, TROLL_TAIL, trollCore, trollMove, trollState, type TrollMoveId } from './troll';
 // Task 54: the Chief for the view.
 export { CHIEF, CHIEF_LADLE, CHIEF_MOVES, CHIEF_SACK, chiefCore, chiefMove, chiefState, whistleColors, type ChiefMoveId } from './chief';
+// Task 59а: the recruits for the view.
+export { RECRUIT, recruitCurrent, recruitGroup, recruitNumber, recruitQueue } from './recruit';
 export * from './kinds';

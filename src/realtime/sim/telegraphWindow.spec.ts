@@ -120,6 +120,8 @@ const OUTSIDE: Readonly<Record<string, string>> = {
   hound: 'касание, без телеграфа (ярость кусает врагов; рывок у Кастеляна — запись «Кастелян: спустить пса»)',
   // Task 40 «Гарнизон, шаг 1б».
   keymaster: 'касание, без телеграфа (кандалы держат врага, героя не бьют)',
+  // Task 59а «Новобранцы»: no move of their own — the touch; their pressure is the living wall of numbers.
+  recruit: 'касание, без телеграфа (строй по номерам — живая стена, своего приёма нет)',
   // Task 48 «Тролль»: the core's own moves («Рык», «Храп») do not hit the hero — `MOVES_OUTSIDE`.
   [TROLL]: 'касание, без телеграфа (рык и храп героя не бьют; удары — у частей)',
   // Task 54 «Главарь»: the core's own moves («Обед!», «Приправа», «Свисток») do not hit the hero — `MOVES_OUTSIDE`.

@@ -42,6 +42,8 @@ import { enemiesInCircle, enemiesNearPath } from './buildHits';
 import { finisherHonedKills, finisherTopIds, frostNeighbour, FROST_EDGE_LINKS, honedOn, honeWaveStartOf, SHOCKWAVE_RADIUS } from './talismansRt';
 import { returnPowerFor, returnRoute, returnTargets, traceTo } from './returnRun';
 import { BOSS_CORES, colorlessCore, endsFight } from './enemies/jailer';
+// Task 59а «Новобранцы»: the law of order (enemies/recruit.ts).
+import { RECRUIT, drillEnd, noteRefused, recruitCurrent, recruitGate, recruitGroup, recruitInOrder, recruitsOn, wholeFormations } from './enemies/recruit';
 import { blockedAt, cliffAt, dist, inThorns, lineOfSight, overCliff, pushOutOfObstacles, type Vec } from './geometry';
 import { heroRadius, type Params } from './params';
 import { closingEdgeCrosses, enemiesInside, loopMinOf, sealDamage, sealHoldOf, strikeSeal } from './seal';
@@ -87,6 +89,8 @@ export interface StrikeOutcome {
    */
   plate?: true;
   platesAfter?: number;
+  /** Task 59а: the law of order refuses the hit (a recruit out of order): nothing struck, the power passes (a preview's body). */
+  order?: true;
 }
 
 /** Power a chain hit on a plate spends (4.3, rule 1: as a weak enemy's +1 taken back). */
@@ -109,6 +113,11 @@ export function strike(power: number, hp: number, factor = 1, gain = 1, plates =
   const killed = damage >= hp;
   const spent = Math.min(available, Math.min(damage, hp));
   return { available, damage, hpBefore: hp, hpAfter: killed ? 0 : hp - damage, killed, powerAfter: available - spent };
+}
+
+/** Task 59а: a preview's body the law of order refuses — nothing struck, the power passes. */
+function orderOutcome(power: number, hp: number): StrikeOutcome {
+  return { available: power, damage: 0, hpBefore: hp, hpAfter: hp, killed: false, powerAfter: power, order: true };
 }
 
 /** Stage 2, step 3: the multiplier of a chain hit on `enemy` now — ×`frostFactor` while it is frozen and brittle. */
@@ -309,6 +318,8 @@ export interface SealPreview {
    * brittle (`brittle`, ×`frostFactor` on the next chain hit). Absent without the fusion.
    */
   ice?: { ids: number[]; brittle: boolean };
+  /** Task 59а: the recruits inside the strike refuses (out of order) — they stay (absent — none). */
+  order?: number[];
 }
 
 export function findEnemy(world: World, id: number): Enemy | undefined {
@@ -547,9 +558,11 @@ function planFusionEnd(world: World, links: readonly ChainLink[], out: readonly 
   const last = lastReached(world, out), blastOn = world.kit?.hammer === HAMMERS.blast || hasTalisman(world, HAMMERS.blast);
   if (blastOn && last && dash.links >= endBlastMinLinks(world.params) && !(endRankOn(world) && (seal || pierce))) {
     const blast = endBlastOf(world, hunterEnd(world, !!last.enemy.elite, last.outcome.hpBefore), BLAST_RADIUS, BLAST_DAMAGE);
-    const at = { x: last.enemy.x, y: last.enemy.y }, targets = new Set(enemiesInCircle({ ...world, enemies: shadow }, at, blast.radius).map(e => e.id));
+    const at = { x: last.enemy.x, y: last.enemy.y }, ordered = enemiesInCircle({ ...world, enemies: shadow }, at, blast.radius), targets = new Set(ordered.map(e => e.id));
+    // Task 59а: the recruits the blast refuses (out of order in the order it strikes) stay as they are.
+    const refused = recruitGate(world, shadow, ordered);
     const after = shadow.flatMap(e => {
-      if (!targets.has(e.id)) return [e];
+      if (!targets.has(e.id) || refused.has(e.id)) return [e];
       const plates = platesOf(e);
       if (plates > 0) return [{ ...e, armor: { ...e.armor!, plates: plates - Math.min(plates, blastPlatesOn(blast, e)) } }];
       return blast.damage >= e.hp ? [] : [{ ...e, hp: e.hp - blast.damage }];
@@ -740,8 +753,12 @@ function planReturn(world: World, out: readonly LinkPlan[], endPower: number, pi
   const full = boomerangFull(world, lastKilled), path = [end, ...route], shadow: World = { ...world, enemies: after }, power = returnPowerFor(world, endPower, lastKilled);
   const hits: ReturnPreview['hits'] = [];
   let left = power;
+  // Task 59а: the recruits the run passes out of order keep the power (`returnHit` the same).
+  const gone = new Set<number>();
   for (const { e, at: touch } of returnTargets(shadow, path, [])) {
     if (left <= 0) break;
+    if (e.kind === RECRUIT && !recruitInOrder(world, e, after, gone)) { hits.push({ id: e.id, at: touch, outcome: orderOutcome(left, e.hp) }); continue; }
+    if (e.kind === RECRUIT) gone.add(e.id);
     const outcome = returnStrike(left, e);
     left = outcome.powerAfter;
     hits.push({ id: e.id, at: touch, outcome });
@@ -761,11 +778,15 @@ function planPierce(world: World, links: readonly ChainLink[], out: readonly Lin
   if (!shape) return null;
   // Task 44 «Копьё»: a hit takes this many plates (the same number `pierceHit` gives `stripPlates`).
   const plates = piercePlates(world);
+  // Task 59а: the recruits the run passes out of order (in the order it passes them; the chain's kills are gone by then).
+  const chainKills = new Set(out.flatMap(l => (l.link.kind === 'enemy' && l.outcome?.killed ? [l.link.id] : [])));
+  const refused = recruitGate(world, world.enemies, shape.bodies.flatMap(b => { const e = findEnemy(world, b.id); return e ? [e] : []; }), chainKills);
   const bodies = shape.bodies.flatMap(b => {
     const e = findEnemy(world, b.id);
     // Task 48: the Troll's core closed now — the pierce passes it by.
     // Task 54: the Chief's core under the feast's rule — the pierce passes it by.
     if (!e || trollShut(world, e) || chiefGuarded(world, e)) return [];
+    if (refused.has(e.id)) return [{ id: b.id, t: b.t, outcome: orderOutcome(power, e.hp) }];
     const outcome = strike(power, e.hp, chainFactor(world, e), 0, platesOf(e));
     return [{ id: b.id, t: b.t, outcome: outcome.plate && plates > 1 ? { ...outcome, platesAfter: Math.max(0, platesOf(e) - plates) } : outcome }];
   });
@@ -798,8 +819,10 @@ export function sealPreview(world: World, kind: LoopKind): SealPreview | null {
   const ring = loopRing(world, kind), inside = enemiesInside(world, ring, world.chain).filter(e => !trollShut(world, e) && !chiefGuarded(world, e)), damage = sealDamage(links), hold = sealHoldOf(world.params, links);
   // Task 44 «Ледяная печать»: the survivors of the strike (a plated body loses a plate, not HP) freeze max(hold, 3 s), brittle.
   const cold = iceSealCold(world, hold);
-  const ice = cold ? { ids: inside.filter(e => platesOf(e) > 0 || e.hp > damage).map(e => e.id), brittle: cold.brittle } : null;
-  return { kind, ring, inside: inside.map(e => e.id), links, damage, hold: cold ? cold.time : hold, ...ice ? { ice } : {} };
+  // Task 59а: the recruits the strike refuses (out of order after the chain's links, which die first) — they stay, frozen with the hold.
+  const order = recruitGate(world, world.enemies, inside, new Set(world.chain.flatMap(l => (l.kind === 'enemy' ? [l.id] : []))));
+  const ice = cold ? { ids: inside.filter(e => platesOf(e) > 0 || e.hp > damage || order.has(e.id)).map(e => e.id), brittle: cold.brittle } : null;
+  return { kind, ring, inside: inside.map(e => e.id), links, damage, hold: cold ? cold.time : hold, ...ice ? { ice } : {}, ...order.size ? { order: [...order] } : {} };
 }
 
 /**
@@ -1178,7 +1201,7 @@ export function inChain(world: World, enemy: Enemy): number {
  * Why a target cannot be the next link (stage G): the checks of `canLink` / `canLinkObject` in their order, and the
  * text the pointer hint shows. One function decides both, so the hint never disagrees with the chain.
  */
-export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'unlit' | 'color' | 'far' | 'sight' | 'guarded' | 'crossed' | 'sealed' | 'lever' | 'shackled' | 'handFull' | 'grate' | 'outOfWindow' | 'queue';
+export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'unlit' | 'color' | 'far' | 'sight' | 'guarded' | 'crossed' | 'sealed' | 'lever' | 'shackled' | 'handFull' | 'grate' | 'outOfWindow' | 'order' | 'queue';
 export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   move: 'идёт проход',
   colorless: 'не берётся цепью',
@@ -1207,6 +1230,8 @@ export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   grate: 'за решёткой',
   // Task 48 «Тролль»: the Troll's core outside his window (enemies/troll.ts `trollShut`) — his own moves open it.
   outOfWindow: 'вне окна',
+  // Task 59а: a recruit out of order (`queue` is the Chief's word, task 59 §19).
+  order: 'не по порядку',
   // Task 54 «Главарь с котелком»: the Chief's core in his window, the queue of the brew's colour before it short (enemies/chief.ts).
   queue: 'в очередь',
 };
@@ -1264,6 +1289,9 @@ export function enemyAnchors(world: World, enemy: Enemy): ChainAnchor[] { return
 export function enemyRefusal(world: World, enemy: Enemy, plan: ChainPlan = planChain(world, world.chain, NO_PIERCE)): Refusal | null {
   if (world.status !== 'playing' || world.move) return 'move';
   if (enemy.color === NO_COLOR || !kindOf(enemy).chainable) return 'colorless';
+  // Task 59а: a recruit takes the chain only as its group's current number (its links in the drawn chain count as dying: HP 0).
+  if (enemy.kind === RECRUIT && recruitsOn(world) && enemy.vars.rn && inChain(world, enemy) < 0
+    && recruitCurrent(world.enemies, recruitGroup(enemy), new Set(world.chain.flatMap(l => (l.kind === 'enemy' ? [l.id] : [])))) !== enemy.vars.rn) return 'order';
   // Task 40: the keymaster's prisoner (only while a shackle holds it: nothing in worlds without one).
   if (world.tethers && shackled(world, enemy)) return 'shackled';
   // Task 43: the full Castellan's core behind its grate.
@@ -1557,6 +1585,9 @@ export function releaseChain(world: World): boolean {
   }
   if (pierce) fixPierce(world, world.move, pierce);
   if (cuts?.length) world.move.cuts = [...cuts];
+  // Task 59а: the formations whole now — all of them gone by the pass's end give the bonus.
+  const drill = wholeFormations(world);
+  if (drill.length) world.move.drill = drill;
   // Task 48: a move whose plan strikes the Troll's core holds his window's hit for itself until it is over.
   // Task 54: the queue of a chain that strikes the Chief's core (its hit takes two plates with a long one).
   chiefRelease(world, links);
@@ -1641,6 +1672,8 @@ function pierceHit(world: World, move: HeroMove, id: number): void {
   if (enemy.kind === TROLL && trollWards(world, enemy, PIERCE_SOURCE)) return;
   // Task 54: the Chief's core under the feast's rule — the pierce never lands on it.
   if (enemy.kind === CHIEF && chiefWards(world, enemy, PIERCE_SOURCE)) return;
+  // Task 59а: a recruit out of order — the run passes it, the hit goes out (the plan marks the same).
+  if (!recruitInOrder(world, enemy)) { noteRefused(world, enemy, PIERCE_SOURCE); return; }
   const factor = pierce.brittle?.includes(id) ? Math.max(1, world.params.frostFactor) : 1;
   const outcome = strike(move.power, enemy.hp, factor, 0, platesOf(enemy));
   if (move.purse) move.purse.embers += linkEmbers(enemy, outcome);
@@ -2097,6 +2130,13 @@ function finishMove(world: World): void {
     if (move.seal) strikeSeal(world, move.seal);
     // Phase B: the dash is over — the build modules' end of chain (a wave, the end blast, the return run …).
     if (end) runHook(world, 'onChainEnd', m => { if (world.status === 'playing') m.onChainEnd!(world, end); });
+  }
+  // Task 59а: the bonus of the whole formations — after the dash's end (its wave and end blast) or after its return run.
+  if (move.drill && (move.kind === 'dash' || move.kind === 'return') && world.status === 'playing') {
+    const left = drillEnd(world, move.drill, ENERGY_MAX);
+    // (`finishMove` cleared the move; a hook may have started the return run since.)
+    const next = world.move as HeroMove | null;
+    if (left.length && next?.kind === 'return') next.drill = left;
   }
   if (move.kind === 'jump' && landsInDoor(world, hero)) win(world, 'jump');
   if (move.kind === 'return') runHook(world, 'onMoveEnd', m => m.onMoveEnd!(world, move));

@@ -1096,6 +1096,15 @@ export interface Params {
   knightSwingDamage: number;
   /** Task 43: game seconds between the knight's moves in the offensive (and from the shed armour to its first move). */
   knightPause: number;
+  // ---- Task 59а «Гарнизон, шаг 3» (sim/enemies/recruit.ts …; docs/realtime-elite-behaviors.md, «Гарнизон, шаг 3»). ----
+  // The new kinds come only by an arena's template or roster: without them no key below is read. Journals without a key — the default.
+  /**
+   * Task 59а «Новобранцы»: the law of order — a formation's numbers, the chain takes only the current one (refusal «не по порядку»), out of
+   * order nothing hurts a recruit, the whole formation by one pass gives `recruitBonus` energy. Off by default: plain slow enemies of a line.
+   */
+  recruits: boolean;
+  /** Task 59а: the energy for the whole formation by one pass (journals without the key: 2). */
+  recruitBonus: number;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -1570,6 +1579,9 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   knightSwingRadius: 1.6,
   knightSwingDamage: 2,
   knightPause: 2,
+  // Task 59а «Гарнизон, шаг 3»: off by default (the run will turn them on with its flag `step3`, task 59б).
+  recruits: false,
+  recruitBonus: 2,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -2089,6 +2101,10 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('knightSwingRadius', 'Гарнизон', 'Рыцарь: радиус размаха', 0.5, 4, 0.1, 5, 'ед.', 'Враги в круге теряют 1 HP (элита — пластину); убийства не засчитываются игроку.'),
   n('knightSwingDamage', 'Гарнизон', 'Рыцарь: урон размаха', 0, 5, 1, 5),
   n('knightPause', 'Гарнизон', 'Рыцарь: пауза между приёмами', 0.5, 6, 0.25, 5, 'с'),
+  // Task 59а «Гарнизон, шаг 3».
+  { kind: 'bool', key: 'recruits', group: 'Гарнизон', label: 'Новобранцы: по номерам', stage: 5,
+    hint: 'Строй из 4 с номерами 1–4: цепь берёт только текущий номер («не по порядку»); не по порядку их не ранит ничто; весь строй одним проходом — энергия.' },
+  n('recruitBonus', 'Гарнизон', 'Новобранцы: энергия за весь строй', 0, 7, 1, 5),
 ];
 
 const MAX_PHASES = 8;

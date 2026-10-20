@@ -29,6 +29,8 @@ import { dropShackleOf, shackled } from './tethers';
 import { riotStep } from './enemies/garrison';
 // Task 48: the Troll's window guards his core from every source (enemies/troll.ts).
 import { TROLL, TROLL_CROWD, trollWards } from './enemies/troll';
+// Task 59а: the law of order of the recruits (enemies/recruit.ts).
+import { RECRUIT, noteRefused, orderRecruits, recruitInOrder } from './enemies/recruit';
 // Task 54: the Chief's feast guards his core from every source but the chain in his window (enemies/chief.ts).
 import { CHIEF, chiefWards, seatedEater } from './enemies/chief';
 // Casino stage 1 («Однорукий гоблин», slot.ts): the slot's state and step.
@@ -276,6 +278,8 @@ export interface HeroMove {
    * body) — cut when the dash ends, whatever the bodies did on the way. Absent when none (dashes without them hash as before).
    */
   cuts?: number[];
+  /** Task 59а (`Params.recruits`): the formations whole at the release — no member left at the pass's end gives the bonus. */
+  drill?: number[];
 }
 
 /**
@@ -565,7 +569,12 @@ export type WorldEvent =
    * Task 43: the knight's move — «Рывок» (`charge`: windup `start`, the run `run`, the run's `end`) or «Размах» (`swing`: windup
    * `start`, the strike `hit`). The rules never read it.
    */
-  | { type: 'knightMove'; id: number; move: 'charge' | 'swing'; stage: 'start' | 'run' | 'end' | 'hit' };
+  | { type: 'knightMove'; id: number; move: 'charge' | 'swing'; stage: 'start' | 'run' | 'end' | 'hit' }
+  /**
+   * Task 59а (enemies/recruit.ts, «Новобранцы»): a hit reached a recruit out of order and went out (`refused`: its `source`), or a whole
+   * formation fell by one pass (`drill`: `id` — the formation, `energy` given). The rules never read it.
+   */
+  | { type: 'recruit'; action: 'refused' | 'drill'; id: number; x: number; y: number; source?: string; energy?: number };
 
 export interface World {
   arena: ArenaTemplate;
@@ -1522,6 +1531,8 @@ export function killEnemy(world: World, e: Enemy, cause: KillCause): void {
  */
 export function damageEnemy(world: World, e: Enemy, damage: number, cause: KillCause): void {
   if (damage <= 0 || kindOf(e).immune || !world.enemies.includes(e)) return;
+  // Task 59а: a recruit out of order is not hurt — the law of order (event `recruit` `refused`; nothing on other kinds).
+  if (e.kind === RECRUIT && !recruitInOrder(world, e)) { noteRefused(world, e, cause.source); return; }
   // Task 48: the Troll's core outside his window (or its hit spent) is not hurt (event `trollWindow` `block`; nothing on other kinds).
   if (e.kind === TROLL && trollWards(world, e, cause.source)) return;
   // Task 54: the Chief's core — the chain's hit in his window only (event `chiefFeast` `block`; nothing on other kinds).
@@ -1562,7 +1573,8 @@ function detonate(world: World, b: Blast): void {
     else noteBlock(world, b.x, b.y, b.source, b.ownerId);
   }
   if (world.status !== 'playing') return;
-  const struck = world.enemies.filter(e => dist(e, b) <= b.radius + bodyRadiusOf(p, e));
+  // Task 59а: a formation's recruits by their numbers (nothing changes without one).
+  const struck = orderRecruits(world.enemies.filter(e => dist(e, b) <= b.radius + bodyRadiusOf(p, e)));
   for (const e of struck) damageEnemy(world, e, b.damage, cause);
   // Stage 3a (М2; the sandbox slider «Взрыв отбрасывает», 0 — off): the survivors are thrown off the blast; one thrown over a
   // cliff falls — the blast's kill (credited as the blast).
