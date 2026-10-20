@@ -3,6 +3,8 @@ import { type Page } from '@playwright/test';
 import { test, expect, skipHabit } from './realtimeTest';
 import { leaveResult } from './realtimeResult';
 import { untilFrame } from './realtimeFrames';
+import { createRtDailyRun, rtStep, type RtStepCall } from '../src/realtime/run/rtDaily';
+import { rtAvailableNodes } from '../src/realtime/run/rtRun';
 
 /**
  * Task 51з «Поход дня» (docs/design-notes/task-51-camp-l3.md, section 6; docs/realtime-slice.md, «Поход дня») — the view: the button at
@@ -209,4 +211,132 @@ test('a run of the day open: the button says why it cannot start, and a reload c
   await page.getByTestId('daily-verify').click();
   await expect(page.getByTestId('daily-status')).toContainText('Проверено', { timeout: 30_000 });
   expect(errors).toEqual([]);
+});
+
+// ---------- The journal of steps is whole: a long run of the day replayed by `rtStep` equals the live state ----------
+
+const SESSION = 'ashen-oath-rt-daily-session-v1';
+const liveState = (page: Page): Promise<any> => page.evaluate(() => (window as any).__realtime.run.state());
+const arenaOpen = (page: Page): Promise<boolean> => page.evaluate(() => (window as any).__realtime.run.arenaOpen());
+/** Clicks the first visible match of `selector` (a real click); false - none. */
+async function clickFirst(page: Page, selector: string): Promise<boolean> {
+  const target = page.locator(selector).first();
+  if (!await target.count() || !await target.isVisible()) return false;
+  await target.click();
+  return true;
+}
+
+/**
+ * Walks a run of the day by real clicks, as far as it goes without the boss: a different choice on every screen (the habit, the gift,
+ * the map's nodes by type - the calm ones first, the fights won by the journalled door run, the knack card, the rest's heal / craft / fuse,
+ * the merchant's buy and leave, the event's option, the die, the circle, the talisman and the hammer with a reroll). Returns the node types entered.
+ */
+async function walkDaily(page: Page, maxFights: number): Promise<string[]> {
+  const types: string[] = [];
+  let fights = 0, rests = 0, dice = 0;
+  for (let turn = 0; turn < 160; turn++) {
+    // The animated overlays of the die and the circle: closed or skipped.
+    if (await clickFirst(page, '[data-action="die-close"], [data-action="roll-close"]')) continue;
+    if (await clickFirst(page, '[data-testid="run-die-roll"][data-action], [data-testid="run-roll"][data-action]')) continue;
+    if (await arenaOpen(page)) {
+      expect(await page.evaluate(() => (window as any).__realtime.run.winArena())).toBe(true);
+      await expect(page.getByTestId('result')).toBeVisible();
+      fights++;
+      // A knack card is taken when the card offers it (rtChooseKnack with an option), else the way on.
+      if (!await clickFirst(page, '[data-testid="result"] [data-action="knack"][data-option]:not([data-option=""])')) await leaveResult(page);
+      continue;
+    }
+    const state = await liveState(page), pending = state.pending;
+    if (state.result) throw new Error('the walk ended the run');
+    if (!pending) {
+      if (fights >= maxFights) break;
+      const nodes = rtAvailableNodes(state).filter(node => node.type !== 'boss');
+      if (!nodes.length) break;
+      const calm = ['rest', 'shop', 'event', 'find'], order = (t: string): number => (calm.includes(t) ? (types.includes(t) ? 1 : 0) : 2);
+      const node = [...nodes].sort((a, b) => order(a.type) - order(b.type))[0];
+      types.push(node.type);
+      await page.locator(`[data-node="${node.id}"]`).click();
+      await page.getByTestId('run-enter').click();
+      continue;
+    }
+    switch (pending.kind) {
+      case 'gift':
+        if (await clickFirst(page, '[data-action="habit"]:not([data-habit="none"]):not([disabled])')) continue;
+        await takeGift(page);
+        break;
+      case 'battle': await page.getByTestId('run-battle').click(); await expect.poll(() => arenaOpen(page)).toBe(true); break;
+      case 'rest':
+        rests++;
+        if (await clickFirst(page, '[data-action="rest-fuse"]:not([disabled])')) break;
+        if (await clickFirst(page, '[data-action="rest-craft"]:not([disabled])')) break;
+        if (await clickFirst(page, '[data-action="rest-heal"]:not([disabled])')) break;
+        await page.getByTestId('rest-finish').click();
+        break;
+      case 'shop':
+        if (await clickFirst(page, '[data-action="shop-buy"]:not([disabled])')) break;
+        await page.getByTestId('shop-leave').click();
+        break;
+      case 'event': if (!await clickFirst(page, '[data-action="event-option"]:not([disabled])')) throw new Error('an event with no option'); break;
+      case 'find': await page.locator('[data-action="find"]:not([disabled])').first().click(); break;
+      case 'die': if (dice++ % 2 === 0) await page.getByTestId('die-roll').click(); else await page.getByTestId('die-take').click(); break;
+      case 'casino':
+        if (!await clickFirst(page, '[data-action="casino-play"]:not([disabled])')) await page.getByTestId('casino-leave').click();
+        break;
+      case 'talisman':
+        if (await clickFirst(page, '[data-action="talisman-reroll"]:not([disabled])')) break;
+        if (!await clickFirst(page, '[data-action="talisman"][data-option]:not([data-option=""]):not([disabled])')) await page.getByTestId('talisman-refuse').click();
+        break;
+      case 'hammer':
+        if (await clickFirst(page, '[data-action="hammer-reroll"]:not([disabled])')) break;
+        if (!await clickFirst(page, '[data-action="hammer"][data-option]:not([data-option=""]):not([disabled])')) await page.getByTestId('hammer-refuse').click();
+        break;
+      case 'knack': if (!await clickFirst(page, '[data-action="knack"][data-option]:not([data-option=""])')) await page.getByTestId('knack-skip').click(); break;
+      default: throw new Error(`no button for the screen ${pending.kind}`);
+    }
+  }
+  return types;
+}
+
+const REACHED = new Set<string>();
+for (const date of ['2026-10-20', '2026-10-21', '2026-10-22', '2026-10-23', '2026-10-24', '2026-10-25', '2026-10-26', '2026-10-27']) {
+  test(`${date}: a long run of the day by real clicks - its journal of steps replays through rtStep to the state the page holds`, async ({ page }) => {
+    test.setTimeout(420_000);
+    const errors = collectErrors(page);
+    await page.goto(`/?daily=${date}`);
+    await page.evaluate(([key, profile]) => { localStorage.clear(); localStorage.setItem('ashen-oath-realtime-prologue-done', '1'); localStorage.setItem(key as string, JSON.stringify(profile)); },
+      [PROFILE, { version: 1, giftFull: true, jailer: true, runs: 3, won: true, meta: META }] as const);
+    await page.reload();
+    await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
+    await page.getByTestId('run-hearth').click();
+    await page.getByTestId('hearth-daily').click();
+    await page.getByTestId('daily-start').click();
+    await expect(page.getByTestId('run-gift')).toBeVisible();
+    const types = await walkDaily(page, 7);
+    // The page's run and the session of steps it kept.
+    const live = await liveState(page);
+    expect(live.daily).toBe(date);
+    const session = await page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? 'null'), SESSION);
+    expect(session.date).toBe(date);
+    const steps: RtStepCall[] = session.steps;
+    const fns = [...new Set(steps.map(call => call.fn))].sort();
+    console.log(`${date}: ${steps.length} steps, nodes ${types.join(',')}, fns ${fns.join(' ')}`);
+    // The walk reached different nodes and screens: the steps are many and varied.
+    expect(steps.length).toBeGreaterThan(20);
+    for (const fn of ['rtEnterNode', 'resolveArena', 'rtChooseGift']) expect(fns, fn).toContain(fn);
+    for (const fn of fns) REACHED.add(fn);
+    // The journal alone rebuilds the run: every step is made, and the state is the page's (the whole serialized state).
+    let run = createRtDailyRun(date);
+    for (const [n, call] of steps.entries()) {
+      const step = rtStep(run, call);
+      if (!step.ok) throw new Error(`step ${n + 1} ${call.fn} refused: ${step.reason}`);
+      run = step.run;
+    }
+    expect(JSON.parse(JSON.stringify(run))).toEqual(live);
+    expect(errors).toEqual([]);
+  });
+}
+
+test('the long runs together made the steps of the rest, the merchant, the event, the find, the habit, the knack, the talisman', () => {
+  console.log(`steps reached in the browser: ${[...REACHED].sort().join(' ')}`);
+  for (const fn of ['rtRestHeal', 'rtShopLeave', 'rtChooseEventOption', 'rtChooseFind', 'rtChooseHabit', 'rtChooseKnack', 'rtChooseTalisman']) expect([...REACHED], fn).toContain(fn);
 });
