@@ -322,8 +322,7 @@ export function recipeHtml(run: RtRunState | null | undefined, id: string): stri
 /** Task 44: an item's icon as the build column draws it (a drawn SVG, or its sign). */
 const itemIcon = (id: string, ranked = false): string => { const label = labelOf(id); return `<i class="rt-fuse-icon">${label.svg ?? escapeHtml(label.glyph)}${ranked ? rankMarkHtml() : ''}</i>`; };
 
-/** Task 50: the archetype row of the open gift — four cards and «Без повадки»; the chosen one stays lit, the rest wait off. */
-/** Task 50 §18: the opened items of a habit's tag (the run's pool: not locked, not taken) - up to three icons beside the card's words. */
+/** Task 50 §18: the opened items of a habit's tag shown on its card — up to three icons beside the card's words. */
 export const HABIT_ITEMS_SHOWN = 3;
 /** The line under «Повадка» while it is not chosen (design 20.10.2026, task 50 §18). */
 export const HABIT_HINT = 'Предметы с этим знаком будут попадаться чаще';
@@ -334,6 +333,7 @@ function habitItems(run: RtRunState, habit: RtHabitId): string[] {
   const seen = new Set<string>(), ids = [...RT_TALISMANS, ...RT_FORMS].filter(def => def.rarity !== 'relic' && def.tags?.includes(habit) && !run.locked?.includes(def.id) && !seen.has(def.id) && !!seen.add(def.id)).map(def => def.id);
   return ids.slice(0, HABIT_ITEMS_SHOWN);
 }
+/** Task 50: the archetype row of the open gift — four cards and «Без повадки»; the chosen one stays lit, the rest wait off. */
 function habitRowHtml(habit: NonNullable<ReturnType<typeof rtGiftView>>['habit'] & object, run: RtRunState): string {
   const none = habit.chosen && habit.id === null;
   const cards = RT_HABITS.map(def => `<button class="rt-habit-card${habit.id === def.id ? ' rt-on' : ''}" data-action="habit" data-habit="${def.id}" data-testid="habit-${def.id}" aria-pressed="${habit.id === def.id}" ${habit.chosen ? 'disabled' : ''}>`
@@ -1237,11 +1237,6 @@ export class RunView {
   }
 
   /**
-   * Task 50 (tests read it, `__realtime.run.habitShown`): the run's archetype (`habit`: its id, null — «Без повадки», undefined — no row
-   * or not yet), whether the open gift shows the row (`row`) and has decided it (`chosen`), `signs` — the header's sign (0 or 1), and on the
-   * screen now `marks` — the item cards that carry the archetype's icon (`marked`: their ids).
-   */
-  /**
    * Task 50 §18: the first screen of the run that shows the habit's mark on an item card — the mark flashes for 0.4 s, once a run (the seed
    * keys it; a view memory, not saved: a reloaded run may flash once more). The gift's own row has no marks.
    */
@@ -1255,6 +1250,12 @@ export class RunView {
     marks.forEach(mark => mark.classList.add('rt-habit-flash'));
   }
 
+  /**
+   * Task 50 (tests read it, `__realtime.run.habitShown`): the run's archetype (`habit`: its id, null — «Без повадки», undefined — no row
+   * or not yet), whether the open gift shows the row (`row`) and has decided it (`chosen`), `signs` — the header's sign (0 or 1), and on the
+   * screen now `marks` — the item cards that carry the archetype's icon (`marked`: their ids). Task 50 §18: `flashes` / `flashing` — the
+   * mark's flash, `items` — the icons on each habit card, `hint` — the line under «Повадка».
+   */
   habitInfo(): { habit: string | null | undefined; row: boolean; chosen: boolean; signs: number; marks: number; marked: string[]; flashes: number; flashing: number; items: Record<string, string[]>; hint: string } {
     const run = this.run, gift = run ? rtGiftView(run) : null, marked = [...this.el.querySelectorAll<HTMLElement>('.rt-habit-mark')].map(el => el.dataset.for ?? '');
     return { habit: run ? (gift?.habit ? gift.habit.id : run.habit) : undefined, row: !!gift?.habit, chosen: !!gift?.habit?.chosen || (!!run?.habits && !gift), signs: this.el.querySelectorAll('.rt-run-habit').length, marks: marked.length, marked, flashes: this.habitFlashes, flashing: this.el.querySelectorAll('.rt-habit-flash').length, items: Object.fromEntries([...this.el.querySelectorAll<HTMLElement>('.rt-habit-items')].map(el => [el.dataset.testid?.replace('habit-items-', '') ?? '', [...el.querySelectorAll<HTMLElement>('.rt-habit-item')].map(i => i.dataset.item ?? '')])), hint: this.el.querySelector('[data-testid="gift-habits-hint"]')?.textContent ?? '' };
