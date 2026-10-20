@@ -1116,6 +1116,37 @@ export interface Params {
   wardenAnger: number;
   /** Task 59а: the touch in the anger (2). */
   wardenAngerTouch: number;
+  /**
+   * Task 59а «Смолокур»: the law of pitch — the pitcher's pot (windup, a mark at the hero's place at the throw, a hit in its circle) and the
+   * pools of pitch (the hero and the enemies walk slower in them; the hero's fire lights them). Off by default: a plain slow enemy.
+   */
+  pitch: boolean;
+  /** Task 59а: the pot's windup (game s; journals without the key: 0.6). */
+  pitchWindup: number;
+  /** Task 59а: the pot's flight (game s; 1.2; the fight's first ×1.5). */
+  pitchFlight: number;
+  /** Task 59а: the circle of the pot's hit around its mark (0.7). */
+  pitchRadius: number;
+  /** Task 59а: the pot's damage to the hero (1). */
+  pitchDamage: number;
+  /** Task 59а: the radius of a pool of pitch (1). */
+  pitchPoolRadius: number;
+  /** Task 59а: game seconds a pool lies before it dries (4). */
+  pitchLife: number;
+  /** Task 59а: the hero's walk in a pool (×0.6). */
+  pitchHeroSlow: number;
+  /** Task 59а: the enemies' walk in a pool (×0.4). */
+  pitchEnemySlow: number;
+  /** Task 59а: the pitcher's reload (game s; 5). */
+  pitchReload: number;
+  /** Task 59а: the pitchers' common pause — no windup sooner after any pitcher's throw (game s; 2.5). */
+  pitchGap: number;
+  /** Task 59а: the pitcher keeps this far from the hero at least (4) … */
+  pitchNear: number;
+  /** … and at most (7); it throws within this + 1. */
+  pitchFar: number;
+  /** Task 59а: game seconds a lit pool burns before it is gone (2). */
+  pitchBurn: number;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -1597,6 +1628,20 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   wardenHp: 2,
   wardenAnger: 8,
   wardenAngerTouch: 2,
+  pitch: false,
+  pitchWindup: 0.6,
+  pitchFlight: 1.2,
+  pitchRadius: 0.7,
+  pitchDamage: 1,
+  pitchPoolRadius: 1,
+  pitchLife: 4,
+  pitchHeroSlow: 0.6,
+  pitchEnemySlow: 0.4,
+  pitchReload: 5,
+  pitchGap: 2.5,
+  pitchNear: 4,
+  pitchFar: 7,
+  pitchBurn: 2,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -1621,7 +1666,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('heroSpeed', 'Перемещение', 'Скорость героя (WASD, стрелки)', 0, 10, 0.25, 4, 'ед/с', 'Свободное движение; в фокусе замедлено вместе со временем. На проходе цепи и в прыжке ввод не действует.'),
   { kind: 'bool', key: 'heroThroughEnemies', group: 'Перемещение', label: 'Сквозь врагов', stage: 4,
     hint: 'Включено (по умолчанию с этапа D): герой проходит сквозь толпу, расталкивая тела, и в толпе идёт медленнее; касание ранит. Выключено: враги — препятствие, толпа может зажать героя (выход — цепь или прыжок).' },
-  n('crowdSlow', 'Перемещение', 'Замедление в толпе', 0.1, 1, 0.05, 4, '×', 'Пока круг героя перекрывает тело хотя бы одного врага (при «Сквозь врагов»), ходьба медленнее. Складывается только с водой: вода × толпа.'),
+  n('crowdSlow', 'Перемещение', 'Замедление в толпе', 0.1, 1, 0.05, 4, '×', 'Пока круг героя перекрывает тело хотя бы одного врага (при «Сквозь врагов»), ходьба медленнее. Складывается с водой или смолой: вода × толпа, смола × толпа (смола в воде не лежит).'),
   n('enemyScale', 'Враги', 'Размер врага', 0.4, 1.5, 0.05, 4, '×', 'Множитель рисунка и тела всех врагов (кабан, волк, Жнец — тоже); зона касания и расталкивание — вместе с телом. Круг героя не меняется.'),
   n('enemyRadius', 'Враги', 'Радиус рисунка врага (при размере 1)', 0.2, 0.7, 0.01, 1, 'ед.'),
   n('bodyRadius', 'Враги', 'Радиус тела (толкание; при размере 1)', 0.15, 0.7, 0.01, 1, 'ед.'),
@@ -2125,6 +2170,21 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('wardenHp', 'Гарнизон', 'Привратник: HP', 0, 6, 1, 5),
   n('wardenAnger', 'Гарнизон', 'Привратник: гнев', 1, 20, 0.5, 5, 'с'),
   n('wardenAngerTouch', 'Гарнизон', 'Привратник: касание в гневе', 0, 5, 1, 5),
+  { kind: 'bool', key: 'pitch', group: 'Гарнизон', label: 'Смолокур: горшок и смола', stage: 5,
+    hint: 'Горшок летит в точку героя в момент броска (метка), бьёт в круге; на месте — лужа смолы: в ней вязнут все. Огонь героя её поджигает.' },
+  n('pitchWindup', 'Гарнизон', 'Смолокур: замах', 0.1, 3, 0.1, 5, 'с'),
+  n('pitchFlight', 'Гарнизон', 'Смолокур: полёт горшка', 0.3, 4, 0.1, 5, 'с', 'Первый бросок в бою — ×1,5.'),
+  n('pitchRadius', 'Гарнизон', 'Смолокур: круг удара', 0.2, 2, 0.05, 5, 'ед.'),
+  n('pitchDamage', 'Гарнизон', 'Смолокур: урон горшка', 0, 5, 1, 5),
+  n('pitchPoolRadius', 'Гарнизон', 'Смола: радиус лужи', 0.3, 3, 0.05, 5, 'ед.'),
+  n('pitchLife', 'Гарнизон', 'Смола: жизнь лужи', 0.5, 12, 0.5, 5, 'с'),
+  n('pitchHeroSlow', 'Гарнизон', 'Смола: ходьба героя', 0.1, 1, 0.05, 5, '×'),
+  n('pitchEnemySlow', 'Гарнизон', 'Смола: ходьба врагов', 0.1, 1, 0.05, 5, '×'),
+  n('pitchReload', 'Гарнизон', 'Смолокур: перезарядка', 0.5, 15, 0.5, 5, 'с'),
+  n('pitchGap', 'Гарнизон', 'Смолокуры: общая пауза', 0, 10, 0.5, 5, 'с', 'Замах любого смолокура — не раньше этого после прошлого броска любого.'),
+  n('pitchNear', 'Гарнизон', 'Смолокур: держится не ближе', 1, 10, 0.5, 5, 'ед.'),
+  n('pitchFar', 'Гарнизон', 'Смолокур: держится не дальше', 2, 14, 0.5, 5, 'ед.'),
+  n('pitchBurn', 'Гарнизон', 'Смола: горение лужи', 0.5, 8, 0.5, 5, 'с'),
 ];
 
 const MAX_PHASES = 8;

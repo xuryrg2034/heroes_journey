@@ -45,7 +45,8 @@ import { buildHit, buildHitAll, enemiesInCircle, enemiesNearPath } from './build
 import { BLAST_DAMAGE, BLAST_RADIUS, endBlastMinLinks, fireMinLinks, fireOn, planChain, returnFixedOn, returnStrike, startReturnRun } from './chain';
 import { eliteAffixes } from './elites';
 import { kindOf } from './enemies/kinds';
-import { dist, inWater, overCliff, type Vec } from './geometry';
+import { dist, type Vec } from './geometry';
+import { FIRE_DAMAGE, FIRE_PAUSE, FIRE_RADIUS, FIRE_STEP, fireLaysAt, firePathPoints } from './firePath';
 import { frostPassPath } from './frostPass';
 import { blastPlatesOn, boomerangFull, endBlastOf, hunterBlastOn } from './fusions';
 import { RETURN_RADIUS, returnPowerFor, returnRoute, returnTargets, returnWaypoints, traceTo, type ReturnFixed } from './returnRun';
@@ -59,14 +60,8 @@ export { FIRE_LEGACY_MIN_LINKS, fireMinLinks } from './chain';
 
 /** «Огненный проход»: game seconds a fire point burns. */
 export const FIRE_LIFE = 2;
-/** Radius of a fire point: an enemy whose centre is this close burns (the view draws the same circle). */
-export const FIRE_RADIUS = 0.4;
-/** A fire point every this many units of the hero's path (as the elite trail's `trailStep`). */
-export const FIRE_STEP = 0.4;
-/** Damage of the fire on entry, and again after each pause while the enemy stays in it. */
-export const FIRE_DAMAGE = 1;
-/** Game seconds before the fire may hurt the same enemy again. */
-export const FIRE_PAUSE = 1;
+/** Radius, step, damage and pause of the fire — firePath.ts (task 59а: the highlight and the pools of pitch read them too). */
+export { FIRE_DAMAGE, FIRE_PAUSE, FIRE_RADIUS, FIRE_STEP, fireLaysAt };
 /** «Взрыв на конце»: radius and damage (task 46: in chain.ts — the highlight of «Подрыв» reads them). */
 export { BLAST_DAMAGE, BLAST_RADIUS } from './chain';
 /** «Режущий проход»: reach from the path line (plus the body radius) and damage. */
@@ -124,11 +119,6 @@ export function hammerFirePoints(world: World): readonly FirePoint[] {
 
 // ---- «Огненный проход» ----
 
-/** A fire point can lie at `p` (`layFire`, the highlight `firePassPreview`): not in water, not over a cliff. Pure. */
-export function fireLaysAt(world: World, p: Vec): boolean {
-  return !inWater(p, world.arena) && !(world.arena.terrain && overCliff(p, world.arena));
-}
-
 function layFire(world: World, state: FireState, p: Vec): void {
   if (!fireLaysAt(world, p)) return;
   // Task 31: before the threshold the point waits (the same place the old path lays it).
@@ -160,24 +150,9 @@ function fireAlong(world: World, state: FireState, path: readonly Vec[]): void {
  * reach the threshold (`planChain(...).fire.lit`), with no chain or while a dash runs. The view draws the fire edge by these. Pure.
  */
 export function firePassPreview(world: World): Vec[] {
-  const out: Vec[] = [];
-  if (!fireOn(world) || !planChain(world).fire?.lit) return out;
-  // The release sets `next` 0: the first point lies at the start of the dash, then every `FIRE_STEP`.
-  const path = frostPassPath(world);
-  let next = 0;
-  for (let i = 1; i < path.length; i++) {
-    const a = path[i - 1], b = path[i], len = dist(a, b);
-    if (len <= EPS) continue;
-    let at = 0;
-    while (len - at >= next - EPS) {
-      at += next;
-      const k = Math.min(1, at / len), p = { x: a.x + (b.x - a.x) * k, y: a.y + (b.y - a.y) * k };
-      if (fireLaysAt(world, p)) out.push(p);
-      next = FIRE_STEP;
-    }
-    next -= len - at;
-  }
-  return out;
+  if (!fireOn(world) || !planChain(world).fire?.lit) return [];
+  // The release sets `next` 0: the first point lies at the start of the dash, then every `FIRE_STEP` (firePath.ts).
+  return firePathPoints(world, frostPassPath(world));
 }
 
 const fiery = (e: Enemy): boolean => eliteAffixes(e).includes('fiery');

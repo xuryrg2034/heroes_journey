@@ -219,6 +219,11 @@ export interface ArenaTemplate extends ArenaShape {
    */
   shackles?: boolean;
   /**
+   * Task 59а «Гарнизон, шаг 3»: the arena plays the law of pitch (the pitcher's pot and the pools) — the world gets a copy with
+   * `Params.pitch` on (world.ts `createWorld`; the journal keeps that copy). «Смолокурня» and its probe. Omitted — the values as given.
+   */
+  pitch?: boolean;
+  /**
    * Task 40: start enemies that stand too in a deep fight (`Loadout.deep`: the run gives it to «Ров» on garrison rows 8–9, to
    * «Галерея» and «Караульня» from row 8 once «Ров» was played) — after `enemies`. Omitted — none; without `deep` never read.
    */

@@ -30,6 +30,8 @@ import './chief';
 import './recruit';
 // Task 59а: the wardens (the pair and the anger).
 import './warden';
+// Task 59а: the pitcher (the law of pitch, pitch.ts).
+import './pitcher';
 
 export { BOAR_ART_SCALE, type BoarState } from './boar';
 export { packmates, wolfHowl, wolfRushLine, wolfState, WOLF_RUSH } from './wolf';
@@ -50,4 +52,5 @@ export { CHIEF, CHIEF_LADLE, CHIEF_MOVES, CHIEF_SACK, chiefCore, chiefMove, chie
 // Task 59а: the recruits for the view.
 export { RECRUIT, recruitCurrent, recruitGroup, recruitNumber, recruitQueue } from './recruit';
 export { WARDEN, wardenAngry, wardenPartner } from './warden';
+export { PITCHER, pitcherWindup } from './pitcher';
 export * from './kinds';

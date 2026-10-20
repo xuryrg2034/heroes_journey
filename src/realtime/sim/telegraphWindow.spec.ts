@@ -28,7 +28,8 @@ import {
   CHIEF, CHIEF_LADLE, CHIEF_MOVES, CHIEF_SACK, PEPPER_RADIUS, PEPPER_WINDUP, PHASE3_WINDUP as CHIEF_PHASE3_WINDUP, SWING_RADIUS, SWING_WINDUP,
 } from './enemies/chief';
 import { WARDEN } from './enemies/warden';
-import { registerArena } from './arenas';
+import { PITCHER } from './enemies/pitcher';
+import { registerArena, registeredArenas, type ArenaTemplate } from './arenas';
 import { defaultParams, heroRadius, type Params } from './params';
 import { Simulation, SIM_DT } from './simulation';
 import { touchDistance, type WorldEvent } from './world';
@@ -84,6 +85,12 @@ const THREATS: readonly Threat[] = [
   { id: 'knight-swing', source: KNIGHT, title: 'рыцарь: размах', window: p => p.knightSwingWindup, exit: p => p.knightSwingRadius + heroRadius(p) },
   // Task 59а (spec 5.3): the warden's «Размах» in its anger — the knight's law and keys.
   { id: 'warden-swing', source: WARDEN, title: 'привратник: размах', window: p => p.knightSwingWindup, exit: p => p.knightSwingRadius + heroRadius(p) },
+  // Task 59а (spec 3.6): the pitcher's pot — the mark from the throw to the landing, out of its circle; and the worst case, the hero in
+  // pitch and in the crowd (×`pitchHeroSlow` × `crowdSlow`: the walk out is as long as a longer one at full speed). The crossbow's
+  // bolt in pitch and the crowd too (the spec's table). «Размах» in pitch does not fit — the ban of the composition below.
+  { id: 'pitcher-pot', source: PITCHER, title: 'смолокур: горшок', window: p => p.pitchFlight, exit: p => p.pitchRadius + heroRadius(p) },
+  { id: 'pitcher-pot-pitch', source: PITCHER, title: 'смолокур: горшок, герой в смоле и толпе', window: p => p.pitchFlight, exit: p => (p.pitchRadius + heroRadius(p)) / (p.pitchHeroSlow * p.crowdSlow) },
+  { id: 'crossbow-bolt-pitch', source: 'crossbow', title: 'арбалетчик: болт, герой в смоле и толпе', window: p => p.crossbowWindup, exit: p => (BOLT_HALF + heroRadius(p)) / (p.pitchHeroSlow * p.crowdSlow) },
   // Task 48 (the Troll, design 7): the shortest windups — phase 3's ×0.8 for the club and the rock (the tail is not sped up, spec 24.4; the first of a fight is ×1.5). «Удар дубиной» — a lane of
   // 4.5 × 1.6, the way out sideways from its axis; «Бросок камня» — the circle of 1.2 on the hero, its windup and the flight 0.4;
   // «Хвост метёт» — the ring 1.2–3.2 around the core, the worst point its inner edge (inside 1.2 is the core's body and touch).
@@ -213,6 +220,27 @@ check('the numbers of the research table (15.10.2026): the exit from the centre 
   assert(walk('archer-mark') === 0.32 && at('archer-mark').window(RUN) === 1, `archer ${walk('archer-mark')} at ${at('archer-mark').window(RUN)}`);
   assert(Math.abs(walk('sapper-death') - 0.45) <= 0.01 && at('sapper-death').window(RUN) === 0.8, `sapper ${walk('sapper-death')} at ${at('sapper-death').window(RUN)}`);
   assert(Math.abs(walk('goblin-bust') - 0.95) <= 0.01 && at('goblin-bust').window(RUN) === 0.6, `goblin ${walk('goblin-bust')} at ${at('goblin-bust').window(RUN)}`);
+});
+
+/** Task 59а (spec 3.6): the kinds whose «Размах» does not fit a hero slowed by pitch and the crowd. */
+const SWINGERS: readonly string[] = [KNIGHT, WARDEN];
+/** The kinds an arena brings (start, deep, crossbow and newcomer kinds); a pitcher with a swinger — the broken pair, else null. */
+function pitchSwingClash(t: ArenaTemplate): string | null {
+  const kinds = new Set([...t.enemies, ...t.deepEnemies ?? [], ...t.boltEnemies ?? []].map(e => e.kind ?? 'basic'));
+  for (const n of t.newcomers ?? []) kinds.add(n.kind);
+  const swinger = SWINGERS.find(k => kinds.has(k));
+  return kinds.has(PITCHER) && swinger ? `${t.id}: ${PITCHER} + ${swinger}` : null;
+}
+
+check('task 59а (spec 3.6): «Размах» with the hero in pitch and the crowd misses the bound — so a pitcher never shares an arena with a knight or a warden; a composition that breaks it is caught', () => {
+  const swing = THREATS.find(t => t.id === 'knight-swing')!, slowed = (p: Params): number => swing.exit(p) / (p.pitchHeroSlow * p.crowdSlow);
+  const n = REACTION + slowed(RUN) / RUN.heroSpeed;
+  console.log(`   рыцарь/привратник: размах, герой в смоле и толпе (поход): окно ${round2(swing.window(RUN))} с, нужно ${round2(n)} с — запрет состава`);
+  assert(swing.window(RUN) < n, `the swing in pitch fits now (${swing.window(RUN)} ≥ ${round2(n)}): the ban may be stale — ask the design`);
+  const broken = registeredArenas().map(pitchSwingClash).filter((x): x is string => !!x);
+  assert(!broken.length, `arenas with a pitcher and «Размах»: ${broken.join('; ')}`);
+  const probe = { id: 'probe', enemies: [{ x: 1, y: 1, color: 0, kind: PITCHER }], newcomers: [{ kind: KNIGHT, share: 1 }] } as unknown as ArenaTemplate;
+  assert(pitchSwingClash(probe) === `probe: ${PITCHER} + ${KNIGHT}`, 'the check catches a composition with both');
 });
 
 check('coverage: every registered enemy kind is a source of the table or listed outside it with a reason; no entry for a kind that does not exist', () => {

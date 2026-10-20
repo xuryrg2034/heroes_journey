@@ -33,6 +33,8 @@ import { TROLL, TROLL_CROWD, trollWards } from './enemies/troll';
 import { RECRUIT, noteRefused, orderRecruits, recruitInOrder } from './enemies/recruit';
 // Task 54: the Chief's feast guards his core from every source but the chain in his window (enemies/chief.ts).
 import { CHIEF, chiefWards, seatedEater } from './enemies/chief';
+// Task 59а: the law of pitch — the pots, the pools and their slowdown (pitch.ts).
+import { enemyPitchFactor, heroPitchFactor, updatePitch, type PitchState, type Pot } from './pitch';
 // Casino stage 1 («Однорукий гоблин», slot.ts): the slot's state and step.
 import { goblinOf, placeArenaGoblin, updateSlot, type SlotOutcome, type SlotState, type SlotSymbol } from './slot';
 import { fallenEmbers, greedHurt, purseDoor, purseKill, type DoorExit, type PurseMove, type PurseWorld } from './purse';
@@ -280,6 +282,11 @@ export interface HeroMove {
   cuts?: number[];
   /** Task 59а (`Params.recruits`): the formations whole at the release — no member left at the pass's end gives the bonus. */
   drill?: number[];
+  /**
+   * Task 59а (`Params.pitch`): the pools of pitch the release fixed for this dash's fire to light (the plan's `fire.pitch`) — they do
+   * not dry during the move and light once it is over (its return run too). Absent when none.
+   */
+  pitch?: number[];
 }
 
 /**
@@ -576,7 +583,10 @@ export type WorldEvent =
    */
   | { type: 'recruit'; action: 'refused' | 'drill'; id: number; x: number; y: number; source?: string; energy?: number }
   /** Task 59а (enemies/warden.ts, «Привратники»): the anger (`start`, `end`) and its «Размах» (`swing`: `start` — the windup, `hit`). */
-  | { type: 'warden'; action: 'anger' | 'swing'; stage: 'start' | 'end' | 'hit'; id: number; x: number; y: number };
+  | { type: 'warden'; action: 'anger' | 'swing'; stage: 'start' | 'end' | 'hit'; id: number; x: number; y: number }
+  // Task 59а (pitch.ts): the pitcher's windup (`aim`: id — the pitcher), the throw (id — the pot, `by`, from `x0`/`y0` to the mark,
+  // `flight`), the landing (`hit` — the hero in its circle), a pool (id — the pool, `life`), it dried (`burnt` — burnt out), it lit (`cause`).
+  | { type: 'pot'; action: 'aim' | 'throw' | 'land' | 'pool' | 'dry' | 'ignite'; id: number; x: number; y: number; by?: number; x0?: number; y0?: number; flight?: number; hit?: 'hero'; life?: number; burnt?: true; cause?: 'path' | 'burning' };
 
 export interface World {
   arena: ArenaTemplate;
@@ -718,6 +728,10 @@ export interface World {
    * last is gone: worlds without them hash as before).
    */
   tethers?: Tether[];
+  /** Task 59а (`Params.pitch`, pitch.ts): the pitchers' pots in flight — absent until the first throw (worlds hash as before). */
+  pots?: Pot[];
+  /** Task 59а: the pools of pitch, the common pause, the burnt enemies' pauses — absent until the first throw. */
+  pitch?: PitchState;
 }
 
 /**
@@ -809,6 +823,8 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   if (arena.garrison && (!params.tethers || !params.guardFormation)) params = { ...copyParams(params), tethers: true, guardFormation: true };
   // Task 40: «Ров» plays the keymaster's shackles (the given object stays as it is; a journal keeps the copy).
   if (arena.shackles && !params.shackles) params = { ...copyParams(params), shackles: true };
+  // Task 59а: «Смолокурня» plays the law of pitch (the given object stays as it is; a journal keeps the copy).
+  if (arena.pitch && !params.pitch) params = { ...copyParams(params), pitch: true };
   // Task 43: the full Castellan's arena plays its key on (the sandbox «Двор кастеляна (полный)»; a journal keeps the copy).
   if (arena.castellanFull && !params.castellanFull) params = { ...copyParams(params), castellanFull: true };
   // Task 48: the Troll's arena plays his solid bodies (when the values have it off; a journal keeps the copy).
@@ -1268,7 +1284,8 @@ export function waterFactor(world: World, p: Vec): number {
 
 /** Walking multiplier of an enemy at a point (stage 3a): water × thorns (`thornSlow`, М3; the hero walks thorns at full speed). */
 export function enemyGroundFactor(world: World, p: Vec): number {
-  const water = waterFactor(world, p);
+  // Task 59а: × the pitch's slowdown in a pool (pitch.ts; 1 without pools).
+  const water = waterFactor(world, p) * enemyPitchFactor(world, p);
   return world.arena.terrain && inThorns(p, world.arena) ? water * world.params.thornSlow : water;
 }
 
@@ -1704,7 +1721,8 @@ function stepHeroWalk(world: World, dt: number): void {
   if (len < 1e-6 || heroSpeed <= 0) return;
   world.heroWalk.x = input.x / len; world.heroWalk.y = input.y / len;
   // Water × crowd (stage D): the only walking multipliers; focus slows the game time itself, not the walk.
-  const k = heroSpeed * waterFactor(world, hero) * crowdFactor(world) * dt / Math.max(1, len);
+  // Task 59а: × the pitch's slowdown in a pool (pitch.ts; 1 without pools).
+  const k = heroSpeed * waterFactor(world, hero) * heroPitchFactor(world) * crowdFactor(world) * dt / Math.max(1, len);
   let mx = input.x * k, my = input.y * k;
   if (!params.heroThroughEnemies) {
     for (let pass = 0; pass < 3; pass++) {
@@ -2018,6 +2036,9 @@ export function update(world: World, dt: number, realDt = dt): void {
   if (world.status !== 'playing') return;
   // Stage 2, step 3: burning enemies (the fire consumable) take their ticks after the blasts, before the touches.
   updateBurning(world, dt);
+  // Task 59а: the pots fly and land, the pools of pitch dry and burn (nothing before the first throw).
+  updatePitch(world, dt);
+  if (world.status !== 'playing') return;
   // Phase B: the build modules' own step (the hammer's fire), after burning, before thorns.
   runHook(world, 'onUpdate', m => { if (world.status === 'playing') m.onUpdate!(world, dt); });
   if (world.status !== 'playing') return;

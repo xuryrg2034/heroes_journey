@@ -112,6 +112,7 @@
     "test:realtime-crossbow": "tsx src/realtime/sim/crossbow.spec.ts",
     "test:realtime-recruits": "tsx src/realtime/sim/recruits.spec.ts",
     "test:realtime-wardens": "tsx src/realtime/sim/wardens.spec.ts",
+    "test:realtime-pitcher": "tsx src/realtime/sim/pitcher.spec.ts",
     "test:realtime-castellan-full": "tsx src/realtime/sim/castellanFull.spec.ts",
     "test:realtime-knight": "tsx src/realtime/sim/knight.spec.ts",
     "test:realtime-garrison-moat": "tsx src/realtime/run/garrisonMoat.spec.ts",

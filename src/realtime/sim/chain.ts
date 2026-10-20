@@ -45,6 +45,9 @@ import { BOSS_CORES, colorlessCore, endsFight } from './enemies/jailer';
 // Task 59а «Привратники»: the pair's anger (enemies/warden.ts).
 import { wardenPartner, wardensOn } from './enemies/warden';
 // Task 59а «Новобранцы»: the law of order (enemies/recruit.ts).
+// Task 59а: the pools of pitch the lit path touches (pitch.ts; the fire points — firePath.ts, as the dash lays them).
+import { firePathPoints } from './firePath';
+import { pitchMoveEnd, pitchOnFire } from './pitch';
 import { RECRUIT, drillEnd, noteRefused, recruitCurrent, recruitGate, recruitGroup, recruitInOrder, recruitsOn, wholeFormations } from './enemies/recruit';
 import { blockedAt, cliffAt, dist, inThorns, lineOfSight, overCliff, pushOutOfObstacles, type Vec } from './geometry';
 import { heroRadius, type Params } from './params';
@@ -272,6 +275,8 @@ export interface FirePreview {
   lit: boolean; links: number; need: number;
   /** Task 46 «Клеймо»: the colour and the bodies the lit path paints at the end of the dash (with the fusion and `lit` only). */
   paint?: PaintPreview;
+  /** Task 59а (`Params.pitch`): the pools of pitch the lit path touches — they light once the move is over (with `lit` only; absent when none). */
+  pitch?: number[];
 }
 
 /** Task 46 «Клеймо»: the chain's colour (the last coloured enemy link the dash reaches) and the bodies along the path it paints. */
@@ -459,6 +464,9 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   // that ends the fight).
   const fused = options.back !== false && links === world.chain && !over && fusionEndOn(world) ? planFusionEnd(world, links, out, pierce, seal, !!fire?.lit) : null;
   if (fire && fused?.paint) fire = { ...fire, paint: fused.paint };
+  // Task 59а: the pools of pitch the lit path's fire points touch (only while pools lie).
+  const pitch = fire?.lit && world.pitch?.pools.length ? pitchOnFire(world, firePathPoints(world, planDashPath(world, { links: out, pierce }))) : [];
+  if (fire && pitch.length) fire = { ...fire, pitch };
   // Task 43: the core of the drawn chain behind a grate that will drop (the full Castellan only).
   const grate = links === world.chain && !world.move ? grateLinkDrop(world, links) : null;
   // Task 48: the Troll's core of the drawn chain, dropped when his window ends.
@@ -1597,6 +1605,8 @@ export function releaseChain(world: World): boolean {
   const pierce = pierceOn(world) ? full?.pierce : undefined, back = backFixed ? full?.back : undefined;
   // Task 38: the tethers the player saw cut — fixed now, cut when the dash ends (only while the law acts and a tether stands).
   const cuts = live && tethersOn(world) && world.tethers?.length ? (full ?? planChain(world, world.chain, NO_PIERCE)).cuts : undefined;
+  // Task 59а: the pools of pitch the player saw the fire light — fixed now, lit when the move is over.
+  const pitch = live && fireOn(world) && world.pitch?.pools.length ? (full ?? planChain(world)).fire?.pitch : undefined;
   const links = world.chain.filter(l => linkPoint(world, l));
   world.chain = [];
   delete world.chainClosed;
@@ -1609,6 +1619,7 @@ export function releaseChain(world: World): boolean {
   }
   if (pierce) fixPierce(world, world.move, pierce);
   if (cuts?.length) world.move.cuts = [...cuts];
+  if (pitch?.length) world.move.pitch = [...pitch];
   // Task 59а: the formations whole now — all of them gone by the pass's end give the bonus.
   const drill = wholeFormations(world);
   if (drill.length) world.move.drill = drill;
@@ -2161,6 +2172,12 @@ function finishMove(world: World): void {
     // (`finishMove` cleared the move; a hook may have started the return run since.)
     const next = world.move as HeroMove | null;
     if (left.length && next?.kind === 'return') next.drill = left;
+  }
+  // Task 59а: the pools the release fixed light after the move (a return run started by the dash's end carries the list on).
+  if (move.pitch && world.status === 'playing') {
+    const next = world.move as HeroMove | null;
+    if (next?.kind === 'return') next.pitch = move.pitch;
+    else pitchMoveEnd(world, move.pitch);
   }
   if (move.kind === 'jump' && landsInDoor(world, hero)) win(world, 'jump');
   if (move.kind === 'return') runHook(world, 'onMoveEnd', m => m.onMoveEnd!(world, move));
