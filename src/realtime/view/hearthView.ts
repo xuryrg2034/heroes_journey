@@ -15,6 +15,8 @@ import { HEARTH_GATE_LOCK, HEARTH_MONK_LOCK, HEARTH_PLACES, HEARTH_PRICES, NPCS,
 import { NPC_LINES, npcLine, pickLine, questLine, type DeathCause, type LineKey } from './npcLines';
 import { rowWord } from './metaEnd';
 import { toadLine, toadRunKey } from './heroLines';
+import { dailyButtonHtml, dailyPanelHtml, dailyReasonHtml, type DailyTools } from './dailyView';
+import type { RtDailyView } from '../run/rtDaily';
 
 const esc = (s: string): string => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 const ICON = '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M10 2 L17 7 L14.5 17 L5.5 17 L3 7 Z" fill="#e3b45a" stroke="#1a2330" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 7 L10 9 L17 7 M10 9 L10 17" fill="none" stroke="#1a2330" stroke-width="1.2" stroke-linejoin="round"/></svg>';
@@ -75,6 +77,8 @@ export interface HearthHost {
   sound?(kind: 'buy' | 'open'): void;
   /** The enemy kinds the viewer has met (the bestiary; view/newSeen.ts memory), besides the profile's `seen`. */
   beasts?(): string[];
+  /** Task 51з «Поход дня»: the button under «В поход» (absent - none), its model, «Начать», and the proof's tools. */
+  daily?: { view(): RtDailyView; start(): void; tools: DailyTools };
 }
 
 /** What the camp shows now (tests read it). */
@@ -97,6 +101,8 @@ export class HearthView {
   /** Task 51д: the line over a trace (the leaver's goodbye said on this visit, then the owl's line of a click on it). */
   private leaveSaid = new Map<NpcId, string>();
   private traceSay: { npc: NpcId; text: string } | null = null;
+  /** Task 51з: the panel of the run of the day is open. */
+  private dailyOpen = false;
   readonly shown: HearthShown = { open: false, npcs: [], empty: 0, bubble: null, line: '', bought: 0, bestiary: 0, heroes: [], hero: 'cat', heroLine: '' };
 
   constructor(private readonly host: HearthHost) {
@@ -105,6 +111,7 @@ export class HearthView {
     this.el.setAttribute('data-testid', 'hearth');
     this.el.hidden = true;
     this.el.addEventListener('click', event => this.onClick(event));
+    this.el.addEventListener('change', event => { this.host.daily?.tools.change(event.target as HTMLElement); });
     // The camp's background (the fire and six places); without it — the drawn fire and dark places (`rt-hearth-noart`).
     this.el.style.setProperty('--hearth-art', `url("${artUrl('camp/hearth.png')}")`);
     const probe = new Image();
@@ -123,7 +130,7 @@ export class HearthView {
   get isOpen(): boolean { return !this.el.hidden; }
 
   open(): void {
-    this.el.hidden = false; this.bubble = null; this.bestiary = false; this.said.clear(); this.leaveSaid.clear(); this.traceSay = null;
+    this.el.hidden = false; this.bubble = null; this.bestiary = false; this.dailyOpen = false; this.said.clear(); this.leaveSaid.clear(); this.traceSay = null;
     // Task 49: the first camp after the rescue - her one line names the deed (`first_camp`, said once).
     this.heroLine = '';
     const camp = this.host.meta.hearth();
@@ -182,10 +189,10 @@ export class HearthView {
     // Smoke v62: no record yet (row 0) — no line. Task 38: a garrison record — «Гарнизон, ряд N». Task 40: «гарнизон пройден».
     const record = h.record && (h.record.row > 0 || h.record.wonLevel || h.record.level) ? `<p class="rt-hearth-record" data-testid="hearth-record">Рекорд: ${esc(rowWord(h.record.row, h.record.wonLevel ?? 0, h.record.level))}</p>` : '';
     const go = this.host.runActive() ? '<button class="rt-again rt-hearth-go" data-action="back" data-testid="hearth-back">К походу</button>' : '<button class="rt-again rt-hearth-go" data-action="go" data-testid="hearth-go">В поход</button>';
-    const center = `<div class="rt-hearth-fire-wrap">${FIRE_SVG}</div><div class="rt-hearth-glow"></div><div class="rt-hearth-center"><div class="rt-hearth-bar" data-testid="hearth-bar" title="Опыт героя"><i style="width:${(bar.k * 100).toFixed(1)}%"></i><em>${h.xp}${bar.to !== null ? ` / ${bar.to}` : ''}</em></div>${next}${record}${go}</div>`;
+    const center = `<div class="rt-hearth-fire-wrap">${FIRE_SVG}</div><div class="rt-hearth-glow"></div><div class="rt-hearth-center"><div class="rt-hearth-bar" data-testid="hearth-bar" title="Опыт героя"><i style="width:${(bar.k * 100).toFixed(1)}%"></i><em>${h.xp}${bar.to !== null ? ` / ${bar.to}` : ''}</em></div>${next}${record}${this.host.daily ? `<div class="rt-hearth-gorow">${go}${dailyButtonHtml(this.host.daily.view())}</div>` : go}${this.host.daily ? dailyReasonHtml(this.host.daily.view()) : ''}</div>`;
     const head = `<header class="rt-hearth-head"><b>Очаг</b><span class="rt-hearth-stock" data-testid="hearth-stock" title="Запас лагеря">${ICON}<b>${h.stock}</b></span></header>`;
     this.shown.heroLine = this.heroLine;
-    this.el.innerHTML = head + `<div class="rt-hearth-stage">${center}${places}${this.heroesHtml()}${this.bubbleHtml(h)}</div>${this.bestiaryHtml(h)}`;
+    this.el.innerHTML = head + `<div class="rt-hearth-stage">${center}${places}${this.heroesHtml()}${this.bubbleHtml(h)}</div>${this.bestiaryHtml(h)}${this.dailyOpen && this.host.daily ? dailyPanelHtml(this.host.daily.view(), this.host.daily.tools) : ''}`;
   }
 
   /** Task 51д: the trace of an NPC away — on its place (basket, wheel, mug); a click: the owl's line; the NPC's goodbye over it once a departure. */
@@ -289,6 +296,11 @@ export class HearthView {
       if (line) { this.host.meta.markLine(line.id); this.traceSay = { npc, text: line.text }; }
       this.draw(); return;
     }
+    // Task 51з: the run of the day - the panel, «Начать»; the proof's buttons are the tools' (`DailyTools`).
+    if (this.host.daily?.tools.click(target)) return;
+    if (action === 'daily-open') { this.dailyOpen = true; this.bubble = null; this.draw(); return; }
+    if (action === 'daily-close') { if (event.target === target || target.tagName === 'BUTTON') { this.dailyOpen = false; this.draw(); } return; }
+    if (action === 'daily-start') { this.dailyOpen = false; this.draw(); this.close(); this.host.daily?.start(); return; }
     if (action === 'bestiary') { this.bestiary = true; this.draw(); return; }
     if (action === 'close') { if (event.target === target || target.tagName === 'BUTTON') { this.bestiary = false; this.draw(); } return; }
     if (action === 'back') { this.close(); this.host.back(); return; }
