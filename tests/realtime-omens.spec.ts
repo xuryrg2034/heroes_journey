@@ -573,10 +573,14 @@ test('the merchant with «Ярмарочный день» and Шиш: one button
     expect(await page.getByTestId('run-shop').locator('.rt-card').evaluate(el => el.scrollHeight <= el.clientHeight + 1)).toBe(true);
     for (const id of ['shop-leave', 'shop-reroll', 'shop-swap']) { const box = (await page.getByTestId(id).boundingBox())!; expect(box.y, id).toBeGreaterThanOrEqual(0); expect(box.y + box.height, id).toBeLessThanOrEqual(720); }
   };
+  const stock = (): Promise<string> => page.getByTestId('shop-goods').innerText();
+  const s0 = await stock();
   await fits();
   await shot(page, 't56-shop-fair-shish');
   await reroll.click();
-  // The omen's is spent: the same single button is now Шиш's.
+  // Two free rerolls: the first click spent the omen's, the goods changed, the button stays — now Шиш's (portrait, «Шишова лавка»).
+  const s1 = await stock();
+  expect(s1).not.toBe(s0);
   await expect(page.locator('[data-action="shop-reroll"]')).toHaveCount(1);
   await expect(reroll).toHaveAttribute('data-fair', '0');
   await expect(reroll).toBeEnabled();
@@ -585,7 +589,10 @@ test('the merchant with «Ярмарочный день» and Шиш: one button
   await fits();
   await shot(page, 't56-shop-shish');
   await reroll.click();
+  // The second click spent Шиш's: no reroll left (core's reason text — one for the omen and Шиш), the goods changed again.
   await expect(reroll).toBeDisabled();
+  await expect(page.getByTestId('shop-reroll-note')).toHaveText('Перебросов не осталось');
+  expect(await stock()).not.toBe(s1);
   await page.getByTestId('shop-leave').click();
   await expect(page.getByTestId('run-shop')).toHaveCount(0);
   expect(errors).toEqual([]);
