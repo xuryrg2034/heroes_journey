@@ -8,6 +8,8 @@
  * - a running shove: the streak and the path ahead, the crush's slash, the impact (the camera's kick), the stop's dust, the splinters;
  * - «Падение шкафа»: the strip fills with the windup, the wardrobe leans, the hit flashes the lane and kicks the camera, it lies, it rises;
  * - «Удар ладьи»: the line both ways fills with the windup, the strike flashes it; a wardrobe on the axis shelters;
+ * - the shove's preview: a chain drawn (journal commands) that ends on a thing — the view draws the plan's path, a cross per crushed body, the strike's mark,
+ *   the ghost's notches, the break; nothing is drawn for a chain that does not end on a thing; the first barrel's label
  * - the names at the first windup, once in the fight; the bestiary lines.
  */
 // Node 20 has no global navigator; pixi.js reads it on load (nodeNavigator.testkit.ts). First import.
@@ -20,10 +22,11 @@ import { BARREL, ROOK, TOPPLE_LENGTH, WARDROBE, wardrobeTopple } from '../sim/en
 import { wall, type Vec } from '../sim/geometry';
 import { defaultParams, type Params } from '../sim/params';
 import { durabilityOf, shovePath, startShove } from '../sim/shove';
+import { planChain } from '../sim/chain';
 import { Simulation, SIM_DT } from '../sim/simulation';
 import type { Enemy, World, WorldEvent } from '../sim/world';
 import { KIND_CAPTIONS } from './newSeen';
-import { bossMoveLabels, CASTLE_MOVE_TEXT } from './worldLabels';
+import { barrelLabel, BARREL_LABEL_TEXT, bossMoveLabels, CASTLE_MOVE_TEXT } from './worldLabels';
 import { CastleView, IMPACT_KICK, TOPPLE_KICK, barrelMarks, drawHanger, drawParquet, isThingKind, rookMarks, wardrobeMarks, type Posable } from './castleView';
 import type { SignTools } from './trollView';
 
@@ -225,6 +228,53 @@ check('the names: «Падение шкафа» at the first windup, «Удар 
   assert(labels.filter(t => t === CASTLE_MOVE_TEXT.topple).length === 1 && labels.filter(t => t === CASTLE_MOVE_TEXT.strike).length === 1, `labels ${labels}`);
   assert(CASTLE_MOVE_TEXT.topple === 'Падение шкафа' && CASTLE_MOVE_TEXT.strike === 'Удар ладьи', 'the names');
   assert(KIND_CAPTIONS.wardrobe === 'Шкаф — кончи цепь на нём: толкнёшь' && KIND_CAPTIONS.rook === 'Ладья — бьёт по прямой первое тело' && !('barrel' in KIND_CAPTIONS), 'bestiary: the wardrobe and the rook; the barrel is no kind');
+});
+
+check("the shove's preview: a chain that ends on a thing — the plan's path, a cross per crushed body, the strike's mark, the ghost's notches, the break; a chain that ends on a body — nothing (4 seeds)", () => {
+  for (const k of [1, 2, 3, 4]) {
+    const sim = field(k), w = sim.world, off = (k % 3) * 0.2;
+    sim.command({ t: 'teleport', x: 3, y: 7 });
+    const link = place(sim, { x: 4.6, y: 7 }), barrel = place(sim, { x: 6.2, y: 7 }, BARREL);
+    const weak = [place(sim, { x: 8.4, y: 7 }, 'basic', 1), place(sim, { x: 10.2, y: 7.2 + off }, 'basic', 2)];
+    const tid = sim.command({ t: 'place', x: 12.6, y: 7, color: 1, hp: 3, kind: 'basic' }) as number;
+    // A body alone in the chain: no shove, no preview.
+    sim.command({ t: 'begin', x: link.x, y: link.y });
+    let rg = rig();
+    const say: string[] = [];
+    frame(rg, sim, []);
+    assert(!planChain(w).shove, `seed ${k}: a chain on a body has no shove`);
+    assert(rg.view.shown.preview === 0, `seed ${k}: nothing drawn`);
+    sim.command({ t: 'drag', x: barrel.x, y: barrel.y, mode: 'full' });
+    const plan = planChain(w).shove!;
+    assert(!!plan && plan.thing === barrel.id, `seed ${k}: the chain ends on the barrel`);
+    rg = rig();
+    rg.view.beginPreview();
+    rg.view.drawPreview(rg.g, w, plan, 1, R, (text, x, y) => { say.push(`${text}@${Math.round(x)},${Math.round(y)}`); });
+    const s = rg.view.shown;
+    assert(s.preview === 1 && s.previewCrushed === plan.crushed.length && plan.crushed.length === weak.filter(e => Math.abs(e.y - 7) <= 0.64).length, `seed ${k}: a cross per crushed body (${s.previewCrushed} of ${plan.crushed.length})`);
+    assert(plan.target === tid && plan.impact?.damage === 2 && s.previewImpact === 'hit' && say.some(t => t.startsWith('−2 HP')), `seed ${k}: the strike on the tough one, «−2 HP» (${say})`);
+    assert(plan.breaks.includes(barrel.id) && s.previewBreaks === 1, `seed ${k}: the barrel breaks`);
+    const b = rg.g.getLocalBounds();
+    assert(b.maxX >= plan.to.x * U - 1 && b.minX <= (plan.from.x + 0.5) * U, `seed ${k}: the drawing spans the path (${b.minX.toFixed(0)}…${b.maxX.toFixed(0)} for ${(plan.from.x * U).toFixed(0)}…${(plan.to.x * U).toFixed(0)})`);
+    // The same chain with no tough body and no wall in reach: a wardrobe slides to the end, a ghost with its notches, no strike.
+  }
+  const sim = field(1), w = sim.world;
+  sim.command({ t: 'teleport', x: 3, y: 7 });
+  const link = place(sim, { x: 4.6, y: 7 }), wr = place(sim, { x: 6.2, y: 7 }, WARDROBE);
+  sim.command({ t: 'begin', x: link.x, y: link.y });
+  sim.command({ t: 'drag', x: wr.x, y: wr.y, mode: 'full' });
+  const plan = planChain(w).shove!, rg = rig(), say: string[] = [];
+  rg.view.drawPreview(rg.g, w, plan, 1, R, t => { say.push(t); });
+  assert(plan.stop === 'end' && !plan.impact && rg.view.shown.previewImpact === '' && rg.view.shown.previewNotches === 2 && rg.view.shown.previewBreaks === 0 && say.length === 0, 'a wardrobe slides to the end: the ghost keeps 2 notches, no strike, no break');
+});
+
+check("the first barrel's label: over the barrel in view, only with a barrel; the text is the design's", () => {
+  const sim = field(1), w = sim.world;
+  assert(barrelLabel(w, () => true) === null, 'no barrel — no label');
+  const barrel = place(sim, { x: 14, y: 7 }, BARREL);
+  const spec = barrelLabel(w, () => true);
+  assert(spec?.text === BARREL_LABEL_TEXT && BARREL_LABEL_TEXT === 'Кончи цепь на бочке — покатится' && spec.at.x === barrel.x && spec.at.y === barrel.y, 'the label stands over the barrel');
+  assert(barrelLabel(w, () => false) === null, 'not in view — none');
 });
 
 console.log(`${checks} checks passed`);

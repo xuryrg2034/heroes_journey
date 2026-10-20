@@ -10,20 +10,23 @@ import { replay, type Journal } from '../src/realtime/sim/simulation';
  * `npm run test:realtime-castle-view`); here the signs the player reads: the things with their notches, the wardrobe's strip, its
  * lean and lying, the hit that costs 2, the rook's line, the wardrobe that shelters the hero. Waits are in game time
  * (tests/realtimeFrames.ts); a fight's journal replays in Node to the hash of the page.
- * NOT here: a thing shoved by a chain — the chain takes a thing as its last link only after the chain part of 55а (task 54а's
- * `planChain`); until then the shove's view (the path, the crush, the impact, the break) is checked in Node with the plan the sim gives
- * (`castleView.spec.ts`). Screenshots go to $SHOT_DIR when it is set. Added 17.10.2026 by the ui session on branch ui/task-55a.
+ * The shove by a chain (the last two tests, 20.10.2026): a chain drawn with the mouse that ends on a thing - the highlight (the thing's path, the
+ * crushed, the strike, the wear) is `planChain(...).shove`, and the dash does exactly it; the refusals «цепь закончена» and «в движении» at the
+ * cursor; the first barrel's label. Screenshots go to $SHOT_DIR when it is set. Added 17.10.2026 by the ui session on branch ui/task-55a.
  */
 interface ThingShot { id: number; kind: string; x: number; y: number; durability: number }
 interface WardrobeShot { id: number; x: number; y: number; topple: { from: { x: number; y: number }; to: { x: number; y: number }; half: number; progress: number } | null; lying: number; drawn: { from: { x: number; y: number } } | null; pose: { ang: number; sy: number } | null }
 interface RookShot { id: number; x: number; y: number; hp: number; line: { x0: number; y0: number; x1: number; y1: number; axis: string; progress: number } | null }
+interface Preview { thing: number; kind: string; from: { x: number; y: number }; to: { x: number; y: number }; dir: { x: number; y: number }; stop: string; target: number | null; crushed: { id: number; at: number }[]; impact: { id: number; damage: number; plate: boolean; killed: boolean } | null; wear: { id: number; left: number }[]; breaks: number[] }
 interface Snap {
+  hint: string | null; chain: number[]; moving: string | null; loop: { hintText: string | null };
   arena: string; status: string; time: number; menuOpen: boolean;
   hero: { x: number; y: number; hp: number };
   enemies: { id: number; kind: string; x: number; y: number; hp: number; marked?: boolean }[];
   castle: {
-    shoves: unknown[]; things: ThingShot[]; wardrobe: WardrobeShot[]; rook: RookShot[];
-    shown: { notches: number; topples: number; rookLines: number; windups: number; hits: number; rises: number; aims: number; shots: number; kicks: number };
+    preview: Preview | null; label: string;
+    shoves: { thing: number; to: { x: number; y: number }; stop: string; run: number; met: number }[]; things: ThingShot[]; wardrobe: WardrobeShot[]; rook: RookShot[];
+    shown: { preview: number; previewCrushed: number; previewImpact: string; previewNotches: number; previewBreaks: number; breaks: number; notches: number; topples: number; rookLines: number; windups: number; hits: number; rises: number; aims: number; shots: number; kicks: number };
   };
 }
 const snap = (page: Page): Promise<Snap> => page.evaluate(() => (window as any).__realtime.snapshot());
@@ -249,6 +252,145 @@ test('task 55а: «Бальный зал» — the exam hall opens with two rook
   // The fight runs for a while (or ends: the hero stands still among the crowd, the rooks and the wardrobes).
   await untilFrame(page, (s, _arg: null, late) => s.time >= 12 || s.status !== 'playing' ? true : late ? false : undefined, null, 20);
   await shot(page, 'ballroom-20s');
+  await sameHash(page);
+  expect(errors).toEqual([]);
+});
+
+
+/** The mouse goes to an arena point (read when it moves). */
+async function mouseTo(page: Page, at: () => Promise<{ x: number; y: number }>, steps = 6): Promise<void> {
+  const p = await at(), t = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [p.x, p.y] as const);
+  await page.mouse.move(t.x, t.y, { steps });
+}
+const bodyAt = (page: Page, id: number) => async (): Promise<{ x: number; y: number }> => (await snap(page)).enemies.find(e => e.id === id)!;
+const thingAt = (page: Page, id: number) => async (): Promise<{ x: number; y: number }> => (await snap(page)).castle.things.find(t => t.id === id)!;
+
+/**
+ * «Прихожая» with the hall cleared and one lane laid by the journal's own commands: the hero, a weak link, the thing, two weak bodies
+ * and a tough one (HP 3) on the lane `y`. Returns the ids.
+ */
+async function lane(page: Page, kind: 'barrel' | 'wardrobe', thingX: number, y: number): Promise<{ link: number; thing: number; weak: number[]; tough: number }> {
+  await quiet(page);
+  return page.evaluate(([kind, thingX, y]) => {
+    const rt = (window as any).__realtime;
+    rt.clear(false);
+    rt.teleport(thingX - 3.2, y);
+    const link = rt.place(thingX - 1.6, y, 0, 0, 'basic'), thing = rt.place(thingX, y, 0, 0, kind);
+    const weak = [rt.place(thingX + 2.2, y, 1, 0, 'basic'), rt.place(thingX + 4.0, y + 0.2, 2, 0, 'basic')];
+    const tough = rt.place(thingX + 6.4, y, 1, 3, 'basic');
+    return { link, thing, weak, tough };
+  }, [kind, thingX, y] as const);
+}
+
+test('task 55а: a chain drawn with the mouse that ends on a Barrel — the highlight shows its path, the crushed and the strike; the dash does exactly that; «цепь закончена» at the cursor; the journal replays', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = collectErrors(page);
+  await openByMenu(page, 1, 'c-hall');
+  await cameraSettled(page);
+  const ids = await lane(page, 'barrel', 5.4, 8.2);
+  await cameraSettled(page);
+  // The first barrel of the fight: its label for a second, once.
+  await expect.poll(async () => (await snap(page)).castle.label).toBe('barrel');
+  await shot(page, 'barrel-label');
+  await gameWait(page, 1.3);
+  expect((await snap(page)).castle.label).toBe('');
+  // Press on the weak link, drag to the barrel: the chain ends on a thing.
+  await mouseTo(page, bodyAt(page, ids.link), 2);
+  await page.mouse.down();
+  await mouseTo(page, thingAt(page, ids.thing));
+  await expect.poll(async () => (await snap(page)).chain).toEqual([ids.link, ids.thing]);
+  const s = await snap(page), pv = s.castle.preview!;
+  expect(pv, 'the chain ends on the barrel: the plan has a shove').not.toBeNull();
+  expect(pv.kind).toBe('barrel');
+  expect(pv.stop).toBe('body');
+  expect(pv.target).toBe(ids.tough);
+  expect(pv.crushed.map(c => c.id)).toEqual(ids.weak);
+  expect(pv.impact).toMatchObject({ id: ids.tough, damage: 2, killed: false });
+  expect(pv.breaks).toEqual([ids.thing]);
+  expect(pv.dir.x).toBeGreaterThan(0.95);
+  // What the view drew is that plan: the path, a cross on each crushed body, the strike on the tough one, the barrel's break.
+  expect(s.castle.shown).toMatchObject({ preview: 1, previewCrushed: 2, previewImpact: 'hit', previewBreaks: 1 });
+  await shot(page, 'barrel-preview');
+  // «цепь закончена»: the chain is finished on the barrel; another body at the cursor is refused.
+  await mouseTo(page, bodyAt(page, ids.weak[0]));
+  await expect.poll(async () => (await snap(page)).hint).toBe('afterObject');
+  await expect(page.getByTestId('link-hint')).toHaveText('цепь закончена');
+  await shot(page, 'barrel-after');
+  await page.mouse.up();
+  // The run does the plan: the crushed die, the tough one loses 2, the barrel breaks.
+  const done = await untilFrame(page, (sn, _arg: null, late) => sn.castle.shoves.length === 0 && sn.moving === null ? { ok: true } : late ? { ok: false } : undefined, null, 10);
+  expect(done.ok, 'the shove is over').toBe(true);
+  const end = await snap(page);
+  expect(ids.weak.every(id => !end.enemies.some(e => e.id === id)), 'the crushed are dead').toBe(true);
+  expect(end.enemies.find(e => e.id === ids.tough)!.hp, 'the strike took 2').toBe(1);
+  expect(end.castle.things.some(t => t.id === ids.thing), 'the barrel broke').toBe(false);
+  expect(end.castle.shown.breaks).toBeGreaterThanOrEqual(1);
+  await sameHash(page);
+  expect(errors).toEqual([]);
+});
+
+test('task 55а: a chain that ends on a Wardrobe — the ghost at the stop shows the durability the plan leaves; the dash leaves the wardrobe where the preview said, with that durability', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = collectErrors(page);
+  await openByMenu(page, 1, 'c-hall');
+  await cameraSettled(page);
+  const ids = await lane(page, 'wardrobe', 5.4, 8.2);
+  await cameraSettled(page);
+  await mouseTo(page, bodyAt(page, ids.link), 2);
+  await page.mouse.down();
+  await mouseTo(page, thingAt(page, ids.thing));
+  await expect.poll(async () => (await snap(page)).chain).toEqual([ids.link, ids.thing]);
+  const s = await snap(page), pv = s.castle.preview!;
+  expect(pv.kind).toBe('wardrobe');
+  const own = pv.wear.find(w => w.id === ids.thing)!;
+  expect(s.castle.shown.preview).toBe(1);
+  expect(s.castle.shown.previewNotches).toBeGreaterThanOrEqual(Math.min(4, own.left));
+  await shot(page, 'wardrobe-preview');
+  await page.mouse.up();
+  const done = await untilFrame(page, (sn, _arg: null, late) => sn.castle.shoves.length === 0 && sn.moving === null ? { ok: true } : late ? { ok: false } : undefined, null, 10);
+  expect(done.ok, 'the shove is over').toBe(true);
+  const end = await snap(page), after = end.castle.things.find(t => t.id === ids.thing);
+  if (own.left > 0) {
+    expect(after, 'the wardrobe stands').toBeDefined();
+    expect(after!.durability).toBe(own.left);
+    expect(Math.hypot(after!.x - pv.to.x, after!.y - pv.to.y)).toBeLessThan(0.15);
+  } else expect(after, 'the wardrobe broke where the plan said').toBeUndefined();
+  for (const c of pv.crushed) expect(end.enemies.some(e => e.id === c.id), `crushed ${c.id}`).toBe(false);
+  await sameHash(page);
+  expect(errors).toEqual([]);
+});
+
+test('task 55а: while a thing slides, the thing it is about to strike is refused at the cursor — «в движении» (the pointer stays on it through the dash)', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = collectErrors(page);
+  await openByMenu(page, 1, 'c-hall');
+  await cameraSettled(page);
+  await quiet(page);
+  const ids = await page.evaluate(() => {
+    const rt = (window as any).__realtime;
+    rt.clear(false);
+    rt.teleport(3, 8.2);
+    // A second barrel stands 1.4 from the first: after the dash the hero is at the first one's place and the second is in his reach.
+    return { link: rt.place(4.6, 8.2, 0, 0, 'basic'), thing: rt.place(6.2, 8.2, 0, 0, 'barrel'), tough: rt.place(7.6, 8.2, 0, 0, 'barrel') };
+  });
+  await cameraSettled(page);
+  await mouseTo(page, bodyAt(page, ids.link), 2);
+  await page.mouse.down();
+  await mouseTo(page, thingAt(page, ids.thing));
+  await expect.poll(async () => (await snap(page)).chain).toEqual([ids.link, ids.thing]);
+  const pv = (await snap(page)).castle.preview!;
+  expect(pv.stop).toBe('thing');
+  expect(pv.target).toBe(ids.tough);
+  await mouseTo(page, thingAt(page, ids.tough));
+  await page.mouse.up();
+  const sliding = await untilFrame(page, (sn, _arg: null, late) => sn.castle.shoves.length > 0 ? { hint: sn.hint, text: sn.loop.hintText } : late ? { hint: 'late', text: null } : undefined, null, 8);
+  expect(sliding.hint, 'the thing the sliding thing is about to strike').toBe('sliding');
+  expect(sliding.text).toBe('в движении');
+  await shot(page, 'barrel-sliding');
+  const done = await untilFrame(page, (sn, _arg: null, late) => sn.castle.shoves.length === 0 && sn.moving === null ? { ok: true } : late ? { ok: false } : undefined, null, 10);
+  expect(done.ok, 'the shove is over').toBe(true);
+  // The first barrel struck the second and broke (a barrel has one notch); the second lost its own.
+  expect((await snap(page)).castle.things.some(x => x.id === ids.thing), 'the sliding barrel broke').toBe(false);
   await sameHash(page);
   expect(errors).toEqual([]);
 });
