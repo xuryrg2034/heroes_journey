@@ -86,6 +86,8 @@ export function worldState(world: World): unknown {
     ...world.bossCleared ? { bossCleared: true } : {},
     // Task 38 «Гарнизон» (`Params.tethers`, tethers.ts): the tethers on the arena (absent while none — worlds hash as before).
     ...world.tethers?.length ? { tethers: world.tethers } : {},
+    // Task 62 «Ведунья v2» (chain.ts): the game second of the last discharge (absent until one — worlds hash as before).
+    ...world.castAt !== undefined ? { castAt: world.castAt } : {},
   };
 }
 

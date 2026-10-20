@@ -15,7 +15,7 @@
  * plays the old path. No random draws, no transcendental `Math.*`.
  */
 import { FUSIONS } from './buildIds';
-import { hasTalisman } from './kit';
+import { hasTalisman, witchOn } from './kit';
 import type { Params } from './params';
 
 type KitWorld = Parameters<typeof hasTalisman>[0] & { params: Params };
@@ -68,7 +68,7 @@ export const hunterBlastOn = (world: KitWorld): boolean => hasTalisman(world, FU
 /** «Ледяная волна» is in the kit. */
 export const frostWaveOn = (world: KitWorld): boolean => hasTalisman(world, FUSIONS.frostWave);
 /** Some fusion of task 46 acts at the end of the dash: the release fixes its bodies (chain.ts `releaseChain`). */
-export const fusionEndOn = (world: KitWorld): boolean => brandOn(world) || hunterBlastOn(world) || frostWaveOn(world);
+export const fusionEndOn = (world: KitWorld): boolean => (brandOn(world) || hunterBlastOn(world) || frostWaveOn(world)) && !witchOn(world);
 
 /** «Клеймо»: reach of the paint from the dash's path (plus the body radius). */
 export const brandReach = (world: KitWorld): number => Math.max(0, world.params.fusionBrandReach ?? FUSION_BRAND_REACH);

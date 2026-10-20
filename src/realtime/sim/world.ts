@@ -19,7 +19,7 @@ import type { BoarState } from './enemies/boar';
 import { behaviorOf, bodyRadiusOf, enemyKind, groupBehaviors, kindOf } from './enemies/kinds';
 import { FlowField, type Vec, blockedAt, dist, hasZone, inThorns, inWater, lineOfSight, overCliff, pushOutOfCliffs, pushOutOfObstacles } from './geometry';
 import { type Params, type Pressure, DEFAULT_PARAMS, copyParams, enemyBodyRadius, heroRadius, invulnerabilityFor, pressureAt } from './params';
-import { hasTalisman, kitOf, type ItemKind, type Kit, type Loadout, type ResourceKind } from './kit';
+import { hasTalisman, kitOf, witchOn, type ItemKind, type Kit, type Loadout, type ResourceKind } from './kit';
 import { affixSpeedFactor, eliteDeath, makeElite, platesOf, stripPlates, touchLoot, updateAffixes, updateArmor, type AffixId, type EliteArmor, type TrailPoint } from './elites';
 import { updateBurning } from './items';
 import { RngStreams } from './rng';
@@ -188,7 +188,14 @@ export const OBJECT_RADIUS = 0.45;
  * A link of the drawn chain. `fork` (task 33, `Params.forkBranches`): «Развилка» took it from that older link (its anchor, fixed
  * when it was taken: bodies move) — absent otherwise.
  */
-export type ChainLink = ({ kind: 'enemy'; id: number } | { kind: 'object'; id: number }) & { fork?: { kind: 'enemy' | 'object'; id: number } };
+export type ChainLink = ({ kind: 'enemy'; id: number } | { kind: 'object'; id: number }) & {
+  fork?: { kind: 'enemy' | 'object'; id: number };
+  /**
+   * Task 62 «Ведунья v2» (chain.ts `withRune`): the enemy's point when it was taken — the contour of a figure is made of them (an enemy
+   * that walks away leaves its rune). Absent on every other link (chains without v2 hash as before).
+   */
+  rune?: Vec;
+};
 
 /** The last finished dash (render: combo counter, score popup; result screen). */
 export interface ChainSummary { kills: number; hits: number; crystals: number; score: number; time: number }
@@ -707,6 +714,8 @@ export interface World {
    * last is gone: worlds without them hash as before).
    */
   tethers?: Tether[];
+  /** Task 62 «Ведунья v2» (chain.ts `castDischarge`): the game second of the last discharge (the pause after it). Absent until one. */
+  castAt?: number;
 }
 
 /**
@@ -1684,6 +1693,8 @@ function stepHeroWalk(world: World, dt: number): void {
   const { hero, params, input } = world;
   world.heroWalk.x = 0; world.heroWalk.y = 0;
   if (world.status !== 'playing' || world.move || hero.knock > 0) return;
+  // Task 62: Ведунья v2 stands while a chain is in her hand (the input stays; she walks again after the release).
+  if (world.chain.length && witchOn(world)) return;
   const len = dhypot(input.x, input.y);
   // Phase B: the build may change the hero's speed (`heroSpeedOf`; without a build module — `heroSpeed`).
   const heroSpeed = heroSpeedOf(world);

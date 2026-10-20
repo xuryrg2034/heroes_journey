@@ -9,7 +9,7 @@
 import { ITEM_KINDS } from '../forest/items';
 import { RESOURCE_KINDS } from '../forest/resources';
 import type { ItemKind, ResourceKind } from '../forest/types';
-import { COUNTER_TALISMANS, expandFusions, FORM_FIELD, FUSION_EXCLUDES, FUSIONS_V2, HERO_INNATE, HERO_LAWS, isHammerId, isLoadoutHero, type HammerId, type LoadoutHero } from './buildIds';
+import { COUNTER_TALISMANS, expandFusions, FORM_FIELD, FORMS, FROST_PASS, FUSION_EXCLUDES, FUSIONS, FUSIONS_V2, HAMMERS, HERO_INNATE, HERO_LAWS, isHammerId, isLoadoutHero, type HammerId, type LoadoutHero } from './buildIds';
 import { featGoalOf, type FeatGoal } from './feat';
 
 export type { ItemKind, ResourceKind };
@@ -291,6 +291,17 @@ export const hasTalisman = (world: { kit?: Kit }, id: string): boolean => !!worl
  * dash (`modify.chainShield`) and the plan (chain.ts `ChainPlan.noShield`, `planHoned`) read it.
  */
 export const sealOnlyShield = (world: { kit?: Kit }): boolean => hasTalisman(world, HERO_LAWS.toad);
+/**
+ * Task 62 «Ведунья v2» (docs/design-notes/task-62-witch-v2.md): the key `witchV2` and Ведунья's law in the kit (`Loadout.hero` 'toad').
+ * Every rule of v2 reads this one function; the cat and Ведунья v1 (no key) play the old path.
+ */
+export const witchOn = (world: { params: { witchV2?: boolean }; kit?: Kit }): boolean => !!world.params.witchV2 && hasTalisman(world, HERO_LAWS.toad);
+/**
+ * Task 62, stage A (design 20.10.2026): the forms, hammers and fusions of the dash's path and end do nothing for Ведунья v2 and show nothing
+ * in the highlight — «Прямая», «Копьё», «Огненный», «Режущий» проход, «Возврат», «Наледь», «Бумеранг», «Клеймо», «Ледяная волна», «Взрыв на
+ * конце», «Подрыв» (their fate for her — stage C). build.ts `moduleActive` and the gates of chain.ts, pierce.ts, fusions.ts read it.
+ */
+export const WITCH_PATH_ITEMS: readonly string[] = [FORMS.pierce, FUSIONS.spear, HAMMERS.fire, HAMMERS.cut, HAMMERS.return, HAMMERS.blast, FROST_PASS, FUSIONS.boomerang, FUSIONS.brand, FUSIONS.frostWave, FUSIONS.hunterBlast];
 
 const count = (value: unknown): number => typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
 const COUNTER_IDS: readonly string[] = Object.values(COUNTER_TALISMANS);
