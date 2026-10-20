@@ -574,7 +574,9 @@ export type WorldEvent =
    * Task 59а (enemies/recruit.ts, «Новобранцы»): a hit reached a recruit out of order and went out (`refused`: its `source`), or a whole
    * formation fell by one pass (`drill`: `id` — the formation, `energy` given). The rules never read it.
    */
-  | { type: 'recruit'; action: 'refused' | 'drill'; id: number; x: number; y: number; source?: string; energy?: number };
+  | { type: 'recruit'; action: 'refused' | 'drill'; id: number; x: number; y: number; source?: string; energy?: number }
+  /** Task 59а (enemies/warden.ts, «Привратники»): the anger (`start`, `end`) and its «Размах» (`swing`: `start` — the windup, `hit`). */
+  | { type: 'warden'; action: 'anger' | 'swing'; stage: 'start' | 'end' | 'hit'; id: number; x: number; y: number };
 
 export interface World {
   arena: ArenaTemplate;

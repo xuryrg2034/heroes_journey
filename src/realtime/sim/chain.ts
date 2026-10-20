@@ -42,6 +42,8 @@ import { enemiesInCircle, enemiesNearPath } from './buildHits';
 import { finisherHonedKills, finisherTopIds, frostNeighbour, FROST_EDGE_LINKS, honedOn, honeWaveStartOf, SHOCKWAVE_RADIUS } from './talismansRt';
 import { returnPowerFor, returnRoute, returnTargets, traceTo } from './returnRun';
 import { BOSS_CORES, colorlessCore, endsFight } from './enemies/jailer';
+// Task 59а «Привратники»: the pair's anger (enemies/warden.ts).
+import { wardenPartner, wardensOn } from './enemies/warden';
 // Task 59а «Новобранцы»: the law of order (enemies/recruit.ts).
 import { RECRUIT, drillEnd, noteRefused, recruitCurrent, recruitGate, recruitGroup, recruitInOrder, recruitsOn, wholeFormations } from './enemies/recruit';
 import { blockedAt, cliffAt, dist, inThorns, lineOfSight, overCliff, pushOutOfObstacles, type Vec } from './geometry';
@@ -115,6 +117,21 @@ export function strike(power: number, hp: number, factor = 1, gain = 1, plates =
   return { available, damage, hpBefore: hp, hpAfter: killed ? 0 : hp - damage, killed, powerAfter: available - spent };
 }
 
+/** Task 59а: the wardens whose partner the pass kills and who live (the pass's kills: links, pierce, seal, return run). */
+function planAnger(world: World, out: readonly LinkPlan[], pierce: PiercePreview | null, seal: SealPreview | null, back: ReturnPreview | null): number[] {
+  const killed = new Set<number>();
+  for (const l of out) if (l.link.kind === 'enemy' && l.outcome?.killed) killed.add(l.link.id);
+  for (const b of pierce?.bodies ?? []) if (b.outcome.killed) killed.add(b.id);
+  for (const h of back?.hits ?? []) if (h.outcome.killed) killed.add(h.id);
+  if (seal) for (const id of seal.inside) { const e = findEnemy(world, id); if (e && !seal.order?.includes(id) && platesOf(e) === 0 && e.hp <= seal.damage) killed.add(id); }
+  const angry: number[] = [];
+  for (const id of killed) {
+    const e = findEnemy(world, id), partner = e ? wardenPartner(world, e) : undefined;
+    if (partner && !killed.has(partner.id)) angry.push(partner.id);
+  }
+  return angry.sort((a, b) => a - b);
+}
+
 /** Task 59а: a preview's body the law of order refuses — nothing struck, the power passes. */
 function orderOutcome(power: number, hp: number): StrikeOutcome {
   return { available: power, damage: 0, hpBefore: hp, hpAfter: hp, killed: false, powerAfter: power, order: true };
@@ -167,6 +184,11 @@ export interface ChainPlan {
   endsOnObject: boolean;
   power: number;
   kills: number;
+  /**
+   * Task 59а (`Params.wardens`): the wardens that will be angry after this pass — their partner dies by it (the chain's links, its pierce,
+   * its seal, its return run) and they do not. Absent — none.
+   */
+  anger?: number[];
   /**
    * Loop research, step 2: the drawn chain is closed — its ring and who is inside now (the release fixes the same set).
    * Absent while open.
@@ -445,9 +467,11 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   const chiefDrop = links === world.chain && !world.move ? chiefLinkDrop(world, links) : null;
   // Task 50: the counters' rank II at the end of the dash (the drawn chain only, not after a chain that ends the fight).
   const honed = honedKit ? planHoned(world, out, pierce, seal, far, options.back !== false && links === world.chain && !over) : null;
+  // Task 59а: the wardens angry after this pass — a partner dies by it, they do not.
+  const anger = wardensOn(world) ? planAnger(world, out, pierce, seal, back) : [];
   // Task 49: the law of Ведунья — the drawn open chain gives no after-chain shield (the dash: heroLaw.ts, `ChainEnd.endForm`).
   const noShield = links === world.chain && !seal && sealOnlyShield(world);
-  return { ...grate ? { grate } : {}, ...trollDrop ? { trollDrop } : {}, ...chiefDrop ? { chiefDrop } : {}, links: out, endsOnSurvivor, endsOnObject, power, kills, ...seal ? { seal } : {}, ...noShield ? { noShield: true as const } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {}, ...cuts.length ? { cuts } : {}, ...fused?.blast ? { blast: fused.blast } : {}, ...fused?.wave ? { wave: fused.wave } : {}, ...honed && Object.keys(honed).length ? { honed } : {} };
+  return { ...grate ? { grate } : {}, ...trollDrop ? { trollDrop } : {}, ...chiefDrop ? { chiefDrop } : {}, links: out, endsOnSurvivor, endsOnObject, power, kills, ...anger.length ? { anger } : {}, ...seal ? { seal } : {}, ...noShield ? { noShield: true as const } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {}, ...cuts.length ? { cuts } : {}, ...fused?.blast ? { blast: fused.blast } : {}, ...fused?.wave ? { wave: fused.wave } : {}, ...honed && Object.keys(honed).length ? { honed } : {} };
 }
 
 /**

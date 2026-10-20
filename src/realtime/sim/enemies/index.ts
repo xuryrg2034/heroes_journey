@@ -28,6 +28,8 @@ import './troll';
 import './chief';
 // Task 59а «Гарнизон, шаг 3»: the recruits (the law of order).
 import './recruit';
+// Task 59а: the wardens (the pair and the anger).
+import './warden';
 
 export { BOAR_ART_SCALE, type BoarState } from './boar';
 export { packmates, wolfHowl, wolfRushLine, wolfState, WOLF_RUSH } from './wolf';
@@ -47,4 +49,5 @@ export { TROLL, TROLL_CLUB, TROLL_MOVES, TROLL_ROCK, TROLL_TAIL, trollCore, trol
 export { CHIEF, CHIEF_LADLE, CHIEF_MOVES, CHIEF_SACK, chiefCore, chiefMove, chiefState, whistleColors, type ChiefMoveId } from './chief';
 // Task 59а: the recruits for the view.
 export { RECRUIT, recruitCurrent, recruitGroup, recruitNumber, recruitQueue } from './recruit';
+export { WARDEN, wardenAngry, wardenPartner } from './warden';
 export * from './kinds';

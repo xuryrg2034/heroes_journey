@@ -27,6 +27,7 @@ import {
 import {
   CHIEF, CHIEF_LADLE, CHIEF_MOVES, CHIEF_SACK, PEPPER_RADIUS, PEPPER_WINDUP, PHASE3_WINDUP as CHIEF_PHASE3_WINDUP, SWING_RADIUS, SWING_WINDUP,
 } from './enemies/chief';
+import { WARDEN } from './enemies/warden';
 import { registerArena } from './arenas';
 import { defaultParams, heroRadius, type Params } from './params';
 import { Simulation, SIM_DT } from './simulation';
@@ -81,6 +82,8 @@ const THREATS: readonly Threat[] = [
   // circle of 1.6 around the knight, the worst point its centre (conservative: the hero never stands closer than a touch).
   { id: 'knight-charge', source: KNIGHT, title: 'рыцарь: рывок', window: p => p.knightChargeWindup, exit: p => KNIGHT_LANE_WIDTH / 2 + heroRadius(p) },
   { id: 'knight-swing', source: KNIGHT, title: 'рыцарь: размах', window: p => p.knightSwingWindup, exit: p => p.knightSwingRadius + heroRadius(p) },
+  // Task 59а (spec 5.3): the warden's «Размах» in its anger — the knight's law and keys.
+  { id: 'warden-swing', source: WARDEN, title: 'привратник: размах', window: p => p.knightSwingWindup, exit: p => p.knightSwingRadius + heroRadius(p) },
   // Task 48 (the Troll, design 7): the shortest windups — phase 3's ×0.8 for the club and the rock (the tail is not sped up, spec 24.4; the first of a fight is ×1.5). «Удар дубиной» — a lane of
   // 4.5 × 1.6, the way out sideways from its axis; «Бросок камня» — the circle of 1.2 on the hero, its windup and the flight 0.4;
   // «Хвост метёт» — the ring 1.2–3.2 around the core, the worst point its inner edge (inside 1.2 is the core's body and touch).

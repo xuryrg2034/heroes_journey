@@ -1105,6 +1105,17 @@ export interface Params {
   recruits: boolean;
   /** Task 59а: the energy for the whole formation by one pass (journals without the key: 2). */
   recruitBonus: number;
+  /**
+   * Task 59а «Привратники»: the law of the pair — two of different colours (not twins); one dead and the other alive after the hero's
+   * move — the survivor is angry `wardenAnger` s (fast, its touch `wardenAngerTouch`, «Размах» by the knight's keys). Off by default.
+   */
+  wardens: boolean;
+  /** Task 59а: the warden's HP (journals without the key: 2). */
+  wardenHp: number;
+  /** Task 59а: the anger's length (game s; 8). */
+  wardenAnger: number;
+  /** Task 59а: the touch in the anger (2). */
+  wardenAngerTouch: number;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -1582,6 +1593,10 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   // Task 59а «Гарнизон, шаг 3»: off by default (the run will turn them on with its flag `step3`, task 59б).
   recruits: false,
   recruitBonus: 2,
+  wardens: false,
+  wardenHp: 2,
+  wardenAnger: 8,
+  wardenAngerTouch: 2,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -2105,6 +2120,11 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   { kind: 'bool', key: 'recruits', group: 'Гарнизон', label: 'Новобранцы: по номерам', stage: 5,
     hint: 'Строй из 4 с номерами 1–4: цепь берёт только текущий номер («не по порядку»); не по порядку их не ранит ничто; весь строй одним проходом — энергия.' },
   n('recruitBonus', 'Гарнизон', 'Новобранцы: энергия за весь строй', 0, 7, 1, 5),
+  { kind: 'bool', key: 'wardens', group: 'Гарнизон', label: 'Привратники: пара и гнев', stage: 5,
+    hint: 'Пара двух разных цветов: погиб один, второй жив после прохода — второй в гневе (быстрый, касание 2, «Размах»). Оба одним проходом — гнева нет.' },
+  n('wardenHp', 'Гарнизон', 'Привратник: HP', 0, 6, 1, 5),
+  n('wardenAnger', 'Гарнизон', 'Привратник: гнев', 1, 20, 0.5, 5, 'с'),
+  n('wardenAngerTouch', 'Гарнизон', 'Привратник: касание в гневе', 0, 5, 1, 5),
 ];
 
 const MAX_PHASES = 8;

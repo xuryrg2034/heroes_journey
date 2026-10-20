@@ -78,7 +78,8 @@ export const brandReach = (world: KitWorld): number => Math.max(0, world.params.
  * a part of a boss (`partOf`: the Jailer's weights, the Castellan's hounds and crossbow), not a colourless body.
  */
 export function brandPaintable(e: { color: number; partOf?: number; kind: string }, immune: boolean, cores: readonly string[]): boolean {
-  return !immune && e.partOf === undefined && !cores.includes(e.kind) && e.color >= 0;
+  // Task 59а: a warden's colour is the law of its pair — «Клеймо» never repaints it.
+  return !immune && e.partOf === undefined && !cores.includes(e.kind) && e.color >= 0 && e.kind !== 'warden';
 }
 
 /**

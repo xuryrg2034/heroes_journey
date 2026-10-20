@@ -62,6 +62,8 @@ import { crossbowTick, crossbowWindupOf } from './crossbow';
 import { canBeHurt, damageEnemy, enemyFrozen, enemyGroundFactor, enemySpeed, hurtHero, noteBlock, touchDistanceOf, type ArenaObject, type Enemy, type World } from '../world';
 import { bossClear, bossClearsOn } from './jailer';
 import { bodyRadiusOf, kindOf, registerBehavior, registerEnemyKind } from './kinds';
+// Task 59а: «Размах» takes a formation's recruits by their numbers.
+import { orderRecruits } from './recruit';
 
 export const GUARD = 'guard';
 export const HANDLER = 'handler';
@@ -863,9 +865,9 @@ const KM_CHARGE = 1, KM_RUN = 2, KM_SWING = 3;
 const KNIGHT_DEFAULTS = { plates: 2, hp: 3, touch: 2, chargeWindup: 1, chargeDamage: 2, swingWindup: 0.8, swingRadius: 1.6, swingDamage: 2, pause: 2 } as const;
 
 const knightPlatesOf = (world: World): number => Math.max(0, Math.floor(world.params.knightPlates ?? KNIGHT_DEFAULTS.plates));
-const knightPauseOf = (world: World): number => Math.max(0.05, world.params.knightPause ?? KNIGHT_DEFAULTS.pause);
+export const knightPauseOf = (world: World): number => Math.max(0.05, world.params.knightPause ?? KNIGHT_DEFAULTS.pause);
 const chargeWindupOf = (world: World): number => Math.max(0.05, world.params.knightChargeWindup ?? KNIGHT_DEFAULTS.chargeWindup);
-const swingWindupOf = (world: World): number => Math.max(0.05, world.params.knightSwingWindup ?? KNIGHT_DEFAULTS.swingWindup);
+export const swingWindupOf = (world: World): number => Math.max(0.05, world.params.knightSwingWindup ?? KNIGHT_DEFAULTS.swingWindup);
 /** «Размах»: the circle's radius around the knight. */
 export const knightSwingRadius = (world: World): number => Math.max(0, world.params.knightSwingRadius ?? KNIGHT_DEFAULTS.swingRadius);
 
@@ -917,17 +919,26 @@ function chargeRun(world: World, e: Enemy, dt: number): void {
 
 /** «Размах» strikes: the hero in the circle (by his body) takes `knightSwingDamage`; each enemy in it (by its body) 1, not the player's. */
 function swingHit(world: World, e: Enemy): void {
-  const p = world.params, radius = knightSwingRadius(world);
   world.events.push({ type: 'knightMove', id: e.id, move: 'swing', stage: 'hit' });
+  swingStrike(world, e, KNIGHT_SWING_SOURCE);
+}
+
+/**
+ * The law of «Размах» (task 43; task 59а: the warden in its anger strikes by it too — one name, one law): the hero in the circle
+ * `knightSwingRadius` round `e` takes `knightSwingDamage` (`source`); each enemy in it 1, not the player's (a formation's recruits by
+ * their numbers, the law of order).
+ */
+export function swingStrike(world: World, e: Enemy, source: string): void {
+  const p = world.params, radius = knightSwingRadius(world);
   if (world.status !== 'playing') return;
   if (dist(e, world.hero) <= radius + heroRadius(p)) {
-    if (canBeHurt(world)) hurtHero(world, e, Math.max(0, p.knightSwingDamage ?? KNIGHT_DEFAULTS.swingDamage), KNIGHT_SWING_SOURCE);
-    else noteBlock(world, e.x, e.y, KNIGHT_SWING_SOURCE, e.id);
+    if (canBeHurt(world)) hurtHero(world, e, Math.max(0, p.knightSwingDamage ?? KNIGHT_DEFAULTS.swingDamage), source);
+    else noteBlock(world, e.x, e.y, source, e.id);
   }
-  for (const other of [...world.enemies]) {
+  for (const other of orderRecruits([...world.enemies])) {
     if (other === e || kindOf(other).immune || !world.enemies.includes(other)) continue;
     if (dist(e, other) > radius + bodyRadiusOf(p, other)) continue;
-    damageEnemy(world, other, KNIGHT_SWING_ENEMY_DAMAGE, { source: KNIGHT_SWING_SOURCE, credited: false, firing: e.id });
+    damageEnemy(world, other, KNIGHT_SWING_ENEMY_DAMAGE, { source, credited: false, firing: e.id });
   }
 }
 
