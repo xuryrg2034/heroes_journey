@@ -763,8 +763,8 @@ button { font: inherit; color: inherit; cursor: pointer; }
 
 /* Task 51ж «Разминка»: «Чурбаки» by the fire (stand-in drawing), the choice of the layouts, the attempt's exit and result. */
 .rt-hearth-warmup { display: flex; flex-direction: column; align-items: center; }
-.rt-hearth-warmup svg { filter: drop-shadow(0 6px 6px #000a); transition: transform .15s, filter .15s; }
-.rt-hearth-warmup:hover svg { transform: translateY(-4px) scale(1.04); filter: drop-shadow(0 0 12px #ffb347aa); }
+.rt-hearth-warmup svg, .rt-hearth-warmup-art { filter: drop-shadow(0 6px 6px #000a); transition: transform .15s, filter .15s; }
+.rt-hearth-warmup:hover svg, .rt-hearth-warmup:hover .rt-hearth-warmup-art { transform: translateY(-4px) scale(1.04); filter: drop-shadow(0 0 12px #ffb347aa); }
 .rt-hearth-warmup-card { width: 560px; }
 .rt-hearth-warmup-list { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 8px; }
 .rt-hearth-warmup-row { width: 100%; display: grid; grid-template-columns: 150px 1fr auto; align-items: center; gap: 12px; padding: 8px 12px; text-align: left; background: #1a1e16; border: 2px solid #444837; color: #e8d7ad; }

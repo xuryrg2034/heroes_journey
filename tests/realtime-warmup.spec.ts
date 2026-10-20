@@ -51,6 +51,7 @@ async function openCamp(page: Page, meta = metaOf()): Promise<void> {
   await expect(page.getByTestId('hearth')).toBeVisible();
 }
 
+const box0 = (b: { y: number; height: number }): { bottom: number } => ({ bottom: b.y + b.height });
 const profile = (page: Page): Promise<any> => page.evaluate(() => JSON.parse(localStorage.getItem('ashen-oath-rt-profile-v1') ?? '{}'));
 
 /** From the camp: «Чурбаки» → the layout's row → the attempt is on (the first frame played). */
@@ -109,6 +110,13 @@ test('the camp: «Чурбаки» stand on the free ground clear of every place
   await expect(spot).toBeVisible();
   await expect(spot).toContainText('Чурбаки');
   await page.screenshot({ path: shot('51w-hearth') });
+  // The design's picture is loaded (not the reserve drawing), about 115 px high on the 1280×720 scene, the name under it.
+  const art = page.getByTestId('hearth-warmup-art');
+  await expect(art).toBeVisible();
+  expect(await art.evaluate((img: HTMLImageElement) => img.naturalWidth), 'the picture loaded').toBeGreaterThan(0);
+  const ab = (await art.boundingBox())!, nb = (await spot.locator('.rt-hearth-name').boundingBox())!;
+  expect(ab.height >= 105 && ab.height <= 125, `the picture's height ${ab.height}`).toBe(true);
+  expect(nb.y >= ab.y + ab.height - 6 && nb.y + nb.height <= box0(ab).bottom + 40, 'the name stands under the dummies').toBe(true);
   const box = (await spot.boundingBox())!, stage = (await page.locator('.rt-hearth-stage').boundingBox())!;
   expect(box.x >= stage.x && box.y >= stage.y && box.x + box.width <= stage.x + stage.width && box.y + box.height <= stage.y + stage.height, 'inside the 1280×720 scene').toBe(true);
   expect(box.y + box.height <= 720 - 40, 'not on the edge of the first screen').toBe(true);

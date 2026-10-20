@@ -32,7 +32,9 @@ const PLACE_AT: readonly { x: number; y: number; s: number }[] = [
 ];
 /** Task 51ж: the «Чурбаки» place (feet, px of the 1280×720 screen) — the free ground of the front right, clear of the rug's NPC and the heroes. */
 const WARMUP_AT = { x: 1135, y: 590 } as const;
-/** Stand-in of «Чурбаки» (no art yet): two stumps, each with a straw dummy. */
+/** The picture of «Чурбаки» (public/art/camp/warmup-dummies.png, 975×1000, design): its height on the 1280×720 scene. */
+const WARMUP_ART_H = 115;
+/** Reserve of «Чурбаки» when the picture does not load: two stumps, each with a straw dummy. */
 const WARMUP_SVG = '<svg viewBox="0 0 150 120" width="130" aria-hidden="true"><ellipse cx="75" cy="108" rx="64" ry="9" fill="#0a0d09" opacity=".6"/><g stroke="#0d141b" stroke-width="4" stroke-linejoin="round"><path d="M16 96 L16 74 Q16 68 40 68 Q64 68 64 74 L64 96 Q40 104 16 96 Z" fill="#7a5632"/><ellipse cx="40" cy="74" rx="24" ry="6" fill="#a47a48"/><path d="M40 70 L40 40" fill="none"/><path d="M26 44 Q40 36 54 44 L52 60 Q40 66 28 60 Z" fill="#d9b867"/><circle cx="40" cy="30" r="10" fill="#e8cf86"/><path d="M84 100 L84 80 Q84 74 108 74 Q132 74 132 80 L132 100 Q108 108 84 100 Z" fill="#6a4a2a"/><ellipse cx="108" cy="80" rx="24" ry="6" fill="#94693c"/><path d="M108 76 L108 46" fill="none"/><path d="M92 50 Q108 42 124 50 L122 66 Q108 72 94 66 Z" fill="#d9b867"/><circle cx="108" cy="36" r="10" fill="#e8cf86"/></g><path d="M101 33 L103 35 M105 33 L103 35 M111 33 L113 35 M115 33 L113 35 M103 41 Q108 44 113 41 M33 27 L35 29 M37 27 L35 29 M43 27 L45 29 M47 27 L45 29" fill="none" stroke="#0d141b" stroke-width="2" stroke-linecap="round"/></svg>';
 /** The NPC's art (public/art/characters; design, Codex): a stand-in silhouette shows if the image does not load. */
 export const NPC_ART: Readonly<Record<NpcId, string>> = { owl: 'npc-owl', herb: 'npc-herbalist', smith: 'npc-smith', gambler: 'npc-gambler', monk: 'npc-monk' };
@@ -215,7 +217,7 @@ export class HearthView {
   /** Task 51ж: «Чурбаки» — straw dummies on stumps on the free ground of the front; a click opens the choice of the layouts. */
   private warmupHtml(): string {
     if (!this.host.warmup) return '';
-    return `<button class="rt-hearth-place rt-hearth-warmup" style="left:${WARMUP_AT.x}px;top:${WARMUP_AT.y}px" data-action="warmup" data-testid="hearth-warmup" title="Разминка цепью">${WARMUP_SVG}<span class="rt-hearth-name">Чурбаки</span></button>`;
+    return `<button class="rt-hearth-place rt-hearth-warmup" style="left:${WARMUP_AT.x}px;top:${WARMUP_AT.y}px" data-action="warmup" data-testid="hearth-warmup" title="Разминка цепью"><img class="rt-hearth-art rt-hearth-warmup-art" src="${artUrl('camp/warmup-dummies.png')}" alt="" style="height:${WARMUP_ART_H}px" data-testid="hearth-warmup-art" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span class="rt-hearth-warmup-sil" hidden>${WARMUP_SVG}</span><span class="rt-hearth-name">Чурбаки</span></button>`;
   }
 
   /** Task 51ж: the choice of a layout — its name, what it asks, the record; a click starts it. «Назад» — to the camp. */
