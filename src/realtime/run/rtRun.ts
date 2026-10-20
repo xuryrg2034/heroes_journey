@@ -34,7 +34,7 @@ import type { TalismanId } from '../forest/talismans';
 import { isRtOath, isRtTalisman, RELICS, RT_DEW_FLASK_HEAL, RT_TOUGH_HIDE_HP, rtShopTalisman, rtTalisman, rtTalismanOffer, turnPool,
   type RtTalismanId, type RtTalismanOption } from './rtTalismans';
 import { emptyStreams, parseStreams, streamValue, type RunStream, type RunStreams } from '../forest/runStreams';
-import { arenaTitle, FINAL_ARENA, GENTLE_FIRST_MEETING_LAST_ROW, HARD_ARENA, ordinaryArenaChoices, pickArena, pickRoster, ROSTER_SALT, RUN_ARENAS, runArenaPools, runRow } from './arenaPools';
+import { arenaTitle, FINAL_ARENA, GENTLE_FIRST_MEETING_LAST_ROW, HARD_ARENA, ordinaryArenaChoices, pickArena, pickRoster, poolNewKinds, ROSTER_SALT, RUN_ARENAS, runArenaPools, runRow } from './arenaPools';
 import { isRoster } from '../sim/rosters';
 import { allowedAffixes, fightElements, isScheduleElement, jailerWithout, PART_ARC, SCHEDULE_RUN_ARENAS, SCHEDULE_HARD_FLOOR, SCHEDULE_KINDS, SCHEDULE_NUMBERS_ROWS, schedulePlan, unmetKinds, type ScheduleNode } from './schedule';
 import { JAILER_ARENA, JAILER_RUN_ARENAS, TROLL_ARENA, TROLL_RUN_ARENAS } from '../sim/arenasBoss';
@@ -2005,17 +2005,18 @@ export function arenaPreview(run: RtRunState, node: ForestMapNode): RtArenaPick 
  * first on its own arena» (`ordinaryArenaChoices`, design answers 1 and 2 to step 4). `mix` — the run's roster mix
  * (`RtRunState.rosterMix`): the pools `ARENA_POOLS`, else those before 11.10.2026 (`ARENA_POOLS_BEFORE_MIX`).
  */
-export function nodeArenas(node: Pick<ForestMapNode, 'type' | 'row'>, history: readonly string[] = [], mix = false, gentle = false): string[] {
+export function nodeArenas(node: Pick<ForestMapNode, 'type' | 'row'>, history: readonly string[] = [], mix = false, gentle = false, shooters = false): string[] {
   if (node.type === 'hard') return [HARD_ARENA];
   if (node.type === 'boss') return [FINAL_ARENA];
-  return ordinaryArenaChoices(runRow(node.row), history, runArenaPools(mix, gentle), gentle ? GENTLE_FIRST_MEETING_LAST_ROW : Infinity);
+  // Task 57а: `shooters` — the flag `forestShooters`: «Осыпь» and «Пасека» in the pools, the slinger and the hive among the new kinds.
+  return ordinaryArenaChoices(runRow(node.row), history, runArenaPools(mix, gentle, shooters), gentle ? GENTLE_FIRST_MEETING_LAST_ROW : Infinity, poolNewKinds(shooters));
 }
 /**
  * The arena of a node by draw `roll` of the pool stream after `history` (a save is checked with it too); `mix` — the run's
  * roster mix, `gentle` — its gentle entry (task 17: «Колючие заросли» on rows 7–8).
  */
-function chooseArena(node: Pick<ForestMapNode, 'type' | 'row'>, history: readonly string[], roll: number, mix: boolean, gentle = false): string {
-  return pickArena(nodeArenas(node, history, mix, gentle), history, roll);
+function chooseArena(node: Pick<ForestMapNode, 'type' | 'row'>, history: readonly string[], roll: number, mix: boolean, gentle = false, shooters = false): string {
+  return pickArena(nodeArenas(node, history, mix, gentle, shooters), history, roll);
 }
 /** The battle kind a node plays (an event node plays its reward battle). */
 export const battleKindOf = (node: Pick<ForestMapNode, 'type'>): RtBattleKind => node.type === 'boss' ? 'final' : node.type === 'hard' ? 'hard' : node.type === 'event' ? 'event' : 'battle';
@@ -2037,7 +2038,7 @@ function arenaPick(run: RtRunState, node: ForestMapNode, advance: boolean): RtAr
   if (run.jailer && node.type === 'checkpoint') { draw(run, 'pool', advance); return { arena: JAILER_ARENA.id }; }
   // Task 48: the den branch's boss of a run with `troll` — the Troll's fight; the pool draw is spent as before, not read.
   if (rtTrollNode(run, node)) { draw(run, 'pool', advance); return { arena: TROLL_ARENA.id }; }
-  const roll = draw(run, 'pool', advance), arena = chooseArena(node, history, roll, !!run.rosterMix, rtGentle(run));
+  const roll = draw(run, 'pool', advance), arena = chooseArena(node, history, roll, !!run.rosterMix, rtGentle(run), !!run.forestShooters);
   const roster = chooseRoster(run, node, arena, history, run.picks.flatMap(pick => pick.roster !== undefined ? [pick.roster] : []));
   return { arena, ...roster !== undefined ? { roster } : {} };
 }
@@ -2063,7 +2064,9 @@ export function rtScheduleMet(run: Pick<RtRunState, 'schedule' | 'battles'>): Se
 function schedulePick(run: RtRunState, node: Pick<ForestMapNode, 'id' | 'type' | 'row'>, history: readonly string[], met: ReadonlySet<string>): RtArenaPick {
   const plan = schedulePlan({ seed: arenaSeed(run, node.id), node: scheduleNode(node), row: runRow(node.row), fight: history.length + 1, met, recent: history, ...run.jailer ? { jailer: true } : {},
     // Task 48: the den branch's boss of a run with `troll` — the Troll's fight (arc null, as every final).
-    ...rtTrollNode(run, node) ? { troll: true } : {} });
+    ...rtTrollNode(run, node) ? { troll: true } : {},
+    // Task 57а: the new shooters' kinds, arcs and practice (absent — the schedule as before).
+    ...run.forestShooters ? { shooters: true } : {} });
   return { arena: plan.arena, ...plan.roster !== undefined ? { roster: plan.roster } : {}, ...plan.arc !== null ? { arc: plan.arc } : {} };
 }
 /** Task 26: the arc of the open fight of a scheduled run (null — a practice fight, or no schedule). */
@@ -2104,7 +2107,7 @@ export function scheduleKit(kit: Loadout, run: RtRunState, node: Pick<ForestMapN
   }
   const tough = rtToughHp(row, gentle) + numbers;
   if (tough > 2) kit.toughHp = tough; else delete kit.toughHp;
-  const gone = unmetKinds(fight.arena, fight.roster, met, arc);
+  const gone = unmetKinds(fight.arena, fight.roster, met, arc, !!run.forestShooters);
   // Task 28: the Jailer's core without its shield while the shieldbearer is not met (rosters.ts `withoutKinds`).
   if (JAILER_RUN_ARENAS.includes(fight.arena)) gone.push(...jailerWithout(met));
   if (gone.length) kit.withoutKinds = gone;
@@ -2116,8 +2119,8 @@ export function scheduleKit(kit: Loadout, run: RtRunState, node: Pick<ForestMapN
  * node's own roll (the arena seed and the salt «rt-roster»), no stream spent (a save is checked with it too). With the
  * run's roster mix «Застава» and «Брод» take a pool roster in about half of their fights (`MIXED_ROSTER_ARENAS`).
  */
-function chooseRoster(run: Pick<RtRunState, 'seed' | 'rosterMix'>, node: Pick<ForestMapNode, 'id' | 'row'>, arena: string, history: readonly string[], rosters: readonly string[]): string | undefined {
-  return pickRoster(arena, runRow(node.row), history, rosters, mixSeed(arenaSeed(run, node.id), ROSTER_SALT), !!run.rosterMix);
+function chooseRoster(run: Pick<RtRunState, 'seed' | 'rosterMix' | 'forestShooters'>, node: Pick<ForestMapNode, 'id' | 'row'>, arena: string, history: readonly string[], rosters: readonly string[]): string | undefined {
+  return pickRoster(arena, runRow(node.row), history, rosters, mixSeed(arenaSeed(run, node.id), ROSTER_SALT), !!run.rosterMix, !!run.forestShooters);
 }
 
 function startArena(run: RtRunState, node: ForestMapNode, battle: RtBattleKind, events: RtRunEvent[]) {
@@ -2262,7 +2265,7 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
     // Task 16 «Подвиги»: the open battle's feat and whether the fight did it (a lost fight's too).
     ...pending.feat ? { feat: { ...structuredClone(pending.feat), done: outcome.feat?.done === true } } : {},
     // Task 26: what the fight showed (a lost fight's too) — the next arcs and the viewer's history read it.
-    ...current.schedule && !rtGarrisonNodeId(pending.nodeId) ? { seen: fightElements({ arena: pending.arena, markedGoals: !!current.markedGoals, arc: rtFightArc(current), kinds: outcome.kinds, elite: outcome.elite === true, affixes: outcome.affixes, bag: !rtArenaLoadout(current).noBag }) } : {},
+    ...current.schedule && !rtGarrisonNodeId(pending.nodeId) ? { seen: fightElements({ arena: pending.arena, markedGoals: !!current.markedGoals, arc: rtFightArc(current), kinds: outcome.kinds, elite: outcome.elite === true, affixes: outcome.affixes, bag: !rtArenaLoadout(current).noBag, ...current.forestShooters ? { shooters: true } : {} }) } : {},
     // Task 28: the Jailer's weight severed (a lost fight's too: the record keeps what happened).
     ...outcome.severed === true && current.jailer && JAILER_RUN_ARENAS.includes(pending.arena) ? { severed: true as const } : {},
     // Task 48: the Troll's parts severed (a lost fight's too).
@@ -3663,7 +3666,7 @@ function checkRun(value: unknown): RtRunState | null {
       history.push(pick.arena);
       continue;
     }
-    if (pick.arena !== chooseArena(node.type === 'event' ? { ...node, type: 'battle' } : node, history, streamValue(run.seed, 'pool', history.length), !!run.rosterMix, rtGentle(run))) return null;
+    if (pick.arena !== chooseArena(node.type === 'event' ? { ...node, type: 'battle' } : node, history, streamValue(run.seed, 'pool', history.length), !!run.rosterMix, rtGentle(run), !!run.forestShooters)) return null;
     if (pick.roster !== chooseRoster(run, node, pick.arena, history, rosters)) return null;
     history.push(pick.arena);
     if (pick.roster !== undefined) rosters.push(pick.roster);
