@@ -106,11 +106,18 @@ export class HearthView {
     this.el.hidden = true;
     this.el.addEventListener('click', event => this.onClick(event));
     // The camp's background (the fire and six places); without it — the drawn fire and dark places (`rt-hearth-noart`).
-    this.el.style.backgroundImage = `url("${artUrl('camp/hearth.png')}")`;
+    this.el.style.setProperty('--hearth-art', `url("${artUrl('camp/hearth.png')}")`);
     const probe = new Image();
-    probe.onerror = () => { this.el.classList.add('rt-hearth-noart'); this.el.style.backgroundImage = ''; };
+    probe.onerror = () => { this.el.classList.add('rt-hearth-noart'); this.el.style.removeProperty('--hearth-art'); };
     probe.src = artUrl('camp/hearth.png');
+    window.addEventListener('resize', () => { if (!this.el.hidden) this.fit(); });
     window.addEventListener('keydown', event => { if (event.key === 'Escape' && !this.el.hidden && (this.bubble || this.bestiary)) { this.bubble = null; this.bestiary = false; this.draw(); } });
+  }
+
+  /** UI-01б: the scene's scale `--s` = max(1, min(window width / 1280, window height / 720)); the 1280×720 coordinates stay as they are. */
+  private fit(): void {
+    const w = this.el.clientWidth || window.innerWidth, h = this.el.clientHeight || window.innerHeight;
+    this.el.style.setProperty('--s', String(Math.max(1, Math.min(w / 1280, h / 720))));
   }
 
   get isOpen(): boolean { return !this.el.hidden; }
@@ -127,6 +134,7 @@ export class HearthView {
     }
     this.shown.open = true;
     this.host.sound?.('open');
+    this.fit();
     this.draw();
   }
 
@@ -223,9 +231,9 @@ export class HearthView {
     }).join('');
     const quest = h.quest?.npc === npc ? `<p class="rt-hearth-quest" data-testid="hearth-quest">${esc(questLine(npc, h.quest.id === 'owl-forest', h.lines))} <small>+10 опыта, +3 запаса</small></p>` : '';
     const book = npc === 'owl' ? '<button class="rt-other rt-hearth-book" data-action="bestiary" data-testid="hearth-bestiary">Бестиарий</button>' : '';
-    // The bubble stands low at the right edge (over the empty front right rug; no NPC stands there, the fire and the centre stay clear).
+    // UI-01б: the bubble stands in the free middle above the fire (between the back figures and over none of the places), at the top of the scene.
     void i; void at; void right;
-    return `<div class="rt-hearth-bubble" style="right:16px;bottom:16px" data-testid="hearth-bubble" data-npc="${npc}">`
+    return `<div class="rt-hearth-bubble" style="left:50%;top:56px;transform:translateX(-50%)" data-testid="hearth-bubble" data-npc="${npc}">`
       + `<p class="rt-hearth-who"><b>${esc(NPCS[npc].name)}</b> · ${esc(NPCS[npc].who)}</p><p class="rt-hearth-line" data-testid="hearth-line">${esc(this.lastLine)}</p>${quest}<ul class="rt-hearth-ups">${rows}</ul>${book}</div>`;
   }
 
