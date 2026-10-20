@@ -43,6 +43,8 @@ const PAIRS: [Form, Form][] = FORMS_ALL.flatMap((a, i) => FORMS_ALL.slice(i + 1)
 /** The fight of a pair: the sandbox's values with the newcomers off (the bot's bodies only); `moving` — the enemies walk. */
 function params(moving: boolean): Params {
   const p = defaultParams();
+  // Task 52, Р2: «Развилка» without the dwell gesture here (the run's rule; the sandbox's 0,25 — forkDwell.spec.ts).
+  p.forkDwell = 0;
   p.baseFloor = 0; p.baseIntervalMin = 1e6; p.baseIntervalMax = 1e6; p.maxEnemies = 1; p.contactDamage = 0; p.heroHp = 40; p.hitstop = false;
   p.loopEnabled = false; p.pierceEnabled = false;
   if (!moving) { p.enemySpeed = 0; p.speedSpread = 0; } else p.speedSpread = 0.2;
