@@ -19,7 +19,7 @@ import {
   HEARTH_GATE_SALT, HEARTH_HERB_SALT, HEARTH_MAPS_SALT, HEARTH_QUEST_SALT, isRtHearthNpc, isRtHeroId, isRtQuest, RT_HEARTH_GATED_LEVEL, RT_HEARTH_LOCKED, RT_HEARTH_MAX_LEVEL, RT_HEARTH_NPCS, RT_HEARTH_NPCS_L3, RT_HEARTH_PRICES, RT_HERO_ID, RT_HERO_IDS, RT_QUEST_NPC,
   HEARTH_VOW_SALT, isRtHearthLeaver, RT_HEARTH_AWAY_ON, RT_HEARTH_GAMBLER_ON, RT_HEARTH_MONK_ON, type RtHearthLeaver, RT_META_THRESHOLDS, RT_VOW_IDS, type RtVowId, RT_TOAD_ID, rtHeroPacks, rtLockedAfter, type RtHearthGuest, type RtHearthLevel, type RtHearthNpc, type RtHeroId, type RtMetaItem, type RtQuest, type RtQuestId, type RtQuestNpc,
 } from './metaCatalog';
-import { isRtAshLevel, rtCasinoResult, rtReachedJailer, type RtAshLevel } from './rtRun';
+import { isRtAshLevel, rtCasinoResult, rtKnackShown, rtReachedJailer, type RtAshLevel } from './rtRun';
 
 export { RT_HEARTH_PRICES, RT_META_PACKS, RT_META_THRESHOLDS } from './metaCatalog';
 
@@ -144,6 +144,13 @@ export interface RtHearthLast {
   garrisonWon?: true;
   /** Task 51д (`back_met`, `back_missed`): the run was an NPC's away run — the NPC and whether it was met on the road. */
   away?: { npc: RtHearthLeaver; met: boolean };
+  /** Task 50 §18 (ui: «Повадка» `habit_first`): the run offered the archetype row on its gift (`run.habits`; «Без повадки» too). Absent — not. */
+  habitOffered?: true;
+  /**
+   * Task 50 §18 (ui: «Сноровка» `knack_first`): the run showed the knack screen at least once (`rtKnackShown`). Absent — not. Read
+   * from the run without a mark: a knack node with no cards (`rtKnackOptions` empty) counts too.
+   */
+  knackOffered?: true;
 }
 /** The NPCs' levels: v1's three always; task 51's Шиш and Евлампий only once bought (absent — 0: a profile before it hashes as before). */
 export type RtHearthLevels = Record<'owl' | 'herb' | 'smith', RtHearthLevel> & Partial<Record<'gambler' | 'monk', RtHearthLevel>>;
@@ -432,7 +439,7 @@ export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState, optio
   const cuts = monk ? rtRunCuts(run) : 0;
   // Task 51: the garrison passed the first time for the profile (no hero's record had `wonLevel` 2 before this run).
   const firstGarrison = passed === 2 && !RT_HERO_IDS.some(id => previous?.heroes[id]?.record && rtWonLevelOf(previous.heroes[id]!.record!) >= 2);
-  hearth.last = { won: win, row, beaten, ...rtDeathCause(run) ? { cause: rtDeathCause(run) } : {}, ...quest ? { quest: questDone } : {}, ...win && !oldPassed ? { firstWin: true as const } : {}, ...pack ? { pack: true as const } : {}, ...heroId === RT_TOAD_ID ? { hero: RT_TOAD_ID } : {}, ...firstGarrison ? { firstGarrison: true as const } : {}, ...rtRunWonLevel(run) === 2 ? { garrisonWon: true as const } : {}, ...casino ? { casino } : {}, ...cuts ? { cuts } : {}, ...vows ? { vows } : {}, ...awayRun ? { away: awayRun } : {} };
+  hearth.last = { won: win, row, beaten, ...rtDeathCause(run) ? { cause: rtDeathCause(run) } : {}, ...quest ? { quest: questDone } : {}, ...win && !oldPassed ? { firstWin: true as const } : {}, ...pack ? { pack: true as const } : {}, ...heroId === RT_TOAD_ID ? { hero: RT_TOAD_ID } : {}, ...firstGarrison ? { firstGarrison: true as const } : {}, ...rtRunWonLevel(run) === 2 ? { garrisonWon: true as const } : {}, ...casino ? { casino } : {}, ...cuts ? { cuts } : {}, ...vows ? { vows } : {}, ...awayRun ? { away: awayRun } : {}, ...run.habits ? { habitOffered: true as const } : {}, ...rtKnackShown(run) ? { knackOffered: true as const } : {} };
   hearth.quest = rtNextQuest(run.seed, hearth, record);
   meta.hearth = hearth;
   const end: RtMetaEnd = {
@@ -670,6 +677,9 @@ function lastOf(value: Record<string, unknown>): RtHearthLast {
   // Task 51: `firstGarrison`, `garrisonWon` — only `true`.
   if ((last as { firstGarrison?: unknown }).firstGarrison !== undefined && (last as { firstGarrison?: unknown }).firstGarrison !== true) delete last.firstGarrison;
   if ((last as { garrisonWon?: unknown }).garrisonWon !== undefined && (last as { garrisonWon?: unknown }).garrisonWon !== true) delete last.garrisonWon;
+  // Task 50 §18: `habitOffered`, `knackOffered` — only `true`.
+  if ((last as { habitOffered?: unknown }).habitOffered !== undefined && (last as { habitOffered?: unknown }).habitOffered !== true) delete last.habitOffered;
+  if ((last as { knackOffered?: unknown }).knackOffered !== undefined && (last as { knackOffered?: unknown }).knackOffered !== true) delete last.knackOffered;
   // Task 51в: `casino` only `won` / `lost`.
   if (last.casino !== undefined && last.casino !== 'won' && last.casino !== 'lost') delete last.casino;
   // Task 51г: `cuts` a whole number from 1; `vows` known ids with a boolean.
