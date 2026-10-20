@@ -29,6 +29,7 @@ import { defaultParams, heroRadius, type Params } from './params';
 import { replay, Simulation, SIM_DT } from './simulation';
 import type { Enemy, World, WorldEvent } from './world';
 import { worldState } from './hash';
+import { registerArena } from './arenas';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -511,6 +512,40 @@ check('the Chief\'s keys are read on his arena only: another arena (the boss are
       const plain = play({}), keyed = play(changed);
       const state = (sim: Simulation): string => { const s = worldState(sim.world) as Record<string, unknown>; delete s.params; return JSON.stringify(s); };
       assert(keyed.world.params.chiefHp === 9 && state(plain) === state(keyed), `${arena}, seed ${k}: the same world`);
+    }
+  }
+});
+
+registerArena({
+  id: 'chief-seal-field', name: 'Поле Главаря (тест печати)', summary: 'Тест: печать вокруг Главаря', goal: 'marked', width: 20, height: 12,
+  heroStart: { x: 10, y: 10.5 }, obstacles: [], buttons: [], door: { x: 19.3, y: 1 }, enemies: [{ x: 10, y: 6, color: 0, kind: CHIEF, marked: true }],
+  bossFrame: true, bossClears: true, jailerColorless: true,
+  chief: { cauldron: { x: 10, y: 9.5 }, seats: [{ x: 8.6, y: 9.6 }, { x: 9.6, y: 9.9 }, { x: 10.6, y: 9.9 }, { x: 11.6, y: 9.6 }] },
+});
+
+check('«Печать» never hurts the Chief: a ring round his core (an open field) — the highlight leaves the core out of the seal, the strike gives its «звон» and no damage; in his window and outside it', () => {
+  for (const k of SEEDS) {
+    for (const open of [true, false]) {
+      const sim = new Simulation({ arena: 'chief-seal-field', params: quiet({ loopEnabled: true }), seed: seedOf(k), record: true }), w = sim.world;
+      ticks(sim, 1);
+      const core = w.enemies.find(e => e.kind === CHIEF)!;
+      sim.command({ t: 'teleport', x: 8, y: 5.1 });
+      if (open) ticks(sim, ticksOf(10), [], (_w, ev) => feastEvents(ev, 'open').length > 0);
+      assert(!!chiefState(w)!.window?.open === open, `seed ${k}: the window ${open}`);
+      const colour = open ? (chiefState(w)!.brew + 1) % 4 : 0;
+      const ring = [{ x: 9.1, y: 5.1 }, { x: 10.9, y: 5.1 }, { x: 10.9, y: 6.9 }, { x: 9.1, y: 6.9 }].map(p => place(sim, p, 0, colour));
+      const inner = place(sim, { x: 9.5, y: 6.5 }, 0, (colour + 1) % 4);
+      draw(sim, [...ring, ring[0]]);
+      const plan = planChain(w);
+      assert(w.chainClosed && plan.seal && plan.seal.damage > 0, `seed ${k}, open ${open}: the ring closed (${w.chainClosed}, ${JSON.stringify(plan.seal?.inside)})`);
+      assert(plan.seal.inside.includes(inner.id) && !plan.seal.inside.includes(core.id), `seed ${k}, open ${open}: the seal strikes the inner one, not the core (${plan.seal.inside})`);
+      const plates = core.armor!.plates, hp = core.hp;
+      sim.command({ t: 'release' });
+      const out = settle(sim);
+      ticks(sim, 1, out);
+      assert(!w.enemies.includes(inner) && core.armor?.plates === plates && core.hp === hp, `seed ${k}, open ${open}: the inner one died, the core whole`);
+      assert(feastEvents(out, 'block').some(e => e.source === 'seal') && !feastEvents(out, 'hit').length && !feastEvents(out, 'big').length, `seed ${k}, open ${open}: the seal's «звон» (${JSON.stringify(feastEvents(out))})`);
+      assert(replays(sim), `seed ${k}, open ${open}: replay`);
     }
   }
 });
