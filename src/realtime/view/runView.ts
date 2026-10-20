@@ -709,7 +709,7 @@ export class RunView {
     this.run = createRtDailyRun(date);
     this.daily = { date, attempt, steps: [], journals: [], broken: false };
     this.dailySessions.save(this.daily, true);
-    this.host.session?.clock.runStarted();
+    // The run of the day is no run of the viewer's (spec 6.2): neither the profile's count nor the session clock's «походов» takes it.
     this.store.save(this.run);
     this.host.runStarted?.(previous, this.run);
     host.attempt?.(this.run, attempt);

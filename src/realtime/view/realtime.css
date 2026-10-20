@@ -796,3 +796,4 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-daily-end { margin: 0 0 10px; }
 .rt-daily-claim { margin: 0 0 6px; font-weight: 700; }
 .rt-run-modal .rt-daily-proof .rt-other, .rt-daily-proof .rt-other { width: auto; flex: 1 1 auto; margin: 0; padding: 8px 10px; }
+.rt-daily-proof .rt-other:disabled { opacity: .45; cursor: not-allowed; }
