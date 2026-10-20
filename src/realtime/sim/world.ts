@@ -45,7 +45,7 @@ import { spawnEnemy, spawnReaper, toughHpMaxOf, updateSpawning, type QueuedSpawn
 // К7 «Проклятый сундук» (chest.ts): the chest of «Застава», its touch, the curse on the touch.
 import { curseTouch, placeChest, touchChest, type CurseState } from './chest';
 // Task 55а «Замок: толчок» (shove.ts): the things sliding after a dash.
-import { updateShoves, type Shove, type ShoveStop } from './shove';
+import { updateShoves, type Shove, type ShovePlan, type ShoveStop } from './shove';
 
 /**
  * Id of a registered enemy kind (enemies/*): prototype kinds `basic`, `wolf` (fast, hits harder next to other wolves),
@@ -278,6 +278,12 @@ export interface HeroMove {
    * body) — cut when the dash ends, whatever the bodies did on the way. Absent when none (dashes without them hash as before).
    */
   cuts?: number[];
+  /**
+   * Task 55а (`Params.shove`, shove.ts): the shove the release fixed (the plan's `shove`) and whether the dash reached its thing
+   * (`shoveHit`) — the dash's end runs it then, else cancels it. Absent when the chain does not end on a thing.
+   */
+  shove?: ShovePlan;
+  shoveHit?: true;
 }
 
 /**
@@ -1394,6 +1400,9 @@ export function noteBlock(world: World, x: number, y: number, source: HitSource,
   if (heroGuarded(world)) world.events.push({ type: 'block', x, y, source, ...enemyId ? { enemyId } : {} });
 }
 
+/** Task 55а: the link `id` is a thing (the barrel, the wardrobe) — never an enemy link for a count. */
+const thingLink = (world: World, id: number): boolean => { const e = world.enemies.find(x => x.id === id); return !!e && !!kindOf(e).thing; };
+
 /**
  * «Щит фокуса» (`focusGuardLinks`, design 12.10.2026): the drawn chain has that many enemy links (an elite with plates is a
  * link) and the focus is not empty (`focusing`: the time slowed) — touches and hits spare the hero. The released dash plays
@@ -1403,7 +1412,8 @@ export function focusGuarded(world: World): boolean {
   const need = world.params.focusGuardLinks;
   if (!(need > 0) || !world.focusing || world.move || world.status !== 'playing') return false;
   let links = 0;
-  for (const link of world.chain) if (link.kind === 'enemy' && ++links >= need) return true;
+  // Task 55а: a thing is no enemy link for the shield (nothing changes without one).
+  for (const link of world.chain) if (link.kind === 'enemy' && !thingLink(world, link.id) && ++links >= need) return true;
   return false;
 }
 
