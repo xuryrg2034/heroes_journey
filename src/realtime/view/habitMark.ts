@@ -71,6 +71,9 @@ export function vowIconSvg(size = 24): string {
 /** The archetypes in the order of the row (`RT_HABITS`). */
 export const HABIT_IDS: readonly RtHabitId[] = RT_HABITS.map(def => def.id);
 
+/** The hint at an archetype's mark in a card's corner (design 20.10.2026, task 50 §18): drawn as a bubble by the style (`data-tip`), not a bare title. */
+export const habitTip = (habit: RtHabitId): string => `Повадка «${rtHabit(habit).name}»: такие предметы попадаются чаще`;
+
 /**
  * The mark of an item card: the icon of the run's archetype in the card's corner, no caption — only when `id` carries the run's tag
  * (`rtTalisman(id).tags`). Empty for a run without an archetype and for an untagged item. Put it inside the card's button
@@ -79,7 +82,7 @@ export const HABIT_IDS: readonly RtHabitId[] = RT_HABITS.map(def => def.id);
 export function habitMark(run: Pick<RtRunState, 'habit'> | null | undefined, id: string): string {
   const habit = run?.habit;
   if (!habit || !rtTalisman(id)?.tags?.includes(habit)) return '';
-  return `<i class="rt-habit-mark" data-habit="${habit}" data-for="${id}" data-testid="habit-mark-${id}" title="${rtHabit(habit).name}">${habitIconSvg(habit, 26)}</i>`;
+  return `<i class="rt-habit-mark" data-habit="${habit}" data-for="${id}" data-testid="habit-mark-${id}" data-tip="${habitTip(habit)}" aria-label="${habitTip(habit)}">${habitIconSvg(habit, 26)}</i>`;
 }
 
 /** The sign of the chosen archetype in the map's header (empty without one). */

@@ -11,7 +11,7 @@ export type DeathCause = 'crowd' | 'archer' | 'sapper' | 'jailer' | 'final' | 'f
 export type LineKey = 'first' | 'first_self' | 'win_first' | 'win' | `death_${DeathCause}` | 'record' | 'buy_1' | 'buy_2' | 'buy_3'
   | 'quest_give' | 'quest_give_final' | 'quest_done' | 'quest_fail' | 'idle' | 'about_owl' | 'about_herb' | 'about_smith' | 'about_gambler' | 'about_monk' | 'locked3' | 'pack'
   | 'win_garrison_first' | 'meet_hello' | 'back_met' | 'first_won' | 'first_lost' | 'casino_won' | 'casino_lost'
-  | 'vow_kept' | 'vow_broken' | 'memory_cuts' | 'memory_castellan'
+  | 'habit_first' | 'knack_first' | 'vow_kept' | 'vow_broken' | 'memory_cuts' | 'memory_castellan'
   | 'leave' | 'back_missed' | 'meet_deal' | 'meet_no' | 'trace_herb' | 'trace_smith' | 'trace_gambler';
 
 export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly string[]>>>> = {
@@ -49,6 +49,8 @@ export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly 
     trace_gambler: ['Шиш ушёл к столу. Кружку оставил, кости тоже, долги — само собой.'],
     locked3: ['Эту страницу открою, когда дойдёшь до гарнизона. Раньше — не по чину.'],
     pack: ['В лесу появилось новое. Я внесла в опись три строки.'],
+    // Task 50 §18 (design 20.10.2026): once a profile, after the first run that offered the archetype (`LineContext.last.habitOffered`).
+    habit_first: ['Повадку я записала. Теперь такие вещи тебе будут чаще попадаться на глаза'],
   },
   herb: {
     first: ['Ты волчонка перевязал? Криво, зато от сердца — садись, котище.', 'Я Марфа, травница. Шла за волчонком, а вышла к твоему костру.'],
@@ -123,6 +125,8 @@ export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly 
     meet_no: ['Не надо — не бери. Торговаться не стану.'],
     locked3: ['Третья правка — как дойдёшь до гарнизона. Там сталь другая.'],
     pack: ['Новое железо в лесу. Бери, да проверь кромку.'],
+    // Task 50 §18: once a profile, after the first run that offered the knack (`LineContext.last.knackOffered`).
+    knack_first: ['Сноровка — это точить то, что уже в руке. Новое бери, когда старое тупится'],
   },
   // Task 51в: Шиш (docs/design-notes/npc-lines-v2.md, «Шиш, гоблин-шулер»; `leave`, `back_*`, `meet_*` wait for 51д).
   gambler: {
@@ -267,7 +271,7 @@ export interface LineContext {
   /** The NPC came by itself (the fallback way) — its meeting line is `first_self`. */
   self?: boolean;
   /** The occasions of the last run (said once per camp visit). */
-  last?: { won: boolean; firstWin?: boolean; cause?: DeathCause; record?: boolean; questDone?: boolean; questFail?: boolean; pack?: boolean; casino?: 'won' | 'lost'; cuts?: number; vows?: 'kept' | 'broken'; castellan?: boolean; garrisonWon?: boolean; away?: 'met' | 'missed' };
+  last?: { won: boolean; habitOffered?: true; knackOffered?: true; firstWin?: boolean; cause?: DeathCause; record?: boolean; questDone?: boolean; questFail?: boolean; pack?: boolean; casino?: 'won' | 'lost'; cuts?: number; vows?: 'kept' | 'broken'; castellan?: boolean; garrisonWon?: boolean; away?: 'met' | 'missed' };
   /** Just bought this level. */
   bought?: 1 | 2 | 3;
   /** The other NPC in the camp (for `about_*`). */
@@ -290,7 +294,8 @@ export function pickLine(npc: NpcId, ctx: LineContext, memory: LineMemory): { ke
   const toad = ctx.hero === 'toad', tail = toad ? ':toad' : '';
   const L = NPC_LINES[npc];
   // Task 51в: Шиш's first meeting is `first_won` / `first_lost` (by the last game of the goblins' circle) - one count `npc:first` with `first`.
-  const meeting = (key: LineKey): boolean => key === 'first' || key === 'first_self' || key === 'first_won' || key === 'first_lost';
+  // Task 50 §18: `habit_first` / `knack_first` are said once a profile, whoever the hero (one count, like the meeting).
+  const meeting = (key: LineKey): boolean => key === 'first' || key === 'first_self' || key === 'first_won' || key === 'first_lost' || key === 'habit_first' || key === 'knack_first';
   const memoryKey = (key: LineKey): LineKey => (key === 'first_won' || key === 'first_lost' ? 'first' : key);
   const firstWin = (key: LineKey): boolean => key === 'win_first' || key === 'win_garrison_first';
   const mark = (key: LineKey): string => (meeting(key) ? '' : tail);
@@ -313,7 +318,7 @@ export function pickLine(npc: NpcId, ctx: LineContext, memory: LineMemory): { ke
   const last = ctx.last;
   if (last) {
     // Task 51д: the NPC came back from the road — `back_met` (met on a rest) or `back_missed`.
-    const occasion = (last.away && line(last.away === 'met' ? 'back_met' : 'back_missed')) || (last.questDone && line('quest_done')) || (last.questFail && line('quest_fail')) || (last.firstWin && line('win_first', true))
+    const occasion = (last.away && line(last.away === 'met' ? 'back_met' : 'back_missed')) || (last.questDone && line('quest_done')) || (last.questFail && line('quest_fail')) || (npc === 'owl' && last.habitOffered && line('habit_first', true)) || (npc === 'smith' && last.knackOffered && line('knack_first', true)) || (last.firstWin && line('win_first', true))
       // Task 51: the garrison passed - the first time for the hero is `win_garrison_first` (the three of v1, said once by hero like `win_first`), then the ordinary occasion.
       || (last.garrisonWon && (npc === 'owl' || npc === 'herb' || npc === 'smith') && line('win_garrison_first', true))
       || (last.record && line('record')) || (last.pack && line('pack')) || (last.casino && line(last.casino === 'won' ? 'casino_won' : 'casino_lost'))

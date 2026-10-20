@@ -1892,6 +1892,20 @@ export const RT_KNACK_CARDS = 2;
 export const rtKnackNode = (run: Pick<RtRunState, 'knacks'>, node: Pick<ForestMapNode, 'type' | 'row'>): boolean =>
   !!run.knacks && (node.type === 'battle' || node.type === 'breakthrough') && runRow(node.row) >= RT_KNACK_ROW;
 /**
+ * The run showed the knack screen at least once (the camp's `last.knackOffered`): a won fight of a knack node (`rtKnackNode`) whose
+ * screens before it are passed — the run does not wait at that node on the die or a talisman screen other than the feat's (those
+ * come before the knack screen). No mark in the save: a knack node whose `rtKnackOptions` was empty (every counter on rank II or
+ * gone) counts too, though it showed no screen.
+ */
+export function rtKnackShown(run: RtRunState): boolean {
+  const pending = run.pending, before = (nodeId: string) => pending !== null && 'nodeId' in pending && pending.nodeId === nodeId
+    && (pending.kind === 'die' || pending.kind === 'hammer' || (pending.kind === 'talisman' && pending.source !== 'feat'));
+  return !!run.knacks && run.battles.some(entry => {
+    const node = entry.won ? rtNode(run, entry.nodeId) : undefined;
+    return !!node && rtKnackNode(run, node) && !before(entry.nodeId);
+  });
+}
+/**
  * The knack screen of `nodeId` (design 3.2): card A — a counter the run holds on rank I (not a part of a fusion: parts are not in
  * `talismans`), card B — a counter not in the run, common or uncommon, of the run's pool (not taken, not gone, not locked, no clash).
  * No A — two B; no B — two A; none — no screen. By the node's own roll (`KNACK_SALT`, the `talismans` stream not spent), each card

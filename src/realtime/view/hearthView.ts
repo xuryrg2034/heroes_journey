@@ -254,7 +254,7 @@ export class HearthView {
     const line = pickLine(npc, {
       ...h.self?.[npc] ? { self: true } : {}, ...bought ? { bought } : {}, others: this.npcsHere(h),
       ...h.last?.hero ? { hero: h.last.hero } : {},
-      ...l ? { last: { won: l.won, ...l.firstWin ? { firstWin: true } : {}, ...l.cause ? { cause: l.cause as DeathCause } : {}, ...l.beaten ? { record: true } : {}, ...l.pack ? { pack: true } : {}, ...l.casino ? { casino: l.casino } : {}, ...l.away?.npc === npc ? { away: l.away.met ? 'met' as const : 'missed' as const } : {}, ...l.cuts ? { cuts: l.cuts } : {}, ...l.vows?.length ? { vows: l.vows.every(v => v.kept) ? 'kept' as const : 'broken' as const } : {}, ...l.garrisonWon ? { castellan: true, garrisonWon: true } : {}, ...quest ? (l.quest ? { questDone: true } : { questFail: true }) : {} } } : {},
+      ...l ? { last: { won: l.won, ...l.habitOffered ? { habitOffered: true as const } : {}, ...l.knackOffered ? { knackOffered: true as const } : {}, ...l.firstWin ? { firstWin: true } : {}, ...l.cause ? { cause: l.cause as DeathCause } : {}, ...l.beaten ? { record: true } : {}, ...l.pack ? { pack: true } : {}, ...l.casino ? { casino: l.casino } : {}, ...l.away?.npc === npc ? { away: l.away.met ? 'met' as const : 'missed' as const } : {}, ...l.cuts ? { cuts: l.cuts } : {}, ...l.vows?.length ? { vows: l.vows.every(v => v.kept) ? 'kept' as const : 'broken' as const } : {}, ...l.garrisonWon ? { castellan: true, garrisonWon: true } : {}, ...quest ? (l.quest ? { questDone: true } : { questFail: true }) : {} } } : {},
     }, h.lines);
     this.said.add(npc);
     this.boughtNow = null;

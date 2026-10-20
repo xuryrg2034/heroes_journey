@@ -26,7 +26,7 @@ import {
 } from '../run/rtRun';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
 import { GIFT_HP_PRICE, GIFT_MAX_HP_PRICE } from '../forest/runGift';
-import { RT_HABITS, RT_RARITY_NAME, rtHammer, rtTalisman, rtTalismanShown, rtTalismanText, type RtHabitId } from '../run/rtTalismans';
+import { RT_FORMS, RT_HABITS, RT_RARITY_NAME, RT_TALISMANS, rtHammer, rtTalisman, rtTalismanShown, rtTalismanText, type RtHabitId } from '../run/rtTalismans';
 import { FORM_FIELD_TITLES, fusionRecipe, isFusionId, type FusionId } from '../sim/buildIds';
 import { labelOf } from './buildColumn';
 import { honeLine, rankMarkHtml, wearsRank } from './knackView';
@@ -322,13 +322,25 @@ export function recipeHtml(run: RtRunState | null | undefined, id: string): stri
 /** Task 44: an item's icon as the build column draws it (a drawn SVG, or its sign). */
 const itemIcon = (id: string, ranked = false): string => { const label = labelOf(id); return `<i class="rt-fuse-icon">${label.svg ?? escapeHtml(label.glyph)}${ranked ? rankMarkHtml() : ''}</i>`; };
 
+/** Task 50 §18: the opened items of a habit's tag shown on its card — up to three icons beside the card's words. */
+export const HABIT_ITEMS_SHOWN = 3;
+/** The line under «Повадка» while it is not chosen (design 20.10.2026, task 50 §18). */
+export const HABIT_HINT = 'Предметы с этим знаком будут попадаться чаще';
+/** The line under «Сноровка» (the same design decision). */
+export const KNACK_HINT = 'Усиль счётчик, который у тебя есть, или возьми новый';
+function habitItems(run: RtRunState, habit: RtHabitId): string[] {
+  // The catalogue's opened items of the tag (not locked by the meta, not a relic: those come by the Jailer's gift), in the catalogue's order.
+  const seen = new Set<string>(), ids = [...RT_TALISMANS, ...RT_FORMS].filter(def => def.rarity !== 'relic' && def.tags?.includes(habit) && !run.locked?.includes(def.id) && !seen.has(def.id) && !!seen.add(def.id)).map(def => def.id);
+  return ids.slice(0, HABIT_ITEMS_SHOWN);
+}
 /** Task 50: the archetype row of the open gift — four cards and «Без повадки»; the chosen one stays lit, the rest wait off. */
-function habitRowHtml(habit: NonNullable<ReturnType<typeof rtGiftView>>['habit'] & object): string {
+function habitRowHtml(habit: NonNullable<ReturnType<typeof rtGiftView>>['habit'] & object, run: RtRunState): string {
   const none = habit.chosen && habit.id === null;
   const cards = RT_HABITS.map(def => `<button class="rt-habit-card${habit.id === def.id ? ' rt-on' : ''}" data-action="habit" data-habit="${def.id}" data-testid="habit-${def.id}" aria-pressed="${habit.id === def.id}" ${habit.chosen ? 'disabled' : ''}>`
-    + `${habitIconSvg(def.id, 34)}<b>${escapeHtml(def.name)}</b><small>${escapeHtml(def.line)}</small></button>`).join('');
+    + `${habitIconSvg(def.id, 34)}<b>${escapeHtml(def.name)}</b><small>${escapeHtml(def.line)}</small>`
+    + `<span class="rt-habit-items" data-testid="habit-items-${def.id}">${habitItems(run, def.id).map(id => { const label = labelOf(id, !!run.forms); return `<i class="rt-habit-item" data-item="${id}" data-tip="${escapeHtml(talismanName(id, run))}" aria-label="${escapeHtml(talismanName(id, run))}">${label.svg ?? escapeHtml(label.glyph)}</i>`; }).join('')}</span></button>`).join('');
   // Design 17.10.2026 (§17): one word over the four cards, as «Сноровка» over its two.
-  return `<div class="rt-habits" data-testid="gift-habits" data-chosen="${habit.chosen}"><h3 data-testid="gift-habits-title">Повадка</h3><div class="rt-habit-cards">${cards}</div>`
+  return `<div class="rt-habits" data-testid="gift-habits" data-chosen="${habit.chosen}"><h3 data-testid="gift-habits-title">Повадка</h3>${habit.chosen ? '' : `<p class="rt-habit-hint" data-testid="gift-habits-hint">${HABIT_HINT}</p>`}<div class="rt-habit-cards">${cards}</div>`
     + `<button class="rt-habit-none${none ? ' rt-on' : ''}" data-action="habit" data-habit="none" data-testid="habit-none" aria-pressed="${!!none}" ${habit.chosen ? 'disabled' : ''}>Без повадки</button></div>`;
 }
 
@@ -359,7 +371,8 @@ function giftText(option: GiftOption, run: Pick<RtRunState, 'forms'> | null): st
       const reward = option.reward.kind === 'pick-talisman' ? `талисман на выбор: ${option.reward.talismans.map(id => talismanName(id, run)).join(' или ')}` : `талисман «${option.reward.talisman ? talismanName(option.reward.talisman, run) : '—'}»`;
       return `${reward}; цена: ${price}`;
     }
-    case 'oath': return `Клятва: «${option.oath ? talismanName(option.oath, run) : '—'}» — ${option.oath ? rtTalismanShown(option.oath, !!run?.forms)?.effect ?? '' : 'клятв не осталось'}`;
+    // Design 20.10.2026: the oath's name already says «Клятва» — ««Клятва голода» — effect»; none left — «Клятв не осталось».
+    case 'oath': return option.oath ? `«${talismanName(option.oath, run)}» — ${rtTalismanShown(option.oath, !!run?.forms)?.effect ?? ''}` : 'Клятв не осталось';
   }
 }
 
@@ -753,10 +766,10 @@ export class RunView {
       const icon = `<i class="rt-knack-icon">${label.svg ?? escapeHtml(label.glyph)}${hone ? rankMarkHtml() : ''}</i>`;
       const head = `<b>${icon}<span>${escapeHtml(talismanName(id, run))}</span><em>${hone ? 'Ранг II' : 'Новый'}</em></b>`;
       // Task 50, 4.3: the habit's weight acts on both cards of the knack — the tagged one carries the habit's mark (card Б via `talismanCardLines`).
-      const lines = hone ? `${habitMark(run, id)}<small>${escapeHtml(def?.effect ?? '')}</small><small class="rt-knack-hone" data-testid="knack-line-${id}">${escapeHtml(honeLine(id))}</small>` : talismanCardLines(id, run);
+      const lines = hone ? `${habitMark(run, id)}<small class="rt-knack-now" data-testid="knack-now-${id}">Сейчас: ${escapeHtml(def?.effect ?? '')}</small><small class="rt-knack-hone" data-testid="knack-line-${id}">${escapeHtml(honeLine(id))}</small>` : talismanCardLines(id, run);
       return `<button class="rt-run-choice rt-knack-card" data-action="knack" data-option="${id}"${hone ? ' data-hone="1"' : ''} data-kind="${hone ? 'hone' : 'new'}" data-testid="knack-${hone ? 'hone' : 'new'}-${id}">${head}${lines}</button>`;
     }).join('');
-    return `<div class="rt-run-choices rt-knack-cards" data-testid="knack-cards">${cards}</div>`
+    return `<p class="rt-knack-hint" data-testid="knack-hint">${KNACK_HINT}</p><div class="rt-run-choices rt-knack-cards" data-testid="knack-cards">${cards}</div>`
       + '<button class="rt-other rt-knack-skip" data-action="knack" data-option="" data-testid="knack-skip">Пропустить</button>';
   }
 
@@ -1215,6 +1228,7 @@ export class RunView {
     this.el.innerHTML = `${this.headerHtml(run)}${this.pickLineHtml(run)}<div class="rt-run-body">${this.mapHtml(run)}${run.pending || run.result ? '' : this.detailHtml(run)}</div>${this.modalHtml(run)}${this.dieRollHtml()}${this.chanceHtml()}`;
     this.flyResources(run);
     this.stageScreens(run);
+    this.flashHabit(run);
     // Task 38: «Предместье»'s bar fills to the HP after the heal (once: then it is drawn full).
     const heal = this.el.querySelector<HTMLElement>('[data-testid="outskirts-bar"] i');
     if (heal && heal.dataset.to && heal.style.width !== heal.dataset.to) { const to = heal.dataset.to; requestAnimationFrame(() => requestAnimationFrame(() => { heal.style.width = to; })); this.outskirtsFrom = null; }
@@ -1224,13 +1238,28 @@ export class RunView {
   }
 
   /**
+   * Task 50 §18: the first screen of the run that shows the habit's mark on an item card — the mark flashes for 0.4 s, once a run (the seed
+   * keys it; a view memory, not saved: a reloaded run may flash once more). The gift's own row has no marks.
+   */
+  private habitFlashSeed: number | null = null;
+  private habitFlashes = 0;
+  private flashHabit(run: RtRunState): void {
+    if (!run.habit || this.habitFlashSeed === run.seed) return;
+    const marks = this.el.querySelectorAll<HTMLElement>('.rt-habit-mark');
+    if (!marks.length) return;
+    this.habitFlashSeed = run.seed; this.habitFlashes++;
+    marks.forEach(mark => mark.classList.add('rt-habit-flash'));
+  }
+
+  /**
    * Task 50 (tests read it, `__realtime.run.habitShown`): the run's archetype (`habit`: its id, null — «Без повадки», undefined — no row
    * or not yet), whether the open gift shows the row (`row`) and has decided it (`chosen`), `signs` — the header's sign (0 or 1), and on the
-   * screen now `marks` — the item cards that carry the archetype's icon (`marked`: their ids).
+   * screen now `marks` — the item cards that carry the archetype's icon (`marked`: their ids). Task 50 §18: `flashes` / `flashing` — the
+   * mark's flash, `items` — the icons on each habit card, `hint` — the line under «Повадка».
    */
-  habitInfo(): { habit: string | null | undefined; row: boolean; chosen: boolean; signs: number; marks: number; marked: string[] } {
+  habitInfo(): { habit: string | null | undefined; row: boolean; chosen: boolean; signs: number; marks: number; marked: string[]; flashes: number; flashing: number; items: Record<string, string[]>; hint: string } {
     const run = this.run, gift = run ? rtGiftView(run) : null, marked = [...this.el.querySelectorAll<HTMLElement>('.rt-habit-mark')].map(el => el.dataset.for ?? '');
-    return { habit: run ? (gift?.habit ? gift.habit.id : run.habit) : undefined, row: !!gift?.habit, chosen: !!gift?.habit?.chosen || (!!run?.habits && !gift), signs: this.el.querySelectorAll('.rt-run-habit').length, marks: marked.length, marked };
+    return { habit: run ? (gift?.habit ? gift.habit.id : run.habit) : undefined, row: !!gift?.habit, chosen: !!gift?.habit?.chosen || (!!run?.habits && !gift), signs: this.el.querySelectorAll('.rt-run-habit').length, marks: marked.length, marked, flashes: this.habitFlashes, flashing: this.el.querySelectorAll('.rt-habit-flash').length, items: Object.fromEntries([...this.el.querySelectorAll<HTMLElement>('.rt-habit-items')].map(el => [el.dataset.testid?.replace('habit-items-', '') ?? '', [...el.querySelectorAll<HTMLElement>('.rt-habit-item')].map(i => i.dataset.item ?? '')])), hint: this.el.querySelector('[data-testid="gift-habits-hint"]')?.textContent ?? '' };
   }
 
   /** Task 47 (tests read it): the chords and the staged screens so far, and whether a reveal or a run-end is running now. */
@@ -1497,7 +1526,7 @@ export class RunView {
       ...hammer && hp ? [`<span${hp.cls} data-testid="run-hammer-slot" title="Молот: ${escapeHtml(hammer.effect + hp.title)}">⚒ ${escapeHtml(hammer.name)}${hp.sign}</span>`] : [],
       ...run.talismans.map(id => {
         const m = pairMark(id), ranked = wearsRank(run.honed, id);
-        return `<span${m.cls}${m.test}${ranked ? ` data-honed="1"` : ''} title="${escapeHtml(rtTalismanText(id, !!run.forms) + m.title + (ranked ? ` · Ранг II${honeLine(fusionRecipe(id)?.counter ?? id).replace(/^Ранг II/, '')}` : ''))}"${rtTalisman(id)?.rarity === 'relic' ? ` data-testid="run-relic-${id}"` : ''}>${rtTalisman(id)?.rarity === 'relic' ? '◆ ' : ''}${escapeHtml(talismanName(id, run))}${id === 'ash-ward' && run.wardSpent ? ' (рассыпался)' : ''}${m.sign}${ranked ? rankMarkHtml() : ''}</span>`;
+        return `<span${m.cls}${m.test}${ranked ? ` data-honed="1"` : ''} title="${escapeHtml((ranked ? `${honeLine(fusionRecipe(id)?.counter ?? id)} · ` : '') + rtTalismanText(id, !!run.forms) + m.title)}"${rtTalisman(id)?.rarity === 'relic' ? ` data-testid="run-relic-${id}"` : ''}>${rtTalisman(id)?.rarity === 'relic' ? '◆ ' : ''}${escapeHtml(talismanName(id, run))}${id === 'ash-ward' && run.wardSpent ? ' (рассыпался)' : ''}${m.sign}${ranked ? rankMarkHtml() : ''}</span>`;
       }),
     ].join(', ');
     const reset = this.confirmReset
@@ -1759,7 +1788,7 @@ export class RunView {
         + `<b>${escapeHtml(giftText(entry.option, run))}</b>${entry.handFull ? handFullHtml(`gift-${entry.index}`) : entry.reason ? `<small>${escapeHtml(entry.reason)}</small>` : ''}`
         // Task 41 (design 16.10.2026): consumables with healing among others at the cap are taken — the healing does not join.
         + `${!entry.handFull && entry.option.kind === 'items' && entry.option.items.includes('healing') && rtItemRefusal(run, 'healing') ? `<small class="rt-run-reason rt-hand-full" data-testid="hand-full-gift-${entry.index}">${RT_ITEM_REFUSAL_TEXT.handFull}: лечение не войдёт</small>` : ''}</button>`).join('');
-      return card(`<h2>Дар в дорогу</h2><p>${view.kind === 'full' ? 'Полный дар' : 'Малый дар'}: выбери одно. Недоступные варианты выключены.</p>${view.habit ? habitRowHtml(view.habit) : ''}<div class="rt-run-choices">${buttons}</div>`
+      return card(`<h2>Дар в дорогу</h2><p>${view.kind === 'full' ? 'Полный дар' : 'Малый дар'}: выбери одно. Недоступные варианты выключены.</p>${view.habit ? habitRowHtml(view.habit, run) : ''}<div class="rt-run-choices">${buttons}</div>`
         + (view.canSkip ? `<button class="rt-other" data-action="gift" data-index="skip" data-testid="gift-skip" ${waiting ? 'disabled' : ''}>Дальше без дара</button>` : ''), 'run-gift');
     }
     if (pending.kind === 'rest') {

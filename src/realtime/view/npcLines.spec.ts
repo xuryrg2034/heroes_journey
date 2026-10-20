@@ -225,3 +225,19 @@ check('task 51: the garrison passed — win_garrison_first for the three of v1 o
   }
   for (const n of [0, 1, 2]) assert(pickLine('monk', { others: NPCS, last: { won: true, castellan: true, garrisonWon: true } }, { 'monk:first': 2, 'monk:memory_castellan': n }).key === 'memory_castellan', 'memory_castellan every time');
 });
+
+check('task 50 §18: habit_first (Неясыть) and knack_first (Ерофей) are the words of the spec; said once a profile after the first run that offered the system, by the cat and by her', () => {
+  const spec = readFileSync(new URL('../../../docs/design-notes/task-50-levels-archetype.md', import.meta.url), 'utf8');
+  const habit = NPC_LINES.owl.habit_first![0], knack = NPC_LINES.smith.knack_first![0];
+  assert(spec.includes(`\`habit_first\`: «${habit}».`) && spec.includes(`\`knack_first\`: «${knack}».`), 'the words of the spec');
+  for (const hero of [undefined, 'toad' as const]) {
+    const ctx = { others: NPCS, ...hero ? { hero } : {}, last: { won: false, cause: 'crowd' as const, habitOffered: true as const, knackOffered: true as const } };
+    const met = { 'owl:first': 9, 'smith:first': 9, 'herb:first': 9 };
+    const owl = pickLine('owl', ctx, met), smith = pickLine('smith', ctx, met);
+    assert(owl.key === 'habit_first' && owl.text === habit && smith.key === 'knack_first' && smith.text === knack, `${hero}: the first visit says them`);
+    // Said once: the memory has the key counted (`npc:key`), the next visit goes back to the run's own occasion.
+    assert(pickLine('owl', ctx, { ...met, 'owl:habit_first': 1 }).key === 'death_crowd' && pickLine('smith', ctx, { ...met, 'smith:knack_first': 1 }).key === 'death_crowd', `${hero}: once`);
+    // The others never say them, and a run that offered nothing does not either.
+    assert(pickLine('herb', ctx, met).key === 'death_crowd' && pickLine('owl', { ...ctx, last: { won: false, cause: 'crowd' } }, met).key === 'death_crowd', `${hero}: only the two, only when offered`);
+  }
+});
