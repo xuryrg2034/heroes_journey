@@ -333,6 +333,8 @@ async function boot(): Promise<void> {
     if (i === garrison0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Гарнизон — строй, поводки, Кастелян, кандалы'));
     // Task 48: the Troll at the end of the menu (the numbers before stay), test id `boss-arena-2` (after the Jailer's).
     if (i === forest0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Босс — Тролль (только песочница)'));
+    // Task 54a: the Chief's yard under its own heading (the Troll's arena is the first of this group, the numbers before stay).
+    if (i === forest0 + 1) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Босс — Главарь (только песочница)'));
     const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span data-summary="${i}">${markedGoalArena(arena, params.markedGoals).summary}</span>`, i >= forest0 ? `boss-arena-${BOSS_ARENAS.length + i - forest0 + 1}` : i >= garrison0 ? `garrison-arena-${i - garrison0 + 1}` : i >= boss0 ? `boss-arena-${i - boss0 + 1}` : i >= camera0 ? `camera-arena-${i - camera0 + 1}` : `arena-${i + 1}`);
     b.addEventListener('click', () => pick(i));
     arenaList.appendChild(b);
@@ -1852,6 +1854,14 @@ async function boot(): Promise<void> {
          * `tailFalls`, `unlinks` (white rings of links dropped with the window), `crumbles` (a struck snore's arc), `regrows`, `opens`.
          */
         troll: { ...renderer.trollShown },
+        /**
+         * Task 54a «Главарь» (render.ts `chiefShown`): `core` (his drawing this frame), `glow` (the window is open; `brew` — the brew's colour, −1 none),
+         * `count` (whole seconds over him) and `edgeCount` (by his goal arrow, off screen); `cauldron` (drawn), `steam` (puffs); `sign` (the move's
+         * sign now) and its fill `signProgress`, the signs by shape (`halfDiscs`, `circles`, `rings`, `gateMarks`, `seatMarks`); the queue — `dots`
+         * drawn, `litDots`, `dotColor`, `dropping` (the drawn chain's core blinks); `bowls` (seated eaters), `parts` (the parts' drawings);
+         * since the fight began — `hits` (signs flashed), `sparks` («звон»), `severed`, `unlinks`, `recolors`, `opens`, `feastHits`, `feastBig`, `supplies`, `brews`.
+         */
+        chief: { ...renderer.chiefShown },
         /** Task 28: the boss bar of the HUD (`BossBar.shown`) and the names of the boss's moves on screen now. */
         bossBar: bossBar.shown(),
         bossNames: bossLabels.map(l => l.spec.text),

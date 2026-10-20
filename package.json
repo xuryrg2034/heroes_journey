@@ -106,6 +106,7 @@
     "test:realtime-chief": "tsx src/realtime/sim/chief.spec.ts",
     "test:realtime-troll-combos": "tsx src/realtime/sim/trollCombos.spec.ts",
     "test:realtime-troll-view": "tsx src/realtime/view/trollView.spec.ts",
+    "test:realtime-chief-view": "tsx src/realtime/view/chiefView.spec.ts",
     "test:realtime-garrison": "tsx src/realtime/sim/garrison.spec.ts",
     "test:realtime-garrison-run": "tsx src/realtime/run/garrisonRun.spec.ts",
     "test:realtime-keymaster": "tsx src/realtime/sim/keymaster.spec.ts",
