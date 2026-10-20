@@ -136,8 +136,8 @@ export class ChiefView {
   readonly shown = {
     /** The core is drawn this frame (0/1), its glow is lit, the count over the head ('' — none) and by its goal arrow, the cauldron drawn (0/1), the brew's colour (hex, −1 none). */
     core: 0, glow: 0, count: '', edgeCount: '', cauldron: 0, brew: -1,
-    /** The sign drawn now ('' — none) and its fill 0…1; the signs by shape: half-disc, circles, dashed ring, gate marks; seat marks. */
-    sign: '', signProgress: 0, halfDiscs: 0, circles: 0, rings: 0, gateMarks: 0, seatMarks: 0,
+    /** The sign drawn now ('' — none), its fill 0…1 and its radius in arena units (the sim's: the ladle's half-disc is exactly `SWING_RADIUS`); the signs by shape: half-disc, circles, dashed ring, gate marks; seat marks. */
+    sign: '', signProgress: 0, signR: 0, halfDiscs: 0, circles: 0, rings: 0, gateMarks: 0, seatMarks: 0,
     /** The queue's dots drawn and lit, the dots' colour (hex, −1 none), the drawn chain's dropping core (0/1), the seated eaters with a bowl, the parts' drawings put. */
     dots: 0, litDots: 0, dotColor: -1, dropping: 0, bowls: 0, parts: 0, steam: 0,
     /** Seen so far: signs flashed at a hit, sparks of «звон», parts that fell off, white rings of dropped links, recolour rings, windows opened, the core's hits (plate / two), supplies flown, brews changed. */
@@ -162,7 +162,7 @@ export class ChiefView {
 
   beginFrame(): void {
     const s = this.shown;
-    s.core = 0; s.glow = 0; s.count = ''; s.cauldron = 0; s.brew = -1; s.sign = ''; s.signProgress = 0; s.halfDiscs = 0; s.circles = 0; s.rings = 0; s.gateMarks = 0; s.seatMarks = 0;
+    s.core = 0; s.glow = 0; s.count = ''; s.cauldron = 0; s.brew = -1; s.sign = ''; s.signProgress = 0; s.signR = 0; s.halfDiscs = 0; s.circles = 0; s.rings = 0; s.gateMarks = 0; s.seatMarks = 0;
     s.dots = 0; s.litDots = 0; s.dotColor = -1; s.dropping = 0; s.bowls = 0; s.parts = 0; s.steam = 0;
   }
 
@@ -303,7 +303,7 @@ export class ChiefView {
   drawSigns(g: Graphics, world: World, tools: SignTools, sees: (p: Vec) => boolean): void {
     const m = chiefMove(world), U = this.unit, s = this.shown;
     if (!m) return;
-    s.sign = m.move; s.signProgress = m.progress;
+    s.sign = m.move; s.signProgress = m.progress; s.signR = m.r;
     if (m.move === 'swing') {
       const dir = m.dir ?? 0;
       this.lastSign = { move: 'swing', x: m.at.x * U, y: m.at.y * U, r: m.r * U, dir, circles: [] };
