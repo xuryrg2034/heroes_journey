@@ -14,6 +14,7 @@ import { COLORS, PALE, drawTerrain, makePlayer, type HeroArtId } from '../art/ar
 import { characterSprite, hasCharacterArt, type CharacterArtId } from '../art/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
 import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainAnchors, chainColor, colorGroups, colorJoin, colorShiftIds, colorShiftLeft, colorlessLink, enemyAnchors, forkAnchorOf, heroAnchorOn, jumpLanding, linkPoint, loopCandidates, loopOn, nextCandidates, nextObjectCandidates, planChain, sameColor, twinsNextColor, type ChainPlan } from '../sim/chain';
+import { forkAnchorNow } from '../sim/forms';
 import { FROST_PASS_LIFE, FROST_PASS_RADIUS, frostPassPoints, frostPassPreview } from '../sim/frostPass';
 import { drawAlienRing, drawForkMark, drawFrostPoint, drawFrostPreview, drawIceMark, drawReturnPower, drawReturnRoute, drawTwinLine } from './formsView';
 import { enemyArtScale } from '../sim/enemies/kinds';
@@ -432,7 +433,7 @@ export class RealtimeRenderer {
    * that are not the last, its Y marks; the rings of «Чужак»; the twin line of «Близнецы»; the cold «Наледь» will leave and the
    * trail it left; the arrows and hit marks of «Возврат» before the release, and its run after it.
    */
-  readonly formsShown = { forkRings: 0, forkMarks: 0, alienRings: 0, twinLine: 0, twinNext: -1, forkBranch: 0, frostPreview: 0, frostPoints: 0, returnArrows: 0, returnHits: 0, returnRun: 0 };
+  readonly formsShown = { forkRings: 0, forkLit: 0, forkMarks: 0, alienRings: 0, twinLine: 0, twinNext: -1, forkBranch: 0, frostPreview: 0, frostPoints: 0, returnArrows: 0, returnHits: 0, returnRun: 0 };
   /** Task 29: when the word «Наледь» last rose over the hero (real clock) — at most one a second. */
   private frostWordAt: number | null = null;
   /** Task 29: the colour of the last chain whose plan had a run back — the run after the release keeps it (the chain is gone). */
@@ -3220,7 +3221,7 @@ export class RealtimeRenderer {
     this.bossShown.severPips = 0;
     this.bossShown.coreRing = 0;
     const fs = this.formsShown;
-    fs.forkRings = 0; fs.forkMarks = 0; fs.alienRings = 0; fs.twinLine = 0; fs.twinNext = -1; fs.forkBranch = 0; fs.frostPreview = 0; fs.returnArrows = 0; fs.returnHits = 0; fs.returnRun = 0;
+    fs.forkRings = 0; fs.forkLit = 0; fs.forkMarks = 0; fs.alienRings = 0; fs.twinLine = 0; fs.twinNext = -1; fs.forkBranch = 0; fs.frostPreview = 0; fs.returnArrows = 0; fs.returnHits = 0; fs.returnRun = 0;
     this.bossShown.severLit = 0;
     this.colorShiftShown = 0;
     this.colorShiftFreedBy = 0;
@@ -3437,6 +3438,15 @@ export class RealtimeRenderer {
       // Task 29 «Развилка»: every link is an anchor — a fainter reach ring at each link but the last.
       const forks = chainAnchors(world).filter(a => a.link && Math.hypot(a.x - anchor.x, a.y - anchor.y) > 1e-6);
       for (const a of forks) { g.circle(a.x * UNIT, a.y * UNIT, linkRadiusOf(world) * UNIT).stroke({ color: ink, width: 1.25, alpha: 0.2 }); fs.forkRings++; }
+      // Task 52, Р2 (`forkDwell`, the sandbox's gesture): the older link the pointer rested on became the anchor — its reach ring glows
+      // (the sim's `forkAnchorNow`: the next link is taken from it alone).
+      const lit = forkAnchorNow(world), litAt = lit && linkPoint(world, lit);
+      if (litAt) {
+        const lx = litAt.x * UNIT, ly = litAt.y * UNIT, lr = linkRadiusOf(world) * UNIT;
+        g.circle(lx, ly, lr).stroke({ color: ink, width: 9, alpha: 0.18 }).circle(lx, ly, lr).stroke({ color: ink, width: 3, alpha: 0.95 });
+        g.circle(lx, ly, enemyDrawRadius(p) * UNIT + 9).stroke({ color: 0xfff2c4, width: 3, alpha: 0.9 });
+        fs.forkLit = 1;
+      }
       const candidates = nextCandidates(world), cr = enemyDrawRadius(p) * UNIT + 5;
       for (const e of candidates) {
         // Task 29 «Чужак»: a candidate of another colour (the rule not spent this chain) — a dashed ring of its own colour.

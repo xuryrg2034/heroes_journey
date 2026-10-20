@@ -256,6 +256,13 @@ export interface ArenaTemplate extends ArenaShape {
    * its crowd's floor and pace go by `trollCrowd` (spawn.ts). Omitted — the values as given.
    */
   troll?: boolean;
+  /**
+   * Task 54 «Главарь с котелком» (sim/arenasBoss.ts «Стан Главаря»; enemies/chief.ts): the Chief's arena — the cauldron's centre
+   * (the source of «Обед!»'s circle; the obstacle itself stands in `obstacles`) and the eaters' seats. The world plays
+   * `Params.chiefFeast` and `Params.trollSolid` on when the given values have them off (world.ts `createWorld`; the journal keeps that
+   * copy); its crowd's floor and pace go by `chiefCrowd` (spawn.ts). Omitted — the values as given.
+   */
+  chief?: { cauldron: Vec; seats: readonly Vec[] };
 }
 
 /**
