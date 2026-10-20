@@ -61,6 +61,7 @@
     "test:realtime-fork-dwell": "tsx src/realtime/sim/forkDwell.spec.ts",
     "test:realtime-form-pairs": "tsx src/realtime/sim/formPairs.spec.ts",
     "test:realtime-spawn-hold": "tsx src/realtime/sim/spawnHold.spec.ts",
+    "test:realtime-marker-seek": "tsx src/realtime/sim/markerSeek.spec.ts",
     "test:realtime-session": "tsx src/realtime/view/session.spec.ts",
     "test:realtime-sound": "tsx src/realtime/view/sound.spec.ts",
     "test:realtime-new-seen": "tsx src/realtime/view/newSeen.spec.ts",

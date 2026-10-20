@@ -204,6 +204,15 @@ export interface Params {
    * turns it on (run/rtRun.ts `RT_RUN_FORCED`); the sandbox panel has a toggle.
    */
   spawnGroupHold: boolean;
+  /**
+   * «Метка у героя» (council 20.10.2026; docs/design-notes/codex-idea-enemy-behavior-variety.md, 13): a spawn marker the hero comes
+   * within `spawnMinDistance` of moves away by the random search as before (spawn.ts `relocateMarker`); when that finds no place, it
+   * takes the free point nearest to it by a bounded scan of the arena (the spawn rectangle on a big one; `seekMarker`) with a whole
+   * warning there, and with no free point anywhere it waits where it is — its timer neither runs nor starts again. Off by default and
+   * in journals without the key: the old path (the whole warning again every tick: the enemy never came while the hero stood by).
+   * A run with its flag (run/rtRun.ts `RtRunState.markerSeek`) turns it on; the sandbox panel has a toggle.
+   */
+  markerSeek: boolean;
   // Growth over time and the time limit
   angerTierSeconds: number;
   angerSpeedStep: number;
@@ -1189,6 +1198,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   markerDelay: 1,
   spawnMinDistance: 3,
   spawnGroupHold: false,
+  markerSeek: false,
   angerTierSeconds: 30,
   angerSpeedStep: 0,
   reaperEnabled: false,
@@ -1661,6 +1671,8 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('spawnMinDistance', 'Появление', 'Запретный радиус у героя', 0, 6, 0.25, 1, 'ед.'),
   { kind: 'bool', key: 'spawnGroupHold', group: 'Появление', label: 'Группа держится вместе', stage: 5,
     hint: 'Члену группы негде встать у якоря — он ждёт у того же якоря до 1 с, потом новый якорь всей оставшейся группе. Выключено — член группы теряет якорь и может выйти далеко от своих. В походе включено.' },
+  { kind: 'bool', key: 'markerSeek', group: 'Появление', label: 'Метка у героя ищет место', stage: 5,
+    hint: 'Герой подошёл к метке появления, а случайный поиск не нашёл ей нового места — метка встаёт на ближайшее свободное место арены вне запретного радиуса (с полным предупреждением). Места нет совсем — ждёт, её отсчёт стоит. Выключено — метка каждый такт начинает отсчёт заново, враг не выходит, пока герой рядом. Новый поход включает.' },
   n('angerSpeedStep', 'Время', 'Рост скорости за ступень', 0, 0.5, 0.01, 1, '', 'По умолчанию 0: быстрых даёт состав фаз.'),
   n('angerTierSeconds', 'Время', 'Ступень роста скорости', 5, 120, 5, 1, 'с'),
   { kind: 'bool', key: 'reaperEnabled', group: 'Время', label: 'Жнец (после целей)', stage: 1 },

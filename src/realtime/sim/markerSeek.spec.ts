@@ -35,8 +35,9 @@ registerArena({
 });
 registerArena({
   id: 'marker-seek-tight', name: 'Тесно (тест меток)', summary: 'Тест: метка у героя', goal: 'kills', killGoal: 999, width: 14, height: 8,
-  // Open only round the west gap and a corridor east of it (y 3–5): every free point of the gap is within the hero's ring at its mouth.
-  heroStart: { x: 9, y: 4 }, obstacles: [wall(0, 0, 14, 3), wall(0, 5, 14, 3), wall(13, 0, 1, 8)],
+  // A room in the west (x 0–5, y 3–5) and a corridor east of it 0.6 wide (the hero's body passes, an enemy's does not): standing
+  // at x 3 the hero has every free point of the room within his ring.
+  heroStart: { x: 5.6, y: 4 }, obstacles: [wall(0, 0, 14, 3), wall(0, 5, 14, 3), wall(5, 3, 9, 0.7), wall(5, 4.3, 9, 0.7)],
   buttons: [], door: { x: 12, y: 4 }, enemies: [],
 });
 
@@ -63,16 +64,17 @@ check('«Проём»: the hero walks to the marker at the gap — with the key 
   for (const k of SEEDS) {
     for (const seek of [true, false]) {
       const sim = new Simulation({ arena: 'marker-seek-gap', params: quiet(seek), seed: seedOf(k), record: true }), w = sim.world;
-      let arrived = -1, first = -1, firstAt: { x: number; y: number } | null = null, held = 0;
+      let arrived = -1, first = -1, held = 0;
+      const firstAt = { x: NaN, y: NaN };
       walkWest(sim, 1.6, 12, wd => {
         if (arrived < 0 && wd.hero.x <= 1.6) arrived = wd.time;
-        if (first < 0 && wd.enemies.length) { first = wd.time; firstAt = { x: wd.enemies[0].x, y: wd.enemies[0].y }; }
+        if (first < 0 && wd.enemies.length) { first = wd.time; firstAt.x = wd.enemies[0].x; firstAt.y = wd.enemies[0].y; }
         if (wd.markers.some(m => m.timeLeft === m.total && Math.hypot(m.x - wd.hero.x, m.y - wd.hero.y) < wd.params.spawnMinDistance)) held++;
       });
       assert(arrived > 0, `seed ${k}: the hero arrived`);
       if (seek) {
         assert(first > 0 && first - arrived <= 2.5, `seed ${k}: with the key the enemy came out ${first < 0 ? 'never' : `${(first - arrived).toFixed(2)} s after the arrival`}`);
-        assert(firstAt && Math.hypot(firstAt.x - w.hero.x, firstAt.y - w.hero.y) >= w.params.spawnMinDistance, `seed ${k}: off the hero's ring (${JSON.stringify(firstAt)})`);
+        assert(Math.hypot(firstAt.x - w.hero.x, firstAt.y - w.hero.y) >= w.params.spawnMinDistance, `seed ${k}: off the hero's ring (${JSON.stringify(firstAt)})`);
       } else {
         assert(first < 0 && w.enemies.length === 0 && held > ticksOf(8), `seed ${k}: without the key — the old path (enemies ${w.enemies.length}, held ${held} ticks)`);
       }
@@ -81,28 +83,34 @@ check('«Проём»: the hero walks to the marker at the gap — with the key 
   }
 });
 
-check('«Тесно»: no free point outside the hero\'s ring — with the key the marker waits where it is, its timer held (not started again); the hero walks away — the enemy comes out after the rest of it; a journal without the key plays the old path', () => {
+check('«Тесно»: no free point outside the hero\'s ring — with the key the marker waits where it is, its timer held (not started again); the hero walks away — the enemy comes out within its warning (the rest held, or a whole one at a place freed on the way); a journal without the key plays the old path', () => {
   for (const k of SEEDS) {
     for (const seek of [true, undefined]) {
       const sim = new Simulation({ arena: 'marker-seek-tight', params: quiet(seek), seed: seedOf(k), record: true }), w = sim.world;
-      // Wait for the marker (it comes at the gap, the only free place out of the hero's ring), let it count down a little.
+      // The markers come in the room (its only free places out of the hero's ring) and count down a little.
       for (let i = 0; i < ticksOf(3) && !w.markers.length; i++) { sim.tick(); w.events.length = 0; }
-      assert(w.markers.length === 1, `seed ${k}: one marker (${w.markers.length})`);
-      for (let i = 0; i < ticksOf(0.4); i++) { sim.tick(); w.events.length = 0; }
-      const m = w.markers[0], left = m.timeLeft;
-      assert(left < m.total - 0.3, `seed ${k}: counting down (${left})`);
-      // The hero walks to the gap's mouth: every free point is within his ring now.
-      const lefts: number[] = [];
-      walkWest(sim, 3, 4, wd => { if (wd.markers.length) lefts.push(wd.markers[0].timeLeft); });
+      for (let i = 0; i < ticksOf(0.3); i++) { sim.tick(); w.events.length = 0; }
+      assert(w.markers.length >= 1 && w.markers.every(m => m.timeLeft < m.total - 0.2), `seed ${k}: markers counting (${w.markers.map(m => m.timeLeft)})`);
+      // The hero steps into the room's middle: every free point is within his ring.
+      sim.command({ t: 'teleport', x: 3, y: 4 });
+      sim.tick(); w.events.length = 0;
+      const at = w.markers.map(m => ({ m, left: m.timeLeft }));
+      for (let i = 0; i < ticksOf(1.5); i++) { sim.tick(); w.events.length = 0; }
       assert(w.enemies.length === 0, `seed ${k}, key ${seek}: nobody came out in the ring (${w.enemies.length})`);
-      const last = lefts.slice(-ticksOf(1));
-      if (seek) assert(last.every(t => Math.abs(t - last[0]) < 1e-9) && last[0] < m.total - 1e-9, `seed ${k}: the timer held (${last[0]} of ${m.total})`);
-      else assert(last.every(t => t === m.total), `seed ${k}: without the key — the whole warning again (${last[0]})`);
-      // The hero walks back east: the marker comes out.
+      if (seek) assert(at.every(({ m, left }) => w.markers.includes(m) && m.timeLeft === left && left < m.total), `seed ${k}: the timers held (${at.map(a => `${a.left} → ${a.m.timeLeft}`)})`);
+      else assert(w.markers.every(m => m.timeLeft === m.total), `seed ${k}: without the key — the whole warning again (${w.markers.map(m => m.timeLeft)})`);
+      // The hero walks back east: the marker comes out — with the key after the rest of its warning.
+      const rest = Math.min(...at.map(a => a.left));
       sim.command({ t: 'walk', x: 1, y: 0 });
-      let out = -1;
-      for (let i = 0; i < ticksOf(4) && out < 0; i++) { sim.tick(); w.events.length = 0; if (w.enemies.length) out = w.time; }
-      assert(out > 0, `seed ${k}, key ${seek}: the enemy came out after the hero left`);
+      let left = -1, out = -1;
+      for (let i = 0; i < ticksOf(4) && out < 0; i++) {
+        sim.tick(); w.events.length = 0;
+        if (left < 0 && w.markers.every(m => Math.hypot(m.x - w.hero.x, m.y - w.hero.y) >= w.params.spawnMinDistance)) left = w.time;
+        if (w.enemies.length) out = w.time;
+      }
+      assert(out > 0 && left > 0, `seed ${k}, key ${seek}: the enemy came out after the hero left`);
+      // With the key: the rest of the held warning, or a whole warning at a place freed on the way (never more).
+      if (seek) assert(out - left <= Math.max(rest, w.params.markerDelay) + 0.05, `seed ${k}: within the warning (${(out - left).toFixed(2)}, the rest ${rest.toFixed(2)})`);
       assert(replays(sim), `seed ${k}, key ${seek}: replay`);
     }
   }
