@@ -681,3 +681,19 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-gate-items { display: flex; flex-direction: column; gap: 6px; min-width: 150px; }
 .rt-gate-item { text-align: center; }
 .rt-gate-item:disabled { opacity: .5; }
+
+/* Task 56 «Приметы» (omenMark.ts): the sign in the map's header, the badge at a node, the grey «?» of «Перепутье», the card's line, the pack's omen card. */
+.rt-run-omen { display: inline-flex; align-items: center; cursor: help; margin: 0 14px 0 6px; vertical-align: middle; }
+.rt-omen-badge { cursor: help; }
+.rt-node.rt-hidden circle { fill: #1b1f19; stroke: #3b3d30; stroke-dasharray: 4 3; }
+.rt-node.rt-hidden text { fill: #6d705e; }
+.rt-node.rt-hidden.rt-available circle { stroke: #8f8a6c; }
+.rt-run-dangers li.rt-omen-line { display: flex; align-items: center; gap: 8px; border-left-color: #8fb7d6; }
+.rt-run-dangers li.rt-omen-line .rt-omen-icon { flex: none; }
+.rt-omen-text { flex: 1; }
+.rt-omen-level { display: inline-flex; align-items: center; gap: 6px; flex: none; margin-left: auto; padding-left: 8px; border-left: 1px solid #4a4d39; cursor: help; }
+.rt-omen-level b { color: #e0d4ad; font-weight: 600; }
+.rt-omen-note { display: flex; align-items: center; gap: 6px; }
+.rt-meta-omens { margin: 0; font-size: 15px; color: #e5dcc0; }
+.rt-meta-omens b { font: 700 18px system-ui, sans-serif; color: #ffd88a; font-variant-numeric: tabular-nums; }
+.rt-kind-omen { outline-color: #8fb7d6; }

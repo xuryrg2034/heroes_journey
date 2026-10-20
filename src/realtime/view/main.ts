@@ -64,7 +64,7 @@ import { TOAD_LINES } from './heroLines';
 import { ToadLesson, isToad } from './toadLesson';
 import { findLoopHint, type LoopHintFigure } from './loopHint';
 import { ITEM_PULSE_ID, setPulse } from './pulse';
-import { bossMoveLabels, BOSS_LABEL_LIFE, detectLabels, labelActions, LEVER_OVER_LINE, RIOT_LABEL_LIFE, riotLabel, riotStarted, shackleCut, shackleLabel, shackleMet, WorldLabelLayer, type LabelSpec } from './worldLabels';
+import { bossMoveLabels, BOSS_LABEL_LIFE, detectLabels, harvestLabel, labelActions, LEVER_OVER_LINE, omenLabels, RIOT_LABEL_LIFE, riotLabel, riotStarted, shackleCut, shackleLabel, shackleMet, WorldLabelLayer, type LabelSpec } from './worldLabels';
 import { prologueHandSpot, prologueJumpAim, prologueLoadout, prologueParams, prologueRoom, prologueRoute, prologueShieldLinks, prologueSpinReady } from '../run/prologue';
 import { RT_RUN_HP } from '../run/hpScale';
 import { HAND_IDLE, HandGuide, PROLOGUE_ROOM_COUNT, SHIELD_HAND_IDLE, PrologueStore, TITLE_SECONDS, prologueCarry, prologueEntryRoom, prologueGoalLine, prologueLabel, prologueSeed, roomTitle, type PrologueHooks, type PrologueLabelMemo, type RoomOutcome } from './prologueFlow';
@@ -607,6 +607,8 @@ async function boot(): Promise<void> {
   let pendingArrivals: string[] = [];
   /** Task 50: counters that went to rank II and wait for the next fight's column (`BuildColumn.hone`). */
   const pendingHoned: string[] = [];
+  /** Task 56: the omens the open fight plays (the run's loadout names them; the test hook reads them). */
+  let loadoutOmens: string[] = [];
   const startArena = (arena: ArenaTemplate, seed: number, hero?: HeroStart, loadout?: Loadout, notice?: ArenaItemNotice, simParams?: Params): void => {
     renderer.resetEffects();
     sim = newSimulation(arena, seed, hero, loadout, simParams);
@@ -642,6 +644,9 @@ async function boot(): Promise<void> {
     // tick runs first (an ordinary tick, no command): the arena's own setup is in it — the Castellan takes his plates and leashes.
     if (bossBand) sim.tick();
     renderer.startBossIntro(world());
+    // Task 56 «Приметы»: the fight's omens come up over the hero for a moment (the run's loadout names them; the sandbox has none).
+    loadoutOmens = loadout?.omens ?? [];
+    renderer.beginOmens(loadout?.omens ?? []);
   };
   const start = (index: number, seed = nextSeed(fixedSeed)): void => {
     arenaIndex = Math.max(0, Math.min(SANDBOX_ARENAS.length - 1, index));
@@ -1435,8 +1440,9 @@ async function boot(): Promise<void> {
       // The action of the frame marks its label whatever the fight's status now (a chain that took the chest or a plate and entered the door).
       const runLabelling = !sandbox && hintsOn && !!runView?.arenaOpen && !runScreenOpen && !runArenaRecorded;
       if (runLabelling) for (const id of labelActions(w)) if (hints.store.count(id) === 0) hints.store.bump(id);
+      const harvestSpec = (world: World): LabelSpec[] => { const spec = harvestLabel(world, renderer.bagView.shown, p => renderer.sees(p)); return spec ? [spec] : []; };
       let specs: LabelSpec[] = [];
-      if (runLabelling && w.status === 'playing') specs = detectLabels(w, p => renderer.sees(p)).filter(spec => hints.store.count(spec.id) === 0);
+      if (runLabelling && w.status === 'playing') specs = [...detectLabels(w, p => renderer.sees(p)), ...omenLabels(w, p => renderer.sees(p)), ...harvestSpec(w)].filter(spec => hints.store.count(spec.id) === 0);
       // Task 11 (design 13.10.2026): the odds line beside the idol (off the hero's texts) and the lever's label stand in one column on
       // the same side — the label over, the line under it (the label goes with the first pull, the line stays).
       const oddsSide = renderer.slotView.shown.oddsSide;
@@ -1852,6 +1858,15 @@ async function boot(): Promise<void> {
         bossNames: bossLabels.map(l => l.spec.text),
         /** Task 29 «Формы»: the forms' highlight of the frame (`formsShown`) and the icons' flights to the column (started; flying now). */
         forms: { ...renderer.formsShown, arrivals: buildColumn.arrivals, flying: [...buildColumn.flying], forks: w.chain.filter(l => l.fork).length },
+        /**
+         * Task 56 «Приметы»: the sim's state (the storm's mark, the sleepers, the pools, the called colour, the links marked in the chain) beside what the
+         * view drew in the frame (render.ts `omenShown`: the mark and its blink, horns, rage rings, drops and horns on the chain, the strikes and wakes seen).
+         */
+        omens: {
+          ids: [...(loadoutOmens ?? [])], storm: w.storm ? { next: w.storm.next, mark: w.storm.mark ? { ...w.storm.mark } : null } : null, sleepers: w.enemies.filter(e => e.sleep).length, raging: w.enemies.filter(e => e.rage !== undefined).length,
+          woke: w.drowse?.woke ?? null, pools: w.flood ? w.flood.pools.map(pool => ({ ...pool })) : [], rollcall: w.rollcall ? { ...w.rollcall } : null, time: w.time,
+          chain: w.chain.map(l => ({ kind: l.kind, id: l.id, wet: l.kind === 'enemy' && !!l.wet, call: l.kind === 'enemy' && !!l.call })), plan: (() => { if (!w.chain.length) return null; const pl = planChain(w); return { kills: pl.kills, power: pl.power, links: pl.links.map(l => ({ kind: l.link.kind, id: l.link.id, wet: l.link.kind === 'enemy' && !!l.link.wet, damage: l.outcome?.damage ?? 0, killed: !!l.outcome?.killed, hpAfter: l.outcome?.hpAfter ?? null })) }; })(), shown: { ...renderer.omenShown, flash: [...renderer.omenShown.flash] },
+        },
         /** The prologue's sleep: «z» marks drawn this frame (the sim's rule: a calm arena or `asleep`). */
         sleepMarks: renderer.sleepShown,
         /** Task 14 «Котомка у двери»: the bag of the sim (null — none: before the goals, or the rule off) and what the view drew of it. */

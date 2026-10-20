@@ -21,10 +21,10 @@ import { metaSalt } from './metaCatalog';
 import { SCHEDULE_ARCS } from './schedule';
 
 /**
- * The omens come into new runs (the profile's gates and pool, view/runView.ts `newRun`). Off until the view of task 56в is ready: no run
- * gets a pool, every run saves as before.
+ * The omens come into new runs (the profile's gates and pool, view/runView.ts `newRun`). On since the view of task 56в (20.10.2026): a viewer past the
+ * gates (`rtOmensGate`) gets a pool, every other run saves as before. Off — no run gets a pool (the old path, for a test of it).
  */
-export const RT_OMENS_ON = false;
+export const RT_OMENS_ON = true;
 
 /** The omens of v1, in the catalogue's order (the pool's and the lists' order). */
 export const RT_OMEN_IDS = ['moon', 'magpie', 'tailwind', 'harvest', 'storm', 'drowse', 'pale', 'flood', 'rollcall', 'fair', 'crossroads'] as const;

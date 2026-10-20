@@ -30,6 +30,9 @@ import { collectEdgeMarkers } from './edgeMarkers';
 import { drawRoleGlyph, roleOf, type EnemyRole } from './roles';
 import { DEFAULT_PARAMS, enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from '../sim/params';
 import { shieldFails } from '../sim/guard';
+import { omenNum } from '../sim/omens';
+import { isRtOmenId } from '../run/omens';
+import { omenSvgDoc } from './omenMark';
 import { NO_COLOR, SECOND_WIND_HP, doorOpen, focusGuarded, touchDistance, type ChainLink, type Enemy, type EnemyKind, type World, type WorldEvent } from '../sim/world';
 import { itemHealOf, linkRadiusOf } from '../sim/build';
 import { FIRE_LIFE, FIRE_RADIUS, FIRE_STEP, firePassPreview, hammerFirePoints, returnRunOf } from '../sim/hammers';
@@ -423,6 +426,10 @@ export class RealtimeRenderer {
   private readonly targetLayer = new Graphics();
   /** Stage 2, step 2: signals of the new enemies over the crowd (shield arcs). */
   private readonly signalLayer = new Graphics();
+  /** Task 56 «Приметы»: the storm's mark, the roll call's horns, the rage rings (`drawOmens`). */
+  private readonly omenLayer = new Graphics();
+  /** Task 56: the omens of the fight standing over the hero for a moment at its start (`beginOmens`). */
+  private readonly omenFlash = new Container();
   /** Task 27: the Jailer's flail chain — under the enemies (`drawBoss`). */
   private readonly bossLayer = new Graphics();
   /** Task 29: the trail of «Наледь» on the arena — under the enemies (`drawForms`). */
@@ -767,7 +774,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.cage.layer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.troll.layer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.overlay, this.prologueLayer, this.fxLayer, this.snapLayer, this.shardLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.cage.layer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.omenLayer, this.troll.layer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.overlay, this.prologueLayer, this.fxLayer, this.omenFlash, this.snapLayer, this.shardLayer, this.flash);
     this.heroRoot.addChild(this.reachLayer, this.reachMask, this.heroLayer);
     this.app.stage.addChild(this.root, this.viewBorder, this.heroRoot, this.edgeLayer);
     this.initShards();
@@ -2222,6 +2229,108 @@ export class RealtimeRenderer {
     }
   }
 
+  /** Task 56 «Приметы» (tests read it): what the omens drew in the last frame, and how many marks each event made. */
+  readonly omenShown = { stormMark: 0, stormBlinkOn: 0, stormRing: 0, horns: 0, rage: 0, wet: 0, call: 0, strikes: 0, wakes: 0, calls: 0, flash: [] as string[] };
+  private omenFlashLeft = 0;
+  private omenCallAt = -10;
+  private static readonly OMEN_FLASH = 1.2;
+
+  /** Task 56 (spec 6, «Начало боя»): the fight's omens come up over the hero for 1.2 s and fade (a flash in the world, no text). */
+  beginOmens(ids: readonly string[]): void {
+    this.omenFlashLeft = ids.length ? RealtimeRenderer.OMEN_FLASH : 0;
+    for (const child of this.omenFlash.removeChildren()) child.destroy();
+    this.omenShown.flash = [...ids];
+    this.omenShown.strikes = 0; this.omenShown.wakes = 0; this.omenShown.calls = 0;
+    this.omenCallAt = -10;
+    const SIZE = 44, GAP = 8;
+    ids.forEach((id, i) => {
+      if (!isRtOmenId(id)) return;
+      let g: Graphics;
+      try { g = new Graphics().svg(omenSvgDoc(id)); } catch { return; }
+      g.scale.set(SIZE / 24);
+      g.position.set((i - (ids.length - 1) / 2) * (SIZE + GAP) - SIZE / 2, -SIZE / 2);
+      this.omenFlash.addChild(g);
+    });
+    this.omenFlash.alpha = 0;
+  }
+
+  /** The omens' flash over the hero: in 0.2 s, hold, out in the last 0.4 s (real time). */
+  private tickOmenFlash(world: World, dt: number): void {
+    if (this.omenFlashLeft <= 0) { this.omenFlash.visible = false; return; }
+    this.omenFlashLeft = Math.max(0, this.omenFlashLeft - dt);
+    const t = RealtimeRenderer.OMEN_FLASH - this.omenFlashLeft;
+    this.omenFlash.visible = true;
+    this.omenFlash.alpha = Math.min(1, t / 0.2, this.omenFlashLeft / 0.4);
+    this.omenFlash.position.set(world.hero.x * UNIT, world.hero.y * UNIT - 1.35 * UNIT);
+  }
+
+  /**
+   * Task 56 «Приметы» (sim/omens.ts): «Гроза» — the mark is the threat circle of its radius, hatched, blinking the whole fuse (every
+   * 0.12 s), a cloud's shadow over it, the ring closing in; «Перекличка» — a small horn over every enemy of the colour on the roll call;
+   * «Сонный час» — a ring at the feet of the woken while they rage (the sleepers' «z» is `drawSleep`). The view reads the world only.
+   */
+  private drawOmens(world: World, dt: number): void {
+    const g = this.omenLayer.clear(), shown = this.omenShown, p = world.params, r = enemyDrawRadius(p) * UNIT;
+    shown.stormMark = 0; shown.stormBlinkOn = 0; shown.stormRing = 0; shown.horns = 0; shown.rage = 0;
+    this.tickOmenFlash(world, dt);
+    const mark = world.storm?.mark;
+    if (mark) {
+      const R = omenNum(p, 'omenStormRadius') * UNIT, fuse = Math.max(0.01, omenNum(p, 'omenStormFuse')), k = Math.max(0, Math.min(1, 1 - (mark.due - world.time) / fuse));
+      const X = mark.x * UNIT, Y = mark.y * UNIT, on = Math.floor(this.clock / 0.12) % 2 === 0;
+      shown.stormMark = 1; shown.stormBlinkOn = on ? 1 : 0; shown.stormRing = 1;
+      // The cloud's shadow over the circle: a dark flat ellipse, a lighter one inside.
+      g.ellipse(X, Y - R * 0.55, R * 1.5, R * 0.62).fill({ color: THREAT_OUTLINE, alpha: 0.28 });
+      g.ellipse(X - R * 0.35, Y - R * 0.7, R * 0.8, R * 0.34).fill({ color: THREAT_OUTLINE, alpha: 0.2 });
+      g.circle(X, Y, R).fill({ color: THREAT, alpha: on ? 0.1 + 0.12 * k : 0.04 });
+      hatchCircle(g, X, Y, R, 0.4 * UNIT);
+      g.stroke({ color: THREAT, width: 2, alpha: on ? 0.5 : 0.15 });
+      g.circle(X, Y, R).stroke({ color: THREAT_OUTLINE, width: 6, alpha: on ? 0.7 : 0.25 });
+      g.circle(X, Y, R).stroke({ color: THREAT, width: 3.5, alpha: on ? 0.95 : 0.3 });
+      g.circle(X, Y, Math.max(2, R * (1 - k))).stroke({ color: THREAT, width: 3, alpha: 0.9 });
+    }
+    const call = world.rollcall?.color;
+    const horn = Math.min(1, (this.clock - this.omenCallAt) / 0.25);
+    for (const e of world.enemies) {
+      if (e.rage !== undefined && e.rage > 0 && this.sees(e, 0.5)) {
+        g.circle(e.x * UNIT, e.y * UNIT + r * 0.15, r * 1.12).stroke({ color: 0xff6f61, width: 3, alpha: 0.35 + 0.25 * Math.abs(Math.sin(this.clock * 9)) });
+        shown.rage++;
+      }
+      if (call !== undefined && e.color === call && this.sees(e, 0.5)) {
+        // The horn: a gold cone with a navy outline, its mouth to the upper right, over the body's right shoulder.
+        const s = r * 0.42, X = e.x * UNIT + r * 0.62, Y = e.y * UNIT - r * 0.86;
+        g.poly([X - s, Y + s * 0.5, X - s * 0.2, Y - s * 0.15, X + s * 0.9, Y - s * 0.95, X + s * 1.15, Y - s * 0.25, X + s * 0.2, Y + s * 0.8]).fill({ color: 0xe3b45a, alpha: horn }).stroke({ color: THREAT_OUTLINE, width: 2.5, alpha: horn, join: 'round' });
+        g.circle(X - s * 0.9, Y + s * 0.65, s * 0.3).fill({ color: 0x8a5a34, alpha: horn }).stroke({ color: THREAT_OUTLINE, width: 2, alpha: horn });
+        shown.horns++;
+      }
+    }
+  }
+
+  /** Task 56: the storm's strike, the sleepers' wake, a call (events of the frame; counted for tests). */
+  private omenEvent(world: World, ev: Extract<WorldEvent, { type: 'omen' }>): void {
+    if (ev.omen === 'storm' && ev.action === 'strike') {
+      const R = ev.r * UNIT, X = ev.x * UNIT, Y = ev.y * UNIT, top = Math.max(Y, 6 * UNIT);
+      const col = new Graphics().rect(-R * 0.55, -top - 40, R * 1.1, top + 40).fill({ color: 0xffffff, alpha: 0.75 }).circle(0, 0, R).fill({ color: 0xffffff, alpha: 0.55 }).stroke({ color: 0xcfe6ff, width: 5 });
+      col.position.set(X, Y);
+      this.fxLayer.addChild(col);
+      this.bursts.push({ g: col, life: 0.32, total: 0.32 });
+      if (world.params.shakeOnDamage) { this.shakeLeft = this.shakeTotal = 0.2; this.shakeAmp = Math.max(this.shakeAmp, 8); }
+      this.omenShown.strikes++;
+    } else if (ev.omen === 'drowse') {
+      // A short jolt: a pale ring at each of the woken (they carry the rage now).
+      for (const e of world.enemies) {
+        if (e.rage === undefined || !this.sees(e, 0.5)) continue;
+        const ring = new Graphics().circle(0, 0, enemyDrawRadius(world.params) * UNIT * 0.9).stroke({ color: 0xffffff, width: 4, alpha: 0.9 });
+        ring.position.set(e.x * UNIT, e.y * UNIT);
+        this.fxLayer.addChild(ring);
+        this.bursts.push({ g: ring, life: 0.28, total: 0.28, grow: true });
+      }
+      this.omenShown.wakes++;
+    } else if (ev.omen === 'rollcall') {
+      this.omenCallAt = this.clock;
+      this.omenShown.calls++;
+    }
+  }
+
   /** Sleep marks drawn in the last frame (tests read it). */
   sleepShown = 0;
 
@@ -2232,9 +2341,12 @@ export class RealtimeRenderer {
    */
   private drawSleep(world: World): void {
     this.sleepShown = 0;
-    if (!world.arena.calm && !world.asleep) return;
+    // Task 56 «Сонный час»: `Enemy.sleep` — the sleepers of the omen, one by one (the prologue's sleep is the whole arena's).
+    const all = !!world.arena.calm || !!world.asleep;
+    if (!all && !world.drowse) return;
     const g = this.targetLayer, r = enemyDrawRadius(world.params) * UNIT;
     for (const e of world.enemies) {
+      if (!all && !e.sleep) continue;
       if (!this.sees(e, 0.5)) continue;
       const t = (this.clock * 0.6 + e.id * 0.37) % 1, s = r * 0.22, x = e.x * UNIT - r * 0.55 - t * r * 0.15, y = e.y * UNIT - r * 0.95 - t * r * 0.45;
       const alpha = 0.55 * Math.sin(Math.PI * t);
@@ -2949,6 +3061,8 @@ export class RealtimeRenderer {
         this.eliteShown.downFlashes++;
         continue;
       }
+      // Task 56 «Приметы»: the storm strikes (a white column on the circle), the sleepers wake (a ring at each rager), a colour is called.
+      if (ev.type === 'omen') { this.omenEvent(world, ev); continue; }
       if (ev.type === 'blast') {
         const flash = new Graphics().circle(0, 0, ev.radius * UNIT).fill({ color: SPARK, alpha: 0.55 }).stroke({ color: 0xfff2c4, width: 4 });
         flash.position.set(ev.x * UNIT, ev.y * UNIT);
@@ -3225,6 +3339,7 @@ export class RealtimeRenderer {
     this.colorShiftShown = 0;
     this.colorShiftFreedBy = 0;
     this.colorShiftMarkShown = 0;
+    this.omenShown.wet = 0; this.omenShown.call = 0;
     const flashR = enemyDrawRadius(p) * UNIT;
     for (const e of world.enemies) {
       if (e.hurtFlash <= 0) continue;
@@ -3327,6 +3442,26 @@ export class RealtimeRenderer {
       g.moveTo(pts[0].x * UNIT, pts[0].y * UNIT);
       for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x * UNIT, pts[i].y * UNIT);
       g.stroke({ color: c, width: w * lw, alpha: 0.95, cap: 'round', join: 'round' });
+    }
+    // Task 56: a link taken in water (`wet`: its hit +1) carries a drop, a link of the colour on the roll call (`call`) a horn — the
+    // marks the sim fixed at the link (the highlight and the dash read the same ones).
+    this.omenShown.wet = 0; this.omenShown.call = 0;
+    for (const l of world.chain) {
+      if (l.kind !== 'enemy' || (!l.wet && !l.call)) continue;
+      const pt = linkPoint(world, l);
+      if (!pt) continue;
+      const R0 = enemyDrawRadius(p) * UNIT, s = R0 * 0.44;
+      if (l.wet) {
+        const X = pt.x * UNIT - R0 * 0.75, Y = pt.y * UNIT + R0 * 1.15;
+        g.moveTo(X, Y - s * 1.3).quadraticCurveTo(X + s * 1.15, Y + s * 0.3, X, Y + s).quadraticCurveTo(X - s * 1.15, Y + s * 0.3, X, Y - s * 1.3).fill({ color: 0x4a8fd0 }).stroke({ color: NAVY, width: 2.5, join: 'round' });
+        g.circle(X - s * 0.3, Y + s * 0.1, s * 0.22).fill({ color: 0xdbe9f4 });
+        this.omenShown.wet++;
+      }
+      if (l.call) {
+        const X = pt.x * UNIT + R0 * 0.75, Y = pt.y * UNIT + R0 * 1.15;
+        g.poly([X - s, Y + s * 0.5, X - s * 0.2, Y - s * 0.15, X + s * 0.9, Y - s * 0.95, X + s * 1.15, Y - s * 0.25, X + s * 0.2, Y + s * 0.8]).fill({ color: 0xe3b45a }).stroke({ color: NAVY, width: 2.5, join: 'round' });
+        this.omenShown.call++;
+      }
     }
     this.juiceShown.heavyLine = heavy && pts.length > 1 ? 1 : 0;
     if (heavy && pts.length > 1) {
@@ -4190,6 +4325,7 @@ export class RealtimeRenderer {
     this.drawRipples(world);
     this.syncEnemies(world);
     this.drawSignals(world);
+    this.drawOmens(world, realDt);
     this.drawCourt(world);
     this.drawForms(world);
     this.drawBadges(world);
@@ -4260,6 +4396,7 @@ export class RealtimeRenderer {
     this.shakeLeft = 0;
     this.flashLeft = 0;
     this.flashGate.reset();
+    this.omenFlashLeft = 0; this.omenFlash.visible = false; for (const child of this.omenFlash.removeChildren()) child.destroy(); this.omenCallAt = -10;
     for (const gh of this.ghosts) gh.root.destroy({ children: true });
     this.ghosts.length = 0; this.paintAt.clear();
     for (const s of this.shards) { s.life = 0; s.delay = 0; s.p.alpha = 0; }
