@@ -1210,7 +1210,7 @@ export function inChain(world: World, enemy: Enemy): number {
  * Why a target cannot be the next link (stage G): the checks of `canLink` / `canLinkObject` in their order, and the
  * text the pointer hint shows. One function decides both, so the hint never disagrees with the chain.
  */
-export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'unlit' | 'color' | 'far' | 'sight' | 'guarded' | 'crossed' | 'sealed' | 'lever' | 'shackled' | 'handFull' | 'grate' | 'outOfWindow' | 'queue' | 'notFigure' | 'small' | 'cast';
+export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'unlit' | 'color' | 'far' | 'sight' | 'guarded' | 'crossed' | 'sealed' | 'lever' | 'shackled' | 'handFull' | 'grate' | 'outOfWindow' | 'queue' | 'notFigure' | 'small';
 export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   move: 'идёт проход',
   colorless: 'не берётся цепью',
@@ -1241,10 +1241,9 @@ export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   outOfWindow: 'вне окна',
   // Task 54 «Главарь с котелком»: the Chief's core in his window, the queue of the brew's colour before it short (enemies/chief.ts).
   queue: 'в очередь',
-  // Task 62 «Ведунья v2» (sim/glyphs.ts): the closed contour is none of the figures, or too small; a new chain within the pause after a release.
+  // Task 62 «Ведунья v2» (sim/glyphs.ts): the closed contour is none of the figures, or too small.
   notFigure: 'не фигура',
   small: 'мала',
-  cast: 'пауза',
 };
 
 /**
