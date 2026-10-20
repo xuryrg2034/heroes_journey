@@ -224,7 +224,8 @@ const KNACKS_BEFORE_COLD_RARE: Readonly<Record<string, string>> = {
 const knackDigest = (habit: RtHabitId | null): { digest: string; screens: number } => {
   let h = 0x811c9dc5, screens = 0;
   const add = (text: string): void => { for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193) >>> 0; };
-  for (let k = 1; k <= 24; k++) walk(k, { gift: 'full', knacks: true, habits: true, garrison: k % 2 === 0 }, { habit, each: s => { if (s.pending?.kind === 'knack') { add(`${k}|${s.pending.nodeId}|${JSON.stringify(s.pending.options)}
+  // Task 51: the reference walks predate the relic screens filled (`relicFill`: their rares change the later screens) — without it.
+  for (let k = 1; k <= 24; k++) walk(k, { gift: 'full', knacks: true, habits: true, garrison: k % 2 === 0, relicFill: false }, { habit, each: s => { if (s.pending?.kind === 'knack') { add(`${k}|${s.pending.nodeId}|${JSON.stringify(s.pending.options)}
 `); screens++; } } });
   return { digest: h.toString(16), screens };
 };

@@ -334,7 +334,7 @@ interface RunMeta {
   knacks?: RunKnack[];
   honed?: { id: string; row: number }[];
   /** Tasks 36–37: the run's meta fields (`RunRecord.xp` … `quest`; absent — none yet). */
-  metaTlm?: Partial<Pick<RunRecord, 'xp' | 'pack' | 'record' | 'locked' | 'carry' | 'stock' | 'hearthBuys' | 'npcClicks' | 'hearth' | 'quest'>>;
+  metaTlm?: Partial<Pick<RunRecord, 'xp' | 'pack' | 'record' | 'locked' | 'carry' | 'stock' | 'hearthBuys' | 'npcClicks' | 'hearth' | 'quest' | 'arrive' | 'vows'>>;
   /** Task 49: the hero this run freed (`heroFreed`). */
   freed?: { hero: 'toad'; row: number };
 }
@@ -724,6 +724,8 @@ export class RtRecorder {
       ...run.habits ? { habitsOn: true as const, ...run.habit ? { habit: run.habit } : {} } : {},
       // Task 49: the run's hero (absent — the cat) and the hero it freed.
       ...run.heroId === 'toad' ? { hero: 'toad' as const } : {}, ...meta.freed ? { freed: { ...meta.freed } } : {},
+      // Task 51д: the meeting on the road (absent — no NPC away in this run).
+      ...run.hearth?.away ? { npcMeet: { npc: run.hearth.away, met: !!run.npcMeet, ...run.npcMeet ? { nodeId: run.npcMeet.nodeId, ...run.npcMeet.deal ? { deal: run.npcMeet.deal } : {} } : {} } } : {},
       ...meta.featsOn ? { featsOn: true as const } : {}, ...meta.feats?.length ? { feats: meta.feats } : {}, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun, ...meta.viewerRunApprox ? { viewerRunApprox: true as const } : {} } : {}, ...meta.firsts?.length ? { firsts: meta.firsts } : {}, ...meta.resources ? { resources: meta.resources } : {}, ...meta.fx ? { fx: meta.fx } : {}, ...meta.metaTlm ?? {}, ...gateTlm(run, meta.metaTlm?.hearth), ...runLevels(run), runParams,
     };
     void this.put([JSON.parse(JSON.stringify(record)) as RunRecord]);
@@ -761,7 +763,13 @@ export class RtRecorder {
         const h = run.hearth, tlm = this.meta.metaTlm ??= {};
         const hearth = { ...h.maps ? { maps: h.maps } : {}, ...h.startItems ? { startItems: [...h.startItems] } : {}, ...h.jailerRerolls ? { jailerRerolls: h.jailerRerolls } : {}, ...h.hammerAll ? { hammerAll: true as const } : {},
           // Task 51б: level 3 of the camp (the choices at «Предместье» join at `writeRun`).
-          ...h.garrisonMaps ? { garrisonMaps: h.garrisonMaps } : {}, ...h.gateItems ? { gateItems: [...h.gateItems] } : {}, ...h.garrisonRerolls ? { garrisonRerolls: h.garrisonRerolls } : {} };
+          ...h.garrisonMaps ? { garrisonMaps: h.garrisonMaps } : {}, ...h.gateItems ? { gateItems: [...h.gateItems] } : {}, ...h.garrisonRerolls ? { garrisonRerolls: h.garrisonRerolls } : {},
+          // Task 51в: Шиш.
+          ...h.shopRerolls ? { shopRerolls: h.shopRerolls } : {}, ...h.swap ? { swap: true as const } : {},
+          // Task 51г: Евлампий's vows taken.
+          ...h.vows ? { vows: [...h.vows] } : {},
+          // Task 51д: the NPC away.
+          ...h.away ? { away: h.away } : {} };
         if (Object.keys(hearth).length) tlm.hearth = hearth;
         if (h.quest) tlm.quest = { npc: h.quest.npc, id: h.quest.id };
       }
@@ -835,6 +843,9 @@ export class RtRecorder {
       tlm.carry = { ...end.carry };
       tlm.stock = { ...end.stock };
       if (end.quest) tlm.quest = { npc: end.quest.npc, id: end.quest.id, done: end.quest.done };
+      // Task 51в: the NPCs who came after this run.
+      if (end.vows) tlm.vows = end.vows.map(v => ({ ...v }));
+      if (end.arrived) tlm.arrive = end.arrived.map(a => ({ npc: a.npc, path: a.self ? 'self' as const : 'deed' as const, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun } : {} }));
       this.saveMeta(); this.writeRun(run);
     });
   }

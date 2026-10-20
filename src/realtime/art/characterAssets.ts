@@ -23,6 +23,8 @@ export const CHARACTER_ART_IDS = [
   'toad', 'jailer-cage',
   // Task 55а «Замок, шаг 1а»: the wardrobe, the rook and the barrel (the drawn stand-ins of view/castleView.ts stay the fallback).
   'castle-wardrobe', 'castle-rook', 'castle-barrel',
+  // Task 54a: the camp boss, his cauldron, ladle and sack (the drawn stand-ins of view/chiefView.ts stay the fallback).
+  'chief', 'chief-cauldron', 'chief-ladle', 'chief-sack',
 ] as const;
 
 export type CharacterArtId = typeof CHARACTER_ART_IDS[number];

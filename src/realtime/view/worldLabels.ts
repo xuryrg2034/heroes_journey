@@ -21,6 +21,7 @@ import { BUILD_SOURCES } from '../sim/buildIds';
 import { KNIGHT } from '../sim/enemies/garrison';
 import { ROCK_RADIUS, TAIL_OUTER, TROLL } from '../sim/enemies/troll';
 import { BARREL, wardrobeTopple } from '../sim/enemies/castle';
+import { CHIEF, chiefMove } from '../sim/enemies/chief';
 
 /** The three labels of the run (the ids are the v1 hints' Б6, Б8, Б9: the memory and the run record keep their keys). */
 export type LabelId = 'b6' | 'b8' | 'b9';
@@ -98,6 +99,14 @@ export function leverKnob(lever: Vec): Vec { return { x: lever.x + OBJECT_RADIUS
  * камня» over the rock's circle, «Хвост метёт» under the ring, «Рык» and «Храп» on his belly (the first start in the fight; no other text).
  */
 export const BOSS_MOVE_TEXT = { flail: 'Кистень', throw: 'Бросок гири', club: 'Удар дубиной', rock: 'Бросок камня', tail: 'Хвост метёт', roar: 'Рык', snore: 'Храп' } as const;
+/**
+ * Task 54a «Главарь» (design 17.10.2026, docs/design-notes/task-54-chief.md, 17): the Chief's five moves, named the same way at their first start
+ * in the fight: «Взмах половником» over the half-disc's far edge, «Горсть перца» over the middle circle, «Обед!» and «Приправа» over the cauldron,
+ * «Свисток» over the gate's circle. Kept apart from `BOSS_MOVE_TEXT`: the Jailer's «Свисток» has no name label.
+ */
+export const CHIEF_MOVE_TEXT = { swing: 'Взмах половником', pepper: 'Горсть перца', feast: 'Обед!', season: 'Приправа', whistle: 'Свисток' } as const;
+/** Arena units: how high over the Chief's feet «Взмах половником» hangs (over his head), and how far under the cauldron's centre «Обед!» and «Приправа» stand. */
+const CHIEF_HEAD_LIFT = 2.4, CHIEF_POT_LIFT = 1.0;
 /** Real seconds a boss move's name stays. */
 export const BOSS_LABEL_LIFE = 1;
 /** Arena units: how high over the core the flail's name hangs, and over the throw's circle (its radius is 1). */
@@ -147,9 +156,19 @@ export function bossMoveLabels(w: World, named: Set<string>): LabelSpec[] {
       out.push({ id: 'castle-strike', text: CASTLE_MOVE_TEXT.strike, at: { x: e.x, y: e.y }, place: 'above', lift: ROOK_LABEL_LIFT });
       continue;
     }
-    if (ev.type !== 'bossMove' || ev.stage !== 'start' || named.has(ev.move) || !(ev.move in BOSS_MOVE_TEXT)) continue;
+    if (ev.type !== 'bossMove' || ev.stage !== 'start' || named.has(ev.move)) continue;
     const core = w.enemies.find(e => e.id === ev.id);
     if (!core) continue;
+    if (core.kind === CHIEF) {
+      const text = CHIEF_MOVE_TEXT[ev.move as keyof typeof CHIEF_MOVE_TEXT], m = chiefMove(w);
+      if (!text || !m) continue;
+      named.add(ev.move);
+      // The core's head (the drawing is about 2.2 units tall), the pepper's centre and the gate's circle: above; the cauldron's moves: under it.
+      const below = ev.move === 'feast' || ev.move === 'season';
+      out.push({ id: `boss-${ev.move}`, text, at: { x: m.at.x, y: m.at.y }, place: below ? 'below' : 'above', lift: ev.move === 'swing' ? CHIEF_HEAD_LIFT : below ? CHIEF_POT_LIFT : m.r + 0.15 });
+      continue;
+    }
+    if (!(ev.move in BOSS_MOVE_TEXT)) continue;
     named.add(ev.move);
     const text = BOSS_MOVE_TEXT[ev.move as keyof typeof BOSS_MOVE_TEXT];
     if (core.kind === TROLL) {

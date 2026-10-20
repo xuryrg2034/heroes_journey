@@ -90,10 +90,47 @@ export const RT_HEARTH_GATED_LEVEL = 3;
 /** Task 51 (spec 2.2): levels not sold in stage 3 — Евлампий's 3rd waits for the warlock's castle (level 3 of the world). */
 export const RT_HEARTH_LOCKED: Readonly<Partial<Record<RtHearthNpc, number>>> = { monk: 3 };
 
-/** A quest of the next run: Неясыть — farther than the record (`owl-farther`) or, at the record 10, win the forest (`owl-forest`); Марфа — 2 consumables at the end; Ерофей — sever the Jailer's weight. */
-export type RtQuestId = 'owl-farther' | 'owl-forest' | 'herb-flasks' | 'smith-sever';
-export const RT_QUEST_IDS: readonly RtQuestId[] = ['owl-farther', 'owl-forest', 'herb-flasks', 'smith-sever'];
-export const RT_QUEST_NPC = { 'owl-farther': 'owl', 'owl-forest': 'owl', 'herb-flasks': 'herb', 'smith-sever': 'smith' } as const satisfies Readonly<Record<RtQuestId, RtHearthNpc>>;
+/**
+ * A quest of the next run: Неясыть — farther than the record (`owl-farther`) or, at the record 10, win the forest (`owl-forest`); Марфа —
+ * 2 consumables at the end; Ерофей — sever the Jailer's weight. Task 51в: Шиш — «Вернись с 10 ресурсами» (`gambler-hoard`).
+ */
+export type RtQuestId = 'owl-farther' | 'owl-forest' | 'herb-flasks' | 'smith-sever' | 'gambler-hoard' | 'monk-cuts';
+export const RT_QUEST_IDS: readonly RtQuestId[] = ['owl-farther', 'owl-forest', 'herb-flasks', 'smith-sever', 'gambler-hoard', 'monk-cuts'];
+/** Task 51г: Евлампий — «Разруби кандалы дважды» (`monk-cuts`). */
+export const RT_QUEST_NPC = { 'owl-farther': 'owl', 'owl-forest': 'owl', 'herb-flasks': 'herb', 'smith-sever': 'smith', 'gambler-hoard': 'gambler', 'monk-cuts': 'monk' } as const satisfies Readonly<Record<RtQuestId, RtHearthNpc>>;
+/**
+ * Task 51в: Шиш comes to the camp (by a game of the goblins' circle, by the fallback path) only while this is on — the camp's view of
+ * Шиш (ui) turns it on. Off: no profile changes (his flags, quest and lines never come). `rtApplyMeta(…, { gambler })` overrides it.
+ */
+export const RT_HEARTH_GAMBLER_ON = true;
+/** Task 51г: Евлампий comes (by cut shackles, by the fallback path after the garrison) only while this is on — the same rule as Шиш's. */
+export const RT_HEARTH_MONK_ON = true;
+/**
+ * Task 51д «Уход по делам» (spec 3.4): Марфа, Ерофей and Шиш leave for one run after their first quest done, then after every second;
+ * only while this is on — the camp's trace and the rest's meeting (ui) turn it on. Off: nobody leaves, profiles and runs as before.
+ */
+export const RT_HEARTH_AWAY_ON = true;
+/** Task 51д: the NPCs that leave (Неясыть and Евлампий stay). */
+export type RtHearthLeaver = 'herb' | 'smith' | 'gambler';
+export const RT_HEARTH_LEAVERS: readonly RtHearthLeaver[] = ['herb', 'smith', 'gambler'];
+export const isRtHearthLeaver = (value: unknown): value is RtHearthLeaver => typeof value === 'string' && (RT_HEARTH_LEAVERS as readonly string[]).includes(value);
+/**
+ * Task 51д (spec 3.4): where the NPC away waits — the first rest of the run in its zone: Марфа — the den branch («ветка Тролля»), run rows
+ * 6–8; Ерофей — the trails, rows 2–4; Шиш — the camp branch (to the Chief), rows 6–8. `branch` null — no branch (the trails).
+ */
+export const RT_MEET_ZONES: Readonly<Record<RtHearthLeaver, { branch: 'den' | 'camp' | null; rows: [number, number] }>> = {
+  herb: { branch: 'den', rows: [6, 8] }, smith: { branch: null, rows: [2, 4] }, gambler: { branch: 'camp', rows: [6, 8] },
+};
+/**
+ * Task 51г «Обет» (Евлампий, spec 3.3): a restriction the player takes for a run; kept — +15 XP (`RT_XP_VOW`), counted only when the run
+ * reached the Jailer's row. «Мимо торговцев», «Без привала», «Без лечения на карте», «Без переброса».
+ */
+export type RtVowId = 'vow-no-shop' | 'vow-no-rest' | 'vow-no-mapheal' | 'vow-no-reroll';
+export const RT_VOW_IDS: readonly RtVowId[] = ['vow-no-shop', 'vow-no-rest', 'vow-no-mapheal', 'vow-no-reroll'];
+export const isRtVow = (value: unknown): value is RtVowId => typeof value === 'string' && (RT_VOW_IDS as readonly string[]).includes(value);
+/** Player-facing names (grep 16.10.2026, spec 11.4: «Обет» is free). */
+export const RT_VOW_TITLES: Readonly<Record<RtVowId, string>> = { 'vow-no-shop': 'Мимо торговцев', 'vow-no-rest': 'Без привала', 'vow-no-mapheal': 'Без лечения на карте', 'vow-no-reroll': 'Без переброса' };
+
 /** The NPCs that give quests (by the quest catalogue: v1's three; task 51 adds Шиш and Евлампий with their quests). */
 export type RtQuestNpc = (typeof RT_QUEST_NPC)[RtQuestId];
 export interface RtQuest { npc: RtQuestNpc; id: RtQuestId }
@@ -108,3 +145,9 @@ export const HEARTH_MAPS_SALT = metaSalt('hearth-maps');
 /** Task 51б (spec 2.2, 9): «Путь в гарнизон» — the second garrison map's seed; «Склянка в гарнизон» — the kinds offered at «Предместье». */
 export const HEARTH_GMAPS_SALT = metaSalt('hearth-gmaps');
 export const HEARTH_GATE_SALT = metaSalt('hearth-gate');
+/** Task 51в (spec 3.2, 9): «Шишова лавка» — the merchant's goods drawn again (by the node's seed). */
+export const HEARTH_SHOP_SALT = metaSalt('hearth-shop');
+/** Task 51г: the salt of the vows offered at the start (`hearth-vow`). */
+export const HEARTH_VOW_SALT = metaSalt('hearth-vow');
+/** Task 51д: the salt of the meeting's deal on the road (`npc-meet`, with the node's id). */
+export const NPC_MEET_SALT = metaSalt('npc-meet');

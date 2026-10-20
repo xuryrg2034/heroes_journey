@@ -1,0 +1,73 @@
+import { type Page } from '@playwright/test';
+import { test, expect } from './realtimeTest';
+
+/**
+ * UI-01 (approved 20.10.2026 after the council on the Codex PC UI ideas): the camp «Очаг» on a window wider or taller than 1280×720.
+ * The background art is a 1280×720 picture in the window's middle; the heroes, the NPC, the fire and the panel must stand on it — before
+ * the fix they kept the window's left-top 1280×720 coordinates and slid off the picture at 1920×1080. Real window sizes, real clicks.
+ */
+const shot = (name: string): string => `${process.env.SHOT_DIR ?? 'artifacts'}/${name}.png`;
+
+function collectErrors(page: Page): string[] {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+  return errors;
+}
+
+// A camp with every place taken: both heroes (Ведунья freed), the five NPC; their meetings said (no «✦»).
+const META = {
+  heroes: { cat: { xp: 40, packs: [], record: { row: 9, won: true, xp: 40 } }, toad: { xp: 5, packs: [] } },
+  freed: { toad: { row: 5 } },
+  hearth: {
+    stock: 10, levels: { owl: 1, herb: 1, smith: 1, gambler: 1, monk: 1 }, met: { herb: true, smith: true, gambler: true, monk: true },
+    lines: { 'owl:first': 2, 'herb:first': 2, 'smith:first': 2, 'gambler:first': 2, 'monk:first': 2, 'toad:first_camp': 1 }, quiet: 0,
+  },
+};
+
+async function openCamp(page: Page): Promise<void> {
+  await page.goto('/');
+  await page.evaluate(m => {
+    localStorage.clear(); localStorage.setItem('ashen-oath-realtime-prologue-done', '1');
+    localStorage.setItem('ashen-oath-rt-profile-v1', JSON.stringify({ version: 1, giftFull: false, runs: 3, won: true, meta: m }));
+  }, META);
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
+  await page.getByTestId('run-hearth').click();
+  await expect(page.getByTestId('hearth')).toBeVisible();
+}
+
+for (const [width, height] of [[1280, 720], [1600, 900], [1920, 1080]] as const) {
+  test(`UI-01: the camp at ${width}×${height} — the scene is the picture's 1280×720 box in the window's middle; every hero and NPC stands on the picture and answers a click`, async ({ page }) => {
+    const errors = collectErrors(page);
+    await page.setViewportSize({ width, height });
+    await openCamp(page);
+    // The picture: 1280×720 centred in the window (the background's own rule); the scene's box is the same.
+    const art = { x: (width - 1280) / 2, y: (height - 720) / 2, w: 1280, h: 720 };
+    const stage = (await page.locator('.rt-hearth-stage').boundingBox())!;
+    expect(Math.abs(stage.x - art.x), 'the scene starts where the picture does').toBeLessThan(1.5);
+    expect(Math.abs(stage.y - art.y)).toBeLessThan(1.5);
+    expect(Math.abs(stage.width - art.w)).toBeLessThan(1.5);
+    expect(Math.abs(stage.height - art.h)).toBeLessThan(1.5);
+    // Every place (the heroes, the NPC) stands inside the picture.
+    const places = page.locator('.rt-hearth-place');
+    const count = await places.count();
+    expect(count, 'both heroes and the five NPC').toBeGreaterThanOrEqual(7);
+    for (let i = 0; i < count; i++) {
+      const box = (await places.nth(i).boundingBox())!;
+      const cx = box.x + box.width / 2, cy = box.y + box.height / 2;
+      expect(cx > art.x && cx < art.x + art.w && cy > art.y && cy < art.y + art.h, `place ${i} on the picture (${cx.toFixed(0)}, ${cy.toFixed(0)})`).toBe(true);
+    }
+    // The panel («В поход») is on the picture too.
+    const go = (await page.locator('.rt-hearth-go').boundingBox())!;
+    expect(go.x >= art.x && go.x + go.width <= art.x + art.w && go.y + go.height <= art.y + art.h).toBe(true);
+    // A real click on Неясыть opens her bubble, inside the window.
+    await page.getByTestId('hearth-npc-owl').click();
+    const bubble = page.getByTestId('hearth-bubble');
+    await expect(bubble).toBeVisible();
+    const b = (await bubble.boundingBox())!;
+    expect(b.x >= 0 && b.y >= 0 && b.x + b.width <= width && b.y + b.height <= height, 'the bubble in the window').toBe(true);
+    await page.screenshot({ path: shot(`hearth-wide-${width}x${height}`) });
+    expect(errors).toEqual([]);
+  });
+}

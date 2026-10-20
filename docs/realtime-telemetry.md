@@ -723,6 +723,9 @@ API записи (вызывает вид): `runStarted` читает `locked`, 
 
 Проверки (15.10.2026): `npm run test:realtime-meta` — поля проходят `checkRecord`, испорченные отклоняются; `npm run test:realtime-hearth` — запись похода получает флаги лагеря, выбранную карту, итог меты, покупки и клики.
 
+- **Лагерь, этап 3 (51д, 17.10.2026).** `RunRecord.hearth.away` — ушедший NPC похода; `RunRecord.npcMeet` — `{ npc, met, nodeId?, deal? }`: встреча на привале зоны (узел, сделка) или «не дождался». `checkRecord` проверяет форму.
+- **Лагерь, этап 3 (51г, 17.10.2026).** `RunRecord.hearth.vows` — обеты, взятые на поход; `RunRecord.vows` — `{ id, kept }[]` засчитанных обетов (поход дошёл до ряда Тюремщика; из `RtMetaEnd.vows`). Разрубы кандалов в записи боя похода — `RtBattleRecord.cuts` сохранения; в сводке боя — прежний `garrison.shackleCuts`.
+- **Лагерь, этап 3 (51в, 17.10.2026).** `RunRecord.hearth` получает `shopRerolls` (1 — «Шишова лавка», 2 — и «Лавка в гарнизоне») и `swap` («Размен»); `RunRecord.arrive` — пришедшие после похода NPC `{ npc, path: 'deed' | 'self', viewerRun? }` (из `RtMetaEnd.arrived`, `recorder.runMetaEnd`). `checkRecord` проверяет форму.
 - **Лагерь, этап 3 (51б, 17.10.2026).** `RunRecord.hearth` получает `garrisonMaps` (2 — «Путь в гарнизон»), `garrisonMap` (выбор 0/1), `gateItems` (2 вида «Склянки в гарнизон») и `gateItem` (взятый), `garrisonRerolls` («Правка в гарнизоне»). `checkRecord` проверяет форму (`run meta`). Проверка — `npm run test:realtime-hearth-l3`.
 
 ### Арбалет: угроза `bolt` (16.10.2026, задача 43, часть А)
