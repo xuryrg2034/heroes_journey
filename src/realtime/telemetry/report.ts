@@ -17,13 +17,14 @@ import type { World } from '../sim/world';
 import { createFightObserver, median, DEATH_SERIES_WINDOW, WOLF_RUSH_SOURCE } from './observe';
 import {
   checkRecord, emptyFightSummary, orderedParts, unpackJournal, withSummaryDefaults, OATH_STAKE_SOURCE, DIE_SOURCE, CASINO_SOURCE, RT_TELEMETRY_FORMAT, SANDBOX_RUN,
-  type DeathGuard, type FightDeath, type FightRecord, type FightSummary, type JournalPart, type NoteRecord, type PrologueFrom, type PrologueRecord, type RtRecord, type RunRecord, type ThreatTally,
+  type DeathGuard, type FightDeath, type FightRecord, type FightSummary, type JournalPart, type NoteRecord, type PrologueFrom, type PrologueRecord, type RtRecord, type WarmupRecord, type RunRecord, type ThreatTally,
   type RunNodeVisit, type TrollBossSummary,
 } from './schema';
 import { THREAT_KINDS, ThreatTracker, type ThreatWarning } from './threats';
 import { RT_DEATH_ABILITY, RT_KIND_TITLES } from '../run/rtRunEnd';
 import { HINT_IDS, HINT_TITLES } from '../view/hints';
 import { PROLOGUE_ROOMS } from '../run/prologue';
+import { isWarmupId, warmupLayout, WARMUP_LAYOUTS } from '../run/warmup';
 import { RT_HABITS, rtTalisman } from '../run/rtTalismans';
 import { RT_OMENS } from '../run/omens';
 
@@ -747,6 +748,50 @@ function fxRows(runs: readonly RunRecord[]): (string | number)[][] {
   return s.runs ? [[s.runs, cell(s.end[100]), cell(s.end[50]), cell(s.end[0]), cell(s.changed), cell(s.startedLow)]] : [];
 }
 
+// ---- The camp's warmup (WarmupRecord, task 51ж, 17.10.2026) ----
+
+/** One warmup layout over the set's attempts. */
+export interface WarmupLayoutStat {
+  layout: string;
+  title: string;
+  /** Attempts; sessions with one; repeats — the attempts after a session's first of the layout. */
+  attempts: number; sessions: number; repeats: number;
+  /** Ends by kind. */
+  limit: number; clear: number; death: number; exit: number;
+  /** New bests; the best score seen (null — none); median real seconds of an attempt. */
+  records: number; best: number | null; realMedian: number;
+}
+/** The warmup over the set: sessions with a warmup among all sessions of the set, and each layout. */
+export interface WarmupStats { sessions: number; withWarmup: number; layouts: WarmupLayoutStat[] }
+
+/** The warmup records of the set (the latest copy of each id is already chosen by `collectRecords`). */
+export function warmupStats(records: readonly RtRecord[]): WarmupStats {
+  const all = records.filter((r): r is WarmupRecord => r.kind === 'warmup');
+  const ids = [...WARMUP_LAYOUTS.map(l => l.id as string), ...[...new Set(all.map(r => r.layout))].filter(id => !isWarmupId(id))];
+  const layouts = ids.flatMap((id): WarmupLayoutStat[] => {
+    const list = all.filter(r => r.layout === id);
+    if (!list.length) return [];
+    const sessions = new Set(list.map(r => r.session)).size, scores = list.flatMap(r => (r.score === null ? [] : [r.score]));
+    const lower = isWarmupId(id) && warmupLayout(id).metric === 'clearTime';
+    return [{
+      layout: id, title: isWarmupId(id) ? warmupLayout(id).title : id, attempts: list.length, sessions, repeats: list.length - sessions,
+      limit: list.filter(r => r.end === 'limit').length, clear: list.filter(r => r.end === 'clear').length, death: list.filter(r => r.end === 'death').length, exit: list.filter(r => r.end === 'exit').length,
+      records: list.filter(r => r.record).length, best: scores.length ? (lower ? Math.min(...scores) : Math.max(...scores)) : null, realMedian: median(list.map(r => r.realSeconds)),
+    }];
+  });
+  return { sessions: new Set(records.map(r => r.session)).size, withWarmup: new Set(all.map(r => r.session)).size, layouts };
+}
+const WARMUP_HEAD = ['Раскладка', 'Попыток', 'Сессий', 'Повторов', 'Лимит / чисто / смерть / выход', 'Новых рекордов', 'Лучший итог', 'Время мед., реально'];
+const WARMUP_LEGEND = 'Разминка у «Чурбаков» в лагере (`WarmupRecord`, задача 51ж, с 17.10.2026; run/warmup.ts): запись на каждую попытку, без журнала боя. Повторы — попытки раскладки после первой в той же сессии (риск спеки: «разминку повторяют 0 раз почти все — петля лишняя»). Лучший итог: «Строй» — звеньев одной цепью, «Пестрота» — секунд до чистого поля (меньше — лучше), «Через пропасть» — убийств. Выход — попытка брошена кнопкой, итога нет. Время — реальные секунды попытки (кадры без паузы). Доля сессий — от всех сессий набора. Записей до 17.10.2026 нет — «_нет данных_».';
+function warmupSection(records: readonly RtRecord[]): string {
+  const stats = warmupStats(records);
+  if (!stats.layouts.length) return `${WARMUP_LEGEND}\n\n_нет данных_`;
+  const share = `Сессий с разминкой: ${stats.withWarmup} из ${stats.sessions} (${pct(stats.withWarmup, stats.sessions)}).`;
+  return [WARMUP_LEGEND, '', share, '', table(WARMUP_HEAD, stats.layouts.map(l => [
+    l.title, l.attempts, l.sessions, `${l.repeats} (${pct(l.repeats, l.attempts)})`, `${l.limit} / ${l.clear} / ${l.death} / ${l.exit}`, l.records, l.best === null ? '—' : n1(l.best), `${n1(l.realMedian)} с`,
+  ]))].join('\n');
+}
+
 // ---- The prologue «Опушка» (PrologueRecord, from 13.10.2026) ----
 
 /** One room of the prologue over some playthroughs. Times — medians over the playthroughs that passed the room. */
@@ -1275,6 +1320,7 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Новое на карте', '', MAP_SIGN_LEGEND, '', table(MAP_SIGN_HEAD, mapSignRows(runs)), '',
     '## Подсказки', '', HINT_LEGEND, '', table(HINT_HEAD, hintRows(runs)), '',
     '## Пролог', '', prologueSection(set.records), '',
+    '## Разминка', '', warmupSection(set.records), '',
     '## Угрозы', '',
     'Предупреждения с героем в зоне при появлении. «Попал» — удар этого врага этим источником; «защищён» — тело в зоне в такт удара, но неуязвимость, щит цепи, проход, прыжок или пощада фокуса; «увернулся» — в такт удара тело вне зоны («укрытие» — рывок кабана или волка остановила стена или дерево, «стена», или край обрыва, «обрыв»); «прервано» — враг умер, отброшен, сбросил атаку или бой кончился. Выход — от появления зоны (у стаи волков — от начала воя) до первого такта вне неё (только увороты).', '',
     table(THREAT_HEAD, threatRows(fights)), '',
