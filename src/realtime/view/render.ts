@@ -1241,7 +1241,7 @@ export class RealtimeRenderer {
     for (const sx of [-1, 1]) ctx.poly([sx * r * 0.32, r * 0.55, sx * r * 0.72, r * 0.98, sx * r * 0.78, r * 0.42, sx * r * 0.52, r * 0.5]).fill(BONE).stroke({ color: NAVY, width: 2.5, join: 'round' });
   }
 
-  private buildEnemyBody(e: Enemy, look: EnemyLook, colorless: boolean): { body: Container; grey: Sprite | null; hpLabel: Text | null; exclaim: Text | null; quills: { up: Graphics; down: Graphics } | null; trollArt?: CoreArt; weapon?: Container } {
+  private buildEnemyBody(e: Enemy, look: EnemyLook, colorless: boolean): { body: Container; grey: Sprite | null; hpLabel: Text | null; exclaim: Text | null; quills: { up: Graphics; down: Graphics } | null; trollArt?: CoreArt; weapon?: Container; chiefArt?: ChiefArt } {
     const body = new Container();
     // Iteration 2.1: the porcupine's quills behind its disc (raised or lowered each frame).
     const quills = e.kind === 'porcupine' ? this.quillGraphics() : null;
@@ -2791,6 +2791,8 @@ export class RealtimeRenderer {
       // Task 27: the Jailer. A move hit — its sign flashes where it stood; a part severed — its chain falls; the core lost a
       // plate after the dash — «−1 пластина» over it, as an elite's.
       // Task 48: the Troll's events (his moves' hits flash the sign, «звон», the severed parts fall, a plate that grew back) — the rest are the Jailer's.
+      // Task 54a: the Chief's events (his moves' hits flash the sign, «звон» sparks, the window's hit and the links dropped, the brew, the severed parts) - the rest go on.
+      if ((ev.type === 'bossMove' || ev.type === 'chiefFeast' || ev.type === 'chiefBrew' || ev.type === 'partSevered' || ev.type === 'enemySignal') && this.chief.onEvent(ev, world, this.clock, enemyDrawRadius(world.params) * UNIT)) continue;
       if ((ev.type === 'bossMove' || ev.type === 'trollWindow' || ev.type === 'partSevered' || ev.type === 'bossPlate') && this.troll.onEvent(ev, world, this.clock, enemyDrawRadius(world.params) * UNIT)) continue;
       if (ev.type === 'bossMove') {
         const m = ev.stage === 'hit' ? this.bossMovesSeen.get(ev.id) : undefined;
