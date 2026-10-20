@@ -5,7 +5,7 @@
  * changes the world and no rule is copied (the geometry of every sign is the sim's own):
  * - the core — a large drawing (`CHIEF_ART` body radii) over its disc: grey while he is closed, the brew's colour in the window (the
  *   host's `colorlessLink`); in the window a glow round the contour in the BREW's colour (the art is never recoloured) and a whole-second
- *   count over the head; the queue — `need` dots of the brew's colour over the head while a chain is drawn, each lit by a link of the brew
+ *   count over the head; the queue — `need` dots of the brew's colour under the feet while a chain is drawn, each lit by a link of the brew
  *   in the drawn chain (with `chiefFeastBig` a second row of dots, dimmer); the drawn chain's last second — the core's link blinks;
  * - the parts — the ladle and the sack drawn behind their colour discs (the colour reads on the disc); a severed part falls off;
  * - the cauldron — a drawing on the floor at `ArenaTemplate.chief.cauldron` with the brew filling its throat and steam in the brew's colour
@@ -93,7 +93,7 @@ export function buildChief(r: number): ChiefArt {
     const sprite = hasCharacterArt('chief') ? characterSprite('chief', r * CHIEF_ART, r * CHIEF_ART) : null;
     const node: Container = sprite ?? procChief(r);
     if (sprite) sprite.position.set(0, -sprite.height / 2);
-    if (glow) { if (filter) node.filters = [filter]; node.scale.set(node.scale.x * (sprite ? 1.08 : 1.07), node.scale.y * (sprite ? 1.08 : 1.07)); node.alpha = 0; node.visible = false; }
+    if (glow) { if (filter) node.filters = [filter]; node.scale.set(node.scale.x * (sprite ? 1.14 : 1.1), node.scale.y * (sprite ? 1.14 : 1.1)); node.alpha = 0; node.visible = false; }
     return node;
   };
   const art = make(false), glow = make(true);
@@ -365,7 +365,7 @@ export class ChiefView {
     if (!art || !st) return;
     const win = st.window, lit = !!win && win.open && !win.hit, m = chiefMove(world);
     s.core = 1;
-    const urgent = !!win && win.left < 0.5 && Math.floor(clock * 12) % 2 === 0, a = lit ? (0.55 + 0.25 * Math.sin(clock * 9)) * (urgent ? 0.45 : 1) : 0;
+    const urgent = !!win && win.left < 0.5 && Math.floor(clock * 12) % 2 === 0, a = lit ? (0.8 + 0.2 * Math.sin(clock * 9)) * (urgent ? 0.4 : 1) : 0;
     art.glow.visible = lit; art.glow.alpha = a;
     if (lit) { setGlowColor(art, this.ink(st.brew)); s.glow = 1; }
     // «Обед!»: he throws his head back a little for the windup.
@@ -443,7 +443,7 @@ export class ChiefView {
   }
 
   /**
-   * The queue: over the core's head, `need` dots of the brew's colour while a chain is drawn and the window takes the hit; the first `queue`
+   * The queue: under the core's feet (over his head the arena's wall and the HUD hide it), `need` dots of the brew's colour while a chain is drawn and the window takes the hit; the first `queue`
    * are lit (links of the brew before him in the drawn chain), all lit and ringed when the queue is made. With `big` a second row, dimmer.
    * The core's link in the drawn chain whose window runs out within the second blinks (the sim's `chiefLinkDrop`).
    */
@@ -458,12 +458,12 @@ export class ChiefView {
       s.dropping = 1;
     }
     if (!win || !win.open || win.hit || !st.rule || !world.chain.length || st.need <= 0) return;
-    const color = this.ink(st.brew), x0 = st.x * U, y0 = st.y * U - r * (CHIEF_ART * 0.86 + 0.5), dot = Math.max(5, r * 0.2), gap = dot * 2.9, total = st.big > 0 ? st.big : st.need;
+    const color = this.ink(st.brew), x0 = st.x * U, y0 = st.y * U + r * (CHIEF_FEET + 1.9), dot = Math.max(6, r * 0.28), gap = dot * 2.8, total = st.big > 0 ? st.big : st.need;
     const made = st.queue >= st.need;
     s.dotColor = color;
     for (let i = 0; i < total; i++) {
       const row = i < st.need ? 0 : 1, k = row === 0 ? i : i - st.need, n = row === 0 ? st.need : total - st.need;
-      const x = x0 + (k - (n - 1) / 2) * gap, y = y0 - row * gap * 0.85, lit = i < st.queue;
+      const x = x0 + (k - (n - 1) / 2) * gap, y = y0 + row * gap * 0.85, lit = i < st.queue;
       g.circle(x, y, dot).fill({ color: lit ? color : 0x16202a, alpha: lit ? 1 : row === 0 ? 0.75 : 0.45 }).stroke({ color: lit ? NAVY : color, width: (lit ? 2 : 1.6) * px, alpha: lit ? 1 : row === 0 ? 0.9 : 0.45 });
       s.dots++; if (lit) s.litDots++;
     }
