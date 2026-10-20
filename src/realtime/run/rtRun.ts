@@ -220,6 +220,12 @@ export const RT_RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ itemHeal
  * and the sandbox keep theirs; the radius, the hero's damage and the enemies' damage are unchanged.
  */
 export const RT_SHORT_FUSE_ON = true;
+/**
+ * «Метка у героя» (council 20.10.2026; sim/spawn.ts `Params.markerSeek`): a new run keeps the flag `markerSeek`
+ * (`RtRunState.markerSeek`) and its battles play the marker that finds a place (`rtArenaParams`). A save without the flag plays the
+ * old path to its end (`RT_RUN_FORCED` leaves the key off).
+ */
+export const RT_MARKER_SEEK_ON = true;
 /** Task 19: the bust fuse of a run battle (game seconds; `Params.slotBustFuse`, `RT_RUN_FORCED` keeps 1.2). */
 export const RT_RUN_BUST_FUSE = 0.6;
 /** The values a run arena plays with: `runParams` (sandbox stand-ins off) with the run's own numbers (`RT_RUN_FORCED`). */
@@ -234,6 +240,8 @@ export function rtArenaParams(run: RtArenaRules | RtRunState, params: Params): P
   const rules: RtArenaRules = 'map' in run ? rtArenaRules(run) : run, out = { ...params, markedGoals: !!rules.markedGoals };
   // Task 19 «Короткий запал»: a run with the flag plays the short fuse; without it — the fuse of the params as they come.
   if (rules.shortFuse) out.slotBustFuse = RT_RUN_BUST_FUSE;
+  // «Метка у героя»: a run with the flag plays the marker that finds a place; without it — the key off, the path of before.
+  if (rules.markerSeek) out.markerSeek = true;
   // Task 30 «Формы в походе»: a run with the flag plays the counters' chain window («Острие», «Улов»), «Близнецы» with their price
   // (task 33) and «Возврат» fixed at the release as its highlight shows it (task 29: the shadow is the run); without it — the
   // values of `RUN_FORCED` (all off).
@@ -251,12 +259,12 @@ export function rtArenaParams(run: RtArenaRules | RtRunState, params: Params): P
  * Task 17: what of the run decides the params of its open battle (`rtArenaParams`): the flag `markedGoals` and, for a run
  * with `gentleEntry`, the run row of the open battle node (`gentleRow`; absent — an older run, or no battle open).
  */
-export interface RtArenaRules { markedGoals?: true; gentleRow?: number; shortFuse?: true; forms?: true; potionCap?: number }
+export interface RtArenaRules { markedGoals?: true; gentleRow?: number; shortFuse?: true; forms?: true; potionCap?: number; markerSeek?: true }
 export function rtArenaRules(run: RtRunState): RtArenaRules {
   const pending = run.pending, node = pending?.kind === 'battle' ? rtNode(run, pending.nodeId) : undefined;
   // Task 38: a garrison fight has no gentle row (the invulnerability 0.5 s and the tough touch from its row 1).
   const gentle = run.gentleEntry && node && !rtGarrisonNodeId(node.id);
-  return { ...run.markedGoals ? { markedGoals: true as const } : {}, ...gentle ? { gentleRow: runRow(node.row) } : {}, ...run.shortFuse ? { shortFuse: true as const } : {}, ...run.forms ? { forms: true as const } : {}, ...run.potionCap ? { potionCap: run.potionCap } : {} };
+  return { ...run.markedGoals ? { markedGoals: true as const } : {}, ...gentle ? { gentleRow: runRow(node.row) } : {}, ...run.shortFuse ? { shortFuse: true as const } : {}, ...run.forms ? { forms: true as const } : {}, ...run.potionCap ? { potionCap: run.potionCap } : {}, ...run.markerSeek ? { markerSeek: true as const } : {} };
 }
 /**
  * Task 30: the rules a fight of a run with the flag `forms` plays over `RUN_FORCED` (design 15.10.2026): the counters' window —
@@ -596,6 +604,11 @@ export interface RtRunState {
    * `RT_RUN_FORCED`, to its end.
    */
   shortFuse?: true;
+  /**
+   * «Метка у героя» (council 20.10.2026): the run's battles play `Params.markerSeek` (`rtArenaParams`). Set when the run is created
+   * (`RT_MARKER_SEEK_ON`); absent — a run saved before it: the markers of before, to its end.
+   */
+  markerSeek?: true;
   /**
    * Task 16 «Подвиги» (design 13.10.2026, complexity budget): the run's battles carry feats (`rtFeatOf`). Set when the run is
    * created from the profile — the player reached the Jailer in an earlier run (run/rtRunStorage.ts `featsOn`); absent — a first
@@ -966,7 +979,7 @@ export interface RtArenaOutcome {
  * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
  * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
  */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; troll?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; potionCap?: number; knacks?: boolean; habits?: boolean; hero?: RtHeroId } = {}): RtRunState {
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; markerSeek?: boolean; schedule?: readonly string[]; jailer?: boolean; troll?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; potionCap?: number; knacks?: boolean; habits?: boolean; hero?: RtHeroId } = {}): RtRunState {
   const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
   // Task 12 (13.10.2026): the goal layouts of the `marked` arenas, as the mix — on as `RT_RUN_FORCED` says unless the option says.
   const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
@@ -981,6 +994,8 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   const healMap = options.healMap ?? RT_HEAL_MAP_ON;
   // Task 19 «Короткий запал» (14.10.2026): its own flag, on unless the option says (false — the fuse of a save before it).
   const shortFuse = options.shortFuse ?? RT_SHORT_FUSE_ON;
+  // «Метка у героя» (20.10.2026): its own flag, on unless the option says (false — the markers of a save before it).
+  const markerSeek = options.markerSeek ?? RT_MARKER_SEEK_ON;
   // Task 26 «Расписание леса» (design 15.10.2026): the viewer's history (the view's profile) turns the schedule on — below
   // «Испытание II» only (II and up play the pools of before). Absent — the pools of before (tests, the bot, old measures).
   const schedule = options.schedule && ash < RT_ASH_TABLES ? [...new Set(options.schedule.filter(isScheduleElement))].sort() : undefined;
@@ -1010,7 +1025,7 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   // Task 49: Ведунья's run keeps her id (with or without the meta); the cat's — `cat` with the meta's snapshot only, as before.
   const heroId: RtHeroId | undefined = options.hero === RT_TOAD_ID ? RT_TOAD_ID : locked ? RT_HERO_ID : undefined;
   const run: RtRunState = {
-    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked } : {}, ...heroId ? { heroId } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...potionCap ? { potionCap } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...markerSeek ? { markerSeek: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked } : {}, ...heroId ? { heroId } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...potionCap ? { potionCap } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
@@ -3575,6 +3590,8 @@ function checkRun(value: unknown): RtRunState | null {
   if (value.healBought !== undefined && !(value.healMap === true && isCount(value.healBought) && value.healBought >= 1)) return null;
   // Task 19 (14.10.2026): a flag; absent — a save before it, which plays the fuse of `RT_RUN_FORCED`.
   if (value.shortFuse !== undefined && value.shortFuse !== true) return null;
+  // «Метка у героя» (20.10.2026): a flag; absent — a save before it, which plays the markers of before.
+  if (value.markerSeek !== undefined && value.markerSeek !== true) return null;
   // Task 16 (14.10.2026): a flag; absent — a save before it (or a first run), which has no feats.
   if (value.feats !== undefined && value.feats !== true) return null;
   // Task 18 (14.10.2026): the level 1–5 (task 45: 1–8); absent — 0. The task-17 flags must be those the level creates the run with.

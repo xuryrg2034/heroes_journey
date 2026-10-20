@@ -12,6 +12,7 @@
  *   the defect: no enemy, the marker's whole warning again and again;
  * - «Тесно»: every free point within the hero's ring — with the key the marker waits, its timer held (not started again), and the
  *   enemy comes out after the rest of it once the hero walks away;
+ * - the run: a new run keeps the flag `markerSeek` (its battles play the key), a save without it — the key off;
  * - every fight replays from its journal to its hash. Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import { registerArena } from './arenas';
@@ -19,6 +20,7 @@ import { wall } from './geometry';
 import { defaultParams, type Params } from './params';
 import { replay, Simulation, SIM_DT } from './simulation';
 import type { World } from './world';
+import { createRtRun, parseRtRun, rtArenaParams, rtRunParams, serializeRtRun } from '../run/rtRun';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -114,6 +116,22 @@ check('«Тесно»: no free point outside the hero\'s ring — with the key t
       assert(replays(sim), `seed ${k}, key ${seek}: replay`);
     }
   }
+});
+
+check('the run: a new run keeps the flag `markerSeek` and its battles play the key; a run created without it (a save before it) — the key off; the save reads back, a malformed flag — no run; a real run fight with it replays', () => {
+  for (const k of SEEDS) {
+    const run = createRtRun(seedOf(k)), old = createRtRun(seedOf(k), { markerSeek: false });
+    assert(run.markerSeek === true && old.markerSeek === undefined, `seed ${k}: the flag (${run.markerSeek}, ${old.markerSeek})`);
+    assert(rtArenaParams(run, rtRunParams(defaultParams())).markerSeek === true && !rtArenaParams(old, rtRunParams(defaultParams())).markerSeek, `seed ${k}: the battles' key`);
+    const back = parseRtRun(serializeRtRun(run));
+    assert(back?.markerSeek === true && JSON.stringify(back) === JSON.stringify(run), `seed ${k}: the save reads back`);
+    assert(parseRtRun(serializeRtRun({ ...run, markerSeek: 1 as unknown as true })) === null, `seed ${k}: a malformed flag — no run`);
+  }
+  // A real fight of a run with the flag (its first node's arena, the run's params): the hero stands; the journal keeps the key.
+  const run = createRtRun(seedOf(1)), params = rtArenaParams(run, rtRunParams(defaultParams()));
+  const sim = new Simulation({ arena: 'glade', params, seed: seedOf(1), record: true });
+  for (let i = 0; i < ticksOf(10); i++) sim.tick();
+  assert(sim.exportJournal()!.params.markerSeek === true && replays(sim), 'the run fight replays with the key');
 });
 
 console.log(`marker seek: ${checks} checks passed`);
