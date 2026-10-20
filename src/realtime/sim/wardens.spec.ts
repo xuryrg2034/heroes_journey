@@ -96,6 +96,23 @@ check('a chain that kills one: the highlight names the angry partner; after the 
   }
 });
 
+check('the cold does not stop the anger: the angry warden frozen 3 s is calm 8 s after the anger began (spec В11; 2 seeds)', () => {
+  for (const k of [1, 2]) {
+    const sim = gate(k), w = sim.world, [a, b] = pair(w);
+    sim.command({ t: 'items', kind: 'bomb', count: 1 });
+    sim.command({ t: 'teleport', x: 9.4, y: 6 });
+    sim.command({ t: 'item', kind: 'bomb', x: a.x, y: a.y });
+    ticks(sim, 2);
+    assert(wardenAngry(b), `seed ${k}: angry`);
+    sim.command({ t: 'chill', id: b.id, seconds: 3 });
+    ticks(sim, ticksOf(7.7));
+    assert(wardenAngry(b), `seed ${k}: still angry before 8 s`);
+    const end = ticks(sim, ticksOf(0.4));
+    assert(!wardenAngry(b) && of(end, 'warden').some(e => e.action === 'anger' && e.stage === 'end'), `seed ${k}: calm at 8 s, the cold did not stop the clock`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
 check('both by one pass — the colour freed by «Смена цвета» (4 links): no anger, as the highlight says (4 seeds)', () => {
   for (const k of [1, 2, 3, 4]) {
     // Three weak links of colour A first (power for both: HP 2 each), the colour free from the 4th link (A's warden) on.

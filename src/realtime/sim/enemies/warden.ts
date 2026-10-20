@@ -12,7 +12,7 @@
  * together: the second walks beside the first (`PAIR_GAP` across the way to the hero), the first walks to the hero.
  *
  * **The anger**: one of the pair dead and the other alive after the hero's move (a dash and its run) — the survivor is angry
- * `wardenAnger` s (a death outside a move — at once): the fast class, the touch `wardenAngerTouch`, «Размах» by the knight's law and
+ * `wardenAnger` s (a death outside a move — at once; the cold does not stop its clock): the fast class, the touch `wardenAngerTouch`, «Размах» by the knight's law and
  * keys (enemies/garrison.ts `swingStrike`; the first `ANGER_FIRST_SWING` s after the anger began, then a pause `knightPause`; its strike
  * waits for the hero's move). Then it calms down (no pair any more). Both by one pass — no anger. The highlight shows who will be angry
  * (chain.ts `planChain(...).anger`).
@@ -118,26 +118,26 @@ function followStep(world: World, e: Enemy, dt: number): boolean {
 
 registerBehavior({
   id: WARDEN,
-  beforeStep(world, members) {
+  beforeStep(world, members, dt) {
     if (!wardensOn(world)) return;
+    // (`members` — the living wardens, the frozen ones too.)
     drawPairs(world, members, palette(world));
     for (const e of members) {
+      const v = e.vars;
       // A partner gone: the anger after the hero's move (the highlight's promise), at once otherwise.
-      if (e.vars.wp !== undefined && !world.enemies.some(o => o.id === e.vars.wp) && !world.move) startAnger(world, e);
+      if (v.wp !== undefined && !world.enemies.some(o => o.id === v.wp) && !world.move) startAnger(world, e);
+      // The anger's clock runs here, for a frozen warden too (spec В11: the cold does not stop it; its «Размах» waits).
+      if ((v.wa ?? 0) > 0) {
+        v.wa = Math.max(0, v.wa - dt);
+        if (v.wa <= TIME_EPS) {
+          delete v.wa; delete v.ws; delete v.wt; delete v.wc;
+          world.events.push({ type: 'warden', action: 'anger', stage: 'end', id: e.id, x: e.x, y: e.y });
+        }
+      }
     }
   },
   step(world, e, dt) {
-    const v = e.vars;
-    if ((v.wa ?? 0) > 0) {
-      v.wa = Math.max(0, v.wa - dt);
-      if (v.wa <= TIME_EPS) {
-        delete v.wa; delete v.ws; delete v.wt; delete v.wc;
-        world.events.push({ type: 'warden', action: 'anger', stage: 'end', id: e.id, x: e.x, y: e.y });
-        return false;
-      }
-      return angerStep(world, e, dt);
-    }
-    return followStep(world, e, dt);
+    return (e.vars.wa ?? 0) > 0 ? angerStep(world, e, dt) : followStep(world, e, dt);
   },
 });
 
