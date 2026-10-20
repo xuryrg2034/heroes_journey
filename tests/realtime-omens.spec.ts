@@ -555,10 +555,10 @@ test('«Урожай»: the sack stands at the open door with «Удар — в�
   expect(errors).toEqual([]);
 });
 
-test('the merchant with «Ярмарочный день» and Шиш: one button — the omen's reroll first (icon, «от приметы»), then Шиш's (portrait, «Шишова лавка»); «Размен» stays; the screen fits 720 px', async ({ page }) => {
+test('the merchant with «Ярмарочный день» and Шиш: one button — the omen reroll first (icon, «от приметы»), then Шиш reroll (portrait, «Шишова лавка»); «Размен» stays; the screen fits 720 px', async ({ page }) => {
   test.setTimeout(120_000);
   const errors = collectErrors(page);
-  const { run, nodeId } = mapWhere(['fair'], (_r, n) => n.type === 'shop', { hearth: { shopRerolls: 1, swap: true } as never });
+  const { run, nodeId } = mapWhere(['fair'], (_r, n) => n.type === 'shop', { locked: [], hearth: { shopRerolls: 1, swap: true } as never });
   await openSave(page, run);
   await page.locator(`[data-node="${nodeId}"]`).click();
   await page.getByTestId('run-enter').click();
