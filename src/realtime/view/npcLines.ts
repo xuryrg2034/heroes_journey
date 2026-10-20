@@ -12,7 +12,7 @@ export type LineKey = 'first' | 'first_self' | 'win_first' | 'win' | `death_${De
   | 'quest_give' | 'quest_give_final' | 'quest_done' | 'quest_fail' | 'idle' | 'about_owl' | 'about_herb' | 'about_smith' | 'about_gambler' | 'about_monk' | 'locked3' | 'pack'
   | 'win_garrison_first' | 'meet_hello' | 'back_met' | 'first_won' | 'first_lost' | 'casino_won' | 'casino_lost'
   | 'habit_first' | 'knack_first' | 'vow_kept' | 'vow_broken' | 'memory_cuts' | 'memory_castellan'
-  | 'leave' | 'back_missed' | 'meet_deal' | 'meet_no' | 'trace_herb' | 'trace_smith' | 'trace_gambler';
+  | 'leave' | 'back_missed' | 'meet_deal' | 'meet_no' | 'trace_herb' | 'trace_smith' | 'trace_gambler' | 'warmup_record';
 
 export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly string[]>>>> = {
   owl: {
@@ -46,6 +46,8 @@ export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly 
     win_garrison_first: ['Гарнизон пройден. Открываю новый том — старый кончился на Кастеляне.'],
     trace_herb: ['Марфа ушла за корнем, в сторону Тролля. Записала: вернётся после похода.'],
     trace_smith: ['Ерофей ушёл точить в ближний лес. Ищи его на ранних привалах.'],
+    // Task 51ж (npc-lines-v2.md): a new record of the warmup, with no Ерофей at the fire.
+    warmup_record: ['Новый рекорд на «Чурбаках». Записала мелко, на полях.'],
     trace_gambler: ['Шиш ушёл к столу. Кружку оставил, кости тоже, долги — само собой.'],
     locked3: ['Эту страницу открою, когда дойдёшь до гарнизона. Раньше — не по чину.'],
     pack: ['В лесу появилось новое. Я внесла в опись три строки.'],
@@ -118,6 +120,8 @@ export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly 
     buy_3: ['«Правка в гарнизоне». Худая награда в караульне — разок перебросишь.'],
     win_garrison_first: ['Гарнизон прошёл. Сталь там добрая была — а ты острее.'],
     leave: ['Пойду, колесо поправлю. Ищи на первых привалах леса.'],
+    // Task 51ж (npc-lines-v2.md): a new record of the warmup (Ерофей keeps the straw).
+    warmup_record: ['Ровно. Ещё раз — ровнее.', 'Опять рекорд на «Чурбаках». Солома в клочья — значит, рука встала.'],
     back_met: ['Встретились на привале. Добро — колесо по тебе скучало.'],
     back_missed: ['Не дождался. Колесо зря крутил.'],
     meet_hello: ['Малый. Садись, пока точу.'],

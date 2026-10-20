@@ -760,3 +760,25 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-shop-two { grid-template-columns: 1fr 1fr; gap: 6px; }
 .rt-shop-two .rt-run-choice { padding: 6px 10px; }
 .rt-run-modal:has(.rt-shop-two) h2 { font-size: 26px; margin: 0 0 4px; }
+
+/* Task 51ж «Разминка»: «Чурбаки» by the fire (stand-in drawing), the choice of the layouts, the attempt's exit and result. */
+.rt-hearth-warmup { display: flex; flex-direction: column; align-items: center; }
+.rt-hearth-warmup svg { filter: drop-shadow(0 6px 6px #000a); transition: transform .15s, filter .15s; }
+.rt-hearth-warmup:hover svg { transform: translateY(-4px) scale(1.04); filter: drop-shadow(0 0 12px #ffb347aa); }
+.rt-hearth-warmup-card { width: 560px; }
+.rt-hearth-warmup-list { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 8px; }
+.rt-hearth-warmup-row { width: 100%; display: grid; grid-template-columns: 150px 1fr auto; align-items: center; gap: 12px; padding: 8px 12px; text-align: left; background: #1a1e16; border: 2px solid #444837; color: #e8d7ad; }
+.rt-hearth-warmup-row:hover { border-color: #c8a56b; }
+.rt-hearth-warmup-row b { font: 600 16px Georgia, serif; }
+.rt-hearth-warmup-row span { font-size: 13px; color: var(--rt-muted); }
+.rt-hearth-warmup-row em { font: 700 14px system-ui, sans-serif; font-style: normal; color: #ffd88a; font-variant-numeric: tabular-nums; }
+.rt-hearth-warmup-row em[data-none] { color: var(--rt-muted); font-weight: 400; }
+.rt-warmup-exit { position: absolute; top: 14px; right: 18px; z-index: 7; padding: 3px 9px; font-size: 12px; color: var(--rt-muted); background: #121710b3; border: 1px solid var(--rt-line); cursor: pointer; opacity: 0.75; }
+.rt-warmup-exit:hover { opacity: 1; color: var(--rt-ink); }
+.rt-warmup-card { min-width: 380px; }
+.rt-warmup-card h2 { color: #e8d7ad; }
+.rt-warmup-card .rt-warmup-score { margin: 4px 0 10px; font: 600 26px Georgia, serif; color: #f1e6c8; }
+.rt-warmup-card .rt-warmup-record { margin: 0 0 6px; font-size: 14px; color: var(--rt-muted); }
+.rt-warmup-card .rt-warmup-record.rt-new { color: #ffd88a; font-weight: 700; }
+.rt-warmup-card .rt-warmup-say { margin: 8px 0 12px; padding: 6px 10px; background: #f1e6c8; color: #1b2017; border: 2px solid #18232d; font: italic 14px Georgia, serif; line-height: 1.35; }
+.rt-warmup-card .rt-warmup-say b { font-style: normal; }

@@ -15,6 +15,8 @@ import { HEARTH_GATE_LOCK, HEARTH_MONK_LOCK, HEARTH_PLACES, HEARTH_PRICES, NPCS,
 import { NPC_LINES, npcLine, pickLine, questLine, type DeathCause, type LineKey } from './npcLines';
 import { rowWord } from './metaEnd';
 import { toadLine, toadRunKey } from './heroLines';
+import type { WarmupId, WarmupRecords } from '../run/warmup';
+import { warmupRows } from './warmupFlow';
 
 const esc = (s: string): string => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 const ICON = '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M10 2 L17 7 L14.5 17 L5.5 17 L3 7 Z" fill="#e3b45a" stroke="#1a2330" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 7 L10 9 L17 7 M10 9 L10 17" fill="none" stroke="#1a2330" stroke-width="1.2" stroke-linejoin="round"/></svg>';
@@ -28,6 +30,10 @@ const ICON = '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"
 const PLACE_AT: readonly { x: number; y: number; s: number }[] = [
   { x: 345, y: 352, s: 0.9 }, { x: 935, y: 356, s: 0.9 }, { x: 305, y: 528, s: 0.95 }, { x: 245, y: 422, s: 1 }, { x: 1045, y: 422, s: 1 }, { x: 940, y: 522, s: 0.85 },
 ];
+/** Task 51ж: the «Чурбаки» place (feet, px of the 1280×720 screen) — the free ground of the front right, clear of the rug's NPC and the heroes. */
+const WARMUP_AT = { x: 1135, y: 590 } as const;
+/** Stand-in of «Чурбаки» (no art yet): two stumps, each with a straw dummy. */
+const WARMUP_SVG = '<svg viewBox="0 0 150 120" width="130" aria-hidden="true"><ellipse cx="75" cy="108" rx="64" ry="9" fill="#0a0d09" opacity=".6"/><g stroke="#0d141b" stroke-width="4" stroke-linejoin="round"><path d="M16 96 L16 74 Q16 68 40 68 Q64 68 64 74 L64 96 Q40 104 16 96 Z" fill="#7a5632"/><ellipse cx="40" cy="74" rx="24" ry="6" fill="#a47a48"/><path d="M40 70 L40 40" fill="none"/><path d="M26 44 Q40 36 54 44 L52 60 Q40 66 28 60 Z" fill="#d9b867"/><circle cx="40" cy="30" r="10" fill="#e8cf86"/><path d="M84 100 L84 80 Q84 74 108 74 Q132 74 132 80 L132 100 Q108 108 84 100 Z" fill="#6a4a2a"/><ellipse cx="108" cy="80" rx="24" ry="6" fill="#94693c"/><path d="M108 76 L108 46" fill="none"/><path d="M92 50 Q108 42 124 50 L122 66 Q108 72 94 66 Z" fill="#d9b867"/><circle cx="108" cy="36" r="10" fill="#e8cf86"/></g><path d="M101 33 L103 35 M105 33 L103 35 M111 33 L113 35 M115 33 L113 35 M103 41 Q108 44 113 41 M33 27 L35 29 M37 27 L35 29 M43 27 L45 29 M47 27 L45 29" fill="none" stroke="#0d141b" stroke-width="2" stroke-linecap="round"/></svg>';
 /** The NPC's art (public/art/characters; design, Codex): a stand-in silhouette shows if the image does not load. */
 export const NPC_ART: Readonly<Record<NpcId, string>> = { owl: 'npc-owl', herb: 'npc-herbalist', smith: 'npc-smith', gambler: 'npc-gambler', monk: 'npc-monk' };
 export const artUrl = (path: string): string => new URL(`art/${path}`, document.baseURI).href;
@@ -75,6 +81,8 @@ export interface HearthHost {
   sound?(kind: 'buy' | 'open'): void;
   /** The enemy kinds the viewer has met (the bestiary; view/newSeen.ts memory), besides the profile's `seen`. */
   beasts?(): string[];
+  /** Task 51ж «Разминка»: the layouts' records (`meta.warmup`) and the start of an attempt on layout `id` (absent — no «Чурбаки»). */
+  warmup?: { records(): WarmupRecords | undefined; start(id: WarmupId): void };
 }
 
 /** What the camp shows now (tests read it). */
@@ -82,12 +90,16 @@ export interface HearthShown {
   open: boolean; npcs: NpcId[]; empty: number; bubble: NpcId | null; line: string; bought: number; bestiary: number;
   /** Task 49: the heroes by the fire (the chosen one first), the hero chosen, and the line Ведунья says now (empty - none). */
   heroes: MetaHeroId[]; hero: MetaHeroId; heroLine: string;
+  /** Task 51ж: the choice of the warmup's layouts is open now (the rows it shows: id, name, record). */
+  warmup: { open: boolean; rows: { id: WarmupId; title: string; record: string }[] };
 }
 
 export class HearthView {
   readonly el: HTMLDivElement;
   private bubble: NpcId | null = null;
   private bestiary = false;
+  /** Task 51ж: the choice of the warmup's layouts (a click on «Чурбаки») is open. */
+  private warmupChoice = false;
   /** The occasion line was said in this visit (then idle lines). */
   private said = new Set<NpcId>();
   private boughtNow: { npc: NpcId; level: 1 | 2 | 3 } | null = null;
@@ -97,7 +109,7 @@ export class HearthView {
   /** Task 51д: the line over a trace (the leaver's goodbye said on this visit, then the owl's line of a click on it). */
   private leaveSaid = new Map<NpcId, string>();
   private traceSay: { npc: NpcId; text: string } | null = null;
-  readonly shown: HearthShown = { open: false, npcs: [], empty: 0, bubble: null, line: '', bought: 0, bestiary: 0, heroes: [], hero: 'cat', heroLine: '' };
+  readonly shown: HearthShown = { open: false, npcs: [], empty: 0, bubble: null, line: '', bought: 0, bestiary: 0, heroes: [], hero: 'cat', heroLine: '', warmup: { open: false, rows: [] } };
 
   constructor(private readonly host: HearthHost) {
     this.el = document.createElement('div');
@@ -111,7 +123,7 @@ export class HearthView {
     probe.onerror = () => { this.el.classList.add('rt-hearth-noart'); this.el.style.removeProperty('--hearth-art'); };
     probe.src = artUrl('camp/hearth.png');
     window.addEventListener('resize', () => { if (!this.el.hidden) this.fit(); });
-    window.addEventListener('keydown', event => { if (event.key === 'Escape' && !this.el.hidden && (this.bubble || this.bestiary)) { this.bubble = null; this.bestiary = false; this.draw(); } });
+    window.addEventListener('keydown', event => { if (event.key === 'Escape' && !this.el.hidden && (this.bubble || this.bestiary || this.warmupChoice)) { this.bubble = null; this.bestiary = false; this.warmupChoice = false; this.draw(); } });
   }
 
   /** UI-01б: the scene's scale `--s` = max(1, min(window width / 1280, window height / 720)); the 1280×720 coordinates stay as they are. */
@@ -123,7 +135,7 @@ export class HearthView {
   get isOpen(): boolean { return !this.el.hidden; }
 
   open(): void {
-    this.el.hidden = false; this.bubble = null; this.bestiary = false; this.said.clear(); this.leaveSaid.clear(); this.traceSay = null;
+    this.el.hidden = false; this.bubble = null; this.bestiary = false; this.warmupChoice = false; this.said.clear(); this.leaveSaid.clear(); this.traceSay = null;
     // Task 49: the first camp after the rescue - her one line names the deed (`first_camp`, said once).
     this.heroLine = '';
     const camp = this.host.meta.hearth();
@@ -185,7 +197,35 @@ export class HearthView {
     const center = `<div class="rt-hearth-fire-wrap">${FIRE_SVG}</div><div class="rt-hearth-glow"></div><div class="rt-hearth-center"><div class="rt-hearth-bar" data-testid="hearth-bar" title="Опыт героя"><i style="width:${(bar.k * 100).toFixed(1)}%"></i><em>${h.xp}${bar.to !== null ? ` / ${bar.to}` : ''}</em></div>${next}${record}${go}</div>`;
     const head = `<header class="rt-hearth-head"><b>Очаг</b><span class="rt-hearth-stock" data-testid="hearth-stock" title="Запас лагеря">${ICON}<b>${h.stock}</b></span></header>`;
     this.shown.heroLine = this.heroLine;
-    this.el.innerHTML = head + `<div class="rt-hearth-stage">${center}${places}${this.heroesHtml()}${this.bubbleHtml(h)}</div>${this.bestiaryHtml(h)}`;
+    this.el.innerHTML = head + `<div class="rt-hearth-stage">${center}${places}${this.heroesHtml()}${this.warmupHtml()}${this.bubbleHtml(h)}</div>${this.bestiaryHtml(h)}${this.warmupChoiceHtml()}`;
+  }
+
+  /**
+   * Task 51ж: the line of a new warmup record (`warmup_record`; the memory counts it): Ерофей's while he is at the fire, else Неясыть's —
+   * `speaker` says who (view/warmupFlow.ts). Null — the speaker has no line.
+   */
+  warmupLine(speaker: (smithHere: boolean) => 'smith' | 'owl'): { who: string; text: string } | null {
+    const h = this.host.meta.hearth(), npc = speaker(this.npcsHere(h).includes('smith'));
+    const line = npcLine(npc, 'warmup_record', h.last?.hero, h.lines);
+    if (!line) return null;
+    this.host.meta.markLine(line.id);
+    return { who: NPCS[npc].name, text: line.text };
+  }
+
+  /** Task 51ж: «Чурбаки» — straw dummies on stumps on the free ground of the front; a click opens the choice of the layouts. */
+  private warmupHtml(): string {
+    if (!this.host.warmup) return '';
+    return `<button class="rt-hearth-place rt-hearth-warmup" style="left:${WARMUP_AT.x}px;top:${WARMUP_AT.y}px" data-action="warmup" data-testid="hearth-warmup" title="Разминка цепью">${WARMUP_SVG}<span class="rt-hearth-name">Чурбаки</span></button>`;
+  }
+
+  /** Task 51ж: the choice of a layout — its name, what it asks, the record; a click starts it. «Назад» — to the camp. */
+  private warmupChoiceHtml(): string {
+    this.shown.warmup = { open: this.warmupChoice && !!this.host.warmup, rows: [] };
+    if (!this.warmupChoice || !this.host.warmup) return '';
+    const rows = warmupRows(this.host.warmup.records());
+    this.shown.warmup.rows = rows.map(r => ({ id: r.id, title: r.title, record: r.record }));
+    const list = rows.map(r => `<li><button class="rt-hearth-warmup-row" data-action="warmup-pick" data-id="${r.id}" data-testid="warmup-pick-${r.id}"><b>${esc(r.title)}</b><span>${esc(r.goal)}</span><em data-testid="warmup-best-${r.id}"${r.best === null ? ' data-none="true"' : ''}>${esc(r.record)}</em></button></li>`).join('');
+    return `<div class="rt-overlay rt-hearth-modal" data-action="close" data-testid="warmup-choice"><div class="rt-card rt-hearth-book-card rt-hearth-warmup-card"><h2>Чурбаки</h2><p class="rt-run-note">Разминка цепью: без награды, у каждой раскладки свой рекорд.</p><ul class="rt-hearth-warmup-list">${list}</ul><button class="rt-other" data-action="warmup-back" data-testid="warmup-back">Назад</button></div></div>`;
   }
 
   /** Task 51д: the trace of an NPC away — on its place (basket, wheel, mug); a click: the owl's line; the NPC's goodbye over it once a departure. */
@@ -290,7 +330,10 @@ export class HearthView {
       this.draw(); return;
     }
     if (action === 'bestiary') { this.bestiary = true; this.draw(); return; }
-    if (action === 'close') { if (event.target === target || target.tagName === 'BUTTON') { this.bestiary = false; this.draw(); } return; }
+    if (action === 'warmup') { this.bubble = null; this.warmupChoice = true; this.draw(); return; }
+    if (action === 'warmup-back') { this.warmupChoice = false; this.draw(); return; }
+    if (action === 'warmup-pick') { const id = target.dataset.id as WarmupId; this.warmupChoice = false; this.close(); this.host.warmup?.start(id); return; }
+    if (action === 'close') { if (event.target === target || target.tagName === 'BUTTON') { this.bestiary = false; this.warmupChoice = false; this.draw(); } return; }
     if (action === 'back') { this.close(); this.host.back(); return; }
     // The one start of a run (runStart.ts): the camp's choices bought, then the run — the same way as «Новый поход».
     if (action === 'go') { this.close(); this.host.begin(); return; }

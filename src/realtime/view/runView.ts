@@ -52,6 +52,7 @@ import { rtOmen, rtOmensGate, type RtFightOmens } from '../run/omens';
 import type { FirstMeetId } from './firstMeet';
 import { ICON as STOCK_ICON, MetaEndView, type MetaSound } from './metaEnd';
 import { HearthView, NPC_ART, artUrl } from './hearthView';
+import type { WarmupId, WarmupMerge } from '../run/warmup';
 import { npcLine, type LineKey } from './npcLines';
 import { NPCS, type NpcId } from './metaModel';
 import { ProfileMeta } from './metaSource';
@@ -83,6 +84,8 @@ export type RewardSound = 'reward0' | 'reward1' | 'reward2';
 
 /** What the run asks of the arena view. */
 export interface RunHost {
+  /** Task 51ж «Разминка»: «Чурбаки» of the camp start an attempt on layout `id` (absent — the camp has no «Чурбаки»). */
+  warmup?: { start(id: WarmupId): void };
   /**
    * Start the arena of the entered battle node (the run's HP, the node's seed, the run's consumables and energy; phase A —
    * its roster, absent for the template's own composition) and show it. `rules` (`rtArenaRules`): task 12 — the run's flag
@@ -520,6 +523,7 @@ export class RunView {
       back: () => this.open(),
       sound: kind => this.host.meta?.sound(kind),
       beasts: () => { const seen = this.host.newSeen?.store; return seen ? Object.keys(KIND_CAPTIONS).filter(k => seen.hasKind(k)) : []; },
+      ...host.warmup ? { warmup: { records: () => this.profile.warmup(), start: (id: WarmupId) => this.host.warmup?.start(id) } } : {},
     }) : null;
   }
 
@@ -551,6 +555,9 @@ export class RunView {
     const end = this.profile.endRunMeta(previous);
     if (end) this.host.meta?.end?.(previous, end);
   }
+
+  /** Task 51ж: an attempt of warmup layout `id` ended with `score` (null — none): merged into the profile's records (core's `warmupResult`). */
+  warmupResult(id: WarmupId, score: number | null): WarmupMerge { return this.profile.warmupResult(id, score); }
 
   /** Tasks 36–37: the camp «Очаг» over the run screen. */
   openHearth(): void {

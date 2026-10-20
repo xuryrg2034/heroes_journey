@@ -83,6 +83,10 @@ import type { FightObserverFactory, ReplayTo, RtRecord } from '../telemetry/sche
 import { fightObserver, skipKey } from '../telemetry/observe';
 import { RtRecorder, type FightContext } from '../telemetry/recorder';
 import type { PrologueTally } from '../telemetry/prologue';
+import { WARMUP_SEED, warmupEnd, warmupLayout, warmupLoadout, warmupParams, warmupScore, type WarmupEnd, type WarmupId } from '../run/warmup';
+import { warmupBody } from '../telemetry/warmup';
+import { warmupLabel, warmupLabelText, warmupResultText, warmupSpeaker } from './warmupFlow';
+import { WarmupDom } from './warmupView';
 import { devSource } from '../telemetry/sinks';
 import { LogsPanel } from './logsPanel';
 import { BossBar, bossBarState, BOSS_BAR_H, goalLabelOf } from './bossBar';
@@ -487,7 +491,7 @@ async function boot(): Promise<void> {
     motion.clear();
     fightWatch.reset();
     deathSeries.reset();
-    if (simParams) return new Simulation({ arena, params: simParams, seed, record: true, beforeTick: world => { motion.save(world); }, ...hero ? { hero } : {}, ...loadout ? { loadout } : {} });
+    if (simParams) return new Simulation({ arena, params: simParams, seed, record: true, beforeTick: world => { motion.save(world); warmupWatch(world); }, ...hero ? { hero } : {}, ...loadout ? { loadout } : {} });
     return new Simulation({ arena, params: runArenaParams ?? params, seed, record: true, beforeTick: world => { motion.save(world); recorder?.beforeTick(world); deathWatch.seen(world); deathSeries.seen(world); }, ...hero ? { hero } : {}, loadout: loadout ?? sandboxLoadout() });
   };
 
@@ -539,6 +543,17 @@ async function boot(): Promise<void> {
   const prologueEntry = prologueDue ? prologueEntryRoom(location.search, import.meta.env.DEV) : null;
   /** The room being played (null — not in the prologue). */
   let prologue: { n: number; attempt: number; guide: HandGuide | null; label: PrologueLabelMemo; titleLeft: number; lastTime: number; seconds: number; real: number } | null = null;
+  /**
+   * Task 51ж «Разминка» (view/warmupFlow.ts, view/warmupView.ts, run/warmup.ts): the attempt being played (null — none). `final` — how it ended and its
+   * score, read by `warmupWatch` from the world before the next tick (so the score is the one of the attempt's last tick, not of the frame's);
+   * `real` — real seconds played; `done` — its result is shown (the record is merged and sent once).
+   */
+  let warmup: { id: WarmupId; final: { end: WarmupEnd; score: number | null; time: number } | null; real: number; done: boolean } | null = null;
+  const warmupWatch = (world: World): void => {
+    if (!warmup || warmup.final) return;
+    const end = warmupEnd(world, warmup.id);
+    if (end) warmup.final = { end, score: warmupScore(world, warmup.id, end), time: world.time };
+  };
   /** The telemetry of this playthrough (telemetry/prologue.ts; null — no recorder). */
   let prologueTally: PrologueTally | null = null;
   /** Between rooms: the fade out (`t` below 0 is a beat to look at the room), the switch at its end, then the fade in. */
@@ -770,7 +785,7 @@ async function boot(): Promise<void> {
   other.addEventListener('click', showMenu);
 
   // Design smoke v65 (D2): the boss's glide holds the fight (no input) as the pause does.
-  const running = (): boolean => !paused && !menuOpen && !runScreenOpen && !transitionKind() && !renderer.bossIntroOn() && world().status === 'playing';
+  const running = (): boolean => !paused && !menuOpen && !runScreenOpen && !transitionKind() && !renderer.bossIntroOn() && world().status === 'playing' && !warmup?.final;
 
   // The run (stage 2): the map screen over the arena; a battle node starts its arena here with the run's HP.
   // П7 «Часы сессии»: the viewer's session clock (the view only); heartbeat while the tab is visible, so only a hidden or
@@ -821,6 +836,8 @@ async function boot(): Promise<void> {
     openSandbox: () => { location.hash = '#sandbox'; },
     firstMeet: meetFirst,
     ...fixedHero ? { fixedHero } : {},
+    // Task 51ж: «Чурбаки» of the camp start an attempt here (the records and the line come through the run view).
+    ...sandbox ? {} : { warmup: { start: (id: WarmupId) => startWarmup(id) } },
     // Tasks 36–37: the meta outside the sandbox; its sounds follow the run's sound setting.
     ...sandbox ? {} : { meta: {
       sound: (kind: MetaSoundKind) => {
@@ -1193,6 +1210,83 @@ async function boot(): Promise<void> {
       }
     }
   };
+  // ---- The warmup «Чурбаки»: an attempt on a fixed layout, the result panel, «Выход» (docs/realtime-slice.md, «Разминка») ----
+  const warmupDom = new WarmupDom();
+  host.append(...warmupDom.elements);
+  /** The tiles of an attempt: «Через пропасть» — the jump and the whirl; the others — the chain alone (no consumables). */
+  const warmupTiles = (id: WarmupId): readonly TileId[] => (id === 'warmup-gap' ? ['jump', 'spin'] : []);
+  const startWarmupAttempt = (id: WarmupId): void => {
+    runScreenOpen = false;
+    if (runView) runView.el.hidden = true;
+    runLabel = null;
+    warmup = { id, final: null, real: 0, done: false };
+    warmupDom.hideResult();
+    warmupDom.exit.hidden = false;
+    startArena(warmupLayout(id).arena, WARMUP_SEED, undefined, warmupLoadout(), undefined, warmupParams(id));
+    actionBar.setAllowed(warmupTiles(id));
+  };
+  /** The camp's «Чурбаки» pick: the first attempt of layout `id`. */
+  function startWarmup(id: WarmupId): void {
+    if (sandbox) return;
+    transition = null;
+    startWarmupAttempt(id);
+  }
+  /** Back to the camp (from the result or «Выход»). */
+  const leaveWarmup = (): void => {
+    warmup = null;
+    warmupDom.hideResult();
+    warmupDom.exit.hidden = true;
+    actionBar.setAllowed('all');
+    labelLayer.hideAll();
+    command({ t: 'cancel' });
+    dragging = false; stopAim();
+    runScreenOpen = true;
+    runView?.openHearth();
+  };
+  /** The attempt ended (`final`): merge the score into the profile's records, the result panel, the NPC's line of a record, the telemetry. */
+  const finishWarmup = (): void => {
+    const wm = warmup;
+    if (!wm?.final || wm.done || !runView) return;
+    wm.done = true;
+    command({ t: 'cancel' });
+    dragging = false; stopAim();
+    const { end, score, time } = wm.final;
+    const merge = runView.warmupResult(wm.id, score);
+    const say = merge.record && score !== null ? runView.hearth?.warmupLine(warmupSpeaker) ?? null : null;
+    warmupDom.showResult(warmupResultText(wm.id, end, score, merge), say);
+    recorder?.warmupAttempt(warmupBody(wm.id, end, score, merge, time, wm.real), warmupParams(wm.id));
+  };
+  /** «Выход»: the attempt is left without a result (telemetry: `exit`); a finished attempt's panel has «В лагерь». */
+  const exitWarmup = (): void => {
+    const wm = warmup;
+    if (!wm) return;
+    if (!wm.done && runView) {
+      const merge = runView.warmupResult(wm.id, null);
+      recorder?.warmupAttempt(warmupBody(wm.id, 'exit', null, merge, world().time, wm.real), warmupParams(wm.id));
+    }
+    leaveWarmup();
+  };
+  warmupDom.exit.addEventListener('click', exitWarmup);
+  warmupDom.back.addEventListener('click', leaveWarmup);
+  warmupDom.again.addEventListener('click', () => { if (warmup) startWarmupAttempt(warmup.id); });
+  /** One frame of an attempt: the real time played, the end when the world reached it, the result panel. */
+  const stepWarmup = (w: World, realDt: number, live: boolean): void => {
+    const wm = warmup;
+    if (!wm) return;
+    if (live) wm.real += realDt;
+    // The end of the last tick of the frame (no tick follows it in this frame for `warmupWatch` to read).
+    warmupWatch(w);
+    if (wm.final) finishWarmup();
+  };
+  /** The warmup's part of `snapshot()` (the tests read it). */
+  const warmupSnapshot = () => {
+    const wm = warmup;
+    return {
+      active: !!wm, id: wm?.id ?? null, final: wm?.final ? { ...wm.final } : null, real: wm?.real ?? 0,
+      exitVisible: !warmupDom.exit.hidden, panel: { ...warmupDom.shown }, label: wm && !wm.final ? warmupLabelText(wm.id, world()) : null,
+      tiles: { jump: !jumpAbility.hidden, spin: !spinAbility.hidden, items: SLOT_ITEMS.filter((_, i) => !itemSlots[i].hidden) },
+    };
+  };
   /** The prologue's part of `snapshot()` (the tests read it). */
   const prologueSnapshot = () => {
     const pl = prologue, g = pl?.guide;
@@ -1272,7 +1366,7 @@ async function boot(): Promise<void> {
     fpsFrames++; fpsTime += realDt;
     if (fpsTime >= 0.5) { fps = fpsFrames / fpsTime; fpsFrames = 0; fpsTime = 0; }
     const workStart = performance.now();
-    const live = !paused && !menuOpen && !runScreenOpen;
+    const live = !paused && !menuOpen && !runScreenOpen && !warmup?.final;
     const axis = (minus: string[], plus: string[]): number => (plus.some(k => held.has(k)) ? 1 : 0) - (minus.some(k => held.has(k)) ? 1 : 0);
     const walkX = axis(['KeyA', 'ArrowLeft'], ['KeyD', 'ArrowRight']), walkY = axis(['KeyW', 'ArrowUp'], ['KeyS', 'ArrowDown']);
     // Design smoke v65 (D2): the boss's glide holds the fight's first tick — no ticks, no walk (keys held through it walk after it).
@@ -1443,14 +1537,16 @@ async function boot(): Promise<void> {
     }
     // The prologue: the room's own step, the HUD that shows only what the room teaches, the fade back in after a switch.
     if (prologue && !runScreenOpen) stepPrologue(w, realDt, live);
+    if (warmup && !runScreenOpen) stepWarmup(w, realDt, live);
     if (fadeIn > 0 && !transition) { fadeIn = Math.max(0, fadeIn - realDt); prologueDom.setFade(fadeIn / FADE_IN); }
     {
-      const early = !!prologue && prologue.n < PROLOGUE_ROOM_COUNT;
-      host.classList.toggle('rt-pl', !!prologue);
+      // Task 51ж: the layouts with no jump or whirl (every one but «Через пропасть») show no energy and no focus bar, as the prologue's early rooms.
+      const early = (!!prologue && prologue.n < PROLOGUE_ROOM_COUNT) || (!!warmup && warmup.id !== 'warmup-gap');
+      host.classList.toggle('rt-pl', !!prologue || !!warmup);
       host.classList.toggle('rt-pl-early', early);
       // Task 9: the bar shows the room's tiles; a room without any hides it (rooms 1–4 and «Гоблин»).
-      const tiles = prologue ? prologueRoom(prologue.n).tiles : 'all';
-      actionBar.el.hidden = tiles !== 'all' && tiles.length === 0; help.hidden = !!prologue;
+      const tiles = prologue ? prologueRoom(prologue.n).tiles : warmup ? warmupTiles(warmup.id) : 'all';
+      actionBar.el.hidden = tiles !== 'all' && tiles.length === 0; help.hidden = !!prologue || !!warmup;
       prologueDom.skip.hidden = !prologue;
     }
     // World labels (view/worldLabels.ts): the run only. With the toggle on, an action done in this frame marks its label for this
@@ -1477,6 +1573,8 @@ async function boot(): Promise<void> {
         if (spec && renderer.sees(spec.at)) specs = [spec];
       }
       if (!runScreenOpen && !menuOpen) for (const l of bossLabels) if (renderer.sees(l.spec.at)) specs.push(l.spec);
+      // Task 51ж: the attempt's label at the hero — the timer and the number the record is made of (view/warmupFlow.ts).
+      if (warmup && !warmup.final && !runScreenOpen && !menuOpen && w.status === 'playing') specs.push(warmupLabel(warmup.id, w));
       // Task 49: the mage's lesson (labels at the hero, the hand, the crack, the brighter shield) — the run follows «Подсказки», the sandbox has its own page memory.
       {
         const lessonOn = isToad(w) && (sandbox || (hintsOn && !!runView?.arenaOpen)) && !prologue && !runScreenOpen && !menuOpen && !runArenaRecorded;
@@ -1595,6 +1693,7 @@ async function boot(): Promise<void> {
     // П4 «Раздув за дела» (purse.ts `greedLine`): after the goals the line shows the cauldron, its greed step and the next one.
     goalText.textContent = w.stage === 'greed' ? greedLine(w) ?? `дверь открыта · убито ${w.stats.kills}` : `${goalLabelOf(w, goal.label)} ${goal.done} / ${goal.total}`;
     if (prologue) goalText.textContent = prologueGoalLine(w);
+    if (warmup) goalText.textContent = `Разминка: ${warmupLayout(warmup.id).title}`;
     goalText.classList.toggle('rt-door-open', w.stage === 'greed');
     // Casino «Ставка клятвы»: the oath's line under the goal (none without an oath).
     const oathNow = oathHudLine(w);
@@ -1651,14 +1750,14 @@ async function boot(): Promise<void> {
     pausedBadge.hidden = !paused || w.status !== 'playing' || menuOpen || runScreenOpen;
     if (w.status !== 'playing' && !runScreenOpen) {
       // Telemetry: the fight record in the frame the fight ended — the journal and the hash of the same tick.
-      if (recorder?.recording && !prologue) { const cam = renderer.cameraState(); recorder.endFight(w.status, { w: cam.viewW, h: cam.viewH }); }
+      if (recorder?.recording && !prologue && !warmup) { const cam = renderer.cameraState(); recorder.endFight(w.status, { w: cam.viewW, h: cam.viewH }); }
       recordRunArena();
     }
     // П3 «Финальная цепь»: a victory opens the result screen FINAL_FLASH real seconds later (the final flash is seen); a defeat at once.
     if (w.status === 'victory' && resultWait?.world !== w) resultWait = { world: w, left: FINAL_FLASH };
     if (resultWait && resultWait.world === w) resultWait.left -= realDt;
     const resultDue = w.status !== 'victory' || (resultWait?.world === w && resultWait.left <= 0);
-    if (w.status !== 'playing' && result.hidden && !menuOpen && !runScreenOpen && resultDue && !prologue) showResult();
+    if (w.status !== 'playing' && result.hidden && !menuOpen && !runScreenOpen && resultDue && !prologue && !warmup) showResult();
     statsTimer -= realDt;
     if (statsTimer <= 0) {
       statsTimer = 0.25;
@@ -1950,6 +2049,8 @@ async function boot(): Promise<void> {
         logsOpen: !!logsPanel?.open,
         /** The prologue «Опушка»: room, lamps, the hand and the arrow, the title, the fade, the pulse, the log of its hooks. */
         prologue: prologueSnapshot(),
+        /** Task 51ж «Разминка»: the attempt (id, how it ended), the exit button, the result panel, the label now, the tiles. */
+        warmup: warmupSnapshot(),
       };
     },
     /**
