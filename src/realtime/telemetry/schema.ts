@@ -467,6 +467,8 @@ export interface RunRecord extends RtHeader {
   chronicleOpen?: { pages: string[]; seconds: number; unread: boolean }[];
   /** Task 58: the owl's hint shown in the camp after this run (`rtChronicleHint`: the line's key, the target's ref). */
   hint?: { key: string; target: string };
+  /** Task 51е «Трофеи» (from 21.10.2026): the trophies the run earned — ids, a new mark of «Доска Испытания» as `ash:<step>`; absent — none. */
+  trophies?: string[];
   /**
    * Task 44 «Сплавы» (from 16.10.2026): the run has fusions (`RtRunState.fusions`) and what happened to them — the halves taken (their
    * row), the pairs collected, the fusions made at a rest and the rests closed by the heal or the craft with a pair ready. Absent — a
@@ -731,6 +733,8 @@ function runMetaOk(r: Record<string, unknown>): boolean {
     && Object.values(chronicle.pages).every(p => Array.isArray(p) && p.length === 2 && whole(p[0]) && whole(p[1]) && (p[0] as number) <= (p[1] as number)) && (chronicle.seenItems === undefined || whole(chronicle.seenItems)))) return false;
   if (r.chronicleOpen !== undefined && !(Array.isArray(r.chronicleOpen) && r.chronicleOpen.every(o => plain(o) && Array.isArray(o.pages) && o.pages.every(p => typeof p === 'string') && typeof o.seconds === 'number' && o.seconds >= 0 && typeof o.unread === 'boolean'))) return false;
   if (r.hint !== undefined && !(plain(r.hint) && typeof r.hint.key === 'string' && typeof r.hint.target === 'string')) return false;
+  // Task 51е: the trophies earned.
+  if (r.trophies !== undefined && !(Array.isArray(r.trophies) && r.trophies.length && r.trophies.every(id => typeof id === 'string' && id.length > 0))) return false;
   if (r.npcMeet !== undefined && !(plain(r.npcMeet) && typeof r.npcMeet.npc === 'string' && typeof r.npcMeet.met === 'boolean' && (r.npcMeet.nodeId === undefined || typeof r.npcMeet.nodeId === 'string') && (r.npcMeet.deal === undefined || typeof r.npcMeet.deal === 'string'))) return false;
   if (r.vows !== undefined && !(Array.isArray(r.vows) && r.vows.every(v => plain(v) && typeof v.id === 'string' && typeof v.kept === 'boolean'))) return false;
   if (r.arrive !== undefined && !(Array.isArray(r.arrive) && r.arrive.every(a => plain(a) && typeof a.npc === 'string' && (a.path === 'deed' || a.path === 'self') && (a.viewerRun === undefined || whole(a.viewerRun, 1))))) return false;

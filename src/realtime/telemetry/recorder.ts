@@ -349,7 +349,7 @@ interface RunMeta {
   /** Task 51з: the run of the day's attempt (`dailyAttempt`; absent — not reported, or an ordinary run). */
   daily?: { date: string; attempt: number; first: boolean; verified?: true };
   /** Tasks 36–37: the run's meta fields (`RunRecord.xp` … `quest`; absent — none yet). */
-  metaTlm?: Partial<Pick<RunRecord, 'xp' | 'pack' | 'record' | 'locked' | 'carry' | 'stock' | 'hearthBuys' | 'npcClicks' | 'hearth' | 'quest' | 'arrive' | 'vows' | 'chronicle' | 'chronicleOpen' | 'hint'>>;
+  metaTlm?: Partial<Pick<RunRecord, 'xp' | 'pack' | 'record' | 'locked' | 'carry' | 'stock' | 'hearthBuys' | 'npcClicks' | 'hearth' | 'quest' | 'arrive' | 'vows' | 'chronicle' | 'chronicleOpen' | 'hint' | 'trophies'>>;
   /** Task 49: the hero this run freed (`heroFreed`). */
   freed?: { hero: 'toad'; row: number };
 }
@@ -866,6 +866,8 @@ export class RtRecorder {
       if (end.vows) tlm.vows = end.vows.map(v => ({ ...v }));
       // Task 58: the entries the run added, the pages after it.
       if (end.chronicle?.pages) tlm.chronicle = { added: [...end.chronicle.added], pages: Object.fromEntries(Object.entries(end.chronicle.pages).map(([id, p]) => [id, [p[0], p[1]] as [number, number]])), ...end.chronicle.seenItems !== undefined ? { seenItems: end.chronicle.seenItems } : {} };
+      // Task 51е: the trophies earned (a new mark of «Доска Испытания» as `ash:<step>`).
+      if (end.trophies?.length) tlm.trophies = end.trophies.map(t => (t.mark && t.id === 'ash' ? `ash:${t.mark}` : t.id));
       if (end.arrived) tlm.arrive = end.arrived.map(a => ({ npc: a.npc, path: a.self ? 'self' as const : 'deed' as const, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun } : {} }));
       this.saveMeta(); this.writeRun(run);
     });

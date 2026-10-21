@@ -116,6 +116,12 @@ export const RT_HEARTH_AWAY_ON = true;
  * profile changes. `rtApplyMeta(…, { chronicle })` and the store's option override it.
  */
 export const RT_CHRONICLE_ON = true;
+/**
+ * Task 51е «Трофеи» (docs/design-notes/task-51-camp-l3.md, section 4): the profile's trophies (`meta.trophies`) are written — the run's
+ * end, the store's `trophiesImport` — only while this is on; the camp's perch (ui, 51е) turned it on (21.10.2026: `true`, with the view). Off: no profile changes.
+ * `rtApplyMeta(…, { trophies })` and the store's option override it.
+ */
+export const RT_TROPHIES_ON = true;
 /** Task 51д: the NPCs that leave (Неясыть and Евлампий stay). */
 export type RtHearthLeaver = 'herb' | 'smith' | 'gambler';
 export const RT_HEARTH_LEAVERS: readonly RtHearthLeaver[] = ['herb', 'smith', 'gambler'];
