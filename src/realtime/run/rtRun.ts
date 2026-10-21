@@ -3493,8 +3493,8 @@ export function rtGiftView(run: RtRunState): RtGiftView | null {
  */
 export function rtChooseHabit(current: RtRunState, id: RtHabitId | null): RtRunStep {
   const view = rtGiftView(current);
+  // Task 50 §19 (the v75 playtest, 21.10.2026): while the gift is open the choice may change; the gift's button makes it final.
   if (!view?.habit) return fail('Сейчас нет выбора повадки.');
-  if (view.habit.chosen) return fail('Повадка уже выбрана.');
   if (id !== null && !isRtHabit(id)) return fail('Такой повадки нет.');
   const run = structuredClone(current);
   run.habit = id;
