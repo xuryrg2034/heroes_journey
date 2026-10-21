@@ -531,14 +531,14 @@ test('column hover card (Д5): the full name and rule from the run catalogue, a 
   const tip = page.getByTestId('build-tip');
   await expect(tip).toBeVisible();
   await expect(tip).toContainText('Кровавая клятва');
-  await expect(tip).toContainText('+1 энергия за каждые 6 убийств цепью на арене');
+  await expect(tip).toContainText('+1 энергия за каждые 6 убийств, засчитанных цепи, на арене');
   await expect(tip).toContainText('Цена: лечение расходником вдвое слабее (9 → 5)');
   await page.getByTestId('build-third-chain').hover();
   await expect(tip).toContainText('Третья цепь');
   await expect(tip).toContainText('следующий прыжок за 5 с бесплатен');
   await expect(tip).not.toContainText('Цена:');
   await page.getByTestId('build-oath-hunger').hover();
-  await expect(tip).toContainText('+1 HP за 15 убийств цепью');
+  await expect(tip).toContainText('+1 HP за 15 убийств, засчитанных цепи');
   await expect(tip).toContainText('Цена: без привала');
   await expect(page.getByTestId('build-oath-hunger')).toContainText('0/15');
   await page.getByTestId('build-end-blast').hover();
