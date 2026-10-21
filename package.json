@@ -112,6 +112,7 @@
     "test:realtime-troll-run": "tsx src/realtime/run/trollRun.spec.ts",
     "test:realtime-chief": "tsx src/realtime/sim/chief.spec.ts",
     "test:realtime-boss-holes": "tsx src/realtime/sim/bossHoles.spec.ts && tsx src/realtime/run/bossHolesRun.spec.ts",
+    "test:realtime-core-pick": "tsx src/realtime/sim/corePick.spec.ts",
     "test:realtime-troll-combos": "tsx src/realtime/sim/trollCombos.spec.ts",
     "test:realtime-troll-view": "tsx src/realtime/view/trollView.spec.ts",
     "test:realtime-shooters-view": "tsx src/realtime/view/shooterView.spec.ts",

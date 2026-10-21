@@ -62,7 +62,7 @@ import { TROLL, trollLinkDrop, trollReserve, trollShut, trollWards, trollWindowO
 import { WARLOCK, warlockCharmOn, warlockClosed, warlockLinkDrop, warlockReserve, warlockShut, warlockSpellbound, warlockWards } from './enemies/warlock';
 // Task 57а «Лес: стрелки»: the dash puts out the light shots it touches (`Params.snuffShots`).
 import { snuffAlong, snuffing } from './shots';
-import { CHIEF, chiefGuarded, chiefHitOutcome, chiefLinkDrop, chiefQueue, chiefQueueShort, chiefRelease, chiefShut, chiefWards } from './enemies/chief';
+import { CHIEF, chiefFeastOn, chiefGuarded, chiefHitOutcome, chiefLinkDrop, chiefQueue, chiefQueueShort, chiefRelease, chiefShut, chiefWards } from './enemies/chief';
 import { NO_COLOR, OBJECT_RADIUS, checkGoals, damageEnemy, doorOf, doorOpen, pushOutOfSolids, enemyFrozen, findObject, nextFiring, startShieldWindow, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
 // Task 56 «Приметы» (omens.ts): the marks of a link taken in water or of the colour on the roll call.
 import { callEnergy, fixOmenLinks, omenLink, wetHit } from './omens';
@@ -882,7 +882,7 @@ export function loopKindAt(world: World, p: Vec): LoopKind | null {
   const plan = planChain(world, world.chain, NO_PIERCE);
   const under = pick(world, p,
     e => inChain(world, e) >= 0 || canLink(world, e, plan),
-    o => linkIndex(world, { kind: 'object', id: o.id }) >= 0 || canLinkObject(world, o, plan));
+    o => linkIndex(world, { kind: 'object', id: o.id }) >= 0 || canLinkObject(world, o, plan), true);
   if (under) return under.kind === first.kind && under.id === first.id && world.chain.length - 2 !== 0 && n >= loopMinOf(params, 'first') ? 'first' : null;
   if (params.loopHeroCloses && dist(p, world.hero) <= HERO_CANCEL_RADIUS && n >= loopMinOf(params, 'hero')) return 'hero';
   return null;
@@ -1404,14 +1404,37 @@ export function nextObjectCandidates(world: World): ArenaObject[] {
   return world.objects.filter(o => canLinkObject(world, o, plan));
 }
 
-/** Pick radius: the drawn circle with a slack in the player's favour (design answer 27); the boar is drawn larger. */
-function pickRadius(world: World, e: Enemy): number { return enemyArtRadius(world.params, e) * world.params.pickSlack; }
+/**
+ * Pick radius: the drawn circle with a slack in the player's favour (design answer 27); the boar is drawn larger. The view's press
+ * ring reads it (one number for the simulation and the view).
+ */
+export function pickRadius(world: World, e: Enemy): number { return enemyArtRadius(world.params, e) * world.params.pickSlack; }
 
-/** The link under the pointer — an enemy or an object — among those that pass the checks, nearest to the pointer. */
-function pick(world: World, p: Vec, acceptEnemy: (e: Enemy) => boolean, acceptObject: (o: ArenaObject) => boolean): ChainLink | null {
+/**
+ * «Ядро в окне — первым» (`Params.corePickFirst`): `e` is a boss core with its window open now — the Troll's (not yet struck), the
+ * Chief's in his feast, the warlock's after his charm (not yet struck).
+ */
+const coreWindowOpen = (world: World, e: Enemy): boolean =>
+  (e.kind === TROLL && trollWindowOn(world) && !trollShut(world, e))
+  || (e.kind === CHIEF && chiefFeastOn(world) && !chiefShut(world, e))
+  || (e.kind === WARLOCK && warlockCharmOn(world) && !warlockClosed(world, e));
+
+/**
+ * The link under the pointer — an enemy or an object — among those that pass the checks, nearest to the pointer. `coreFirst` — a pick
+ * of what the pointer takes (the press, the drag, the hint's «возьмётся», the loop's closing): with `Params.corePickFirst` a boss core in
+ * its open window that passes the checks and has the pointer in its circle wins over any nearer body or object (the nearest such core).
+ */
+function pick(world: World, p: Vec, acceptEnemy: (e: Enemy) => boolean, acceptObject: (o: ArenaObject) => boolean, coreFirst = false): ChainLink | null {
   // Buttons, the door and crystals keep their press circle of before (× 1.3): only the enemy one grew back to 0.59.
   const ro = OBJECT_RADIUS * 1.3;
   let best: ChainLink | null = null, bestD = Infinity;
+  if (coreFirst && world.params.corePickFirst) {
+    for (const e of world.enemies) {
+      const d = dist(e, p);
+      if (d <= pickRadius(world, e) && d < bestD && coreWindowOpen(world, e) && acceptEnemy(e)) { best = { kind: 'enemy', id: e.id }; bestD = d; }
+    }
+    if (best) return best;
+  }
   for (const e of world.enemies) {
     const d = dist(e, p);
     if (d <= pickRadius(world, e) && d < bestD && acceptEnemy(e)) { best = { kind: 'enemy', id: e.id }; bestD = d; }
@@ -1449,7 +1472,7 @@ export function beginChain(world: World, p: Vec): boolean {
   delete world.chainClosed;
   delete world.forkAnchor;
   const plan = planChain(world, world.chain, NO_PIERCE);
-  const target = pick(world, p, e => canLink(world, e, plan), o => canLinkObject(world, o, plan));
+  const target = pick(world, p, e => canLink(world, e, plan), o => canLinkObject(world, o, plan), true);
   if (!target) return false;
   // Task 56: «Половодье» and «Перекличка» mark the link as it is taken (omens.ts `omenLink`; nothing without them).
   world.chain = [omenLink(world, target, target.kind === 'enemy' ? findEnemy(world, target.id) : undefined)];
@@ -1486,7 +1509,7 @@ export function dragChain(world: World, p: Vec, mode: DragMode = 'full'): void {
   if (mode !== 'full' && pointerShiftColor(world) !== null) {
     // Task 34 telemetry: the body the path without `shiftAtPointer` would have taken here (the nearest one `canLink` allows).
     const seeLinks = seesLinks(world, mode);
-    const old = pick(world, p, e => (seeLinks && inChain(world, e) >= 0) || canLink(world, e, plan), o => (seeLinks && linkIndex(world, { kind: 'object', id: o.id }) >= 0) || canLinkObject(world, o, plan));
+    const old = pick(world, p, e => (seeLinks && inChain(world, e) >= 0) || canLink(world, e, plan), o => (seeLinks && linkIndex(world, { kind: 'object', id: o.id }) >= 0) || canLinkObject(world, o, plan), true);
     if (old?.kind === 'enemy' && linkIndex(world, old) < 0 && (target?.kind !== 'enemy' || target.id !== old.id)) world.events.push({ type: 'shiftSkip', enemyId: old.id, links: world.chain.length });
   }
   if (!target) return;
@@ -1557,7 +1580,7 @@ export function pickAt(world: World, p: Vec, mode: DragMode = 'full', plan: Chai
   const keepsColor = (e: Enemy): boolean => free === null || colorlessLink(world, e) || sameColor(world, e.color, free);
   return pick(world, p,
     e => (seeLinks && inChain(world, e) >= 0) || (canLink(world, e, plan) && keepsColor(e)),
-    o => (seeLinks && linkIndex(world, { kind: 'object', id: o.id }) >= 0) || canLinkObject(world, o, plan));
+    o => (seeLinks && linkIndex(world, { kind: 'object', id: o.id }) >= 0) || canLinkObject(world, o, plan), true);
 }
 
 /**
@@ -1588,7 +1611,7 @@ export function hoverRefusal(world: World, p: Vec, held = false): Refusal | null
   const plan = planChain(world, world.chain, NO_PIERCE);
   if (pick(world, p,
     e => inChain(world, e) >= 0 || canLink(world, e, plan),
-    o => linkIndex(world, { kind: 'object', id: o.id }) >= 0 || canLinkObject(world, o, plan))) return null;
+    o => linkIndex(world, { kind: 'object', id: o.id }) >= 0 || canLinkObject(world, o, plan), true)) return null;
   const under = pick(world, p, () => true, () => true);
   if (!under) return null;
   if (under.kind === 'enemy') { const e = findEnemy(world, under.id); return e ? enemyRefusal(world, e, plan) : null; }

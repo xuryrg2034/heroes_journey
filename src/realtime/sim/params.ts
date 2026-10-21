@@ -947,6 +947,14 @@ export interface Params {
   coreTrailWard: boolean;
   coreShamanWard: boolean;
   trollShadowOnce: boolean;
+  /**
+   * «Ядро в окне — первым» (design 21.10.2026, the pick's defect: a crowd body standing on the core is nearer to the pointer, a click
+   * into the window took it). On: a boss core (the Troll's, the Chief's, the warlock's) in its open window that the pointer is inside
+   * the press circle of (chain.ts `pickRadius`) and the chain may take now is picked before any nearer body or object (chain.ts
+   * `pick`: the press, the drag, the ring «что возьмётся», the hint, the loop's closing). Off by default and in journals without the
+   * key: the nearest, as before. The run turns it on by its flag (run/rtRun.ts `corePickFirst`), the bosses' arenas for themselves.
+   */
+  corePickFirst: boolean;
   // ---- Task 54 «Главарь с котелком» (sim/enemies/chief.ts, sim/arenasBoss.ts `chief`; docs/realtime-elite-behaviors.md, «Главарь (задача 54)»). ----
   /**
    * The Chief's feast (design 17.10.2026, docs/design-notes/task-54-chief.md, 7): with the frame on, the Chief's core is closed outside
@@ -1649,6 +1657,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   coreTrailWard: false,
   coreShamanWard: false,
   trollShadowOnce: false,
+  // «Ядро в окне — первым» (21.10.2026): off — the nearest, as before.
+  corePickFirst: false,
   // Task 54 «Главарь с котелком» (enemies/chief.ts): the feast off by default (the arena «Стан Главаря» turns it on); his numbers
   // (hypotheses of the spec, read on his arena only).
   chiefFeast: false,
@@ -2243,6 +2253,9 @@ export const PARAM_DEFS: readonly ParamDef[] = [
     hint: 'Луч шамана никогда не берёт ядро Тролля и Главаря (ядро на 0 HP не поднимается). Арены Тролля и Главаря и поход включают сами.' },
   { kind: 'bool', key: 'trollShadowOnce', group: 'Босс', label: 'Тени конца: одно попадание за окно', stage: 5,
     hint: 'Подсветка концов прохода (волна, взрыв) бьёт ядро Тролля один раз за окно — как проход. Арены Тролля и Главаря и поход включают сами.' },
+  // «Ядро в окне — первым» (21.10.2026).
+  { kind: 'bool', key: 'corePickFirst', group: 'Босс', label: 'Ядро в окне — первым', stage: 5,
+    hint: 'Указатель в круге ядра босса в его окне (ядро можно взять сейчас) берёт ядро, даже если центр другого тела ближе. Арены Тролля, Главаря и Колдуна и поход включают сами.' },
   // Task 54 «Главарь с котелком» (enemies/chief.ts, docs/realtime-elite-behaviors.md, «Главарь (задача 54)»).
   { kind: 'bool', key: 'chiefFeast', group: 'Главарь', label: '«Обед!» Главаря', stage: 5,
     hint: 'Главарь закрыт вне окна «Обеда!» («вне окна»). В окне его берёт только цепь цвета варева, в которой до него не меньше трёх звеньев этого цвета («в очередь»); одно попадание за окно, другой урон его не ранит. Арена «Стан Главаря» включает правило сама.' },

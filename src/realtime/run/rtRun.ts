@@ -251,6 +251,9 @@ export function rtArenaParams(run: RtArenaRules | RtRunState, params: Params): P
   for (const key of CORE_WARD_KEYS) {
     if (rules.bossHoles) out[key] = true; else delete (out as Partial<Params>)[key];
   }
+  // «Ядро в окне — первым» (21.10.2026): a run with the flag picks the boss core in its window first; without it — the values without
+  // the key, as before it (the bosses' arenas do not put it on).
+  if (rules.corePickFirst) out.corePickFirst = true; else delete (out as Partial<Params>).corePickFirst;
   // Task 17 «Пологий вход»: the row's invulnerability after a hit and the tough touch from row 3 (`rtRowGrace`).
   if (rules.gentleRow !== undefined) {
     out.invulnerability = rtRowGrace(rules.gentleRow);
@@ -273,6 +276,8 @@ export interface RtArenaRules {
   forestShooters?: true;
   /** «Дыры ядра боссов»: a fight of a run with `bossHoles` plays the core's wards (`CORE_WARD_KEYS`). */
   bossHoles?: true;
+  /** «Ядро в окне — первым»: a fight of a run with `corePickFirst` picks the boss core in its window first (`Params.corePickFirst`). */
+  corePickFirst?: true;
 }
 export function rtArenaRules(run: RtRunState): RtArenaRules {
   const pending = run.pending, node = pending?.kind === 'battle' ? rtNode(run, pending.nodeId) : undefined;
@@ -281,7 +286,7 @@ export function rtArenaRules(run: RtRunState): RtArenaRules {
   // Task 57а: the new shooters are the forest's — a garrison fight keeps its values.
   const shooters = run.forestShooters && !(node && rtGarrisonNodeId(node.id));
   const omens = pending?.kind === 'battle' ? fightOmenList(pending.omens) : [];
-  return { ...run.markedGoals ? { markedGoals: true as const } : {}, ...gentle ? { gentleRow: runRow(node.row) } : {}, ...run.shortFuse ? { shortFuse: true as const } : {}, ...run.forms ? { forms: true as const } : {}, ...run.potionCap ? { potionCap: run.potionCap } : {}, ...omens.length ? { omens } : {}, ...shooters ? { forestShooters: true as const } : {}, ...run.bossHoles ? { bossHoles: true as const } : {} };
+  return { ...run.markedGoals ? { markedGoals: true as const } : {}, ...gentle ? { gentleRow: runRow(node.row) } : {}, ...run.shortFuse ? { shortFuse: true as const } : {}, ...run.forms ? { forms: true as const } : {}, ...run.potionCap ? { potionCap: run.potionCap } : {}, ...omens.length ? { omens } : {}, ...shooters ? { forestShooters: true as const } : {}, ...run.bossHoles ? { bossHoles: true as const } : {}, ...run.corePickFirst ? { corePickFirst: true as const } : {} };
 }
 /** Task 56: the omens of a fight in the order they act (spec 5.1): the level's, then the node's. */
 const fightOmenList = (omens: RtFightOmens | undefined): RtOmenId[] => (omens ? [...omens.level ? [omens.level] : [], ...omens.node ? [omens.node] : []] : []);
@@ -309,6 +314,11 @@ export const RT_FOREST_SHOOTERS_ON = false;
  * Troll's end shadows strike once a window. A save without it plays the old paths to its end.
  */
 export const RT_BOSS_HOLES_ON = true;
+/**
+ * «Ядро в окне — первым» (design 21.10.2026): a new run keeps the flag `corePickFirst` and its fights pick a boss core in its open
+ * window before a nearer body (`Params.corePickFirst`, `rtArenaParams`). A save without it plays the nearest pick to its end.
+ */
+export const RT_CORE_PICK_FIRST_ON = true;
 /**
  * Hygiene of task 17 (design answer 1, 13.10.2026): the values the page plays with — the sandbox its saved panel (`panel`),
  * the run (and its prologue) the defaults with the run's own numbers (`rtRunParams`). The sandbox panel changes only the
@@ -815,6 +825,12 @@ export interface RtRunState {
    */
   bossHoles?: true;
   /**
+   * «Ядро в окне — первым» (21.10.2026): the run's fights play `Params.corePickFirst` (`rtArenaParams`). Set when the run is created
+   * (`RT_CORE_PICK_FIRST_ON`). Absent — a run saved before it (or created without it): the fights' values without the key, the
+   * nearest pick, to its end.
+   */
+  corePickFirst?: true;
+  /**
    * Task 58в «Летопись: видел» (design 21.10.2026): the run notes what its screens showed and it did not take (`shown`). Set when the run
    * is created while the chronicle is on (`RT_CHRONICLE_ON`); absent — no note, the save as before.
    */
@@ -1105,7 +1121,7 @@ export const rtDailySeed = (date: string): number => mixSeed(metaSalt('daily'), 
  * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
  * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
  */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; troll?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; relicFill?: boolean; chronicle?: boolean; potionCap?: number; knacks?: boolean; habits?: boolean; hero?: RtHeroId; omens?: readonly string[]; daily?: string; forestShooters?: boolean; bossHoles?: boolean } = {}): RtRunState {
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; troll?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; relicFill?: boolean; chronicle?: boolean; potionCap?: number; knacks?: boolean; habits?: boolean; hero?: RtHeroId; omens?: readonly string[]; daily?: string; forestShooters?: boolean; bossHoles?: boolean; corePickFirst?: boolean } = {}): RtRunState {
   const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
   // Task 12 (13.10.2026): the goal layouts of the `marked` arenas, as the mix — on as `RT_RUN_FORCED` says unless the option says.
   const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
@@ -1150,6 +1166,8 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   const forestShooters = options.forestShooters ?? RT_FOREST_SHOOTERS_ON;
   // «Дыры ядра боссов» (21.10.2026): by `RT_BOSS_HOLES_ON` unless the option says (false — the old paths, as a save before it).
   const bossHoles = options.bossHoles ?? RT_BOSS_HOLES_ON;
+  // «Ядро в окне — первым» (21.10.2026): by `RT_CORE_PICK_FIRST_ON` unless the option says (false — the nearest pick, as a save before it).
+  const corePickFirst = options.corePickFirst ?? RT_CORE_PICK_FIRST_ON;
   // Task 41 «Три зелья» (16.10.2026): the cap of healing potions, `RT_POTION_CAP` unless the option says (0 — none, as a save before it).
   const potionCap = Math.max(0, Math.floor(options.potionCap ?? RT_POTION_CAP));
   // Task 49: Ведунья's run keeps her id (with or without the meta); the cat's — `cat` with the meta's snapshot only, as before.
@@ -1159,7 +1177,7 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   const run: RtRunState = {
     version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {},
     // Task 51з: the run of the day (only seeded, its seed the date's; run/rtDaily.ts `createRtDailyRun`).
-    ...options.seeded && isRtDailyDate(options.daily) && (seed >>> 0) === rtDailySeed(options.daily) ? { daily: options.daily } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked } : {}, ...heroId ? { heroId } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...relicFill ? { relicFill: true as const } : {}, ...chronicle ? { chronicle: true as const } : {}, ...potionCap ? { potionCap } : {}, ...pool.length ? { omens: { pool } } : {}, ...forestShooters ? { forestShooters: true as const } : {}, ...bossHoles ? { bossHoles: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    ...options.seeded && isRtDailyDate(options.daily) && (seed >>> 0) === rtDailySeed(options.daily) ? { daily: options.daily } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked } : {}, ...heroId ? { heroId } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...relicFill ? { relicFill: true as const } : {}, ...chronicle ? { chronicle: true as const } : {}, ...potionCap ? { potionCap } : {}, ...pool.length ? { omens: { pool } } : {}, ...forestShooters ? { forestShooters: true as const } : {}, ...bossHoles ? { bossHoles: true as const } : {}, ...corePickFirst ? { corePickFirst: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
@@ -4084,6 +4102,8 @@ function checkRun(value: unknown): RtRunState | null {
   if (value.forestShooters !== undefined && value.forestShooters !== true) return null;
   // «Дыры ядра боссов» (21.10.2026): a flag; absent — a save before it (the old paths).
   if (value.bossHoles !== undefined && value.bossHoles !== true) return null;
+  // «Ядро в окне — первым» (21.10.2026): a flag; absent — a save before it (the nearest pick).
+  if (value.corePickFirst !== undefined && value.corePickFirst !== true) return null;
   // Task 41: the cap of healing potions, a whole number from 1; absent — a save before it (no cap).
   if (value.potionCap !== undefined && !(isCount(value.potionCap) && value.potionCap >= 1)) return null;
   // Task 56: the omens (the pool and the levels' rolls); the count of off-link steps (1 or more, only under «Перепутье» — the path below).
