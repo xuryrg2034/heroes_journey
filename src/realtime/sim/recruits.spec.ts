@@ -132,6 +132,35 @@ check('the bonus is the pass hits only (design 21.10.2026): #1 burnt by the fire
   }
 });
 
+check('the bonus by the pass: a ring of «Печать» round the formation kills it by its numbers — +2; a bolt that finishes #1 in the pass 1 → 4 — none (3 seeds)', () => {
+  for (const k of [1, 2, 3]) {
+    const sim = yard(k, { loopEnabled: true }), w = sim.world;
+    const ring = [{ x: 10, y: 5.3 }, { x: 8.6, y: 5.1 }, { x: 7.8, y: 4 }, { x: 8.6, y: 2.9 }, { x: 10, y: 2.7 }, { x: 11.4, y: 2.9 }, { x: 12.2, y: 4 }, { x: 11.4, y: 5.1 }].map(at => place(sim, at, 0, 'basic', 1));
+    draw(sim, [...ring, ring[0]]);
+    const seal = planChain(w).seal;
+    assert(w.chainClosed && seal && byNumber(w).every(e => seal.inside.includes(e.id)), `seed ${k}: the ring closed round the formation`);
+    const events = release(sim);
+    ticks(sim, 5, events);
+    const drill = of(events, 'recruit').find(e => e.action === 'drill');
+    assert(byNumber(w).length === 0 && drill?.energy === 2, `seed ${k}: the seal killed it by its numbers, +2 (${byNumber(w).length} left)`);
+    assert(replays(sim), `seed ${k}: replay`);
+    // A crossbowman above #1 shoots through it at the hero below: the bolt kills #1 in the pass.
+    // No newcomers (one could stand on the bolt's line first).
+    const shot = yard(k, { maxEnemies: 1 }), sw = shot.world, line = byNumber(sw), first = line[0];
+    shot.command({ t: 'teleport', x: first.x, y: 6 });
+    const cb = place(shot, { x: first.x, y: 1 }, 1, CROSSBOW, 2);
+    ticks(shot, ticksOf(3), [], () => cb.vars.cb === 1 && cb.vars.ct <= 2 * SIM_DT);
+    assert(cb.vars.cb === 1, `seed ${k}: the crossbow aims`);
+    draw(shot, line);
+    assert(sw.chain.length === 4, `seed ${k}: 1 → 4 drawn`);
+    const passed = release(shot);
+    const bolt = of(passed, 'kill').find(e => e.enemyId === first.id);
+    assert(byNumber(sw).length === 0 && bolt?.source === 'bolt', `seed ${k}: all fell, #1 by the bolt (${bolt?.source}; ${JSON.stringify(of(passed, 'bolt'))}; first ${first.x.toFixed(2)},${first.y.toFixed(2)})`);
+    assert(!of(passed, 'recruit').some(e => e.action === 'drill'), `seed ${k}: no bonus`);
+    assert(replays(shot), `seed ${k}: replay`);
+  }
+});
+
 check('out of order nothing hurts a recruit: the bomb on #3 with #1 alive — no damage, event `recruit` `refused`; the bomb on #1 — it dies (3 seeds)', () => {
   for (const k of [1, 2, 3]) {
     const sim = yard(k), w = sim.world, line = byNumber(w);

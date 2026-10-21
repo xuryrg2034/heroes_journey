@@ -38,10 +38,12 @@ export const NUMBER_WAIT = 1;
 export const RECRUIT_BONUS = 2;
 const STREAM = 'behavior:recruit';
 /**
- * The pass's own hits (design 21.10.2026, spec 4.2): the chain, «Прямая», «Возврат», the wave and the end blast of the pass. A recruit
- * finished by another source (a bolt, a burn, a bomb …) during the move — its formation gives no bonus for this pass.
+ * The pass's own hits (design 21.10.2026, spec 4.2): the chain, «Прямая», «Печать», «Возврат», «Режущий проход», the fire of
+ * «Огненный проход», the wave and the end blast of the pass. A recruit finished by another source (a bolt, the fire consumable's burn, a
+ * bomb …) during the move — its formation gives no bonus for this pass. (The seal, the wave and the end blast strike once the move is
+ * over — `finishMove` — so they never spoil it; they are listed for the rule's sake.)
  */
-const PASS_SOURCES: ReadonlySet<string> = new Set(['chain', 'pierce', 'hammer-return', 'wave', 'hammer-blast']);
+const PASS_SOURCES: ReadonlySet<string> = new Set(['chain', 'pierce', 'seal', 'hammer-return', 'hammer-cut', 'hammer-fire', 'wave', 'hammer-blast']);
 
 /** The law of order is on (`Params.recruits`). */
 export const recruitsOn = (world: World): boolean => !!world.params.recruits;
