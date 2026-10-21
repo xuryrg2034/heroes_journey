@@ -39,7 +39,7 @@ import { isRoster } from '../sim/rosters';
 import { allowedAffixes, fightElements, isScheduleElement, jailerWithout, PART_ARC, SCHEDULE_RUN_ARENAS, SCHEDULE_HARD_FLOOR, SCHEDULE_KINDS, SCHEDULE_NUMBERS_ROWS, schedulePlan, unmetKinds, type ScheduleNode } from './schedule';
 import { JAILER_ARENA, JAILER_RUN_ARENAS, TROLL_ARENA, TROLL_RUN_ARENAS } from '../sim/arenasBoss';
 import { rtHp, RT_ITEM_HEAL, RT_RUN_HP } from './hpScale';
-import { CORE_WARD_KEYS, defaultParams, runParams, type Params } from '../sim/params';
+import { BOSS_HOLE_KEYS, defaultParams, runParams, type Params } from '../sim/params';
 import { doorPayout, GREED_MULTS, PAYOUT_CAP_MAX, type PurseDoor } from '../sim/purse';
 import { isOathId, oathDef, OATH_BROKEN_MULT, OATH_KEPT_MULT, type OathId } from '../sim/oath';
 import { SLICE_EVENTS, sliceCosts, sliceOptionGap } from './sliceEvents';
@@ -248,7 +248,7 @@ export function rtArenaParams(run: RtArenaRules | RtRunState, params: Params): P
   if (rules.forestShooters) Object.assign(out, RT_FOREST_SHOOTERS_PARAMS);
   // «Дыры ядра боссов» (21.10.2026): every fight of a run with the flag plays the core's wards (nothing on a fight without the Troll
   // or the Chief); a run without it — the values without the keys, as before them (the Troll's arena does not put them on).
-  for (const key of CORE_WARD_KEYS) {
+  for (const key of BOSS_HOLE_KEYS) {
     if (rules.bossHoles) out[key] = true; else delete (out as Partial<Params>)[key];
   }
   // «Ядро в окне — первым» (21.10.2026): a run with the flag picks the boss core in its window first; without it — the values without

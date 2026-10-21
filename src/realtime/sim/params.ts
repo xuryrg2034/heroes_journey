@@ -955,6 +955,13 @@ export interface Params {
    * key: the nearest, as before. The run turns it on by its flag (run/rtRun.ts `corePickFirst`), the bosses' arenas for themselves.
    */
   corePickFirst: boolean;
+  /**
+   * «Дыры ядра» Колдуна (task 55, stage Д, core's decision 21.10.2026: one key for his three holes): the fire trail asks his core's rules
+   * (world.ts `coreTrailWards`: charmed — it rings; out of his window — it rings; in it — the window's one hit), the shaman's beam never
+   * takes his core, the highlight's end shadows strike it once a window (chain.ts `planFusionEnd`, talismansRt.ts «Ударная волна» II).
+   * Off by default and in journals without the key: the old paths. «Зал колдуна» puts it on, a run with `bossHoles` too (`CORE_WARD_KEYS`).
+   */
+  warlockHoles: boolean;
   // ---- Task 54 «Главарь с котелком» (sim/enemies/chief.ts, sim/arenasBoss.ts `chief`; docs/realtime-elite-behaviors.md, «Главарь (задача 54)»). ----
   /**
    * The Chief's feast (design 17.10.2026, docs/design-notes/task-54-chief.md, 7): with the frame on, the Chief's core is closed outside
@@ -1659,6 +1666,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   trollShadowOnce: false,
   // «Ядро в окне — первым» (21.10.2026): off — the nearest, as before.
   corePickFirst: false,
+  // «Дыры ядра» Колдуна (21.10.2026): off — the old paths.
+  warlockHoles: false,
   // Task 54 «Главарь с котелком» (enemies/chief.ts): the feast off by default (the arena «Стан Главаря» turns it on); his numbers
   // (hypotheses of the spec, read on his arena only).
   chiefFeast: false,
@@ -2256,6 +2265,8 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   // «Ядро в окне — первым» (21.10.2026).
   { kind: 'bool', key: 'corePickFirst', group: 'Босс', label: 'Ядро в окне — первым', stage: 5,
     hint: 'Указатель в круге ядра босса в его окне (ядро можно взять сейчас) берёт ядро, даже если центр другого тела ближе. Арены Тролля, Главаря и Колдуна и поход включают сами.' },
+  { kind: 'bool', key: 'warlockHoles', group: 'Босс', label: 'Дыры ядра Колдуна', stage: 5,
+    hint: 'Огненный след уважает чары и окно Колдуна («звон»; в окне — одно попадание), шаман не берёт его ядро, тени конца бьют ядро один раз за окно. «Зал колдуна» и поход включают сами.' },
   // Task 54 «Главарь с котелком» (enemies/chief.ts, docs/realtime-elite-behaviors.md, «Главарь (задача 54)»).
   { kind: 'bool', key: 'chiefFeast', group: 'Главарь', label: '«Обед!» Главаря', stage: 5,
     hint: 'Главарь закрыт вне окна «Обеда!» («вне окна»). В окне его берёт только цепь цвета варева, в которой до него не меньше трёх звеньев этого цвета («в очередь»); одно попадание за окно, другой урон его не ранит. Арена «Стан Главаря» включает правило сама.' },
@@ -2434,6 +2445,11 @@ export function runParams(params: Params, forced: Readonly<Partial<Params>> = {}
  * `createWorld`), a run with the flag `bossHoles` too (run/rtRun.ts `rtArenaParams`); values without them play the old paths.
  */
 export const CORE_WARD_KEYS = ['coreTrailWard', 'coreShamanWard', 'trollShadowOnce'] as const;
+/**
+ * The keys a run with the flag `bossHoles` plays (run/rtRun.ts `rtArenaParams`; a run without it — none of them): the Troll's and the
+ * Chief's (`CORE_WARD_KEYS`) and the warlock's one (`warlockHoles`, 21.10.2026; «Зал колдуна» puts it on for itself, world.ts).
+ */
+export const BOSS_HOLE_KEYS = [...CORE_WARD_KEYS, 'warlockHoles'] as const;
 
 export function copyParams(params: Params): Params { return { ...params, phases: params.phases.map(p => ({ ...p })) }; }
 

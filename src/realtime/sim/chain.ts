@@ -605,8 +605,13 @@ function planFusionEnd(world: World, links: readonly ChainLink[], out: readonly 
   const last = lastReached(world, out), blastOn = world.kit?.hammer === HAMMERS.blast || hasTalisman(world, HAMMERS.blast);
   if (blastOn && last && dash.links >= endBlastMinLinks(world.params) && !(endRankOn(world) && (seal || pierce))) {
     const blast = endBlastOf(world, hunterEnd(world, !!last.enemy.elite, last.outcome.hpBefore), BLAST_RADIUS, BLAST_DAMAGE);
-    // «Дыры ядра боссов» (`trollShadowOnce`): the Troll's core a shadow struck in its window is not the blast's (one hit a window).
-    const spentCore = world.params.trollShadowOnce && trollWindowOn(world) ? new Set(Object.values(ended.struck).flat().filter(id => findEnemy(world, id)?.kind === TROLL)) : null;
+    // «Дыры ядра боссов» (`trollShadowOnce`; the warlock's — `warlockHoles`): the core a shadow struck in its window is not the blast's
+    // (one hit a window).
+    const onceTroll = !!world.params.trollShadowOnce && trollWindowOn(world), onceWarlock = !!world.params.warlockHoles && warlockCharmOn(world);
+    const spentCore = onceTroll || onceWarlock ? new Set(Object.values(ended.struck).flat().filter(id => {
+      const kind = findEnemy(world, id)?.kind;
+      return (onceTroll && kind === TROLL) || (onceWarlock && kind === WARLOCK);
+    })) : null;
     const at = { x: last.enemy.x, y: last.enemy.y }, targets = new Set(enemiesInCircle({ ...world, enemies: shadow }, at, blast.radius).map(e => e.id).filter(id => !spentCore?.has(id)));
     const after = shadow.flatMap(e => {
       if (!targets.has(e.id)) return [e];
