@@ -54,9 +54,21 @@ async function cameraSettled(page: Page): Promise<void> {
   expect(still, 'the camera came to rest').toBe(true);
 }
 
-/** A body of another colour (1) put on the core's ring, a step south of its centre, and frozen: the one the pointer is nearest to. */
-async function bodyOnCore(page: Page, core: { x: number; y: number }): Promise<number> {
-  return page.evaluate(([x, y]) => { const rt = (window as any).__realtime, id = rt.place(x, y + 0.3, 1, 0, 'basic'); rt.chill(id, 60); return id; }, [core.x, core.y] as const);
+/**
+ * A body of another colour (1) put at the core and frozen; it is let go for a few frames, the solid bodies push it to their contact distance.
+ * Returns the body and the pointer point: inside the core's press ring (`pickRadius`, the sim's number) and nearer to the body than to the
+ * core, on the line from the core to the body — the pointer for which the rule and the nearest pick differ. Both are checked here, before the click.
+ */
+async function bodyAndPointer(page: Page, core: { id: number; x: number; y: number }): Promise<{ body: number; at: { x: number; y: number } }> {
+  const body = await page.evaluate(([x, y]) => { const rt = (window as any).__realtime, id = rt.place(x, y + 0.5, 1, 0, 'basic'); rt.chill(id, 60); return id; }, [core.x, core.y] as const);
+  await gameWait(page, 0.4);
+  const b = await enemyAt(page, body)(), ring = await page.evaluate(([id]) => (window as any).__realtime.pickRadius(id), [core.id] as const) as number;
+  const d = Math.hypot(b.x - core.x, b.y - core.y);
+  expect(d / 2, 'the contact distance leaves room inside the ring').toBeLessThan(ring);
+  const t = Math.min((d / 2 + ring) / 2, d), at = { x: core.x + (b.x - core.x) / d * t, y: core.y + (b.y - core.y) / d * t };
+  expect(Math.hypot(at.x - core.x, at.y - core.y), 'the pointer is inside the core ring').toBeLessThan(ring);
+  expect(Math.hypot(at.x - b.x, at.y - b.y), 'the pointer is nearer to the body than to the core').toBeLessThan(Math.hypot(at.x - core.x, at.y - core.y));
+  return { body, at };
 }
 
 /**
@@ -67,10 +79,8 @@ async function bodyOnCore(page: Page, core: { x: number; y: number }): Promise<n
 async function pressOnBody(page: Page, core: { id: number; x: number; y: number }, plates: number): Promise<void> {
   await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x - 0.6, y + 1.1), [core.x, core.y] as const);
   await cameraSettled(page);
-  const body = await bodyOnCore(page, core);
-  const b = await enemyAt(page, body)();
-  expect(Math.hypot(b.x - core.x, b.y - core.y), 'the body stands on the core ring').toBeLessThan(0.45);
-  await mouseTo(page, enemyAt(page, body));
+  const { at } = await bodyAndPointer(page, core);
+  await mouseTo(page, async () => at);
   // The cursor on the body in the core's ring: no refusal.
   await expect.poll(async () => (await snap(page)).hint, { message: 'no refusal at the cursor' }).toBeNull();
   await page.mouse.down();
@@ -90,8 +100,8 @@ async function pressWithKeyOff(page: Page, core: { id: number; x: number; y: num
   await page.evaluate(() => (window as any).__realtime.setParam('corePickFirst', false));
   await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x - 0.6, y + 1.1), [core.x, core.y] as const);
   await cameraSettled(page);
-  const body = await bodyOnCore(page, core);
-  await mouseTo(page, enemyAt(page, body));
+  const { body, at } = await bodyAndPointer(page, core);
+  await mouseTo(page, async () => at);
   await page.mouse.down();
   await expect.poll(async () => (await snap(page)).chain, { message: 'key off: the press takes the nearest — the body' }).toEqual([body]);
   await page.mouse.up();
@@ -103,8 +113,8 @@ async function pressWithKeyOff(page: Page, core: { id: number; x: number; y: num
 async function shutPress(page: Page, core: { id: number; x: number; y: number }): Promise<void> {
   await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x - 0.6, y + 1.1), [core.x, core.y] as const);
   await cameraSettled(page);
-  const body = await bodyOnCore(page, core);
-  await mouseTo(page, enemyAt(page, body));
+  const { body, at } = await bodyAndPointer(page, core);
+  await mouseTo(page, async () => at);
   await expect.poll(async () => (await snap(page)).hint, { message: 'a body is taken: no refusal' }).toBeNull();
   await page.mouse.down();
   await expect.poll(async () => (await snap(page)).chain, { message: 'the window is shut: the press takes the body' }).toEqual([body]);

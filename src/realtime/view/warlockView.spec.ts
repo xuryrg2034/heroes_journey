@@ -16,7 +16,7 @@
 // Node 20 has no global navigator; pixi.js reads it on load (nodeNavigator.testkit.ts). First import.
 import './nodeNavigator.testkit';
 import { Graphics } from 'pixi.js';
-import { enemyRefusal, hoverRefusal, nextCandidates, pickAt, planChain } from '../sim/chain';
+import { enemyRefusal, hoverRefusal, nextCandidates, pickAt, pickRadius, planChain } from '../sim/chain';
 import { WARLOCK_ARENA, CASTLE_ARENAS } from '../sim/arenasCastle';
 import { WARDROBE } from '../sim/enemies/castle';
 import { WARLOCK, warlockState } from '../sim/enemies/warlock';
@@ -294,15 +294,25 @@ check('«Прямая» under the charm (core 21.10.2026): the run reaches him a
   }
 });
 
+/** The pointer for which the rule and the nearest pick differ: inside the core's press ring (`pickRadius`), on the line to the body, nearer to the body than to the core. */
+function ringPointer(w: World, core: Enemy, body: Enemy): { x: number; y: number } {
+  const ring = pickRadius(w, core), d = Math.hypot(body.x - core.x, body.y - core.y);
+  assert(d / 2 < ring, `the contact distance ${d.toFixed(2)} leaves room inside the ring ${ring.toFixed(2)}`);
+  const t = Math.min((d / 2 + ring) / 2, d), at = { x: core.x + (body.x - core.x) / d * t, y: core.y + (body.y - core.y) / d * t };
+  assert(Math.hypot(at.x - core.x, at.y - core.y) < ring && Math.hypot(at.x - body.x, at.y - body.y) < Math.hypot(at.x - core.x, at.y - core.y), 'the pointer is in the ring and nearer to the body');
+  return at;
+}
+
 check('«Ядро в окне — первым» (core 21.10.2026): the pointer on a body standing on the core — in his window it takes the core, no refusal at the cursor, the core is a candidate; the window shut — it takes the body; the view signs agree with `pickAt`', () => {
   for (const k of [1, 2, 3]) {
     const h = hall(k, { shoveDistance: 6 });
     toWindow(h);
     h.sim.command({ t: 'chill', id: h.core.id, seconds: 60 });
     h.sim.command({ t: 'teleport', x: h.core.x, y: h.core.y + 1.1 });
-    const bodyId = h.sim.command({ t: 'place', x: h.core.x, y: h.core.y + 0.3, color: 1, hp: 0, kind: 'basic' }) as number, body = h.w.enemies.find(e => e.id === bodyId)!;
-    const at = { x: body.x, y: body.y };
-    assert(dist(body, h.core) < 0.45, `seed ${k}: the body stands on the ring (${dist(body, h.core).toFixed(2)})`);
+    const bodyId = h.sim.command({ t: 'place', x: h.core.x, y: h.core.y + 0.5, color: 1, hp: 0, kind: 'basic' }) as number, body = h.w.enemies.find(e => e.id === bodyId)!;
+    h.sim.command({ t: 'chill', id: bodyId, seconds: 60 });
+    run(h, 0.5);
+    const at = ringPointer(h.w, h.core, body);
     assert(h.w.params.corePickFirst && warlockState(h.w)!.window?.open, `seed ${k}: the key is on in his hall, the window is open`);
     const pick = pickAt(h.w, at);
     assert(pick?.kind === 'enemy' && pick.id === h.core.id, `seed ${k}: the pointer on the body takes the core (${JSON.stringify(pick)})`);
@@ -320,9 +330,11 @@ check('«Ядро в окне — первым» (core 21.10.2026): the pointer 
     run(h, 0.3);
     assert(h.core.armor!.plates === 3 && !warlockState(h.w)!.window?.open, `seed ${k}: a plate taken, the window shut (${h.core.armor!.plates})`);
     // Shut: a new body on the core is the one the pointer takes.
-    const id2 = h.sim.command({ t: 'place', x: h.core.x, y: h.core.y + 0.3, color: 1, hp: 0, kind: 'basic' }) as number, b2 = h.w.enemies.find(e => e.id === id2)!;
+    const id2 = h.sim.command({ t: 'place', x: h.core.x, y: h.core.y + 0.5, color: 1, hp: 0, kind: 'basic' }) as number, b2 = h.w.enemies.find(e => e.id === id2)!;
+    h.sim.command({ t: 'chill', id: id2, seconds: 60 });
     h.sim.command({ t: 'teleport', x: h.core.x, y: h.core.y + 1.1 });
-    const p2 = { x: b2.x, y: b2.y }, pick2 = pickAt(h.w, p2);
+    run(h, 0.5);
+    const p2 = ringPointer(h.w, h.core, b2), pick2 = pickAt(h.w, p2);
     assert(pick2?.kind === 'enemy' && pick2.id === id2, `seed ${k}: the window shut — the pointer takes the body (${JSON.stringify(pick2)})`);
     assert(hoverRefusal(h.w, p2) === null && !nextCandidates(h.w).some(e => e.id === h.core.id), `seed ${k}: no refusal on the body, no ring on the shut core`);
   }

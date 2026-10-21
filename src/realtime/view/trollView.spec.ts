@@ -12,7 +12,7 @@
 // Node 20 has no global navigator; pixi.js reads it on load (nodeNavigator.testkit.ts). First import.
 import './nodeNavigator.testkit';
 import { Graphics, Text } from 'pixi.js';
-import { enemyRefusal, hoverRefusal, nextCandidates, pickAt } from '../sim/chain';
+import { enemyRefusal, hoverRefusal, nextCandidates, pickAt, pickRadius } from '../sim/chain';
 import { PHASE3_PLATES, TAIL_INNER, TAIL_OUTER, TROLL, TROLL_CLUB, TROLL_ROCK, TROLL_TAIL, trollMove, trollState } from '../sim/enemies/troll';
 import { defaultParams, type Params } from '../sim/params';
 import { Simulation, SIM_DT } from '../sim/simulation';
@@ -177,14 +177,25 @@ check('the node card: «Враги» counts the fight\'s start — the Troll and
   assert(enemies?.text === 'Тролль, дубина, камень, хвост · подходят: обычные', `the enemies line (${enemies?.text})`);
 });
 
+/** The pointer for which the rule and the nearest pick differ: inside the core's press ring (`pickRadius`), on the line to the body, nearer to the body than to the core. */
+function ringPointer(w: World, core: Enemy, body: Enemy): { x: number; y: number } {
+  const ring = pickRadius(w, core), d = Math.hypot(body.x - core.x, body.y - core.y);
+  assert(d / 2 < ring, `the contact distance ${d.toFixed(2)} leaves room inside the ring ${ring.toFixed(2)}`);
+  const t = Math.min((d / 2 + ring) / 2, d), at = { x: core.x + (body.x - core.x) / d * t, y: core.y + (body.y - core.y) / d * t };
+  assert(Math.hypot(at.x - core.x, at.y - core.y) < ring && Math.hypot(at.x - body.x, at.y - body.y) < Math.hypot(at.x - core.x, at.y - core.y), 'the pointer is in the ring and nearer to the body');
+  return at;
+}
+
 check('«Ядро в окне — первым» (core 21.10.2026): a body on the Troll core — shut, the pointer on it takes the body; in the window it takes the core, no refusal at the cursor, the core is a candidate, the press starts [core]', () => {
   for (const k of [1, 2, 3]) {
     const d = den(k), { sim, w } = d;
     sim.command({ t: 'chill', id: d.rock.id, seconds: 600 });
     sim.command({ t: 'teleport', x: 11.4, y: 4.2 });
     const put = (): { id: number; at: { x: number; y: number } } => {
-      const id = sim.command({ t: 'place', x: d.core.x, y: d.core.y + 0.3, color: 1, hp: 0, kind: 'basic' }) as number, e = w.enemies.find(x => x.id === id)!;
-      return { id, at: { x: e.x, y: e.y } };
+      const id = sim.command({ t: 'place', x: d.core.x, y: d.core.y + 0.5, color: 1, hp: 0, kind: 'basic' }) as number, e = w.enemies.find(x => x.id === id)!;
+      sim.command({ t: 'chill', id, seconds: 60 });
+      for (let i = 0; i < 30; i++) { sim.tick(); w.events.splice(0); }
+      return { id, at: ringPointer(w, d.core, e) };
     };
     assert(w.params.corePickFirst && enemyRefusal(w, d.core) === 'outOfWindow', `seed ${k}: the key is on in his den, the core is shut`);
     const shut = put(), pickShut = pickAt(w, shut.at);
