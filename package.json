@@ -134,6 +134,7 @@
     "test:realtime-hearth-gambler": "tsx src/realtime/run/hearthGambler.spec.ts",
     "test:realtime-hearth-monk": "tsx src/realtime/run/hearthMonk.spec.ts",
     "test:realtime-hearth-away": "tsx src/realtime/run/hearthAway.spec.ts",
+    "test:realtime-chronicle": "tsx src/realtime/run/chronicle.spec.ts",
     "test:realtime-fusions-run": "tsx src/realtime/run/fusionsRun.spec.ts",
     "test:realtime-forms-run": "tsx src/realtime/run/formsRun.spec.ts",
     "test:realtime-prologue-bust": "tsx src/realtime/telemetry/prologueBust.spec.ts",
