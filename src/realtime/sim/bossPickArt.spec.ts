@@ -12,6 +12,8 @@
  * - the hero far: the head — «далеко»;
  * - the club's picture along its handle out of its circle: with the key the club, without it nothing;
  * - the Chief's feast, three eaters drawn: the drag to his head — with the key the core, without it nothing;
+ * - the overlap of drawings (design 21.10.2026), the Chief's shoulder under the ladle (out of every circle): the ladle takeable — the
+ *   ladle (both takeable: the part drawn on top); the ladle not, the core in his window — the core; neither — the ladle's refusal;
  * - the warlock charmed: his head — «под чарами»; his window after the charm: the head takes him;
  * - the Jailer and the Castellan: the head — with the key the core or the core's refusal, without it nothing;
  * - the bosses' arenas put the key on; values without it keep it absent; another arena keeps it off;
@@ -19,7 +21,8 @@
  * - every fight replays from its journal. Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import { WARLOCK_ARENA } from './arenasCastle';
-import { hoverRefusal, pickAt, planChain } from './chain';
+import { artEllipseDepth, bossArtEllipse } from './bossArt';
+import { enemyRefusal, hoverRefusal, pickAt, pickRadius, planChain } from './chain';
 import { CHIEF, CHIEF_LADLE, CHIEF_SACK, chiefState } from './enemies/chief';
 import { WARDROBE } from './enemies/castle';
 import { CASTELLAN } from './enemies/garrison';
@@ -175,6 +178,76 @@ function hall(k: number, key: true | undefined, open: boolean): { sim: Simulatio
   sim.command({ t: 'teleport', x: core.x + 0.3, y: core.y + 1.6 });
   return { sim, w, core };
 }
+
+/**
+ * A point of the Chief's shoulder under the ladle's drawing, out of every press circle: in both ellipses, the core's the deeper (so the
+ * overlap rule, not the depth, decides). Found on a grid round the core (the geometry only; the rule is what the checks then play).
+ */
+function shoulderUnderLadle(w: World, core: Enemy, ladle: Enemy): Vec {
+  const zc = bossArtEllipse(w, core)!, zl = bossArtEllipse(w, ladle)!;
+  let best: Vec | null = null, margin = 0;
+  for (let i = -60; i <= 60; i++) for (let j = -80; j <= 20; j++) {
+    const p = { x: core.x + i * 0.02, y: core.y + j * 0.02 };
+    if (w.enemies.some(e => Math.hypot(e.x - p.x, e.y - p.y) <= pickRadius(w, e) + 0.02)) continue;
+    const qc = artEllipseDepth(zc, p), ql = artEllipseDepth(zl, p), m = Math.min(1 - qc, 1 - ql, ql - qc);
+    if (m > margin) { best = p; margin = m; }
+  }
+  assert(best, 'a point of the core\'s drawing under the ladle\'s, out of the circles');
+  return best;
+}
+/** «Стан Главаря», the parts frozen, the feast open; the hero by the far seat. */
+function feast(k: number): { sim: Simulation; w: World; core: Enemy; ladle: Enemy } {
+  const sim = new Simulation({ arena: 'chief', params: quiet(true), seed: seedOf(k), record: true }), w = sim.world;
+  ticks(sim, 1);
+  const core = kindOf(w, CHIEF)!, ladle = kindOf(w, CHIEF_LADLE)!;
+  freeze(sim, ladle); freeze(sim, kindOf(w, CHIEF_SACK));
+  sim.command({ t: 'teleport', x: 12.9, y: 5.6 });
+  const opened = ticks(sim, ticksOf(30), [], (_w, ev) => ev.some(e => e.type === 'chiefFeast' && e.action === 'open'));
+  assert(opened.some(e => e.type === 'chiefFeast' && e.action === 'open'), `seed ${k}: the feast opened`);
+  return { sim, w, core, ladle };
+}
+/** The three seated eaters drawn from the far seat to the one by the ladle (its reach takes the ladle and the core). */
+function threeEaters(sim: Simulation, w: World): void {
+  const seats: readonly Vec[] = [{ x: 9.8, y: 4 }, { x: 10.7, y: 4.6 }, { x: 11.8, y: 4.4 }];
+  const three = seats.map(s => w.enemies.find(e => e.vars.eat && Math.hypot(e.x - s.x, e.y - s.y) < 0.05)!);
+  sim.command({ t: 'teleport', x: 9.4, y: 5.2 });
+  sim.command({ t: 'begin', x: three[0].x, y: three[0].y });
+  for (const e of three.slice(1)) sim.command({ t: 'drag', x: e.x, y: e.y, mode: 'full' });
+  assert(w.chain.length === 3, `three eaters drawn (${w.chain.length})`);
+}
+
+check('the overlap of drawings, the Chief\'s shoulder under the ladle (out of every circle): both takeable — the ladle (drawn on top); the ladle not, the core in his window — the core; neither — the ladle\'s refusal, not the core\'s', () => {
+  // Seeds whose ladle wears the brew's colour at the first feast (it joins the eaters' chain) and seeds whose ladle does not.
+  const both = [1, 3, 5], coreOnly = [2, 4, 6];
+  for (const k of [...both, ...coreOnly]) {
+    const { sim, w, core, ladle } = feast(k), at = shoulderUnderLadle(w, core, ladle);
+    assert((ladle.color === chiefState(w)!.brew) === both.includes(k), `seed ${k}: the ladle ${both.includes(k) ? 'wears' : 'does not wear'} the brew`);
+    threeEaters(sim, w);
+    assert(enemyRefusal(w, core) === null, `seed ${k}: the core takeable (${enemyRefusal(w, core)})`);
+    const ladleOk = enemyRefusal(w, ladle) === null, said = pickAt(w, at)?.id;
+    sim.command({ t: 'drag', x: at.x, y: at.y, mode: 'full' });
+    const joined = w.chain[w.chain.length - 1]?.id;
+    if (both.includes(k)) assert(ladleOk && said === ladle.id && joined === ladle.id, `seed ${k}: both takeable — the ladle (${said}, ${joined}; ladle ${ladle.id}, core ${core.id})`);
+    else assert(!ladleOk && said === core.id && joined === core.id, `seed ${k}: the ladle not takeable — the core (${said}, ${joined})`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+  // Neither: no feast yet (the core closed), a chain of another colour than the ladle's — the hint is the ladle's refusal.
+  for (const k of [1, 2, 3]) {
+    const sim = new Simulation({ arena: 'chief', params: quiet(true), seed: seedOf(k), record: true }), w = sim.world;
+    ticks(sim, 1);
+    const core = kindOf(w, CHIEF)!, ladle = kindOf(w, CHIEF_LADLE)!, at = shoulderUnderLadle(w, core, ladle);
+    freeze(sim, ladle); freeze(sim, kindOf(w, CHIEF_SACK));
+    // Below the core, clear of the cauldron (the tree circle east of him): the link sees the ladle and the core.
+    sim.command({ t: 'teleport', x: 11.6, y: 4.6 });
+    const id = sim.command({ t: 'place', x: 11.6, y: 3.6, color: (ladle.color + 1) % 4, hp: 1, kind: 'basic' }) as number;
+    sim.command({ t: 'begin', x: 11.6, y: 3.6 });
+    assert(w.chain.length === 1 && w.chain[0].id === id, `seed ${k}: a link of another colour`);
+    const ladleNo = enemyRefusal(w, ladle), coreNo = enemyRefusal(w, core), hint = hoverRefusal(w, at);
+    assert(ladleNo !== null && coreNo !== null && ladleNo !== coreNo, `seed ${k}: both refused, for different reasons (${ladleNo}, ${coreNo})`);
+    assert(pickAt(w, at) === null && hint === ladleNo, `seed ${k}: the hint is the ladle's (${hint}; ladle ${ladleNo}, core ${coreNo})`);
+    assert(replays(sim), `seed ${k}: replay (neither)`);
+  }
+});
 
 check('the warlock: charmed — his head says «под чарами» with the key (nothing without it); his window after the charm — the head takes him', () => {
   for (const k of SEEDS) {

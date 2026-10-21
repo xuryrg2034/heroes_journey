@@ -70,6 +70,31 @@ export function bossArtEllipse(world: World, e: Enemy): ArtEllipse | null {
   return { x: e.x, y, a: w / 2, b: h / 2, cos: 1, sin: 0 };
 }
 
+/**
+ * The drawing order of the bosses' bodies (design 21.10.2026): a part is drawn over its core. Higher — on top. One number for the
+ * simulation (the overlap rule, `artPick`) and the view (it draws the bodies by it).
+ */
+export const BOSS_ART_LAYER: Readonly<Record<string, number>> = {
+  troll: 0, chief: 0, warlock: 0, jailer: 0, castellan: 0,
+  'troll-club': 1, 'troll-rock': 1, 'troll-tail': 1, 'chief-ladle': 1, 'chief-sack': 1,
+};
+
+/**
+ * The overlap rule of the drawings (design 21.10.2026), in one place: among the boss bodies whose drawings hold `p`, those `accept` lets
+ * the chain take; of them the one drawn on top (`BOSS_ART_LAYER`), a tie — the one `p` is deeper in. Null — none. A pick that accepts
+ * every body (the hint's «what is under the pointer») gets the one on top: its refusal is the one shown.
+ */
+export function artPick(world: World, p: Vec, accept: (e: Enemy) => boolean): Enemy | null {
+  let best: Enemy | null = null, layer = -Infinity, depth = Infinity;
+  for (const e of world.enemies) {
+    const zone = bossArtEllipse(world, e), q = zone ? artEllipseDepth(zone, p) : Infinity;
+    if (q > 1 || !accept(e)) continue;
+    const l = BOSS_ART_LAYER[e.kind] ?? 0;
+    if (l > layer || (l === layer && q < depth)) { best = e; layer = l; depth = q; }
+  }
+  return best;
+}
+
 /** Where `p` stands in the ellipse `z`: (dx/a)² + (dy/b)² along its axes — inside at 1 or less. */
 export function artEllipseDepth(z: ArtEllipse, p: Vec): number {
   const dx = p.x - z.x, dy = p.y - z.y, u = (dx * z.cos + dy * z.sin) / z.a, v = (dy * z.cos - dx * z.sin) / z.b;

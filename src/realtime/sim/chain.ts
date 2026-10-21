@@ -70,7 +70,7 @@ import { behindGrate, gateLever, grateLinkDrop, jumpDownFree, onGallery } from '
 // Task 48: the Troll's window (the refusal, one hit per window, the drop from the drawn chain).
 import { TROLL, trollLinkDrop, trollReserve, trollShut, trollWards, trollWindowOn } from './enemies/troll';
 // «Зона нажатия босса по рисунку»: the drawing's ellipse of a boss body (`Params.bossPickArt`).
-import { artEllipseDepth, bossArtEllipse } from './bossArt';
+import { artPick } from './bossArt';
 import { WARLOCK, warlockCharmOn, warlockClosed, warlockLinkDrop, warlockReserve, warlockShut, warlockSpellbound, warlockWards } from './enemies/warlock';
 // Task 57а «Лес: стрелки»: the dash puts out the light shots it touches (`Params.snuffShots`).
 import { snuffAlong, snuffing } from './shots';
@@ -1648,13 +1648,10 @@ function pick(world: World, p: Vec, acceptEnemy: (e: Enemy) => boolean, acceptOb
     if (d <= ro && d < bestD && acceptObject(o)) { best = { kind: 'object', id: o.id }; bestD = d; }
   }
   // «Зона нажатия босса по рисунку» (`Params.bossPickArt`, design 21.10.2026): no body or object in its circle — a boss body (a core or
-  // a part) whose drawing's ellipse holds the pointer (bossArt.ts `bossArtEllipse`), the one the pointer is deepest in.
+  // a part) whose drawing's ellipse holds the pointer, by the overlap rule (bossArt.ts `artPick`: the takeable one drawn on top).
   if (!best && art && world.params.bossPickArt) {
-    let depth = Infinity;
-    for (const e of world.enemies) {
-      const zone = bossArtEllipse(world, e), q = zone ? artEllipseDepth(zone, p) : Infinity;
-      if (q <= 1 && q < depth && acceptEnemy(e)) { best = { kind: 'enemy', id: e.id }; depth = q; }
-    }
+    const drawn = artPick(world, p, acceptEnemy);
+    if (drawn) best = { kind: 'enemy', id: drawn.id };
   }
   return best;
 }
