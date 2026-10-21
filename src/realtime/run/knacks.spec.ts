@@ -44,7 +44,9 @@ const readsBack = (state: RtRunState, label: string): void => { assert(serialize
 // Task 50: a walk is of a run without the knack screen unless its `create` says `knacks: true` (RT_KNACKS_ON turned on at the view's step, 16.10.2026).
 const walk = (k: number, create: WalkOptions['create'], extra: Partial<WalkOptions> = {}): Walk => walkRun({ k, create: { knacks: false, ...create }, ...extra });
 /** The run's state without the task-50 fields (to compare with a run without the flags). */
-const plain = (run: RtRunState): string => { const copy = structuredClone(run) as Partial<RtRunState>; delete copy.knacks; delete copy.honed; delete copy.habits; delete copy.habit; return JSON.stringify(copy); };
+const plain = (run: RtRunState): string => { const copy = structuredClone(run) as Partial<RtRunState>; delete copy.knacks; delete copy.honed; delete copy.habits; delete copy.habit;
+  // Task 58в: the chronicle notes a refused screen's items (`shown`) — the run's other state is the comparison's.
+  delete copy.chronicle; delete copy.shown; return JSON.stringify(copy); };
 /** The states of a walk without the task-50 fields, the knack screens left out, a repeat of the same state (the archetype's step) once. */
 function plainStates(k: number, create: WalkOptions['create'], extra: Partial<WalkOptions> = {}): string[] {
   const out: string[] = [];

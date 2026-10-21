@@ -566,6 +566,13 @@ export class RealtimeRenderer {
    * the memory); `live` — a run fight is on screen; `on` — the toggle «Новое на карте» (off: memory is still written, nothing drawn).
    */
   newSeen: { store: NewSeenStore; live(): boolean; on(): boolean; meet?(id: string): void } | null = null;
+  /**
+   * Task 58 «Летопись»: a captioned kind (and each affix of an elite) that comes into view in a fight of a META run goes to the chronicle
+   * (`meet`), whether or not the П8 memory knew it already (the chronicle is its own record). `on` is false in `?seed=`, the prologue and
+   * the sandbox. Each kind and affix is reported once per page load (the chronicle ignores repeats anyway). View only: no caption, no sim.
+   */
+  chronicle: { on(): boolean; meet(met: { kinds: string[]; affixes: string[]; elite?: true }): void } | null = null;
+  private readonly chronicleSent = new Set<string>();
   private readonly captionLayer = new Container();
   private readonly captions: { id: number; box: Container; until: number; slot: number }[] = [];
   /** What the captions drew (tests read it): the texts shown since the last reset, and the plates on screen now. */
@@ -2144,7 +2151,20 @@ export class RealtimeRenderer {
     const px = 1 / Math.max(0.1, this.scale), host = this.newSeen, shown = this.captionShown;
     if (host && host.live()) {
       const on = host.on();
+      const chronicle = this.chronicle?.on() ? this.chronicle : null;
       for (const e of world.enemies) {
+        if (chronicle) {
+          const kind = KIND_CAPTIONS[e.kind] !== undefined && !this.chronicleSent.has(e.kind) ? e.kind : null;
+          const affixes = (e.affixes ?? []).filter(a => !this.chronicleSent.has(`affix:${a}`));
+          // An elite in view (an affix or the elite flag) opens the chapter of the elites' properties - the observation only; the rule is core's.
+          const elite = !!e.elite && !this.chronicleSent.has('elite');
+          if ((kind || affixes.length || elite) && this.sees(e, 1.5)) {
+            if (kind) this.chronicleSent.add(kind);
+            if (elite) this.chronicleSent.add('elite');
+            for (const a of affixes) this.chronicleSent.add(`affix:${a}`);
+            chronicle.meet({ kinds: kind ? [kind] : [], affixes, ...elite ? { elite: true as const } : {} });
+          }
+        }
         const kindDue = KIND_CAPTIONS[e.kind] !== undefined && !host.store.hasKind(e.kind);
         const affixDue = e.affixes?.some(a => !host.store.hasAffix(a));
         if (!kindDue && !affixDue) continue;
