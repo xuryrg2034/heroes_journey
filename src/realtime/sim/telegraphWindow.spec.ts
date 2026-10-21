@@ -28,6 +28,7 @@ import {
   CHIEF, CHIEF_LADLE, CHIEF_MOVES, CHIEF_SACK, PEPPER_RADIUS, PEPPER_WINDUP, PHASE3_WINDUP as CHIEF_PHASE3_WINDUP, SWING_RADIUS, SWING_WINDUP,
 } from './enemies/chief';
 import { BARREL, ROOK, ROOK_HALF, ROOK_WINDUP, TOPPLE_WIDTH, WARDROBE, WARDROBE_WINDUP } from './enemies/castle';
+import { WARLOCK } from './enemies/warlock';
 import { SLINGER, SLING_MIN, SLING_WINDUP, STONE_RADIUS } from './enemies/slinger';
 import { HIVE, HIVE_NEAR, HIVE_RING, HIVE_SPEED, RING_RADIUS, WASP_HANG, WASP_RADIUS } from './enemies/hive';
 import { WISP, WISP_LIGHT, WISP_SPEED } from './enemies/wisp';
@@ -139,6 +140,8 @@ const OUTSIDE: Readonly<Record<string, string>> = {
   [CHIEF]: 'касание, без телеграфа (обед, приправа и свисток героя не бьют; удары — у половника и мешка)',
   // Task 55а: the barrel is a thing — it never strikes (the player shoves it).
   [BARREL]: 'вещь: не бьёт и не касается; толкает её игрок',
+  // Task 55, stage Д: the warlock's core — «Перенос» hurts nobody; his only strike is his wardrobe's «Падение шкафа» (its own record).
+  [WARLOCK]: 'касание, без телеграфа («Перенос» героя не бьёт; удар — падение его шкафа)',
   // Task 57а: the wisp is a living shot — no zone and moment; it lights 1.6 s from its marker and is slower than the hero (checked below).
   [WISP]: 'живой снаряд: метка и зажигание 1,6 с до полёта, летит медленнее героя — догнать не может (проверка ниже)',
 };

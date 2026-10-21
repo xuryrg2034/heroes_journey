@@ -59,6 +59,7 @@ import { cutTethers, dashPathPoints, dropShackleOf, planTetherCuts, settleTether
 import { behindGrate, gateLever, grateLinkDrop, jumpDownFree, onGallery } from './enemies/garrison';
 // Task 48: the Troll's window (the refusal, one hit per window, the drop from the drawn chain).
 import { TROLL, trollLinkDrop, trollReserve, trollShut, trollWards, trollWindowOn } from './enemies/troll';
+import { WARLOCK, warlockCharmOn, warlockLinkDrop, warlockReserve, warlockShut, warlockSpellbound, warlockWards } from './enemies/warlock';
 // Task 57а «Лес: стрелки»: the dash puts out the light shots it touches (`Params.snuffShots`).
 import { snuffAlong, snuffing } from './shots';
 import { CHIEF, chiefGuarded, chiefHitOutcome, chiefLinkDrop, chiefQueue, chiefQueueShort, chiefRelease, chiefShut, chiefWards } from './enemies/chief';
@@ -248,6 +249,12 @@ export interface ChainPlan {
    * (event `chiefFeast` `unlink`) and this plan is the rest's. Absent otherwise.
    */
   chiefDrop?: { index: number; left: number };
+  /**
+   * Task 55, stage Д «Колдун v0» (enemies/warlock.ts `warlockLinkDrop`): the drawn chain holds the warlock's core while his window is
+   * open — the core's link `index` and the seconds `left` before the window ends; then the core and the links after it leave the chain
+   * (event `warlockWindow` `unlink`) and this plan is the rest's. Absent otherwise.
+   */
+  warlockDrop?: { index: number; left: number };
   /**
    * Task 38 «Гарнизон» (`Params.tethers`, tethers.ts): the tethers the dash of this chain cuts — by their held body — read from the
    * bodies where they stand now along the dash's path (the hero, then the links up to the one it stops on). The release fixes the
@@ -473,11 +480,13 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   const trollDrop = links === world.chain && !world.move ? trollLinkDrop(world, links) : null;
   // Task 54: the Chief's core of the drawn chain, dropped when his window ends.
   const chiefDrop = links === world.chain && !world.move ? chiefLinkDrop(world, links) : null;
+  // Task 55, stage Д: the warlock's core of the drawn chain, dropped when his window ends.
+  const warlockDrop = links === world.chain && !world.move ? warlockLinkDrop(world, links) : null;
   // Task 50: the counters' rank II at the end of the dash (the drawn chain only, not after a chain that ends the fight).
   const honed = honedKit ? planHoned(world, out, pierce, seal, far, options.back !== false && links === world.chain && !over) : null;
   // Task 49: the law of Ведунья — the drawn open chain gives no after-chain shield (the dash: heroLaw.ts, `ChainEnd.endForm`).
   const noShield = links === world.chain && !seal && sealOnlyShield(world);
-  return { ...grate ? { grate } : {}, ...trollDrop ? { trollDrop } : {}, ...chiefDrop ? { chiefDrop } : {}, links: out, endsOnSurvivor, endsOnObject, ...endsOnThing ? { endsOnThing: true as const } : {}, ...shove ? { shove } : {}, power, kills, ...seal ? { seal } : {}, ...noShield ? { noShield: true as const } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {}, ...cuts.length ? { cuts } : {}, ...fused?.blast ? { blast: fused.blast } : {}, ...fused?.wave ? { wave: fused.wave } : {}, ...honed && Object.keys(honed).length ? { honed } : {} };
+  return { ...grate ? { grate } : {}, ...trollDrop ? { trollDrop } : {}, ...chiefDrop ? { chiefDrop } : {}, ...warlockDrop ? { warlockDrop } : {}, links: out, endsOnSurvivor, endsOnObject, ...endsOnThing ? { endsOnThing: true as const } : {}, ...shove ? { shove } : {}, power, kills, ...seal ? { seal } : {}, ...noShield ? { noShield: true as const } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {}, ...cuts.length ? { cuts } : {}, ...fused?.blast ? { blast: fused.blast } : {}, ...fused?.wave ? { wave: fused.wave } : {}, ...honed && Object.keys(honed).length ? { honed } : {} };
 }
 
 /**
@@ -1221,7 +1230,7 @@ export function inChain(world: World, enemy: Enemy): number {
  * Why a target cannot be the next link (stage G): the checks of `canLink` / `canLinkObject` in their order, and the
  * text the pointer hint shows. One function decides both, so the hint never disagrees with the chain.
  */
-export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'unlit' | 'color' | 'far' | 'sight' | 'guarded' | 'crossed' | 'sealed' | 'lever' | 'shackled' | 'handFull' | 'grate' | 'outOfWindow' | 'sliding' | 'queue';
+export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'unlit' | 'color' | 'far' | 'sight' | 'guarded' | 'crossed' | 'sealed' | 'lever' | 'shackled' | 'handFull' | 'grate' | 'outOfWindow' | 'sliding' | 'queue' | 'spellbound';
 export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   move: 'идёт проход',
   colorless: 'не берётся цепью',
@@ -1254,6 +1263,8 @@ export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   sliding: 'в движении',
   // Task 54 «Главарь с котелком»: the Chief's core in his window, the queue of the brew's colour before it short (enemies/chief.ts).
   queue: 'в очередь',
+  // Task 55, stage Д: the warlock's core while his wardrobe stands (enemies/warlock.ts; `ward` is «Пепельный оберег»'s, task 55 §18).
+  spellbound: 'под чарами',
 };
 
 /**
@@ -1320,6 +1331,9 @@ export function enemyRefusal(world: World, enemy: Enemy, plan: ChainPlan = planC
   if (trollShut(world, enemy)) return 'outOfWindow';
   // Task 54: the Chief's core outside his window (or its hit spent).
   if (chiefShut(world, enemy)) return 'outOfWindow';
+  // Task 55, stage Д: the warlock's core charmed, or out of his window (or its hit spent) once the charm is gone.
+  if (warlockSpellbound(world, enemy)) return 'spellbound';
+  if (warlockShut(world, enemy)) return 'outOfWindow';
   if (inChain(world, enemy) >= 0) return 'inChain';
   if (loopClosed(world)) return 'sealed';
   if (plan.endsOnSurvivor) return 'afterSurvivor';
@@ -1588,7 +1602,7 @@ export function releaseChain(world: World): boolean {
   // Task 50: the counters' rank II fix the far links and the survivor's neighbour of the highlight.
   const honedFix = live && !!world.kit?.honed && (honedOn(world, COUNTER_TALISMANS.longArm) || honedOn(world, COUNTER_TALISMANS.frostEdge));
   // Task 48: the Troll's window holds its hit for the return run the player saw too (`trollReserve`).
-  const full = live && (pierceOn(world) || backFixed || fusionFix || honedFix || (trollWindowOn(world) && returnOn(world))) ? planChain(world) : null;
+  const full = live && (pierceOn(world) || backFixed || fusionFix || honedFix || ((trollWindowOn(world) || warlockCharmOn(world)) && returnOn(world))) ? planChain(world) : null;
   const honed: HonedRelease | undefined = honedFix && full?.honed ? { ...full.honed.far ? { far: [...full.honed.far] } : {}, ...full.honed.frost ? { frost: { ...full.honed.frost } } : {} } : undefined;
   const fusion: FusionRelease | undefined = fusionFix && full ? { ...full.fire?.paint ? { paint: full.fire.paint } : {}, ...full.blast ? { blast: full.blast } : {}, ...full.wave ? { wave: full.wave } : {} } : undefined;
   const pierce = pierceOn(world) ? full?.pierce : undefined, back = backFixed ? full?.back : undefined;
@@ -1615,6 +1629,8 @@ export function releaseChain(world: World): boolean {
   // Task 54: the queue of a chain that strikes the Chief's core (its hit takes two plates with a long one).
   chiefRelease(world, links);
   if (trollWindowOn(world)) trollReserve(world, [...links.flatMap(l => (l.kind === 'enemy' ? [l.id] : [])), ...pierce?.bodies.map(b => b.id) ?? [], ...full?.back?.hits.map(h => h.id) ?? [], ...seal?.inside ?? []]);
+  // Task 55, stage Д: the same for the warlock's window (his charm gone).
+  if (warlockCharmOn(world)) warlockReserve(world, [...links.flatMap(l => (l.kind === 'enemy' ? [l.id] : [])), ...pierce?.bodies.map(b => b.id) ?? [], ...full?.back?.hits.map(h => h.id) ?? [], ...seal?.inside ?? []]);
   // «Смена цвета»: the links that free the colour, as drawn (absent while the rule is off or the chain has none).
   const shifts = colorShiftIds(world, links);
   if (shifts.length) world.move.shifts = shifts;
@@ -1697,6 +1713,8 @@ function pierceHit(world: World, move: HeroMove, id: number): void {
   if (enemy.kind === TROLL && trollWards(world, enemy, PIERCE_SOURCE)) return;
   // Task 54: the Chief's core under the feast's rule — the pierce never lands on it.
   if (enemy.kind === CHIEF && chiefWards(world, enemy, PIERCE_SOURCE)) return;
+  // Task 55, stage Д: the warlock's core charmed, or out of his window — the run passes it by.
+  if (enemy.kind === WARLOCK && warlockWards(world, enemy, PIERCE_SOURCE)) return;
   const factor = pierce.brittle?.includes(id) ? Math.max(1, world.params.frostFactor) : 1;
   const outcome = strike(move.power, enemy.hp, factor, 0, platesOf(enemy));
   if (move.purse) move.purse.embers += linkEmbers(enemy, outcome);
@@ -1907,6 +1925,8 @@ function hitEnemy(world: World, enemy: Enemy): void {
   if (enemy.kind === TROLL && trollWards(world, enemy, 'chain')) { move.links = []; returnToStop(move); return; }
   // Task 54: the Chief's core closed (never so for a released chain: the refusal and the window's timer standing) — the same.
   if (enemy.kind === CHIEF && chiefWards(world, enemy, 'chain')) { move.links = []; returnToStop(move); return; }
+  // Task 55, stage Д: the warlock's core closed (never so for a released plan: the refusals and `warlockReserve`) — the same.
+  if (enemy.kind === WARLOCK && warlockWards(world, enemy, 'chain')) { move.links = []; returnToStop(move); return; }
   const { ctx, outcome, pre, marks } = dashStrike(world, move, enemy);
   // Stage 2 of the transition: the kind's reaction to the hit (the porcupine's quills); the hero's death comes first.
   behaviorOf(enemy).onChainHit?.(world, enemy, outcome);

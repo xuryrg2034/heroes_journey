@@ -15,6 +15,8 @@ import { canJump, jumpDownOpen, nextCandidates, nextObjectCandidates, objectRefu
 import { castellanGrate, gateLeverReady } from '../src/realtime/sim/enemies/garrison';
 import { TROLL, trollState } from '../src/realtime/sim/enemies/troll';
 import { CHIEF, chiefMove, chiefState } from '../src/realtime/sim/enemies/chief';
+import { WARLOCK, warlockState } from '../src/realtime/sim/enemies/warlock';
+import { isThing } from '../src/realtime/sim/shove';
 import { enemyArtRadius } from '../src/realtime/sim/enemies/kinds';
 import { lineOfSight } from '../src/realtime/sim/geometry';
 import { blockedAt, type Vec } from '../src/realtime/sim/geometry';
@@ -63,6 +65,8 @@ export function aimAtCore(sim: Simulation, kinds: readonly string[]): void {
   if (core.kind === TROLL) { aimAtTroll(sim, core); return; }
   // Task 54: the Chief — in his window a queue of the brew into the core, else his parts.
   if (core.kind === CHIEF) { aimAtChief(sim, core); return; }
+  // Task 55, stage Д: the warlock — his window open: into the core; else shoves at him (barrels first, then his wardrobe).
+  if (core.kind === WARLOCK) { aimAtWarlock(sim, core); return; }
   // Task 43: the full Castellan behind his grate — the bot goes to the nearest ready lever and pulls it (a chain of one link);
   // no lever ready — the greedy chain. With the grate up it hunts the core as below.
   const grate = castellanGrate(w);
@@ -205,6 +209,33 @@ function aimAtChief(sim: Simulation, core: Enemy): void {
   if (part) { chainToward(sim, part, core); return; }
   toStage();
   playChain(sim);
+}
+
+/**
+ * Task 55, stage Д: the warlock's policy (spec 13, «толчок в цель»): his window open — a chain into the core; a shove worth playing at
+ * hand (a core stop first: `shoveChain`) — it; else the bot walks behind the nearest thing (a barrel first, then his wardrobe) on the line
+ * thing → core and, standing there, plays its shove when the highlight says it stops at him (cancelled otherwise); nothing — the greedy
+ * chain.
+ */
+const WARLOCK_BEHIND = 0.9;
+function aimAtWarlock(sim: Simulation, core: Enemy): void {
+  const w = sim.world, state = warlockState(w);
+  if (state?.window?.open) { chainToward(sim, core, core); return; }
+  if (shoveChain(sim)) return;
+  const free = w.enemies.filter(e => isThing(e) && !w.shoves?.some(s => s.thing === e.id));
+  const dist2 = (a: Vec, b: Vec): number => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
+  const thing = free.sort((a, b) => (a.kind === 'barrel' ? 0 : 1) - (b.kind === 'barrel' ? 0 : 1) || dist2(a, w.hero) - dist2(b, w.hero))[0];
+  if (!thing) { playChain(sim); return; }
+  const d = Math.sqrt(dist2(thing, core)) || 1, spot = { x: thing.x - (core.x - thing.x) / d * WARLOCK_BEHIND, y: thing.y - (core.y - thing.y) / d * WARLOCK_BEHIND };
+  if (dist2(spot, w.hero) > 0.3 * 0.3) {
+    const step = stepToward(w, spot), len = Math.sqrt(step.x ** 2 + step.y ** 2) || 1;
+    sim.command({ t: 'walk', x: step.x / len, y: step.y / len });
+    playChain(sim);
+    return;
+  }
+  sim.command({ t: 'walk', x: 0, y: 0 });
+  sim.command({ t: 'begin', x: thing.x, y: thing.y });
+  if (planChain(w).shove?.stop === 'core') sim.command({ t: 'release' }); else { sim.command({ t: 'cancel' }); playChain(sim); }
 }
 
 export interface BotFightOptions {

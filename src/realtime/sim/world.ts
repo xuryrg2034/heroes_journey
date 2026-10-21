@@ -31,6 +31,7 @@ import { riotStep } from './enemies/garrison';
 import { TROLL, TROLL_CROWD, trollWards } from './enemies/troll';
 // Task 54: the Chief's feast guards his core from every source but the chain in his window (enemies/chief.ts).
 import { CHIEF, chiefWards, seatedEater } from './enemies/chief';
+import { WARLOCK, WARLOCK_CROWD, warlockWards } from './enemies/warlock';
 // Casino stage 1 («Однорукий гоблин», slot.ts): the slot's state and step.
 import { goblinOf, placeArenaGoblin, updateSlot, type SlotOutcome, type SlotState, type SlotSymbol } from './slot';
 import { fallenEmbers, greedHurt, purseDoor, purseKill, type DoorExit, type PurseMove, type PurseWorld } from './purse';
@@ -606,6 +607,12 @@ export type WorldEvent =
   | { type: 'thing'; action: 'break'; id: number; x: number; y: number; by: ShoveStop }
   /** Task 55а (enemies/castle.ts): «Падение шкафа» — `windup` (the lane fixed), `hit`, `rise` (it stands up). */
   | { type: 'wardrobe'; action: 'windup' | 'hit' | 'rise'; id: number; x: number; y: number }
+  /** Task 55, stage Д «Колдун v0» (enemies/warlock.ts): the charm's «звон» (`block`) and its end (`broken`). */
+  | { type: 'warlockCharm'; action: 'block' | 'broken'; id: number; x: number; y: number; source?: string }
+  /** Task 55, stage Д: the warlock's window after an arrival (his charm gone): `dropped` — the links an `unlink` took from the chain. */
+  | { type: 'warlockWindow'; action: 'open' | 'hit' | 'block' | 'close' | 'unlink'; id: number; x: number; y: number; source?: string; dropped?: number[] }
+  /** Task 55, stage Д: «Перенос» — the target candle's sign begins (`mark`), he stands at it (`arrive`). */
+  | { type: 'warlockShift'; action: 'mark' | 'arrive'; id: number; candle: number; x: number; y: number }
   /**
    * Task 55а: «Удар ладьи» — `aim` (the axis fixed both ways, from (`x0`, `y0`) to (`x1`, `y1`)) and `shot` (`plus`, `minus` — what each
    * half struck: `hero`, `enemy`, `thing` — the shelter; absent — nothing).
@@ -895,6 +902,10 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   if (arena.chief && params.trollSolid === false) params = { ...copyParams(params), trollSolid: true };
   // Task 55а: an arena of the castle plays the law of the shove (when the values have it off; a journal keeps the copy).
   if (arena.castle && !params.shove) params = { ...copyParams(params), shove: true };
+  // Task 55, stage Д: the warlock's arena plays his charm, the boss's solid bodies and his crowd (when the values hold the old ones).
+  if (arena.warlock && !params.warlockCharm) params = { ...copyParams(params), warlockCharm: true };
+  if (arena.warlock && !params.trollSolid) params = { ...copyParams(params), trollSolid: true };
+  if (arena.warlock && (params.warlockCrowd ?? DEFAULT_PARAMS.warlockCrowd) === DEFAULT_PARAMS.warlockCrowd) params = { ...copyParams(params), warlockCrowd: WARLOCK_CROWD };
   // Task 57а: an arena of the new shooters plays its own timer when the values have none (and the archer in it; a journal keeps the copy).
   if (arena.volleyGap && !params.volleyGap) params = { ...copyParams(params), volleyGap: arena.volleyGap };
   if (arena.volleyArcher && !params.volleyArcher) params = { ...copyParams(params), volleyArcher: true };
@@ -1629,6 +1640,8 @@ export function damageEnemy(world: World, e: Enemy, damage: number, cause: KillC
   if (e.kind === TROLL && trollWards(world, e, cause.source)) return;
   // Task 54: the Chief's core — the chain's hit in his window only (event `chiefFeast` `block`; nothing on other kinds).
   if (e.kind === CHIEF && chiefWards(world, e, cause.source)) return;
+  // Task 55, stage Д: the warlock's core — a shove's strike always; charmed — nothing else; then his window's one hit (event `warlockCharm` / `warlockWindow` `block`).
+  if (e.kind === WARLOCK && warlockWards(world, e, cause.source)) return;
   // Package «Урон имеет значение»: an armoured elite with plates loses plates, not HP (elites.ts — the one place of the rule).
   if (platesOf(e) > 0) { stripPlates(world, e, cause); return; }
   const killed = damage >= e.hp;
