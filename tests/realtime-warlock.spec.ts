@@ -55,8 +55,14 @@ async function openHall(page: Page): Promise<void> {
   await expect.poll(async () => (await snap(page)).menuOpen).toBe(false);
 }
 
-/** Nobody walks or hurts, no newcomers; the wardrobe of the hall does not topple; his wardrobe slides 6 (it reaches the wall in two shoves). */
+/**
+ * Nobody walks or hurts, no newcomers; the hall's crowd is pinned to 0.45, the number of spec 6.5 these tests are made for: the view does not depend on the
+ * crowd's number (design changes it by the bot's grid), but a body standing on the core takes the click of the chain that should take him (pw-55d-final, 21.10.2026).
+ * Also: the wardrobe of the hall does not topple; his wardrobe slides 6 (it reaches the wall in two shoves). */
 async function quiet(page: Page): Promise<void> {
+  // The crowd's number is read when the fight is made (the arena takes its own only from the default): write it to the panel's values and restart.
+  await page.evaluate(() => { const rt = (window as any).__realtime; rt.params.warlockCrowd = 0.45; rt.restart(); });
+  await expect.poll(async () => (await snap(page)).time).toBeLessThan(0.5);
   await page.evaluate(() => {
     const rt = (window as any).__realtime;
     for (const [k, v] of [['enemySpeed', 0], ['speedSpread', 0], ['baseIntervalMin', 1000], ['baseIntervalMax', 1000], ['baseFloor', 0], ['contactDamage', 0], ['wardrobePeriod', 1000], ['shoveDistance', 6]] as const) rt.setParam(k, v);
