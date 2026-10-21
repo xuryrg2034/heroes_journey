@@ -971,6 +971,31 @@ export interface Params {
    * Off by default and in journals without the key: the old paths. «Зал колдуна» puts it on, a run with `bossHoles` too (`CORE_WARD_KEYS`).
    */
   warlockHoles: boolean;
+  // ---- Task 62 «Ведунья v2: радиус и фигуры», stage A (sim/glyphs.ts, chain.ts; spec docs/design-notes/task-62-witch-v2.md). ----
+  // Read only while the kit holds Ведунья's law (`Loadout.hero` 'toad') and `witchV2` is on (`witchOn`); the cat and Ведунья v1 never
+  // read them. Journals without the keys play the old path.
+  /** Ведунья v2: the circle of casting, links anywhere in it, the release a discharge in place, the ring — a recognized figure. */
+  witchV2: boolean;
+  /** The circle's radius × R of the build without «Длинная рука» (2 × 1.875 = 3.75). */
+  witchCastRadius: number;
+  /** Focus seconds a new link adds (not the full reserve); 0 — none. */
+  witchFocusPerLink: number;
+  /** The sweep of the mouse between pointer events takes links (off: only the press, the pointer event and the held pointer). */
+  witchSweep: boolean;
+  /** Game seconds of the after-chain shield after a recognized figure (no kills needed); an open chain gives none. */
+  witchFigureShield: number;
+  /** Game seconds after a release before a new chain may begin. */
+  witchReleaseGap: number;
+  /** The figure: a rune nearer than this × the contour's diameter to the line of its neighbours is dropped (simplification). */
+  glyphStraight: number;
+  /** The figure's least area (square units) and thickness (2 × area ÷ the largest diameter, units). */
+  glyphMinArea: number;
+  glyphMinThick: number;
+  /** The ring: runes at least; the largest ÷ the least distance from the area's centre to a corner at most. */
+  glyphRingMin: number;
+  glyphRingRatio: number;
+  /** The ring: no corner sharper than this — the cosine of the sharpest angle allowed (0.707 — 45°; 0 — 90°). */
+  glyphRingCorner: number;
   // ---- Task 54 «Главарь с котелком» (sim/enemies/chief.ts, sim/arenasBoss.ts `chief`; docs/realtime-elite-behaviors.md, «Главарь (задача 54)»). ----
   /**
    * The Chief's feast (design 17.10.2026, docs/design-notes/task-54-chief.md, 7): with the frame on, the Chief's core is closed outside
@@ -1729,6 +1754,19 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   corePickFirst: false,
   // «Дыры ядра» Колдуна (21.10.2026): off — the old paths.
   warlockHoles: false,
+  // Task 62 «Ведунья v2» stage A: off; the numbers of the spec (section 5).
+  witchV2: false,
+  witchCastRadius: 2,
+  witchFocusPerLink: 0.5,
+  witchSweep: false,
+  witchFigureShield: 0.5,
+  witchReleaseGap: 0.25,
+  glyphStraight: 0.08,
+  glyphMinArea: 1.5,
+  glyphMinThick: 0.6,
+  glyphRingMin: 5,
+  glyphRingRatio: 2,
+  glyphRingCorner: 0.707,
   // Task 54 «Главарь с котелком» (enemies/chief.ts): the feast off by default (the arena «Стан Главаря» turns it on); his numbers
   // (hypotheses of the spec, read on his arena only).
   chiefFeast: false,
@@ -2351,6 +2389,21 @@ export const PARAM_DEFS: readonly ParamDef[] = [
     hint: 'Указатель в круге ядра босса в его окне (ядро можно взять сейчас) берёт ядро, даже если центр другого тела ближе. Арены Тролля, Главаря и Колдуна и поход включают сами.' },
   { kind: 'bool', key: 'warlockHoles', group: 'Босс', label: 'Дыры ядра Колдуна', stage: 5,
     hint: 'Огненный след уважает чары и окно Колдуна («звон»; в окне — одно попадание), шаман не берёт его ядро, тени конца бьют ядро один раз за окно. «Зал колдуна» и поход включают сами.' },
+  // Task 62 «Ведунья v2», stage A (chain.ts, sim/glyphs.ts): only Ведунья (the build's «Герой») with the key on.
+  { kind: 'bool', key: 'witchV2', group: 'Ведунья v2', label: 'Ведунья v2: круг и фигуры', stage: 5,
+    hint: 'Только для Ведуньи. Звенья — враги в круге 2 × R вокруг неё, расстояние между звеньями не важно; пока цепь в руке, она не ходит. Отпускание — разряд на месте: удары по звеньям в порядке рисования в один такт, выживший не обрывает. Цепь, замкнутая на первом звене, — фигура; кольцо (5+) — «Печать». Щит — только после фигуры.' },
+  n('witchCastRadius', 'Ведунья v2', 'Круг колдовства', 1.5, 2.5, 0.1, 5, '× R'),
+  n('witchFocusPerLink', 'Ведунья v2', 'Фокус за звено', 0, 3, 0.1, 5, 'с', '0 — звено фокус не обновляет.'),
+  { kind: 'bool', key: 'witchSweep', group: 'Ведунья v2', label: 'Протяжка берёт звенья', stage: 5,
+    hint: 'Выключено: звенья берут только нажатие, событие указателя и неподвижный курсор — путь мыши через середину фигуры их не берёт.' },
+  n('witchFigureShield', 'Ведунья v2', 'Щит после фигуры', 0, 3, 0.1, 5, 'с'),
+  n('witchReleaseGap', 'Ведунья v2', 'Пауза между отпусканиями', 0, 2, 0.05, 5, 'с'),
+  n('glyphStraight', 'Ведунья v2', 'Фигура: допуск прямой', 0, 0.3, 0.01, 5, '× диаметр', 'Руна ближе к прямой соседей, чем это × диаметр контура, не вершина.'),
+  n('glyphMinArea', 'Ведунья v2', 'Фигура: наименьшая площадь', 0, 10, 0.1, 5, 'кв. ед.'),
+  n('glyphMinThick', 'Ведунья v2', 'Фигура: наименьшая толщина', 0, 3, 0.05, 5, 'ед.'),
+  n('glyphRingMin', 'Ведунья v2', 'Кольцо: рун не меньше', 3, 10, 1, 5),
+  n('glyphRingRatio', 'Ведунья v2', 'Кольцо: округлость', 1, 3, 0.05, 5, '×', 'Наибольшее расстояние от центра площади до вершины ÷ наименьшее.'),
+  n('glyphRingCorner', 'Ведунья v2', 'Кольцо: острота угла', 0, 1, 0.01, 5, 'cos', 'Угол у вершины не острее этого: 0,707 — 45°, 0 — 90°.'),
   // Task 54 «Главарь с котелком» (enemies/chief.ts, docs/realtime-elite-behaviors.md, «Главарь (задача 54)»).
   { kind: 'bool', key: 'chiefFeast', group: 'Главарь', label: '«Обед!» Главаря', stage: 5,
     hint: 'Главарь закрыт вне окна «Обеда!» («вне окна»). В окне его берёт только цепь цвета варева, в которой до него не меньше трёх звеньев этого цвета («в очередь»); одно попадание за окно, другой урон его не ранит. Арена «Стан Главаря» включает правило сама.' },

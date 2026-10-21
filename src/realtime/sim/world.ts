@@ -19,7 +19,7 @@ import type { BoarState } from './enemies/boar';
 import { behaviorOf, bodyRadiusOf, enemyKind, groupBehaviors, kindOf } from './enemies/kinds';
 import { FlowField, type Vec, blockedAt, dist, hasZone, inThorns, inWater, lineOfSight, overCliff, pushOutOfCliffs, pushOutOfObstacles } from './geometry';
 import { type Params, type Pressure, CORE_WARD_KEYS, DEFAULT_PARAMS, copyParams, enemyBodyRadius, heroRadius, invulnerabilityFor, pressureAt } from './params';
-import { hasTalisman, kitOf, type ItemKind, type Kit, type Loadout, type ResourceKind } from './kit';
+import { hasTalisman, kitOf, witchOn, type ItemKind, type Kit, type Loadout, type ResourceKind } from './kit';
 import { affixSpeedFactor, eliteDeath, makeElite, platesOf, stripPlates, touchLoot, updateAffixes, updateArmor, type AffixId, type EliteArmor, type TrailPoint } from './elites';
 import { updateBurning } from './items';
 import { RngStreams } from './rng';
@@ -208,6 +208,11 @@ export const OBJECT_RADIUS = 0.45;
  */
 export type ChainLink = ({ kind: 'enemy'; id: number } | { kind: 'object'; id: number }) & {
   fork?: { kind: 'enemy' | 'object'; id: number };
+  /**
+   * Task 62 «Ведунья v2» (chain.ts `withRune`): the enemy's point when it was taken — the contour of a figure is made of them (an enemy
+   * that walks away leaves its rune). Absent on every other link (chains without v2 hash as before).
+   */
+  rune?: Vec;
   /**
    * Task 56 (omens.ts `omenLink`), fixed when the link is taken: «Половодье» — the enemy's centre was in water (`wet`: its hit +1);
    * «Перекличка» — its colour was on the roll call (`call`: +0.5 energy). Absent otherwise (chains without them hash as before).
@@ -814,6 +819,8 @@ export interface World {
    * `ly`); an entry leaves with its drill (or at the next death once its group is gone). Absent until a recruit dies under the law.
    */
   recruitFell?: Record<number, [number, number]>;
+  /** Task 62 «Ведунья v2» (chain.ts `castDischarge`): the game second of the last discharge (the pause after it). Absent until one. */
+  castAt?: number;
   /** Task 55а (shove.ts): the things sliding now after a dash's shove — absent while none (worlds without a shove hash as before). */
   shoves?: Shove[];
   /** Task 56 «Гроза» (omens.ts, `Params.omenStorm`): the next mark and the mark standing — absent until the rule acts (worlds hash as before). */
@@ -1868,6 +1875,8 @@ function stepHeroWalk(world: World, dt: number): void {
   const { hero, params, input } = world;
   world.heroWalk.x = 0; world.heroWalk.y = 0;
   if (world.status !== 'playing' || world.move || hero.knock > 0) return;
+  // Task 62: Ведунья v2 stands while a chain is in her hand (the input stays; she walks again after the release).
+  if (world.chain.length && witchOn(world)) return;
   const len = dhypot(input.x, input.y);
   // Phase B: the build may change the hero's speed (`heroSpeedOf`; without a build module — `heroSpeed`).
   const heroSpeed = heroSpeedOf(world);

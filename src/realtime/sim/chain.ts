@@ -31,7 +31,10 @@ import { behaviorOf, enemyArtRadius, kindOf } from './enemies/kinds';
 import { adoptChainColor, chameleonOpen, eliteAffixes, eliteDeath, pickLoot, platesOf, potionHandFull, stripPlates, trailAt } from './elites';
 import { curseKill, takeChest } from './chest';
 import { hasTalisman, sealOnlyShield } from './kit';
-import { afterLinkPowerOf, anchorsOf, buildActive, chainShieldMinKillsOf, chainShieldOf, colorRuleOf, colorShiftOf, crystalEveryOf, endShadowOf, focusMaxOf, hasHook, honedFired, jumpCostOf, linkGainOf, linkPowerOf, linkRadiusOf, nextChainNo, platesBeforeOf, rank2LinksOf, runHook, secondKey, talismanFired, type ChainAnchor, type ChainEnd, type HonedRelease, type LinkContext } from './build';
+import { witchOn } from './kit';
+// Task 62 «Ведунья v2»: the figures of a closed chain (the geometry).
+import { classifyGlyph, type GlyphKind, type GlyphRefusal, type GlyphResult } from './glyphs';
+import { afterLinkPowerOf, anchorsOf, buildActive, chainShieldMinKillsOf, chainShieldOf, colorRuleOf, colorShiftOf, crystalEveryOf, endShadowOf, focusMaxOf, hasHook, honedFired, jumpCostOf, linkGainOf, linkPowerOf, linkRadiusBaseOf, linkRadiusOf, nextChainNo, platesBeforeOf, rank2LinksOf, runHook, secondKey, talismanFired, type ChainAnchor, type ChainEnd, type HonedRelease, type LinkContext } from './build';
 import { BUILD_SOURCES, COUNTER_TALISMANS, FORMS, FUSIONS, HAMMERS } from './buildIds';
 // Task 52, Р2: the dwell gesture of «Развилка» (its anchor; the anchors hook reads the same).
 import { forkAnchorNow, forkDwellOn, forkSpent } from './forms';
@@ -327,6 +330,13 @@ export interface ChainPlan {
   wave?: WavePreview;
   /** Task 50: the counters' rank II on this chain (only with `Kit.honed`; absent when they do nothing). */
   honed?: HonedPlan;
+  /** Task 62 «Ведунья v2» (`witchOn`): the circle of casting — its centre (Ведунья) and radius (`castCircle`). Absent otherwise. */
+  cast?: { x: number; y: number; r: number };
+  /**
+   * Task 62: what the drawn chain closed on its first rune makes now — the figure (its kind and corners) or the refusal (`classifyGlyph`
+   * over the runes of its enemy links; 3 runes at least). Absent otherwise.
+   */
+  glyph?: GlyphResult;
 }
 
 /**
@@ -457,12 +467,17 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   let reached = 0;
   // Task 38: how many links the dash's path runs through (up to its first survivor, or the core that ends the fight); -1 — all.
   let pathEnd = -1, linkIndex = -1;
+  // Task 62: Ведунья v2 — the discharge strikes every link in her reach, a survivor stops nothing.
+  const witch = witchOn(world);
   // Task 55а: the drawn chain ends on a thing, and the shove the dash's end runs (none when a survivor stops the dash before it).
   let endsOnThing = false, shove: ShovePlan | undefined;
   for (const link of links) {
     linkIndex++;
     if (cleared) { out.push({ link, outcome: null }); continue; }
-    const enemy = link.kind === 'enemy' ? findEnemy(world, link.id) : undefined;
+    const found = link.kind === 'enemy' ? findEnemy(world, link.id) : undefined;
+    // Task 62: a link out of the circle or behind a wall from Ведунья v2 gets no strike (its rune stays in the contour).
+    const enemy = found && witch && !castReaches(world, found) ? undefined : found;
+    if (found && !enemy) { out.push({ link, outcome: null }); continue; }
     if (!enemy) {
       // Stage 3a (М4): a burning brazier adds its power to the rest of the chain (the dash adds the same on arrival).
       if (isBrazier(world, link)) power += brazierPowerOf(world);
@@ -494,7 +509,7 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
     if (!endsOnSurvivor) { reached++; purse?.struck.push({ enemy, outcome }); }
     if (outcome.killed) kills++;
     // The package: a plate hit is no survivor — the chain goes on through the armoured elite.
-    else if (!outcome.plate) { if (!endsOnSurvivor) { stopPower = power; pathEnd = linkIndex + 1; } endsOnSurvivor = true; }
+    else if (!outcome.plate && !witch) { if (!endsOnSurvivor) { stopPower = power; pathEnd = linkIndex + 1; } endsOnSurvivor = true; }
     // Task 27: a part this strike kills, with no survivor before it (the dash reaches it), is severed.
     out.push({ link, outcome, ...outcome.killed && !endsOnSurvivor && enemy.partOf !== undefined ? { severs: true as const } : {}, ...marks.length ? { honed: marks } : {} });
     if (outcome.killed && !endsOnSurvivor && endsFight(world, enemy)) { cleared = true; pathEnd = linkIndex + 1; }
@@ -502,7 +517,7 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   // Task 38: the tethers the dash's path crosses (only while the law acts and a tether stands); one whose end the dash kills goes
   // with that death, not by the cut.
   const reachedLinks = pathEnd < 0 ? links.length : pathEnd;
-  const cuts = tethersOn(world) && world.tethers?.length
+  const cuts = tethersOn(world) && world.tethers?.length && !witch
     ? planTetherCuts(world, dashPathPoints(world.hero, links, reachedLinks, l => linkPoint(world, l)),
       new Set(out.slice(0, reachedLinks).flatMap(l => l.outcome?.killed && l.link.kind === 'enemy' ? [l.link.id] : []))) : [];
   const last = links[links.length - 1];
@@ -562,7 +577,9 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   const anger = wardensOn(world) ? planAnger(world, out, pierce, seal, back, !!fire?.lit) : [];
   // Task 49: the law of Ведунья — the drawn open chain gives no after-chain shield (the dash: heroLaw.ts, `ChainEnd.endForm`).
   const noShield = links === world.chain && !seal && sealOnlyShield(world);
-  return { ...grate ? { grate } : {}, ...trollDrop ? { trollDrop } : {}, ...chiefDrop ? { chiefDrop } : {}, ...warlockDrop ? { warlockDrop } : {}, links: out, endsOnSurvivor, endsOnObject, ...endsOnThing ? { endsOnThing: true as const } : {}, ...shove ? { shove } : {}, power, kills, ...anger.length ? { anger } : {}, ...seal ? { seal } : {}, ...noShield ? { noShield: true as const } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {}, ...cuts.length ? { cuts } : {}, ...fused?.blast ? { blast: fused.blast } : {}, ...fused?.wave ? { wave: fused.wave } : {}, ...honed && Object.keys(honed).length ? { honed } : {} };
+  // Task 62: Ведунья v2 — her circle and the figure the drawn chain would make if closed now.
+  const cast = witch ? castCircle(world) : null, glyph = witch && links === world.chain ? glyphOf(world, links) : null;
+  return { ...cast ? { cast } : {}, ...glyph ? { glyph } : {}, ...grate ? { grate } : {}, ...trollDrop ? { trollDrop } : {}, ...chiefDrop ? { chiefDrop } : {}, ...warlockDrop ? { warlockDrop } : {}, links: out, endsOnSurvivor, endsOnObject, ...endsOnThing ? { endsOnThing: true as const } : {}, ...shove ? { shove } : {}, power, kills, ...anger.length ? { anger } : {}, ...seal ? { seal } : {}, ...noShield ? { noShield: true as const } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {}, ...cuts.length ? { cuts } : {}, ...fused?.blast ? { blast: fused.blast } : {}, ...fused?.wave ? { wave: fused.wave } : {}, ...honed && Object.keys(honed).length ? { honed } : {} };
 }
 
 /**
@@ -799,12 +816,12 @@ export const END_BLAST_LEGACY_MIN_LINKS = 1;
 export function endBlastMinLinks(params: Params): number { return params.endBlastMinLinks ?? END_BLAST_LEGACY_MIN_LINKS; }
 
 /** The hammer «Огненный проход» acts in this world. */
-export const fireOn = (world: World): boolean => world.kit?.hammer === HAMMERS.fire;
+export const fireOn = (world: World): boolean => world.kit?.hammer === HAMMERS.fire && !witchOn(world);
 
 // ---- Task 29, item 5: the return run of «Возврат» in the highlight (returnRun.ts; the run — hammers.ts) ----
 
 /** The hammer «Возврат» acts in this world. */
-export const returnOn = (world: World): boolean => world.kit?.hammer === HAMMERS.return;
+export const returnOn = (world: World): boolean => world.kit?.hammer === HAMMERS.return && !witchOn(world);
 
 /** `Params.returnFixed` with «Возврат» in the kit: the release fixes the run's way and bodies (absent key — the old path). */
 export const returnFixedOn = (world: World): boolean => !!world.params.returnFixed && returnOn(world);
@@ -957,6 +974,8 @@ export function chainEnemyCount(world: World, links: readonly ChainLink[] = worl
 
 /** The ring of the drawn chain closed as `kind`: its links' points in order (closed on the hero, he is the first corner). */
 export function loopRing(world: World, kind: LoopKind): Vec[] {
+  // Task 62: Ведунья v2 — the ring is the contour of the runes (where the enemies stood when taken).
+  if (witchOn(world)) return chainRunes(world.chain);
   const points = world.chain.flatMap(l => { const p = linkPoint(world, l); return p ? [p] : []; });
   return kind === 'hero' ? [{ x: world.hero.x, y: world.hero.y }, ...points] : points;
 }
@@ -969,7 +988,8 @@ export function sealPreview(world: World, kind: LoopKind): SealPreview | null {
   // A link that died while the chain is drawn changed the ring: no seal (the loop opens on the next tick, `syncLoop`).
   if (world.chain.some(l => !linkPoint(world, l))) return null;
   const links = chainEnemyCount(world);
-  if (links < loopMinOf(world.params, kind)) return null;
+  // Task 62: Ведунья v2 — the seal is the ring's (a recognized figure), however few links `loopMinLinks` asks of the cat.
+  if (witchOn(world) ? glyphKind(world) !== 'ring' : links < loopMinOf(world.params, kind)) return null;
   // Task 48: the Troll's core closed now is no body inside (the seal does not strike it).
   const ring = loopRing(world, kind), inside = enemiesInside(world, ring, world.chain).filter(e => !trollShut(world, e) && !chiefGuarded(world, e) && !warlockClosed(world, e)), damage = sealDamage(links), hold = sealHoldOf(world.params, links);
   // Task 44 «Ледяная печать»: the survivors of the strike (a plated body loses a plate, not HP) freeze max(hold, 3 s), brittle.
@@ -988,15 +1008,16 @@ export function sealPreview(world: World, kind: LoopKind): SealPreview | null {
 export function loopKindAt(world: World, p: Vec): LoopKind | null {
   const params = world.params;
   if (!loopOn(world) || !world.chain.length || world.move) return null;
-  const n = chainEnemyCount(world), first = world.chain[0];
+  const n = chainEnemyCount(world), first = world.chain[0], witch = witchOn(world);
   // The same nearest pick as the drag (links of the chain and new candidates): a new link next to the first one is taken
   // as a link, not read as the closing (review 11.10.2026).
   const plan = planChain(world, world.chain, NO_PIERCE);
   const under = pick(world, p,
     e => inChain(world, e) >= 0 || canLink(world, e, plan),
     o => linkIndex(world, { kind: 'object', id: o.id }) >= 0 || canLinkObject(world, o, plan), true);
-  if (under) return under.kind === first.kind && under.id === first.id && world.chain.length - 2 !== 0 && n >= loopMinOf(params, 'first') ? 'first' : null;
-  if (params.loopHeroCloses && dist(p, world.hero) <= HERO_CANCEL_RADIUS && n >= loopMinOf(params, 'hero')) return 'hero';
+  // Task 62: Ведунья v2 closes on her first rune only (3 runes at least: the figure decides the rest), never on herself.
+  if (under) return under.kind === first.kind && under.id === first.id && world.chain.length - 2 !== 0 && (witch ? chainRunes(world.chain).length >= GLYPH_MIN_RUNES : n >= loopMinOf(params, 'first')) ? 'first' : null;
+  if (!witch && params.loopHeroCloses && dist(p, world.hero) <= HERO_CANCEL_RADIUS && n >= loopMinOf(params, 'hero')) return 'hero';
   return null;
 }
 
@@ -1008,6 +1029,8 @@ export function loopKindAt(world: World, p: Vec): LoopKind | null {
 export function loopRefusal(world: World, kind: LoopKind): Refusal | null {
   if (world.status !== 'playing' || world.move) return 'move';
   if (planChain(world, world.chain, NO_PIERCE).endsOnObject) return 'afterObject';
+  // Task 62: Ведунья v2 — the closing is the figure's: no reach of the closing edge (the circle is hers), the contour recognized or refused.
+  if (witchOn(world)) { const glyph = glyphOf(world); return !glyph ? 'notFigure' : 'refusal' in glyph ? glyphRefusal(glyph.refusal) : null; }
   const first = world.chain[0], last = world.chain[world.chain.length - 1];
   const from = linkPoint(world, last);
   if (!from) return 'far';
@@ -1026,6 +1049,8 @@ export function loopRefusal(world: World, kind: LoopKind): Refusal | null {
 export function loopCandidates(world: World): LoopKind[] {
   const p = world.params;
   if (!loopOn(world) || world.chainClosed || !world.chain.length || world.move) return [];
+  // Task 62: Ведунья v2 — the first rune, when the contour is a figure.
+  if (witchOn(world)) return world.chain.length >= 3 && chainRunes(world.chain).length >= GLYPH_MIN_RUNES && !loopRefusal(world, 'first') ? ['first'] : [];
   const n = chainEnemyCount(world), out: LoopKind[] = [];
   if (world.chain.length >= 3 && n >= loopMinOf(p, 'first') && !loopRefusal(world, 'first')) out.push('first');
   if (p.loopHeroCloses && n >= loopMinOf(p, 'hero') && !loopRefusal(world, 'hero')) out.push('hero');
@@ -1064,7 +1089,14 @@ export function loopClosed(world: World): boolean { return !!world.chainClosed &
  * this one function; a kit without the forms — the old path.
  */
 export function loopOn(world: World): boolean {
+  // Task 62: Ведунья v2 always closes her figures («Развилка» has no say: every link is taken from her).
+  if (witchOn(world)) return true;
   return (world.params.loopEnabled || hasTalisman(world, FORMS.seal)) && !hasTalisman(world, FORMS.fork);
+}
+/** Task 62: the kind of figure the drawn chain makes now (null — none, or no v2). */
+function glyphKind(world: World): GlyphKind | null {
+  const glyph = witchOn(world) ? glyphOf(world) : null;
+  return glyph && 'kind' in glyph ? glyph.kind : null;
 }
 
 /**
@@ -1356,7 +1388,7 @@ export function inChain(world: World, enemy: Enemy): number {
  * Why a target cannot be the next link (stage G): the checks of `canLink` / `canLinkObject` in their order, and the
  * text the pointer hint shows. One function decides both, so the hint never disagrees with the chain.
  */
-export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'unlit' | 'color' | 'far' | 'sight' | 'guarded' | 'crossed' | 'sealed' | 'lever' | 'shackled' | 'handFull' | 'grate' | 'outOfWindow' | 'order' | 'sliding' | 'queue' | 'spellbound';
+export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'unlit' | 'color' | 'far' | 'sight' | 'guarded' | 'crossed' | 'sealed' | 'lever' | 'shackled' | 'handFull' | 'grate' | 'outOfWindow' | 'order' | 'sliding' | 'queue' | 'spellbound' | 'notFigure' | 'small';
 export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   move: 'идёт проход',
   colorless: 'не берётся цепью',
@@ -1393,6 +1425,9 @@ export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   queue: 'в очередь',
   // Task 55, stage Д: the warlock's core while his wardrobe stands (enemies/warlock.ts; `ward` is «Пепельный оберег»'s, task 55 §18).
   spellbound: 'под чарами',
+  // Task 62 «Ведунья v2» (sim/glyphs.ts): the closed contour is none of the figures, or too small.
+  notFigure: 'не фигура',
+  small: 'мала',
 };
 
 /**
@@ -1403,6 +1438,51 @@ export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
 export function reachOf(world: World, edge: number): number {
   return linkRadiusOf(world) + (world.params.linkToEdge ? edge : 0);
 }
+
+// ---- Task 62 «Ведунья v2», stage A (docs/design-notes/task-62-witch-v2.md, section 2; sim/glyphs.ts) ----
+
+/** A number key of v2 read here: its value, or its default (a world the panel turned v2 on in). */
+const witchNum = (world: World, key: 'witchCastRadius' | 'witchFocusPerLink' | 'witchFigureShield' | 'witchReleaseGap', fallback: number): number => {
+  const v = world.params[key];
+  return typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+};
+/** The circle of casting: its centre — Ведунья, its radius — `witchCastRadius` × R of the build without «Длинная рука». */
+export function castCircle(world: World): { x: number; y: number; r: number } {
+  return { x: world.hero.x, y: world.hero.y, r: Math.max(0, witchNum(world, 'witchCastRadius', 2)) * linkRadiusBaseOf(world) };
+}
+/**
+ * Ведунья v2: why `target` (drawn radius `edge`) is out of her reach — beyond the circle (`ordinary` — beyond the ordinary R: a button, the
+ * door, a lever, loot), to its edge with «R до края тела»; or behind a wall from her (a thin ray, water does not block). Null — in reach.
+ * The drawing, the highlight and the discharge read it: a link that left the circle or went behind a wall gets no strike.
+ */
+export function castRefusal(world: World, target: Vec, edge: number, ordinary = false): 'far' | 'sight' | null {
+  const p = world.params, hero = { x: world.hero.x, y: world.hero.y };
+  const reach = (ordinary ? linkRadiusOf(world) : castCircle(world).r) + (p.linkToEdge ? edge : 0);
+  if (dist(hero, target) > reach) return 'far';
+  return !p.lineOfSight || lineOfSight(hero, target, world.arena, -p.sightSlack) ? null : 'sight';
+}
+/** Ведунья v2: an enemy link is struck by the discharge now — on the arena, in the circle, in sight from her. */
+const castReaches = (world: World, enemy: Enemy): boolean => castRefusal(world, enemy, enemyArtRadius(world.params, enemy)) === null;
+/** Ведунья v2: the runes of the drawn chain's enemy links, in order (the contour of a figure; crystals and objects are no corners). */
+export function chainRunes(links: readonly ChainLink[]): Vec[] {
+  return links.flatMap(l => (l.kind === 'enemy' && l.rune ? [{ x: l.rune.x, y: l.rune.y }] : []));
+}
+/** Ведунья v2: a link as it is taken — an enemy keeps its point now (`rune`). */
+function withRune(world: World, link: ChainLink): ChainLink {
+  if (!witchOn(world) || link.kind !== 'enemy') return link;
+  const e = findEnemy(world, link.id);
+  return e ? { ...link, rune: { x: e.x, y: e.y } } : link;
+}
+/** Ведунья v2: the pause after a release (`witchReleaseGap`, game seconds) still runs — no new chain begins. */
+const castPaused = (world: World): boolean => witchOn(world) && world.castAt !== undefined && world.time - world.castAt < witchNum(world, 'witchReleaseGap', 0.25) - 1e-9;
+/** Ведунья v2: the runes needed to close a figure (the ring needs `glyphRingMin`; a triangle is the least contour). */
+const GLYPH_MIN_RUNES = 3;
+/** Ведунья v2: the figure the drawn chain closed now would make (3 runes at least; null — fewer). */
+function glyphOf(world: World, links: readonly ChainLink[] = world.chain): GlyphResult | null {
+  const runes = chainRunes(links);
+  return runes.length >= GLYPH_MIN_RUNES ? classifyGlyph(world.params, runes) : null;
+}
+const glyphRefusal = (refusal: GlyphRefusal): Refusal => refusal;
 
 /**
  * Within R of an anchor and in sight from that same anchor (toggle): the reach rule shared by enemies and objects.
@@ -1474,12 +1554,14 @@ export function enemyRefusal(world: World, enemy: Enemy, plan: ChainPlan = planC
   if (!colorJoin(world, enemy)) return 'color';
   // Task 54: the Chief's core in his window — the queue of the brew's colour before it.
   if (chiefQueueShort(world, enemy)) return 'queue';
-  const reach = reachRefusal(world, enemy, enemyArtRadius(world.params, enemy));
+  // Task 62: Ведунья v2 takes from her circle, whatever the distance to the link before; the shield is looked at from her.
+  const witch = witchOn(world);
+  const reach = witch ? castRefusal(world, enemy, enemyArtRadius(world.params, enemy)) : reachRefusal(world, enemy, enemyArtRadius(world.params, enemy));
   if (reach) return reach;
   // Stage 2 of the transition (design answer 08.10.2026): the kind's say about the direction of the strike — always from
   // the previous link (the hero for the first one); «Якорь у героя» widens the reach only, it does not get round a shield.
   const guard = behaviorOf(enemy).canBeLinkedFrom;
-  return guard && !guard(world, enemy, chainAnchor(world)) ? 'guarded' : null;
+  return guard && !guard(world, enemy, witch ? { x: world.hero.x, y: world.hero.y } : chainAnchor(world)) ? 'guarded' : null;
 }
 
 export function canLink(world: World, enemy: Enemy, plan: ChainPlan = planChain(world, world.chain, NO_PIERCE)): boolean {
@@ -1503,6 +1585,8 @@ export function objectRefusal(world: World, object: ArenaObject, plan: ChainPlan
   if (object.kind === 'lever' && !leverReady(world, object)) return 'lever';
   // Task 41 «Три зелья»: a healing loot while the hand (with the healing loot already in the chain) is full — the dash would not pick it up.
   if (object.kind === 'loot' && object.loot === 'healing' && potionHandFull(world, world.chain.filter(l => l.kind === 'object' && findObject(world, l.id)?.loot === 'healing').length)) return 'handFull';
+  // Task 62: Ведунья v2 — a crystal and a brazier in her circle; a button, the door, a lever, loot in the ordinary R from her.
+  if (witchOn(world)) return castRefusal(world, object, OBJECT_RADIUS, object.kind !== 'crystal' && object.kind !== 'brazier');
   return reachRefusal(world, object, OBJECT_RADIUS);
 }
 
@@ -1578,21 +1662,25 @@ function refreshFocus(world: World, link: ChainLink): void {
   if (world.focusRefreshed.has(key)) return;
   world.focusRefreshed.add(key);
   const max = focusMaxOf(world);
-  world.focus = p.focusPerLink > 0 ? Math.min(max, world.focus + p.focusPerLink) : max;
+  // Task 62: Ведунья v2 — a link adds `witchFocusPerLink` seconds, not the full reserve (0 — nothing).
+  if (witchOn(world)) { const add = Math.max(0, witchNum(world, 'witchFocusPerLink', 0.5)); if (add <= 0) return; world.focus = Math.min(max, world.focus + add); }
+  else world.focus = p.focusPerLink > 0 ? Math.min(max, world.focus + p.focusPerLink) : max;
   world.events.push({ type: 'focusRefill' });
 }
 
 /** Press: start a chain on an enemy or an object within R of the hero. Returns true when a chain started. */
 export function beginChain(world: World, p: Vec): boolean {
   if (world.status !== 'playing' || world.move) return false;
+  // Task 62: Ведунья v2 — no chain within the pause after a release.
+  if (castPaused(world)) return false;
   world.chain = [];
   delete world.chainClosed;
   delete world.forkAnchor;
   const plan = planChain(world, world.chain, NO_PIERCE);
   const target = pick(world, p, e => canLink(world, e, plan), o => canLinkObject(world, o, plan), true);
   if (!target) return false;
-  // Task 56: «Половодье» and «Перекличка» mark the link as it is taken (omens.ts `omenLink`; nothing without them).
-  world.chain = [omenLink(world, target, target.kind === 'enemy' ? findEnemy(world, target.id) : undefined)];
+  // Task 56: «Половодье» and «Перекличка» mark the link as it is taken (omens.ts `omenLink`; nothing without them); task 62 — the rune.
+  world.chain = [withRune(world, omenLink(world, target, target.kind === 'enemy' ? findEnemy(world, target.id) : undefined))];
   // A chain always starts with the full reserve: its first link refreshes focus too.
   world.focusRefreshed = new Set();
   refreshFocus(world, target);
@@ -1608,6 +1696,8 @@ export type DragMode = 'full' | 'sweep' | 'append';
 /** Drag: append a valid link, truncate on a selected one, cancel on the hero. */
 export function dragChain(world: World, p: Vec, mode: DragMode = 'full'): void {
   if (world.status !== 'playing' || world.move) return;
+  // Task 62: Ведунья v2 — the sweep takes nothing (`witchSweep` off); no chain begins by dragging within the pause after a release.
+  if (witchOn(world) && ((mode === 'sweep' && !world.params.witchSweep) || (!world.chain.length && castPaused(world)))) return;
   // Task 52, Р2: the pointer event left the link it rested on — its dwell done, it stays the anchor (`ready`); not done — no anchor.
   if (mode === 'full' && world.forkAnchor) leaveForkAnchor(world, p);
   // Loop research, step 2: the loop gesture comes first (only the pointer event itself, never a sweep or the held pointer).
@@ -1650,7 +1740,7 @@ export function dragChain(world: World, p: Vec, mode: DragMode = 'full'): void {
   if (!world.chain.length) world.focusRefreshed = new Set();
   const color = chainColor(world), need = twinsNextColor(world);
   const joined = target.kind === 'enemy' ? findEnemy(world, target.id) : undefined, join = joined ? colorJoin(world, joined, color) : null;
-  world.chain.push(omenLink(world, nextLink(world, target), joined));
+  world.chain.push(withRune(world, omenLink(world, nextLink(world, target), joined)));
   // Task 52, Р2: the fork is taken — the anchor is the last link again.
   delete world.forkAnchor;
   // Phase A, T4: a chameleon taken in its window by a chain of another colour takes the chain's colour (task 33: the pair's next).
@@ -1761,7 +1851,7 @@ export function releaseChain(world: World): boolean {
   const fusion: FusionRelease | undefined = fusionFix && full ? { ...full.fire?.paint ? { paint: full.fire.paint } : {}, ...full.blast ? { blast: full.blast } : {}, ...full.wave ? { wave: full.wave } : {} } : undefined;
   const pierce = pierceOn(world) ? full?.pierce : undefined, back = backFixed ? full?.back : undefined;
   // Task 38: the tethers the player saw cut — fixed now, cut when the dash ends (only while the law acts and a tether stands).
-  const cuts = live && tethersOn(world) && world.tethers?.length ? (full ?? planChain(world, world.chain, NO_PIERCE)).cuts : undefined;
+  const cuts = live && tethersOn(world) && world.tethers?.length && !witchOn(world) ? (full ?? planChain(world, world.chain, NO_PIERCE)).cuts : undefined;
   // Task 59а: the pools of pitch the player saw the fire light — fixed now, lit when the move is over.
   const pitch = live && fireOn(world) && world.pitch?.pools.length ? (full ?? planChain(world)).fire?.pitch : undefined;
   // Task 55а: the drawn chain ends on a thing — its shove is fixed by the release (`cuts`' pattern).
@@ -1819,7 +1909,43 @@ export function releaseChain(world: World): boolean {
     world.move.build = { chain, links: 0, elites: 0, start: { ...start } };
     runHook(world, 'onRelease', m => m.onRelease!(world, { chain, links, start, ...back ? { back } : {}, ...fusion ? { fusion } : {}, ...honed ? { honed } : {} }));
   }
+  // Task 62: Ведунья v2 does not run — the discharge strikes every link now, in the order drawn, and the move ends in this call.
+  if (witchOn(world)) castDischarge(world);
   return true;
+}
+
+/**
+ * Task 62 «Ведунья v2» (spec 2.3): the discharge — the released move's links in the order drawn, at once, Ведунья in place: a crystal
+ * breaks, a brazier gives its power, loot and the chest are taken, a button, the door, a lever end the chain; an enemy in her reach
+ * (`castReaches`) is struck (`hitEnemy`: the same strike, hooks, windows and quills as the dash), one out of it is skipped. A survivor stops
+ * nothing. Then the move ends where she stands (`finishMove`: the seal of a ring after the strikes, the figure's shield) and the pause
+ * starts (`World.castAt`). The highlight (`planChain`) reads the same rules.
+ */
+function castDischarge(world: World): void {
+  const move = world.move!, home = { x: world.hero.x, y: world.hero.y };
+  world.castAt = world.time;
+  while (move.links.length && world.status === 'playing' && world.move === move) {
+    const link = move.links.shift()!;
+    if (link.kind === 'object') {
+      const object = findObject(world, link.id);
+      if (!object) continue;
+      if (object.kind === 'crystal') breakCrystal(world, object);
+      else if (object.kind === 'loot') pickLoot(world, object);
+      else if (object.kind === 'chest') takeChest(world, object, 'chain');
+      else if (object.kind === 'brazier') takeBrazier(world, object);
+      else reachObject(world, object);
+      continue;
+    }
+    const enemy = findEnemy(world, link.id);
+    if (!enemy || !castReaches(world, enemy)) continue;
+    // Task 55а: a thing ends the chain unstruck, its shove waits for the end (the dash's rule; the open question of 62 × 55а — the lead's).
+    if (isThing(enemy) && shoveOn(world)) { move.links = []; if (move.shove?.thing === enemy.id) move.shoveHit = true; continue; }
+    hitEnemy(world, enemy);
+  }
+  // As the dash: a door entered ends the move (the chain's score counts), a defeat leaves it.
+  if (world.move !== move || world.status === 'defeat') return;
+  move.stop = home; move.point = null; delete move.route; delete move.detour;
+  finishMove(world);
 }
 
 // ---- Loop research, step 3: «Прямая» (pierce.ts; design decisions 12.10.2026) ----
@@ -2121,7 +2247,7 @@ function hitEnemy(world: World, enemy: Enemy): void {
     stripPlates(world, enemy, { source: 'chain', ...plates > 1 ? { plates } : {} }, false);
     if (outcome.hpAfter < enemy.hp) enemy.hp = outcome.hpAfter;
     if (ctx) { move.power += afterLinkPowerOf(world, ctx, outcome); noteLink(move, enemy, false, colorlessLink(world, enemy)); runHook(world, 'onLink', m => m.onLink!(world, ctx, outcome)); }
-    if (!move.links.length) returnToStop(move);
+    if (!move.links.length && !witchOn(world)) returnToStop(move);
     maybeFinisher(world);
     return;
   }
@@ -2165,6 +2291,8 @@ function hitEnemy(world: World, enemy: Enemy): void {
     enemy.knock = p.survivorKnockbackTime; enemy.knockVx = dx / d * speed; enemy.knockVy = dy / d * speed;
   }
   if (ctx) { noteLink(move, enemy, false, colorlessLink(world, enemy)); runHook(world, 'onLink', m => m.onLink!(world, ctx, outcome)); }
+  // Task 62: the discharge of Ведунья v2 goes on past a survivor (the power left is its `powerAfter`).
+  if (witchOn(world)) { maybeFinisher(world); return; }
   // The chain stops on a survivor: the hero goes back to the last freed spot (over the points flown over a drop, stage 3a).
   move.links = [];
   returnToStop(move);
@@ -2333,10 +2461,11 @@ function finishMove(world: World): void {
     // Task 29, the rank of the field «Конец» (buildIds.ts `END_RANK`): the seal or the pierce that acted on this chain.
     if (end && endRankOn(world) && (move.seal || move.pierced)) end.endForm = move.seal ? 'seal' : 'pierce';
     // Task 50: the kills it needs are the build's (`chainShieldMinKillsOf`: «Добивание» II fewer; without it the panel's).
-    const shield = chainShieldOf(world, end);
+    // Task 62: Ведунья v2 — the shield only after a figure (`witchFigureShield`, no kills needed; «Быстрые ноги» still take it).
+    const witch = witchOn(world), shield = witch ? (move.seal && chainShieldOf(world, end) > 0 ? Math.max(0, witchNum(world, 'witchFigureShield', 0.5)) : 0) : chainShieldOf(world, end);
     // Task 55а: the shove's planned kills are this chain's (spec 2.5) — they count for the shield in the dash's end.
     const shoveKills = shove && move.shoveHit ? shove.crushed.length + (shove.impact?.killed ? 1 : 0) : 0;
-    if (shield > 0 && move.kills + shoveKills >= chainShieldMinKillsOf(world, end)) {
+    if (shield > 0 && (witch || move.kills + shoveKills >= chainShieldMinKillsOf(world, end))) {
       hero.chainShield = shield;
       // The prologue, task 13 (goal `shield`): a new shield window for the room's lamps (nothing on another arena).
       startShieldWindow(world);
