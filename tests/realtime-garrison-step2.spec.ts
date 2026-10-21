@@ -25,10 +25,22 @@ async function openSandbox(page: Page, query: string): Promise<void> {
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
 }
 
+/**
+ * The sandbox menu's number of the arena named `name` (`?arena=N` counts from 1 over the whole menu): found in the menu itself, so an
+ * arena put into the menu before it (task 59б) moves no route of this file.
+ */
+async function arenaQuery(page: Page, name: string): Promise<string> {
+  await page.goto('/?sandbox=1');
+  await expect(page.getByTestId('menu')).toBeVisible();
+  const index = await page.locator('.rt-arena').evaluateAll((els, wanted) => els.findIndex(e => e.querySelector('b')?.textContent === wanted), name);
+  expect(index, `«${name}» in the sandbox menu`).toBeGreaterThanOrEqual(0);
+  return `&arena=${index + 1}`;
+}
+
 test('task 43 Г: the sandbox «Бойницы» (?arena=28) — two crossbowmen and a guards\' line; a crossbowman aims at the hero', async ({ page }) => {
   test.setTimeout(60_000);
   const errors = collectErrors(page);
-  await openSandbox(page, '&arena=28');
+  await openSandbox(page, await arenaQuery(page, 'Бойницы'));
   await expect.poll(async () => (await snap(page)).arena).toBe('g-loopholes');
   const s = await snap(page);
   expect(s.enemies.filter((e: any) => e.kind === 'crossbow').length).toBe(2);
@@ -42,7 +54,7 @@ test('task 43 Г: the sandbox «Бойницы» (?arena=28) — two crossbowmen
 test('task 43 Г: the sandbox «Ристалище» (?arena=29) — a knight in armour in the middle of a guards\' line', async ({ page }) => {
   test.setTimeout(60_000);
   const errors = collectErrors(page);
-  await openSandbox(page, '&arena=29');
+  await openSandbox(page, await arenaQuery(page, 'Ристалище'));
   await expect.poll(async () => (await snap(page)).arena).toBe('g-armory');
   const s = await snap(page), knights = s.enemies.filter((e: any) => e.kind === 'knight');
   expect(knights.length).toBe(1);
