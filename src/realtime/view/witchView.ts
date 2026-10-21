@@ -70,6 +70,8 @@ export interface WitchShown {
   /** 0 — none; 1 — the circle of casting drawn thin (no chain); 2 — drawn in the chain's colour (set by the renderer's reach layer). */
   circle: 0 | 1 | 2;
   runes: number; ties: number;
+  /** Where the dots were drawn (arena units): the world's own `ChainLink.rune` of each enemy link, in order. */
+  runePoints: Vec[];
   /** The ring on the first rune: 0 — none, 1 — dim, 2 — bright (the pointer on it and the closing possible). */
   firstRing: 0 | 1 | 2;
   /** The contour at the pointer: '' — none, 'figure' — dashed in the chain's colour, 'refused' — grey. */
@@ -87,7 +89,7 @@ export interface WitchShown {
 }
 
 export class WitchView {
-  readonly shown: WitchShown = { circle: 0, runes: 0, ties: 0, firstRing: 0, contour: '', contourInk: 0, contourWidth: 0, contourRim: 0, wordAt: null, classAt: null, word: '', classWord: '', casts: 0, flashes: 0, running: 0 };
+  readonly shown: WitchShown = { circle: 0, runes: 0, ties: 0, runePoints: [], firstRing: 0, contour: '', contourInk: 0, contourWidth: 0, contourRim: 0, wordAt: null, classAt: null, word: '', classWord: '', casts: 0, flashes: 0, running: 0 };
   /** The sandbox's «Показать фигуру» (view only; not a Param). */
   showFigure = false;
   private readonly labels: Text[] = [];
@@ -111,7 +113,7 @@ export class WitchView {
   /** Nothing drawn this frame (no chain, or not Ведунья v2). */
   clear(): void {
     const s = this.shown;
-    s.runes = 0; s.ties = 0; s.firstRing = 0; s.contour = ''; s.contourInk = 0; s.contourWidth = 0; s.contourRim = 0; s.wordAt = null; s.classAt = null; s.word = ''; s.classWord = '';
+    s.runes = 0; s.ties = 0; s.runePoints = []; s.firstRing = 0; s.contour = ''; s.contourInk = 0; s.contourWidth = 0; s.contourRim = 0; s.wordAt = null; s.classAt = null; s.word = ''; s.classWord = '';
     for (const label of this.labels) label.visible = false;
   }
 
@@ -146,7 +148,7 @@ export class WitchView {
     for (const link of world.chain) {
       if (link.kind !== 'enemy' || !link.rune) continue;
       g.circle(link.rune.x * U, link.rune.y * U, RUNE_R).fill(ink).stroke({ color: NAVY, width: RUNE_RIM });
-      s.runes++;
+      s.runes++; s.runePoints.push({ x: link.rune.x, y: link.rune.y });
     }
     // The closing target is the sim's (`castFirstRune`: the first rune and the pick radius).
     const target = castFirstRune(world);

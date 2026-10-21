@@ -133,13 +133,10 @@ test('bodies out of the circle are muted once (also the foreign colour out of it
   // The chain's bodies walk to her; each leaves its rune: the dot stays, a thin line leads to the body.
   const back = await screen(page, 7.0, 3.8);
   await page.mouse.move(back.x, back.y, { steps: 4 });
-  // The rune is the enemy's point at the tick of the press (the bodies stand: speed 0): the world's own `chain[i].rune`, read from the snapshot.
+  // The view draws each rune exactly where the world has it (`chain[i].rune`); that a rune is the body's point at the tick of the press is Node's (witchView.spec.ts).
   const s0 = await snap(page);
   expect(s0.witch.runes.length).toBe(3);
-  s0.chain.forEach((id: number, i: number) => {
-    const body = s0.enemies.find((e: any) => e.id === id);
-    expect(Math.hypot(body.x - s0.witch.runes[i].x, body.y - s0.witch.runes[i].y), `the rune of link ${i} is its body's point`).toBeLessThan(0.02);
-  });
+  expect(s0.witch.shown.runePoints).toEqual(s0.witch.runes);
   await page.evaluate(() => (window as any).__realtime.setParam('enemySpeed', 2));
   await gameWait(page, 0.5);
   await expect.poll(async () => (await snap(page)).witch.shown.ties).toBeGreaterThan(0);
@@ -148,6 +145,7 @@ test('bodies out of the circle are muted once (also the foreign colour out of it
   expect(s.witch.runes.length).toBe(3);
   // The runes did not follow the bodies: they are the world's points of before the walk, unchanged.
   expect(s.witch.runes).toEqual(s0.witch.runes);
+  expect(s.witch.shown.runePoints).toEqual(s.witch.runes);
   expect(s.enemies.find((e: any) => e.id === first).x).toBeLessThan(10.2);
   await shot(page, 'witch-chain-muted');
   await page.mouse.up();
@@ -208,8 +206,9 @@ test('a square of four: the closing is refused «не фигура» — the sam
   await shot(page, 'witch-refused-square');
   await page.mouse.up();
   // An open chain: the four are struck one after another from where she stands.
+  // The discharge is drawn from the next frame on: wait for it first, then for the bodies' death.
+  await expect.poll(async () => (await snap(page)).witch.shown.casts).toBe(1);
   await expect.poll(async () => (await snap(page)).enemies.filter((e: any) => ids.includes(e.id)).length).toBe(0);
-  expect((await snap(page)).witch.shown.casts).toBe(1);
   await sameHash(page);
   expect(errors).toEqual([]);
 });

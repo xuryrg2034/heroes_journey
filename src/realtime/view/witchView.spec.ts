@@ -135,6 +135,33 @@ check('muting: a body out of the circle and one behind a wall are out of the cas
   assert(!inCast(f.w, behind), 'inside the circle but behind the wall: muted');
 });
 
+check('a rune is the body point at the tick of the press / of the drag that took it (walking enemies, 3 seeds); it stays where it was when the body walks on', () => {
+  for (const k of [1, 2, 3]) {
+    const f = fight(quiet({ enemySpeed: 1.4 }), k);
+    f.sim.command({ t: 'teleport', x: 10, y: 6 });
+    const es = PENTAGON.map(p => place(f.sim, p));
+    for (let i = 0; i < 37; i++) f.sim.tick();
+    const at = (e: Enemy): Vec => ({ x: e.x, y: e.y });
+    f.sim.command({ t: 'begin', x: es[0].x, y: es[0].y });
+    const taken: Record<number, Vec> = { [es[0].id]: at(es[0]) };
+    for (const e of es.slice(1)) {
+      for (let i = 0; i < 11; i++) f.sim.tick();
+      f.sim.command({ t: 'drag', x: e.x, y: e.y, mode: 'full' });
+      taken[e.id] = at(e);
+    }
+    assert(f.w.chain.length === 5, 'five links');
+    for (const l of f.w.chain) {
+      const r = l.rune!;
+      assert(Math.hypot(r.x - taken[l.id].x, r.y - taken[l.id].y) < 1e-6, 'the rune is the body point when it was taken');
+    }
+    f.sim.command({ t: 'teleport', x: 10, y: 9 });
+    for (let i = 0; i < 60; i++) f.sim.tick();
+    const moved = es.filter(e => Math.hypot(e.x - taken[e.id].x, e.y - taken[e.id].y) > 0.1).length;
+    assert(moved > 0, 'the bodies walked on');
+    for (const l of f.w.chain) assert(Math.hypot(l.rune!.x - taken[l.id].x, l.rune!.y - taken[l.id].y) < 1e-6, 'the rune did not follow the body');
+  }
+});
+
 check('the first rune: dim ring from 3 runes; the pointer on it with a ring that can close — bright, the dashed contour and «Кольцо»; elsewhere — dim, no contour', () => {
   const { view, labels } = newView();
   const f = fight();
