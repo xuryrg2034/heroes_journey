@@ -4022,10 +4022,13 @@ function checkRun(value: unknown): RtRunState | null {
   if (value.moat !== undefined && !(value.moat === true && value.garrison === true)) return null;
   // Task 51: the relic screens filled — a flag, only with the garrison.
   if (value.relicFill !== undefined && !(value.relicFill === true && value.garrison === true)) return null;
-  // Task 58в: the chronicle's flag; `shown` only with it — known items, each once, none held (nor the hammer held), not empty.
+  // Task 58в: the chronicle's flag; `shown` only with it — known items, each once, none held (nor the hammer held), none locked by the
+  // packs or innate to the hero, not empty.
   if (value.chronicle !== undefined && value.chronicle !== true) return null;
   if (value.shown !== undefined && !(value.chronicle === true && isTalismanList(value.shown) && value.shown.length
-    && Array.isArray(value.talismans) && !value.shown.some(id => (value.talismans as unknown[]).includes(id) || id === value.hammer))) return null;
+    && Array.isArray(value.talismans) && !value.shown.some(id => (value.talismans as unknown[]).includes(id) || id === value.hammer
+      // Review 21.10.2026: nothing a pack locks (never offered) nor the hero's innate item (never offered to the hero).
+      || (Array.isArray(value.locked) && (value.locked as unknown[]).includes(id)) || rtInnate(value as Pick<RtRunState, 'heroId'>).includes(id)))) return null;
   // Task 43: a flag, only with «Ров».
   if (value.step2 !== undefined && !(value.step2 === true && value.moat === true)) return null;
   // Task 41: the cap of healing potions, a whole number from 1; absent — a save before it (no cap).
