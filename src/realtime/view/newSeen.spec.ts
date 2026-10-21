@@ -48,7 +48,7 @@ check('memory: broken or throwing storage never throws and keeps the page workin
 });
 
 check('texts: the final strings, 8 forest kinds and 6 garrison kinds (task 43) without the basic enemy, 4 affixes', () => {
-  assert(Object.keys(KIND_CAPTIONS).sort().join() === 'archer,boar,crossbow,guard,handler,hound,keymaster,knight,lynx,porcupine,sapper,shaman,shield,wolf', 'kinds');
+  assert(Object.keys(KIND_CAPTIONS).sort().join() === 'archer,boar,crossbow,guard,handler,hive,hound,keymaster,knight,lynx,porcupine,rook,sapper,shaman,shield,slinger,wardrobe,wisp,wolf', 'kinds');
   // Each caption has a name before its first « — » (the camp's list splits there; the line may hold another dash — the guard's).
   for (const [kind, text] of Object.entries(KIND_CAPTIONS)) assert(text.indexOf(' — ') > 0, `${kind}: «${text}»`);
   assert(KIND_CAPTIONS.guard === 'Стражник — ходит строем: строй — готовая цепь' && KIND_CAPTIONS.knight === 'Рыцарь — цепь снимает латы; без лат нападает', 'garrison texts (design 16.10.2026)');

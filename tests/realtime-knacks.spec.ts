@@ -104,6 +104,11 @@ test('task 50: a won fight of row 2 — two cards and «Пропустить» i
   expect(hone, 'card А «Ранг II» is offered for a counter held on rank I').toBeTruthy();
   expect(hone.marks, 'two notches on the card').toBe(2);
   expect(hone.line).toMatch(/^Ранг II: /);
+  // Design 20.10.2026 (§18): the line under «Сноровка», and the rank II card shows both rules - «Сейчас: …» and «Ранг II: …».
+  await expect(page.getByTestId('knack-hint')).toHaveText('Усиль счётчик, который у тебя есть, или возьми новый');
+  await expect(page.getByTestId(`knack-now-${hone.id}`)).toHaveText(/^Сейчас: .+/);
+  await expect(page.getByTestId(`knack-line-${hone.id}`)).toHaveText(/^Ранг II: .+/);
+  await page.screenshot({ path: `${process.env.SHOT_DIR ?? 'artifacts'}/knack-card-two-lines.png` });
   expect(COUNTER_IDS).toContain(hone.id);
   const box = (await page.getByTestId('result').locator('.rt-result-card').boundingBox())!;
   expect(box.y, 'the result card fits the first screen').toBeGreaterThanOrEqual(0);
@@ -126,6 +131,7 @@ test('task 50: a won fight of row 2 — two cards and «Пропустить» i
   expect((await snap(page)).juice.sounds.hones, 'the sound of the moment').toBeGreaterThanOrEqual(0);
   await page.getByTestId(`build-${hone.id}`).hover();
   await expect(page.getByTestId('build-tip')).toContainText('Ранг II:');
+  expect((await page.getByTestId('build-tip').innerText()).startsWith('Ранг II:'), 'the tip of a counter on rank II starts with «Ранг II:»').toBe(true);
   await page.screenshot({ path: 'artifacts/realtime-knack-column.png' });
   expect(errors).toEqual([]);
 });

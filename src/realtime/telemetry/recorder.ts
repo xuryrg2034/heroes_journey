@@ -22,7 +22,7 @@ import { rtTalisman } from '../run/rtTalismans';
 import { runRow } from '../run/arenaPools';
 import { rtGarrisonNodeId } from '../run/garrison';
 import { fusionOfHalf } from '../sim/buildIds';
-import { rtEventView, rtFightArc, rtGiftView, rtHandFullOffers, rtLevel, rtNode, rtRestView, rtScheduleMet, rtShopView, type RtRunState, type RtRunStep } from '../run/rtRun';
+import { rtAvailableNodes, rtEventView, rtFightArc, rtGiftView, rtHandFullOffers, rtLevel, rtNode, rtNodeOmen, rtRestView, rtScheduleMet, rtShopView, type RtRunState, type RtRunStep } from '../run/rtRun';
 import type { GiftOption } from '../forest/runGift';
 import { ITEM_KINDS } from '../forest/items';
 import { RESOURCE_KINDS } from '../forest/resources';
@@ -33,11 +33,12 @@ import { EventCursor } from './observe';
 import { artifactSource, DeliveryQueue, type SinkSource } from './sinks';
 import {
   encodeJournal, fightKey, fightRecordId, gzipBase64, isIdSegment, journalPartId, makeExport, noteRecordId, nullObserver, packJournal, paramsHash, runKey, runRecordId, SANDBOX_RUN,
-  sessionKey, splitParts, prologueKey, prologueRecordId, RT_TELEMETRY_SCHEMA,
+  sessionKey, splitParts, prologueKey, prologueRecordId, warmupKey, warmupRecordId, RT_TELEMETRY_SCHEMA,
   type FightObserver, type FightObserverFactory, type FightOutcome, type FightRecord, type FightSummary, type JournalMeta, type JournalPart, type NoteRecord, type RtHeader, type RtRecord,
-  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, CASINO_SOURCE, FEAT_SOURCE, type FeatSummary, type RunResources, type RunResourceSink, type RunResourceSource, type RunFeat, type RunFirst, type RunDie, type RunItems, type RunMapHeal, type RunMapSign, type RunFx, type RunFusions, type RunKnack, KNACK_SOURCE, RUN_FX_LEVELS, type RunSecondWind, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunNodeVisit, type RunOutcome, type RunRecord, type PrologueFrom, type PrologueRecord,
+  OATH_STAKE_SOURCE, DIE_SOURCE, CHEST_SOURCE, CASINO_SOURCE, FEAT_SOURCE, type FeatSummary, type RunResources, type RunResourceSink, type RunResourceSource, type RunFeat, type RunFirst, type RunDie, type RunItems, type RunMapHeal, type RunMapSign, type RunFx, type RunFusions, type RunKnack, type RunOmenRoute, KNACK_SOURCE, RUN_FX_LEVELS, type RunSecondWind, type RtRecordKind, type RtTelemetryWindow, type RunChoice, type RunDeath, type RunHearth, type RunNodeVisit, type RunOutcome, type RunRecord, type PrologueFrom, type PrologueRecord, type WarmupRecord,
 } from './schema';
 import { PrologueTally } from './prologue';
+import type { WarmupBody } from './warmup';
 
 export { TLM_RUN_META_KEY, TLM_SESSION_KEY, TLM_TESTER_KEY } from './buffer';
 /**
@@ -60,6 +61,12 @@ const safe = <T>(fallback: T, run: () => T): T => { try { return run(); } catch 
 
 /** The hit that killed the hero (a run's `death`), kept from the hits of the fight. */
 export interface LastHit { enemy?: string; source: string; elite?: boolean; affixes?: string[]; tick: number }
+
+/** Task 51б: the run's choices at «Предместье» (the garrison map, the consumable taken) join its camp record `hearth`; none — nothing. */
+function gateTlm(run: RtRunState, hearth: RunHearth | undefined): { hearth?: RunHearth } {
+  if (run.garrisonMap === undefined && run.gateItem === undefined) return {};
+  return { hearth: { ...hearth, ...run.garrisonMap !== undefined ? { garrisonMap: run.garrisonMap } : {}, ...run.gateItem ? { gateItem: run.gateItem } : {} } };
+}
 
 export class FightTap {
   /** The last tick shown to the observer. */
@@ -259,11 +266,16 @@ export function mergeChoice(list: RunChoice[], c: RunChoice): void {
   if (c.realSeconds !== undefined) old.realSeconds = (old.realSeconds ?? 0) + c.realSeconds;
 }
 
-/** The build at the end of the run (or now). */
 /**
  * Task 40 (from 16.10.2026): the run's levels for its record — the level it is on (2 — the garrison), the highest level it passed
  * (1 — the forest's final won, 2 — the Castellan), the cart of «Предместье» (absent — none of them: the record as before).
  */
+/** Task 56 «Приметы»: the omens of a run's fight (`FightRecord.omens`) — its battle card's (the run at the fight's start); absent — none. */
+function fightOmens(ctx: FightContext): Pick<FightRecord, 'omens'> {
+  const pending = ctx.runState?.pending, omens = pending?.kind === 'battle' && pending.nodeId === ctx.nodeId ? pending.omens : undefined;
+  if (!omens) return {};
+  return { omens: [...omens.level ? [{ id: omens.level, scope: 'level' as const }] : [], ...omens.node ? [{ id: omens.node, scope: 'node' as const }] : []] };
+}
 function runLevels(run: RtRunState): Pick<RunRecord, 'level' | 'levelCleared' | 'cart'> {
   const cleared = rtRunWonLevel(run);
   return { ...rtLevel(run) === 2 ? { level: 2 as const } : {}, ...cleared ? { levelCleared: cleared } : {}, ...run.cart ? { cart: { ...run.cart } } : {} };
@@ -298,6 +310,11 @@ interface RunMeta {
   dice?: RunDie[];
   /** П6: when the run ended (ISO; absent — not ended). */
   endedAt?: string;
+  /**
+   * The build the run ended on (absent — not ended, or ended before 21.10.2026): a record written again after the end (a click on an
+   * NPC in the camp, a buy) keeps it in its header, not the build of that later session.
+   */
+  build?: string;
   /** П8: the map choices made with the sign «✦ новое» shown (absent — none yet). */
   mapSigns?: RunMapSign[];
   /** «Обучение v1»: the fight hints shown in this run (absent — none yet). */
@@ -326,9 +343,13 @@ interface RunMeta {
   fusions?: RunFusions;
   /** Task 50: the run's knack screens and its counters on rank II (absent — none yet). */
   knacks?: RunKnack[];
+  /** Task 56: the route choices where an omen stood among the nodes open (absent — none yet). */
+  omenRoutes?: RunOmenRoute[];
   honed?: { id: string; row: number }[];
+  /** Task 51з: the run of the day's attempt (`dailyAttempt`; absent — not reported, or an ordinary run). */
+  daily?: { date: string; attempt: number; first: boolean; verified?: true };
   /** Tasks 36–37: the run's meta fields (`RunRecord.xp` … `quest`; absent — none yet). */
-  metaTlm?: Partial<Pick<RunRecord, 'xp' | 'pack' | 'record' | 'locked' | 'carry' | 'stock' | 'hearthBuys' | 'npcClicks' | 'hearth' | 'quest'>>;
+  metaTlm?: Partial<Pick<RunRecord, 'xp' | 'pack' | 'record' | 'locked' | 'carry' | 'stock' | 'hearthBuys' | 'npcClicks' | 'hearth' | 'quest' | 'arrive' | 'vows'>>;
   /** Task 49: the hero this run freed (`heroFreed`). */
   freed?: { hero: 'toad'; row: number };
 }
@@ -570,7 +591,7 @@ export class RtRecorder {
     if (!journal || (journal.ticks === 0 && outcome !== 'victory' && outcome !== 'defeat')) return null;
     const body: FightBody = {
       fight: f.key, ...f.ctx.nodeId !== undefined ? { nodeId: f.ctx.nodeId } : {}, arena: world.arena.id, ...f.ctx.roster !== undefined ? { roster: f.ctx.roster } : {},
-      ...f.ctx.row !== undefined ? { row: f.ctx.row } : {}, ...f.ctx.nodeId !== undefined && rtGarrisonNodeId(f.ctx.nodeId) ? { level: 2 as const } : {}, ...f.arc ? { arc: f.arc } : {}, seed: f.sim.seed, outcome, ticks: journal.ticks, time: world.time, hpIn: f.hpIn, hpOut: world.hero.hp, endHash,
+      ...f.ctx.row !== undefined ? { row: f.ctx.row } : {}, ...f.ctx.nodeId !== undefined && rtGarrisonNodeId(f.ctx.nodeId) ? { level: 2 as const } : {}, ...f.arc ? { arc: f.arc } : {}, ...fightOmens(f.ctx), seed: f.sim.seed, outcome, ticks: journal.ticks, time: world.time, hpIn: f.hpIn, hpOut: world.hero.hp, endHash,
       ...view ? { view } : {}, summary: f.tap.summary(world),
     };
     // Task 16 telemetry: the view's count of first meetings in the fight; the feat's summary for the run step that feeds it back.
@@ -710,15 +731,21 @@ export class RtRecorder {
   private writeRun(run: RtRunState): void {
     const meta = this.metaFor(run), runParams = JSON.parse(JSON.stringify(this.options.params)) as Params;
     const record: RunRecord = {
-      ...this.header(runRecordId(this.session, meta.key), 'run', meta.key, paramsHash(runParams)),
+      ...this.header(runRecordId(this.session, meta.key), 'run', meta.key, paramsHash(runParams)), ...meta.build ? { build: meta.build } : {},
       seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, ...meta.hints?.length ? { hints: meta.hints } : {}, ...meta.items ? { items: meta.items } : {}, ...meta.gentle ? { gentle: true as const } : {}, ...meta.startPotion ? { startPotion: true as const } : {}, ...meta.secondWindOn ? { secondWindOn: true as const } : {}, ...meta.startItems ? { startItems: meta.startItems } : {}, ...meta.secondWind ? { secondWind: meta.secondWind } : {}, ...meta.mapHeals?.length ? { mapHeals: meta.mapHeals } : {}, /* task 18: the run's own level */ ...run.ash ? { ash: run.ash } : {}, /* task 41: the cap of healing potions */ ...run.potionCap ? { potionCap: run.potionCap } : {}, /* task 26: living elements of the snapshot (affix types apart) */ ...run.schedule ? { schedule: { start: run.schedule.seen.filter(id => !id.startsWith('affix:')).length } } : {},
       ...run.fusions ? { fusions: meta.fusions ?? { halves: [], paired: [], made: [], declined: [] } } : {},
       // Task 50: the knack screens and rank II; the archetype (absent — «Без повадки», or not chosen yet).
       ...run.knacks ? { knacksOn: true as const, ...meta.knacks?.length ? { knacks: meta.knacks } : {}, ...meta.honed?.length ? { honed: meta.honed } : {} } : {},
       ...run.habits ? { habitsOn: true as const, ...run.habit ? { habit: run.habit } : {} } : {},
+      // Task 56 «Приметы»: the pool, the levels' omens, the route choices with an omen, the steps of «Перепутье».
+      ...run.omens ? { omensOn: true as const, omenPool: [...run.omens.pool], ...run.omens.level ? { levelOmens: Object.entries(run.omens.level).map(([level, id]) => ({ level: Number(level), id: id! })) } : {}, ...meta.omenRoutes?.length ? { omenRoutes: meta.omenRoutes } : {}, ...run.crossroadsFree ? { crossroadsSteps: run.crossroadsFree } : {}, ...run.fairRerolls ? { fairRerolls: Object.keys(run.fairRerolls).length } : {} } : {},
+      // Task 51з: the run of the day — the date and the attempt the view reported (`dailyAttempt`).
+      ...run.daily && meta.daily?.date === run.daily ? { daily: meta.daily } : {},
       // Task 49: the run's hero (absent — the cat) and the hero it freed.
       ...run.heroId === 'toad' ? { hero: 'toad' as const } : {}, ...meta.freed ? { freed: { ...meta.freed } } : {},
-      ...meta.featsOn ? { featsOn: true as const } : {}, ...meta.feats?.length ? { feats: meta.feats } : {}, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun, ...meta.viewerRunApprox ? { viewerRunApprox: true as const } : {} } : {}, ...meta.firsts?.length ? { firsts: meta.firsts } : {}, ...meta.resources ? { resources: meta.resources } : {}, ...meta.fx ? { fx: meta.fx } : {}, ...meta.metaTlm ?? {}, ...runLevels(run), runParams,
+      // Task 51д: the meeting on the road (absent — no NPC away in this run).
+      ...run.hearth?.away ? { npcMeet: { npc: run.hearth.away, met: !!run.npcMeet, ...run.npcMeet ? { nodeId: run.npcMeet.nodeId, ...run.npcMeet.deal ? { deal: run.npcMeet.deal } : {} } : {} } } : {},
+      ...meta.featsOn ? { featsOn: true as const } : {}, ...meta.feats?.length ? { feats: meta.feats } : {}, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun, ...meta.viewerRunApprox ? { viewerRunApprox: true as const } : {} } : {}, ...meta.firsts?.length ? { firsts: meta.firsts } : {}, ...meta.resources ? { resources: meta.resources } : {}, ...meta.fx ? { fx: meta.fx } : {}, ...meta.metaTlm ?? {}, ...gateTlm(run, meta.metaTlm?.hearth), ...runLevels(run), runParams,
     };
     void this.put([JSON.parse(JSON.stringify(record)) as RunRecord]);
   }
@@ -753,7 +780,15 @@ export class RtRecorder {
       if (run.locked) (this.meta.metaTlm ??= {}).locked = run.locked.length;
       if (run.hearth) {
         const h = run.hearth, tlm = this.meta.metaTlm ??= {};
-        const hearth = { ...h.maps ? { maps: h.maps } : {}, ...h.startItems ? { startItems: [...h.startItems] } : {}, ...h.jailerRerolls ? { jailerRerolls: h.jailerRerolls } : {}, ...h.hammerAll ? { hammerAll: true as const } : {} };
+        const hearth = { ...h.maps ? { maps: h.maps } : {}, ...h.startItems ? { startItems: [...h.startItems] } : {}, ...h.jailerRerolls ? { jailerRerolls: h.jailerRerolls } : {}, ...h.hammerAll ? { hammerAll: true as const } : {},
+          // Task 51б: level 3 of the camp (the choices at «Предместье» join at `writeRun`).
+          ...h.garrisonMaps ? { garrisonMaps: h.garrisonMaps } : {}, ...h.gateItems ? { gateItems: [...h.gateItems] } : {}, ...h.garrisonRerolls ? { garrisonRerolls: h.garrisonRerolls } : {},
+          // Task 51в: Шиш.
+          ...h.shopRerolls ? { shopRerolls: h.shopRerolls } : {}, ...h.swap ? { swap: true as const } : {},
+          // Task 51г: Евлампий's vows taken.
+          ...h.vows ? { vows: [...h.vows] } : {},
+          // Task 51д: the NPC away.
+          ...h.away ? { away: h.away } : {} };
         if (Object.keys(hearth).length) tlm.hearth = hearth;
         if (h.quest) tlm.quest = { npc: h.quest.npc, id: h.quest.id };
       }
@@ -827,6 +862,9 @@ export class RtRecorder {
       tlm.carry = { ...end.carry };
       tlm.stock = { ...end.stock };
       if (end.quest) tlm.quest = { npc: end.quest.npc, id: end.quest.id, done: end.quest.done };
+      // Task 51в: the NPCs who came after this run.
+      if (end.vows) tlm.vows = end.vows.map(v => ({ ...v }));
+      if (end.arrived) tlm.arrive = end.arrived.map(a => ({ npc: a.npc, path: a.self ? 'self' as const : 'deed' as const, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun } : {} }));
       this.saveMeta(); this.writeRun(run);
     });
   }
@@ -868,6 +906,28 @@ export class RtRecorder {
   }
 
   /** «Обучение v1»: a fight hint started in this run; its id goes into the run record once (the record is written again). */
+  /** Task 51з «Поход дня»: the run of the day began as attempt `attempt` of its date (run/rtDaily.ts `RtDailyStore.begin`). */
+  dailyAttempt(run: RtRunState, attempt: number): void {
+    if (!run.daily || !(attempt >= 1)) return;
+    safe(undefined, () => {
+      const meta = this.metaFor(run);
+      meta.daily = { date: run.daily!, attempt, first: attempt === 1 };
+      this.saveMeta();
+      this.writeRun(run);
+    });
+  }
+
+  /** Task 51з: the run of the day's proof passed the check by replay (the view's «Проверить»). */
+  dailyVerified(run: RtRunState): void {
+    safe(undefined, () => {
+      const meta = this.metaFor(run);
+      if (!run.daily || meta.daily?.date !== run.daily || meta.daily.verified) return;
+      meta.daily.verified = true;
+      this.saveMeta();
+      this.writeRun(run);
+    });
+  }
+
   hintShown(run: RtRunState | null, id: string): void {
     if (!run) return;
     safe(undefined, () => {
@@ -916,6 +976,11 @@ export class RtRecorder {
           const node = rtNode(after, ev.nodeId), row = node ? runRow(node.row) : ev.row;
           meta.nodes.push({ nodeId: ev.nodeId, row, type: node?.type ?? 'unknown', hpIn: before?.hp ?? after.hp, hpOut: after.hp, maxHp: after.maxHp });
           meta.farRow = Math.max(meta.farRow, row);
+          // Task 56 «Приметы»: the route chosen where an omen stood among the nodes open (as the map showed them).
+          if (before?.omens) {
+            const offered = rtAvailableNodes(before).map(n => { const omen = rtNodeOmen(before, n); return { nodeId: n.id, ...omen ? { omen } : {} }; });
+            if (offered.some(o => o.omen)) (meta.omenRoutes ??= []).push({ level: rtLevel(before), row, offered, chosen: ev.nodeId });
+          }
         } else if (ev.type === 'battle-ready') {
           const visit = meta.nodes[meta.nodes.length - 1], pending = after.pending;
           if (visit) { visit.arena = ev.arena; if (pending?.kind === 'battle' && pending.roster !== undefined) visit.roster = pending.roster; if (after.schedule) visit.arc = rtFightArc(after) ?? 'practice'; }
@@ -958,6 +1023,7 @@ export class RtRecorder {
           meta.outcome = ev.type === 'run-won' ? 'victory' : 'defeat';
           // П6: the end of the run (the step that ended it; the first one, should a step repeat).
           meta.endedAt ??= new Date().toISOString();
+          meta.build ??= this.build;
         }
       }
       const seconds = typeof info.realSeconds === 'number' && Number.isFinite(info.realSeconds) && info.realSeconds >= 0 ? info.realSeconds : undefined;
@@ -1060,6 +1126,20 @@ export class RtRecorder {
       const salt = Math.floor(Math.random() * 0x100000000), key = prologueKey(Date.now(), salt), session = this.session;
       const id = prologueRecordId(session, key), hash = paramsHash(this.options.params);
       return new PrologueTally(from, body => safe(undefined, () => { void this.put([{ ...this.header(id, 'prologue', key, hash), session, ...body } as PrologueRecord]); }));
+    });
+  }
+
+  // ---- The camp's warmup (task 51ж, 17.10.2026) ----
+
+  /**
+   * One attempt of a warmup layout ended (telemetry/warmup.ts `warmupBody`): its record `S/W/warmup` under a fresh key. `params` — the
+   * values the attempt played (`warmupParams`) for the header's hash; absent — the page's. No fight record, no journal, no run record.
+   */
+  warmupAttempt(body: WarmupBody, params?: Params): void {
+    safe(undefined, () => {
+      const salt = Math.floor(Math.random() * 0x100000000), key = warmupKey(Date.now(), salt), session = this.session;
+      const id = warmupRecordId(session, key), hash = paramsHash(params ?? this.options.params);
+      void this.put([{ ...this.header(id, 'warmup', key, hash), session, ...body } as WarmupRecord]);
     });
   }
 

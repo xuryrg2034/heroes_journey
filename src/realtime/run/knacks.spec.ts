@@ -13,11 +13,13 @@
  *   screens still show an untagged card, two archetypes differ on some screens; the Jailer's form screen holds the tagged form in place 1
  *   (through the camp's reroll too);
  * - a save of every case «похода нет» reads as no run; the telemetry's fields, `checkRecord` and the report's sections.
+ * - the camp's `last.habitOffered` / `last.knackOffered` (task 50 §18): after a run that showed the screens (a refusal too), on the knack
+ *   screen, not before it (its fight, the die at the door), never without the flags; only `true` read back.
  */
 import { walkRun, ok, seedOf, type Walk, type WalkOptions } from './metaWalk.testkit';
 import {
   createRtRun, parseRtRun, rtArenaLoadout, rtFusionsReady, rtRestFuse, rtChooseGift, rtChooseHabit, rtFormPool, rtFusionOwed, rtGiftView, rtHabitForm, rtHabitKept, rtKnackNode, rtKnackOptions,
-  rtNode, serializeRtRun, RT_HABITS_ON, RT_KNACK_ROW, RT_KNACKS_ON, type RtRunState,
+  rtNode, serializeRtRun, RT_HABITS_ON, RT_KNACK_ROW, RT_KNACKS_ON, resolveArena, rtDieChoose, type RtArenaOutcome, type RtRunState,
 } from './rtRun';
 import { runRow } from './arenaPools';
 import { RT_COUNTER_TALISMANS, RT_HABITS, rtTalisman, rtWeightedIndex, type RtHabitId } from './rtTalismans';
@@ -29,6 +31,7 @@ import { copyParams, defaultParams } from '../sim/params';
 import type { Journal } from '../sim/simulation';
 import { checkRecord, type RunRecord } from '../telemetry/schema';
 import { choicesSection, habitsSection, knacksSection } from '../telemetry/report';
+import { parseRtMeta, rtApplyMeta } from './rtMeta';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -224,7 +227,8 @@ const KNACKS_BEFORE_COLD_RARE: Readonly<Record<string, string>> = {
 const knackDigest = (habit: RtHabitId | null): { digest: string; screens: number } => {
   let h = 0x811c9dc5, screens = 0;
   const add = (text: string): void => { for (let i = 0; i < text.length; i++) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193) >>> 0; };
-  for (let k = 1; k <= 24; k++) walk(k, { gift: 'full', knacks: true, habits: true, garrison: k % 2 === 0 }, { habit, each: s => { if (s.pending?.kind === 'knack') { add(`${k}|${s.pending.nodeId}|${JSON.stringify(s.pending.options)}
+  // Task 51: the reference walks predate the relic screens filled (`relicFill`: their rares change the later screens) — without it.
+  for (let k = 1; k <= 24; k++) walk(k, { gift: 'full', knacks: true, habits: true, garrison: k % 2 === 0, relicFill: false }, { habit, each: s => { if (s.pending?.kind === 'knack') { add(`${k}|${s.pending.nodeId}|${JSON.stringify(s.pending.options)}
 `); screens++; } } });
   return { digest: h.toString(16), screens };
 };
@@ -293,13 +297,31 @@ await check('«Без повадки» is the run without the flag, state for st
   }
 });
 
-await check('the archetype row: before the gift\'s buttons, once; the gift\'s buttons are the same; the archetype stays to the end', () => {
+await check('the archetype row: before the gift\'s buttons; the choice changes until the gift\'s button (§19); the gift\'s buttons are the same; the archetype stays to the end', () => {
   for (let k = 1; k <= 10; k++) {
     const run = createRtRun(seedOf(k), { gift: 'full', habits: true }), view = rtGiftView(run)!;
     assert(view.habit && !view.habit.chosen, 'the row is open');
     assert(!rtChooseGift(run, view.options.findIndex(o => o.available)).ok, 'a button before the archetype is refused');
     const chosen = ok(rtChooseHabit(run, 'cold'), 'habit');
-    assert(!rtChooseHabit(chosen, 'flame').ok, 'once');
+    // §19 (the v75 playtest): a second click changes the choice while the gift is open; the gift's button makes it final.
+    const changed = ok(rtChooseHabit(chosen, 'flame'), 'a change');
+    assert(changed.habit === 'flame' && rtGiftView(changed)!.habit!.id === 'flame' && rtGiftView(changed)!.habit!.chosen, 'the choice changed');
+    const button = rtGiftView(run)!.options.findIndex(o => o.available && o.option.kind !== 'pick-item');
+    const given = ok(rtChooseGift(changed, button), 'the gift');
+    assert(given.habit === 'flame' && !rtChooseHabit(given, 'cold').ok, 'final after the gift\'s button');
+    // «Без повадки» → «Пламя» → the gift: 'flame'; «Пламя» → «Без повадки» → the gift: no field.
+    const noneThenFlame = ok(rtChooseGift(ok(rtChooseHabit(ok(rtChooseHabit(run, null), 'none'), 'flame'), 'flame'), button), 'gift');
+    assert(noneThenFlame.habit === 'flame', `«Без повадки» → «Пламя»: ${noneThenFlame.habit}`);
+    const flameThenNone = ok(rtChooseGift(ok(rtChooseHabit(ok(rtChooseHabit(run, 'flame'), 'flame'), null), 'none'), button), 'gift');
+    assert(!('habit' in flameThenNone), '«Пламя» → «Без повадки»: no field');
+    // One change before the gift gives the save of one choice, byte for byte.
+    const once = ok(rtChooseGift(ok(rtChooseHabit(run, 'flame'), 'flame'), button), 'gift');
+    assert(serializeRtRun(noneThenFlame) === serializeRtRun(once), 'a change = one choice (flame)');
+    const onceNone = ok(rtChooseGift(ok(rtChooseHabit(run, null), 'none'), button), 'gift');
+    assert(serializeRtRun(flameThenNone) === serializeRtRun(onceNone), 'a change = one choice (none)');
+    // The save with the gift open keeps the last choice (null — «Без повадки»).
+    const open = parseRtRun(serializeRtRun(ok(rtChooseHabit(ok(rtChooseHabit(run, 'shift'), 'shift'), null), 'none')))!;
+    assert(open.habit === null && rtGiftView(open)!.habit!.chosen && rtGiftView(open)!.habit!.id === null, 'the open gift keeps the last choice');
     const flagless = createRtRun(seedOf(k), { gift: 'full' });
     assert(JSON.stringify(rtGiftView(chosen)!.options) === JSON.stringify(rtGiftView(flagless)!.options), 'the buttons are the same');
     const end = walk(k, { gift: 'full', habits: true, garrison: true }, { habit: 'shift' }).run;
@@ -389,7 +411,9 @@ await check('a save of the open gift with «Без повадки» (`habit: nul
     const after = ok(rtChooseHabit(createRtRun(seedOf(k), { gift: 'full', habits: true }), null), 'none'), loaded = parseRtRun(serializeRtRun(after));
     assert(loaded && serializeRtRun(loaded) === serializeRtRun(after) && loaded.habit === null, `seed ${k}: the same state`);
     assert(JSON.stringify(rtGiftView(loaded)) === JSON.stringify(rtGiftView(after)) && rtGiftView(loaded)!.habit?.chosen === true, `seed ${k}: the same view, the archetype decided`);
-    assert(!rtChooseHabit(loaded, 'cold').ok && !rtChooseHabit(after, 'cold').ok, `seed ${k}: no second choice`);
+    // §19: the loaded open gift still takes a change, the same as the state before the save.
+    const fromLoaded = rtChooseHabit(loaded, 'cold'), fromAfter = rtChooseHabit(after, 'cold');
+    assert(fromLoaded.ok && fromAfter.ok && serializeRtRun(fromLoaded.run) === serializeRtRun(fromAfter.run) && fromLoaded.run.habit === 'cold', `seed ${k}: a change after the load`);
     const view = rtGiftView(after)!, at = view.options.find(o => o.available)?.index ?? null;
     const a = rtChooseGift(after, at), b = rtChooseGift(loaded, at);
     assert(a.ok && b.ok && serializeRtRun(a.run) === serializeRtRun(b.run) && JSON.stringify(a.events) === JSON.stringify(b.events), `seed ${k}: the gift's button gives the same step`);
@@ -444,6 +468,49 @@ await check('telemetry: `knacksOn`, `knacks`, `honed`, `habitsOn`, `habit` of th
   assert(/Походов со «Сноровкой»: 6/.test(knack) && /«Ранг II» \d+/.test(knack) && /медиана/.test(knack), knack);
   assert(RT_HABITS.every(h => habit.includes(h.name)) && habit.includes('Без повадки'), habit);
   assert(/Выборов сборки за поход/.test(choices), choices);
+});
+
+await check('the camp\'s `last.habitOffered` / `last.knackOffered` (ui: `habit_first`, `knack_first`): set by real runs that showed the screens, absent otherwise', () => {
+  const last = (run: RtRunState) => rtApplyMeta(undefined, run).meta.hearth!.last!;
+  let refused = 0;
+  for (let k = 1; k <= 6; k++) {
+    // A run with both flags, every knack refused on odd seeds: the state on the first knack screen, and the state just before it.
+    let before: RtRunState | undefined, onScreen: RtRunState | undefined, previous: RtRunState | undefined;
+    const w = walk(k, { gift: 'full', forms: true, knacks: true, habits: true }, { ...k % 2 ? { knack: () => null } : {}, each: state => {
+      if (!onScreen && state.pending?.kind === 'knack') { onScreen = state; before = previous; }
+      previous = state;
+    } });
+    assert(onScreen && before, `seed ${k}: the walk showed a knack screen`);
+    if (k % 2) refused++;
+    const end = last(w.run), screen = last(onScreen), pre = last(before);
+    assert(end.habitOffered === true && end.knackOffered === true, `seed ${k}: the run's end ${JSON.stringify(end)}`);
+    // Left on the knack screen (abandoned there): offered; left before it (its fight, the die, the fight's talisman screen): not yet.
+    assert(screen.knackOffered === true && screen.habitOffered === true, `seed ${k}: on the screen`);
+    assert(!('knackOffered' in pre) && pre.habitOffered === true, `seed ${k}: before the screen (${before.pending?.kind})`);
+    // The same fight won with the cauldron's die at the door: the die's screen comes first — not offered yet; after the die, the knack's.
+    const fought = before.pending?.kind === 'battle' ? before.pending : undefined;
+    assert(fought, `seed ${k}: the knack screen follows its fight`);
+    const door = { cauldron: 40, oath: 1, kinds: ['dew', 'powder', 'resin', 'herbs', 'dew', 'powder'], rate: 10 } as RtArenaOutcome['purse'];
+    const die = ok(resolveArena(before, { nodeId: fought.nodeId, won: true, hp: before.maxHp, kills: 20, damage: 0, time: 60, purse: door, doorDie: true }), 'the door');
+    assert(die.pending?.kind === 'die' && !('knackOffered' in last(die)), `seed ${k}: on the die (${die.pending?.kind})`);
+    const after = ok(rtDieChoose(die, k % 2 === 0), 'the die');
+    assert(after.pending?.kind === 'knack' && last(after).knackOffered === true, `seed ${k}: after the die (${after.pending?.kind})`);
+  }
+  assert(refused === 3, 'refused knacks count too');
+  // Without the flags (and «Повадка» without the gift `full`): no fields; a run lost before row 2 offered the archetype, no knack.
+  for (let k = 1; k <= 4; k++) {
+    const none = last(walk(k, { gift: 'full', forms: true, knacks: false, habits: false }).run);
+    assert(!('habitOffered' in none) && !('knackOffered' in none), `seed ${k}: no flags ${JSON.stringify(none)}`);
+    const mini = last(walk(k, { gift: 'mini', forms: true, knacks: false, habits: true }).run);
+    assert(!('habitOffered' in mini), `seed ${k}: the gift mini has no archetype row`);
+    const early = walk(k, { gift: 'full', forms: true, knacks: true, habits: true }, { loseAt: () => true });
+    assert(early.run.result?.outcome === 'defeat' && !('knackOffered' in last(early.run)) && last(early.run).habitOffered === true, `seed ${k}: lost at the first fight`);
+  }
+  // Read back: only `true` kept.
+  const stored = (marks: Record<string, unknown>) => parseRtMeta({ heroes: {}, hearth: { stock: 0, levels: { owl: 0, herb: 0, smith: 0 }, met: {}, lines: {}, quiet: 0, last: { won: false, row: 3, beaten: false, ...marks } } })!.hearth!.last!;
+  assert(stored({ habitOffered: true, knackOffered: true }).knackOffered === true && stored({ habitOffered: true }).habitOffered === true, 'true kept');
+  const bad = stored({ habitOffered: 'yes', knackOffered: 1 });
+  assert(!('habitOffered' in bad) && !('knackOffered' in bad), 'malformed marks dropped');
 });
 
 console.log(`realtime-knacks-run: ${checks} checks passed`);

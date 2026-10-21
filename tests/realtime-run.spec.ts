@@ -262,7 +262,7 @@ test('run: two runs walk to the final arena — a new run by the schedule (its a
       }
       if (pending) {
         // A node screen: its first button that is on (the gift, a rest, a find, an event option, the merchant's «Уйти»).
-        await page.locator('[data-action="habit"][data-habit="none"]:not([disabled]), [data-action="gift"]:not([disabled]), [data-action="find"]:not([disabled]), [data-action="gift-pick"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
+        await page.locator('[data-action="habit"][data-habit="none"][aria-pressed="false"], [data-action="gift"]:not([disabled]), [data-action="find"]:not([disabled]), [data-action="gift-pick"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
         continue;
       }
       await enterFirstNode(page);
@@ -332,7 +332,7 @@ test('run: a consumable taken at a find goes to the next arena (HUD 2 ×1) and i
       continue;
     }
     if (pending) {
-      await page.locator('[data-action="habit"][data-habit="none"]:not([disabled]), [data-action="gift"]:not([disabled]), [data-action="find"]:not([disabled]), [data-action="gift-pick"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
+      await page.locator('[data-action="habit"][data-habit="none"][aria-pressed="false"], [data-action="gift"]:not([disabled]), [data-action="find"]:not([disabled]), [data-action="gift-pick"], [data-action="talisman"], [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
       continue;
     }
     const find = page.locator('[data-status="available"][data-type="find"]');
@@ -542,7 +542,7 @@ async function walkStep(page: Page, prefer: string): Promise<void> {
     return;
   }
   if (state.pending) {
-    await page.locator('[data-action="habit"][data-habit="none"]:not([disabled]), [data-action="gift"]:not([disabled]), [data-action="find"]:not([disabled]), [data-action="gift-pick"], [data-action="talisman"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
+    await page.locator('[data-action="habit"][data-habit="none"][aria-pressed="false"], [data-action="gift"]:not([disabled]), [data-action="find"]:not([disabled]), [data-action="gift-pick"], [data-action="talisman"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
     return;
   }
   const preferred = page.locator(`[data-status="available"][data-type="${prefer}"]`);
@@ -667,15 +667,20 @@ test('run (playtest v34, design 12.10.2026): a mouse chain of 1 leaves no after-
     await expect.poll(async () => (await page.evaluate(() => (window as any).__realtime.snapshot().chain.length))).toBe(offsets.length);
     await page.mouse.up();
     await page.mouse.move(20, 20);
-    // The frame the dash ended in: its shield.
-    return untilFrame(page, (s, t0: number) => s.lastChain && s.lastChain.time > t0 && !s.moving ? s.hero.chainShield as number : undefined, before, 5);
+    // The shield the dash's end tick gave, in game time: the first frame after the dash may come late under load (the shield has run down by
+    // the frames' wait), so the value is read back to that tick — shield now + the game seconds since `lastChain.time` (the end tick). No shield stays 0.
+    const got = await untilFrame(page, (s, t0: number) => s.lastChain && s.lastChain.time > t0 && !s.moving ? { shield: s.hero.chainShield as number, since: s.time - s.lastChain.time, end: s.lastChain.time as number } : undefined, before, 5);
+    chainEnd = got.end;
+    return got.shield > 0 ? got.shield + got.since : 0;
   };
+  let chainEnd = 0;
   /** A standing enemy of another colour put against the hero: game seconds until the first wound (−1 — none within 1.2 s). */
-  const touch = async (): Promise<number> => {
+  const touch = async (since?: number): Promise<number> => {
     // The time and the HP in the same call as the placing: a touch may hurt before a second call reads them (seen under load
     // 12.10.2026: the HP read after the wound, the next wound came 0.53 s later, after its invulnerability).
     const a = await page.evaluate(() => { const rt = (window as any).__realtime, s = rt.snapshot(); rt.place(s.hero.x + 0.35, s.hero.y, 1, 0, 'basic'); return { t0: s.time as number, hp0: s.hero.hp as number }; });
-    return untilFrame(page, (s, a: { t0: number; hp0: number }, late) => s.hero.hp < a.hp0 ? s.time - a.t0 : late ? -1 : undefined, a, 1.2);
+    // `since`: the wound is timed from that game second (the dash's end tick) — the placing itself may come frames late under load.
+    return untilFrame(page, (s, a: { t0: number; hp0: number }, late) => s.hero.hp < a.hp0 ? s.time - a.t0 : late ? -1 : undefined, since === undefined ? a : { ...a, t0: since }, 1.2);
   };
   const one = await chain([[1, 0]]);
   expect(one).toBe(0);
@@ -687,7 +692,7 @@ test('run (playtest v34, design 12.10.2026): a mouse chain of 1 leaves no after-
   await page.evaluate(() => (window as any).__realtime.clear(false));
   const three = await chain([[1, 0], [1.6, 0.8], [0.8, 1.4]]);
   expect(three).toBeGreaterThan(0.4);
-  const hurtThree = await touch();
+  const hurtThree = await touch(chainEnd);
   expect(hurtThree).toBeGreaterThanOrEqual(0.4);
   expect(errors).toEqual([]);
 });

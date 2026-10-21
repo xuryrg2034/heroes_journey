@@ -37,7 +37,7 @@ assert(!allowedAddress(undefined, true), 'no address is refused');
 // The plugin's id check answers as the schema's `isRecordId` (a journal part index below the count, too).
 for (const id of ['s/r/run', 's/r/f01-x-a1/fight', 's/r/f01-x-a1/j0of1', 's/r/f01-x-a1/j4of5', 's/r/f01-x-a1/j5of1', 's/r/f01-x-a1/j1of1',
   's/r/f01-x-a1/j5of5', 's/r/f01-x-a1/j0of0', 's/r/f01-x-a1/j01of2', 's/r/f01-x-a1/n0', 's/r/f01-x-a1/n12', 's/r/f01-x-a1/n01', 's/r', 's/r/a/b/c', '../r/run', '', 7, null,
-  's/p1-a/prologue', 's/p1-a/prologue/x', 's/p1-a/prologues']) {
+  's/p1-a/prologue', 's/p1-a/prologue/x', 's/p1-a/prologues', 's/w1-a/warmup', 's/w1-a/warmup/x', 's/w1-a/warmups']) {
   assert((parseRecordId(id) !== null) === isRecordId(id), `id ${JSON.stringify(id)}: plugin ${parseRecordId(id) !== null}, schema ${isRecordId(id)}`);
 }
 // Host (DNS rebinding): loopback names with or without a port; a private IPv4 literal only with lan; Vite's allowedHosts.
@@ -55,6 +55,7 @@ assert(allowedHost('anything.example', false, true), 'allowedHosts: true takes a
 // Expected files through path.resolve: on Windows «/x/logs» is «C:\x\logs» with «\» separators.
 assert(recordFile('/x/logs', ['s', 'r', 'run']) === resolve('/x/logs/s/r/run.json'), 'file of a 3-segment id');
 assert(parseRecordId('s/p1-a/prologue') !== null && recordFile('/x/logs', parseRecordId('s/p1-a/prologue')!) === resolve('/x/logs/s/p1-a/prologue.json'), 'file of a prologue record (from 13.10.2026)');
+assert(parseRecordId('s/w1-a/warmup') !== null && recordFile('/x/logs', parseRecordId('s/w1-a/warmup')!) === resolve('/x/logs/s/w1-a/warmup.json'), 'file of a warmup record (task 51ж, 17.10.2026)');
 assert(recordFile('/x/logs', ['s', 'r', 'f03', 'fight']) === resolve('/x/logs/s/r/f03-fight.json'), 'file of a 4-segment id');
 assert(recordFile('/x/logs', ['..', 'r', 'run']) === null, 'a ".." segment leaves the base');
 

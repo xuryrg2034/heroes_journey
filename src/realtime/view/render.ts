@@ -14,6 +14,7 @@ import { COLORS, PALE, drawTerrain, makePlayer, type HeroArtId } from '../art/ar
 import { characterSprite, hasCharacterArt, type CharacterArtId } from '../art/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
 import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainAnchors, chainColor, colorGroups, colorJoin, colorShiftIds, colorShiftLeft, colorlessLink, enemyAnchors, forkAnchorOf, heroAnchorOn, jumpLanding, linkPoint, loopCandidates, loopOn, nextCandidates, nextObjectCandidates, planChain, sameColor, twinsNextColor, type ChainPlan } from '../sim/chain';
+import { forkAnchorNow } from '../sim/forms';
 import { FROST_PASS_LIFE, FROST_PASS_RADIUS, frostPassPoints, frostPassPreview } from '../sim/frostPass';
 import { drawAlienRing, drawForkMark, drawFrostPoint, drawFrostPreview, drawIceMark, drawReturnPower, drawReturnRoute, drawTwinLine } from './formsView';
 import { enemyArtScale } from '../sim/enemies/kinds';
@@ -30,6 +31,9 @@ import { collectEdgeMarkers } from './edgeMarkers';
 import { drawRoleGlyph, roleOf, type EnemyRole } from './roles';
 import { DEFAULT_PARAMS, enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from '../sim/params';
 import { shieldFails } from '../sim/guard';
+import { omenNum } from '../sim/omens';
+import { isRtOmenId } from '../run/omens';
+import { omenSvgDoc } from './omenMark';
 import { NO_COLOR, SECOND_WIND_HP, doorOpen, focusGuarded, touchDistance, type ChainLink, type Enemy, type EnemyKind, type World, type WorldEvent } from '../sim/world';
 import { itemHealOf, linkRadiusOf } from '../sim/build';
 import { FIRE_LIFE, FIRE_RADIUS, FIRE_STEP, firePassPreview, hammerFirePoints, returnRunOf } from '../sim/hammers';
@@ -56,12 +60,17 @@ import { drawBoltLine, drawGateLever, drawGrate } from './courtView';
 import { tetherCrossing } from '../sim/tethers';
 import { castellanMarks, drawFallenShackle, drawFrenzy, drawLeash, drawLock, drawShackle, drawSnap, guardMarks, handlerMarks, houndMarks, keymasterMarks, knightMarks } from './garrisonView';
 import { KnightView } from './knightView';
+import { BARREL, ROOK, WARDROBE } from '../sim/enemies/castle';
+import { CastleView, barrelMarks, drawHanger, drawParquet, isThingKind, rookMarks, wardrobeMarks } from './castleView';
 import { HONE, fifthLinkFiresAt } from '../sim/talismansRt';
 import { LINK_DEPTH_SHOWN, linkDepths, type LinkDepth } from '../sim/linkDepth';
 import { CHEST_CURSE_KILLS, cursed } from '../sim/chest';
 import { FLAIL_RADIUS, JAILER, JAILER_WEIGHT, jailerCore, jailerMove, jailerShieldUp, type JailerMoveId } from '../sim/enemies/jailer';
 import { CHAIN_BREAK_LIFE, drawFlailArc, drawFlailChain, drawSeverPip, drawWeight, drawWhistleMark } from './jailerView';
 import { TROLL, TROLL_ROCK, trollCore } from '../sim/enemies/troll';
+import { ShooterView, hiveMarks, slingerMarks, wispMarks } from './shooterView';
+import { CHIEF, chiefCore } from '../sim/enemies/chief';
+import { CHIEF_ART, CHIEF_FEET, ChiefView, buildChief, buildChiefPart, chiefBadgeAt, chiefPartBadgeAt, eaterSits, isChiefKind, type ChiefArt } from './chiefView';
 import { TROLL_ART, TROLL_ART_ASPECT, TROLL_FEET, TrollView, buildCore, buildPartArt, coreBadgeAt, corePips, isTrollKind, partBadgeAt, partOutward, posePartArt, type CoreArt, type SignTools } from './trollView';
 
 /**
@@ -163,6 +172,10 @@ const GARRISON_ART: Readonly<Record<string, { id: CharacterArtId; size: number }
   [CROSSBOW]: { id: 'garrison-crossbowman', size: 3.4 }, [STAND]: { id: 'garrison-crossbow', size: 3.6 },
   // Task 43: the knight (heavier: a taller box).
   [KNIGHT]: { id: 'garrison-knight', size: 3.7 },
+  // Task 57а: the forest shooters (the box is in body radii of the kind's own drawing scale; the colour reads on the disc and the plaque).
+  slinger: { id: 'forest-slinger', size: 3.4 }, hive: { id: 'forest-hive', size: 3.1 }, wisp: { id: 'forest-wisp', size: 3.0 },
+  // Task 55а: the castle's art (a thing has no colour plaque; the rook keeps its colour's plaque and disc).
+  [WARDROBE]: { id: 'castle-wardrobe', size: 3.1 }, [ROOK]: { id: 'castle-rook', size: 3.9 }, [BARREL]: { id: 'castle-barrel', size: 2 },
 };
 /** Task 40: the prisoner's padlock — its width (body radii) and its gap over the drawing's top (radii). */
 const LOCK_SIZE = 0.95, LOCK_GAP = 0.15;
@@ -328,6 +341,9 @@ function weightOutward(world: World, e: Enemy): { x: number; y: number } {
   return d > 1e-6 ? { x: dx / d, y: dy / d } : { x: 0, y: -1 };
 }
 
+/** A body drawn without a team colour: a colourless link (the Jailer's core), or a thing of the castle (task 55а: grey whatever the chain). */
+const colorlessBody = (world: World, e: Pick<Enemy, 'kind'>): boolean => colorlessLink(world, e) || isThingKind(e.kind);
+
 /** A dashed segment (the wolves' pack lines, phase A), in one path — the caller strokes it. */
 function dashedLine(g: Graphics, x0: number, y0: number, x1: number, y1: number, dash: number, gap: number): void {
   const len = Math.hypot(x1 - x0, y1 - y0);
@@ -358,6 +374,8 @@ interface EnemyView {
   /** Task 48: the Troll's drawing (the core) or the weapon behind a part's disc (`trollView.ts`). */
   trollArt?: CoreArt;
   weapon?: Container;
+  /** Task 54a: the Chief's drawing and its glow copy (the core) - chiefView.ts. */
+  chiefArt?: ChiefArt;
 }
 
 /** A killed enemy: spins and shrinks for `deathDuration` (design answer 22); one that fell into a cliff also darkens. */
@@ -423,6 +441,10 @@ export class RealtimeRenderer {
   private readonly targetLayer = new Graphics();
   /** Stage 2, step 2: signals of the new enemies over the crowd (shield arcs). */
   private readonly signalLayer = new Graphics();
+  /** Task 56 «Приметы»: the storm's mark, the roll call's horns, the rage rings (`drawOmens`). */
+  private readonly omenLayer = new Graphics();
+  /** Task 56: the omens of the fight standing over the hero for a moment at its start (`beginOmens`). */
+  private readonly omenFlash = new Container();
   /** Task 27: the Jailer's flail chain — under the enemies (`drawBoss`). */
   private readonly bossLayer = new Graphics();
   /** Task 29: the trail of «Наледь» on the arena — under the enemies (`drawForms`). */
@@ -432,7 +454,7 @@ export class RealtimeRenderer {
    * that are not the last, its Y marks; the rings of «Чужак»; the twin line of «Близнецы»; the cold «Наледь» will leave and the
    * trail it left; the arrows and hit marks of «Возврат» before the release, and its run after it.
    */
-  readonly formsShown = { forkRings: 0, forkMarks: 0, alienRings: 0, twinLine: 0, twinNext: -1, forkBranch: 0, frostPreview: 0, frostPoints: 0, returnArrows: 0, returnHits: 0, returnRun: 0 };
+  readonly formsShown = { forkRings: 0, forkLit: 0, forkMarks: 0, alienRings: 0, twinLine: 0, twinNext: -1, forkBranch: 0, frostPreview: 0, frostPoints: 0, returnArrows: 0, returnHits: 0, returnRun: 0 };
   /** Task 29: when the word «Наледь» last rose over the hero (real clock) — at most one a second. */
   private frostWordAt: number | null = null;
   /** Task 29: the colour of the last chain whose plan had a run back — the run after the release keeps it (the chain is gone). */
@@ -449,6 +471,11 @@ export class RealtimeRenderer {
   readonly tetherShown = { lines: 0, cut: 0, marks: 0, snaps: 0, shackles: 0, locks: 0, drops: 0 };
   /** Task 48: the Troll's view — his drawing, window, signs, tail and effects (`trollView.ts`). */
   private readonly troll = new TrollView(UNIT, chainInk);
+  /** Task 57а: the forest shooters' signs, shots and light (shooterView.ts); `shown` is what the tests read. */
+  readonly shooters = new ShooterView();
+  /** Task 54a: the Chief's view - his drawing, window, queue, cauldron, signs and effects (chiefView.ts). */
+  private readonly chief = new ChiefView(UNIT, chainInk);
+  get chiefShown(): ChiefView['shown'] { return this.chief.shown; }
   /** Task 48 (tests read it): the Troll's frame — the glow, the count, the sign and its fill, the tail, the severed parts, the sparks of «звон». */
   get trollShown(): TrollView['shown'] { return this.troll.shown; }
   /** The real seconds of the frame being drawn (the Troll's pieces fall by it). */
@@ -457,6 +484,12 @@ export class RealtimeRenderer {
   private readonly signTools: SignTools = { strip: threatStrip, head: stripHead, hatchCircle };
   /** Task 43: the knight's view — plate pips, lanes and swing circles of the frame, the sheds and swing hits seen. */
   private readonly knight = new KnightView(UNIT);
+  /** Task 55а: the castle's things, the wardrobe's topple, the rook's line, the shove (`castleView.ts`). */
+  private readonly castle = new CastleView(UNIT);
+  get castleShown(): CastleView['shown'] { return this.castle.shown; }
+  /** The wardrobe's topple lane as drawn last frame (tests). */
+  castleLane(id: number): ReturnType<CastleView['laneOf']> { return this.castle.laneOf(id); }
+  castlePose(id: number): ReturnType<CastleView['poseOf']> { return this.castle.poseOf(id); }
   get knightShown(): KnightView['shown'] { return this.knight.shown; }
   /** Task 38 (tests read it): frenzied hounds drawn in the last frame, the Castellan's lunge lanes, «Караул!» calls shown so far. */
   readonly garrisonShown = { frenzy: 0, lunges: 0, calls: 0, riots: 0 };
@@ -539,6 +572,7 @@ export class RealtimeRenderer {
   readonly captionShown = { texts: [] as string[], live: 0 };
   /** «−1 пластина» badges over armoured links of the drawn chain (reused texts). */
   private readonly plateLabels: Text[] = [];
+  private readonly shoveLabels: Text[] = [];
   /** What the elite view drew (tests read it): last-frame counts and totals since the last reset. */
   readonly eliteShown = { markers: 0, pips: 0, filledPips: 0, windows: 0, hotWindows: 0, planPlates: 0, formationLines: 0, secondLanes: 0, plaques: 0, plaquesSeen: 0, plaqueText: '', stripFlashes: 0, downFlashes: 0, cleanBreaks: 0, edgeArrows: 0 };
   /** Wolf rush lanes drawn in the last frame (carried into `signals`). */
@@ -767,7 +801,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.cage.layer, this.objectLayer, this.markerLayer, this.trailLayer, this.laneLayer, this.rippleLayer, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.troll.layer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.overlay, this.prologueLayer, this.fxLayer, this.snapLayer, this.shardLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.cage.layer, this.objectLayer, this.markerLayer, this.trailLayer, this.chief.floor, this.laneLayer, this.rippleLayer, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.omenLayer, this.troll.layer, this.chief.layer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.shooters.layer, this.overlay, this.prologueLayer, this.fxLayer, this.omenFlash, this.snapLayer, this.shardLayer, this.flash);
     this.heroRoot.addChild(this.reachLayer, this.reachMask, this.heroLayer);
     this.app.stage.addChild(this.root, this.viewBorder, this.heroRoot, this.edgeLayer);
     this.initShards();
@@ -920,11 +954,11 @@ export class RealtimeRenderer {
    */
   private bossKeep(world: World, follow = true): CameraKeep | null {
     if (!this.bossView) return null;
-    const core = world.enemies.find(e => (e.kind === JAILER || e.kind === CASTELLAN || e.kind === TROLL) && e.partOf === undefined);
+    const core = world.enemies.find(e => (e.kind === JAILER || e.kind === CASTELLAN || e.kind === TROLL || e.kind === CHIEF) && e.partOf === undefined);
     if (!core) return null;
-    const troll = core.kind === TROLL, r = enemyDrawRadius(world.params), art = troll ? TROLL_ART : core.kind === JAILER ? JAILER_ART : GARRISON_ART[CASTELLAN].size;
+    const troll = core.kind === TROLL, r = enemyDrawRadius(world.params), art = troll ? TROLL_ART : core.kind === JAILER ? JAILER_ART : core.kind === CHIEF ? CHIEF_ART : GARRISON_ART[CASTELLAN].size;
     // The Troll: his drawing's top, and sideways as far as the paws' weapons (the club and the rock stand 1.5 units from him).
-    const up = troll ? r * (TROLL_ART * TROLL_ART_ASPECT - TROLL_FEET) : core.kind === JAILER ? r * (JAILER_ART - JAILER_FEET) : r * (art - 1), half = troll ? Math.max((r * art) / 2, 2) : (r * art) / 2, pad = BOSS_KEEP_PAD;
+    const up = troll ? r * (TROLL_ART * TROLL_ART_ASPECT - TROLL_FEET) : core.kind === JAILER ? r * (JAILER_ART - JAILER_FEET) : core.kind === CHIEF ? r * (CHIEF_ART - CHIEF_FEET) : r * (art - 1), half = troll ? Math.max((r * art) / 2, 2) : (r * art) / 2, pad = BOSS_KEEP_PAD;
     // The hero's box reaches down over the action bar (`edgeInset.bottom`): the hero stays above it, not under it.
     const h = world.hero, below = this.edgeInset.bottom / (UNIT * this.scale);
     const box = { x0: core.x - half - pad, x1: core.x + half + pad, y0: core.y - up - pad, y1: core.y + r + pad };
@@ -1000,6 +1034,9 @@ export class RealtimeRenderer {
     // Task 48: the Troll's window by the core's goal arrow while the core is off screen.
     const tc = trollCore(world);
     this.troll.drawEdge(world, goal, !tc || this.camera.sees({ x: tc.x, y: tc.y }, b, 0.5), this.app.stage);
+    // Task 54a: the Chief's window by the core's goal arrow while the core is off screen.
+    const cc = chiefCore(world);
+    this.chief.drawEdge(world, goal, !cc || this.camera.sees({ x: cc.x, y: cc.y }, b, 0.5), this.app.stage);
     this.courtShown.edgeCount = '';
     if (this.edgeCountLabel) this.edgeCountLabel.visible = false;
     if (grate?.open && goal && !this.camera.sees({ x: grate.x, y: grate.y }, b, 0.5)) {
@@ -1030,8 +1067,9 @@ export class RealtimeRenderer {
     this.fitScale();
     const f = this.floor.clear(), w = arena.width * UNIT, h = arena.height * UNIT;
     // Task 38 (design 16.10.2026): the garrison reads at once — a yard of cold grey flagstones (as its map), not the forest's grass.
-    const stone = !!arena.garrison;
-    if (stone) this.stoneFloor(f, arena.width, arena.height);
+    const stone = !!arena.garrison, castle = !!arena.castle;
+    if (castle) drawParquet(f, arena.width, arena.height, UNIT);
+    else if (stone) this.stoneFloor(f, arena.width, arena.height);
     else {
       f.rect(0, 0, w, h).fill(0x1b2617);
       for (let y = 0; y < arena.height; y++) for (let x = 0; x < arena.width; x++)
@@ -1040,14 +1078,18 @@ export class RealtimeRenderer {
       for (let y = 1; y < arena.height; y++) f.moveTo(0, y * UNIT).lineTo(w, y * UNIT);
       f.stroke({ color: 0x2e3d29, width: 1, alpha: 0.6 });
     }
-    f.rect(-4, -4, w + 8, h + 8).stroke({ color: stone ? 0x5b6b7a : 0x5a5a40, width: 6 });
+    f.rect(-4, -4, w + 8, h + 8).stroke({ color: castle ? 0x6b5238 : stone ? 0x5b6b7a : 0x5a5a40, width: 6 });
     this.bustMask.clear().rect(0, 0, w, h).fill(0xffffff);
     this.bustLayer.mask = this.bustMask;
     this.reachMask.clear().rect(0, 0, w, h).fill(0xffffff);
     this.reachLayer.mask = this.reachMask;
     const t = this.terrain.clear();
     for (const o of arena.obstacles) {
-      if (o.shape === 'rect') {
+      if (o.shape === 'rect' && castle) {
+        // Task 55а: the castle's walls to their true size — a column (1 × 1) is a pillar, a thinner or wider one a hanger.
+        if (o.w === 1 && o.h === 1) drawTerrain(t, 'pillar', (o.x + 0.5) * UNIT, (o.y + 0.5) * UNIT);
+        else drawHanger(t, o.x, o.y, o.w, o.h, UNIT);
+      } else if (o.shape === 'rect') {
         for (let y = 0; y < o.h; y++) for (let x = 0; x < o.w; x++) drawTerrain(t, 'wall', (o.x + x + 0.5) * UNIT, (o.y + y + 0.5) * UNIT);
       } else if (o.kind === 'tree') {
         // Task 38: in the garrison a tree's place holds a stone pillar, crates or barrels (the same body for the sim).
@@ -1178,6 +1220,13 @@ export class RealtimeRenderer {
       ctx.circle(r * 1.22, -r * 1.35, r * 0.24).fill(MAGIC).stroke({ color: NAVY, width: 2.5 });
       for (const a of [-0.5, 0, 0.5]) ctx.poly([Math.sin(a) * r * 0.55, -r * 0.8, Math.sin(a) * r * 1.0 - r * 0.12, -r * 1.55, Math.sin(a) * r * 1.0 + r * 0.12, -r * 1.55]).fill(PALE).stroke({ color: NAVY, width: 2, join: 'round' });
     }
+    // Task 57а: the forest shooters' stand-in silhouettes (the design's art comes later).
+    const shooterArt = GARRISON_ART[kind];
+    if (!shooterArt || !hasCharacterArt(shooterArt.id)) {
+      if (kind === 'slinger') slingerMarks(ctx, r);
+      if (kind === 'hive') hiveMarks(ctx, r);
+      if (kind === 'wisp') wispMarks(ctx, r);
+    }
     // Porcupine (iteration 2.1): its quills go up and down — drawn per frame over the texture (`quillGraphics`).
     if (kind === 'sapper') {
       // Sapper: a black powder keg on its back with a short fuse (silhouette, not a color).
@@ -1205,6 +1254,12 @@ export class RealtimeRenderer {
       else if (kind === KEYMASTER) keymasterMarks(ctx, r);
       else if (kind === KNIGHT) knightMarks(ctx, r);
     }
+    // Task 55а: the castle's stand-ins (procedural until the art is registered in characterAssets.ts): the barrel, the wardrobe, the rook.
+    if (!art || !hasCharacterArt(art.id)) {
+      if (kind === BARREL) barrelMarks(ctx, r);
+      else if (kind === WARDROBE) wardrobeMarks(ctx, r);
+      else if (kind === ROOK) rookMarks(ctx, r);
+    }
     return ctx;
   }
 
@@ -1231,7 +1286,7 @@ export class RealtimeRenderer {
     for (const sx of [-1, 1]) ctx.poly([sx * r * 0.32, r * 0.55, sx * r * 0.72, r * 0.98, sx * r * 0.78, r * 0.42, sx * r * 0.52, r * 0.5]).fill(BONE).stroke({ color: NAVY, width: 2.5, join: 'round' });
   }
 
-  private buildEnemyBody(e: Enemy, look: EnemyLook, colorless: boolean): { body: Container; grey: Sprite | null; hpLabel: Text | null; exclaim: Text | null; quills: { up: Graphics; down: Graphics } | null; trollArt?: CoreArt; weapon?: Container } {
+  private buildEnemyBody(e: Enemy, look: EnemyLook, colorless: boolean): { body: Container; grey: Sprite | null; hpLabel: Text | null; exclaim: Text | null; quills: { up: Graphics; down: Graphics } | null; trollArt?: CoreArt; weapon?: Container; chiefArt?: ChiefArt } {
     const body = new Container();
     // Iteration 2.1: the porcupine's quills behind its disc (raised or lowered each frame).
     const quills = e.kind === 'porcupine' ? this.quillGraphics() : null;
@@ -1256,10 +1311,12 @@ export class RealtimeRenderer {
       if (sprite) {
         sprite.position.set(0, r * (1 - gart.size / 2));
         body.addChild(sprite);
-        const belt = r * (1 - gart.size * 0.36), plaque = new Graphics();
-        plaque.circle(0, belt, r * 0.34).fill(colorless ? COLORLESS : chainInk(e.color)).stroke({ color: NAVY, width: 2.5 });
-        if (!colorless) drawSigil(plaque.context, e.color, r * 0.19, NAVY, belt);
-        body.addChild(plaque);
+        if (!isThingKind(e.kind)) {
+          const belt = r * (1 - gart.size * 0.36), plaque = new Graphics();
+          plaque.circle(0, belt, r * 0.34).fill(colorless ? COLORLESS : chainInk(e.color)).stroke({ color: NAVY, width: 2.5 });
+          if (!colorless) drawSigil(plaque.context, e.color, r * 0.19, NAVY, belt);
+          body.addChild(plaque);
+        }
       }
     }
     if (e.kind === JAILER && e.color !== NO_COLOR) {
@@ -1273,12 +1330,16 @@ export class RealtimeRenderer {
       if (!colorless) drawSigil(plaque.context, e.color, r * 0.22, NAVY, belt);
       body.addChild(plaque);
     }
+    // Task 54a: the Chief - his large drawing over the disc (grey while closed, the brew's colour in the window); a part - its drawing behind its colour disc.
+    let chiefArt: ChiefArt | undefined;
+    if (e.kind === CHIEF) { chiefArt = buildChief(r); body.addChild(chiefArt.root); }
+    else if (isChiefKind(e.kind)) { const part = buildChiefPart(e.kind, r); if (part) { part.position.set(0, -r * 0.35); body.addChildAt(part, 0); } }
     // Task 48: the Troll — his large drawing over the grey disc (the feet at its bottom); a part — its weapon behind its colour disc.
     let trollArt: CoreArt | undefined, weapon: Container | undefined;
     if (e.kind === TROLL) { trollArt = buildCore(r); body.addChild(trollArt.root); }
     else if (isTrollKind(e.kind)) { weapon = buildPartArt(e.kind, r) ?? undefined; if (weapon) body.addChildAt(weapon, 0); }
     let hpLabel: Text | null = null;
-    if (e.hp > 0 && (e.leader || e.kind === JAILER || e.kind === JAILER_WEIGHT || isTrollKind(e.kind))) {
+    if (e.hp > 0 && (e.leader || e.kind === JAILER || e.kind === JAILER_WEIGHT || isTrollKind(e.kind) || isChiefKind(e.kind))) {
       // Task 12: the leader's HP — the number a chain must beat: the HP badge's place (top right, clear of the face), half as large
       // again, a gold rim and a bright number. Task 27: the Jailer's core and weight wear the same plaque.
       // Task 27: the Jailer's plaque by its head, clear of the shield arc; the weight's stands outside the ball, away from the
@@ -1302,7 +1363,7 @@ export class RealtimeRenderer {
       body.addChild(exclaim);
     }
     if (e.kind === 'boar') body.scale.set(BOAR_SCALE);
-    return { body, grey, hpLabel, exclaim, quills, ...trollArt ? { trollArt } : {}, ...weapon ? { weapon } : {} };
+    return { body, grey, hpLabel, exclaim, quills, ...trollArt ? { trollArt } : {}, ...weapon ? { weapon } : {}, ...chiefArt ? { chiefArt } : {} };
   }
 
   private syncEnemies(world: World): void {
@@ -1317,7 +1378,7 @@ export class RealtimeRenderer {
     for (const e of world.enemies) {
       seen.add(e.id);
       let view = this.enemyViews.get(e.id);
-      const colorless = colorlessLink(world, e);
+      const colorless = colorlessBody(world, e);
       if (view && (view.look !== look || view.color !== e.color || view.colorless !== colorless || (view.hp > 0) !== (e.hp > 0))) {
         // Task 46 «Клеймо»: a painted body's old drawing stays as a ghost and fades out while the new one fades in (`PAINT_FADE`).
         if (view.look === look && view.color !== e.color && this.clock - (this.paintAt.get(e.id) ?? -9) < PAINT_FADE) this.ghosts.push({ root: view.root, life: PAINT_FADE });
@@ -1325,9 +1386,9 @@ export class RealtimeRenderer {
         this.enemyViews.delete(e.id); view = undefined;
       }
       if (!view) {
-        const root = new Container(), { body, grey, hpLabel, exclaim, quills, trollArt, weapon } = this.buildEnemyBody(e, look, colorless);
+        const root = new Container(), { body, grey, hpLabel, exclaim, quills, trollArt, weapon, chiefArt } = this.buildEnemyBody(e, look, colorless);
         root.addChild(body); this.enemyLayer.addChild(root);
-        view = { root, body, grey, hpLabel, exclaim, hp: e.hp, look, color: e.color, colorless, quills, ...trollArt ? { trollArt } : {}, ...weapon ? { weapon } : {} };
+        view = { root, body, grey, hpLabel, exclaim, hp: e.hp, look, color: e.color, colorless, quills, ...trollArt ? { trollArt } : {}, ...weapon ? { weapon } : {}, ...chiefArt ? { chiefArt } : {} };
         this.enemyViews.set(e.id, view);
       }
       if (view.hpLabel && view.hp !== e.hp) { view.hpLabel.text = String(e.hp); view.hp = e.hp; }
@@ -1351,6 +1412,23 @@ export class RealtimeRenderer {
           if (view.weapon) { posePartArt(view.weapon, e.kind, e, core, e.kind === TROLL_ROCK && !!air); this.troll.shown.weapons++; }
         }
       }
+      // Task 55а: the wardrobe leans towards its lane, lies on it, stands up (castleView.ts).
+      if (e.kind === WARDROBE) this.castle.poseWardrobe(world, e, view.body, BASE_ENEMY_RADIUS * UNIT * 0.9, this.frameDt);
+      // Task 54a: the Chief's plaque by his head, a part's outside it on the line from the core; the core's drawing is synced (glow, count);
+      // a seated eater squats (the bowl is drawn over it).
+      if (isChiefKind(e.kind)) {
+        const R = BASE_ENEMY_RADIUS * UNIT;
+        if (e.kind === CHIEF) {
+          if (view.hpLabel?.parent) { const at = chiefBadgeAt(R); view.hpLabel.parent.position.set(at.x, at.y); }
+          this.chief.syncCore(view.chiefArt ?? null, world, this.clock, enemyDrawRadius(world.params) * UNIT, view.root.visible);
+        } else {
+          const core = chiefCore(world);
+          if (view.hpLabel?.parent && core) { const at = chiefPartBadgeAt(core, e, R); view.hpLabel.parent.position.set(at.x, at.y); }
+          this.chief.shown.parts++;
+        }
+      }
+      if (eaterSits(e)) { view.body.scale.set(1, 0.82); view.body.position.set(0, BASE_ENEMY_RADIUS * UNIT * 0.16); }
+      else if (e.kind === 'basic' && view.body.scale.y !== 1) { view.body.scale.set(1, 1); view.body.position.set(0, 0); }
       // Strike: a short lunge towards the hero.
       let ox = 0, oy = 0;
       if (e.strikeFlash > 0) {
@@ -1372,7 +1450,9 @@ export class RealtimeRenderer {
       if (colorless && view.root.visible) colorlessShown++;
       const paintedAt = this.paintAt.get(e.id), fade = paintedAt === undefined ? 1 : Math.min(1, Math.max(0, (this.clock - paintedAt) / PAINT_FADE));
       if (paintedAt !== undefined && fade >= 1) this.paintAt.delete(e.id);
-      view.root.alpha = (mode === 'alpha' ? 1 - dim : 1) * fade;
+      const wl = this.shooters.wispLook(world, e, this.clock);
+      if (wl) view.root.scale.set(scale * pop * enemyArtScale(world.params, e) * wl.scale);
+      view.root.alpha = (mode === 'alpha' ? 1 - dim : 1) * fade * (wl?.alpha ?? 1);
       const shade = Math.round(255 * (mode === 'darken' ? 1 - dim : 1));
       view.root.tint = (shade << 16) | (shade << 8) | shade;
       if (view.grey) view.grey.alpha = mode === 'desaturate' ? dim : 0;
@@ -1467,8 +1547,15 @@ export class RealtimeRenderer {
       this.knight.shown.lanes++;
     }
     this.knight.drawSwing(g, world, e => this.sees(e, 3));
+    // Task 55а: the wardrobe's topple strip, the rook's line, the running shoves.
+    this.castle.beginFrame();
+    this.castle.drawLanes(g, world, this.signTools, p => this.sees(p, 6));
     // Task 48: the Troll's signs — the club's strip, the rock's circle, the tail's ring, the lairs' circles (the sim's `trollMove`).
     this.troll.drawSigns(g, world, this.signTools, p => this.sees(p, 6));
+    // Task 54a: the Chief's signs - the ladle's half-disc, the pepper's circles, the feast's dashed circle and seat marks, the whistle.
+    this.chief.beginFrame();
+    this.chief.drawFloor(world, this.clock);
+    this.chief.drawSigns(g, world, this.signTools, p => this.sees(p, 6));
     this.garrisonShown.lunges = 0;
     for (const e of world.enemies) {
       if (e.kind !== CASTELLAN) continue;
@@ -1780,8 +1867,11 @@ export class RealtimeRenderer {
       this.arrowFlashes++;
     }
     this.archerMarksSeen = marks;
+    // Task 57а: the slinger's lines, the hive's swell, the shots in the air and the wisps' light.
+    this.shooters.draw(g, world, this.clock, UNIT, r, (pt, margin) => this.sees(pt, margin));
     this.drawBoss(world, g);
     this.drawTroll(world, g);
+    this.chief.drawOver(g, world, this.clock, this.frameDt, enemyDrawRadius(world.params) * UNIT, 1 / Math.max(0.1, this.scale), e => this.sees(e, 1.5));
     Object.assign(this.signals, counts);
     // Casino stage 1 («Однорукий гоблин»): the arrows of the rain and the volley — the archer's mark (a hatched threat circle
     // filling until the arrow falls); the fall flashes on its `land` event (`handleEvents`).
@@ -1816,7 +1906,7 @@ export class RealtimeRenderer {
       // Phase A (Т4): the affixes of an elite are rules of the fight — shown whatever the role toggle says, at most two.
       const affixes = e.elite ? eliteAffixes(e).slice(0, AFFIX_MAX_SHOWN) : [];
       if (!role && !affixes.length) continue;
-      const alpha = color !== null && !colorlessLink(world, e) && !sameColor(world, e.color, color) ? 1 - strength : 1;
+      const alpha = color !== null && !colorlessBody(world, e) && !sameColor(world, e.color, color) ? 1 - strength : 1;
       // Under an elite: below its larger drawing and its gold rim.
       const y = e.y * UNIT + r * 1.25 * enemyArtScale(p, e) + (e.elite ? plate * 0.6 : 0);
       const texts = affixes.map(id => { const t = this.affixText(labels++); t.text = AFFIX_SHORT[id]; t.style.fill = AFFIX_INK[id]; t.scale.set(px / 2); return t; });
@@ -1886,7 +1976,7 @@ export class RealtimeRenderer {
   private linkInk(world: World, link: ChainLink, other: number): number {
     if (link.kind !== 'enemy') return other;
     const e = world.enemies.find(x => x.id === link.id);
-    return !e || e.color === NO_COLOR ? other : colorlessLink(world, e) ? COLORLESS : chainInk(e.color);
+    return !e || e.color === NO_COLOR ? other : colorlessBody(world, e) ? COLORLESS : chainInk(e.color);
   }
 
   private drawBoss(world: World, g: Graphics): void {
@@ -2040,6 +2130,8 @@ export class RealtimeRenderer {
     }
     // Task 43: the knight (not an elite): its plate pips over the drawing, the shed's shards and glint, the swing's hit flash.
     this.knight.drawOver(g, world, this.clock, px, enemyDrawRadius(p) * UNIT, hasCharacterArt(GARRISON_ART[KNIGHT].id) ? GARRISON_ART[KNIGHT].size : 1.9, e => this.sees(e, 1.5));
+    // Task 55а: the things' notches and the shove's effects.
+    this.castle.drawOver(g, world, this.clock, px, enemyDrawRadius(p) * UNIT, e => this.sees(e, 1.5));
     shown.pips = pips; shown.filledPips = filled; shown.windows = windows; shown.hotWindows = hot; shown.plaques = this.plaques.size;
   }
 
@@ -2222,6 +2314,108 @@ export class RealtimeRenderer {
     }
   }
 
+  /** Task 56 «Приметы» (tests read it): what the omens drew in the last frame, and how many marks each event made. */
+  readonly omenShown = { stormMark: 0, stormBlinkOn: 0, stormRing: 0, horns: 0, rage: 0, wet: 0, call: 0, strikes: 0, wakes: 0, calls: 0, flash: [] as string[] };
+  private omenFlashLeft = 0;
+  private omenCallAt = -10;
+  private static readonly OMEN_FLASH = 1.2;
+
+  /** Task 56 (spec 6, «Начало боя»): the fight's omens come up over the hero for 1.2 s and fade (a flash in the world, no text). */
+  beginOmens(ids: readonly string[]): void {
+    this.omenFlashLeft = ids.length ? RealtimeRenderer.OMEN_FLASH : 0;
+    for (const child of this.omenFlash.removeChildren()) child.destroy();
+    this.omenShown.flash = [...ids];
+    this.omenShown.strikes = 0; this.omenShown.wakes = 0; this.omenShown.calls = 0;
+    this.omenCallAt = -10;
+    const SIZE = 44, GAP = 8;
+    ids.forEach((id, i) => {
+      if (!isRtOmenId(id)) return;
+      let g: Graphics;
+      try { g = new Graphics().svg(omenSvgDoc(id)); } catch { return; }
+      g.scale.set(SIZE / 24);
+      g.position.set((i - (ids.length - 1) / 2) * (SIZE + GAP) - SIZE / 2, -SIZE / 2);
+      this.omenFlash.addChild(g);
+    });
+    this.omenFlash.alpha = 0;
+  }
+
+  /** The omens' flash over the hero: in 0.2 s, hold, out in the last 0.4 s (real time). */
+  private tickOmenFlash(world: World, dt: number): void {
+    if (this.omenFlashLeft <= 0) { this.omenFlash.visible = false; return; }
+    this.omenFlashLeft = Math.max(0, this.omenFlashLeft - dt);
+    const t = RealtimeRenderer.OMEN_FLASH - this.omenFlashLeft;
+    this.omenFlash.visible = true;
+    this.omenFlash.alpha = Math.min(1, t / 0.2, this.omenFlashLeft / 0.4);
+    this.omenFlash.position.set(world.hero.x * UNIT, world.hero.y * UNIT - 1.35 * UNIT);
+  }
+
+  /**
+   * Task 56 «Приметы» (sim/omens.ts): «Гроза» — the mark is the threat circle of its radius, hatched, blinking the whole fuse (every
+   * 0.12 s), a cloud's shadow over it, the ring closing in; «Перекличка» — a small horn over every enemy of the colour on the roll call;
+   * «Сонный час» — a ring at the feet of the woken while they rage (the sleepers' «z» is `drawSleep`). The view reads the world only.
+   */
+  private drawOmens(world: World, dt: number): void {
+    const g = this.omenLayer.clear(), shown = this.omenShown, p = world.params, r = enemyDrawRadius(p) * UNIT;
+    shown.stormMark = 0; shown.stormBlinkOn = 0; shown.stormRing = 0; shown.horns = 0; shown.rage = 0;
+    this.tickOmenFlash(world, dt);
+    const mark = world.storm?.mark;
+    if (mark) {
+      const R = omenNum(p, 'omenStormRadius') * UNIT, fuse = Math.max(0.01, omenNum(p, 'omenStormFuse')), k = Math.max(0, Math.min(1, 1 - (mark.due - world.time) / fuse));
+      const X = mark.x * UNIT, Y = mark.y * UNIT, on = Math.floor(this.clock / 0.12) % 2 === 0;
+      shown.stormMark = 1; shown.stormBlinkOn = on ? 1 : 0; shown.stormRing = 1;
+      // The cloud's shadow over the circle: a dark flat ellipse, a lighter one inside.
+      g.ellipse(X, Y - R * 0.55, R * 1.5, R * 0.62).fill({ color: THREAT_OUTLINE, alpha: 0.28 });
+      g.ellipse(X - R * 0.35, Y - R * 0.7, R * 0.8, R * 0.34).fill({ color: THREAT_OUTLINE, alpha: 0.2 });
+      g.circle(X, Y, R).fill({ color: THREAT, alpha: on ? 0.1 + 0.12 * k : 0.04 });
+      hatchCircle(g, X, Y, R, 0.4 * UNIT);
+      g.stroke({ color: THREAT, width: 2, alpha: on ? 0.5 : 0.15 });
+      g.circle(X, Y, R).stroke({ color: THREAT_OUTLINE, width: 6, alpha: on ? 0.7 : 0.25 });
+      g.circle(X, Y, R).stroke({ color: THREAT, width: 3.5, alpha: on ? 0.95 : 0.3 });
+      g.circle(X, Y, Math.max(2, R * (1 - k))).stroke({ color: THREAT, width: 3, alpha: 0.9 });
+    }
+    const call = world.rollcall?.color;
+    const horn = Math.min(1, (this.clock - this.omenCallAt) / 0.25);
+    for (const e of world.enemies) {
+      if (e.rage !== undefined && e.rage > 0 && this.sees(e, 0.5)) {
+        g.circle(e.x * UNIT, e.y * UNIT + r * 0.15, r * 1.12).stroke({ color: 0xff6f61, width: 3, alpha: 0.35 + 0.25 * Math.abs(Math.sin(this.clock * 9)) });
+        shown.rage++;
+      }
+      if (call !== undefined && e.color === call && this.sees(e, 0.5)) {
+        // The horn: a gold cone with a navy outline, its mouth to the upper right, over the body's right shoulder.
+        const s = r * 0.42, X = e.x * UNIT + r * 0.62, Y = e.y * UNIT - r * 0.86;
+        g.poly([X - s, Y + s * 0.5, X - s * 0.2, Y - s * 0.15, X + s * 0.9, Y - s * 0.95, X + s * 1.15, Y - s * 0.25, X + s * 0.2, Y + s * 0.8]).fill({ color: 0xe3b45a, alpha: horn }).stroke({ color: THREAT_OUTLINE, width: 2.5, alpha: horn, join: 'round' });
+        g.circle(X - s * 0.9, Y + s * 0.65, s * 0.3).fill({ color: 0x8a5a34, alpha: horn }).stroke({ color: THREAT_OUTLINE, width: 2, alpha: horn });
+        shown.horns++;
+      }
+    }
+  }
+
+  /** Task 56: the storm's strike, the sleepers' wake, a call (events of the frame; counted for tests). */
+  private omenEvent(world: World, ev: Extract<WorldEvent, { type: 'omen' }>): void {
+    if (ev.omen === 'storm' && ev.action === 'strike') {
+      const R = ev.r * UNIT, X = ev.x * UNIT, Y = ev.y * UNIT, top = Math.max(Y, 6 * UNIT);
+      const col = new Graphics().rect(-R * 0.55, -top - 40, R * 1.1, top + 40).fill({ color: 0xffffff, alpha: 0.75 }).circle(0, 0, R).fill({ color: 0xffffff, alpha: 0.55 }).stroke({ color: 0xcfe6ff, width: 5 });
+      col.position.set(X, Y);
+      this.fxLayer.addChild(col);
+      this.bursts.push({ g: col, life: 0.32, total: 0.32 });
+      if (world.params.shakeOnDamage) { this.shakeLeft = this.shakeTotal = 0.2; this.shakeAmp = Math.max(this.shakeAmp, 8); }
+      this.omenShown.strikes++;
+    } else if (ev.omen === 'drowse') {
+      // A short jolt: a pale ring at each of the woken (they carry the rage now).
+      for (const e of world.enemies) {
+        if (e.rage === undefined || !this.sees(e, 0.5)) continue;
+        const ring = new Graphics().circle(0, 0, enemyDrawRadius(world.params) * UNIT * 0.9).stroke({ color: 0xffffff, width: 4, alpha: 0.9 });
+        ring.position.set(e.x * UNIT, e.y * UNIT);
+        this.fxLayer.addChild(ring);
+        this.bursts.push({ g: ring, life: 0.28, total: 0.28, grow: true });
+      }
+      this.omenShown.wakes++;
+    } else if (ev.omen === 'rollcall') {
+      this.omenCallAt = this.clock;
+      this.omenShown.calls++;
+    }
+  }
+
   /** Sleep marks drawn in the last frame (tests read it). */
   sleepShown = 0;
 
@@ -2232,9 +2426,12 @@ export class RealtimeRenderer {
    */
   private drawSleep(world: World): void {
     this.sleepShown = 0;
-    if (!world.arena.calm && !world.asleep) return;
+    // Task 56 «Сонный час»: `Enemy.sleep` — the sleepers of the omen, one by one (the prologue's sleep is the whole arena's).
+    const all = !!world.arena.calm || !!world.asleep;
+    if (!all && !world.drowse) return;
     const g = this.targetLayer, r = enemyDrawRadius(world.params) * UNIT;
     for (const e of world.enemies) {
+      if (!all && !e.sleep) continue;
       if (!this.sees(e, 0.5)) continue;
       const t = (this.clock * 0.6 + e.id * 0.37) % 1, s = r * 0.22, x = e.x * UNIT - r * 0.55 - t * r * 0.15, y = e.y * UNIT - r * 0.95 - t * r * 0.45;
       const alpha = 0.55 * Math.sin(Math.PI * t);
@@ -2595,6 +2792,8 @@ export class RealtimeRenderer {
   private powerRed = false;
   /** The plan of the drawn chain this frame (drawChain), null — no chain drawn. */
   private drawnPlan: ChainPlan | null = null;
+  /** Task 55а (tests read it): the shove the drawn chain's plan has, or null. */
+  get drawnShove(): NonNullable<ChainPlan['shove']> | null { return this.drawnPlan?.shove ?? null; }
   /** Tests read these: the largest power shown in a dash, how many times the number grew, strike flashes and the closing flashes drawn. */
   powerShown = 0;
   powerGrowths = 0;
@@ -2757,7 +2956,11 @@ export class RealtimeRenderer {
       // Task 27: the Jailer. A move hit — its sign flashes where it stood; a part severed — its chain falls; the core lost a
       // plate after the dash — «−1 пластина» over it, as an elite's.
       // Task 48: the Troll's events (his moves' hits flash the sign, «звон», the severed parts fall, a plate that grew back) — the rest are the Jailer's.
+      // Task 54a: the Chief's events (his moves' hits flash the sign, «звон» sparks, the window's hit and the links dropped, the brew, the severed parts) - the rest go on.
+      if ((ev.type === 'bossMove' || ev.type === 'chiefFeast' || ev.type === 'chiefBrew' || ev.type === 'partSevered' || ev.type === 'enemySignal') && this.chief.onEvent(ev, world, this.clock, enemyDrawRadius(world.params) * UNIT)) continue;
       if ((ev.type === 'bossMove' || ev.type === 'trollWindow' || ev.type === 'partSevered' || ev.type === 'bossPlate') && this.troll.onEvent(ev, world, this.clock, enemyDrawRadius(world.params) * UNIT)) continue;
+      // Task 57а: the sparks of the shots (put out, taken by a shield, a hit, an end of flight), a wisp going out, a hive's ring leaving.
+      if (this.shooters.onEvent(ev, UNIT)) continue;
       if (ev.type === 'bossMove') {
         const m = ev.stage === 'hit' ? this.bossMovesSeen.get(ev.id) : undefined;
         if (m) { this.bossFlashes.push({ ...m, until: this.clock + 0.3 }); this.bossShown.hits++; }
@@ -2805,6 +3008,12 @@ export class RealtimeRenderer {
             this.tetherShown.drops++;
           }
         }
+        continue;
+      }
+      // Task 55а: the shove, a broken thing, the wardrobe's topple, the rook's strike.
+      if (ev.type === 'shove' || ev.type === 'thing' || ev.type === 'wardrobe' || ev.type === 'rook') {
+        const kick = this.castle.onEvent(ev, this.clock, enemyDrawRadius(world.params) * UNIT);
+        if (kick > 0 && (this.shakeLeft <= 0.02 || kick > this.shakeAmp)) { this.shakeLeft = this.shakeTotal = 0.12; this.shakeAmp = kick; }
         continue;
       }
       // Task 43: the knight's shed and the swing's hit.
@@ -2949,6 +3158,8 @@ export class RealtimeRenderer {
         this.eliteShown.downFlashes++;
         continue;
       }
+      // Task 56 «Приметы»: the storm strikes (a white column on the circle), the sleepers wake (a ring at each rager), a colour is called.
+      if (ev.type === 'omen') { this.omenEvent(world, ev); continue; }
       if (ev.type === 'blast') {
         const flash = new Graphics().circle(0, 0, ev.radius * UNIT).fill({ color: SPARK, alpha: 0.55 }).stroke({ color: 0xfff2c4, width: 4 });
         flash.position.set(ev.x * UNIT, ev.y * UNIT);
@@ -3206,6 +3417,8 @@ export class RealtimeRenderer {
     this.playerEffects.fireEdge = 0; this.playerEffects.fireEdgePoints = 0;
     for (const label of this.quillLabels) label.visible = false;
     for (const label of this.plateLabels) label.visible = false;
+    for (const label of this.shoveLabels) label.visible = false;
+    this.castle.beginPreview();
     for (const label of this.depthLabels) label.visible = false;
     this.linkDepthShown.labels = [];
     this.pierceShown.arrow = 0; this.pierceShown.marks = 0; this.pierceShown.end = 0;
@@ -3220,11 +3433,12 @@ export class RealtimeRenderer {
     this.bossShown.severPips = 0;
     this.bossShown.coreRing = 0;
     const fs = this.formsShown;
-    fs.forkRings = 0; fs.forkMarks = 0; fs.alienRings = 0; fs.twinLine = 0; fs.twinNext = -1; fs.forkBranch = 0; fs.frostPreview = 0; fs.returnArrows = 0; fs.returnHits = 0; fs.returnRun = 0;
+    fs.forkRings = 0; fs.forkLit = 0; fs.forkMarks = 0; fs.alienRings = 0; fs.twinLine = 0; fs.twinNext = -1; fs.forkBranch = 0; fs.frostPreview = 0; fs.returnArrows = 0; fs.returnHits = 0; fs.returnRun = 0;
     this.bossShown.severLit = 0;
     this.colorShiftShown = 0;
     this.colorShiftFreedBy = 0;
     this.colorShiftMarkShown = 0;
+    this.omenShown.wet = 0; this.omenShown.call = 0;
     const flashR = enemyDrawRadius(p) * UNIT;
     for (const e of world.enemies) {
       if (e.hurtFlash <= 0) continue;
@@ -3328,6 +3542,26 @@ export class RealtimeRenderer {
       for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x * UNIT, pts[i].y * UNIT);
       g.stroke({ color: c, width: w * lw, alpha: 0.95, cap: 'round', join: 'round' });
     }
+    // Task 56: a link taken in water (`wet`: its hit +1) carries a drop, a link of the colour on the roll call (`call`) a horn — the
+    // marks the sim fixed at the link (the highlight and the dash read the same ones).
+    this.omenShown.wet = 0; this.omenShown.call = 0;
+    for (const l of world.chain) {
+      if (l.kind !== 'enemy' || (!l.wet && !l.call)) continue;
+      const pt = linkPoint(world, l);
+      if (!pt) continue;
+      const R0 = enemyDrawRadius(p) * UNIT, s = R0 * 0.44;
+      if (l.wet) {
+        const X = pt.x * UNIT - R0 * 0.75, Y = pt.y * UNIT + R0 * 1.15;
+        g.moveTo(X, Y - s * 1.3).quadraticCurveTo(X + s * 1.15, Y + s * 0.3, X, Y + s).quadraticCurveTo(X - s * 1.15, Y + s * 0.3, X, Y - s * 1.3).fill({ color: 0x4a8fd0 }).stroke({ color: NAVY, width: 2.5, join: 'round' });
+        g.circle(X - s * 0.3, Y + s * 0.1, s * 0.22).fill({ color: 0xdbe9f4 });
+        this.omenShown.wet++;
+      }
+      if (l.call) {
+        const X = pt.x * UNIT + R0 * 0.75, Y = pt.y * UNIT + R0 * 1.15;
+        g.poly([X - s, Y + s * 0.5, X - s * 0.2, Y - s * 0.15, X + s * 0.9, Y - s * 0.95, X + s * 1.15, Y - s * 0.25, X + s * 0.2, Y + s * 0.8]).fill({ color: 0xe3b45a }).stroke({ color: NAVY, width: 2.5, join: 'round' });
+        this.omenShown.call++;
+      }
+    }
     this.juiceShown.heavyLine = heavy && pts.length > 1 ? 1 : 0;
     if (heavy && pts.length > 1) {
       g.moveTo(pts[0].x * UNIT, pts[0].y * UNIT);
@@ -3413,6 +3647,11 @@ export class RealtimeRenderer {
     const anchor = chainAnchor(world);
     this.drawLoop(g, world, plan.seal, ink);
     this.drawPierce(g, world, plan.pierce, ink);
+    // Task 55а: the chain ends on a thing — its shove as the plan has it (the path, the crushed, the strike, the wear), nothing recounted.
+    if (plan.shove) {
+      let word = 0;
+      this.castle.drawPreview(g, world, plan.shove, 1 / Math.max(0.1, this.scale), enemyDrawRadius(p) * UNIT, (text, x, y, fill) => { const l = this.shoveLabel(word++); l.text = text; l.style.fill = fill; l.position.set(x, y); l.visible = true; });
+    }
     this.drawFusionEnd(g, world, plan, ink);
     this.drawShieldSign(g, world, plan);
     this.drawHoned(g, world, plan);
@@ -3437,6 +3676,15 @@ export class RealtimeRenderer {
       // Task 29 «Развилка»: every link is an anchor — a fainter reach ring at each link but the last.
       const forks = chainAnchors(world).filter(a => a.link && Math.hypot(a.x - anchor.x, a.y - anchor.y) > 1e-6);
       for (const a of forks) { g.circle(a.x * UNIT, a.y * UNIT, linkRadiusOf(world) * UNIT).stroke({ color: ink, width: 1.25, alpha: 0.2 }); fs.forkRings++; }
+      // Task 52, Р2 (`forkDwell`, the sandbox's gesture): the older link the pointer rested on became the anchor — its reach ring glows
+      // (the sim's `forkAnchorNow`: the next link is taken from it alone).
+      const lit = forkAnchorNow(world), litAt = lit && linkPoint(world, lit);
+      if (litAt) {
+        const lx = litAt.x * UNIT, ly = litAt.y * UNIT, lr = linkRadiusOf(world) * UNIT;
+        g.circle(lx, ly, lr).stroke({ color: ink, width: 9, alpha: 0.18 }).circle(lx, ly, lr).stroke({ color: ink, width: 3, alpha: 0.95 });
+        g.circle(lx, ly, enemyDrawRadius(p) * UNIT + 9).stroke({ color: 0xfff2c4, width: 3, alpha: 0.9 });
+        fs.forkLit = 1;
+      }
       const candidates = nextCandidates(world), cr = enemyDrawRadius(p) * UNIT + 5;
       for (const e of candidates) {
         // Task 29 «Чужак»: a candidate of another colour (the rule not spent this chain) — a dashed ring of its own colour.
@@ -3473,6 +3721,8 @@ export class RealtimeRenderer {
         label.position.set(pt.x * UNIT, pt.y * UNIT - r * 1.55);
         label.visible = true;
       }
+      // A thing (task 55а) is no strike: no mark on it, its shove has the preview above.
+      if (lp.outcome.thing) continue;
       const x = pt.x * UNIT, y = pt.y * UNIT, cx = x - r * 0.7, cy = y - r * 0.75;
       if (lp.outcome.plate) {
         // An armoured elite link: a plate hit, not a kill and not a survivor — a lemon ring and «−1 пластина»; the chain goes on.
@@ -3498,7 +3748,7 @@ export class RealtimeRenderer {
         const core = lp.severs && linked ? jailerCore(world, linked) : undefined, armor = core && core !== linked ? eliteArmorView(core) : null;
         const lit = Math.floor(this.clock * 4) % 2 === 0;
         // Task 48: the Troll's plate row stands under his right foot (`corePips`), the Jailer's over his head or under his feet.
-        const tp = core?.kind === TROLL ? corePips(core.x * UNIT, core.y * UNIT, r) : null;
+        const tp = core?.kind === TROLL || core?.kind === CHIEF ? corePips(core.x * UNIT, core.y * UNIT, r) : null;
         if (core && armor && drawSeverPip(g, tp ? tp.x : core.x * UNIT, tp ? tp.y : core.y * UNIT, tp ? tp.R : bossPipRadius(core, r, this.bossPipsBelow.get(core.id) ?? false), armor, 1 / Math.max(0.1, this.scale), lit, tp ? true : this.bossPipsBelow.get(core.id) ?? false)) { this.bossShown.severPips++; if (lit) this.bossShown.severLit++; }
       } else {
         g.circle(x, y, r + 4).stroke({ color: 0xffa040, width: 4 });
@@ -3982,6 +4232,18 @@ export class RealtimeRenderer {
   }
 
   /** «−1 пластина» badges over armoured links of the drawn chain: the `i`-th text (a pool over the root). */
+  /** Task 55а: the `i`-th word of the shove's preview («−1 пластина», «−2 HP» at the end of the thing's path). */
+  private shoveLabel(i: number): Text {
+    while (this.shoveLabels.length <= i) {
+      const text = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 18, fontWeight: 'bold', fill: 0xffffff, stroke: { color: 0x1a2330, width: 5 } } });
+      text.anchor.set(0.5, 1);
+      text.visible = false;
+      this.root.addChild(text);
+      this.shoveLabels.push(text);
+    }
+    return this.shoveLabels[i];
+  }
+
   private plateLabel(i: number): Text {
     while (this.plateLabels.length <= i) {
       const text = new Text({ text: '−1 пластина', style: { fontFamily: 'Georgia, serif', fontSize: 18, fontWeight: 'bold', fill: ELITE_LEMON, stroke: { color: 0x1a2330, width: 5 } } });
@@ -4181,6 +4443,7 @@ export class RealtimeRenderer {
     this.updateDying(realDt);
     this.updateClearWaves(realDt);
     this.updateFireFlares(realDt);
+    this.shooters.update(realDt);
     this.cage.update(world, realDt);
     this.drawObjects(world);
     this.drawMarkers(world);
@@ -4190,6 +4453,7 @@ export class RealtimeRenderer {
     this.drawRipples(world);
     this.syncEnemies(world);
     this.drawSignals(world);
+    this.drawOmens(world, realDt);
     this.drawCourt(world);
     this.drawForms(world);
     this.drawBadges(world);
@@ -4217,6 +4481,8 @@ export class RealtimeRenderer {
     this.drawEdgeMarkers(world);
     // Task 48: the core's plates and the parts' places of this frame (the next frame's events compare against them).
     this.troll.note(world, enemyDrawRadius(world.params) * UNIT);
+    this.castle.note(world);
+    this.chief.note(world, enemyDrawRadius(world.params) * UNIT);
   }
 
   /** Water stays water: bodies wading in the pond get two widening rings (walking there is slower). */
@@ -4255,11 +4521,12 @@ export class RealtimeRenderer {
   resetEffects(): void {
     this.crackLeft = 0; this.crackShown = false; this.shieldBoost = false; this.shieldBoostShown = false;
     this.snaps = []; this.drops = []; this.snapLayer.clear(); this.houndAt.clear();
-    this.troll.reset();
+    this.troll.reset(); this.chief.reset(); this.castle.reset();
     this.intro = null; this.openedOnBoss = false;
     this.shakeLeft = 0;
     this.flashLeft = 0;
     this.flashGate.reset();
+    this.omenFlashLeft = 0; this.omenFlash.visible = false; for (const child of this.omenFlash.removeChildren()) child.destroy(); this.omenCallAt = -10;
     for (const gh of this.ghosts) gh.root.destroy({ children: true });
     this.ghosts.length = 0; this.paintAt.clear();
     for (const s of this.shards) { s.life = 0; s.delay = 0; s.p.alpha = 0; }
@@ -4273,6 +4540,7 @@ export class RealtimeRenderer {
     this.powerValue = -1;
     for (const sp of this.sparks) sp.g.destroy();
     this.sparks.length = 0;
+    this.shooters.reset();
     for (const f of this.floating) f.text.destroy();
     this.floating.length = 0;
     for (const b of this.bursts) b.g.destroy();

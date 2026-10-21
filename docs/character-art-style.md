@@ -169,6 +169,7 @@ NOT smooth plastic surfaces, NOT excessive gradients.
 Предметы для задачи 51 (разделы 3.4 и 4), Codex `image_gen`, промпты — `artifacts/art-prompts/camp-props.json`; RGBA, прозрачный фон, проверено глазами на листе 16.10.2026 — стиль един с `troll-club.png` и `jailer-cage.png`, читаются в малом размере. Подключение — ui с видом задачи 51.
 - `public/art/camp/trace-basket.png` (корзина Марфы), `trace-wheel.png` (точильное колесо Ерофея), `trace-mug.png` (кружка с костями Шиша) — около 512 px.
 - `public/art/camp/trophy-jailer.png` (гиря с цепью), `trophy-severed.png` (обрубок цепи), `trophy-troll.png` (рог Тролля), `trophy-chief.png` (котелок Главаря), `trophy-shackles.png` (сломанные кандалы), `trophy-castellan.png` (знамя Кастеляна), `trophy-ash.png` (доска Испытания с восемью засечками), `trophy-bestiary.png` (чернильница Неясыти), `trophy-chain.png` (длинная цепь кольцом) — 256×256.
+- `public/art/camp/warmup-dummies.png` — «Чурбаки» разминки 51ж: два соломенных чучела на пнях, мешковина с крестом-стежком, 975×1000; `check-art.mjs` PASS 21.10.2026, глазами — стиль един со следами. Подключение — ui (вид 51ж), до него — SVG-замена.
 
 ### Босс леса — Главарь с котелком (17.10.2026)
 
@@ -181,5 +182,22 @@ NOT smooth plastic surfaces, NOT excessive gradients.
 
 ### Лес — виды врагов для «Летописи» (17.10.2026)
 
-Набор для задачи 58 («Летопись», бестиарий), Codex `image_gen`, промпты — `artifacts/art-prompts/forest-kinds.json`. Проверка `check-art.mjs` 17.10.2026: PASS для шести; глазами — стиль един с `melee.png`, `ranged.png`. В бою виды леса по-прежнему рисует код (диски со знаками); PNG — для карточек книги. Лучник — `ranged.png`, щитоносец — `sentinel.png` (набор 27.09.2026).
+Набор для задачи 58 («Летопись», бестиарий), Codex `image_gen`, промпты — `artifacts/art-prompts/forest-kinds.json`. Проверка `check-art.mjs` 17.10.2026: PASS для шести; глазами — стиль един с `melee.png`, `ranged.png`. В бою виды леса по-прежнему рисует код (диски со знаками); PNG — для карточек книги. Лучник — `ranged.png` (набор 27.09.2026). Щитоносец — `forest-shield.png` (гоблин за ростовым щитом; 21.10.2026, `check-art.mjs` PASS, глазами — та же гоблинская семья, что `forest-sapper.png`); `sentinel.png` — живой стул в латах, это не лесной вид, для щитоносца не берётся.
 - `public/art/characters/forest-wolf.png`, `forest-boar.png`, `forest-lynx.png`, `forest-porcupine.png`, `forest-sapper.png` (гоблин с бомбой), `forest-shaman.png` (гоблин-шаман с посохом-кристаллом).
+
+### Замок, шаг 1а (17.10.2026)
+
+Набор для задачи 55 (`docs/design-notes/task-55-castle-step1a.md`, раздел 12), Codex `image_gen`, промпты — `artifacts/art-prompts/castle.json`. Проверка `check-art.mjs` 17.10.2026: PASS для пяти спрайтов; глазами — стиль един с Троллем, Главарём и NPC лагеря. Подключение — ui с видом 55а/55б; до него — процедурный резерв.
+- `public/art/characters/castle-wardrobe.png` — живой гардероб: дверцы-пасть с зубами-полками, ящик-язык, латунные ручки-глаза; без яркого цвета (вещь бесцветна), 1190×1200.
+- `public/art/characters/castle-rook.png` — каменная шахматная ладья: зубцы-брови, жерло-рот, светлый камень (цвет звена даёт диск вида), 1200×1120.
+- `public/art/characters/castle-barrel.png` — винная бочка: дуб, медные обручи, винное пятно; отличается от процедурных бочек гарнизона, 796×521.
+- `public/art/characters/warlock.png` — Колдун: шляпа больше тела со знаком колдуна (тот же, что содран с рясы Евлампия), посох-свеча, парит, 1162×1200.
+- `public/art/characters/warlock-dazed.png` — тот же Колдун сбит: шляпа набок, глаза-спирали, свеча погасла; сделан по `warlock.png` как образцу, 1145×1200.
+- `public/art/camp/foothill.png` — фон «Подножия», 1280×720: дорога в гору к замку на скале, сумерки, огни окон; низ в центре спокойнее (там панель).
+- Задача 57 (17.10.2026, тот же набор и файл промптов): `forest-slinger.png` (Пращник — гоблин с пращой), `forest-hive.png` (Улей), `forest-wisp.png` (Светляк — светящийся жук, не огонь), `forest-rootling.png` (Корневик), `forest-slime.png` (Слизень), `forest-centipede.png` (Сороконожка), `forest-firebrand.png` (Головешка). `check-art.mjs` — PASS для семи; для карточек «Летописи» и вида 57а/57б.
+
+### Гарнизон, шаг 3 и враги замка (17.10.2026)
+
+Наборы для задач 59 и 60, Codex `image_gen`, промпты — `artifacts/art-prompts/garrison.json` и `castle.json`; обрезка по силуэту (2 %) сделана дизайном после генерации. `check-art.mjs` — PASS для восьми; глазами — стиль един с гарнизоном и замком 1а.
+- Гарнизон: `garrison-pitcher.png` (Смолокур — горшок со смолой на плече), `garrison-recruit.png` (Новобранец — шлем на глаза, бирка без номера: номер рисует вид), `garrison-warden.png` (Привратник — алебарда-ключ, половина лат цветная).
+- Замок: `castle-queen.png` (Ферзь), `castle-butler.png` (Дворецкий — вешалка во фраке с подносом), `castle-chandelier.png` (Люстра), `castle-poltergeist.png` (Полтергейст), `castle-jester.png` (Шут). `castle-candelabra.png` (Подсвечник) — кованый крест с четырьмя свечами (бирюзовое пламя), лицо на основании; первая версия была слишком похожа на известного мультперсонажа-подсвечник и заменена (17.10.2026).

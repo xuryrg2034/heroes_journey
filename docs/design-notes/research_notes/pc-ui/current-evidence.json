@@ -1,0 +1,743 @@
+{
+  "date": "2026-10-19",
+  "note": "Fresh isolated browser; telemetry upload intercepted. First win uses existing test hook solely to display result UI.",
+  "evidence": [
+    {
+      "name": "start-1280",
+      "text": "15 / 15\n⚡ 0.0 / 7\nубито 0 / 30\nочки 0\n0:00\nПробел\n2 ⚡\nQ\n3 ⚡\n1\n3\n2\n3\n3\n3\n4\n3\nWASD идти · ЛКМ цепь · ПКМ/Esc отмена\nПоход\n\nКарта леса, арены в реальном времени, привалы, события и торговец. Поражение на арене заканчивает поход.\n\nНовый поход",
+      "buttons": [
+        {
+          "text": "Пробел\n2 ⚡",
+          "id": "ability-jump",
+          "title": "Прыжок: Пробел, затем клик в точку"
+        },
+        {
+          "text": "Q\n3 ⚡",
+          "id": "ability-spin",
+          "title": "Круговой удар: Q"
+        },
+        {
+          "text": "1\n3",
+          "id": "item-frost",
+          "title": "Холод: клавиша 1"
+        },
+        {
+          "text": "2\n3",
+          "id": "item-bomb",
+          "title": "Бомба: клавиша 2"
+        },
+        {
+          "text": "3\n3",
+          "id": "item-healing",
+          "title": "Лечение: клавиша 3"
+        },
+        {
+          "text": "4\n3",
+          "id": "item-fire",
+          "title": "Огонь: клавиша 4"
+        },
+        {
+          "text": "Новый поход",
+          "id": "run-new",
+          "title": ""
+        }
+      ],
+      "geometry": [
+        {
+          "class": "rt-hud",
+          "rect": {
+            "x": 18,
+            "y": 14,
+            "width": 654.46875,
+            "height": 44,
+            "top": 14,
+            "right": 672.46875,
+            "bottom": 58,
+            "left": 18
+          },
+          "font": "13px"
+        },
+        {
+          "class": "rt-build",
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "font": "16px"
+        },
+        {
+          "class": "rt-actionbar",
+          "rect": {
+            "x": 430.5,
+            "y": 608,
+            "width": 419,
+            "height": 82,
+            "top": 608,
+            "right": 849.5,
+            "bottom": 690,
+            "left": 430.5
+          },
+          "font": "16px"
+        }
+      ]
+    },
+    {
+      "name": "gift-1280",
+      "text": "15 / 15\n⚡ 0.0 / 7\nубито 0 / 30\nочки 0\n0:00\nПробел\n2 ⚡\nQ\n3 ⚡\n1\n3\n2\n3\n3\n3\n4\n3\nWASD идти · ЛКМ цепь · ПКМ/Esc отмена\nЛес\nHP 15 / 15\nХолод 0 · Бомба 0 · Лечение 1 · Огонь 0\n0\nНовый поход\nПесочница\nЛоги\n⚙\n⚔\n⚔\n⚔\n◈\n⚔\n☾\n⚔\n?\n⚔\n▣\n⚔\n?\n☾\n☾\n☠\n⚔\n⚔\n☠\n⇥\n♛\n?\n⚖\n⚔\n⚔\n☾\n⚔\n☠\n⇥\n♛\nДар в дорогу\n\nМалый дар: выбери одно. Недоступные варианты выключены.\n\n2 расходника: Лечение, Огонь\n+3 к максимуму HP и +3 HP",
+      "buttons": [
+        {
+          "text": "Пробел\n2 ⚡",
+          "id": "ability-jump",
+          "title": "Прыжок: Пробел, затем клик в точку"
+        },
+        {
+          "text": "Q\n3 ⚡",
+          "id": "ability-spin",
+          "title": "Круговой удар: Q"
+        },
+        {
+          "text": "1\n3",
+          "id": "item-frost",
+          "title": "Холод: клавиша 1"
+        },
+        {
+          "text": "2\n3",
+          "id": "item-bomb",
+          "title": "Бомба: клавиша 2"
+        },
+        {
+          "text": "3\n3",
+          "id": "item-healing",
+          "title": "Лечение: клавиша 3"
+        },
+        {
+          "text": "4\n3",
+          "id": "item-fire",
+          "title": "Огонь: клавиша 4"
+        },
+        {
+          "text": "Новый поход",
+          "id": "run-reset",
+          "title": ""
+        },
+        {
+          "text": "Песочница",
+          "id": "open-sandbox",
+          "title": ""
+        },
+        {
+          "text": "Логи",
+          "id": "logs-open",
+          "title": ""
+        },
+        {
+          "text": "⚙",
+          "id": "run-settings",
+          "title": "Настройки"
+        },
+        {
+          "text": "2 расходника: Лечение, Огонь",
+          "id": "gift-0",
+          "title": ""
+        },
+        {
+          "text": "+3 к максимуму HP и +3 HP",
+          "id": "gift-1",
+          "title": ""
+        }
+      ],
+      "geometry": [
+        {
+          "class": "rt-hud",
+          "rect": {
+            "x": 18,
+            "y": 14,
+            "width": 654.46875,
+            "height": 44,
+            "top": 14,
+            "right": 672.46875,
+            "bottom": 58,
+            "left": 18
+          },
+          "font": "13px"
+        },
+        {
+          "class": "rt-build",
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "font": "16px"
+        },
+        {
+          "class": "rt-actionbar",
+          "rect": {
+            "x": 430.5,
+            "y": 608,
+            "width": 419,
+            "height": 82,
+            "top": 608,
+            "right": 849.5,
+            "bottom": 690,
+            "left": 430.5
+          },
+          "font": "16px"
+        }
+      ]
+    },
+    {
+      "name": "map-1280",
+      "text": "15 / 15\n⚡ 0.0 / 7\nубито 0 / 30\nочки 0\n0:00\nПробел\n2 ⚡\nQ\n3 ⚡\n1\n3\n2\n3\n3\n3\n4\n3\nWASD идти · ЛКМ цепь · ПКМ/Esc отмена\nЛес\nHP 18 / 18\nХолод 0 · Бомба 0 · Лечение 1 · Огонь 0\n0\nНовый поход\nПесочница\nЛоги\n⚙\n\nВыбери узел на карте (подсвечены доступные).\n\n⚔\n⚔\n⚔\n◈\n⚔\n☾\n⚔\n?\n⚔\n▣\n⚔\n?\n☾\n☾\n☠\n⚔\n⚔\n☠\n⇥\n♛\n?\n⚖\n⚔\n⚔\n☾\n⚔\n☠\n⇥\n♛",
+      "buttons": [
+        {
+          "text": "Пробел\n2 ⚡",
+          "id": "ability-jump",
+          "title": "Прыжок: Пробел, затем клик в точку"
+        },
+        {
+          "text": "Q\n3 ⚡",
+          "id": "ability-spin",
+          "title": "Круговой удар: Q"
+        },
+        {
+          "text": "1\n3",
+          "id": "item-frost",
+          "title": "Холод: клавиша 1"
+        },
+        {
+          "text": "2\n3",
+          "id": "item-bomb",
+          "title": "Бомба: клавиша 2"
+        },
+        {
+          "text": "3\n3",
+          "id": "item-healing",
+          "title": "Лечение: клавиша 3"
+        },
+        {
+          "text": "4\n3",
+          "id": "item-fire",
+          "title": "Огонь: клавиша 4"
+        },
+        {
+          "text": "Новый поход",
+          "id": "run-reset",
+          "title": ""
+        },
+        {
+          "text": "Песочница",
+          "id": "open-sandbox",
+          "title": ""
+        },
+        {
+          "text": "Логи",
+          "id": "logs-open",
+          "title": ""
+        },
+        {
+          "text": "⚙",
+          "id": "run-settings",
+          "title": "Настройки"
+        }
+      ],
+      "geometry": [
+        {
+          "class": "rt-hud",
+          "rect": {
+            "x": 18,
+            "y": 14,
+            "width": 654.46875,
+            "height": 44,
+            "top": 14,
+            "right": 672.46875,
+            "bottom": 58,
+            "left": 18
+          },
+          "font": "13px"
+        },
+        {
+          "class": "rt-build",
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "font": "16px"
+        },
+        {
+          "class": "rt-actionbar",
+          "rect": {
+            "x": 430.5,
+            "y": 608,
+            "width": 419,
+            "height": 82,
+            "top": 608,
+            "right": 849.5,
+            "bottom": 690,
+            "left": 430.5
+          },
+          "font": "16px"
+        }
+      ]
+    },
+    {
+      "name": "node-1280",
+      "text": "15 / 15\n⚡ 0.0 / 7\nубито 0 / 30\nочки 0\n0:00\nПробел\n2 ⚡\nQ\n3 ⚡\n1\n3\n2\n3\n3\n3\n4\n3\nWASD идти · ЛКМ цепь · ПКМ/Esc отмена\nЛес\nHP 18 / 18\nХолод 0 · Бомба 0 · Лечение 1 · Огонь 0\n0\nНовый поход\nПесочница\nЛоги\n⚙\n⚔\n⚔\n⚔\n◈\n⚔\n☾\n⚔\n?\n⚔\n▣\n⚔\n?\n☾\n☾\n☠\n⚔\n⚔\n☠\n⇥\n♛\n?\n⚖\n⚔\n⚔\n☾\n⚔\n☠\n⇥\n♛\n⚔ Бой\n\nБой · ряд похода 1 · Доступен\n\nАрена «Поляна»\n\nЦель: Убей цепью 20 врагов. Потом откроется дверь сверху.\nВраги: обычные\nМестность: пруд\nВ бой",
+      "buttons": [
+        {
+          "text": "Пробел\n2 ⚡",
+          "id": "ability-jump",
+          "title": "Прыжок: Пробел, затем клик в точку"
+        },
+        {
+          "text": "Q\n3 ⚡",
+          "id": "ability-spin",
+          "title": "Круговой удар: Q"
+        },
+        {
+          "text": "1\n3",
+          "id": "item-frost",
+          "title": "Холод: клавиша 1"
+        },
+        {
+          "text": "2\n3",
+          "id": "item-bomb",
+          "title": "Бомба: клавиша 2"
+        },
+        {
+          "text": "3\n3",
+          "id": "item-healing",
+          "title": "Лечение: клавиша 3"
+        },
+        {
+          "text": "4\n3",
+          "id": "item-fire",
+          "title": "Огонь: клавиша 4"
+        },
+        {
+          "text": "Новый поход",
+          "id": "run-reset",
+          "title": ""
+        },
+        {
+          "text": "Песочница",
+          "id": "open-sandbox",
+          "title": ""
+        },
+        {
+          "text": "Логи",
+          "id": "logs-open",
+          "title": ""
+        },
+        {
+          "text": "⚙",
+          "id": "run-settings",
+          "title": "Настройки"
+        },
+        {
+          "text": "В бой",
+          "id": "run-enter",
+          "title": ""
+        }
+      ],
+      "geometry": [
+        {
+          "class": "rt-hud",
+          "rect": {
+            "x": 18,
+            "y": 14,
+            "width": 654.46875,
+            "height": 44,
+            "top": 14,
+            "right": 672.46875,
+            "bottom": 58,
+            "left": 18
+          },
+          "font": "13px"
+        },
+        {
+          "class": "rt-build",
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "font": "16px"
+        },
+        {
+          "class": "rt-actionbar",
+          "rect": {
+            "x": 430.5,
+            "y": 608,
+            "width": 419,
+            "height": 82,
+            "top": 608,
+            "right": 849.5,
+            "bottom": 690,
+            "left": 430.5
+          },
+          "font": "16px"
+        },
+        {
+          "class": "rt-card rt-run-detail",
+          "rect": {
+            "x": 420,
+            "y": 242.5,
+            "width": 440,
+            "height": 305,
+            "top": 242.5,
+            "right": 860,
+            "bottom": 547.5,
+            "left": 420
+          },
+          "font": "14px"
+        }
+      ]
+    },
+    {
+      "name": "combat-1280",
+      "text": "18 / 18\n⚡ 0.0 / 7\nубито 0 / 20\nочки 0\n0:02\nПробел\n2 ⚡\nQ\n3 ⚡\n3\n1\nWASD идти · ЛКМ цепь · ПКМ/Esc отмена\nПауза",
+      "buttons": [
+        {
+          "text": "Пробел\n2 ⚡",
+          "id": "ability-jump",
+          "title": "Прыжок: Пробел, затем клик в точку"
+        },
+        {
+          "text": "Q\n3 ⚡",
+          "id": "ability-spin",
+          "title": "Круговой удар: Q"
+        },
+        {
+          "text": "3\n1",
+          "id": "item-healing",
+          "title": "Лечение: клавиша 3"
+        }
+      ],
+      "geometry": [
+        {
+          "class": "rt-hud",
+          "rect": {
+            "x": 18,
+            "y": 14,
+            "width": 655.921875,
+            "height": 44,
+            "top": 14,
+            "right": 673.921875,
+            "bottom": 58,
+            "left": 18
+          },
+          "font": "13px"
+        },
+        {
+          "class": "rt-build",
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "font": "16px"
+        },
+        {
+          "class": "rt-actionbar",
+          "rect": {
+            "x": 526.5,
+            "y": 608,
+            "width": 227,
+            "height": 82,
+            "top": 608,
+            "right": 753.5,
+            "bottom": 690,
+            "left": 526.5
+          },
+          "font": "16px"
+        },
+        {
+          "class": "rt-card rt-run-detail",
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "font": "14px"
+        }
+      ]
+    },
+    {
+      "name": "combat-escape",
+      "text": "18 / 18\n⚡ 0.0 / 7\nубито 0 / 20\nочки 0\n0:02\nПробел\n2 ⚡\nQ\n3 ⚡\n3\n1\nWASD идти · ЛКМ цепь · ПКМ/Esc отмена\nПауза"
+    },
+    {
+      "name": "result-1280",
+      "text": "18 / 18\n⚡ 0.0 / 7\nдверь открыта · убито 0\nочки 0\n0:02\nПробел\n2 ⚡\nQ\n3 ⚡\n3\n1\nWASD идти · ЛКМ цепь · ПКМ/Esc отмена\nПобеда\nАрена\nБой · Поляна\nВремя\n0:02\nУбито\n0\nОчки\n0\nКристаллов выпало\n0\nВ стадии жадности\n0:00\nЦель\nубито 0 / 20\nПолучено урона\n0 (ударов 0)\nВрагов пришло\n28\n\nЛучшая цепь боя 0 · похода 0 · рекорд 0\n\nК карте (Enter)",
+      "buttons": [
+        {
+          "text": "Пробел\n2 ⚡",
+          "id": "ability-jump",
+          "title": "Прыжок: Пробел, затем клик в точку"
+        },
+        {
+          "text": "Q\n3 ⚡",
+          "id": "ability-spin",
+          "title": "Круговой удар: Q"
+        },
+        {
+          "text": "3\n1",
+          "id": "item-healing",
+          "title": "Лечение: клавиша 3"
+        },
+        {
+          "text": "К карте (Enter)",
+          "id": "result-map",
+          "title": ""
+        }
+      ],
+      "geometry": [
+        {
+          "class": "rt-hud",
+          "rect": {
+            "x": 18,
+            "y": 14,
+            "width": 736.53125,
+            "height": 44,
+            "top": 14,
+            "right": 754.53125,
+            "bottom": 58,
+            "left": 18
+          },
+          "font": "13px"
+        },
+        {
+          "class": "rt-build",
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "font": "16px"
+        },
+        {
+          "class": "rt-actionbar",
+          "rect": {
+            "x": 526.5,
+            "y": 608,
+            "width": 227,
+            "height": 82,
+            "top": 608,
+            "right": 753.5,
+            "bottom": 690,
+            "left": 526.5
+          },
+          "font": "16px"
+        }
+      ]
+    },
+    {
+      "name": "after-result-1280",
+      "text": "18 / 18\n⚡ 0.0 / 7\nдверь открыта · убито 0\nочки 0\n0:02\nПробел\n2 ⚡\nQ\n3 ⚡\n3\n1\nWASD идти · ЛКМ цепь · ПКМ/Esc отмена\nЛес\nHP 18 / 18\nХолод 0 · Бомба 0 · Лечение 1 · Огонь 0\n0\nНовый поход\nПесочница\nЛоги\n⚙\n\nВыбери узел на карте (подсвечены доступные).\n\n⚔\n⚔\n⚔\n◈\n⚔\n☾\n⚔\n?\n⚔\n▣\n⚔\n?\n☾\n☾\n☠\n⚔\n⚔\n☠\n⇥\n♛\n?\n⚖\n⚔\n⚔\n☾\n⚔\n☠\n⇥\n♛",
+      "buttons": [
+        {
+          "text": "Пробел\n2 ⚡",
+          "id": "ability-jump",
+          "title": "Прыжок: Пробел, затем клик в точку"
+        },
+        {
+          "text": "Q\n3 ⚡",
+          "id": "ability-spin",
+          "title": "Круговой удар: Q"
+        },
+        {
+          "text": "3\n1",
+          "id": "item-healing",
+          "title": "Лечение: клавиша 3"
+        },
+        {
+          "text": "Новый поход",
+          "id": "run-reset",
+          "title": ""
+        },
+        {
+          "text": "Песочница",
+          "id": "open-sandbox",
+          "title": ""
+        },
+        {
+          "text": "Логи",
+          "id": "logs-open",
+          "title": ""
+        },
+        {
+          "text": "⚙",
+          "id": "run-settings",
+          "title": "Настройки"
+        }
+      ],
+      "geometry": [
+        {
+          "class": "rt-hud",
+          "rect": {
+            "x": 18,
+            "y": 14,
+            "width": 736.53125,
+            "height": 44,
+            "top": 14,
+            "right": 754.53125,
+            "bottom": 58,
+            "left": 18
+          },
+          "font": "13px"
+        },
+        {
+          "class": "rt-build",
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "font": "16px"
+        },
+        {
+          "class": "rt-actionbar",
+          "rect": {
+            "x": 526.5,
+            "y": 608,
+            "width": 227,
+            "height": 82,
+            "top": 608,
+            "right": 753.5,
+            "bottom": 690,
+            "left": 526.5
+          },
+          "font": "16px"
+        }
+      ]
+    },
+    {
+      "name": "map-1920",
+      "text": "18 / 18\n⚡ 0.0 / 7\nдверь открыта · убито 0\nочки 0\n0:02\nПробел\n2 ⚡\nQ\n3 ⚡\n3\n1\nWASD идти · ЛКМ цепь · ПКМ/Esc отмена\nЛес\nHP 18 / 18\nХолод 0 · Бомба 0 · Лечение 1 · Огонь 0\n0\nНовый поход\nПесочница\nЛоги\n⚙\n\nВыбери узел на карте (подсвечены доступные).\n\n⚔\n⚔\n⚔\n◈\n⚔\n☾\n⚔\n?\n⚔\n▣\n⚔\n?\n☾\n☾\n☠\n⚔\n⚔\n☠\n⇥\n♛\n?\n⚖\n⚔\n⚔\n☾\n⚔\n☠\n⇥\n♛",
+      "buttons": [
+        {
+          "text": "Пробел\n2 ⚡",
+          "id": "ability-jump",
+          "title": "Прыжок: Пробел, затем клик в точку"
+        },
+        {
+          "text": "Q\n3 ⚡",
+          "id": "ability-spin",
+          "title": "Круговой удар: Q"
+        },
+        {
+          "text": "3\n1",
+          "id": "item-healing",
+          "title": "Лечение: клавиша 3"
+        },
+        {
+          "text": "Новый поход",
+          "id": "run-reset",
+          "title": ""
+        },
+        {
+          "text": "Песочница",
+          "id": "open-sandbox",
+          "title": ""
+        },
+        {
+          "text": "Логи",
+          "id": "logs-open",
+          "title": ""
+        },
+        {
+          "text": "⚙",
+          "id": "run-settings",
+          "title": "Настройки"
+        }
+      ],
+      "geometry": [
+        {
+          "class": "rt-hud",
+          "rect": {
+            "x": 18,
+            "y": 14,
+            "width": 736.53125,
+            "height": 44,
+            "top": 14,
+            "right": 754.53125,
+            "bottom": 58,
+            "left": 18
+          },
+          "font": "13px"
+        },
+        {
+          "class": "rt-build",
+          "rect": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "font": "16px"
+        },
+        {
+          "class": "rt-actionbar",
+          "rect": {
+            "x": 846.5,
+            "y": 968,
+            "width": 227,
+            "height": 82,
+            "top": 968,
+            "right": 1073.5,
+            "bottom": 1050,
+            "left": 846.5
+          },
+          "font": "16px"
+        }
+      ]
+    }
+  ]
+}

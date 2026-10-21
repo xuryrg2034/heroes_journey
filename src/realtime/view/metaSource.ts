@@ -24,16 +24,16 @@ export class ProfileMeta implements MetaSource {
   hearth(): HearthState {
     const hero = this.profile.heroChoice(), view = this.profile.hearth(hero), own = this.profile.heroes().find(h => h.id === hero)!;
     return {
-      hero, stock: view.stock, levels: view.levels, met: { owl: true, herb: view.met.herb, smith: view.met.smith }, xp: own.xp, thresholds: [...RT_META_THRESHOLDS],
+      hero, stock: view.stock, ...view.away ? { away: view.away as NpcId } : {}, done: { ...view.done } as HearthState['done'], levels: view.levels, gate3: view.gate3, met: { owl: true, herb: view.met.herb, smith: view.met.smith, gambler: view.met.gambler, monk: view.met.monk }, xp: own.xp, thresholds: [...RT_META_THRESHOLDS],
       nextPack: own.nextPack,
       record: own.record ? { row: own.record.row, won: own.record.won, ...own.record.level ? { level: own.record.level } : {}, ...own.record.wonLevel ? { wonLevel: own.record.wonLevel } : {} } : null, seen: view.seen, lines: view.lines,
       ...view.quest ? { quest: { npc: view.quest.npc as NpcId, id: view.quest.id } } : {},
       ...view.last ? { last: { ...view.last } } : {},
-      ...view.self.herb || view.self.smith ? { self: { ...view.self.herb ? { herb: true } : {}, ...view.self.smith ? { smith: true } : {} } } : {},
+      ...view.self.herb || view.self.smith || view.self.gambler || view.self.monk ? { self: { ...view.self.herb ? { herb: true } : {}, ...view.self.smith ? { smith: true } : {}, ...view.self.gambler ? { gambler: true } : {}, ...view.self.monk ? { monk: true } : {} } } : {},
     };
   }
 
-  buy(npc: NpcId, level: number): { ok: true } | { ok: false; need: number; have: number } { return this.profile.buyHearth(npc, level); }
+  buy(npc: NpcId, level: number): ReturnType<MetaSource['buy']> { return this.profile.buyHearth(npc, level); }
 
   /** The camp's start plan for a base seed (core's `hearthStart` of the chosen hero; its flags go into the run with the choice made). */
   start(seed: number): RtHearthStart { return this.profile.hearthStart(seed); }

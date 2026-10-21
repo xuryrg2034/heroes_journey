@@ -13,16 +13,20 @@
  * - The numbers in the texts come from the code (`sim/chest.ts`), not from literals.
  */
 import type { Vec } from '../sim/geometry';
-import type { World } from '../sim/world';
+import type { Enemy, World } from '../sim/world';
 import { CHEST_CURSE_KILLS, CHEST_CURSE_TOUCH } from '../sim/chest';
 import { OBJECT_RADIUS } from '../sim/chain';
 import { leverOf } from '../sim/slot';
 import { BUILD_SOURCES } from '../sim/buildIds';
 import { KNIGHT } from '../sim/enemies/garrison';
 import { ROCK_RADIUS, TAIL_OUTER, TROLL } from '../sim/enemies/troll';
+import { BARREL, wardrobeTopple } from '../sim/enemies/castle';
+import { CHIEF, chiefMove } from '../sim/enemies/chief';
 
 /** The three labels of the run (the ids are the v1 hints' Б6, Б8, Б9: the memory and the run record keep their keys). */
-export type LabelId = 'b6' | 'b8' | 'b9';
+export type LabelId = 'b6' | 'b8' | 'b9' | OmenLabelId;
+/** Task 56 «Приметы»: the first-meeting labels of the omens that show something in the fight (spec 6, «Подписи у места»). */
+export type OmenLabelId = 'omen-storm' | 'omen-flood' | 'omen-drowse' | 'omen-rollcall' | 'omen-harvest';
 /** A label to show: its id, text, the world point of its object and where it hangs relative to it. */
 export interface LabelSpec {
   id: string;
@@ -48,6 +52,14 @@ export const LABEL_TEXT = {
   /** Task 41: the prisoner the player's dash set loose riots (design 16.10.2026: a flash over it, once a run). */
   riot: 'На волю!',
 } as const;
+/** Task 56 (spec 6, ≤ 4 words each): the omens' labels — at the mark, at the pool, at the first sleeper, at the first horned enemy, at the sack. */
+export const OMEN_LABEL_TEXT: Readonly<Record<OmenLabelId, string>> = {
+  'omen-storm': 'Заведи толпу',
+  'omen-flood': 'Мокрым +1',
+  'omen-drowse': 'Спят до цепи',
+  'omen-rollcall': 'Цвет зовут',
+  'omen-harvest': 'Удар — всё сначала',
+};
 /** Б8: the price of the chest of «Застава», both numbers read from `sim/chest.ts`. */
 export const chestText = (): string => `+${CHEST_CURSE_TOUCH} урон касания, ${CHEST_CURSE_KILLS} убийств`;
 
@@ -85,6 +97,36 @@ export function detectLabels(w: World, onScreen: (p: Vec) => boolean): LabelSpec
   return out;
 }
 
+/**
+ * Task 56 «Приметы» (spec 6): the omens' labels whose object stands now — «Заведи толпу» at the storm's mark, «Мокрым +1» at the
+ * nearest pool in view, «Спят до цепи» over the nearest sleeper, «Цвет зовут» over the nearest enemy of the called colour, «Удар — всё
+ * сначала» at the sack (the omen «Урожай»: `bagResetAll`). The caller drops the ids the viewer has done (`omenLabelActions`).
+ */
+export function omenLabels(w: World, onScreen: (p: Vec) => boolean): LabelSpec[] {
+  const out: LabelSpec[] = [];
+  const near = <T extends Vec>(list: readonly T[]): T | null => {
+    let best: T | null = null, d = Infinity;
+    for (const e of list) { if (!onScreen(e)) continue; const de = (e.x - w.hero.x) ** 2 + (e.y - w.hero.y) ** 2; if (de < d) { d = de; best = e; } }
+    return best;
+  };
+  const mark = w.storm?.mark;
+  if (mark && onScreen(mark)) out.push({ id: 'omen-storm', text: OMEN_LABEL_TEXT['omen-storm'], at: { x: mark.x, y: mark.y }, place: 'above', lift: (w.params.omenStormRadius || 1) + 0.25 });
+  const pool = near(w.flood?.pools ?? []);
+  if (pool) out.push({ id: 'omen-flood', text: OMEN_LABEL_TEXT['omen-flood'], at: { x: pool.x, y: pool.y }, place: 'above', lift: pool.r + 0.15 });
+  const sleeper = near(w.enemies.filter(e => e.sleep));
+  if (sleeper) out.push({ id: 'omen-drowse', text: OMEN_LABEL_TEXT['omen-drowse'], at: { x: sleeper.x, y: sleeper.y }, place: 'below', lift: 0.75 });
+  const call = w.rollcall?.color;
+  const horned = call === undefined ? null : near(w.enemies.filter(e => e.color === call));
+  if (horned) out.push({ id: 'omen-rollcall', text: OMEN_LABEL_TEXT['omen-rollcall'], at: { x: horned.x, y: horned.y }, place: 'below', lift: 0.75 });
+  return out;
+}
+
+/** «Удар — всё сначала» (the omen «Урожай»: `bagResetAll`) at the sack, whose point the bag's view knows (`BagView.shown`); null — no sack now. */
+export function harvestLabel(w: World, sack: { visible: boolean; x: number; y: number }, onScreen: (p: Vec) => boolean): LabelSpec | null {
+  const at = { x: sack.x, y: sack.y };
+  return w.params.bagResetAll && sack.visible && onScreen(at) ? { id: 'omen-harvest', text: OMEN_LABEL_TEXT['omen-harvest'], at, place: 'side', lift: 0.9 } : null;
+}
+
 /** The lever's red knob (arena units): slotView.ts `drawIdol` draws it 1.07 object radii right of the idol's point, a little up. */
 export function leverKnob(lever: Vec): Vec { return { x: lever.x + OBJECT_RADIUS * 1.07, y: lever.y - 0.1 }; }
 
@@ -97,6 +139,14 @@ export function leverKnob(lever: Vec): Vec { return { x: lever.x + OBJECT_RADIUS
  * камня» over the rock's circle, «Хвост метёт» under the ring, «Рык» and «Храп» on his belly (the first start in the fight; no other text).
  */
 export const BOSS_MOVE_TEXT = { flail: 'Кистень', throw: 'Бросок гири', club: 'Удар дубиной', rock: 'Бросок камня', tail: 'Хвост метёт', roar: 'Рык', snore: 'Храп' } as const;
+/**
+ * Task 54a «Главарь» (design 17.10.2026, docs/design-notes/task-54-chief.md, 17): the Chief's five moves, named the same way at their first start
+ * in the fight: «Взмах половником» over the half-disc's far edge, «Горсть перца» over the middle circle, «Обед!» and «Приправа» over the cauldron,
+ * «Свисток» over the gate's circle. Kept apart from `BOSS_MOVE_TEXT`: the Jailer's «Свисток» has no name label.
+ */
+export const CHIEF_MOVE_TEXT = { swing: 'Взмах половником', pepper: 'Горсть перца', feast: 'Обед!', season: 'Приправа', whistle: 'Свисток' } as const;
+/** Arena units: how high over the Chief's feet «Взмах половником» hangs (over his head), and how far under the cauldron's centre «Обед!» and «Приправа» stand. */
+const CHIEF_HEAD_LIFT = 2.4, CHIEF_POT_LIFT = 1.0;
 /** Real seconds a boss move's name stays. */
 export const BOSS_LABEL_LIFE = 1;
 /** Arena units: how high over the core the flail's name hangs, and over the throw's circle (its radius is 1). */
@@ -104,13 +154,61 @@ const FLAIL_LABEL_LIFT = 1.1, THROW_LABEL_LIFT = 1.15;
 /** Task 48: how high over the club's lane end its name hangs, and how far under the Troll's centre his belly's label stands (units). */
 const TROLL_CLUB_LIFT = 0.9, TROLL_BELLY = 1.0;
 
+/**
+ * Task 55а (design 17.10.2026, spec 11): the castle's two moves are named the same way — «Падение шкафа» over the end of the fixed lane,
+ * «Удар ладьи» over the rook — at the first windup of each in the fight. The same set `named` holds them (the keys cannot meet the boss moves').
+ */
+export const CASTLE_MOVE_TEXT = { topple: 'Падение шкафа', strike: 'Удар ладьи' } as const;
+const TOPPLE_LABEL_LIFT = 0.9, ROOK_LABEL_LIFT = 1.1;
+
+/**
+ * Task 55а (design 17.10.2026, spec 3.1): «Кончи цепь на бочке — покатится» over the first barrel of the run in view (the sandbox: of the
+ * fight) for `BOSS_LABEL_LIFE` s; one label, no plate. The host keeps the once; null — no barrel in view.
+ */
+export const BARREL_LABEL_TEXT = 'Кончи цепь на бочке — покатится';
+const BARREL_LABEL_LIFT = 0.8;
+export function barrelLabel(w: World, onScreen: (p: Vec) => boolean): LabelSpec | null {
+  const hero = w.hero;
+  let best: Enemy | null = null, d = Infinity;
+  for (const e of w.enemies) {
+    if (e.kind !== BARREL || !onScreen(e)) continue;
+    const de = (e.x - hero.x) ** 2 + (e.y - hero.y) ** 2;
+    if (de < d) { d = de; best = e; }
+  }
+  return best ? { id: 'castle-barrel', text: BARREL_LABEL_TEXT, at: { x: best.x, y: best.y }, place: 'above', lift: BARREL_LABEL_LIFT } : null;
+}
+
 /** The names of the moves that start in this frame for the first time (`named` — the moves named in this fight; this adds to it). */
 export function bossMoveLabels(w: World, named: Set<string>): LabelSpec[] {
   const out: LabelSpec[] = [];
   for (const ev of w.events) {
-    if (ev.type !== 'bossMove' || ev.stage !== 'start' || named.has(ev.move) || !(ev.move in BOSS_MOVE_TEXT)) continue;
+    if (ev.type === 'wardrobe' && ev.action === 'windup' && !named.has('topple')) {
+      const e = w.enemies.find(x => x.id === ev.id), lane = e ? wardrobeTopple(w, e) : null;
+      if (!lane) continue;
+      named.add('topple');
+      out.push({ id: 'castle-topple', text: CASTLE_MOVE_TEXT.topple, at: { x: lane.to.x, y: lane.to.y }, place: 'above', lift: TOPPLE_LABEL_LIFT });
+      continue;
+    }
+    if (ev.type === 'rook' && ev.action === 'aim' && !named.has('strike')) {
+      const e = w.enemies.find(x => x.id === ev.id);
+      if (!e) continue;
+      named.add('strike');
+      out.push({ id: 'castle-strike', text: CASTLE_MOVE_TEXT.strike, at: { x: e.x, y: e.y }, place: 'above', lift: ROOK_LABEL_LIFT });
+      continue;
+    }
+    if (ev.type !== 'bossMove' || ev.stage !== 'start' || named.has(ev.move)) continue;
     const core = w.enemies.find(e => e.id === ev.id);
     if (!core) continue;
+    if (core.kind === CHIEF) {
+      const text = CHIEF_MOVE_TEXT[ev.move as keyof typeof CHIEF_MOVE_TEXT], m = chiefMove(w);
+      if (!text || !m) continue;
+      named.add(ev.move);
+      // The core's head (the drawing is about 2.2 units tall), the pepper's centre and the gate's circle: above; the cauldron's moves: under it.
+      const below = ev.move === 'feast' || ev.move === 'season';
+      out.push({ id: `boss-${ev.move}`, text, at: { x: m.at.x, y: m.at.y }, place: below ? 'below' : 'above', lift: ev.move === 'swing' ? CHIEF_HEAD_LIFT : below ? CHIEF_POT_LIFT : m.r + 0.15 });
+      continue;
+    }
+    if (!(ev.move in BOSS_MOVE_TEXT)) continue;
     named.add(ev.move);
     const text = BOSS_MOVE_TEXT[ev.move as keyof typeof BOSS_MOVE_TEXT];
     if (core.kind === TROLL) {
@@ -192,6 +290,12 @@ export function labelActions(w: World): LabelId[] {
   if (events.some(e => e.type === 'elitePlates' && e.action === 'strip' && e.source !== undefined && PLAYER_PLATE_SOURCES.has(e.source))) ids.push('b6');
   if (events.some(e => e.type === 'chest')) ids.push('b8');
   if (events.some(e => e.type === 'slot' && e.action === 'pull')) ids.push('b9');
+  // Task 56: the storm killed with its strike; a link taken in water / of the called colour; the sleepers woke; a step of the bag filled.
+  if (events.some(e => e.type === 'enemyHit' && e.source === 'storm' && e.killed)) ids.push('omen-storm');
+  if (w.chain.some(l => l.kind === 'enemy' && l.wet)) ids.push('omen-flood');
+  if (events.some(e => e.type === 'omen' && e.omen === 'drowse')) ids.push('omen-drowse');
+  if (w.chain.some(l => l.kind === 'enemy' && l.call)) ids.push('omen-rollcall');
+  if (events.some(e => e.type === 'bag' && e.action === 'step')) ids.push('omen-harvest');
   return ids;
 }
 
