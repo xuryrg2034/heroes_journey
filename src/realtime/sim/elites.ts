@@ -332,7 +332,8 @@ export function updateAffixes(world: World, dt: number): void {
     const damage = Math.min(e.hp, Math.max(0, p.trailEnemyDamage));
     if (damage <= 0) continue;
     // «Дыры ядра боссов» (`coreTrailWard`): a boss core's rules first — closed, it rings, unhurt (in the Troll's window: its one hit).
-    if (p.coreTrailWard && bossCoreWards(world, e, 'fire-trail')) continue;
+    // The ring keeps the trail's pace (`singed`, as a burn): one «звон» a pause, not one a tick (review 21.10.2026).
+    if (p.coreTrailWard && bossCoreWards(world, e, 'fire-trail')) { e.singed = Math.max(0.05, p.trailEnemyPause); continue; }
     e.hp -= damage;
     e.singed = Math.max(0.05, p.trailEnemyPause);
     e.hurtFlash = Math.max(p.hitFlash, 0.01);

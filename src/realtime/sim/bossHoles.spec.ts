@@ -98,6 +98,31 @@ check('the fire trail over a closed core without plates: with the key the HP sta
   }
 });
 
+check('the fire trail over a closed core rings at the trail\'s pace: as many «звон» as the old path\'s burns of the same core in the same trail, not one a tick (the Troll, the Chief)', () => {
+  const RICH = { ...TRAIL, trollPlates: 0, trollHp: 50, chiefPlates: 0, chiefHp: 50 };
+  // The same fight with the key and without (the old path burns the core at the trail's pace, its HP never runs out here).
+  const fight = (arena: 'troll' | 'chief', key: true | undefined, k: number): { burns: number; rings: number } => {
+    const sim = new Simulation({ arena, params: quiet(key, RICH), seed: seedOf(k), record: true }), w = sim.world;
+    ticks(sim, 1);
+    const core = kindOf(w, arena === 'troll' ? TROLL : CHIEF);
+    for (const kind of arena === 'troll' ? [TROLL_CLUB, TROLL_ROCK] : [CHIEF_LADLE, CHIEF_SACK]) freeze(sim, kindOf(w, kind));
+    trailPast(sim, core);
+    const out = ticks(sim, ticksOf(arena === 'troll' ? 4 : 3));
+    assert(replays(sim), `seed ${k}, ${arena}, key ${key}: the replay`);
+    const rings = arena === 'troll'
+      ? of(out, 'trollWindow').filter(e => e.action === 'block' && e.source === 'fire-trail').length
+      : of(out, 'chiefFeast').filter(e => e.action === 'block' && e.source === 'fire-trail').length;
+    return { burns: of(out, 'enemyHit').filter(e => e.enemyId === core.id && e.source === 'fire-trail').length, rings };
+  };
+  for (const k of SEEDS) {
+    for (const arena of ['troll', 'chief'] as const) {
+      const old = fight(arena, undefined, k), ward = fight(arena, true, k);
+      assert(old.burns >= 2, `seed ${k}, ${arena}: the old path burns the core more than once (${old.burns})`);
+      assert(ward.burns === 0 && ward.rings === old.burns, `seed ${k}, ${arena}: «звон» ${ward.rings}, the old burns ${old.burns}`);
+    }
+  }
+});
+
 check('the shaman\'s beam on a core of 0 HP (the trail took its last HP in the Troll\'s window): with the key it never lifts the core; without it — the old path', () => {
   for (const k of SEEDS) {
     for (const key of [undefined, true]) {
