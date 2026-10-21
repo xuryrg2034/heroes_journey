@@ -225,7 +225,7 @@ export function createFightObserver(start: World): FightObserver {
   const knightDash = new Map<number, number>();
   // Task 59б: the summary of step 3 (made at its first number), the formations seen, the wardens' pairs (open — not yet gone), the angry.
   const step3 = (): GarrisonStep3Summary => (s.garrison.step3 ??= { pots: 0, potHits: 0, pitchSeconds: 0, ignites: { path: 0, burning: 0 }, pitchKills: 0,
-    formations: 0, orderRefusals: 0, orderBlocks: 0, drills: 0, unlinks: 0, pairs: 0, pairsCleared: 0, angers: 0, angerDamage: 0 });
+    formations: 0, orderRefusals: 0, orderBlocks: 0, drills: 0, unlinks: 0, backsteps: 0, recruitBacksteps: 0, pairs: 0, pairsCleared: 0, angers: 0, angerDamage: 0 });
   const formations = new Set<number>(), pairs = new Map<string, [number, number]>(), angered = new Set<number>();
   let goalsDone = start.greedStart !== null;
   // К7: the curse is on now (a world that starts cursed — a test — counts from its own ticks).
@@ -740,7 +740,16 @@ export function createFightObserver(start: World): FightObserver {
       // П1: a released chain — real seconds from its first link to the release (a cancelled one is not counted).
       if (before > 0 && now === 0 && started && drawStart !== null) s.chain.drawTime.push(Math.round((clock - drawStart) * 100) / 100);
       if (before > 0 && now === 0 && !started) s.chain.cancels++;
-      else if (stepBack) s.chain.backsteps++;
+      else if (stepBack) {
+        s.chain.backsteps++;
+        // Task 59б (design 21.10.2026): the step-backs of a fight with recruits, and those whose last link taken off was a recruit (`keys` —
+        // the chain before this command; an enemy link's key is its id × 2).
+        if (formations.size) {
+          const last = keys[keys.length - 1];
+          step3().backsteps++;
+          if (last !== undefined && last % 2 === 0 && seen.get(last / 2)?.kind === RECRUIT) step3().recruitBacksteps++;
+        }
+      }
       chainLen = now;
       noteMoveEnd();
       noteDeath(false);

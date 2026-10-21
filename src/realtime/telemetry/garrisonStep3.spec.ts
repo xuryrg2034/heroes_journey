@@ -104,6 +104,28 @@ check('the recruits: the formation seen, refusals out of order — a press on #2
   }
 });
 
+check('the step-backs in a fight with recruits (design 21.10.2026): the pointer back on the link before the last, a recruit taken off — both counters +1; the same step-back in a fight without recruits — no counter of step 3 (3 seeds)', () => {
+  for (const k of [1, 2, 3]) {
+    const f = new Watched(RECRUIT_TEST_ARENA.id, k);
+    f.run(1);
+    const line = f.world.enemies.filter(e => e.kind === RECRUIT).sort((a, b) => a.vars.rn - b.vars.rn);
+    f.draw(line.slice(0, 3));
+    assert(f.world.chain.length === 3, `seed ${k}: 1 → 3 drawn`);
+    f.cmd({ t: 'drag', x: line[1].x, y: line[1].y, mode: 'full' });
+    assert((f.world.chain.length as number) === 2, `seed ${k}: stepped back to #2 (${f.world.chain.length})`);
+    const all = f.observer.summary(), s = all.garrison.step3!;
+    assert(all.chain.backsteps === 1 && s.backsteps === 1 && s.recruitBacksteps === 1, `seed ${k}: ${all.chain.backsteps} / ${JSON.stringify({ b: s.backsteps, r: s.recruitBacksteps })}`);
+    // A column of weak enemies of the wardens' probe, from its bottom (no recruit on that arena).
+    const plain = new Watched(WARDEN_TEST_ARENA.id, k);
+    const weak = plain.world.enemies.filter(e => e.kind === 'basic' && Math.abs(e.x - WARDEN_TEST_COLUMNS[1]) < 0.01).sort((a, b) => b.y - a.y).slice(0, 3);
+    plain.draw(weak);
+    const n = plain.world.chain.length;
+    plain.cmd({ t: 'drag', x: weak[n - 2].x, y: weak[n - 2].y, mode: 'full' });
+    const p = plain.observer.summary();
+    assert(n >= 2 && p.chain.backsteps === 1 && (p.garrison.step3?.backsteps ?? 0) === 0 && (p.garrison.step3?.recruitBacksteps ?? 0) === 0, `seed ${k}: no step 3 counter without recruits (${n}, ${p.chain.backsteps}, ${JSON.stringify(p.garrison.step3)})`);
+  }
+});
+
 check('the wardens: the pair seen; a chain into one — an anger, the angry touch\'s HP, «Размах» a threat `warden-swing`; both by one pass — the pair cleared, no anger (2 seeds)', () => {
   for (const k of [1, 2]) {
     const f = new Watched(WARDEN_TEST_ARENA.id, k, { contactDamage: 1 });

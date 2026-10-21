@@ -75,7 +75,7 @@ check('telemetry: the run record field `drill` passes checkRecord (another value
   assert(checkRecord({ ...base, drill: 'castle' }) === 'run meta', 'another drill refused');
   const fight = (arena: string, step3: Partial<NonNullable<ReturnType<typeof emptyFightSummary>['garrison']['step3']>>, death = false, fire = false): FightEntry => {
     const summary = emptyFightSummary();
-    summary.garrison.step3 = { pots: 0, potHits: 0, pitchSeconds: 0, ignites: { path: 0, burning: 0 }, pitchKills: 0, formations: 0, orderRefusals: 0, orderBlocks: 0, drills: 0, unlinks: 0, pairs: 0, pairsCleared: 0, angers: 0, angerDamage: 0, ...step3 };
+    summary.garrison.step3 = { pots: 0, potHits: 0, pitchSeconds: 0, ignites: { path: 0, burning: 0 }, pitchKills: 0, formations: 0, orderRefusals: 0, orderBlocks: 0, drills: 0, unlinks: 0, backsteps: 0, recruitBacksteps: 0, pairs: 0, pairsCleared: 0, angers: 0, angerDamage: 0, ...step3 };
     if (death) summary.death = { source: 'pot' } as unknown as typeof summary.death;
     if (fire) summary.build.fired['fire-pass'] = 1;
     return { record: { arena, level: 2, summary }, run: null, notes: [], journal: null, error: null, analysis: null, hashOk: null, summaryDiff: [] } as unknown as FightEntry;

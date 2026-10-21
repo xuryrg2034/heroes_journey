@@ -1159,13 +1159,19 @@ export interface GarrisonSummary {
  * Task 59б «Гарнизон, шаг 3» (observe.ts; spec 12): the pitcher — pots thrown (`pot` `throw`), the hero hit by them (`hit` of `pot`), game
  * seconds the hero's centre stood in pitch, pools lit by the dash's path and by a burning enemy (`pot` `ignite`), kills of the burning pitch
  * (`pitch-fire`); the recruits — formations seen, presses on a recruit out of order (`recruit` `order`, once per body and drawn chain
- * length), hits out of order put out (`recruit` `refused`), formations by one pass (`drill`), links dropped out of order (`unlink`); the
+ * length), hits out of order put out (`recruit` `refused`), formations by one pass (`drill`), links dropped out of order (`unlink`), the
+ * step-backs (`backsteps`, `recruitBacksteps`); the
  * wardens — pairs seen (both of a pair drawn), pairs gone without an anger, angers (`warden` `anger` `start`), the HP the angry ones took
  * (their touch in the anger and «Размах», `warden-swing`).
  */
 export interface GarrisonStep3Summary {
   pots: number; potHits: number; pitchSeconds: number; ignites: { path: number; burning: number }; pitchKills: number;
   formations: number; orderRefusals: number; orderBlocks: number; drills: number; unlinks: number;
+  /**
+   * Design 21.10.2026: the chain's step-backs in a fight with recruits (`chain.backsteps` of that fight) and those whose last link taken
+   * off was a recruit (a sweep across a formation whose numbers are not in line order meets the link before the last).
+   */
+  backsteps: number; recruitBacksteps: number;
   pairs: number; pairsCleared: number; angers: number; angerDamage: number;
 }
 
