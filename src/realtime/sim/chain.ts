@@ -152,8 +152,8 @@ function planAnger(world: World, out: readonly LinkPlan[], pierce: PiercePreview
       const points = firePathPoints(world, path);
       shadow = shadowHitAll(shadow, shadow.filter(e => !eliteAffixes(e).includes('fiery') && points.some(p => dist(e, p) <= FIRE_RADIUS)), FIRE_DAMAGE, BUILD_SOURCES.hammerFire);
     }
-    shadow = endShadowOf(world, { links: dash.links, at: dash.end, start: { x: world.hero.x, y: world.hero.y } }, shadow).enemies;
-    shadow = planEndBlast(world, out, pierce, seal, dash.links, shadow)?.after ?? shadow;
+    const ended = endShadowOf(world, { links: dash.links, at: dash.end, start: { x: world.hero.x, y: world.hero.y } }, shadow);
+    shadow = planEndBlast(world, out, pierce, seal, dash.links, ended.enemies, spentCores(world, ended.struck))?.after ?? ended.enemies;
     const alive = new Set(shadow.map(e => e.id));
     for (const e of pairs) if (!alive.has(e.id)) killed.add(e.id);
   } else {
@@ -658,7 +658,7 @@ function planFusionEnd(world: World, links: readonly ChainLink[], out: readonly 
       ...second ? { second: { at: { x: world.hero.x, y: world.hero.y }, radius: honeWaveStartOf(world), bodies: more } } : {} };
   }
   // The end blast (hammers.ts, `planEndBlast`): a plain blast only changes the shadow.
-  const endBlast = planEndBlast(world, out, pierce, seal, dash.links, shadow);
+  const endBlast = planEndBlast(world, out, pierce, seal, dash.links, shadow, spentCores(world, ended.struck));
   if (endBlast) {
     const { at, blast, targets, after } = endBlast;
     if (hunterBlastOn(world)) result.blast = { at, radius: blast.radius, damage: blast.damage, plates: blast.plates, detonate: blast.detonate, bodies: endHits(shadow, after, targets) };
@@ -684,17 +684,24 @@ function planFusionEnd(world: World, links: readonly ChainLink[], out: readonly 
   return result;
 }
 
+/** «Дыры ядра боссов» (`trollShadowOnce`): the Troll's cores the end's shadows struck (`endShadowOf`'s `struck`) — null without the rule. */
+function spentCores(world: World, struck: Readonly<Record<string, readonly number[]>>): Set<number> | null {
+  return world.params.trollShadowOnce && trollWindowOn(world) ? new Set(Object.values(struck).flat().filter(id => findEnemy(world, id)?.kind === TROLL)) : null;
+}
+
 /**
  * The end blast (hammers.ts) of the planned dash on the shadow list `shadow` (the bodies after the first pass and the end's waves): a last
  * enemy link reached, `links` at the threshold, no seal or pierce of a higher rank — its centre (the last link where it stands now), its
  * numbers (`endBlastOf`: «Подрыв»'s detonation), the bodies in its circle and the list after it. Null — no blast at this end. Pure.
  */
-function planEndBlast(world: World, out: readonly LinkPlan[], pierce: PiercePreview | null, seal: SealPreview | null, links: number, shadow: Enemy[]):
+function planEndBlast(world: World, out: readonly LinkPlan[], pierce: PiercePreview | null, seal: SealPreview | null, links: number, shadow: Enemy[], spent: ReadonlySet<number> | null = null):
   { at: Vec; blast: ReturnType<typeof endBlastOf>; targets: number[]; after: Enemy[] } | null {
   const last = lastReached(world, out), blastOn = world.kit?.hammer === HAMMERS.blast || hasTalisman(world, HAMMERS.blast);
   if (!blastOn || !last || links < endBlastMinLinks(world.params) || (endRankOn(world) && (seal || pierce))) return null;
   const blast = endBlastOf(world, hunterEnd(world, !!last.enemy.elite, last.outcome.hpBefore), BLAST_RADIUS, BLAST_DAMAGE);
-  const at = { x: last.enemy.x, y: last.enemy.y }, ordered = enemiesInCircle({ ...world, enemies: shadow }, at, blast.radius), targets = new Set(ordered.map(e => e.id));
+  // «Дыры ядра боссов» (`trollShadowOnce`): the Troll's core a shadow struck in its window is not the blast's (`spent`; one hit a window).
+  const ordered = enemiesInCircle({ ...world, enemies: shadow }, { x: last.enemy.x, y: last.enemy.y }, blast.radius).filter(e => !spent?.has(e.id));
+  const at = { x: last.enemy.x, y: last.enemy.y }, targets = new Set(ordered.map(e => e.id));
   // Task 59а: the recruits the blast refuses (out of order in the order it strikes) stay as they are.
   const refused = recruitGate(world, shadow, ordered);
   const after = shadow.flatMap(e => {
