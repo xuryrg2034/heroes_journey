@@ -29,6 +29,7 @@ import { BOSS_ARENAS, FOREST_BOSS_ARENAS, JAILER_RUN_ARENAS } from '../sim/arena
 import { SHOOTERS_ARENAS } from '../sim/arenasShooters';
 // Task 59а: the probes of the garrison's step 3 at the very end of the sandbox menu.
 import { STEP3_ARENAS } from '../sim/arenasStep3';
+import { heroPitchFactor } from '../sim/pitch';
 // Task 38: the garrison's arenas at the end of the sandbox menu (`?arena=20…24`).
 import { GARRISON_ARENAS } from '../sim/arenasGarrison';
 import { CASTLE_ARENAS } from '../sim/arenasCastle';
@@ -2028,7 +2029,7 @@ async function boot(): Promise<void> {
         /** Task 38: the sim's tethers and what the view drew of them in the last frame (lines, red ones). */
         tethers: { list: (w.tethers ?? []).map(t => ({ ...t })), ...renderer.tetherShown },
         /** Task 38: the hounds in frenzy drawn, the Castellan's lunge lanes, «Караул!» calls shown. */
-        garrison: { ...renderer.garrisonShown, ...renderer.garrison3Shown, sounds: { ...garrison3Sounds } },
+        garrison: { ...renderer.garrisonShown, ...renderer.garrison3Shown, sounds: { ...garrison3Sounds }, /** For the tests' failure reports: the world's own numbers the pool's slowdown reads, and the hero's live pitch factor (1 — no pool under him). */ worldParams: { pitch: w.params.pitch, pitchHeroSlow: w.params.pitchHeroSlow, crowdSlow: w.params.crowdSlow, heroThroughEnemies: w.params.heroThroughEnemies, pitchLife: w.params.pitchLife }, heroFactor: heroPitchFactor(w) },
         /** Task 43: the full Castellan's court and the bolts (render.ts `courtShown`). */
         court: { ...renderer.courtShown },
         /** Task 57а: the forest shooters — the slinger's lines, the hive's dots, the shots and the wisps' light drawn in the frame; the sparks shown (shooterView.ts). */

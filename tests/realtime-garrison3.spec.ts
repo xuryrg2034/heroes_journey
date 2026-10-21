@@ -20,6 +20,7 @@ interface G3 {
   recruits: { numbers: number; current: number; dim: number; bans: number; currentNumber: number; refused: number; drills: number; unlinks: number };
   wardens: { keys: number; gold: number; warn: number; anger: number; swings: number; starts: number; ends: number; hits: number };
   sounds: { throws: number; lands: number; ignites: number; keys: number };
+  worldParams: { pitch?: boolean; pitchHeroSlow?: number; crowdSlow?: number; heroThroughEnemies?: boolean; pitchLife?: number }; heroFactor: number;
 }
 interface Snap {
   hint: string | null; chain: number[]; arena: string; status: string; time: number; menuOpen: boolean; energy: number;
@@ -113,13 +114,13 @@ async function cameraSettled(page: Page): Promise<void> {
 }
 
 /** A hero's walk sampled in the page on every frame (`seconds` of game time with `key` down); the frames are what the test reasons from. */
-interface WalkFrame { t: number; x: number; y: number; inPitch: number; pools: number; crowd: boolean }
+interface WalkFrame { t: number; x: number; y: number; inPitch: number; pools: number; crowd: boolean; factor: number }
 async function sampledWalk(page: Page, key: string, seconds: number): Promise<WalkFrame[]> {
   await page.evaluate(() => { (window as any).__g3walk = []; });
   await page.keyboard.down(key);
   const frames = await untilFrame(page, (sn, until: number, late) => {
     const w = window as any, log = w.__g3walk as WalkFrame[];
-    if (!log.length || log[log.length - 1].t !== sn.time) log.push({ t: sn.time, x: sn.hero.x, y: sn.hero.y, inPitch: sn.garrison.heroInPitch, pools: sn.garrison.pools, crowd: !!sn.heroInCrowd });
+    if (!log.length || log[log.length - 1].t !== sn.time) log.push({ t: sn.time, x: sn.hero.x, y: sn.hero.y, inPitch: sn.garrison.heroInPitch, pools: sn.garrison.pools, crowd: !!sn.heroInCrowd, factor: sn.garrison.heroFactor });
     return log[0].t + until <= sn.time || late ? log : undefined;
   }, seconds, seconds + 5);
   await page.keyboard.up(key);
@@ -139,7 +140,7 @@ function walkSpeed(frames: readonly WalkFrame[], inPitch: boolean): { speed: num
   }
   return { speed: seconds > 0 ? dist / seconds : 0, seconds, pairs, crowd };
 }
-const frameTable = (frames: readonly WalkFrame[]): string => frames.map(f => `t ${f.t.toFixed(3)} x ${f.x.toFixed(3)} y ${f.y.toFixed(3)} pitch ${f.inPitch} pools ${f.pools} crowd ${f.crowd ? 1 : 0}`).join('\n');
+const frameTable = (frames: readonly WalkFrame[]): string => frames.map(f => `t ${f.t.toFixed(3)} x ${f.x.toFixed(3)} y ${f.y.toFixed(3)} pitch ${f.inPitch} pools ${f.pools} crowd ${f.crowd ? 1 : 0} poolFactor ${f.factor}`).join('\n');
 
 const place = (page: Page, x: number, y: number, color: number, hp: number, kind = 'basic'): Promise<number> =>
   page.evaluate(([x, y, color, hp, kind]) => (window as any).__realtime.place(x, y, color, hp, kind), [x, y, color, hp, kind] as const);
@@ -205,7 +206,9 @@ test('task 59а view: «Смолокур (проба)» — the mark stands the 
   await gameWait(page, 0.2);
   const outFrames = await sampledWalk(page, 'KeyA', 0.3);
   const onGround = walkSpeed(outFrames, false);
-  const report = `in the pool ${JSON.stringify(inPool)}, on the ground at the same spot ${JSON.stringify(onGround)}
+  const wp = (await snap(page)).garrison.worldParams;
+  const report = `opened by the menu button step3-arena-1, then setParam (no restart); world params ${JSON.stringify(wp)}
+in the pool ${JSON.stringify(inPool)}, on the ground at the same spot ${JSON.stringify(onGround)}
 -- in the pool, frames:
 ${frameTable(inFrames)}
 -- on the ground, frames:
