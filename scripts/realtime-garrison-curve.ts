@@ -140,7 +140,7 @@ const jailerArena = (id: string): boolean => (JAILER_RUN_ARENAS as readonly stri
 
 interface Tally { reached: Map<string, number>; deaths: Map<string, number>; damage: Map<string, number[]>; outcomes: Record<string, number>; fights: number; timeouts: number; runs: number;
   /** Task 43: the garrison's fights by arena and loadout: deaths and damage of each. */
-  arenas: Map<string, { deaths: number; damage: number[]; blows: Record<string, number>; bySource: Record<string, number>; rows: Record<string, number> }> }
+  arenas: Map<string, { deaths: number; damage: number[]; blows: Record<string, number>; bySource: Record<string, number>; rows: Record<string, number>; fightRows: Record<string, number> }> }
 const tally = (): Tally => ({ reached: new Map(), deaths: new Map(), damage: new Map(), outcomes: { victory: 0, defeat: 0, open: 0 }, fights: 0, timeouts: 0, runs: 0, arenas: new Map() });
 /** The level and run row of a node id («л N» / «г N»). */
 const keyOf = (run: RtRunState, id: string): string => `${rtGarrisonNodeId(id) ? 'г' : 'л'} ${runRow(rtNode(run, id)!.row)}`;
@@ -190,7 +190,8 @@ function fight(run: RtRunState, t: Tally): RtArenaOutcome {
     const arc = run.picks.find(pick => pick.nodeId === pending.nodeId)?.arc;
     const tag = rtGarrisonNodeId(pending.nodeId) ? `${pending.arena}${loadout.knights ? ` +р${loadout.knights}` : ''}${loadout.bolts ? ' +арб' : ''}${loadout.deep ? ' +глуб' : ''}`
       : `л: ${pending.arena}${pending.roster ? `/${pending.roster}` : ''}${arc ? ` #${arc}` : ''}`;
-    const entry = t.arenas.get(tag) ?? { deaths: 0, damage: [], blows: {}, bySource: {}, rows: {} };
+    const entry = t.arenas.get(tag) ?? { deaths: 0, damage: [], blows: {}, bySource: {}, rows: {}, fightRows: {} };
+    entry.fightRows[key] = (entry.fightRows[key] ?? 0) + 1;
     entry.damage.push(w.stats.damageTaken);
     for (const [source, n] of Object.entries(damage)) entry.bySource[source] = (entry.bySource[source] ?? 0) + n;
     if (w.status !== 'victory') {
@@ -267,11 +268,11 @@ function print(title: string, t: Tally, levels: readonly string[]): void {
   console.log(`Доля смертей среди дошедших: ${levels.includes('л') ? `${wall('л 5', 'Тюремщик (л5)')}, ${wall('л 10', 'финал леса (л10)')}, ` : ''}${wall('г 10', 'Кастелян (г10)')}.`);
   console.log('');
   // Task 43: the garrison's fights by arena (and the loadout's knights, crossbowmen, deep enemies).
-  console.log('| Арена (л: — лес; /состав, #дуга) | Боёв | Смертей | Доля | Урон за бой, мед. | Смертельный удар | Урон по источникам, всего | Ряды смертей |');
-  console.log('| --- | --- | --- | --- | --- | --- | --- | --- |');
+  console.log('| Арена (л: — лес; /состав, #дуга) | Боёв | Смертей | Доля | Урон за бой, мед. | Смертельный удар | Урон по источникам, всего | Ряды смертей | Ряды боёв |');
+  console.log('| --- | --- | --- | --- | --- | --- | --- | --- | --- |');
   const top = (m: Record<string, number>): string => Object.entries(m).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(', ') || '—';
   for (const [tag, entry] of [...t.arenas].sort((a, b) => a[0].localeCompare(b[0]))) {
-    console.log(`| ${tag} | ${entry.damage.length} | ${entry.deaths} | ${Math.round(100 * entry.deaths / entry.damage.length)}% | ${f1(median(entry.damage))} | ${top(entry.blows)} | ${top(entry.bySource)} | ${top(entry.rows)} |`);
+    console.log(`| ${tag} | ${entry.damage.length} | ${entry.deaths} | ${Math.round(100 * entry.deaths / entry.damage.length)}% | ${f1(median(entry.damage))} | ${top(entry.blows)} | ${top(entry.bySource)} | ${top(entry.rows)} | ${top(entry.fightRows)} |`);
   }
   console.log('');
 }
