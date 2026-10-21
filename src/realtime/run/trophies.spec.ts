@@ -5,6 +5,7 @@
  * - every trophy by a real run (the Jailer won, his weight severed, the Troll won, shackles cut, the garrison passed, «Испытание» with the
  *   forest passed — a mark a step, the forest's bestiary full in the chronicle, a chain of 12+); «Котелок Главаря» not before the Chief is
  *   in the run («Последний рубеж» is no boss); the viewer's run of each, the end's list, the same end twice — once;
+ * - «Чернильница Неясыти» earned stays when a later build adds a forest kind (not earned again, not lost);
  * - a run with a given seed and «Поход дня» earn nothing; the retro gives only the Castellan's banner and «Чернильница Неясыти», run 0, once;
  * - the trophies off — no field; a profile before the first trophy reads and writes byte for byte; the field is the meta's last key and
  *   reads strictly; the telemetry's field, `checkRecord` and the report's section.
@@ -20,6 +21,7 @@ import { garrisonArenaKinds, garrisonStep2Mode, rtGarrisonNodeId } from './garri
 import { JAILER_RUN_ARENAS, TROLL_RUN_ARENAS } from '../sim/arenasBoss';
 import { SCHEDULE_KINDS } from './schedule';
 import { RT_TROPHY_LONG_CHAIN, type RtTrophy } from './trophies';
+import { RT_CHRONICLE_FOREST_KINDS } from './chronicleCatalog';
 import { RtRecorder } from '../telemetry/recorder';
 import { memoryJournalStore, type KeyValueStore } from '../telemetry/buffer';
 import { checkRecord, type RunRecord } from '../telemetry/schema';
@@ -92,6 +94,25 @@ await check('every trophy by a real run, with the viewer\'s run; «Доска И
   for (const id of ['jailer', 'severed', 'troll', 'shackles', 'castellan', 'ash', 'bestiary', 'long-chain']) assert(seen[id] === 1, `${id} earned once (${JSON.stringify(seen)})`);
   assert(!held(s, 'chief') && finalStand >= 1, `no «Котелок Главаря» before the Chief is in the run («Последний рубеж» won ${finalStand} times)`);
   assert(same(held(s, 'ash')!.marks, [2, 5]) && held(s, 'bestiary')!.run === 3, `«Доска Испытания» ${JSON.stringify(held(s, 'ash'))}, the bestiary in run 3`);
+});
+
+await check('«Чернильница Неясыти» stays when the forest gains a kind (the catalogue of a later build): held, not earned again, not lost', () => {
+  const s = store();
+  const { walk } = metaRun(s, 1);
+  s.chronicleMeet(walk.run, { kinds: SCHEDULE_KINDS, affixes: [] });
+  s.endRunMeta(walk.run);
+  const ink = held(s, 'bestiary');
+  assert(ink && ink.run === 1, `the chapter full: the trophy (${JSON.stringify(s.trophies())})`);
+  // A later build: the forest's chapter gains a kind (task 57б) — the chapter is not full any more.
+  const forest = RT_CHRONICLE_FOREST_KINDS as string[];
+  forest.push('later-kind');
+  try {
+    const next = metaRun(s, 2);
+    const end = s.endRunMeta(next.walk.run)!;
+    assert(!(end.trophies ?? []).some(t => t.id === 'bestiary') && same(held(s, 'bestiary'), ink), `kept as it was, not earned again (${JSON.stringify(end.trophies)})`);
+    assert(!s.trophiesImport() && same(held(s, 'bestiary'), ink), 'the retro adds nothing, removes nothing');
+    assert(s.chronicle().pages.find(p => p.id === 'bestiary')!.chapters.find(ch => ch.id === 'forest')!.entries.some(e => e.id === 'later-kind' && e.state === 'unknown'), 'the chapter shows the new kind «?»');
+  } finally { forest.pop(); }
 });
 
 await check('a run with a given seed and «Поход дня» earn nothing; the trophies off — no field ever', () => {
