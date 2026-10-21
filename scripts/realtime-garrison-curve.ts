@@ -45,6 +45,12 @@ const SEEDS = Number(option('--seeds', '300')), LIMIT = Number(option('--limit',
 const MOAT = args.includes('--moat');
 /** Task 43: `--step2 off` — the garrison of step 1б; `--garrison-only` — the pass «гарнизон» alone. */
 const STEP2_OFF = option('--step2', 'on') === 'off', GARRISON_ONLY = args.includes('--garrison-only'), FOREST_ONLY = args.includes('--forest-only');
+/**
+ * Task 59б: `--step3` — the runs take the garrison's step 3 (`step3: true`: «Казарма» or «Ристалище» by the drill, «Смолокурня», «Барбакан»)
+ * whatever `RT_GARRISON_STEP3_ON` says; `--planner` — the bot plays the wardens' pair as the «planner» (scripts/step3Bot.ts; spec 13: the
+ * measure needs the colour shift to the pair). Absent — as before.
+ */
+const STEP3 = args.includes('--step3'), PLANNER = args.includes('--planner');
 
 /**
  * Task 40, pass 3: the Castellan's sets of the sweep — the knobs that matter most, put on by the script only. `plates` — the core's
@@ -173,7 +179,7 @@ function fight(run: RtRunState, t: Tally): RtArenaOutcome {
   const bossGroups: Record<TrollGroup, number> = { crowd: 0, core: 0, parts: 0, moves: 0 }, bossKinds = new Map<number, string>();
   const ownTroll = CHIEF_FIGHT && pending.arena === 'troll';
   const damage: Record<string, number> = {}, groups: Record<TrollGroup, number> = { crowd: 0, core: 0, parts: 0, moves: 0 }, kinds = new Map<number, string>();
-  const played = botFight(troll ? { ...run, pending: { ...pending, arena: 'troll' } } : chief ? { ...run, pending: { ...pending, arena: 'chief' } } : run, { params, loadout, limit: LIMIT, ...BOSS_AIM ? { aim: BOSS_CORES } : {},
+  const played = botFight(troll ? { ...run, pending: { ...pending, arena: 'troll' } } : chief ? { ...run, pending: { ...pending, arena: 'chief' } } : run, { params, loadout, limit: LIMIT, ...BOSS_AIM ? { aim: BOSS_CORES } : {}, ...PLANNER ? { pairs: 'planner' as const } : {},
     ...castellan ? { afterTick: (world: World, tick: number) => tuneCastellan(world, castellan, tick === 0) } : {},
     ...chief || ownTroll ? { seen: (world: World) => {
       for (const e of world.enemies) if (!bossKinds.has(e.id)) bossKinds.set(e.id, e.kind);
@@ -237,7 +243,7 @@ function tuneCastellan(w: World, set: CastellanSet, first: boolean): void {
 function pass(real: (run: RtRunState) => boolean): Tally {
   const t = tally();
   for (let k = 1; k <= SEEDS; k++) {
-    const run = walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, ...MOAT ? { moat: true } : {}, ...STEP2_OFF ? { step2: false } : {} }, fight: state => (real(state) ? fight(state, t) : null) }).run;
+    const run = walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, ...MOAT ? { moat: true } : {}, ...STEP2_OFF ? { step2: false } : {}, ...STEP3 ? { step3: true } : {} }, fight: state => (real(state) ? fight(state, t) : null) }).run;
     t.runs++;
     const keys = new Set([...run.visited, ...run.result ? [run.result.nodeId] : []].map(id => keyOf(run, id)));
     // A run in the garrison passed every row of the forest.
@@ -289,7 +295,7 @@ if (SET) {
 const whole = GARRISON_ONLY ? null : pass(() => true), garrison = FOREST_ONLY ? null : pass(run => !!run.garrisonLevel);
 if (BOSS_AIM) console.log(`Бот целит в ядро босса (--boss-aim): Тюремщик, Кастелян${TROLL_FIGHT ? ', Тролль (финал леса — «Берлога тролля», --troll)' : '; у финала леса ядра нет'}.\n`);
 const head = (() => { try { return execSync('git rev-parse --short HEAD').toString().trim(); } catch { return '?'; } })();
-console.log(`Задача 40, часть Е: кривая выживания бота через лес и гарнизон, ${SEEDS} seed, предел боя ${LIMIT} с, «Ров» ${MOAT ? 'вкл.' : 'по флагу игры'}, шаг 2 ${STEP2_OFF ? 'выкл.' : 'по флагу игры'} (эвристика, жадный бот), ${new Date().toISOString().slice(0, 10)}, HEAD ${head}, ${Math.round((Date.now() - started) / 1000)} с.\n`);
+console.log(`Задача 40, часть Е: кривая выживания бота через лес и гарнизон, ${SEEDS} seed, предел боя ${LIMIT} с, «Ров» ${MOAT ? 'вкл.' : 'по флагу игры'}, шаг 2 ${STEP2_OFF ? 'выкл.' : 'по флагу игры'}, шаг 3 ${STEP3 ? 'вкл.' : 'по флагу игры'}${PLANNER ? ', пары — планировщик' : ''} (эвристика, жадный бот), ${new Date().toISOString().slice(0, 10)}, HEAD ${head}, ${Math.round((Date.now() - started) / 1000)} с.\n`);
 if (whole) print('Весь поход: все бои настоящие', whole, ['л', 'г']);
 if (garrison) print('Гарнизон от «Предместья»: бои леса выиграны обходом, бои гарнизона настоящие', garrison, ['г']);
 // Task 43: the Jailer's fights of both passes (the second plays the forest by the walk: only the first's count).

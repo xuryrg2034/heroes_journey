@@ -9,6 +9,7 @@
     "preview": "vite preview --host 0.0.0.0",
     "test": "playwright test -c playwright.realtime.config.ts",
     "realtime:pockets": "tsx scripts/realtime-pockets.ts",
+    "realtime:step3-sweep": "tsx scripts/realtime-step3-sweep.ts",
     "realtime:big-arenas": "tsx scripts/realtime-big-arenas.ts",
     "realtime:measure-loops": "tsx scripts/measure-loops.ts",
     "realtime:style-change": "tsx scripts/realtime-style-change.ts",
