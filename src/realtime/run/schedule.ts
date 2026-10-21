@@ -48,7 +48,14 @@ export const isScheduleElement = (id: unknown): id is string =>
 export const SCHEDULE_SALT = [...'rt-schedule'].reduce((hash, ch) => Math.imul(hash ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5);
 
 /** An arc: its new element, what must be met first, the first run row and fight number it may come on. */
-interface Arc { id: string; needs?: readonly string[]; minRow?: number; minFight?: number }
+interface Arc {
+  id: string; needs?: readonly string[]; minRow?: number; minFight?: number;
+  /**
+   * Task 57а (design 21.10.2026, the bot's probe: the late rows, not the wisp, made the lesson deadly): the last run row of the first
+   * meeting — an arc not played by then waits for the next run (the schedule takes the next ready arc). Only the new kinds' arcs.
+   */
+  maxRow?: number;
+}
 /**
  * The order of the arcs, variant E (proposal, table «Расписание», steps 3–19; the bust is fight 1, the bag takes no step, the
  * chest is the hard node's). Each fight takes the FIRST arc in this order that is ready (not met, its needs met, its row and
@@ -63,10 +70,11 @@ export const SCHEDULE_ARCS: readonly Arc[] = [
 /**
  * Task 57а (level design 20.10.2026, spec 10.2): the arcs of the new shooters, after every arc above (a viewer's first run barely
  * changes; the new comes in the second to fourth). The slinger after the archer from run row 3, the hive after the slinger from
- * row 4, the wisp after the water from row 3. Only a run with the flag (`scheduleArcs`).
+ * row 4, the wisp after the water from row 3; design 21.10.2026 — the first meeting no later than its first row + 2 (`maxRow`: 5, 6,
+ * 5), else the next run. Only a run with the flag (`scheduleArcs`).
  */
 export const SCHEDULE_SHOOTER_ARCS: readonly Arc[] = [
-  { id: 'slinger', needs: ['archer'], minRow: 3 }, { id: 'hive', needs: ['slinger'], minRow: 4 }, { id: 'wisp', needs: ['water'], minRow: 3 },
+  { id: 'slinger', needs: ['archer'], minRow: 3, maxRow: 5 }, { id: 'hive', needs: ['slinger'], minRow: 4, maxRow: 6 }, { id: 'wisp', needs: ['water'], minRow: 3, maxRow: 5 },
 ];
 /** The arcs of a run (`shooters` — the flag `forestShooters`). */
 export const scheduleArcs = (shooters = false): readonly Arc[] => (shooters ? [...SCHEDULE_ARCS, ...SCHEDULE_SHOOTER_ARCS] : SCHEDULE_ARCS);
@@ -151,7 +159,7 @@ export interface ScheduleContext {
 const takesEliteArc = (node: ScheduleNode): boolean => node === 'battle' || node === 'event' || node === 'breakthrough' || node === 'hard';
 /** The first arc ready for this fight (null — none: a practice fight). The Jailer's fight of task 28 has its own (`jailerPlan`). */
 export function readyArc(ctx: Pick<ScheduleContext, 'node' | 'row' | 'fight' | 'met' | 'shooters'>): string | null {
-  const arc = scheduleArcs(ctx.shooters).find(a => !ctx.met.has(a.id) && (a.needs ?? []).every(n => ctx.met.has(n)) && ctx.row >= (a.minRow ?? 0) && ctx.fight >= (a.minFight ?? 0)
+  const arc = scheduleArcs(ctx.shooters).find(a => !ctx.met.has(a.id) && (a.needs ?? []).every(n => ctx.met.has(n)) && ctx.row >= (a.minRow ?? 0) && ctx.row <= (a.maxRow ?? Infinity) && ctx.fight >= (a.minFight ?? 0)
     && (!ELITE_ARCS.includes(a.id) || takesEliteArc(ctx.node)));
   return arc?.id ?? null;
 }

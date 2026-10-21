@@ -25,7 +25,7 @@ import { rtGarrisonNodeId } from './garrison';
 import { seedOf, walkRun } from './metaWalk.testkit';
 import { arenaKinds } from './arenaKinds';
 import { runRow, SHOOTER_POOLS } from './arenaPools';
-import { isScheduleElement, scheduleKinds, SCHEDULE_KINDS, SCHEDULE_SHOOTER_KINDS } from './schedule';
+import { isScheduleElement, readyArc, scheduleKinds, SCHEDULE_KINDS, SCHEDULE_SHOOTER_KINDS } from './schedule';
 import { createRtRun, parseRtRun, rtArenaLoadout, rtArenaParams, rtNode, rtRunParams, RT_FOREST_SHOOTERS_ON, RT_FOREST_SHOOTERS_PARAMS, serializeRtRun, type RtArenaOutcome, type RtRunState } from './rtRun';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -115,8 +115,10 @@ function planned(k: number, schedule?: readonly string[]): Planned[] {
   } });
   return out;
 }
-const HISTORIES: readonly (readonly string[])[] = [ALL_ARCS, ALL_ARCS.filter(id => id !== 'water'), ['bust', 'wolf', 'elite', 'brazier', 'cliff', 'boar', 'water', 'shield', 'buttons', 'archer']];
-const SCHEDULED = Array.from({ length: 30 }, (_, i) => ({ k: i + 1, history: HISTORIES[i % 3], fights: planned(i + 1, HISTORIES[i % 3]) }));
+// Four viewers: every first-run arc met; all but the water; the first ten arcs; every first-run arc and the slinger and the hive (a third
+// run: the wisp's arc comes first, rows 3–5).
+const HISTORIES: readonly (readonly string[])[] = [ALL_ARCS, ALL_ARCS.filter(id => id !== 'water'), ['bust', 'wolf', 'elite', 'brazier', 'cliff', 'boar', 'water', 'shield', 'buttons', 'archer'], [...ALL_ARCS, 'slinger', 'hive']];
+const SCHEDULED = Array.from({ length: 40 }, (_, i) => ({ k: i + 1, history: HISTORIES[i % 4], fights: planned(i + 1, HISTORIES[i % 4]) }));
 const POOLED = Array.from({ length: 30 }, (_, i) => ({ k: i + 1, fights: planned(i + 1) }));
 
 check('the history accepts the new ids always; the schedule\'s kinds grow only with the flag', () => {
@@ -124,7 +126,11 @@ check('the history accepts the new ids always; the schedule\'s kinds grow only w
   assert(scheduleKinds(false) === SCHEDULE_KINDS && scheduleKinds(true).join() === [...SCHEDULE_KINDS, 'slinger', 'hive', 'wisp'].join(), 'the kinds');
 });
 
-check('the schedule (30 runs, 3 histories): the slinger first on «Осыпь» (the arc, after the archer, from row 3), the hive first on «Пасека» (after the slinger, from row 4, no partner), the wisp first on «Излучина» with «Светляки» (after the water, from row 3); one novelty a fight', () => {
+check('the schedule (40 runs, 4 histories): the slinger first on «Осыпь» (the arc, after the archer, rows 3–5), the hive first on «Пасека» (after the slinger, rows 4–6, no partner), the wisp first on «Излучина» with «Светляки» (after the water, rows 3–5); one novelty a fight; past its last row an arc waits for the next run', () => {
+  // Design 21.10.2026: the first meeting no later than the arc's first row + 2 — on row 6 the wisp's arc is not ready (a practice fight).
+  const met6 = new Set([...ALL_ARCS, SLINGER, HIVE]);
+  assert(readyArc({ node: 'battle', row: 5, fight: 6, met: met6, shooters: true }) === 'wisp' && readyArc({ node: 'battle', row: 6, fight: 6, met: met6, shooters: true }) === null, 'the wisp arc: rows 3–5');
+  assert(readyArc({ node: 'battle', row: 6, fight: 6, met: new Set(ALL_ARCS), shooters: true }) === null && readyArc({ node: 'battle', row: 5, fight: 6, met: new Set(ALL_ARCS), shooters: true }) === 'slinger', 'the slinger arc: rows 3–5');
   const firsts: Record<string, number> = {};
   for (const { k, history, fights } of SCHEDULED) {
     const met = new Set(history);
@@ -132,9 +138,9 @@ check('the schedule (30 runs, 3 histories): the slinger first on «Осыпь» 
       const fresh = f.kinds.filter(kind => scheduleKinds(true).includes(kind) && !met.has(kind));
       assert(fresh.length <= 1, `run ${k}: ${f.arena} brings ${fresh}`);
       for (const kind of fresh) {
-        if (kind === SLINGER) assert(f.arena === 'f-scree' && f.arc === 'slinger' && f.row >= 3 && met.has('archer'), `run ${k}: the slinger first on ${f.arena} row ${f.row} arc ${f.arc}`);
-        if (kind === HIVE) assert(f.arena === 'f-apiary' && f.arc === 'hive' && f.row >= 4 && met.has(SLINGER) && f.roster === undefined, `run ${k}: the hive first on ${f.arena} row ${f.row} ${f.roster}`);
-        if (kind === WISP) assert(f.arena === 'p-river' && f.roster === 'wisps' && f.arc === 'wisp' && f.row >= 3 && met.has('water'), `run ${k}: the wisp first on ${f.arena}/${f.roster} row ${f.row}`);
+        if (kind === SLINGER) assert(f.arena === 'f-scree' && f.arc === 'slinger' && f.row >= 3 && f.row <= 5 && met.has('archer'), `run ${k}: the slinger first on ${f.arena} row ${f.row} arc ${f.arc}`);
+        if (kind === HIVE) assert(f.arena === 'f-apiary' && f.arc === 'hive' && f.row >= 4 && f.row <= 6 && met.has(SLINGER) && f.roster === undefined, `run ${k}: the hive first on ${f.arena} row ${f.row} ${f.roster}`);
+        if (kind === WISP) assert(f.arena === 'p-river' && f.roster === 'wisps' && f.arc === 'wisp' && f.row >= 3 && f.row <= 5 && met.has('water'), `run ${k}: the wisp first on ${f.arena}/${f.roster} row ${f.row}`);
         if (SCHEDULE_SHOOTER_KINDS.includes(kind)) firsts[kind] = (firsts[kind] ?? 0) + 1;
       }
       for (const kind of f.kinds) met.add(kind);
