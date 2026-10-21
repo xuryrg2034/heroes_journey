@@ -279,6 +279,13 @@ export interface ArenaTemplate extends ArenaShape {
    * copy); its crowd's floor and pace go by `chiefCrowd` (spawn.ts). Omitted — the values as given.
    */
   chief?: { cauldron: Vec; seats: readonly Vec[] };
+  /**
+   * Task 55, stage Д «Колдун v0» (sim/arenasCastle.ts «Зал колдуна»; enemies/warlock.ts): the warlock's arena — the candles of his
+   * «Перенос» (marks on the floor, not bodies; the core stands at one). The world plays `Params.warlockCharm` and `Params.trollSolid` on
+   * when the given values have them off and `warlockCrowd` `WARLOCK_CROWD` when they hold 1 (world.ts `createWorld`; the journal keeps
+   * that copy); its crowd's floor and pace go by `warlockCrowd` (spawn.ts). Omitted — the values as given.
+   */
+  warlock?: { candles: readonly Vec[] };
 }
 
 /**

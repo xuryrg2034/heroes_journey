@@ -30,6 +30,7 @@ import { SHOOTERS_ARENAS } from '../sim/arenasShooters';
 // Task 38: the garrison's arenas at the end of the sandbox menu (`?arena=20…24`).
 import { GARRISON_ARENAS } from '../sim/arenasGarrison';
 import { CASTLE_ARENAS } from '../sim/arenasCastle';
+import { warlockState } from '../sim/enemies/warlock';
 import { rookLine, wardrobeLying, wardrobeTopple, WARDROBE, ROOK } from '../sim/enemies/castle';
 import { durabilityOf, isThing } from '../sim/shove';
 import { canSpin } from '../sim/abilities';
@@ -619,6 +620,8 @@ async function boot(): Promise<void> {
   let shiftSounds = 0;
   /** Task 16: the feat chimes sounded so far (the snapshot's `feat.sounds`). */
   let featSounds = 0;
+  /** Task 55 Д: bells rung for the warlock's windows (tests read it). */
+  let warlockSounds = 0;
 
   /**
    * Iteration 2.1 (interface): seconds left of each slot's blink and of the item hint (real time while the arena runs),
@@ -1501,6 +1504,8 @@ async function boot(): Promise<void> {
         else if (ev.type === 'tether' && ev.action === 'cut') audio.snap(soundVolume());
         // Task 48: the Troll's club falls — a dull thud (the one tone of his fight; no sound for «звон» — a dash strikes many bodies).
         else if (ev.type === 'bossMove' && ev.move === 'club' && ev.stage === 'hit') audio.thud(soundVolume());
+        // Task 55 Д: the warlock's window opens (phase 2) — one bell, the only sound of his fight.
+        else if (ev.type === 'warlockWindow' && ev.action === 'open') { audio.bell(soundVolume()); warlockSounds++; }
         // Task 47, С4: the hammers — the fire's crackle, the end's pop, the cut's swish (one a frame: a dash cuts many), the bell
         // backwards of «Возврат».
         else if (ev.type === 'hammer') {
@@ -2029,6 +2034,14 @@ async function boot(): Promise<void> {
          * since the fight began — `hits` (signs flashed), `sparks` («звон»), `severed`, `unlinks`, `recolors`, `opens`, `feastHits`, `feastBig`, `supplies`, `brews`.
          */
         chief: { ...renderer.chiefShown },
+        /**
+         * Task 55 Д «Колдун v0» (render.ts `warlockShown`, the sim's `warlockState`): `state` — phase, `spellbound`, his wardrobe, the candles and the one he
+         * stands at, the shift's target with the sign's fill, the window (null — none); `shown`: `core` (his drawing this frame), `dazed` (the window's
+         * drawing), `glow` (the window takes the hit), `count`/`edgeCount` (whole seconds over him / by his goal arrow), `beam` (the charm's beam drawn,
+         * `beamTo` — the wardrobe's id), `candles` drawn, `target` (the lit candle) with its `flame` (units) and `signProgress`, `haze`, `dropping`;
+         * since the fight began — `sparks` («звон»), `hits`, `opens`, `unlinks`, `snaps` (the charm's end), `marks`, `arrivals`.
+         */
+        warlock: { state: warlockState(w), shown: { ...renderer.warlockShown }, sounds: warlockSounds },
         /** Task 28: the boss bar of the HUD (`BossBar.shown`) and the names of the boss's moves on screen now. */
         bossBar: bossBar.shown(),
         bossNames: bossLabels.map(l => l.spec.text),

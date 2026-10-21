@@ -1139,6 +1139,23 @@ export interface Params {
   rookWindup: number;
   /** Task 55а: the strike's damage to the hero (2). */
   rookDamage: number;
+  // ---- Task 55, stage Д «Колдун v0» (sim/enemies/warlock.ts; spec task-55 §6). Read on his arena only («Зал колдуна»). ----
+  /**
+   * The warlock's charm and windows: while his wardrobe stands he is spellbound (the chain refuses him, `spellbound`; nothing but a
+   * shove hurts him); his wardrobe broken — a window `warlockWindow` s after each «Перенос», one hit. Off by default and in journals
+   * without the key (the core takes every hit); his arena turns it on for itself.
+   */
+  warlockCharm: boolean;
+  /** The core's HP (2) and boss plates (4). */
+  warlockHp: number;
+  warlockPlates: number;
+  /** «Перенос»: every this many s while charmed (10; the first on the 6th s), then every `warlockShiftFast` s from the arrival (5). */
+  warlockShift: number;
+  warlockShiftFast: number;
+  /** The window after an arrival, his wardrobe broken (game s; 1.5). */
+  warlockWindow: number;
+  /** The crowd's floor and pace on his arena (×; 1 — his arena plays `WARLOCK_CROWD` 0.9 when the values hold 1). */
+  warlockCrowd: number;
   // ---- Task 56 «Приметы» (sim/omens.ts, docs/realtime-slice.md, «Приметы»; spec docs/design-notes/task-56-omens.md). ----
   // Every rule is off by default; journals without a key play as before (the numbers — their defaults, `omenNum`). The run turns a
   // rule on for the fight of a node or a level with that omen (run/omens.ts); the sandbox — the panel group «Приметы».
@@ -1702,6 +1719,14 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   rookPeriod: 3.5,
   rookWindup: 1,
   rookDamage: 2,
+  // Task 55, stage Д «Колдун v0»: off by default (his arena turns the charm on and his crowd for itself).
+  warlockCharm: false,
+  warlockHp: 2,
+  warlockPlates: 4,
+  warlockShift: 10,
+  warlockShiftFast: 5,
+  warlockWindow: 1.5,
+  warlockCrowd: 1,
   // Task 56 «Приметы» (sim/omens.ts, bag.ts): every rule off; the numbers of the spec (section 2.2).
   omenStorm: false,
   omenStormFirst: 6,
@@ -2281,6 +2306,15 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('rookPeriod', 'Замок', 'Ладья: отдых', 0.5, 10, 0.25, 5, 'с'),
   n('rookWindup', 'Замок', 'Удар ладьи: замах', 0.2, 3, 0.1, 5, 'с', 'Ось через ладью в обе стороны фиксируется в начале замаха; бьёт первое тело на каждой половине. Первый замах боя 1,5 с.'),
   n('rookDamage', 'Замок', 'Удар ладьи: урон героя', 0, 5, 1, 5),
+  // Task 55, stage Д «Колдун v0» (sim/enemies/warlock.ts).
+  { kind: 'bool', key: 'warlockCharm', group: 'Замок', label: 'Колдун: чары и окна', stage: 5,
+    hint: 'Пока цел шкаф Колдуна — Колдун под чарами: цепь его не берёт, ранит только толчок. Шкаф сломан — окно 1,5 с после каждого «Переноса», одно попадание. Арена «Зал колдуна» включает сама.' },
+  n('warlockHp', 'Замок', 'Колдун: HP', 1, 6, 1, 5),
+  n('warlockPlates', 'Замок', 'Колдун: пластины', 0, 8, 1, 5),
+  n('warlockShift', 'Замок', '«Перенос» под чарами: раз в', 3, 20, 0.5, 5, 'с'),
+  n('warlockShiftFast', 'Замок', '«Перенос» без чар: раз в', 2, 12, 0.5, 5, 'с'),
+  n('warlockWindow', 'Замок', 'Колдун: окно после «Переноса»', 0.5, 4, 0.1, 5, 'с'),
+  n('warlockCrowd', 'Замок', 'Колдун: толпа', 0.25, 2, 0.05, 5, '×', 'Множитель плотности и темпа пополнения толпы. Арена «Зал колдуна» ставит 0,9, если на панели 1.'),
   // Task 56 «Приметы» (sim/omens.ts): the sandbox's toggles of the omens that are new rules (off; the run sets them by its omens).
   { kind: 'bool', key: 'omenStorm', group: 'Приметы', label: '«Гроза»', stage: 5,
     hint: 'Раз в 7 с (первая — на 6-й) метка у самой плотной толпы (от 3 врагов); через 1,2 с удар: враги в круге −3 в зачёт, элита — пластина; герой в круге −2 (не в проходе, не в прыжке, щиты не спасают). Жнец и боссы — не цель.' },

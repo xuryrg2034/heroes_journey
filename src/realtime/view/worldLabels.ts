@@ -162,6 +162,13 @@ export const CASTLE_MOVE_TEXT = { topple: 'Падение шкафа', strike: '
 const TOPPLE_LABEL_LIFT = 0.9, ROOK_LABEL_LIFT = 1.1;
 
 /**
+ * Task 55 Д (design 17.10.2026, spec 11): the warlock's one move is named the same way — «Перенос» over the candle that lights, at the first
+ * sign of the fight (`warlockShift` `mark`). The refusals «под чарами» and «вне окна» are the cursor's (`REFUSAL_TEXT`); no other text.
+ */
+export const WARLOCK_MOVE_TEXT = { shift: 'Перенос' } as const;
+const SHIFT_LABEL_LIFT = 0.9;
+
+/**
  * Task 55а (design 17.10.2026, spec 3.1): «Кончи цепь на бочке — покатится» over the first barrel of the run in view (the sandbox: of the
  * fight) for `BOSS_LABEL_LIFE` s; one label, no plate. The host keeps the once; null — no barrel in view.
  */
@@ -194,6 +201,11 @@ export function bossMoveLabels(w: World, named: Set<string>): LabelSpec[] {
       if (!e) continue;
       named.add('strike');
       out.push({ id: 'castle-strike', text: CASTLE_MOVE_TEXT.strike, at: { x: e.x, y: e.y }, place: 'above', lift: ROOK_LABEL_LIFT });
+      continue;
+    }
+    if (ev.type === 'warlockShift' && ev.action === 'mark' && !named.has('shift')) {
+      named.add('shift');
+      out.push({ id: 'warlock-shift', text: WARLOCK_MOVE_TEXT.shift, at: { x: ev.x, y: ev.y }, place: 'above', lift: SHIFT_LABEL_LIFT });
       continue;
     }
     if (ev.type !== 'bossMove' || ev.stage !== 'start' || named.has(ev.move)) continue;

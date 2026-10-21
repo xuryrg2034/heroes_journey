@@ -17,6 +17,7 @@
  *   drawn chain: a white ring on each link that dropped out; the recolour: a ring of the brew's colour on each body painted.
  * Coordinates are arena pixels (`unit` per arena unit); `r` is the drawing radius of a body in px.
  */
+import { countPlace, type VisibleArea } from './edgeMarkers';
 import { ColorMatrixFilter, Container, Graphics, Sprite, Text } from 'pixi.js';
 import { characterSprite, hasCharacterArt } from '../art/characterAssets';
 import type { Vec } from '../sim/geometry';
@@ -156,6 +157,8 @@ export class ChiefView {
   private seenParts = new Map<number, { kind: string; x: number; y: number; r: number }>();
   private countLabel: Text | null = null;
   private edgeLabel: Text | null = null;
+  /** The dark plate under the count by the goal pointer (as under «далеко»): the count never lies on a body's disc. */
+  private edgeBack: Graphics | null = null;
 
   /** `unit` — arena pixels per unit (render.ts `UNIT`); `ink` — a sim colour index as the view's colour (render.ts `chainInk`). */
   constructor(private readonly unit: number, private readonly ink: (color: number) => number) { this.floor.addChild(this.floorG); this.layer.addChild(this.fxG); }
@@ -174,6 +177,7 @@ export class ChiefView {
     if (this.cauldron) { this.cauldron.destroy({ children: true }); this.cauldron = null; }
     if (this.countLabel) this.countLabel.visible = false;
     if (this.edgeLabel) this.edgeLabel.visible = false;
+    if (this.edgeBack) this.edgeBack.visible = false;
     Object.assign(this.shown, { hits: 0, sparks: 0, severed: 0, unlinks: 0, recolors: 0, opens: 0, feastHits: 0, feastBig: 0, supplies: 0, brews: 0 });
   }
 
@@ -359,7 +363,7 @@ export class ChiefView {
    * The core's glow (the brew's colour) round the contour while the window takes the hit — it blinks in the last half second — and the
    * whole-second count over the head. `art` — the drawing (`buildChief`), null when the body is not drawn. `r` — the body's drawing radius in px.
    */
-  syncCore(art: ChiefArt | null, world: World, clock: number, r: number, visible: boolean): void {
+  syncCore(art: ChiefArt | null, world: World, clock: number, r: number, visible: boolean, area?: VisibleArea): void {
     const st = chiefState(world), s = this.shown;
     if (this.countLabel) this.countLabel.visible = false;
     if (!art || !st) return;
@@ -381,7 +385,9 @@ export class ChiefView {
     s.count = windowCount(win.left);
     label.text = s.count;
     label.style.fill = win.left <= 1 ? 0xff8a6a : 0xfff2c4;
-    label.position.set(st.x * U + r * CHIEF_ART * 0.46, st.y * U - r * CHIEF_ART * 0.5);
+    const at = { x: st.x * U + r * CHIEF_ART * 0.46, y: st.y * U - r * CHIEF_ART * 0.5 };
+    const put = area ? countPlace(at, { x: st.x * U, y: st.y * U }, r * 1.4, area, 18) : at;
+    label.position.set(put.x, put.y);
     label.visible = true;
   }
 
@@ -390,6 +396,7 @@ export class ChiefView {
     const st = chiefState(world), s = this.shown, win = st?.window;
     s.edgeCount = '';
     if (this.edgeLabel) this.edgeLabel.visible = false;
+    if (this.edgeBack) this.edgeBack.visible = false;
     if (!win || !win.open || win.hit || !goal || coreSeen) return;
     const label = this.edgeLabel ??= (() => {
       const text = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 24, fontWeight: 'bold', fill: 0xfff2c4, stroke: { color: NAVY, width: 5 } } });
@@ -401,6 +408,9 @@ export class ChiefView {
     label.text = s.edgeCount;
     label.style.fill = win.left <= 1 ? 0xff8a6a : 0xfff2c4;
     label.position.set(goal.x - Math.cos(goal.angle) * 30, goal.y - Math.sin(goal.angle) * 30);
+    const back = this.edgeBack ??= (() => { const g = new Graphics(); parent.addChildAt(g, Math.max(0, parent.getChildIndex(label))); return g; })();
+    back.clear().roundRect(label.position.x - 17, label.position.y - 17, 34, 34, 8).fill({ color: 0x0f1720, alpha: 0.88 }).stroke({ color: 0x55616e, width: 2 });
+    back.visible = true;
     label.visible = true;
   }
 
