@@ -118,10 +118,12 @@ test('tasks 36–37: the first run ends — the experience counts up, the bar an
   if (stock < 4) await expect(page.getByTestId('up-owl-1')).toHaveText(`нужно 4, есть ${stock}`);
   await expect(page.getByTestId('up-owl-3-lock')).toBeVisible();
   await page.screenshot({ path: 'artifacts/realtime-hearth-bubble.png' });
-  // The bestiary is free.
-  await page.getByTestId('hearth-bestiary').click();
-  await expect(page.getByTestId('hearth-bestiary-panel')).toBeVisible();
-  await page.getByTestId('hearth-bestiary-panel').getByRole('button', { name: 'Закрыть' }).click();
+  // Task 58: the owl's book «Летопись» is free (its first page is the bestiary).
+  await page.getByTestId('hearth-chronicle').click();
+  await expect(page.getByTestId('chronicle')).toBeVisible();
+  await expect(page.getByTestId('chron-page')).toHaveAttribute('data-page', 'bestiary');
+  await page.getByTestId('chronicle').getByRole('button', { name: 'Закрыть' }).click();
+  await expect(page.getByTestId('chronicle')).toHaveCount(0);
   expect(errors).toEqual([]);
 });
 

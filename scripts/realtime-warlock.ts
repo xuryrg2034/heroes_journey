@@ -11,6 +11,9 @@
  * - `--keys warlockPlates=3,warlockHp=1,warlockCrowd=0.3,warlockShiftFast=4,…` — any warlock keys over the run's params (the references
  *   are not played again).
  * - `--stand`: the standing hero — 6 s by his wardrobe (15,4; 6,2: in the topple's reach), HP 999, no action.
+ * - The design's cuts (21.10.2026): the hall with its crowd ×0 (`warlockCrowd` 0.01 — no top-up: the length and the windows of his own
+ *   mechanics); the windows' reach — the game seconds from a window's opening to the chain's hit and the hero's distance to the core at
+ *   the opening (within the reach of a link or not); what broke his wardrobe (the core, a wall, a thing).
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import { execSync } from 'node:child_process';
@@ -44,23 +47,29 @@ interface Fight {
   won: boolean; time: number; timeout: boolean; cleared: number | null; killer: string | null; damage: Record<string, number>; phase: number;
   /** The warlock: his windows (opened, with a hit), «звон» on the core, the game second his charm fell (null — never), shoves' strikes at him, barrels among them. */
   windows: { opened: number; hit: number; blocks: number }; charmAt: number | null; shoveHits: number; barrels: number;
+  /** The design's cuts: the seconds from an opening to the chain's hit (each window hit by the chain); the hero's distance to the core at each opening; what broke his wardrobe. */
+  toHit: number[]; openDist: number[]; wardrobeBy: string | null;
 }
 
 function fight(run: RtRunState, extra: Partial<Params> = {}): Fight {
   const params = Object.assign(rtArenaParams(run, rtRunParams(defaultParams())), extra);
-  const f: Fight = { won: false, time: 0, timeout: false, cleared: null, killer: null, damage: {}, phase: 1, windows: { opened: 0, hit: 0, blocks: 0 }, charmAt: null, shoveHits: 0, barrels: 0 };
+  const f: Fight = { won: false, time: 0, timeout: false, cleared: null, killer: null, damage: {}, phase: 1, windows: { opened: 0, hit: 0, blocks: 0 }, charmAt: null, shoveHits: 0, barrels: 0, toHit: [], openDist: [], wardrobeBy: null };
+  let openedAt: number | null = null, ward: number | null = null;
   const kinds = new Map<number, string>();
   let last: string | null = null;
   const seen = (w: World): void => {
-    for (const e of w.enemies) if (!kinds.has(e.id)) kinds.set(e.id, e.kind);
+    for (const e of w.enemies) { if (!kinds.has(e.id)) kinds.set(e.id, e.kind); if (ward === null && e.kind === 'wardrobe' && e.vars.wl !== undefined) ward = e.id; }
+    const core = w.enemies.find(e => e.kind === WARLOCK);
     for (const ev of w.events as WorldEvent[]) {
       if (ev.type === 'hit') { const src = ev.source === 'touch' ? `touch:${kinds.get(ev.enemyId) ?? '?'}` : ev.source; f.damage[src] = (f.damage[src] ?? 0) + ev.damage; last = src; }
       else if (ev.type === 'bossPhase') f.phase = Math.max(f.phase, ev.phase);
       else if (ev.type === 'warlockWindow') {
-        if (ev.action === 'open') f.windows.opened++;
-        else if (ev.action === 'hit') f.windows.hit++;
+        if (ev.action === 'open') { f.windows.opened++; openedAt = w.time; if (core) f.openDist.push(Math.sqrt((core.x - w.hero.x) ** 2 + (core.y - w.hero.y) ** 2)); }
+        else if (ev.action === 'hit') { f.windows.hit++; if (ev.source === 'chain' && openedAt !== null) { f.toHit.push(w.time - openedAt); openedAt = null; } }
+        else if (ev.action === 'close') openedAt = null;
         else if (ev.action === 'block') f.windows.blocks++;
       } else if (ev.type === 'warlockCharm') { if (ev.action === 'block') f.windows.blocks++; else if (f.charmAt === null) f.charmAt = w.time; }
+      else if (ev.type === 'thing' && ev.id === ward && f.wardrobeBy === null) f.wardrobeBy = ev.by;
       else if (ev.type === 'shove' && ev.action === 'impact' && ev.target !== undefined && kinds.get(ev.target) === WARLOCK) { f.shoveHits++; if (kinds.get(ev.thingId) === 'barrel') f.barrels++; }
     }
   };
@@ -111,6 +120,8 @@ if (STAND) {
   console.log(`Задача 55, этап Д «Колдун», --direct: узел босса похода как «Зал колдуна», HP похода, параметры и кит ряда 10 без сборки, бот с целью в ядро (окно — цепь в ядро, иначе толчок в него: бочки, затем его шкаф, по подсветке planChain), ${SEEDS} seed, предел ${LIMIT} с${KEYS ? `, ключи ${JSON.stringify(SET)}` : ''} (эвристика), ${date}, HEAD ${head}.\n`);
   const rows: { title: string; fights: Fight[] }[] = [
     { title: 'Зал колдуна', fights: Array.from({ length: SEEDS }, (_, i) => fight(openRun(i + 1, 'boss', 'c-warlock'), SET)) },
+    // The design's cut (1): the crowd ×0 — his own mechanics only.
+    { title: 'Зал колдуна, толпа ×0', fights: Array.from({ length: SEEDS }, (_, i) => fight(openRun(i + 1, 'boss', 'c-warlock'), { ...SET, warlockCrowd: 0.01 })) },
     ...KEYS ? [] : [
       { title: 'Тюремщик (узел ряда 5)', fights: Array.from({ length: SEEDS }, (_, i) => fight(openRun(i + 1, 'checkpoint', 'jailer'))) },
       { title: 'Тролль (узел ветки логова)', fights: Array.from({ length: SEEDS }, (_, i) => fight(openRun(i + 1, 'boss', 'troll', 'den-'))) },
@@ -134,4 +145,11 @@ if (STAND) {
   console.log(`Чары упали в ${pct(charm.length, lock.length)} боёв, секунда, мед. ${f1(median(charm.map(f => f.charmAt!)))}; ударов толчка в ядро на бой, мед. ${f1(median(lock.map(f => f.shoveHits)))}, из них бочек ${f1(median(lock.map(f => f.barrels)))}.`);
   const win = lock.reduce((a, f) => ({ opened: a.opened + f.windows.opened, hit: a.hit + f.windows.hit, blocks: a.blocks + f.windows.blocks }), { opened: 0, hit: 0, blocks: 0 });
   console.log(`Окна после «Переноса»: открыто ${win.opened}, с попаданием ${win.hit} (${pct(win.hit, win.opened)}); «звон» по ядру — ${win.blocks}; фаза 2 — ${pct(lock.filter(f => f.phase >= 2).length, lock.length)} боёв.`);
+  // The design's cuts (2), (3) for the hall and the hall without its crowd.
+  for (const row of rows.slice(0, 2)) {
+    const fs = row.fights, toHit = fs.flatMap(f => f.toHit), dists = fs.flatMap(f => f.openDist), reach = dists.filter(d => d <= 1.875 + 0.6).length;
+    const by: Record<string, number> = {};
+    for (const f of fs) by[f.wardrobeBy ?? 'цел'] = (by[f.wardrobeBy ?? 'цел'] ?? 0) + 1;
+    console.log(`${row.title}: от открытия окна до удара цепью, с, мед. ${f1(median(toHit))} (ударов ${toHit.length}); расстояние героя до ядра при открытии, мед. ${f1(median(dists))}, в досягаемости звена (≤ 2,5) — ${pct(reach, dists.length)}; его шкаф сломан: ${Object.entries(by).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${pct(n, fs.length)}`).join(', ')}.`);
+  }
 }

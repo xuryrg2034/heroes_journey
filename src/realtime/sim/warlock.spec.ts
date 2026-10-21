@@ -18,6 +18,8 @@ import { durabilityOf } from './shove';
 import { Simulation, SIM_DT, replay, type Journal } from './simulation';
 import { analyzeJournal } from '../telemetry/report';
 import type { Enemy, World, WorldEvent } from './world';
+import type { Loadout } from './kit';
+import { HAMMERS } from './buildIds';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -36,8 +38,8 @@ function quiet(extra: Partial<Params> = {}): Params {
 }
 interface Hall { sim: Simulation; w: World; core: Enemy; wardrobe: Enemy; barrels: Enemy[] }
 /** «Зал колдуна», the hero at `at` (default: far south), one tick (the core marks his wardrobe). */
-function hall(k: number, extra: Partial<Params> = {}, at: Vec = { x: 12, y: 14 }, arena = WARLOCK_ARENA.id): Hall {
-  const sim = new Simulation({ arena, params: quiet(extra), seed: seedOf(k), record: true }), w = sim.world;
+function hall(k: number, extra: Partial<Params> = {}, at: Vec = { x: 12, y: 14 }, arena = WARLOCK_ARENA.id, loadout?: Loadout): Hall {
+  const sim = new Simulation({ arena, params: quiet(extra), seed: seedOf(k), record: true, ...loadout ? { loadout } : {} }), w = sim.world;
   sim.command({ t: 'teleport', x: at.x, y: at.y });
   ticks(sim, 1);
   const core = w.enemies.find(e => e.kind === WARLOCK)!, wardrobe = w.enemies.find(e => e.kind === WARDROBE)!;
@@ -79,6 +81,15 @@ function shoveAt(h: Hall, thing: Enemy, target: Vec, at = behind(thing, target))
   assert(plan && plan.thing === thing.id, `a shove of ${thing.kind} planned (refusal ${enemyRefusal(h.w, thing)}, chain ${JSON.stringify(h.w.chain)})`);
   const fixed = JSON.parse(JSON.stringify(plan)) as typeof plan;
   return { plan: fixed, events: release(h.sim) };
+}
+/** As `shoveAt`, but returns as soon as the dash is over (the thing still sliding). */
+function shoveAtNoWait(h: Hall, thing: Enemy, target: Vec): void {
+  const at = behind(thing, target);
+  h.sim.command({ t: 'teleport', x: at.x, y: at.y });
+  draw(h.sim, [{ x: thing.x, y: thing.y }]);
+  assert(planChain(h.w).shove?.thing === thing.id, `a shove of ${thing.kind} planned`);
+  assert(h.sim.command({ t: 'release' }), 'released');
+  ticks(h.sim, ticksOf(2), [], w => !w.move);
 }
 /** Breaks his wardrobe at the north wall (the shove made 6 long): two shoves north; the second from right below it. */
 function breakAtWall(h: Hall, out: WorldEvent[] = []): void {
@@ -169,7 +180,7 @@ check('his wardrobe broken at a wall twice: the charm falls, his plates stay; at
   }
 });
 
-check('his charm gone: a shove strike in the window takes a plate and leaves the window hit to the chain; the next «Перенос» 5 s after the arrival', () => {
+check('his charm gone: a shove strike in the window takes a plate and leaves the window hit to the chain (two plates in one window); the next «Перенос» 5 s after the arrival', () => {
   for (const k of SEEDS) {
     const h = hall(k, { shoveDistance: 6 }), events: WorldEvent[] = [];
     breakAtWall(h, events);
@@ -181,6 +192,10 @@ check('his charm gone: a shove strike in the window takes a plate and leaves the
     assert(plates(h.core) === 3 && warlockState(h.w)!.window?.open && !warlockState(h.w)!.window!.hit, `seed ${k}: a plate, the window still open (${JSON.stringify(warlockState(h.w)!.window)})`);
     h.sim.command({ t: 'teleport', x: h.core.x, y: h.core.y + 1 });
     assert(enemyRefusal(h.w, h.core) === null, `seed ${k}: the chain may still take him (${enemyRefusal(h.w, h.core)})`);
+    // The shove and the chain in one window — two plates (design 21.10.2026: the shove never spends the window's hit).
+    draw(h.sim, [{ x: h.core.x, y: h.core.y }]);
+    release(h.sim, events);
+    assert(plates(h.core) === 2 && of(events, 'warlockWindow').filter(e => e.action === 'hit').length === 1, `seed ${k}: two plates in one window (${plates(h.core)})`);
     // Out of the way, the next arrival: 5 s after the first.
     h.sim.command({ t: 'teleport', x: 12, y: 14 });
     let next = 0;
@@ -277,6 +292,138 @@ check('the fight\'s summary (`FightSummary.boss.warlock`): the barrel at him, hi
     const t = analyzeJournal(JSON.parse(JSON.stringify(h.sim.exportJournal()!)) as Journal).summary.boss?.warlock;
     assert(t && t.hits.shove === 1 && t.barrels === 1 && t.hits.chain === 1 && t.wardrobeBy === 'wall' && t.phase === 2, `seed ${k}: ${JSON.stringify(t)}`);
     assert(t.charmBrokenAt !== null && Math.abs(t.charmBrokenAt - brokeAt) < 0.2 && t.windows.opened === 1 && t.windows.hit === 1 && t.shifts === 1 && (t.blocks.bomb ?? 0) >= 1, `seed ${k}: ${JSON.stringify(t)}`);
+  }
+});
+
+// ---- The highlight of the build's strikes on him (review 21.10.2026): «Прямая», «Печать», «Возврат» — the plan = the run ----
+
+type Gate = 'charmed' | 'shut' | 'open';
+const GATES: readonly Gate[] = ['charmed', 'shut', 'open'];
+/** The hall in the state `gate`: charmed (the start); his charm gone and his window closed (its time out); his window open (just arrived). */
+function gated(k: number, gate: Gate, extra: Partial<Params> = {}, loadout?: Loadout): Hall {
+  const h = hall(k, { shoveDistance: 6, ...extra }, { x: 12, y: 14 }, WARLOCK_ARENA.id, loadout);
+  if (gate === 'charmed') return h;
+  breakAtWall(h);
+  ticks(h.sim, ticksOf(3), [], (_w, ev) => ev.some(e => e.type === 'warlockShift' && e.action === 'arrive'));
+  if (gate === 'shut') ticks(h.sim, ticksOf(2), [], w => !warlockState(w)!.window);
+  const s = warlockState(h.w)!;
+  assert(gate === 'open' ? s.window?.open : !s.window, `seed ${k}: the gate ${gate} (${JSON.stringify(s.window)})`);
+  return h;
+}
+/** Weak links placed at `points` (colour 0), the hero teleported to `at` first. */
+function links(h: Hall, at: Vec, points: readonly Vec[]): Enemy[] {
+  h.sim.command({ t: 'teleport', x: at.x, y: at.y });
+  return points.map(q => { const id = h.sim.command({ t: 'place', x: q.x, y: q.y, color: 0, hp: 0, kind: 'basic' }) as number; return h.w.enemies.find(e => e.id === id)!; });
+}
+
+check('«Прямая» (sandbox `pierceEnabled`): charmed or out of his window it passes him by — the highlight has no outcome on him, he is untouched (charmed: one «звон»); in the window — a plate, as the highlight said', () => {
+  for (const k of SEEDS) for (const gate of GATES) {
+    const h = gated(k, gate, { pierceEnabled: true, pierceLength: 4 }), c = { x: h.core.x, y: h.core.y };
+    // Three weak links on a line from the south towards him; the pierce's corridor beyond holds only him.
+    const ls = links(h, { x: c.x, y: c.y + 5.4 }, [{ x: c.x, y: c.y + 4.4 }, { x: c.x, y: c.y + 3.4 }, { x: c.x, y: c.y + 2.4 }]);
+    draw(h.sim, ls);
+    const plan = planChain(h.w), body = plan.pierce?.bodies.find(b => b.id === h.core.id);
+    assert(h.w.chain.length === 3 && plan.pierce, `seed ${k}, ${gate}: a pierce (${h.w.chain.length})`);
+    assert(gate === 'open' ? body?.outcome.plate === true : !body, `seed ${k}, ${gate}: the highlight on him (${JSON.stringify(body)})`);
+    const before = plates(h.core), events: WorldEvent[] = [];
+    release(h.sim, events);
+    assert(plates(h.core) === before - (gate === 'open' ? 1 : 0), `seed ${k}, ${gate}: plates ${before} → ${plates(h.core)}`);
+    // «Звон» (design 21.10.2026): charmed — the run reaches him and rings off once; out of his window — no try at all (as the Troll's).
+    const rings = [...of(events, 'warlockCharm'), ...of(events, 'warlockWindow')].filter(e => e.action === 'block' && e.source === 'pierce').length;
+    assert(rings === (gate === 'charmed' ? 1 : 0), `seed ${k}, ${gate}: «звон» ${rings}`);
+    assert(replays(h.sim), `seed ${k}: replay`);
+  }
+});
+
+check('«Печать» (sandbox `loopEnabled`): a ring of four links round him — charmed or out of his window the highlight has him outside the strike and he is untouched (charmed: one «звон»); in the window — one hit, a plate', () => {
+  for (const k of SEEDS) for (const gate of GATES) {
+    const h = gated(k, gate, { loopEnabled: true }), c = { x: h.core.x, y: h.core.y };
+    const ls = links(h, { x: c.x - 1.2, y: c.y + 0.8 }, [{ x: c.x - 0.8, y: c.y + 0.8 }, { x: c.x - 0.8, y: c.y - 0.8 }, { x: c.x + 0.8, y: c.y - 0.8 }, { x: c.x + 0.8, y: c.y + 0.8 }]);
+    draw(h.sim, [...ls, ls[0]]);
+    const seal = planChain(h.w).seal;
+    assert(h.w.chain.length === 4 && h.w.chainClosed && seal, `seed ${k}, ${gate}: the ring closed (${h.w.chain.length})`);
+    assert(seal.inside.includes(h.core.id) === (gate === 'open'), `seed ${k}, ${gate}: the highlight's seal on him (${JSON.stringify(seal.inside)})`);
+    const before = plates(h.core), events: WorldEvent[] = [];
+    release(h.sim, events);
+    ticks(h.sim, 1, events);
+    // «Звон»: charmed — one, no damage; out of his window — no try (as the Troll's).
+    const rings = [...of(events, 'warlockCharm'), ...of(events, 'warlockWindow')].filter(e => e.action === 'block' && e.source === 'seal').length;
+    assert(rings === (gate === 'charmed' ? 1 : 0), `seed ${k}, ${gate}: «звон» ${rings}`);
+    assert(plates(h.core) === before - (gate === 'open' ? 1 : 0) && h.core.hp === 2, `seed ${k}, ${gate}: plates ${before} → ${plates(h.core)}`);
+    assert(replays(h.sim), `seed ${k}: replay`);
+  }
+});
+
+check('«Возврат»: charmed or out of his window the return run passes him by (the highlight\'s run — no outcome on him); in his window the chain\'s hit spends it — the run passes him by too, one plate in all', () => {
+  // `returnFixed` (the sandbox's) — the release fixes the highlight's run; off (the run's) — the run finds its bodies as it goes.
+  for (const k of SEEDS) for (const gate of GATES) for (const fixed of [true, false]) {
+    const h = gated(k, gate, { returnFixed: fixed }, { hammer: HAMMERS.return }), c = { x: h.core.x, y: h.core.y }, events: WorldEvent[] = [];
+    // Open: the chain him → a link behind him; else two links by his side — the run comes back past him.
+    const side = links(h, { x: c.x + 0.75, y: c.y + 1.8 }, gate === 'open' ? [{ x: c.x, y: c.y - 1.3 }] : [{ x: c.x + 0.75, y: c.y }, { x: c.x + 0.75, y: c.y - 1.4 }]);
+    draw(h.sim, gate === 'open' ? [c, ...side] : side);
+    const plan = planChain(h.w);
+    assert(plan.back && h.w.chain.length === (gate === 'open' ? 2 : 2), `seed ${k}, ${gate}: a run back (${!!plan.back})`);
+    assert(!plan.back.hits.some(x => x.id === h.core.id), `seed ${k}, ${gate}: the run's highlight has no outcome on him (${JSON.stringify(plan.back.hits)})`);
+    if (gate === 'open') assert(plan.links[0].outcome?.plate, `seed ${k}: the chain's plate`);
+    const before = plates(h.core);
+    release(h.sim, events);
+    assert(plates(h.core) === before - (gate === 'open' ? 1 : 0), `seed ${k}, ${gate}: plates ${before} → ${plates(h.core)}`);
+    // The run never tries him (no «звон», no closed window's block of the return run): the run is what the highlight showed.
+    const tried = [...of(events, 'warlockCharm'), ...of(events, 'warlockWindow')].filter(e => e.action === 'block' && e.source === 'hammer-return');
+    assert(!tried.length, `seed ${k}, ${gate}, fixed ${fixed}: the run tried him (${tried.length})`);
+    assert(replays(h.sim), `seed ${k}: replay`);
+  }
+});
+
+check('the window is time (design 21.10.2026): it runs out while a barrel still rolls — closed at once, the chain refuses him, he drops out of the drawn chain when `warlockDrop` said; «Перенос» still waits for the roll', () => {
+  for (const k of SEEDS) {
+    // A slow roll (4 u/s): B4 west along the hall's bottom — longer than the window.
+    const h = gated(k, 'open', { shoveSpeed: 4 }), events: WorldEvent[] = [];
+    const b4 = h.barrels.find(b => b.x > 18 && b.y > 12)!;
+    shoveAtNoWait(h, b4, { x: -10, y: b4.y });
+    assert(h.w.shoves && !h.w.move, `seed ${k}: the barrel rolls`);
+    // Beside him: a chain of one link — him; the highlight says when the window ends.
+    h.sim.command({ t: 'teleport', x: h.core.x, y: h.core.y + 1 });
+    draw(h.sim, [{ x: h.core.x, y: h.core.y }]);
+    const drop = planChain(h.w).warlockDrop;
+    assert(drop && drop.index === 0 && drop.left > 0, `seed ${k}: the highlight's drop ${JSON.stringify(drop)}`);
+    const from = h.w.time;
+    ticks(h.sim, ticksOf(3), events, w => !w.chain.length);
+    const at = h.w.time - from;
+    assert(!h.w.chain.length && of(events, 'warlockWindow').some(e => e.action === 'unlink') && Math.abs(at - drop.left) <= 2 * SIM_DT + 1e-9, `seed ${k}: dropped after ${at.toFixed(3)} s, the highlight said ${drop.left.toFixed(3)}`);
+    assert(h.w.shoves && !warlockState(h.w)!.window && enemyRefusal(h.w, h.core) === 'outOfWindow', `seed ${k}: closed while the barrel still rolls (${enemyRefusal(h.w, h.core)})`);
+    // «Перенос» still waits for the roll: no arrival while it rolls.
+    for (let i = 0; i < ticksOf(6) && h.w.shoves; i++) { h.sim.tick(); for (const e of h.w.events.splice(0)) assert(!(e.type === 'warlockShift' && e.action === 'arrive') || !h.w.shoves, `seed ${k}: an arrival during the roll`); }
+    assert(replays(h.sim), `seed ${k}: replay`);
+  }
+});
+
+registerArena({ ...WARLOCK_ARENA, id: 'warlock-cluster', name: 'Колдун, свечи кучей', warlock: { candles: [{ x: 12, y: 3.2 }, { x: 6, y: 10 }, { x: 6.8, y: 10 }, { x: 6.4, y: 10.7 }] } });
+check('no candle fits and several are left (the hero within 1 of all three others): «Перенос» draws among them by its stream — never his own, the targets vary with the seed, the same seed — the same target (review 21.10.2026)', () => {
+  const targets = new Set<number>();
+  for (let k = 1; k <= 8; k++) {
+    const first = (): number => {
+      const h = hall(k, {}, { x: 6.4, y: 10.25 }, 'warlock-cluster'), events: WorldEvent[] = [];
+      ticks(h.sim, ticksOf(6.5), events);
+      const arrive = of(events, 'warlockShift').find(e => e.action === 'arrive');
+      assert(arrive && arrive.candle !== 0 && replays(h.sim), `seed ${k}: an arrival at another candle (${arrive?.candle})`);
+      return arrive.candle;
+    };
+    const a = first();
+    assert(first() === a, `seed ${k}: the same seed, the same candle`);
+    targets.add(a);
+  }
+  assert(targets.size >= 2, `the targets vary: ${[...targets]}`);
+});
+
+registerArena({ ...WARLOCK_ARENA, id: 'warlock-two', name: 'Колдун, две свечи', warlock: { candles: [{ x: 12, y: 3.2 }, { x: 4.5, y: 7 }] } });
+check('no candle fits (the other one is by the hero and the nearest to him): «Перенос» goes to another candle all the same (design 21.10.2026)', () => {
+  for (const k of SEEDS) {
+    const h = hall(k, {}, { x: 4.5, y: 7.4 }, 'warlock-two'), events: WorldEvent[] = [];
+    ticks(h.sim, ticksOf(6.5), events);
+    const arrive = of(events, 'warlockShift').find(e => e.action === 'arrive');
+    assert(arrive && arrive.candle === 1 && warlockState(h.w)!.candle === 1, `seed ${k}: arrived at C2 (${arrive?.candle})`);
+    assert(replays(h.sim), `seed ${k}: replay`);
   }
 });
 

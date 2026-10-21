@@ -878,6 +878,10 @@ async function boot(): Promise<void> {
     ],
     session: { clock: sessionClock, on: () => sessionClockOn },
     ...newSeen ? { newSeen: { store: newSeen, on: () => newOnMap } } : {},
+    // Task 58 «Летопись»: the camp's book and the end screen's line (the profile store's chronicle; not in the sandbox). Telemetry: the visit's pages and seconds.
+    chronicle: true,
+    trophies: true,
+    chronicleOpened: (run, opened) => { if (run) recorder?.chronicleOpened(run, opened); },
     // Task 26 «Расписание леса»: the history's start from the older memory (design 15.10.2026), read once per profile.
     scheduleSeed: () => scheduleSeedHistory(SCHEDULE_KINDS.filter(kind => !!newSeen?.hasKind(kind)), AFFIX_IDS.filter(id => !!newSeen?.hasAffix(id)), FIRST_MEET_IDS.filter(id => !!firstMeets?.has(id))),
     fx: { get: () => renderer.fxLevel, set: setFx },
@@ -892,6 +896,8 @@ async function boot(): Promise<void> {
   }, fixedSeed);
   // Task 35, С1: a run resumed from the save keeps the level in its record too.
   recorder?.fxLevel(runView?.state ?? null, renderer.fxLevel);
+  // Task 58: only a run of the meta writes the chronicle - not `?seed=` / `?hero=` (a seeded run), not the prologue, not the sandbox.
+  if (runView?.chronicle) { const chronicle = runView.chronicle; renderer.chronicle = { on: () => !prologue && runView.arenaOpen && !!runView.state && !runView.state.seeded && !!runView.hearth, meet: met => { const run = runView.state; if (run) chronicle.meet(run, met); } }; }
   if (newSeen && runView) renderer.newSeen = { store: newSeen, live: () => runView.arenaOpen, on: () => newOnMap, meet: id => recorder?.firstMeet(runView.state, id) };
   /**
    * The finished run arena goes into the run in the frame it ended (HP, kills, damage, time) and is saved at once: a
@@ -2196,6 +2202,13 @@ async function boot(): Promise<void> {
       meetShown: () => runView.meetInfo(),
       /** Task 49: the hero cards of the screen (ids, the chosen one, the best «Испытание» marks, the laws) and the cage scene (null - none). */
       heroesShown: () => runView.heroesShown(),
+      /**
+       * Task 58 (tests): the chronicle window now (open, page, counts, cards by state, the selected card and its line). The book itself is
+       * the profile's (`meta.chronicle` in the stored profile): tests seed and read it there.
+       */
+      chronicleShown: () => runView.hearth?.shown.chronicle ?? null,
+      /** Task 51е (tests): the perch now - the trophies held (ids in order), the ones falling this visit, the hooks, the owl's last trophy line. */
+      trophiesShown: () => runView.hearth?.shown.trophies ?? null,
       /** Task 47, tests only: multiplies the times of the staged screens (С6, С8) by `k` — a slow reveal to act in the middle of it. */
       screenPace: (k: number) => { runView.screenPace = k > 0 ? k : 1; },
       winArena: async () => {
