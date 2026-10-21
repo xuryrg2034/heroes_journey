@@ -280,8 +280,23 @@ export function nextPaletteColor(world: World, color: number): number {
   return p[(p.indexOf(color) + 1) % p.length];
 }
 
-/** A random chain colour of the palette (spawnRoll; one draw whatever its size — with all four the draws of before). */
-function rollColor(world: World): number { const p = palette(world); return p[Math.floor(rollRng(world).next() * p.length)]; }
+/**
+ * A random chain colour of the palette (spawnRoll; one draw whatever its size — with all four the draws of before). Task 59б: an arena
+ * with `pairShare` draws once more — under the share the colour A of its living pair of wardens (`pairColorA`; none — the colour drawn).
+ */
+function rollColor(world: World): number {
+  const p = palette(world), color = p[Math.floor(rollRng(world).next() * p.length)], share = world.arena.pairShare;
+  if (share === undefined) return color;
+  const take = rollRng(world).next() < share, a = pairColorA(world);
+  return take && a !== null ? a : color;
+}
+
+/** Task 59б: the colour A of the arena's living pair of wardens — the first of a standing pair by id (enemies/warden.ts `drawPairs`); null — none. */
+function pairColorA(world: World): number | null {
+  let first: Enemy | null = null;
+  for (const e of world.enemies) if (e.kind === 'warden' && e.vars.wp !== undefined && e.id < e.vars.wp && (!first || e.id < first.id)) first = e;
+  return first ? first.color : null;
+}
 
 /** Task 55а: the enemies of the crowd — the things (the barrel, the wardrobe) are not in its density or its limit (no thing — every enemy). */
 function crowdOf(world: World): number {

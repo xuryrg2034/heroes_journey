@@ -12,6 +12,7 @@
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import { registerArena } from './arenas';
+import './arenasStep3';
 import { planChain } from './chain';
 import { kindOf } from './enemies/kinds';
 import { WARDEN, wardenAnger, wardenAngry, wardenPartner, wardenSwing } from './enemies/warden';
@@ -234,6 +235,59 @@ check('the template flag `wardens` (sandbox arenas of step 3): the arena plays t
     const strip = (x: World): string => JSON.stringify({ ...(worldState(x) as Record<string, unknown>), params: null });
     assert(strip(replay(JSON.parse(JSON.stringify(journal))).world) === strip(flagged.world), `seed ${k}: a journal without the key replays the flagged world (worldState minus params)`);
   }
+});
+
+registerArena({
+  id: 'warden-tint', name: 'Ворота с тенью пары', summary: 'Тест pairTint и pairShare', goal: 'kills', killGoal: 999, width: 20, height: 12,
+  heroStart: { x: 10, y: 9 }, obstacles: [], buttons: [], door: { x: 19.3, y: 6 }, garrison: true, wardens: true,
+  enemies: [
+    { x: 9.4, y: 4, color: 0, kind: WARDEN, formation: 1 }, { x: 10.6, y: 4, color: 0, kind: WARDEN, formation: 1 },
+    ...[7.6, 8.6, 11.4, 12.4].map(x => ({ x, y: 5.4, color: 3, hp: 0, pairTint: true as const })), { x: 10, y: 6.6, color: 3, hp: 0 },
+  ],
+  pairShare: 0.3,
+});
+
+check('task 59б «Барбакан»: start enemies with `pairTint` take A of the pair when it is drawn (no draw more: the pair\u2019s colours as on an arena without them); the rest keep theirs (6 seeds)', () => {
+  const seen = new Set<number>();
+  for (let k = 1; k <= 6; k++) {
+    const sim = new Simulation({ arena: 'warden-tint', params: quiet(), seed: seedOf(k), record: true });
+    sim.tick();
+    const w = sim.world, [a, b] = pair(w), tinted = w.enemies.filter(e => e.kind === 'basic' && e.y < 6), plain = w.enemies.find(e => e.kind === 'basic' && e.y > 6)!;
+    assert(tinted.length === 4 && tinted.every(e => e.color === a.color && e.vars.pt === undefined) && plain.color === 3, `seed ${k}: tinted ${tinted.map(e => e.color).join()} / A ${a.color}, the plain ${plain.color}`);
+    const bare = gate(k);
+    assert(pair(bare.world)[0].color === a.color && pair(bare.world)[1].color === b.color, `seed ${k}: the pair\u2019s colours are the draw of an arena without the field`);
+    seen.add(a.color);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+  assert(seen.size >= 2, `A differs by seed (${[...seen].join(', ')})`);
+});
+
+check('task 59б «Барбакан»: `pairShare` 0.3 — the newcomers take A of the living pair about 0.25 + 0.3 × 0.75 ≈ 0.48 of the time (heuristic, 0.36…0.6 over 3 long fights); replays', () => {
+  let a = 0, all = 0;
+  for (const k of [1, 2, 3]) {
+    const p = defaultParams(); p.contactDamage = 0; p.heroHp = 99; p.hitstop = false; p.wardens = true;
+    const sim = new Simulation({ arena: 'warden-tint', params: p, seed: seedOf(k), record: true }), w = sim.world;
+    sim.tick();
+    const start = Math.max(...w.enemies.map(e => e.id)), colorA = pair(w)[0].color, counted = new Set<number>();
+    for (let i = 0; i < ticksOf(60) && w.status === 'playing'; i++) {
+      sim.tick(); w.events.length = 0;
+      if (!pair(w).every(e => e.vars.wp !== undefined)) break;
+      for (const e of w.enemies) if (e.id > start && e.kind === 'basic' && !counted.has(e.id)) { counted.add(e.id); all++; if (e.color === colorA) a++; }
+    }
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+  console.log(`   цвет A у притока: ${a} из ${all} (${(a / all).toFixed(2)}; эвристика)`);
+  assert(all >= 40 && a / all > 0.36 && a / all < 0.6, `the share of A ${a} / ${all}`);
+});
+
+check('task 59б: an arena without `pairTint` and `pairShare` draws as before — 30 s of «Привратники (проба)» with its newcomers on 3 seeds, the hashes of the base 8afcb20d', () => {
+  const want = ['1f69cda4add007aa', '515505bab37c42dd', '448f69c0ed686893'];
+  [1, 2, 3].forEach((k, i) => {
+    const p = defaultParams(); p.contactDamage = 0; p.heroHp = 99; p.hitstop = false;
+    const sim = new Simulation({ arena: 'g-warden-test', params: p, seed: seedOf(k), record: true });
+    for (let t = 0; t < 60 * 30; t++) sim.tick();
+    assert(sim.hash() === want[i], `seed ${k}: ${sim.hash()}`);
+  });
 });
 
 check('the law off: no pair, no anger; a journal without the keys plays the same world (2 seeds)', () => {

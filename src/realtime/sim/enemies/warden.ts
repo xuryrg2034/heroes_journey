@@ -18,6 +18,9 @@
  * waits for the hero's move). Then it calms down (no pair any more). Both by one pass — no anger. The highlight shows who will be angry
  * (chain.ts `planChain(...).anger`).
  *
+ * Task 59б: a start enemy marked `pairTint` (`vars.pt`) takes A of the arena's first pair when it is drawn («Барбакан»: a formation
+ * and weak enemies of A beside the pair); a newcomer of an arena with `pairShare` takes A of the living pair (spawn.ts `rollColor`).
+ *
  * State in `enemy.vars`: `fm` the formation, `wp` the partner's id (while the pair stands), `wd` 1 — the pair was drawn, `wa` the anger's
  * seconds left, `ws` 1 — a «Размах» winds up, `wt` its windup left of `ww`, `wc` the pause left, `wf` 1 after the first swing of the fight.
  */
@@ -85,6 +88,8 @@ function drawPairs(world: World, members: readonly Enemy[], palette: readonly nu
     const [a, b] = [...pair].sort((x, y) => x.id - y.id), [ca, cb] = pairColors(world, palette);
     a.color = ca; b.color = cb;
     a.vars.wp = b.id; b.vars.wp = a.id; a.vars.wd = 1; b.vars.wd = 1;
+    // Task 59б («Барбакан»): the start enemies marked `pairTint` take A of the arena's first pair drawn (no draw more).
+    for (const o of world.enemies) if (o.vars.pt === 1) { o.color = ca; delete o.vars.pt; }
   }
 }
 

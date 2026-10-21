@@ -1063,6 +1063,8 @@ function placeStartEnemy(world: World, s: StartEnemy): Enemy {
   if (s.shieldless) e.vars.bare = 1;
   // Task 38: a start guard of a formation (the var only on it; −n, apart from the newcomers' ids).
   if (s.formation !== undefined) e.vars.fm = -s.formation;
+  // Task 59б: an enemy that takes the colour A of the first pair of wardens when it is drawn (the var only on it; enemies/warden.ts).
+  if (s.pairTint) e.vars.pt = 1;
   // Stage 2, step 3: an elite from the start (arenas 9–10 of step 4).
   if (s.elite) makeElite(world, e);
   pushOutOfObstacles(e, bodyRadiusOf(world.params, e), world.arena);
