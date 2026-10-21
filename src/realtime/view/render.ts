@@ -1056,6 +1056,7 @@ export class RealtimeRenderer {
     this.chief.drawEdge(world, goal, !cc || (this.camera.sees({ x: cc.x, y: cc.y }, b, 0.5) && !this.bossCoreHidden(cc, world)), this.app.stage);
     // Task 55 Д: the warlock's window by the core's goal arrow while the core is off screen.
     const wc = warlockCore(world);
+    this.warlock.shown.hud = wc && this.camera.sees({ x: wc.x, y: wc.y }, b, 0.5) && this.bossCoreHidden(wc, world) ? 1 : 0;
     this.warlock.drawEdge(world, goal, !wc || (this.camera.sees({ x: wc.x, y: wc.y }, b, 0.5) && !this.bossCoreHidden(wc, world)), this.app.stage);
     this.courtShown.edgeCount = '';
     if (this.edgeCountLabel) this.edgeCountLabel.visible = false;

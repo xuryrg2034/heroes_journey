@@ -111,6 +111,8 @@ export class WarlockView {
   readonly shown = {
     /** The core is drawn this frame (0/1), dazed (his window stands), its glow is lit, the count over the head ('' — none) and by his goal arrow. */
     core: 0, dazed: 0, glow: 0, count: '', edgeCount: '',
+    /** The core is in the camera's view but its drawing is under the HUD or the action bar (it gets the pointer: render.ts `bossCoreHidden`). */
+    hud: 0,
     /** The charm's beam drawn (0/1) and the id of the wardrobe it ends at (−1 none). */
     beam: 0, beamTo: -1,
     /** The candles drawn, the target one (−1 none) with its flame's size in arena units and the sign's fill 0…1, the core's haze drawn (0/1), the drawn chain's dropping core blinks (0/1). */
@@ -136,7 +138,7 @@ export class WarlockView {
 
   beginFrame(): void {
     const s = this.shown;
-    s.core = 0; s.dazed = 0; s.glow = 0; s.count = ''; s.beam = 0; s.beamTo = -1; s.candles = 0; s.target = -1; s.flame = 0; s.signProgress = 0; s.haze = 0; s.dropping = 0;
+    s.core = 0; s.hud = 0; s.dazed = 0; s.glow = 0; s.count = ''; s.beam = 0; s.beamTo = -1; s.candles = 0; s.target = -1; s.flame = 0; s.signProgress = 0; s.haze = 0; s.dropping = 0;
   }
 
   /** The new fight: no effects, no memory. */

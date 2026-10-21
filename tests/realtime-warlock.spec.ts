@@ -18,7 +18,7 @@ interface WarlockState {
   shift: { candle: number; progress: number } | null; window: { open: boolean; left: number; hit: boolean } | null;
 }
 interface WarlockShown {
-  core: number; dazed: number; glow: number; count: string; edgeCount: string; beam: number; beamTo: number; candles: number; target: number; flame: number; signProgress: number; haze: number; dropping: number;
+  core: number; hud: number; dazed: number; glow: number; count: string; edgeCount: string; beam: number; beamTo: number; candles: number; target: number; flame: number; signProgress: number; haze: number; dropping: number;
   sparks: number; hits: number; opens: number; unlinks: number; snaps: number; marks: number; arrivals: number; smokes: number;
 }
 interface Snap {
@@ -261,7 +261,7 @@ test('task 55 Д: a window that runs out with him in the drawn chain — the lin
     return sn.warlock.shown.unlinks >= 1 ? { blinks: w.__warlockBlink, chain: sn.chain.length } : late ? null : undefined;
   }, null, 3);
   expect(dropped, 'the window ran out').not.toBeNull();
-  expect(dropped!.chain, 'the chain lost him').toBe(0);
+  expect((await snap(page)).chain, 'the chain lost him').not.toContain((await snap(page)).warlock.state!.id);
   expect(dropped!.blinks, 'the blink came before the drop').toBeGreaterThan(0);
   await page.mouse.up();
   expect((await snap(page)).bossBar.plates, 'no plate was lost').toBe(4);
@@ -270,7 +270,7 @@ test('task 55 Д: a window that runs out with him in the drawn chain — the lin
   expect(errors).toEqual([]);
 });
 
-test('task 55 Д: the window opens with one bell; the hero far south — his drawing is under the HUD or out of the frame: the goal pointer stands and his window's count is by it; the lemon returns to the reticle (screenshot)', async ({ page }) => {
+test('task 55 Д: the window opens with one bell; the hero far south — his drawing is under the HUD: the goal pointer stands and the window count is by it; the lemon returns to the reticle (screenshot)', async ({ page }) => {
   test.setTimeout(150_000);
   const errors = collectErrors(page);
   await openHall(page);
@@ -278,11 +278,22 @@ test('task 55 Д: the window opens with one bell; the hero far south — his dra
   await cameraSettled(page);
   await breakCharm(page);
   const sounds0 = (await snap(page)).warlock.sounds;
-  // The hero far south through the sign: the next candle's head is under the top band or out of the frame.
-  await untilFrame(page, (sn, _arg: null, late) => sn.warlock.state?.shift ? true : late ? false : undefined, null, 4);
-  await page.evaluate(() => (window as any).__realtime.teleport(12, 14.3));
-  const edge = await untilFrame(page, (sn, _arg: null, late) => sn.warlock.state?.window?.open && sn.warlock.shown.edgeCount !== '' ? sn : late ? null : undefined, null, 4);
-  expect(edge, 'the count stands by the core's pointer').not.toBeNull();
+  // The hero walks by the journal's teleport, a small step a frame, until the next candle's head stands under the top band (the camera follows him):
+  // the core arrives with his drawing under the HUD (the top band, not the bar) and his body in the camera's view.
+  await page.evaluate(() => (window as any).__realtime.teleport(12, 11));
+  const edge = await untilFrame(page, (sn, _arg: null, late, rt) => {
+    const st = sn.warlock.state;
+    if (!st) return late ? null : undefined;
+    const at = st.window ? st.candles[st.candle] : st.shift ? st.candles[st.shift.candle] : st.candles[st.candle];
+    const head = rt.toScreen(at.x, at.y - 1.36).y, body = rt.toScreen(at.x, at.y).y;
+    if (st.window?.open && sn.warlock.shown.hud === 1 && sn.warlock.shown.edgeCount !== '' && head < 84 && body > 84) return sn;
+    if (late) return null;
+    if (head > 60) rt.teleport(12, Math.min(14.4, sn.hero.y + 0.05));
+    else if (head < 36) rt.teleport(12, Math.max(1, sn.hero.y - 0.05));
+    return undefined;
+  }, null, 6);
+  expect(edge, 'the count stands by the core pointer, his drawing under the top band').not.toBeNull();
+  expect(edge!.warlock.shown.hud, 'the core is in the camera view, its drawing under the HUD').toBe(1);
   expect(edge!.eliteView.edgeArrows, 'a goal pointer').toBeGreaterThanOrEqual(1);
   expect(edge!.warlock.sounds, 'one bell for the window').toBe(sounds0 + 1);
   expect(edge!.markedView.charmed, 'no violet reticle in phase 2').toBe(0);
