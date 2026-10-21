@@ -276,7 +276,7 @@ async function walkDaily(page: Page, maxFights: number): Promise<string[]> {
     }
     switch (pending.kind) {
       case 'gift':
-        if (await clickFirst(page, '[data-action="habit"]:not([data-habit="none"]):not([disabled])')) continue;
+        if (await clickFirst(page, '[data-testid="gift-habits"][data-chosen="false"] [data-action="habit"]:not([data-habit="none"])')) continue;
         await takeGift(page);
         break;
       case 'battle': await page.getByTestId('run-battle').click(); await expect.poll(() => arenaOpen(page)).toBe(true); break;
