@@ -58,6 +58,8 @@ export interface Garrison3Shown {
   throws: number; lands: number; heroHits: number; pooled: number; ignites: number;
   /** Frame: the pools drawn (arena units; `burning` — lit) and the marks drawn (the pot's target), for the tests' real input. */
   poolAt: { id: number; x: number; y: number; burning: boolean }[]; markAt: { x: number; y: number }[];
+  /** Frame: the share of the flight (0…1) of each pot in the air drawn. */
+  potT: number[];
   recruits: {
     /** Frame: plaques drawn, of them the current ones (bright), dim ones, the bans on bodies the law refuses in the plan. */
     numbers: number; current: number; dim: number; bans: number;
@@ -81,7 +83,7 @@ interface Fx { kind: FxKind; x: number; y: number; r: number; born: number; life
 
 const emptyShown = (): Garrison3Shown => ({
   windups: 0, pots: 0, marks: 0, marksLit: 0, pools: 0, burning: 0, poolFire: 0, heroInPitch: 0, drops: 0, trail: 0,
-  throws: 0, lands: 0, heroHits: 0, pooled: 0, ignites: 0, poolAt: [], markAt: [],
+  throws: 0, lands: 0, heroHits: 0, pooled: 0, ignites: 0, poolAt: [], markAt: [], potT: [],
   recruits: { numbers: 0, current: 0, dim: 0, bans: 0, currentNumber: 0, refused: 0, drills: 0, unlinks: 0, drillAt: null },
   wardens: { keys: 0, gold: 0, warn: 0, anger: 0, swings: 0, starts: 0, ends: 0, hits: 0 },
 });
@@ -140,7 +142,7 @@ export class Garrison3View {
   /** The frame's counters start from zero (event counts stay). */
   beginFrame(): void {
     const s = this.shown;
-    s.windups = 0; s.pots = 0; s.marks = 0; s.marksLit = 0; s.pools = 0; s.burning = 0; s.poolFire = 0; s.heroInPitch = 0; s.drops = 0; s.trail = 0; s.poolAt = []; s.markAt = [];
+    s.windups = 0; s.pots = 0; s.marks = 0; s.marksLit = 0; s.pools = 0; s.burning = 0; s.poolFire = 0; s.heroInPitch = 0; s.drops = 0; s.trail = 0; s.poolAt = []; s.markAt = []; s.potT = [];
     Object.assign(s.recruits, { numbers: 0, current: 0, dim: 0, bans: 0, currentNumber: 0 });
     Object.assign(s.wardens, { keys: 0, gold: 0, warn: 0, anger: 0, swings: 0 });
   }
@@ -291,6 +293,7 @@ export class Garrison3View {
       if (!sees(pot) && !sees({ x: pot.x0, y: pot.y0 })) continue;
       s.pots++;
       const t = Math.max(0, Math.min(1, 1 - pot.left / Math.max(1e-6, pot.flight))), dist = Math.hypot(pot.x - pot.x0, pot.y - pot.y0);
+      s.potT.push(t);
       const apex = Math.min(4.2, 1.6 + 0.35 * dist) * u, h = 4 * apex * t * (1 - t);
       const gx = (pot.x0 + (pot.x - pot.x0) * t) * u, gy = (pot.y0 + (pot.y - pot.y0) * t) * u, sz = r * 0.5;
       const sr = sz * (0.7 + 0.9 * t);

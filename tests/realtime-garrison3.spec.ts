@@ -16,7 +16,7 @@ import { replay, type Journal } from '../src/realtime/sim/simulation';
 interface G3 {
   windups: number; pots: number; marks: number; marksLit: number; pools: number; burning: number; poolFire: number; heroInPitch: number; drops: number; trail: number;
   throws: number; lands: number; heroHits: number; pooled: number; ignites: number;
-  poolAt: { id: number; x: number; y: number; burning: boolean }[]; markAt: { x: number; y: number }[];
+  poolAt: { id: number; x: number; y: number; burning: boolean }[]; markAt: { x: number; y: number }[]; potT: number[];
   recruits: { numbers: number; current: number; dim: number; bans: number; currentNumber: number; refused: number; drills: number; unlinks: number };
   wardens: { keys: number; gold: number; warn: number; anger: number; swings: number; starts: number; ends: number; hits: number };
   sounds: { throws: number; lands: number; ignites: number; keys: number };
@@ -58,6 +58,19 @@ async function quiet(page: Page, extra: [string, unknown][] = []): Promise<void>
   }, extra);
 }
 
+/**
+ * A fresh fight that is quiet from its first frame: the restart and the params in ONE task of the page (no frame between), so the
+ * enemies do not creep towards the hero while the test is looking for them (the columns and the line moved 0.5 unit in the first
+ * second, 2026-10-21 run pw-59a-2). Journalled commands only, so the fight replays in Node.
+ */
+async function freshQuiet(page: Page, extra: [string, unknown][] = []): Promise<void> {
+  await page.evaluate(extra => {
+    const rt = (window as any).__realtime;
+    rt.restart();
+    for (const [k, v] of [['enemySpeed', 0], ['speedSpread', 0], ['baseIntervalMin', 1000], ['baseIntervalMax', 1000], ['baseFloor', 0], ['contactDamage', 0], ...extra] as const) rt.setParam(k, v);
+  }, extra);
+}
+
 /** The journal of the fight replays in Node (no view at all) to the hash the page has. */
 async function sameHash(page: Page): Promise<void> {
   const recorded = await page.evaluate(() => { const rt = (window as any).__realtime; return { journal: rt.journal(), hash: rt.hash() }; }) as { journal: Journal; hash: string };
@@ -65,7 +78,7 @@ async function sameHash(page: Page): Promise<void> {
 }
 
 /** The chain with the real mouse over the bodies `ids` in turn; `release` — let go (the dash). */
-async function drawChain(page: Page, ids: number[], release = true): Promise<void> {
+async function drawChain(page: Page, ids: number[], release = true, detour = false): Promise<void> {
   const at = async (id: number): Promise<{ x: number; y: number }> => {
     const e = (await snap(page)).enemies.find(q => q.id === id)!;
     return page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [e.x, e.y] as const);
@@ -73,7 +86,15 @@ async function drawChain(page: Page, ids: number[], release = true): Promise<voi
   const p0 = await at(ids[0]);
   await page.mouse.move(p0.x, p0.y);
   await page.mouse.down();
-  for (const id of ids.slice(1)) { const p = await at(id); await page.mouse.move(p.x, p.y, { steps: 6 }); }
+  let prev = p0;
+  for (const id of ids.slice(1)) {
+    const p = await at(id);
+    // `detour`: below the bodies (towards the hero) and up to the target. A straight swipe that crosses the previous link steps the chain
+    // back («навести на предпоследнее звено — шаг назад»): the recruits stand in a row and the numbers jump over each other.
+    if (detour) { await page.mouse.move(prev.x, prev.y + 70, { steps: 4 }); await page.mouse.move(p.x, p.y + 70, { steps: 8 }); }
+    await page.mouse.move(p.x, p.y, { steps: 4 });
+    prev = p;
+  }
   await expect.poll(async () => (await snap(page)).chain).toEqual(ids);
   if (release) await page.mouse.up();
 }
@@ -104,6 +125,9 @@ test('task 59а view: «Смолокур (проба)» — the mark stands the 
   const air = await untilFrame(page, (sn, _a, late) => sn.garrison.pots > 0 || late ? sn.garrison.pots : undefined, null, 6);
   expect(air).toBe(1);
   expect((await snap(page)).garrison.marks).toBe(1);
+  // The pot in the frame at the middle of its flight (a share of 0.3–0.7), not at the moment the mark appears.
+  await untilFrame(page, (sn, _a, late) => sn.garrison.potT.some((t: number) => t >= 0.3 && t <= 0.7) || late ? sn.garrison.potT.length : undefined, null, 3);
+  expect((await snap(page)).garrison.potT.length).toBe(1);
   await shot(page, 'flight');
   // Off the mark by the keys: the mark was fixed at the throw.
   const hp0 = (await snap(page)).hero.hp;
@@ -192,7 +216,7 @@ test('task 59а view: «Новобранцы (проба)» — a press on №2 
   test.setTimeout(120_000);
   const errors = collectErrors(page);
   await openProbe(page, 2);
-  await quiet(page);
+  await freshQuiet(page);
   await expect.poll(async () => (await snap(page)).garrison.recruits.numbers).toBe(4);
   const s0 = await snap(page);
   expect(s0.garrison.recruits.current).toBe(1);
@@ -211,7 +235,7 @@ test('task 59а view: «Новобранцы (проба)» — a press on №2 
   await page.mouse.up();
   // 1 → 4: the number follows the chain, the line falls, the energy gains the bonus.
   const energy0 = (await snap(page)).energy;
-  await drawChain(page, line.map(e => e.id), false);
+  await drawChain(page, line.map(e => e.id), false, true);
   await expect.poll(async () => (await snap(page)).garrison.recruits.currentNumber).toBe(0);
   await page.mouse.up();
   await expect.poll(async () => (await snap(page)).enemies.filter(e => e.kind === 'recruit').length).toBe(0);
@@ -226,16 +250,20 @@ test('task 59а view: «Привратники (проба)» — a chain into o
   test.setTimeout(180_000);
   const errors = collectErrors(page);
   await openProbe(page, 3);
-  await quiet(page);
+  await freshQuiet(page);
   await expect.poll(async () => (await snap(page)).garrison.wardens.keys).toBe(2);
   await shot(page, 'wardens-pair');
   // The probe (sim/arenasStep3.ts): the pair above four columns of five weak enemies, one colour each (x 7.6, 8.8, 10, 11.2; the tops at y 5.2).
   const COLUMNS = [7.6, 8.8, 10, 11.2];
+  /** The weak enemies of A's column as they stand now (a column is found by its x, not by a fixed row): from the top down. */
+  const columnOf = async (color: number): Promise<Snap['enemies']> => (await snap(page)).enemies.filter(e => e.kind === 'basic' && Math.abs(e.x - COLUMNS[color]) < 0.4).sort((x, y) => x.y - y.y);
   const pairOf = async (): Promise<Snap['enemies']> => (await snap(page)).enemies.filter(e => e.kind === 'warden').sort((x, y) => x.x - y.x);
   const [a] = await pairOf();
   // Kill one of the pair: the top of A's column, then A (the hero stands between the columns, at the top).
-  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [COLUMNS[a.color] + 0.6, 5.7] as const);
-  const top = (await snap(page)).enemies.find(e => e.kind === 'basic' && Math.abs(e.x - COLUMNS[a.color]) < 0.2 && Math.abs(e.y - 5.2) < 0.3)!;
+  const col = await columnOf(a.color);
+  expect(col.length).toBe(5);
+  const top = col[0];
+  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [COLUMNS[a.color] + 0.6, top.y + 0.5] as const);
   await drawChain(page, [top.id, a.id], false);
   await expect.poll(async () => (await snap(page)).garrison.wardens.warn).toBe(1);
   await shot(page, 'wardens-warn');
@@ -249,14 +277,13 @@ test('task 59а view: «Привратники (проба)» — a chain into o
   await shot(page, 'wardens-swing');
   await sameHash(page);
   // A new fight: both in one chain through the colour freed by «Смена цвета».
-  await page.evaluate(() => (window as any).__realtime.restart());
-  await quiet(page, [['colorShiftLinks', 6]]); // the sandbox has 0; the run's 6
+  await freshQuiet(page, [['colorShiftLinks', 6]]); // the sandbox has 0; the run's 6
   await expect.poll(async () => (await snap(page)).garrison.wardens.keys).toBe(2);
   const pair = await pairOf();
   // Five links of A's column from the bottom up, A, then B (the colour is free from the sixth link on).
-  const column = (await snap(page)).enemies.filter(e => e.kind === 'basic' && Math.abs(e.x - COLUMNS[pair[0].color]) < 0.2).sort((x, y) => y.y - x.y);
+  const column = (await columnOf(pair[0].color)).reverse();
   expect(column.length).toBe(5);
-  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [COLUMNS[pair[0].color] + 0.6, 10.2] as const);
+  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [COLUMNS[pair[0].color] + 0.6, column[0].y + 0.9] as const);
   await drawChain(page, [...column.map(e => e.id), pair[0].id, pair[1].id], false);
   await expect.poll(async () => (await snap(page)).garrison.wardens.gold).toBe(2);
   expect((await snap(page)).garrison.wardens.warn).toBe(0);
