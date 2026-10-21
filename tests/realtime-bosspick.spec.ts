@@ -68,10 +68,27 @@ async function drawingPoint(page: Page, id: number, u: number, v: number): Promi
   expect(Math.hypot(p.x - body.x, p.y - body.y), 'the pointer is out of the feet circle').toBeGreaterThan(z.ring);
   return p;
 }
+/**
+ * The pointer (button up) goes to the arena point p and stays on it. The camera leads towards the pointer (camera.ts: a fifth of hero→pointer, up to 2
+ * across and 1.2 along) and stands still only while the button is held, so after a move the arena point under a still pointer drifts; the pointer
+ * follows p until the camera stopped (two reads 0.1 game s apart agree). Without it a press landed off the point checked before it — once into the
+ * circle of a crowd body by the warlock (21.10.2026, 1 of 5; the same drift made castellan-full's lever press take a body behind the lever).
+ */
+async function holdPointer(page: Page, p: { x: number; y: number }, steps = 1): Promise<void> {
+  const screen = (): Promise<{ x: number; y: number }> => page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [p.x, p.y] as const);
+  let t = await screen();
+  await page.mouse.move(t.x, t.y, { steps });
+  for (let i = 0; i < 40; i++) {
+    await gameWait(page, 0.1);
+    const now = await screen();
+    if (Math.abs(now.x - t.x) < 0.5 && Math.abs(now.y - t.y) < 0.5) return;
+    t = now;
+    await page.mouse.move(t.x, t.y);
+  }
+}
 async function aimOnDrawing(page: Page, id: number, u: number, v: number, steps = 4): Promise<{ x: number; y: number }> {
   const p = await drawingPoint(page, id, u, v);
-  const t = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [p.x, p.y] as const);
-  await page.mouse.move(t.x, t.y, { steps });
+  await holdPointer(page, p, steps);
   return p;
 }
 
@@ -123,8 +140,7 @@ async function startPlace(page: Page, p: { x: number; y: number }, near: { x: nu
 /** A body of `color` put (frozen) at (x, y); the mouse presses on it: the chain is [body] and goes on (the button stays down). */
 async function startChainOn(page: Page, x: number, y: number, color: number): Promise<number> {
   const id = await page.evaluate(([x, y, color]) => { const rt = (window as any).__realtime, id = rt.place(x, y, color, 0, 'basic'); rt.chill(id, 600); return id; }, [x, y, color] as const) as number;
-  const t = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [x, y] as const);
-  await page.mouse.move(t.x, t.y, { steps: 2 });
+  await holdPointer(page, { x, y }, 2);
   await page.mouse.down();
   await expect.poll(async () => (await snap(page)).chain, { message: 'the chain is started on the body' }).toEqual([id]);
   return id;
@@ -351,10 +367,8 @@ test('«Зона по рисунку»: the Chief — at the overlap of his and 
   const at = await overlapPoint(page, core.id, ladle.id);
   expect(artEllipseDepth(await zoneOf(page, core.id), at), 'the point is in the core ellipse').toBeLessThanOrEqual(1);
   expect(artEllipseDepth(await zoneOf(page, ladle.id), at), 'the point is in the ladle ellipse').toBeLessThanOrEqual(1);
-  const screenAt = async (): Promise<{ x: number; y: number }> => page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [at.x, at.y] as const);
   // The core shut (no feast yet), the ladle takeable as the first link: the press takes the ladle, no refusal.
-  const t0 = await screenAt();
-  await page.mouse.move(t0.x, t0.y, { steps: 4 });
+  await holdPointer(page, at, 4);
   await expect.poll(async () => (await snap(page)).hint, { message: 'a part is takeable: no refusal' }).toBeNull();
   await page.mouse.down();
   await expect.poll(async () => (await snap(page)).chain, { message: 'the core is shut: the ladle is taken' }).toEqual([ladle.id]);
@@ -369,8 +383,7 @@ test('«Зона по рисунку»: the Chief — at the overlap of his and 
   await page.evaluate(([id]) => (window as any).__realtime.chill(id, 20), [core.id] as const);
   const eaters = (await snap(page)).enemies.filter(e => e.vars.eat).sort((a, b) => b.x - a.x);
   expect(eaters.length).toBeGreaterThanOrEqual(3);
-  const first = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [eaters[0].x, eaters[0].y] as const);
-  await page.mouse.move(first.x, first.y);
+  await holdPointer(page, eaters[0]);
   await page.mouse.down();
   for (const e of eaters.slice(1, 3)) {
     const t = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [e.x, e.y] as const);
@@ -442,8 +455,7 @@ test('«Зона по рисунку» (design 21.10.2026, rule d): the Jailer h
   }
   expect(reach, `the core is allowed as the first link from some place (${tried.join('; ')})`).toBe(true);
   await cameraSettled(page);
-  const onCore = await at(stop!);
-  await page.mouse.move(onCore.x, onCore.y, { steps: 3 });
+  await holdPointer(page, stop!, 3);
   await expect.poll(async () => (await snap(page)).hint, { message: 'the core is takeable: no refusal at the cursor' }).toBeNull();
   await page.mouse.down();
   await expect.poll(async () => (await snap(page)).chain, { message: 'a press on the drawing starts the chain with the core' }).toEqual([ids.core]);
@@ -453,7 +465,7 @@ test('«Зона по рисунку» (design 21.10.2026, rule d): the Jailer h
   // The hero back west of the link: the route of the sweep.
   await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [hero0.x, hero0.y] as const);
   await cameraSettled(page);
-  const press = async (): Promise<void> => { const t = await at(link); await page.mouse.move(t.x, t.y, { steps: 2 }); await page.mouse.down(); await expect.poll(async () => (await snap(page)).chain).toEqual([link.id]); };
+  const press = async (): Promise<void> => { await holdPointer(page, link, 2); await page.mouse.down(); await expect.poll(async () => (await snap(page)).chain).toEqual([link.id]); };
   // (1) One pointer event from the link to the weight: the path is a sweep, only the circles count — [link, weight], no core.
   await press();
   await expectSegmentClear(page, link, weight, [link.id, ids.weight], 'the sweep from the link to the weight');
