@@ -34,6 +34,7 @@ import { SLINGER, SLING_MIN, SLING_WINDUP, STONE_RADIUS } from './enemies/slinge
 import { HIVE, HIVE_NEAR, HIVE_RING, HIVE_SPEED, RING_RADIUS, WASP_HANG, WASP_RADIUS } from './enemies/hive';
 import { WISP, WISP_LIGHT, WISP_SPEED } from './enemies/wisp';
 import { registerArena, registeredArenas, type ArenaTemplate } from './arenas';
+import './arenasStep3';
 import { defaultParams, heroRadius, type Params } from './params';
 import { Simulation, SIM_DT } from './simulation';
 import { touchDistance, type WorldEvent } from './world';
@@ -254,7 +255,9 @@ check('task 59а (spec 3.6): «Размах» with the hero in pitch and the cro
   const n = REACTION + slowed(RUN) / RUN.heroSpeed;
   console.log(`   рыцарь/привратник: размах, герой в смоле и толпе (поход): окно ${round2(swing.window(RUN))} с, нужно ${round2(n)} с — запрет состава`);
   assert(swing.window(RUN) < n, `the swing in pitch fits now (${swing.window(RUN)} ≥ ${round2(n)}): the ban may be stale — ask the design`);
-  // No arena holds a pitcher yet (20.10.2026): this walks an empty set. Task 59б: with the first pitcher arena, assert one was found.
+  // Task 59б: the arenas with a pitcher exist («Смолокурня», its probe) — the check must find them (an empty set proves nothing).
+  const withPitcher = registeredArenas().filter(t => [...t.enemies, ...t.deepEnemies ?? [], ...t.boltEnemies ?? []].some(e => e.kind === PITCHER) || (t.newcomers ?? []).some(n => n.kind === PITCHER));
+  assert(withPitcher.some(t => t.id === 'g-tarworks') && withPitcher.length >= 2, `arenas with a pitcher: ${withPitcher.map(t => t.id).join(', ')}`);
   const broken = registeredArenas().map(pitchSwingClash).filter((x): x is string => !!x);
   assert(!broken.length, `arenas with a pitcher and «Размах»: ${broken.join('; ')}`);
   const probe = { id: 'probe', enemies: [{ x: 1, y: 1, color: 0, kind: PITCHER }], newcomers: [{ kind: KNIGHT, share: 1 }] } as unknown as ArenaTemplate;

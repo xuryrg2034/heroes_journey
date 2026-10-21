@@ -3,12 +3,46 @@
  * docs/realtime-slice.md, «Гарнизон, шаг 3»). Node only: `npm run test:realtime-garrison-step3`. The runs are walked by the run's
  * commands (metaWalk.testkit.ts); seeds `Math.imul(k, 2654435761) >>> 0`.
  */
-import { garrisonDrill, RT_GARRISON_STEP3_ON, rtGarrisonNodeId } from './garrison';
+import {
+  bareNodeId, garrisonDrill, GARRISON_ARMORY_ARENA, GARRISON_BARBICAN_ARENA, GARRISON_BARRACKS_ARENA, GARRISON_TARWORKS_ARENA, RT_GARRISON_STEP3_ON, rtGarrisonNodeId,
+  type GarrisonDrill,
+} from './garrison';
+import { runRow } from './arenaPools';
 import { walkRun } from './metaWalk.testkit';
-import { createRtRun, parseRtRun, rtArenaLoadout, serializeRtRun, type RtRunState } from './rtRun';
+import { createRtRun, parseRtRun, rtArenaLoadout, rtArenaParams, rtAvailableNodes, rtNode, rtRunParams, serializeRtRun, type RtRunState } from './rtRun';
+import { rtNodeEnemies } from './nodeEnemies';
+import { nodePlace } from '../forest/mapGenerator';
+import { Simulation } from '../sim/simulation';
+import { KNIGHT } from '../sim/enemies/garrison';
+import { PITCHER } from '../sim/enemies/pitcher';
+import { RECRUIT } from '../sim/enemies/recruit';
+import { WARDEN } from '../sim/enemies/warden';
 import { RtRecorder } from '../telemetry/recorder';
 import { memoryJournalStore, type KeyValueStore } from '../telemetry/buffer';
 import { defaultParams } from '../sim/params';
+
+/** A garrison fight a walk of step 3 entered: the node, its garrison row and branch, the arena, the kinds of its world, its laws, the run before it. */
+interface Fight { nodeId: string; row: number; branch: string | null; arena: string; kinds: string[]; laws: { pitch: boolean; recruits: boolean; wardens: boolean }; knights: number; state: RtRunState }
+/** A run of step 3 walked to its end; `branch` — the walk prefers that branch's nodes. The kinds — of the fight's world (its start and newcomers). */
+function walkStep3(k: number, branch?: 'den' | 'camp'): { drill: GarrisonDrill; fights: Fight[] } {
+  const fights: Fight[] = [];
+  const walk = walkRun({
+    k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, step3: true },
+    ...branch ? { pickNode: (_run: RtRunState, ids: readonly string[]) => ids.find(id => bareNodeId(id).startsWith(`${branch}-`)) ?? null } : {},
+    each: state => {
+      const pending = state.pending;
+      if (pending?.kind !== 'battle' || !rtGarrisonNodeId(pending.nodeId) || fights.some(f => f.nodeId === pending.nodeId)) return;
+      const node = rtNode(state, pending.nodeId)!, loadout = rtArenaLoadout(state);
+      const sim = new Simulation({ arena: pending.arena, ...pending.roster !== undefined ? { roster: pending.roster } : {}, params: rtArenaParams(state, rtRunParams(defaultParams())), seed: pending.seed, loadout });
+      sim.tick();
+      const w = sim.world, kinds = [...new Set([...w.enemies.map(e => e.kind), ...(w.arena.newcomers ?? []).filter(n => n.share > 0).map(n => n.kind)])];
+      fights.push({ nodeId: node.id, row: runRow(node.row), branch: nodePlace(bareNodeId(node.id))?.branch ?? null, arena: pending.arena, kinds,
+        laws: { pitch: !!w.params.pitch, recruits: !!w.params.recruits, wardens: !!w.params.wardens }, knights: loadout.knights ?? 0, state: structuredClone(state) });
+    },
+  });
+  return { drill: walk.run.step3!.drill, fights };
+}
+const STEP3_RUNS = Array.from({ length: 60 }, (_, i) => walkStep3(i + 1, i % 2 ? 'camp' : 'den'));
 import { checkRecord, emptyFightSummary, runKey, runRecordId, sessionKey, type RunRecord } from '../telemetry/schema';
 import { garrisonSection, garrisonStats, type FightEntry } from '../telemetry/report';
 
@@ -88,6 +122,86 @@ check('telemetry: the run record field `drill` passes checkRecord (another value
   assert(t.pitchFights === 2 && t.pitchSeconds === 6 && t.fireFights === 1 && t.ignites === 2 && t.drill.barracks === 2 && t.drill.armory === 1, JSON.stringify(t));
   const text = garrisonSection(runs, fights);
   assert(text.includes('строёв одним проходом 1 из 2') && text.includes('пар без гнева 1 из 2') && text.includes('«Казарма» 2'), text.split(String.fromCharCode(10)).slice(-3).join(' | '));
+});
+
+check('the pools of step 3 (60 runs, steered): the drill decides the trails — «Казарма» and no knight anywhere, or «Ристалище»; «Барбакан» only on `den` rows 8–9, «Смолокурня» only on `camp` rows 8–9', () => {
+  const seen = { barracks: 0, armory: 0, barbican: 0, tarworks: 0 };
+  for (const { drill, fights } of STEP3_RUNS) {
+    for (const f of fights) {
+      if (drill === 'barracks') assert(f.arena !== GARRISON_ARMORY_ARENA && f.knights === 0 && !f.kinds.includes(KNIGHT), `${f.nodeId}: no knight in a run of «Казарма» (${f.arena})`);
+      else assert(f.arena !== GARRISON_BARRACKS_ARENA && !f.kinds.includes(RECRUIT), `${f.nodeId}: no recruit in a run of «Ристалище»`);
+      if (f.arena === GARRISON_BARRACKS_ARENA) { assert(f.row >= 3, `${f.nodeId}: «Казарма» row ${f.row}`); seen.barracks++; }
+      if (f.arena === GARRISON_ARMORY_ARENA) seen.armory++;
+      if (f.arena === GARRISON_BARBICAN_ARENA) { assert(f.branch === 'den' && f.row >= 8 && f.row <= 9, `${f.nodeId}: «Барбакан» ${f.branch} row ${f.row}`); seen.barbican++; }
+      if (f.arena === GARRISON_TARWORKS_ARENA) { assert(f.branch === 'camp' && f.row >= 8 && f.row <= 9, `${f.nodeId}: «Смолокурня» ${f.branch} row ${f.row}`); seen.tarworks++; }
+    }
+  }
+  console.log(`   «Казарма» ${seen.barracks}, «Ристалище» ${seen.armory}, «Барбакан» ${seen.barbican}, «Смолокурня» ${seen.tarworks} (60 походов)`);
+  assert(seen.barracks > 0 && seen.armory > 0 && seen.barbican > 0 && seen.tarworks > 0, JSON.stringify(seen));
+});
+
+check('a new kind first on its own arena, its law only there (the template\u2019s flag): the first fight with recruits is «Казарма», with wardens «Барбакан», with a pitcher «Смолокурня»; `recruits`, `wardens`, `pitch` on only in those fights', () => {
+  const own: Record<string, string> = { [RECRUIT]: GARRISON_BARRACKS_ARENA, [WARDEN]: GARRISON_BARBICAN_ARENA, [PITCHER]: GARRISON_TARWORKS_ARENA };
+  for (const { fights } of STEP3_RUNS) {
+    for (const [kind, arena] of Object.entries(own)) {
+      const first = fights.find(f => f.kinds.includes(kind));
+      assert(!first || first.arena === arena, `${first?.nodeId}: the first ${kind} on ${first?.arena}`);
+    }
+    for (const f of fights) {
+      assert(f.laws.recruits === (f.arena === GARRISON_BARRACKS_ARENA) && f.laws.wardens === (f.arena === GARRISON_BARBICAN_ARENA) && f.laws.pitch === (f.arena === GARRISON_TARWORKS_ARENA), `${f.nodeId}: laws ${JSON.stringify(f.laws)} on ${f.arena}`);
+    }
+  }
+});
+
+check('spec 3.6: no fight of 300 runs of step 3 holds a pitcher with a knight (the arena\u2019s or `Loadout.knights`) or a warden', () => {
+  let pitched = 0;
+  for (let k = 1; k <= 300; k++) {
+    walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, step3: true }, each: state => {
+      const pending = state.pending;
+      if (pending?.kind !== 'battle' || !rtGarrisonNodeId(pending.nodeId)) return;
+      const card = rtNodeEnemies(state, rtNode(state, pending.nodeId)!)!;
+      const kinds = new Set([...card.start.map(e => e.kind), ...card.newcomers]);
+      if (!kinds.has(PITCHER)) return;
+      pitched++;
+      assert(!kinds.has(KNIGHT) && card.knights === 0 && !kinds.has(WARDEN), `seed ${k}, ${pending.nodeId}: a pitcher with ${JSON.stringify(card)}`);
+    } });
+  }
+  console.log(`   боёв со смолокуром: ${pitched}`);
+  assert(pitched > 0, 'some fights with a pitcher');
+});
+
+check('the node card (step 6): an available node of a step 3 arena names its new kind before the entry — the pitcher, the recruits, the wardens (from the world the fight starts with)', () => {
+  const named = new Set<string>();
+  for (let k = 1; k <= 30 && named.size < 3; k++) {
+    walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, step3: true },
+      pickNode: (_run: RtRunState, ids: readonly string[]) => ids.find(id => bareNodeId(id).startsWith(k % 2 ? 'camp-' : 'den-')) ?? null,
+      each: state => {
+        if (state.pending) return;
+        for (const node of rtAvailableNodes(state)) {
+          const card = rtGarrisonNodeId(node.id) ? rtNodeEnemies(state, node) : null;
+          if (!card) continue;
+          const kind = card.arena === GARRISON_BARRACKS_ARENA ? RECRUIT : card.arena === GARRISON_BARBICAN_ARENA ? WARDEN : card.arena === GARRISON_TARWORKS_ARENA ? PITCHER : null;
+          if (!kind) continue;
+          assert(card.start.some(e => e.kind === kind), `${node.id}: the card of ${card.arena} names ${kind} (${JSON.stringify(card.start)})`);
+          named.add(kind);
+        }
+      } });
+  }
+  assert(named.size === 3, `named: ${[...named].join(', ')}`);
+});
+
+check('saves of step 3 read back at every garrison fight; with `step3` taken away, a save that played an arena of step 3 is no run', () => {
+  let stripped = 0;
+  for (const { fights } of STEP3_RUNS.slice(0, 12)) for (const f of fights) {
+    const text = serializeRtRun(f.state), back = parseRtRun(text);
+    assert(back && serializeRtRun(back) === text, `${f.nodeId}: reads back`);
+    if (f.state.picks.some(pick => [GARRISON_BARRACKS_ARENA, GARRISON_BARBICAN_ARENA, GARRISON_TARWORKS_ARENA].includes(pick.arena ?? ''))) {
+      const copy = JSON.parse(text) as Partial<RtRunState>; delete copy.step3;
+      assert(parseRtRun(JSON.stringify(copy)) === null, `${f.nodeId}: without the flag the arenas of step 3 are not step 2's pools`);
+      stripped++;
+    }
+  }
+  assert(stripped >= 5, `stripped saves ${stripped}`);
 });
 
 // The recorder (as the view feeds it): a run of step 3 — its run record carries the drill.

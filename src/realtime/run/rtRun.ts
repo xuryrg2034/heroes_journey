@@ -2241,7 +2241,7 @@ function arenaPick(run: RtRunState, node: ForestMapNode, advance: boolean): RtAr
   // Task 38: a garrison node — the garrison's arena by its pool stream after the garrison's arenas (no roster).
   if (rtGarrisonNodeId(node.id)) {
     const garrisonHistory = run.picks.flatMap(pick => pick.arena && rtGarrisonNodeId(pick.nodeId) ? [pick.arena] : []);
-    return { arena: garrisonArena(node, garrisonHistory, draw(run, 'pool', advance), !!run.moat, !!run.step2) };
+    return { arena: garrisonArena(node, garrisonHistory, draw(run, 'pool', advance), !!run.moat, !!run.step2, run.step3?.drill) };
   }
   const history = run.picks.flatMap(pick => pick.arena ? [pick.arena] : []);
   // Task 26: a run with a schedule spends the pool draw as before (the stream counters stay) but reads the node's own roll.
@@ -4210,7 +4210,7 @@ function checkRun(value: unknown): RtRunState | null {
     const node = map.node(pick.nodeId)!;
     if (!isArenaNode(node) && !(node.type === 'event' && pick.eventId && battleOption(forestEvent(pick.eventId)!))) return null;
     if (rtGarrisonNodeId(node.id)) {
-      if (pick.roster !== undefined || pick.arc !== undefined || pick.arena !== garrisonArena(node, garrisonHistory, streamValue(level.seed, 'pool', garrisonHistory.length), !!run.moat, !!run.step2)) return null;
+      if (pick.roster !== undefined || pick.arc !== undefined || pick.arena !== garrisonArena(node, garrisonHistory, streamValue(level.seed, 'pool', garrisonHistory.length), !!run.moat, !!run.step2, run.step3?.drill)) return null;
       garrisonHistory.push(pick.arena);
       continue;
     }

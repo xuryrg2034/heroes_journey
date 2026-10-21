@@ -29,6 +29,11 @@ import { arenaTemplate } from '../sim/arenas';
 import { ARMORY_ARENA, CASTELLAN_ARENA, GALLERY_ARENA, GUARDROOM_ARENA, KENNEL_ARENA, LOOPHOLES_ARENA, MOAT_ARENA, YARD_ARENA } from '../sim/arenasGarrison';
 import { CROSSBOW } from '../sim/enemies/crossbow';
 import { GUARD, HANDLER, KEYMASTER, KNIGHT } from '../sim/enemies/garrison';
+// Task 59б: the arenas and kinds of step 3.
+import { BARBICAN_ARENA, BARRACKS_ARENA, TARWORKS_ARENA } from '../sim/arenasStep3';
+import { PITCHER } from '../sim/enemies/pitcher';
+import { RECRUIT } from '../sim/enemies/recruit';
+import { WARDEN } from '../sim/enemies/warden';
 import { pickArena, runRow, type ArenaPoolEntry } from './arenaPools';
 import { RT_TALISMANS, rtTalismanEligible, rtWeightedPick, type RtTalismanId, type RtTalismanPool } from './rtTalismans';
 
@@ -142,8 +147,27 @@ export const GARRISON_STEP2_POOLS: Readonly<Record<MapBranch, readonly ArenaPool
 };
 export const GARRISON_ARMORY_ARENA = ARMORY_ARENA.id;
 export const GARRISON_LOOPHOLES_ARENA = LOOPHOLES_ARENA.id;
+/**
+ * Task 59б (design, task-59 spec 7.2; user's decision 17.10.2026 on В1): the pools of a run of step 3 (`RtRunState.step3`) — the trails'
+ * rows 3–4 take «Ристалище» (`armory`) or «Казарма» (`barracks`) by the run's drill; `den` adds «Барбакан» on rows 8–9 (the wardens),
+ * `camp` «Смолокурня» on rows 8–9 (the pitcher). Each new kind is met only on its own arena (its law by the template's flag).
+ */
+export const GARRISON_STEP3_TRAIL_POOLS: Readonly<Record<GarrisonDrill, readonly ArenaPoolEntry[]>> = {
+  armory: GARRISON_STEP2_TRAIL_POOLS,
+  barracks: [...GARRISON_POOLS, { arena: BARRACKS_ARENA.id, rows: [3, 4] }],
+};
+export const GARRISON_STEP3_POOLS: Readonly<Record<GarrisonDrill, Readonly<Record<MapBranch, readonly ArenaPoolEntry[]>>>> = {
+  armory: { den: [...GARRISON_STEP2_POOLS.den, { arena: BARBICAN_ARENA.id, rows: [8, 9] }], camp: [...GARRISON_STEP2_POOLS.camp, { arena: TARWORKS_ARENA.id, rows: [8, 9] }] },
+  barracks: {
+    den: [...GARRISON_STEP3_TRAIL_POOLS.barracks, { arena: MOAT_ARENA.id, rows: [6, 9] }, { arena: BARBICAN_ARENA.id, rows: [8, 9] }],
+    camp: [...GARRISON_STEP3_TRAIL_POOLS.barracks, { arena: LOOPHOLES_ARENA.id, rows: [6, 7] }, { arena: TARWORKS_ARENA.id, rows: [8, 9] }],
+  },
+};
+export const GARRISON_BARRACKS_ARENA = BARRACKS_ARENA.id;
+export const GARRISON_BARBICAN_ARENA = BARBICAN_ARENA.id;
+export const GARRISON_TARWORKS_ARENA = TARWORKS_ARENA.id;
 /** Every arena the garrison plays (a save naming another one at a garrison node is malformed). */
-export const GARRISON_RUN_ARENAS: readonly string[] = [...GARRISON_MOAT_POOLS.map(entry => entry.arena), ARMORY_ARENA.id, LOOPHOLES_ARENA.id, GARRISON_HARD_ARENA, GARRISON_FINAL_ARENA];
+export const GARRISON_RUN_ARENAS: readonly string[] = [...GARRISON_MOAT_POOLS.map(entry => entry.arena), ARMORY_ARENA.id, LOOPHOLES_ARENA.id, BARRACKS_ARENA.id, BARBICAN_ARENA.id, TARWORKS_ARENA.id, GARRISON_HARD_ARENA, GARRISON_FINAL_ARENA];
 /** The names of the garrison's arenas on the run's map. */
 export const GARRISON_ARENA_TITLES: Readonly<Record<string, string>> = Object.fromEntries(GARRISON_RUN_ARENAS.map(id => [id, arenaTemplate(id).name]));
 
@@ -156,21 +180,31 @@ export const GARRISON_MOAT_KINDS = [GUARD, HANDLER, KEYMASTER] as const;
 /** Task 43: the kinds of a run of step 2 — the trails' (the knight on «Ристалище»), each branch adds its own. */
 export const GARRISON_STEP2_TRAIL_KINDS = [GUARD, HANDLER, KNIGHT] as const;
 export const GARRISON_STEP2_KINDS: Readonly<Record<MapBranch, readonly string[]>> = { den: [...GARRISON_STEP2_TRAIL_KINDS, KEYMASTER], camp: [...GARRISON_STEP2_TRAIL_KINDS, CROSSBOW] };
+/** Task 59б: the kinds of a run of step 3 — the trails' by the drill (the knight or the recruits), each branch adds its two. */
+export const GARRISON_STEP3_TRAIL_KINDS: Readonly<Record<GarrisonDrill, readonly string[]>> = { armory: GARRISON_STEP2_TRAIL_KINDS, barracks: [GUARD, HANDLER, RECRUIT] };
+export const GARRISON_STEP3_KINDS: Readonly<Record<GarrisonDrill, Readonly<Record<MapBranch, readonly string[]>>>> = {
+  armory: { den: [...GARRISON_STEP2_KINDS.den, WARDEN], camp: [...GARRISON_STEP2_KINDS.camp, PITCHER] },
+  barracks: { den: [...GARRISON_STEP3_TRAIL_KINDS.barracks, KEYMASTER, WARDEN], camp: [...GARRISON_STEP3_TRAIL_KINDS.barracks, CROSSBOW, PITCHER] },
+};
 export const GARRISON_OWN_ARENAS: Readonly<Record<string, string>> = {
   [GUARD]: YARD_ARENA.id, [HANDLER]: KENNEL_ARENA.id, [KEYMASTER]: MOAT_ARENA.id, [KNIGHT]: ARMORY_ARENA.id, [CROSSBOW]: LOOPHOLES_ARENA.id,
+  // Task 59б.
+  [RECRUIT]: BARRACKS_ARENA.id, [WARDEN]: BARBICAN_ARENA.id, [PITCHER]: TARWORKS_ARENA.id,
 };
 /**
  * The pools' mode of a garrison node: step 1а (`moat` false), «Ров» (task 40, `moat`), or step 2 (task 43, `step2`) with the node's
  * branch (`null` — the trails and the checkpoint, rows 1–5).
  */
-export interface GarrisonMode { moat: boolean; step2?: { branch: MapBranch | null } }
+export interface GarrisonMode { moat: boolean; step2?: { branch: MapBranch | null }; step3?: GarrisonDrill }
 const modeOf = (mode: boolean | GarrisonMode): GarrisonMode => (typeof mode === 'boolean' ? { moat: mode } : mode);
 const kindsOf = (mode: GarrisonMode): readonly string[] =>
-  (mode.step2 ? (mode.step2.branch ? GARRISON_STEP2_KINDS[mode.step2.branch] : GARRISON_STEP2_TRAIL_KINDS) : mode.moat ? GARRISON_MOAT_KINDS : GARRISON_KINDS);
+  (mode.step2 && mode.step3 ? (mode.step2.branch ? GARRISON_STEP3_KINDS[mode.step3][mode.step2.branch] : GARRISON_STEP3_TRAIL_KINDS[mode.step3])
+    : mode.step2 ? (mode.step2.branch ? GARRISON_STEP2_KINDS[mode.step2.branch] : GARRISON_STEP2_TRAIL_KINDS) : mode.moat ? GARRISON_MOAT_KINDS : GARRISON_KINDS);
 const poolsOf = (mode: GarrisonMode): readonly ArenaPoolEntry[] =>
-  (mode.step2 ? (mode.step2.branch ? GARRISON_STEP2_POOLS[mode.step2.branch] : GARRISON_STEP2_TRAIL_POOLS) : mode.moat ? GARRISON_MOAT_POOLS : GARRISON_POOLS);
-/** Task 43: the step-2 mode of the garrison node `id` (its branch by the generator's id: `g:den-r11c1` → `den`). */
-export const garrisonStep2Mode = (id: string): GarrisonMode => ({ moat: true, step2: { branch: nodePlace(bareNodeId(id))?.branch ?? null } });
+  (mode.step2 && mode.step3 ? (mode.step2.branch ? GARRISON_STEP3_POOLS[mode.step3][mode.step2.branch] : GARRISON_STEP3_TRAIL_POOLS[mode.step3])
+    : mode.step2 ? (mode.step2.branch ? GARRISON_STEP2_POOLS[mode.step2.branch] : GARRISON_STEP2_TRAIL_POOLS) : mode.moat ? GARRISON_MOAT_POOLS : GARRISON_POOLS);
+/** Task 43: the step-2 mode of the garrison node `id` (its branch by the generator's id: `g:den-r11c1` → `den`). Task 59б: `drill` — step 3. */
+export const garrisonStep2Mode = (id: string, drill?: GarrisonDrill): GarrisonMode => ({ moat: true, step2: { branch: nodePlace(bareNodeId(id))?.branch ?? null }, ...drill ? { step3: drill } : {} });
 /** The garrison's new kinds an arena brings (its newcomers and its start enemies; not its deep enemies). */
 export function garrisonArenaKinds(arena: string, mode: boolean | GarrisonMode = false): string[] {
   const t = arenaTemplate(arena), kinds = new Set([...(t.newcomers ?? []).map(entry => entry.kind), ...t.enemies.map(entry => entry.kind ?? 'basic')]);
@@ -212,12 +246,13 @@ export function garrisonArenaChoices(row: number, history: readonly string[], mo
 
 /**
  * The arena of a garrison node (`type`, map `row`) by the draw `roll` of the garrison's pool stream after `history` (`moat` — task 40;
- * `step2` — task 43: the pools of step 2 by the node's branch, its `id`).
+ * `step2` — task 43: the pools of step 2 by the node's branch, its `id`; `drill` — task 59б: the pools of step 3 by the run's drill).
  */
-export function garrisonArena(node: Pick<ForestMapNode, 'id' | 'type' | 'row'>, history: readonly string[], roll: number, moat = false, step2 = false): string {
+export function garrisonArena(node: Pick<ForestMapNode, 'id' | 'type' | 'row'>, history: readonly string[], roll: number, moat = false, step2 = false, drill?: GarrisonDrill): string {
   if (node.type === 'hard' || node.type === 'checkpoint') return GARRISON_HARD_ARENA;
   if (node.type === 'boss') return GARRISON_FINAL_ARENA;
-  return pickArena(garrisonArenaChoices(runRow(node.row), history, step2 ? garrisonStep2Mode(node.id) : moat), history, roll);
+  // Task 59б: `drill` — the pools of step 3 (only with step 2).
+  return pickArena(garrisonArenaChoices(runRow(node.row), history, step2 ? garrisonStep2Mode(node.id, drill) : moat), history, roll);
 }
 
 /** Баланс (task 40, design 3): the deep fights from this garrison row — «Ров» with two keymasters and a dog handler, the keymaster in «Галерея» and «Караульня». */
