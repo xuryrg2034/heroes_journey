@@ -56,8 +56,8 @@ async function openHall(page: Page): Promise<void> {
 }
 
 /**
- * Nobody walks or hurts, no newcomers; the hall's crowd is pinned to 0.45, the number of spec 6.5 these tests are made for: the view does not depend on the
- * crowd's number (design changes it by the bot's grid), but a body standing on the core takes the click of the chain that should take him (pw-55d-final, 21.10.2026).
+ * Nobody walks or hurts, no newcomers. The hall's crowd is pinned to 0.45 (spec 6.5, what these tests are made for). 21.10.2026: the default is 0.9 (design, by the
+ * bot); the view does not depend on the crowd's number, but a body on the core takes the click of the chain that should take him (pw-55d-final: :199).
  * Also: the wardrobe of the hall does not topple; his wardrobe slides 6 (it reaches the wall in two shoves). */
 async function quiet(page: Page): Promise<void> {
   // The crowd's number is read when the fight is made (the arena takes its own only from the default): write it to the panel's values and restart.
