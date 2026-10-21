@@ -363,6 +363,29 @@ check('review 59а: no numbers while a shoved barrel slides — a ride through a
   }
 });
 
+registerArena({
+  id: 'recruit-yard-flag', name: 'Двор новобранцев (флаг)', summary: 'Тест флага шаблона', goal: 'kills', killGoal: 999, width: 20, height: 12,
+  heroStart: { x: 10, y: 5.6 }, obstacles: [], buttons: [], door: { x: 19.3, y: 6 }, garrison: true, recruits: true,
+  enemies: LINE.map(x => ({ x, y: 4, color: 0, kind: RECRUIT, formation: 1 })),
+});
+
+check('the template flag `recruits` (sandbox arenas of step 3): the arena plays the law with the key off — numbers, refusal; without the flag the same layout plays no law; a journal without the key replays the flagged world (3 seeds)', () => {
+  for (const k of [1, 2, 3]) {
+    const flagged = new Simulation({ arena: 'recruit-yard-flag', params: quiet({ recruits: false }), seed: seedOf(k), record: true });
+    flagged.tick();
+    const w = flagged.world, line = byNumber(w);
+    assert(w.params.recruits === true && line.every(e => e.vars.rn) && enemyRefusal(w, line[1]) === 'order', `seed ${k}: the flag turns the law on`);
+    const plain = yard(k, { recruits: false });
+    assert(plain.world.params.recruits === false && plain.world.enemies.filter(e => e.kind === RECRUIT).every(e => !e.vars.rn), `seed ${k}: no flag, no law`);
+    draw(flagged, line); release(flagged);
+    assert(replays(flagged), `seed ${k}: replay`);
+    const journal = flagged.exportJournal()! as Journal;
+    delete (journal.params as unknown as Record<string, unknown>).recruits;
+    const strip = (x: World): string => JSON.stringify({ ...(worldState(x) as Record<string, unknown>), params: null });
+    assert(strip(replay(JSON.parse(JSON.stringify(journal))).world) === strip(flagged.world), `seed ${k}: a journal without the key replays the flagged world (worldState minus params)`);
+  }
+});
+
 check('out of order nothing hurts a recruit: the bomb on #3 with #1 alive — no damage, event `recruit` `refused`; the bomb on #1 — it dies (3 seeds)', () => {
   for (const k of [1, 2, 3]) {
     const sim = yard(k), w = sim.world, line = byNumber(w);
