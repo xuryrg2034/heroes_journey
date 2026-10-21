@@ -200,6 +200,11 @@ check('«Ядро в окне — первым» (core 21.10.2026): a body on th
     const pick = pickAt(w, at);
     assert(pick?.kind === 'enemy' && pick.id === d.core.id, `seed ${k}: in the window the pointer on the body takes the core (${JSON.stringify(pick)})`);
     assert(hoverRefusal(w, at) === null && nextCandidates(w).some(e => e.id === d.core.id), `seed ${k}: no refusal, the core's ring is drawn`);
+    // The negative check: with the key off the same pointer takes the nearest — the body.
+    w.params.corePickFirst = false;
+    const off = pickAt(w, at);
+    w.params.corePickFirst = true;
+    assert(off?.kind === 'enemy' && off.id === fresh.id, `seed ${k}: key off — the body (${JSON.stringify(off)})`);
     sim.command({ t: 'begin', x: at.x, y: at.y });
     assert(w.chain.length === 1 && w.chain[0].id === d.core.id, `seed ${k}: the press starts [core]`);
   }

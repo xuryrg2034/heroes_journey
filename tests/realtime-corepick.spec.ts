@@ -82,6 +82,24 @@ async function pressOnBody(page: Page, core: { id: number; x: number; y: number 
   expect((await snap(page)).bossBar.plates, 'a plate was taken').toBe(plates - 1);
 }
 
+/**
+ * The negative check: the same press with the key off (`corePickFirst` false by the sandbox's own `setParam`, journalled) takes the body — the
+ * nearest — so the test tells the rule from the nearest pick. A body of another colour is a fine first link of an empty chain. The key is on again after.
+ */
+async function pressWithKeyOff(page: Page, core: { id: number; x: number; y: number }): Promise<void> {
+  await page.evaluate(() => (window as any).__realtime.setParam('corePickFirst', false));
+  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x - 0.6, y + 1.1), [core.x, core.y] as const);
+  await cameraSettled(page);
+  const body = await bodyOnCore(page, core);
+  await mouseTo(page, enemyAt(page, body));
+  await page.mouse.down();
+  await expect.poll(async () => (await snap(page)).chain, { message: 'key off: the press takes the nearest — the body' }).toEqual([body]);
+  await page.mouse.up();
+  const done = await untilFrame(page, (s, _arg: null, late) => s.moving === null && s.chain.length === 0 ? true : late ? false : undefined, null, 12);
+  expect(done, 'the dash is over').toBe(true);
+  await page.evaluate(() => (window as any).__realtime.setParam('corePickFirst', true));
+}
+
 async function shutPress(page: Page, core: { id: number; x: number; y: number }): Promise<void> {
   await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x - 0.6, y + 1.1), [core.x, core.y] as const);
   await cameraSettled(page);
@@ -121,6 +139,7 @@ test('«Ядро в окне — первым»: the Troll — in the window a p
   await page.evaluate(() => (window as any).__realtime.teleport(12, 6.5));
   const lit = await untilFrame(page, (s, _arg: null, late, rt) => s.troll.glow === 1 ? (rt.chill(s.enemies.find((e: any) => e.kind === 'troll').id, 30), true) : late ? false : undefined, null, 25);
   expect(lit, 'the window is lit').toBe(true);
+  await pressWithKeyOff(page, core);
   await pressOnBody(page, core, 4);
   await sameHash(page);
   expect(errors).toEqual([]);
@@ -167,6 +186,7 @@ test('«Ядро в окне — первым»: the warlock — in his window a
   await page.evaluate(([id]) => (window as any).__realtime.chill(id, 0), [st.id] as const);
   const open = await untilFrame(page, (s, _arg: null, late, rt) => s.warlock.state?.window?.open ? (rt.chill(s.warlock.state.id, 30), s.warlock.state) : late ? null : undefined, null, 12);
   expect(open, 'the window opened').not.toBeNull();
+  await pressWithKeyOff(page, open as { id: number; x: number; y: number });
   await pressOnBody(page, open as { id: number; x: number; y: number }, 4);
   await gameWait(page, 0.2);
   await sameHash(page);
