@@ -142,6 +142,31 @@ test('task 59а view: «Смолокур (проба)» — the mark stands the 
   expect(errors).toEqual([]);
 });
 
+test('task 59а view: «Смолокур (проба)» — the mark of the fall is drawn in every frame of the flight, from the throw to the blow, also with the pitcher off the screen (design 21.10.2026; no edge arrow for it)', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = collectErrors(page);
+  await openProbe(page, 1);
+  await quiet(page);
+  // The hero as far from the pitcher as it still throws (`pitchFar` + 1 = 8): its screen point must lie above the field.
+  const pitcher = (await snap(page)).enemies.find(e => e.kind === 'pitcher')!;
+  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [pitcher.x, pitcher.y + 7.9] as const);
+  await gameWait(page, 0.5);
+  const seen = await page.evaluate(([x, y]) => { const p = (window as any).__realtime.toScreen(x, y); return p.y >= 62 && p.y <= 720 && p.x >= 0 && p.x <= 1280; }, [pitcher.x, pitcher.y] as const);
+  expect(seen, 'the pitcher stands off the screen (above the field)').toBe(false);
+  // Every throw of two: from the frame the pot flies to the frame it lands, one mark at the hero's point of the throw, in the view.
+  for (const lands0 of [0, 1]) {
+    await page.evaluate(() => { (window as any).__g3bad = ''; });
+    await untilFrame(page, (sn, lands0: number, late) => {
+      const g = sn.garrison, w = window as any;
+      if (g.pots > 0 && (g.marks !== 1 || g.markAt.length !== 1)) w.__g3bad = `pots ${g.pots}, marks ${g.marks}`;
+      return g.lands > lands0 || late ? g.lands : undefined;
+    }, lands0, 14);
+    expect(await page.evaluate(() => (window as any).__g3bad), 'a mark in every frame of the flight').toBe('');
+    expect((await snap(page)).garrison.lands).toBe(lands0 + 1);
+  }
+  expect(errors).toEqual([]);
+});
+
 test('task 59а view: «Смолокур (проба)» — a chain with «Огненный проход» across a pool: its fiery rim in the highlight, the flame after the pass', async ({ page }) => {
   test.setTimeout(120_000);
   const errors = collectErrors(page);
