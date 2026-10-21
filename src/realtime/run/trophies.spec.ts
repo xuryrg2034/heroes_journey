@@ -172,12 +172,17 @@ await check('a profile before the first trophy reads and writes byte for byte; t
   const on = store(a), off = store(b, false);
   for (const s of [on, off]) { s.startRun(); s.markLine('owl:first'); s.buyHearth('owl', 1); s.hearthStart(seedOf(5)); }
   assert(text(a) === text(b) && !text(a).includes('trophies'), 'no trophy yet: byte for byte');
-  const s = store();
+  const storage = memoryStorage(), s = store(storage);
   const { walk } = metaRun(s, 1);
   s.chronicleMeet(walk.run, { kinds: ['wolf'], affixes: [] });
   s.endRunMeta(walk.run);
-  const meta = s.load().meta!, keys = Object.keys(meta);
-  assert(keys[keys.length - 1] === 'trophies' && keys.indexOf('chronicle') < keys.indexOf('trophies'), `the last key: ${keys}`);
+  // The stored string is the canonical one (the order `parseRtMeta` reads back in): `trophies` the meta's last key.
+  const stored = JSON.parse(text(storage)).meta, keys = Object.keys(stored);
+  assert(JSON.stringify(stored) === JSON.stringify(parseRtMeta(JSON.parse(JSON.stringify(stored)))) && keys[keys.length - 1] === 'trophies' && keys.indexOf('chronicle') < keys.indexOf('trophies'), `the stored keys: ${keys}`);
+  s.trophiesImport();
+  const marked = JSON.parse(text(storage)).meta, markedKeys = Object.keys(marked);
+  assert(JSON.stringify(marked) === JSON.stringify(parseRtMeta(JSON.parse(JSON.stringify(marked)))) && same(markedKeys.slice(-2), ['trophiesSince', 'trophies']), `after the retro: ${markedKeys}`);
+  const meta = s.load().meta!;
   assert(same(parseRtMeta(JSON.parse(JSON.stringify(meta)))!.trophies, meta.trophies), 'reads back');
   const read = (trophies: unknown) => parseRtMeta({ heroes: {}, trophies })!.trophies;
   assert(same(read([{ id: 'jailer', run: 3 }, { id: 'jailer', run: 4 }, { id: 'nope', run: 1 }, { id: 'troll', run: -1 }, { id: 'ash', run: 2, marks: [9, 3, 3, 0, 1] }, { id: 'castellan', run: 1.5 }, 'x', { id: 'ash', run: 5, marks: [2] }]),

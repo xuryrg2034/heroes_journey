@@ -260,7 +260,7 @@ export function createRtProfileStore(storage: RunStorage | null = browserStorage
   // Task 58: the chronicle written only while on (`RT_CHRONICLE_ON`, or the option); the camp's NPCs of its page «Очаг».
   const chronicleOn = options.chronicle ?? RT_CHRONICLE_ON, trophiesOn = options.trophies ?? RT_TROPHIES_ON, npcs = { gambler: options.gambler ?? RT_HEARTH_GAMBLER_ON, monk: options.monk ?? RT_HEARTH_MONK_ON };
   const read = (): RtProfile => { try { return parseRtProfile(storage?.getItem(RT_PROFILE_STORAGE_KEY) ?? null); } catch { return emptyRtProfile(); } };
-  const write = (profile: RtProfile): boolean => { try { if (!storage) return false; storage.setItem(RT_PROFILE_STORAGE_KEY, JSON.stringify(profile)); return true; } catch { return false; } };
+  const write = (profile: RtProfile): boolean => { try { if (!storage) return false; storage.setItem(RT_PROFILE_STORAGE_KEY, JSON.stringify(canonical(profile))); return true; } catch { return false; } };
   return {
     load: read,
     warmup: () => read().meta?.warmup,
@@ -406,6 +406,15 @@ export function createRtProfileStore(storage: RunStorage | null = browserStorage
   };
 }
 
+/**
+ * Review 21.10.2026: a meta with the chronicle or the trophies is stored in the order a stored profile reads back in (`parseRtMeta` — the
+ * canonical string). A meta without them is stored as given: an old profile reads and writes byte for byte, as before.
+ */
+function canonical(profile: RtProfile): RtProfile {
+  const meta = profile.meta;
+  if (!meta || (meta.chronicle === undefined && meta.trophies === undefined && meta.trophiesSince === undefined)) return profile;
+  return { ...profile, meta: parseRtMeta(JSON.parse(JSON.stringify(meta))) ?? meta };
+}
 /** Task 58: the meta with `chronicle` (absent — removed) after the others, before the trophies (the order a stored profile reads back in). */
 function withChronicle(meta: RtMeta | undefined, chronicle: RtMeta['chronicle']): RtMeta {
   const { chronicle: _old, trophies, ...rest } = meta ?? { heroes: {} };
