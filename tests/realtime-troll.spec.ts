@@ -267,9 +267,11 @@ test('task 48: «Бросок камня» — the circle at the hero, the rock 
   const s0 = await snap(page);
   await page.evaluate(([club]) => (window as any).__realtime.chill(club, 600), [kindOf(s0, 'troll-club')!.id] as const);
   await heroTo(page, 12, 9);
+  // The name is a label of one real second from the sign's start — read in the frame it shows (a later read under load misses it).
+  const named = await untilFrame(page, (sn, _arg: null, late) => sn.troll.sign === 'rock' && sn.bossNames.includes('Бросок камня') ? true : late ? false : undefined, null, 20);
+  expect(named, '«Бросок камня» is named at its sign').toBe(true);
   expect(await signAt(page, 'rock', 0.4, 20), 'the rock\'s circle').toBe(true);
   expect((await snap(page)).troll).toMatchObject({ circles: 1, sign: 'rock' });
-  expect((await snap(page)).bossNames).toContain('Бросок камня');
   const air = await untilFrame(page, (s, _arg: null, late) => s.troll.flight === 1 ? true : late ? false : undefined, null, 12);
   expect(air, 'the rock flies').toBe(true);
   await page.evaluate(([id]) => (window as any).__realtime.chill(id, 8), [kindOf(s0, 'troll')!.id] as const);

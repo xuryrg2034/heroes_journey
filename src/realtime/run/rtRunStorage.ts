@@ -12,7 +12,12 @@ import { isScheduleElement } from './schedule';
 import { parseRtMeta, rtApplyMeta, rtHearthBuy, rtHearthStartOf, rtHearthView, rtMetaLocked, rtMetaNewOffer, rtRunKey, type RtHearthBuy, type RtHearthStart, type RtHearthView, type RtMeta, type RtMetaEnd } from './rtMeta';
 // Task 49 «Второй герой»: the heroes open and chosen, Ведунья freed by the Jailer, «✦ новое» by hero.
 import { rtChooseHero, rtFreeByJailer, rtHeroChoice, rtHeroesOpen, rtHeroViews, rtMetaMarkOffered, type RtHeroView } from './rtMeta';
-import { isRtHeroId, RT_CHRONICLE_ON, RT_HEARTH_GAMBLER_ON, RT_HEARTH_MONK_ON, RT_HERO_ID, type RtHearthNpc, type RtHeroId } from './metaCatalog';
+import { isRtHeroId, RT_CHRONICLE_ON, RT_HEARTH_GAMBLER_ON, RT_HEARTH_MONK_ON, RT_HERO_ID, RT_HERO_IDS, type RtHearthNpc, type RtHeroId } from './metaCatalog';
+// Task 56 «Приметы»: the gates of the omens and the pool the profile opened (run/omens.ts).
+import { rtOmenPool, rtOmensGate, type RtOmenId } from './omens';
+import { rtWonLevelOf } from './rtMeta';
+import { parseRtDailyLog, rtDailyBegin, rtDailyFinish, type RtDailyClaim, type RtDailyLog } from './rtDaily';
+import { warmupMerge, type WarmupId, type WarmupMerge, type WarmupRecords } from './warmup';
 import { rtChronicleImport, rtChronicleMeet, rtChronicleMetaRefs, rtChronicleNote, rtChronicleRead, type RtChronicleMemory } from './chronicle';
 import { rtChronicleCounts, rtChronicleView, type RtChronicleView } from './chroniclePages';
 
@@ -91,10 +96,13 @@ export function createRtRunStore(storage: RunStorage | null = browserStorage()):
  * the cat's (a profile before it: every win was his, so nothing he opened is taken away); `heroAsh.toad` — Ведунья's (`won`: her first
  * won run without a given seed opens all her levels, v1; `ash`: her level chosen last). The hero chosen, the heroes freed and each
  * hero's XP and packs are in `meta` (`RtMeta.hero`, `freed`, `heroes`).
+ * Task 56 «Приметы» (spec docs/design-notes/task-56-omens.md, 7.1 and 9.3; the same version 1, an optional field):
+ * - `omensOpen` — the omens' gates opened (`omensStart`: «Расписание леса» done, or «Испытание» II and up); it stays once set
+ *   («Обучение» does not take it). The omens open — from the packs, the levels and the camp of `meta` (`rtProfileOmenPool`), no new field.
  * All are absent until set: a profile without them reads and saves as before.
  */
 export interface RtHeroAsh { won?: true; ash?: Exclude<RtAshLevel, 0> }
-export interface RtProfile { version: typeof RT_PROFILE_VERSION; giftFull: boolean; jailer?: true; runs?: number; runsApprox?: true; won?: true; ash?: Exclude<RtAshLevel, 0>; seen?: string[]; seenMute?: number; meta?: RtMeta; heroAsh?: { toad?: RtHeroAsh } }
+export interface RtProfile { version: typeof RT_PROFILE_VERSION; giftFull: boolean; jailer?: true; runs?: number; runsApprox?: true; won?: true; ash?: Exclude<RtAshLevel, 0>; seen?: string[]; seenMute?: number; meta?: RtMeta; heroAsh?: { toad?: RtHeroAsh }; omensOpen?: true; daily?: RtDailyLog }
 export const emptyRtProfile = (): RtProfile => ({ version: RT_PROFILE_VERSION, giftFull: false });
 
 export function parseRtProfile(text: string | null): RtProfile {
@@ -111,12 +119,25 @@ export function parseRtProfile(text: string | null): RtProfile {
     const toad = typeof value.heroAsh === 'object' && value.heroAsh && typeof value.heroAsh.toad === 'object' && value.heroAsh.toad ? value.heroAsh.toad as Partial<RtHeroAsh> : undefined;
     const toadAsh = toad && isRtAshLevel(toad.ash) && toad.ash >= 1 && toad.won === true ? toad.ash as Exclude<RtAshLevel, 0> : undefined;
     const heroAsh = toad?.won === true ? { toad: { won: true as const, ...toadAsh !== undefined ? { ash: toadAsh } : {} } } : undefined;
-    return { version: RT_PROFILE_VERSION, giftFull: value.giftFull === true, ...value.jailer === true || value.giftFull === true ? { jailer: true as const } : {}, ...runs !== undefined ? { runs } : {}, ...runs !== undefined && value.runsApprox === true ? { runsApprox: true as const } : {}, ...value.won === true ? { won: true as const } : {}, ...ash !== undefined ? { ash } : {}, ...seen !== undefined ? { seen } : {}, ...mute !== undefined ? { seenMute: mute } : {}, ...meta ? { meta } : {}, ...heroAsh ? { heroAsh } : {} };
+    return { version: RT_PROFILE_VERSION, giftFull: value.giftFull === true, ...value.jailer === true || value.giftFull === true ? { jailer: true as const } : {}, ...runs !== undefined ? { runs } : {}, ...runs !== undefined && value.runsApprox === true ? { runsApprox: true as const } : {}, ...value.won === true ? { won: true as const } : {}, ...ash !== undefined ? { ash } : {}, ...seen !== undefined ? { seen } : {}, ...mute !== undefined ? { seenMute: mute } : {}, ...meta ? { meta } : {}, ...heroAsh ? { heroAsh } : {}, ...value.omensOpen === true ? { omensOpen: true as const } : {}, ...dailyOf(value.daily) };
   } catch { return emptyRtProfile(); }
 }
 
 export interface RtProfileStore {
   load(): RtProfile;
+  /** Task 51ж «Разминка»: the layouts' records (`meta.warmup`; absent — none yet). */
+  warmup(): WarmupRecords | undefined;
+  /**
+   * Task 51ж: an attempt of layout `id` ended with `score` (null — none: death, «Выход», no clear field): merged into the records
+   * (`warmupMerge`) and stored when it set a new best. The view says `warmup_record` on `record`.
+   */
+  warmupResult(id: WarmupId, score: number | null): WarmupMerge;
+  /** Task 51з «Поход дня»: the attempts log (`daily`; absent — none yet), the last 30 dates. */
+  dailyLog(): RtDailyLog | undefined;
+  /** Task 51з: a run of the day of `date` begins — its attempt number (1, 2, …); null when not stored. */
+  dailyBegin(date: string): number | null;
+  /** Task 51з: the attempt `attempt` of `date` ended with `claim` on build `build` — whether it is the first and the best; null when not stored. */
+  dailyFinish(date: string, attempt: number, claim: RtDailyClaim, build: string): { first: boolean; best: boolean } | null;
   /** The gift a new run gets: a given seed — always the full one. */
   giftKind(seeded: boolean): 'full' | 'mini';
   /**
@@ -212,6 +233,12 @@ export interface RtProfileStore {
   chronicleRead(): boolean;
   /** Task 58: the entries the run of `runKey` (`rtRunKey`) added — its end's list (after a reload too); another key — none. */
   chronicleAdded(runKey: string): string[];
+  /**
+   * Task 56 «Приметы» (spec 7.1): the pool of omens a new run of «Испытание» `ash` takes (`createRtRun(seed, { omens })`), or null — the
+   * gates closed. The gates open once for good (`omensOpen`): «Расписание леса» done in the viewer's `history`, or `ash` ≥ II. A seeded run
+   * (`?seed=`) reads the profile's pool and changes nothing.
+   */
+  omensStart(input: { ash: number; history: readonly string[]; seeded: boolean }): RtOmenId[] | null;
 }
 
 /** Task 37: the camp's start for a loaded profile (`rtHearthStartOf` over its meta). */
@@ -227,6 +254,21 @@ export function createRtProfileStore(storage: RunStorage | null = browserStorage
   const write = (profile: RtProfile): boolean => { try { if (!storage) return false; storage.setItem(RT_PROFILE_STORAGE_KEY, JSON.stringify(profile)); return true; } catch { return false; } };
   return {
     load: read,
+    warmup: () => read().meta?.warmup,
+    warmupResult: (id, score) => {
+      const profile = read(), merge = warmupMerge(profile.meta?.warmup, id, score);
+      if (merge.record && merge.records) write({ ...profile, meta: { heroes: {}, ...profile.meta, warmup: merge.records } });
+      return merge;
+    },
+    dailyLog: () => read().daily,
+    dailyBegin: date => {
+      const profile = read(), next = rtDailyBegin(profile.daily, date);
+      return write({ ...profile, daily: next.log }) ? next.attempt : null;
+    },
+    dailyFinish: (date, attempt, claim, build) => {
+      const profile = read(), next = rtDailyFinish(profile.daily, date, attempt, claim, build);
+      return write({ ...profile, daily: next.log }) ? { first: next.first, best: next.best } : null;
+    },
     giftKind: seeded => seeded || read().giftFull ? 'full' : 'mini',
     // Task 16: `jailer` stays once a run reached the Jailer (`giftFull` is the last run's only).
     // Task 18: `won` stays once an unseeded run was won.
@@ -338,14 +380,33 @@ export function createRtProfileStore(storage: RunStorage | null = browserStorage
       return done.changed && write({ ...profile, meta: withChronicle(profile.meta, done.chronicle) });
     },
     chronicleAdded: runKey => { const applied = read().meta?.applied; return applied?.key === runKey ? [...applied.end.chronicle?.added ?? []] : []; },
+    omensStart: ({ ash, history, seeded }) => {
+      const profile = read();
+      if (!rtOmensGate(profile.omensOpen === true, history, ash)) return null;
+      if (!seeded && profile.omensOpen !== true) write({ ...profile, omensOpen: true });
+      return rtProfileOmenPool(profile);
+    },
   };
 }
 
-/** Task 58: the meta with `chronicle` (absent — removed), before `applied` (the order a stored profile reads back in). */
+/** Task 58: the meta with `chronicle` (absent — removed) as its last key (the order a stored profile reads back in). */
 function withChronicle(meta: RtMeta | undefined, chronicle: RtMeta['chronicle']): RtMeta {
-  const { applied, chronicle: _old, ...rest } = meta ?? { heroes: {} };
-  return { ...rest, ...chronicle ? { chronicle } : {}, ...applied ? { applied } : {} };
+  const { chronicle: _old, ...rest } = meta ?? { heroes: {} };
+  return { ...rest, ...chronicle ? { chronicle } : {} };
 }
+
+/**
+ * Task 56 «Приметы» (spec 7.2, 9.3): the omens a profile opened — the four at once, those of the packs any hero opened, «Перекличка»
+ * once a hero reached the garrison, «Ярмарочный день» once Шиш came to the camp. The gates are `omensOpen` (`omensStart`).
+ */
+export function rtProfileOmenPool(profile: RtProfile): RtOmenId[] {
+  const meta = profile.meta, heroes = RT_HERO_IDS.flatMap(id => (meta?.heroes[id] ? [meta.heroes[id]!] : []));
+  const garrison = heroes.some(hero => !!hero.record && (hero.record.level === 2 || rtWonLevelOf(hero.record) >= 1));
+  return rtOmenPool({ packs: heroes.flatMap(hero => hero.packs), garrison, gambler: meta?.hearth?.met.gambler === true });
+}
+
+/** Task 51з: the profile's attempts log as stored, only a valid one (`parseRtDailyLog`); none — no field. */
+const dailyOf = (value: unknown): { daily?: RtDailyLog } => { const log = parseRtDailyLog(value); return log ? { daily: log } : {}; };
 /** Task 49: the hero a profile call means — the one given (an open one or not: a run's hero), else the chosen one. */
 const heroOf = (profile: RtProfile, hero?: RtHeroId): RtHeroId => (isRtHeroId(hero) ? hero : rtHeroChoice(profile.meta));
 /** Task 49: the hero's «Испытание»: open (won) and the level chosen last (0 — none). */

@@ -7,9 +7,12 @@
 import type { ItemKind } from '../sim/kit';
 import { BUILD_LABELS, labelOf } from './buildColumn';
 import { forestEvent } from '../forest/forestEvents';
+import { isRtOmenId, rtOmen } from '../run/omens';
+import { omenIconSvg } from './omenMark';
 
 /** The kinds of things a pack opens (the card's caption and picture follow it). */
-export type MetaItemKind = 'talisman' | 'relic' | 'hammer' | 'form' | 'event';
+/** Task 56: `omen` — the omen a pack opens (core `rtPackOmen`): a card of its own after the pack's items. */
+export type MetaItemKind = 'talisman' | 'relic' | 'hammer' | 'form' | 'event' | 'omen';
 export interface MetaPackItem { id: string; kind: MetaItemKind }
 export interface MetaPack { id: string; title: string; items: MetaPackItem[] }
 /** The parts of a run's experience, in the order the end screen lists them. */
@@ -24,6 +27,11 @@ export interface MetaEnd {
   /** The pack thresholds, sums of experience: [60, 180, 360, 600, 900]. */
   thresholds: number[];
   pack: MetaPack | null;
+  /**
+   * Task 56 «Приметы» (the view adds it to core's `RtMetaEnd`): the omens this run's end opened for the viewer — «Приметы: +N» (the pool
+   * before and after the end; the whole pool when the gates opened with this run). Absent or 0 — no line.
+   */
+  omens?: number;
   nextPack: { id: string; title: string; at: number; size: number } | null;
   /**
    * Task 38: `level` 2 — the garrison's record (absent — the forest). Task 40: `wonLevel` — the level it passed (1 the forest, 2 the
@@ -64,7 +72,8 @@ export interface HearthState {
   seen: string[];
   quest?: { npc: NpcId; id: string };
   /** What the last run was: the lines' occasion (`quest` — the quest's result; `firstWin` — the profile's first victory). */
-  last?: { won: boolean; cause?: string; row: number; beaten: boolean; quest?: boolean; firstWin?: boolean; pack?: boolean; hero?: 'toad'; casino?: 'won' | 'lost'; firstGarrison?: boolean; garrisonWon?: boolean; away?: { npc: NpcId; met: boolean }; cuts?: number; vows?: { id: string; kept: boolean }[] };
+  /** `habitOffered` / `knackOffered` (task 50 §18): the run offered the archetype / the knack (the core sets them with the hearth; absent until then). */
+  last?: { habitOffered?: true; knackOffered?: true; won: boolean; cause?: string; row: number; beaten: boolean; quest?: boolean; firstWin?: boolean; pack?: boolean; hero?: 'toad'; casino?: 'won' | 'lost'; firstGarrison?: boolean; garrisonWon?: boolean; away?: { npc: NpcId; met: boolean }; cuts?: number; vows?: { id: string; kept: boolean }[] };
   /** The NPC who came by themselves (the fallback way): their meeting line is `first_self`. */
   self?: Partial<Record<NpcId, boolean>>;
   /** The lines said so far, by `npc:key` (the profile's `lines`). */
@@ -134,10 +143,12 @@ export function xpPartLabel(id: MetaXpPart, n?: number): string {
 
 /** The forest events a pack may open (the card's name). */
 
-const KIND_WORD: Readonly<Record<MetaItemKind, string>> = { talisman: 'талисман', relic: 'реликвия', hammer: 'молот', form: 'форма', event: 'событие' };
+const KIND_WORD: Readonly<Record<MetaItemKind, string>> = { talisman: 'талисман', relic: 'реликвия', hammer: 'молот', form: 'форма', event: 'событие', omen: 'примета' };
 
 /** A pack card: its name, a big glyph (or the form's SVG) and what it is. */
 export function metaItemCard(item: MetaPackItem): { title: string; glyph: string; svg?: string; kind: string } {
+  // Task 56: an omen's card — its name and its icon (the catalogue is core's: `run/omens.ts`).
+  if (item.kind === 'omen') { const def = rtOmen(item.id); return { title: def?.title ?? item.id, glyph: '•', ...isRtOmenId(item.id) ? { svg: omenIconSvg(item.id, 56) } : {}, kind: KIND_WORD.omen }; }
   if (item.kind === 'event') return { title: forestEvent(item.id)?.title ?? item.id, glyph: '?', kind: KIND_WORD.event };
   const label = BUILD_LABELS[item.id] ? labelOf(item.id) : { title: item.id, glyph: '•' };
   return { title: label.title, glyph: label.glyph, ...('svg' in label && label.svg ? { svg: label.svg } : {}), kind: KIND_WORD[item.kind] };

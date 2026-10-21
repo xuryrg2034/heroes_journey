@@ -22,6 +22,7 @@ import {
 import { isRtAshLevel, rtCasinoResult, rtKnackShown, rtReachedJailer, type RtAshLevel } from './rtRun';
 import { parseRtChronicle, rtChronicleMetaRefs, rtChronicleRun, type RtChronicle } from './chronicle';
 import type { RtChroniclePageId } from './chronicleCatalog';
+import { isWarmupBest, type WarmupRecords } from './warmup';
 
 export { RT_HEARTH_PRICES, RT_META_PACKS, RT_META_THRESHOLDS } from './metaCatalog';
 
@@ -193,6 +194,8 @@ export interface RtMeta {
   chronicle?: RtChronicle;
   /** The last run applied (its key) and its result: a second call for the same run returns it. */
   applied?: { key: string; end: RtMetaEnd };
+  /** Task 51ж «Разминка»: the warmup layouts' records (run/warmup.ts `warmupMerge`); absent until the first attempt with a score. */
+  warmup?: WarmupRecords;
 }
 
 // ---------- The end of a run (the view's contract) ----------
@@ -468,8 +471,6 @@ export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState, optio
     const written = rtChronicleRun(meta.chronicle, run, options.viewerRun ?? 0, rtChronicleMetaRefs(previous, meta));
     if (written.chronicle) meta.chronicle = written.chronicle; else delete meta.chronicle;
     end.chronicle = { added: written.added };
-    // The applied result stays after the chronicle (the order a stored profile reads back in).
-    delete meta.applied;
   }
   meta.applied = { key: rtRunKey(run), end };
   return { meta, end };
@@ -753,5 +754,8 @@ export function parseRtMeta(value: unknown): RtMeta | undefined {
   const applied = isPlain(value.applied) && typeof value.applied.key === 'string' && isPlain(value.applied.end) ? { key: value.applied.key, end: structuredClone(value.applied.end) as unknown as RtMetaEnd } : undefined;
   // Task 58: the chronicle (unknown ids dropped; empty — absent).
   const chronicle = parseRtChronicle(value.chronicle);
-  return { heroes, ...hero ? { hero } : {}, ...freed ? { freed } : {}, ...hearth ? { hearth } : {}, ...offered ? { offered } : {}, ...chronicle ? { chronicle } : {}, ...applied ? { applied } : {} };
+  // Task 51ж: the warmup records — only valid ones (`isWarmupBest`); none — absent (a profile before it reads as stored).
+  const warmupEntries = isPlain(value.warmup) ? Object.entries(value.warmup).filter(([id, record]) => isWarmupBest(id, record)) : [];
+  const warmup = warmupEntries.length ? Object.fromEntries(warmupEntries.map(([id, record]) => [id, { best: (record as { best: number }).best }])) as WarmupRecords : undefined;
+  return { heroes, ...hero ? { hero } : {}, ...freed ? { freed } : {}, ...hearth ? { hearth } : {}, ...offered ? { offered } : {}, ...applied ? { applied } : {}, ...warmup ? { warmup } : {}, ...chronicle ? { chronicle } : {} };
 }

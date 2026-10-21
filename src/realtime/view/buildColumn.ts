@@ -397,7 +397,8 @@ export class BuildColumn {
     if (event.buttons) return;
     this.tip.innerHTML = rows.map(r => {
       const card = itemCard(r.id, r.kind, this.counterWindow);
-      return `<div><b>${esc(card.name)}${r.ranked ? ' · Ранг II' : ''}</b>${card.rule ? `<span>${esc(card.rule)}</span>` : ''}${r.ranked ? `<span class="rt-build-rank-rule">${esc(honeLine(fusionRecipe(r.id)?.counter ?? r.id))}</span>` : ''}${card.price ? `<em>Цена: ${esc(card.price)}</em>` : ''}</div>`;
+      // Task 50 §18: a counter on rank II — the card starts with «Ранг II: …» (what changed), then the name and the rule it has now.
+      return `<div>${r.ranked ? `<span class="rt-build-rank-rule">${esc(honeLine(fusionRecipe(r.id)?.counter ?? r.id))}</span>` : ''}<b>${esc(card.name)}${r.ranked ? ' · Ранг II' : ''}</b>${card.rule ? `<span>${esc(card.rule)}</span>` : ''}${card.price ? `<em>Цена: ${esc(card.price)}</em>` : ''}</div>`;
     }).join('');
     this.tip.dataset.id = rows.map(r => r.id).join(' ');
     const box = anchor.getBoundingClientRect();
