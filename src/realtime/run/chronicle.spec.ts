@@ -28,8 +28,10 @@ import {
 } from './rtRun';
 import { isRtForm, rtFormField } from './rtTalismans';
 import { FUSION_RECIPES } from '../sim/buildIds';
-import { rtChronicleParts, RT_CHRONICLE_BOSSES, RT_CHRONICLE_GARRISON_KINDS, isRtChronicleFusion, isRtChronicleItem } from './chronicleCatalog';
-import { rtChronicleHint, type RtChronicleView } from './chroniclePages';
+import { chronicleForestKinds, rtChronicleParts, RT_CHRONICLE_BOSSES, RT_CHRONICLE_FOREST_KINDS, RT_CHRONICLE_GARRISON_KINDS, isRtChronicleFusion, isRtChronicleItem } from './chronicleCatalog';
+import { chronicleProfile } from '../view/chronicleFixtures.testkit';
+import { RT_FOREST_SHOOTERS_ON } from './rtRun';
+import { rtChronicleHint, rtChronicleView, type RtChronicleView } from './chroniclePages';
 import type { RtChronicle } from './chronicle';
 import { TROLL_RUN_ARENAS } from '../sim/arenasBoss';
 import { RtRecorder } from '../telemetry/recorder';
@@ -410,6 +412,21 @@ await check('telemetry: the run record\'s `chronicle` (its list and the pages), 
   assert(['Бестиарий', 'Талисманы и формы', 'Первые находки', 'Подсказка Неясыти', '1–3', '11–20'].every(word => section.includes(word)), section);
   assert(chronicleSection([]).includes('нет'), 'no runs — a line');
   rec.dispose();
+});
+
+await check('task 57а (design 21.10.2026): the chapter «Лес» comes from the kinds of the schedule under the flag — 8 entries with `forestShooters` off (the build now), 11 with it on (the slinger, the hive, the wisp unknown, the met kinds kept); a shooter met before stays in the profile whatever the flag', () => {
+  assert(!RT_FOREST_SHOOTERS_ON && RT_CHRONICLE_FOREST_KINDS.join() === chronicleForestKinds(false).join() && chronicleForestKinds(false).length === 8, `flag off: ${RT_CHRONICLE_FOREST_KINDS}`);
+  assert(chronicleForestKinds(true).length === 11 && ['slinger', 'hive', 'wisp'].every(kind => chronicleForestKinds(true).includes(kind)), `flag on: ${chronicleForestKinds(true)}`);
+  const raw = JSON.parse(JSON.stringify(chronicleProfile('unread'))) as Record<string, any>;
+  raw.meta.chronicle = { ...raw.meta.chronicle, kinds: [...new Set([...(raw.meta.chronicle?.kinds ?? []), 'wisp'])].sort() };
+  const profile = parseRtProfile(JSON.stringify(raw));
+  assert(profile.meta?.chronicle?.kinds?.includes('wisp'), 'a wisp met before stays in the profile with the flag off');
+  const forest = (on: boolean | undefined) => rtChronicleView(profile, 'cat', { gambler: true, monk: true, ...on === undefined ? {} : { shooters: on } }).pages.find(page => page.id === 'bestiary')!.chapters.find(chapter => chapter.id === 'forest')!;
+  const off = forest(undefined), offExplicit = forest(false), on = forest(true);
+  assert(off.entries.length === 8 && offExplicit.entries.length === 8 && on.entries.length === 11, `entries ${off.entries.length} / ${offExplicit.entries.length} / ${on.entries.length}`);
+  const state = (chapter: typeof on, id: string) => chapter.entries.find(entry => entry.id === id)?.state;
+  assert(['boar', 'lynx', 'wolf'].every(id => state(off, id) === 'seen' && state(on, id) === 'seen'), 'the met kinds stay seen');
+  assert(state(on, 'wisp') === 'seen' && state(on, 'slinger') === 'unknown' && state(on, 'hive') === 'unknown' && state(off, 'wisp') === undefined, 'the shooters with the flag on');
 });
 
 console.log(`realtime-chronicle: ${checks} checks passed`);

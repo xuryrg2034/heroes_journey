@@ -12,16 +12,17 @@
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import { seedOf, walkRun, type Walk, type WalkOptions } from './metaWalk.testkit';
-import { createRtProfileStore, RT_PROFILE_STORAGE_KEY, type RtProfileStore, type RunStorage } from './rtRunStorage';
+import { createRtProfileStore, parseRtProfile, RT_PROFILE_STORAGE_KEY, type RtProfileStore, type RunStorage } from './rtRunStorage';
 import { parseRtMeta } from './rtMeta';
-import { createRtRun, type RtArenaOutcome, type RtRunState } from './rtRun';
+import { createRtRun, RT_FOREST_SHOOTERS_ON, type RtArenaOutcome, type RtRunState } from './rtRun';
 import { RT_DAILY_PRESET } from './rtDaily';
 import { FINAL_ARENA } from './arenaPools';
 import { garrisonArenaKinds, garrisonStep2Mode, rtGarrisonNodeId } from './garrison';
 import { JAILER_RUN_ARENAS, TROLL_RUN_ARENAS } from '../sim/arenasBoss';
 import { SCHEDULE_KINDS } from './schedule';
-import { RT_TROPHY_LONG_CHAIN, type RtTrophy } from './trophies';
-import { RT_CHRONICLE_FOREST_KINDS } from './chronicleCatalog';
+import { rtBestiaryFull, RT_TROPHY_LONG_CHAIN, type RtTrophy } from './trophies';
+import { chronicleForestKinds, RT_CHRONICLE_FOREST_KINDS } from './chronicleCatalog';
+import { rtChronicleView } from './chroniclePages';
 import { RtRecorder } from '../telemetry/recorder';
 import { memoryJournalStore, type KeyValueStore } from '../telemetry/buffer';
 import { checkRecord, type RunRecord } from '../telemetry/schema';
@@ -113,6 +114,27 @@ await check('«Чернильница Неясыти» stays when the forest gai
     assert(s.trophiesImport() && !s.trophiesImport() && same(held(s, 'bestiary'), ink), 'the retro (its mark once) adds nothing, removes nothing');
     assert(s.chronicle().pages.find(p => p.id === 'bestiary')!.chapters.find(ch => ch.id === 'forest')!.entries.some(e => e.id === 'later-kind' && e.state === 'unknown'), 'the chapter shows the new kind «?»');
   } finally { forest.pop(); }
+});
+
+await check('task 57а: with the shooters flag off (this build) a shooter met before keeps its record and «Чернильница» comes by the eight kinds; with the flag on the chapter shows it met and needs eleven (design 21.10.2026)', () => {
+  assert(!RT_FOREST_SHOOTERS_ON && RT_CHRONICLE_FOREST_KINDS.length === 8, 'the build now: the eight forest kinds');
+  const storage = memoryStorage(), s = store(storage);
+  const { walk } = metaRun(s, 1);
+  // The viewer met a wisp before (a run with the flag `forestShooters`), and now every forest kind of this build.
+  s.chronicleMeet(walk.run, { kinds: [...SCHEDULE_KINDS, 'wisp'], affixes: [] });
+  s.endRunMeta(walk.run);
+  const ink = held(s, 'bestiary');
+  assert(ink && ink.run === 1, `the eight kinds: the trophy (${JSON.stringify(s.trophies())})`);
+  const kinds = () => createRtProfileStore(storage, { trophies: true, chronicle: true }).chronicle().pages.find(p => p.id === 'bestiary')!.chapters.find(ch => ch.id === 'forest')!.entries;
+  assert(JSON.parse(text(storage)).meta.chronicle.kinds.includes('wisp'), 'the wisp stays in the profile (read back from storage)');
+  assert(kinds().length === 8 && kinds().every(e => e.state === 'seen'), 'the chapter of this build: eight, all met');
+  const profile = parseRtProfile(text(storage));
+  const on = rtChronicleView(profile, 'cat', { gambler: true, monk: true, shooters: true }).pages.find(p => p.id === 'bestiary')!.chapters.find(ch => ch.id === 'forest')!.entries;
+  assert(on.length === 11 && on.find(e => e.id === 'wisp')?.state === 'seen' && on.find(e => e.id === 'slinger')?.state === 'unknown', 'with the flag on: eleven, the wisp met');
+  assert(!rtBestiaryFull({ kinds: profile.meta?.chronicle?.kinds }, chronicleForestKinds(true)) && rtBestiaryFull({ kinds: [...chronicleForestKinds(true)] }, chronicleForestKinds(true)), 'the flag on: the trophy needs the eleven');
+  const next = metaRun(s, 2);
+  s.endRunMeta(next.walk.run);
+  assert(same(held(s, 'bestiary'), ink) && JSON.parse(text(storage)).meta.chronicle.kinds.includes('wisp'), 'the next run: the trophy and the wisp kept');
 });
 
 await check('a run with a given seed and «Поход дня» earn nothing; the trophies off — no field ever', () => {

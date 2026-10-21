@@ -119,8 +119,8 @@ const NOTE_FLASH_MS = 1000;
  * new enemies («Рысье логово», «Круг шамана»), keys ⇧6–⇧7; then the camera sample «Большая поляна» 24×15 (key ⇧8,
  * docs/realtime-stage3.md, section 11); then the boss arena «Тюремщик» (task 27, key ⇧9, `?arena=19`); the garrison's after it; at the end
  * «Берлога тролля» (task 48, no key, `?arena=30`), «Стан Главаря» (`?arena=31`), the castle's three (task 55а, `?arena=32…34`), «Стрелки
- * леса (проба)» (task 57а, `?arena=35`); at the end the probes of the garrison's step 3 (task 59а, no key): «Смолокур (проба)» `?arena=36`,
- * «Новобранцы (проба)» `?arena=37`, «Привратники (проба)» `?arena=38`. `?arena=N` opens one at once.
+ * леса (проба)», «Осыпь», «Пасека» (task 57а, `?arena=35…37`); at the end the probes of the garrison's step 3 (task 59а, no key): «Смолокур (проба)» `?arena=38`,
+ * «Новобранцы (проба)» `?arena=39`, «Привратники (проба)» `?arena=40`. `?arena=N` opens one at once.
  */
 const SANDBOX_ARENAS: readonly ArenaTemplate[] = [...ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS, ...BEHAVIOR_ARENAS, ...CAMERA_ARENAS, ...BOSS_ARENAS, ...GARRISON_ARENAS, ...FOREST_BOSS_ARENAS, ...CASTLE_ARENAS, ...SHOOTERS_ARENAS, ...STEP3_ARENAS];
 /** Arenas on the plain digit keys (1–9, 0); the rest are on Shift + digit (stage 3a). */
