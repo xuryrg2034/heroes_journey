@@ -54,9 +54,9 @@ export function bossArtRadius(params: Params, e: Pick<Enemy, 'elite' | 'leader'>
 
 /**
  * The Troll's rock in the air (trollView `rockInAir`: «Бросок камня» in its last `ROCK_FLIGHT` s, the rock not lying): its picture by the
- * paw is hidden, so it is no press zone then.
+ * paw is hidden, so it is no press zone then. Exported: the view takes the flight's condition from here.
  */
-function rockInFlight(world: World, e: Enemy): boolean {
+export function rockInFlight(world: World, e: Enemy): boolean {
   if (e.kind !== TROLL_ROCK || e.vars.lie !== undefined) return false;
   const m = trollMove(world), core = trollCore(world);
   return !!m && m.move === 'rock' && !!core && e.partOf === core.id && (core.vars.t ?? 0) <= ROCK_FLIGHT + 1e-9;
