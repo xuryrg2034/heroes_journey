@@ -15,9 +15,10 @@
  * - the overlap of drawings (design 21.10.2026), the Chief's shoulder under the ladle (out of every circle): «on top» is the view's
  *   order (the larger y; the core over the parts): both takeable — the core; the core closed — the ladle; neither — the core's refusal;
  *   at an equal y the later body; the full Castellan's crossbow: the edge of its drawing takes it, beside the drawing nothing;
- * - the drawings count where the pointer stands: a swipe's points across the Jailer's drawing take no core, a pointer event on it does;
- * - the press zone is the link everywhere: «Развилка»'s dwell on the club kept through a jitter over its drawing; a closed loop opens
- *   on the club's drawing; the rock in the air has no zone;
+ * - while the button is held («д», design 21.10.2026) only a core's drawing in its open window counts: a drag across the Jailer's
+ *   drawing (sweep, event, held) takes no core and the hint while held says nothing; the Troll's chest in his window joins him, out
+ *   of it nothing; «Развилка» and the loop on the club's drawing — by its circle;
+ * - the rock in the air has no zone;
  * - the warlock charmed: his head — «под чарами»; his window after the charm: the head takes him;
  * - the Jailer and the Castellan: the head — with the key the core or the core's refusal, without it nothing;
  * - the bosses' arenas put the key on; values without it keep it absent; another arena keeps it off;
@@ -67,7 +68,10 @@ function ticks(sim: Simulation, n: number, out: WorldEvent[] = [], until: (w: Wo
 const kindOf = (w: World, kind: string): Enemy | undefined => w.enemies.find(e => e.kind === kind);
 const freeze = (sim: Simulation, e: Enemy | undefined, seconds = 600): void => { if (e) sim.command({ t: 'chill', id: e.id, seconds }); };
 const at = (e: Enemy, dx: number, dy: number): Vec => ({ x: e.x + dx, y: e.y + dy });
-/** The press at `p`: what `pickAt` said before it, the chain's first link after it, the highlight's first link, the hint before it. */
+/**
+ * The press at `p`: what a drag would take there (`pickAt` — the drag's rule of the drawings, «д»), the chain's first link after the
+ * press, the highlight's first link, the hint before it (no button held).
+ */
 function press(sim: Simulation, p: Vec): { said: number | null; took: number | null; shown: number | null; hint: string | null } {
   const w = sim.world, said = pickAt(w, p)?.id ?? null, hint = hoverRefusal(w, p);
   sim.command({ t: 'begin', x: p.x, y: p.y });
@@ -131,7 +135,7 @@ check('the club\'s picture along its handle, out of its press circle: with the k
       const { sim, w } = den(k, key, false), club = kindOf(w, TROLL_CLUB)!;
       sim.command({ t: 'teleport', x: club.x + 0.4, y: club.y + 1.2 });
       const got = press(sim, at(club, ux * 0.9, uy * 0.9));
-      assert(got.took === (key ? club.id : null) && got.said === got.took, `seed ${k}, key ${key}: took ${got.took} (club ${club.id}, hint ${got.hint})`);
+      assert(got.took === (key ? club.id : null) && got.said === null, `seed ${k}, key ${key}: the press took ${got.took}, a drag ${got.said} (club ${club.id}, hint ${got.hint})`);
       assert(replays(sim), `seed ${k}, key ${key}: replay`);
     }
   }
@@ -248,7 +252,7 @@ check('the overlap of drawings, the Chief\'s shoulder under the ladle (out of ev
     const one = camp(k), at = shoulderUnderLadle(one.w, one.core, one.ladle);
     assert(enemyRefusal(one.w, one.core) !== null && enemyRefusal(one.w, one.ladle) === null, `seed ${k}: only the ladle takeable`);
     const got = press(one.sim, at);
-    assert(got.took === one.ladle.id && got.said === one.ladle.id, `seed ${k}: the core closed — the ladle (${got.took})`);
+    assert(got.took === one.ladle.id && got.said === null, `seed ${k}: the core closed — the press takes the ladle (${got.took}), a drag nothing (${got.said})`);
     assert(replays(one.sim), `seed ${k}: replay (the ladle)`);
     // Neither: the core closed, a chain of another colour than the ladle's — the hint is the core's refusal (the one on top).
     const none = camp(k), at2 = shoulderUnderLadle(none.w, none.core, none.ladle);
@@ -273,7 +277,7 @@ check('the Troll\'s club over his shoulder (the club y 2.6, the core 2.2: the cl
     const at = overlapOf(w, core, club, true);
     assert(club.y > core.y && enemyRefusal(w, core) === null && enemyRefusal(w, club) === null, `seed ${k}: both takeable, the club lower on the screen`);
     const got = press(sim, at);
-    assert(got.took === club.id && got.said === club.id, `seed ${k}: the club drawn on top (${got.took}; club ${club.id}, core ${core.id})`);
+    assert(got.took === club.id && got.said === null, `seed ${k}: the press takes the club drawn on top (${got.took}; club ${club.id}, core ${core.id}), a drag nothing (${got.said})`);
     assert(replays(sim), `seed ${k}: replay`);
   }
 });
@@ -286,8 +290,8 @@ check('an equal y (the view keeps its order there): of two takeable boss drawing
       sim.command({ t: 'teleport', x: 8.8, y: 7.6 });
       const xs = leftFirst ? [8, 9.6] : [9.6, 8];
       const [first, second] = xs.map(x => sim.command({ t: 'place', x, y: 6, color: 0, hp: 1, kind: TROLL }) as number);
-      const at = { x: 8.8, y: 5 }, said = pickAt(w, at)?.id;
-      assert(w.enemies.filter(e => e.kind === TROLL).length === 2 && said === second && second > first, `seed ${k}, left first ${leftFirst}: the later (${second}) on top, got ${said}`);
+      const got = press(sim, { x: 8.8, y: 5 });
+      assert(w.enemies.filter(e => e.kind === TROLL).length === 2 && got.took === second && second > first, `seed ${k}, left first ${leftFirst}: the later (${second}) on top, got ${got.took}`);
       assert(replays(sim), `seed ${k}: replay`);
     }
   }
@@ -303,7 +307,7 @@ check('the full Castellan\'s crossbow on its stand: a click on the edge of its d
       const edge = at(stand, -0.55, -0.45);
       assert(Math.hypot(edge.x - stand.x, edge.y - stand.y) > pickRadius(w, stand), `seed ${k}: the edge out of the stand's circle`);
       const got = press(sim, edge);
-      assert(got.took === (key ? stand.id : null) && got.said === got.took, `seed ${k}, key ${key}: took ${got.took} (stand ${stand.id}, hint ${got.hint})`);
+      assert(got.took === (key ? stand.id : null) && got.said === null, `seed ${k}, key ${key}: the press took ${got.took}, a drag ${got.said} (stand ${stand.id}, hint ${got.hint})`);
       // Beside the drawing (the view's: 1.30 wide in its box on the feet, its centre 0.29 above the body's): 0.68 aside at that height
       // is out of the picture and out of the circle — nothing (a zone by the sim's own art scale 1.1 and the feet rule took it).
       const beside = at(stand, 0.68, -0.29);
@@ -347,7 +351,7 @@ check('a crowd body standing before the warlock\'s chest (his back is open floor
   }
 });
 
-check('the press zone is the link everywhere: «Развилка»\'s dwell on an older link — the club — is not reset by a jitter over its drawing out of its circle; a closed loop opens on the last link\'s drawing — the club\'s', () => {
+check('while the button is held a part\'s drawing is not its link («д»): «Развилка»\'s dwell on the club is reset by a jitter over its drawing out of its circle; a closed loop stays closed with the pointer on the last link\'s drawing — the club\'s', () => {
   // The club in his paw: 0.9 from the grip along the handle (out of its circle, in its drawing).
   const handle = (club: Enemy): Vec => at(club, -0.3702 * 0.9, -0.9290 * 0.9);
   for (const k of SEEDS) {
@@ -367,9 +371,9 @@ check('the press zone is the link everywhere: «Развилка»\'s dwell on a
     ticks(sim, 3);
     const j = handle(club);
     sim.command({ t: 'drag', x: j.x, y: j.y, mode: 'full' });
-    assert(w.forkAnchor?.id === club.id && w.forkAnchor.since === since, `seed ${k}: the jitter over its drawing keeps the dwell (${JSON.stringify(w.forkAnchor)}, began ${since})`);
+    assert(!w.forkAnchor, `seed ${k}: the jitter over its drawing left the club — the dwell reset (${JSON.stringify(w.forkAnchor)})`);
     assert(replays(sim), `seed ${k}: replay (fork)`);
-    // «Печать»: three links and the club last, closed on the first; the pointer on the club's drawing opens it.
+    // «Печать»: three links and the club last, closed on the first; the pointer on the club's drawing does not open it.
     const loop = new Simulation({ arena: 'troll', params: quiet(true, { loopEnabled: true }), seed: seedOf(k), record: true }), lw = loop.world;
     ticks(loop, 1);
     const lclub = kindOf(lw, TROLL_CLUB)!;
@@ -384,7 +388,9 @@ check('the press zone is the link everywhere: «Развилка»\'s dwell on a
     assert(lw.chain.length === 4 && lw.chain[3].id === lclub.id && lw.chainClosed === 'first', `seed ${k}: closed with the club last (${lw.chain.map(l => l.id)}, ${lw.chainClosed})`);
     const h = handle(lclub);
     loop.command({ t: 'drag', x: h.x, y: h.y, mode: 'full' });
-    assert(!lw.chainClosed, `seed ${k}: the club's drawing opens the loop (${lw.chainClosed})`);
+    assert(lw.chainClosed === 'first', `seed ${k}: the club's drawing does not open the loop (${lw.chainClosed})`);
+    loop.command({ t: 'drag', x: lclub.x, y: lclub.y, mode: 'full' });
+    assert(!lw.chainClosed, `seed ${k}: its circle opens it (${lw.chainClosed})`);
     assert(replays(loop), `seed ${k}: replay (loop)`);
   }
 });
@@ -402,18 +408,18 @@ check('the Troll\'s rock in the air («Бросок камня», its last 0.4 s
     for (let i = 0; i < ticksOf(20) && !flight; i++) {
       sim.tick(); w.events.splice(0);
       if (w.move || core.vars.mv === undefined) continue;
-      const said = pickAt(w, edge)?.id ?? null, inAir = bossArtEllipse(w, rock) === null;
-      if (!inAir && said === rock.id) windup = true;
-      if (inAir) { flight = true; assert(said === null, `seed ${k}: the rock in the air — nothing (${said})`); }
+      const inAir = bossArtEllipse(w, rock) === null;
+      if (!inAir && !windup) { windup = press(sim, edge).took === rock.id; assert(windup, `seed ${k}: the windup — the press takes the rock`); }
+      if (inAir) { flight = true; const got = press(sim, edge); assert(got.took === null, `seed ${k}: the rock in the air — nothing (${got.took})`); }
     }
     assert(windup && flight, `seed ${k}: the windup took the rock, the flight came (${windup}, ${flight})`);
     assert(replays(sim), `seed ${k}: replay`);
   }
 });
 
-check('the drawings count where the pointer stands (design 21.10.2026): a swipe from a link to the Jailer\'s weight across his drawing (no body there, out of the circles) — its sweep points take no core; a pointer event on the drawing on the way — the core joins', () => {
+check('while the button is held only a core\'s drawing in its open window counts («д»): a drag from a link to the Jailer\'s weight across his drawing (no body there, out of the circles; he has no window) — no core by the sweep\'s points, by a pointer event or by the held pointer on the drawing; the hint while held says nothing there, without a button — the core or its refusal', () => {
   for (const k of SEEDS) {
-    for (const stop of [false, true]) {
+    for (const how of ['sweep', 'event', 'held'] as const) {
       const sim = new Simulation({ arena: 'jailer', params: quiet(true), seed: seedOf(k), record: true }), w = sim.world;
       ticks(sim, 1);
       const core = kindOf(w, JAILER)!, weight = kindOf(w, 'jailer-weight')!;
@@ -425,16 +431,52 @@ check('the drawings count where the pointer stands (design 21.10.2026): a swipe 
       // The way down to the weight crosses the core's drawing (0.84–0.92 deep) out of every circle.
       const mid = { x: 6.65, y: 5.85 };
       assert(Math.hypot(mid.x - core.x, mid.y - core.y) > pickRadius(w, core) && Math.hypot(mid.x - weight.x, mid.y - weight.y) > pickRadius(w, weight), `seed ${k}: the way out of the circles`);
-      if (stop) {
-        // One pointer event lands on the drawing: the core joins there (a survivor: nothing joins after it).
-        sim.command({ t: 'sweep', fx: 6.6, fy: 5.2, x: mid.x, y: mid.y });
-        sim.command({ t: 'sweep', fx: mid.x, fy: mid.y, x: weight.x, y: weight.y });
-        assert(w.chain.some(l => l.id === core.id), `seed ${k}: the event on the drawing took the core (${w.chain.map(l => l.id)})`);
-      } else {
-        sim.command({ t: 'sweep', fx: 6.6, fy: 5.2, x: weight.x, y: weight.y });
-        assert(w.chain.map(l => l.id).join() === [a1, weight.id].join(), `seed ${k}: the swipe's points took no core (${w.chain.map(l => l.id)}; core ${core.id}, weight ${weight.id})`);
-      }
-      assert(replays(sim), `seed ${k}, stop ${stop}: replay`);
+      assert(hoverRefusal(w, mid, true) === null && pickAt(w, mid) === null, `seed ${k}: held — no hint, nothing to take on the drawing`);
+      if (how === 'sweep') sim.command({ t: 'sweep', fx: 6.6, fy: 5.2, x: weight.x, y: weight.y });
+      else if (how === 'event') { sim.command({ t: 'sweep', fx: 6.6, fy: 5.2, x: mid.x, y: mid.y }); sim.command({ t: 'sweep', fx: mid.x, fy: mid.y, x: weight.x, y: weight.y }); }
+      else { sim.command({ t: 'drag', x: mid.x, y: mid.y, mode: 'full' }); sim.command({ t: 'drag', x: mid.x, y: mid.y, mode: 'append' }); sim.command({ t: 'drag', x: weight.x, y: weight.y, mode: 'full' }); }
+      assert(w.chain.map(l => l.id).join() === [a1, weight.id].join(), `seed ${k}, ${how}: no core (${w.chain.map(l => l.id)}; core ${core.id}, weight ${weight.id})`);
+      assert(replays(sim), `seed ${k}, ${how}: replay`);
+    }
+  }
+  // Held, the core refused (the chain ends on a survivor): the hint over his drawing still says nothing — the drag sees no drawing.
+  for (const k of SEEDS) {
+    const sim = new Simulation({ arena: 'jailer', params: quiet(true), seed: seedOf(k), record: true }), w = sim.world;
+    ticks(sim, 1);
+    const core = kindOf(w, JAILER)!;
+    freeze(sim, core, 60);
+    sim.command({ t: 'teleport', x: 5.6, y: 5.0 });
+    sim.command({ t: 'place', x: 6.6, y: 5.2, color: 0, hp: 9, kind: 'basic' });
+    sim.command({ t: 'begin', x: 6.6, y: 5.2 });
+    assert(enemyRefusal(w, core) !== null, `seed ${k}: the core refused after the survivor (${enemyRefusal(w, core)})`);
+    assert(hoverRefusal(w, { x: 6.65, y: 5.85 }, true) === null, `seed ${k}: held — no hint on his drawing (${hoverRefusal(w, { x: 6.65, y: 5.85 }, true)})`);
+    assert(hoverRefusal(w, { x: 6.65, y: 5.85 }, false) === enemyRefusal(w, core), `seed ${k}: no button — his refusal`);
+  }
+  // No button: the hint over his drawing — his refusal or none (he would be taken: the press takes him).
+  for (const k of SEEDS) {
+    const sim = new Simulation({ arena: 'jailer', params: quiet(true), seed: seedOf(k), record: true }), w = sim.world;
+    ticks(sim, 1);
+    const core = kindOf(w, JAILER)!;
+    freeze(sim, core, 60);
+    sim.command({ t: 'teleport', x: 5.6, y: 5.0 });
+    const got = press(sim, { x: 6.65, y: 5.85 });
+    assert(got.took === core.id ? got.hint === null : got.hint !== null, `seed ${k}: no button — the press ${got.took}, the hint ${got.hint} (core ${core.id})`);
+  }
+});
+
+check('while the button is held a core\'s drawing in its open window counts («д»): a chain drawn to the Troll\'s chest (out of every circle) — in his window the core joins, out of it nothing joins', () => {
+  for (const k of SEEDS) {
+    for (const open of [true, false]) {
+      const { sim, w, core } = den(k, true, open);
+      sim.command({ t: 'teleport', x: core.x + 1.6, y: core.y + 2.2 });
+      const id = sim.command({ t: 'place', x: core.x + 1.3, y: core.y + 1.0, color: 1, hp: 0, kind: 'basic' }) as number;
+      sim.command({ t: 'begin', x: core.x + 1.3, y: core.y + 1.0 });
+      assert(w.chain.length === 1 && w.chain[0].id === id, `seed ${k}: a link`);
+      const chest = at(core, 0, -0.9);
+      sim.command({ t: 'drag', x: chest.x, y: chest.y, mode: 'full' });
+      const last = w.chain[w.chain.length - 1].id;
+      assert(open ? last === core.id : w.chain.length === 1, `seed ${k}, open ${open}: ${w.chain.map(l => l.id)} (core ${core.id})`);
+      assert(replays(sim), `seed ${k}, open ${open}: replay`);
     }
   }
 });
@@ -447,9 +489,9 @@ check('the Jailer and the Castellan: the head on the drawing — with the key th
         ticks(sim, 1);
         const core = kindOf(w, kind)!;
         sim.command({ t: 'teleport', x: core.x + 0.3, y: core.y + 1.6 });
-        const head = at(core, 0, up), said = pickAt(w, head)?.id ?? null, hint = hoverRefusal(w, head);
-        if (key) assert(said === core.id ? hint === null : hint !== null, `seed ${k}, ${arena}: the core (${said}) or its refusal (${hint})`);
-        else assert(said === null && hint === null, `seed ${k}, ${arena}: without the key nothing (${said}, ${hint})`);
+        const got = press(sim, at(core, 0, up));
+        if (key) assert((got.took === core.id ? got.hint === null : got.hint !== null) && got.said === null, `seed ${k}, ${arena}: the press — the core (${got.took}) or its refusal (${got.hint}); a drag nothing (${got.said})`);
+        else assert(got.took === null && got.hint === null, `seed ${k}, ${arena}: without the key nothing (${got.took}, ${got.hint})`);
         assert(replays(sim), `seed ${k}, ${arena}, key ${key}: replay`);
       }
     }
