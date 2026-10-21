@@ -271,7 +271,7 @@ check('the final of a gentle run whose hero never fought a porcupine: none in it
   const toFinal = (_run: RtRunState, _row: number, battle: RtBattleKind): boolean => battle === 'final';
   for (let k = 1; k <= 150 && (unmet < 4 || metRuns < 2 || oldFinals < 2); k++) {
     // Task 48: the gentle rule of «Последний рубеж» (the camp's final; a run without the Troll's flag plays it on both branches).
-    const at = walkFights(seedOf(k + 900), k, { troll: false, markerSeek: false }, 6, toFinal);
+    const at = walkFights(seedOf(k + 900), k, { troll: false }, 6, toFinal);
     if (at) {
       const met = at.scanned.has('porcupine'), gone = rtArenaLoadout(at.run).withoutKinds;
       assert(met === rtMetKinds(at.run).has('porcupine') && (met ? gone === undefined : same(gone, ['porcupine'])), `seed ${k}: fought ${met}, without ${gone}`);

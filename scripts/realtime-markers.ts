@@ -6,8 +6,9 @@
  * `--direct`: a new run of each seed, a node of it opened as a battle on each arena of the list (the run's arenas on a battle node of
  * run row 5; the bosses on their own nodes) with the run's params, loadout and HP, played by the same bot (scripts/garrisonBot.ts
  * `botFight`, the boss aim) twice — the key off (the markers of before) and on. Per arena: deaths, the fight's median time, enemies
- * spawned (median), the share of fights where a marker stood within the hero's ring (`spawnMinDistance`) longer than 3 s in all,
- * and the longest such stand. Seeds `Math.imul(k, 2654435761) >>> 0`.
+ * spawned (median), the share of markers that waited longer than their warning (from their first tick to their going, moves
+ * included), the share of fights where a marker stood within the hero's ring (`spawnMinDistance`) longer than 3 s in all, and the
+ * longest such stand. Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import { execSync } from 'node:child_process';
 import '../src/realtime/sim/arenasBoss';
@@ -37,15 +38,28 @@ function openRun(k: number, arena: string, at: string, seek: boolean): RtRunStat
   return { ...run, pending: { kind: 'battle', nodeId: node.id, arena, seed: arenaSeed(run, node.id), battle: battleKindOf(node) } };
 }
 
-interface Fight { won: boolean; time: number; spawned: number; hang: number }
+interface Fight { won: boolean; time: number; spawned: number; hang: number; markers: number; late: number }
 function fight(run: RtRunState): Fight {
   const hang = new Map<number, number>();
+  // Each marker's life (game seconds from its first tick to its going; it keeps its id when it moves) against its warning.
+  const born = new Map<number, { at: number; total: number }>();
+  let markers = 0, late = 0;
   const seen = (w: World): void => {
-    for (const m of w.markers) if (Math.hypot(m.x - w.hero.x, m.y - w.hero.y) < w.params.spawnMinDistance) hang.set(m.id, (hang.get(m.id) ?? 0) + 1 / 60);
+    for (const m of w.markers) {
+      if (!born.has(m.id)) born.set(m.id, { at: w.time, total: m.total });
+      if (Math.hypot(m.x - w.hero.x, m.y - w.hero.y) < w.params.spawnMinDistance) hang.set(m.id, (hang.get(m.id) ?? 0) + 1 / 60);
+    }
+    if (w.status !== 'playing') return;
+    for (const [id, b] of born) {
+      if (w.markers.some(m => m.id === id)) continue;
+      markers++;
+      if (w.time - b.at > b.total + 1 / 60 + 1e-9) late++;
+      born.delete(id);
+    }
   };
   const played = botFight(run, { params: rtArenaParams(run, rtRunParams(defaultParams())), loadout: rtArenaLoadout(run), limit: LIMIT, aim: AIM, seen });
   const w = played.sim.world;
-  return { won: w.status === 'victory', time: w.time, spawned: w.stats.spawned, hang: Math.max(0, ...hang.values()) };
+  return { won: w.status === 'victory', time: w.time, spawned: w.stats.spawned, hang: Math.max(0, ...hang.values()), markers, late };
 }
 
 const median = (xs: number[]): number => { if (!xs.length) return NaN; const s = [...xs].sort((a, b) => a - b); return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2; };
@@ -55,11 +69,12 @@ let head = '?';
 try { head = execSync('git rev-parse --short HEAD').toString().trim(); } catch { /* not a repository */ }
 
 console.log(`«Метка у героя», --direct: узел похода (бои — ряд 5, боссы — свои узлы), параметры, кит и HP похода, бот с целью в ядро, ${SEEDS} seed, предел ${LIMIT} с, ключ markerSeek выкл. / вкл. (эвристика), ${new Date().toISOString().slice(0, 10)}, HEAD ${head}.\n`);
-console.log('| Арена | Смертей (выкл. → вкл.) | Бой, с, мед. | Врагов вышло, мед. | Бои с меткой у героя дольше 3 с | Наибольшее стояние метки, с |');
-console.log('| --- | --- | --- | --- | --- | --- |');
+console.log('| Арена | Смертей (выкл. → вкл.) | Бой, с, мед. | Врагов вышло, мед. | Метки, ждавшие дольше предупреждения | Бои с меткой у героя дольше 3 с | Наибольшее стояние метки, с |');
+console.log('| --- | --- | --- | --- | --- | --- | --- |');
 for (const { arena, node } of ARENAS) {
   const off: Fight[] = [], on: Fight[] = [];
   for (let k = 1; k <= SEEDS; k++) { off.push(fight(openRun(k, arena, node, false))); on.push(fight(openRun(k, arena, node, true))); }
   const d = (fs: Fight[]): number => fs.filter(f => !f.won).length, long = (fs: Fight[]): number => fs.filter(f => f.hang > 3).length;
-  console.log(`| ${arena} | ${d(off)} → ${d(on)} (${pct(d(off), SEEDS)} → ${pct(d(on), SEEDS)}) | ${f1(median(off.map(f => f.time)))} → ${f1(median(on.map(f => f.time)))} | ${f1(median(off.map(f => f.spawned)))} → ${f1(median(on.map(f => f.spawned)))} | ${long(off)} → ${long(on)} (${pct(long(off), SEEDS)} → ${pct(long(on), SEEDS)}) | ${f1(Math.max(...off.map(f => f.hang)))} → ${f1(Math.max(...on.map(f => f.hang)))} |`);
+  const lateOf = (fs: Fight[]): string => { const n = fs.reduce((a, f) => a + f.markers, 0), l = fs.reduce((a, f) => a + f.late, 0); return `${l} из ${n} (${n ? (100 * l / n).toFixed(1).replace('.', ',') : '—'} %)`; };
+  console.log(`| ${arena} | ${d(off)} → ${d(on)} (${pct(d(off), SEEDS)} → ${pct(d(on), SEEDS)}) | ${f1(median(off.map(f => f.time)))} → ${f1(median(on.map(f => f.time)))} | ${f1(median(off.map(f => f.spawned)))} → ${f1(median(on.map(f => f.spawned)))} | ${lateOf(off)} → ${lateOf(on)} | ${long(off)} → ${long(on)} (${pct(long(off), SEEDS)} → ${pct(long(on), SEEDS)}) | ${f1(Math.max(...off.map(f => f.hang)))} → ${f1(Math.max(...on.map(f => f.hang)))} |`);
 }
