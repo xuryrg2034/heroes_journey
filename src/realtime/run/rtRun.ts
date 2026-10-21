@@ -297,6 +297,12 @@ export const RT_FOREST_SHOOTERS_PARAMS: Readonly<Partial<Params>> = Object.freez
  */
 export const RT_FOREST_SHOOTERS_ON = false;
 /**
+ * Task 57а (design 21.10.2026, after the arcs measure: a new viewer met no new shooter in 4 runs — the old arcs took every fight): a new run
+ * with the shooters takes the key `arcsAlternate` (the arcs of task 26 and of the new shooters alternate, run/schedule.ts `readyArc`).
+ * A run saved without it plays the old order to its end.
+ */
+export const RT_ARCS_ALTERNATE_ON = true;
+/**
  * Hygiene of task 17 (design answer 1, 13.10.2026): the values the page plays with — the sandbox its saved panel (`panel`),
  * the run (and its prologue) the defaults with the run's own numbers (`rtRunParams`). The sandbox panel changes only the
  * sandbox; the run is tuned only by `RT_RUN_FORCED` (and by the row: `rtArenaLoadout`, `rtArenaParams`).
@@ -796,6 +802,12 @@ export interface RtRunState {
    */
   forestShooters?: true;
   /**
+   * Task 57а (design 21.10.2026): the schedule alternates the arcs of task 26 and of the new shooters when both are ready (run/schedule.ts
+   * `readyArc`, the old first). Set when a run with `forestShooters` is created (`RT_ARCS_ALTERNATE_ON`); only with it. Absent — the old
+   * order (the first ready arc of the list), byte for byte.
+   */
+  arcsAlternate?: true;
+  /**
    * Task 58в «Летопись: видел» (design 21.10.2026): the run notes what its screens showed and it did not take (`shown`). Set when the run
    * is created while the chronicle is on (`RT_CHRONICLE_ON`); absent — no note, the save as before.
    */
@@ -1086,7 +1098,7 @@ export const rtDailySeed = (date: string): number => mixSeed(metaSalt('daily'), 
  * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
  * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
  */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; troll?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; relicFill?: boolean; chronicle?: boolean; potionCap?: number; knacks?: boolean; habits?: boolean; hero?: RtHeroId; omens?: readonly string[]; daily?: string; forestShooters?: boolean } = {}): RtRunState {
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; troll?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; relicFill?: boolean; chronicle?: boolean; potionCap?: number; knacks?: boolean; habits?: boolean; hero?: RtHeroId; omens?: readonly string[]; daily?: string; forestShooters?: boolean; arcsAlternate?: boolean } = {}): RtRunState {
   const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
   // Task 12 (13.10.2026): the goal layouts of the `marked` arenas, as the mix — on as `RT_RUN_FORCED` says unless the option says.
   const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
@@ -1129,6 +1141,8 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   const relicFill = garrison && (options.relicFill ?? RT_RELIC_FILL_ON), chronicle = options.chronicle ?? RT_CHRONICLE_ON;
   // Task 57а «Лес: стрелки» (17.10.2026): the new shooters of the forest, by `RT_FOREST_SHOOTERS_ON` unless the option says.
   const forestShooters = options.forestShooters ?? RT_FOREST_SHOOTERS_ON;
+  // Task 57а (design 21.10.2026): the arcs of task 26 and of the new shooters alternate — a run with the shooters, unless the option says.
+  const arcsAlternate = forestShooters && (options.arcsAlternate ?? RT_ARCS_ALTERNATE_ON);
   // Task 41 «Три зелья» (16.10.2026): the cap of healing potions, `RT_POTION_CAP` unless the option says (0 — none, as a save before it).
   const potionCap = Math.max(0, Math.floor(options.potionCap ?? RT_POTION_CAP));
   // Task 49: Ведунья's run keeps her id (with or without the meta); the cat's — `cat` with the meta's snapshot only, as before.
@@ -1138,7 +1152,7 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   const run: RtRunState = {
     version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {},
     // Task 51з: the run of the day (only seeded, its seed the date's; run/rtDaily.ts `createRtDailyRun`).
-    ...options.seeded && isRtDailyDate(options.daily) && (seed >>> 0) === rtDailySeed(options.daily) ? { daily: options.daily } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked } : {}, ...heroId ? { heroId } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...relicFill ? { relicFill: true as const } : {}, ...chronicle ? { chronicle: true as const } : {}, ...potionCap ? { potionCap } : {}, ...pool.length ? { omens: { pool } } : {}, ...forestShooters ? { forestShooters: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    ...options.seeded && isRtDailyDate(options.daily) && (seed >>> 0) === rtDailySeed(options.daily) ? { daily: options.daily } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked } : {}, ...heroId ? { heroId } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...relicFill ? { relicFill: true as const } : {}, ...chronicle ? { chronicle: true as const } : {}, ...potionCap ? { potionCap } : {}, ...pool.length ? { omens: { pool } } : {}, ...forestShooters ? { forestShooters: true as const } : {}, ...arcsAlternate ? { arcsAlternate: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
@@ -2215,7 +2229,7 @@ function arenaPick(run: RtRunState, node: ForestMapNode, advance: boolean): RtAr
   }
   const history = run.picks.flatMap(pick => pick.arena ? [pick.arena] : []);
   // Task 26: a run with a schedule spends the pool draw as before (the stream counters stay) but reads the node's own roll.
-  if (run.schedule) { draw(run, 'pool', advance); return schedulePick(run, node, history, rtScheduleMet(run)); }
+  if (run.schedule) { draw(run, 'pool', advance); return schedulePick(run, node, history, rtScheduleMet(run), run.picks.flatMap(pick => pick.arc ? [pick.arc] : [])); }
   // Task 28: the Jailer's node of a run with `jailer` — the Jailer's fight; the pool draw is spent as before, not read.
   if (run.jailer && node.type === 'checkpoint') { draw(run, 'pool', advance); return { arena: JAILER_ARENA.id }; }
   // Task 48: the den branch's boss of a run with `troll` — the Troll's fight; the pool draw is spent as before, not read.
@@ -2323,12 +2337,12 @@ export function rtScheduleMet(run: Pick<RtRunState, 'schedule' | 'battles'>): Se
   return new Set([...run.schedule?.seen ?? [], ...run.schedule ? run.battles.flatMap(record => record.seen ?? []) : []]);
 }
 /** Task 26: the arena, roster and arc of a node of a scheduled run after the arenas `history`, with `met` met. */
-function schedulePick(run: RtRunState, node: Pick<ForestMapNode, 'id' | 'type' | 'row'>, history: readonly string[], met: ReadonlySet<string>): RtArenaPick {
+function schedulePick(run: RtRunState, node: Pick<ForestMapNode, 'id' | 'type' | 'row'>, history: readonly string[], met: ReadonlySet<string>, arcs: readonly string[] = []): RtArenaPick {
   const plan = schedulePlan({ seed: arenaSeed(run, node.id), node: scheduleNode(node), row: runRow(node.row), fight: history.length + 1, met, recent: history, ...run.jailer ? { jailer: true } : {},
     // Task 48: the den branch's boss of a run with `troll` — the Troll's fight (arc null, as every final).
     ...rtTrollNode(run, node) ? { troll: true } : {},
-    // Task 57а: the new shooters' kinds, arcs and practice (absent — the schedule as before).
-    ...run.forestShooters ? { shooters: true } : {} });
+    // Task 57а: the new shooters' kinds, arcs and practice (absent — the schedule as before); the alternation of the arcs (design 21.10.2026).
+    ...run.forestShooters ? { shooters: true } : {}, ...run.arcsAlternate ? { alternate: true, arcs } : {} });
   return { arena: plan.arena, ...plan.roster !== undefined ? { roster: plan.roster } : {}, ...plan.arc !== null ? { arc: plan.arc } : {} };
 }
 /** Task 26: the arc of the open fight of a scheduled run (null — a practice fight, or no schedule). */
@@ -4064,6 +4078,8 @@ function checkRun(value: unknown): RtRunState | null {
   if (value.step2 !== undefined && !(value.step2 === true && value.moat === true)) return null;
   // Task 57а: a flag; absent — a save before it (or a run without the new shooters).
   if (value.forestShooters !== undefined && value.forestShooters !== true) return null;
+  // Task 57а: the alternation of the arcs — only with the shooters.
+  if (value.arcsAlternate !== undefined && !(value.arcsAlternate === true && value.forestShooters === true)) return null;
   // Task 41: the cap of healing potions, a whole number from 1; absent — a save before it (no cap).
   if (value.potionCap !== undefined && !(isCount(value.potionCap) && value.potionCap >= 1)) return null;
   // Task 56: the omens (the pool and the levels' rolls); the count of off-link steps (1 or more, only under «Перепутье» — the path below).
@@ -4168,7 +4184,7 @@ function checkRun(value: unknown): RtRunState | null {
   // step-4 rule would not choose reads as no run. Phase A (Т2): so is every roster — by the node's roll after the arenas
   // and rosters before it (absent where the arena keeps its own composition). The roster mix (11.10.2026): by the rule of
   // the run's flag `rosterMix` (absent — the pools and rosters before it).
-  const history: string[] = [], rosters: string[] = [];
+  const history: string[] = [], rosters: string[] = [], arcs: string[] = [];
   // Task 26: a scheduled run's picks are planned again with what was met before each (the snapshot, then each fight's record).
   const met = new Set(run.schedule?.seen ?? []);
   // Task 38: the garrison's arenas — by its own pool stream after the garrison's arenas before each (no roster, no arc).
@@ -4183,9 +4199,10 @@ function checkRun(value: unknown): RtRunState | null {
       continue;
     }
     if (run.schedule) {
-      const planned = schedulePick(run, node.type === 'event' ? { ...node, type: 'battle' } : node, history, met);
+      const planned = schedulePick(run, node.type === 'event' ? { ...node, type: 'battle' } : node, history, met, arcs);
       if (pick.arena !== planned.arena || pick.roster !== planned.roster || pick.arc !== planned.arc) return null;
       history.push(pick.arena);
+      if (pick.arc !== undefined) arcs.push(pick.arc);
       for (const id of (run.battles as unknown[]).flatMap(record => isRecord(record) && record.nodeId === pick.nodeId && Array.isArray(record.seen) ? record.seen : [])) met.add(id as string);
       continue;
     }

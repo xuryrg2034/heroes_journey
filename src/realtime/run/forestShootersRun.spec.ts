@@ -104,9 +104,9 @@ function madeUp(run: RtRunState): RtArenaOutcome | null {
 }
 interface Planned { nodeId: string; row: number; arena: string; roster?: string; arc?: string; kinds: string[]; state: RtRunState }
 /** The forest fights of a walk with the flag (`schedule` — the viewer's history; absent — the pools of «Испытание II»). */
-function planned(k: number, schedule?: readonly string[]): Planned[] {
+function planned(k: number, schedule?: readonly string[], arcsAlternate = true): Planned[] {
   const out: Planned[] = [];
-  walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', forestShooters: true, ...schedule ? { schedule } : { ash: 2 } }, fight: madeUp, each: state => {
+  walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', forestShooters: true, arcsAlternate, ...schedule ? { schedule } : { ash: 2 } }, fight: madeUp, each: state => {
     const p = state.pending;
     if (p?.kind !== 'battle' || out.some(f => f.nodeId === p.nodeId) || rtGarrisonNodeId(p.nodeId)) return;
     const gone = rtArenaLoadout(state).withoutKinds ?? [], arc = state.picks.find(pick => pick.nodeId === p.nodeId)?.arc;
@@ -148,6 +148,23 @@ check('the schedule (40 runs, 4 histories): the slinger first on «Осыпь» 
     }
   }
   assert((firsts[SLINGER] ?? 0) >= 10 && (firsts[HIVE] ?? 0) >= 5 && (firsts[WISP] ?? 0) >= 5, JSON.stringify(firsts));
+});
+
+check('the alternation of the arcs (design 21.10.2026, the run key `arcsAlternate`): an old arc and a new one both ready — the old first, then they alternate; without the key the old list first; the key comes with the shooters only, a save of it without them is no run', () => {
+  const met = new Set(['bust', 'wolf', 'elite', 'brazier', 'cliff', 'boar', 'water', 'shield', 'buttons', 'archer']);
+  const ctx = (arcs: string[], alternate = true) => ({ node: 'battle' as const, row: 3, fight: 5, met, shooters: true, alternate, arcs });
+  assert(readyArc(ctx([])) === 'sapper' && readyArc(ctx(['bust', 'wolf'])) === 'slinger' && readyArc(ctx(['wolf', 'slinger'])) === 'sapper' && readyArc(ctx(['wolf', 'slinger', 'sapper'])) === 'slinger', 'the old first, then by turns');
+  assert(readyArc(ctx(['wolf'], false)) === 'sapper' && readyArc({ ...ctx(['wolf']), shooters: false }) === 'sapper', 'without the key (or the shooters) — the old list first');
+  assert(readyArc({ ...ctx(['wolf']), row: 6 }) === 'sapper', 'past its rows the new arc is not offered: the old one');
+  const on = createRtRun(seedOf(5), { forestShooters: true }), off = createRtRun(seedOf(5), { forestShooters: false }), plain = createRtRun(seedOf(5), { forestShooters: true, arcsAlternate: false });
+  assert(on.arcsAlternate === true && off.arcsAlternate === undefined && plain.arcsAlternate === undefined, 'the key with the shooters (`RT_ARCS_ALTERNATE_ON`)');
+  const raw = JSON.parse(serializeRtRun(off)) as Record<string, unknown>; raw.arcsAlternate = true;
+  assert(parseRtRun(JSON.stringify(raw)) === null, 'the key without the shooters is no run');
+  // Whole runs of a viewer who met the first ten arcs: with the key a new kind comes in more runs (the old arcs no longer take every fight).
+  const history = [...met], newcomers = (alternate: boolean) => Array.from({ length: 20 }, (_, i) => planned(i + 1, history, alternate)).filter(fights => fights.some(f => f.arc && SCHEDULE_SHOOTER_KINDS.includes(f.arc))).length;
+  const withKey = newcomers(true), without = newcomers(false);
+  console.log(`   runs meeting a new shooter (20 runs, the first ten arcs met): with the key ${withKey}, without ${without}`);
+  assert(withKey > without, `with the key ${withKey}, without ${without}`);
 });
 
 check('the pools (30 runs of «Испытание II»): «Осыпь» only rows 3–7 (or the slinger overdue), «Пасека» rows 4–8 (or overdue); the slinger and the hive first on their own arenas; «+пращники» only after «Осыпь»', () => {

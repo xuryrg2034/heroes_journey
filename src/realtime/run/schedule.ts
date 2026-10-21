@@ -153,15 +153,29 @@ export interface ScheduleContext {
   troll?: boolean;
   /** Task 57а: the run has the flag `forestShooters` — the new shooters' kinds, arcs and practice; absent — the schedule as before. */
   shooters?: boolean;
+  /**
+   * Task 57а (design 21.10.2026): the run has the key `arcsAlternate` — when an arc of task 26 and an arc of the new shooters are both
+   * ready, the fights with arcs alternate (the old first: an old arc, a new one, an old one…; `readyArc`). Absent — the first ready arc of
+   * the list, as before.
+   */
+  alternate?: boolean;
+  /** Task 57а: the arcs of the run's fights before this one, in order (`alternate` reads the last). */
+  arcs?: readonly string[];
 }
 
 /** The elite arcs need a guaranteed elite: not on the Jailer's node (it has none). Task 28 gives the Jailer's node its own arc (`jailerPlan`). */
 const takesEliteArc = (node: ScheduleNode): boolean => node === 'battle' || node === 'event' || node === 'breakthrough' || node === 'hard';
 /** The first arc ready for this fight (null — none: a practice fight). The Jailer's fight of task 28 has its own (`jailerPlan`). */
-export function readyArc(ctx: Pick<ScheduleContext, 'node' | 'row' | 'fight' | 'met' | 'shooters'>): string | null {
-  const arc = scheduleArcs(ctx.shooters).find(a => !ctx.met.has(a.id) && (a.needs ?? []).every(n => ctx.met.has(n)) && ctx.row >= (a.minRow ?? 0) && ctx.row <= (a.maxRow ?? Infinity) && ctx.fight >= (a.minFight ?? 0)
-    && (!ELITE_ARCS.includes(a.id) || takesEliteArc(ctx.node)));
-  return arc?.id ?? null;
+export function readyArc(ctx: Pick<ScheduleContext, 'node' | 'row' | 'fight' | 'met' | 'shooters' | 'alternate' | 'arcs'>): string | null {
+  const ready = (a: Arc): boolean => !ctx.met.has(a.id) && (a.needs ?? []).every(n => ctx.met.has(n)) && ctx.row >= (a.minRow ?? 0) && ctx.row <= (a.maxRow ?? Infinity) && ctx.fight >= (a.minFight ?? 0)
+    && (!ELITE_ARCS.includes(a.id) || takesEliteArc(ctx.node));
+  if (!ctx.alternate || !ctx.shooters) return scheduleArcs(ctx.shooters).find(ready)?.id ?? null;
+  // Task 57а (design 21.10.2026): both ready — the new shooters' arc when the run's last arc fight was an old one, else the old one
+  // (the bust counts as old: it is the first fight's).
+  const old = SCHEDULE_ARCS.find(ready), fresh = SCHEDULE_SHOOTER_ARCS.find(ready);
+  if (!old || !fresh) return (old ?? fresh)?.id ?? null;
+  const last = [...ctx.arcs ?? []].reverse().find(id => id === BUST_ARC || SCHEDULE_ARCS.some(a => a.id === id) || SCHEDULE_SHOOTER_ARCS.some(a => a.id === id));
+  return last !== undefined && !SCHEDULE_SHOOTER_ARCS.some(a => a.id === last) ? fresh.id : old.id;
 }
 
 /** The plan of a fight (see the module's comment). */
