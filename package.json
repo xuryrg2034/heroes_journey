@@ -124,6 +124,7 @@
     "test:realtime-pitcher": "tsx src/realtime/sim/pitcher.spec.ts",
     "test:realtime-step3-probes": "tsx src/realtime/sim/step3Probes.spec.ts",
     "test:realtime-step3-arenas": "tsx src/realtime/sim/step3Arenas.spec.ts",
+    "test:realtime-step3-bot": "tsx src/realtime/sim/step3Bot.spec.ts",
     "test:realtime-arena-registry": "tsx src/realtime/sim/arenaRegistry.spec.ts",
     "test:realtime-forest-shooters": "tsx src/realtime/sim/forestShooters.spec.ts",
     "test:realtime-forest-shooters-run": "tsx src/realtime/run/forestShootersRun.spec.ts",

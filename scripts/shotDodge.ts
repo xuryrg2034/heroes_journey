@@ -5,6 +5,7 @@
  * Without it the bots stand in the patterns and the shots' damage of a measure is inflated. Nothing while no shot flies.
  */
 import { heroRadius } from '../src/realtime/sim/params';
+import { pitchMarkRadius, potsInFlight } from '../src/realtime/sim/pitch';
 import { liveShots } from '../src/realtime/sim/shots';
 import type { Vec } from '../src/realtime/sim/geometry';
 import type { World } from '../src/realtime/sim/world';
@@ -32,4 +33,22 @@ export function shotDodge(world: World): Vec | null {
     best = { t: when, x: nx * side, y: ny * side };
   }
   return best ? { x: best.x, y: best.y } : null;
+}
+
+/** The pot's mark: the bot leaves it while the hero's body is within the mark's radius plus this. */
+const POT_MARGIN = 0.25;
+
+/**
+ * Task 59б (the bot of the step-3 measures): the step off a pot's mark (spec 3.2: «уйди с метки»). A pot in flight whose mark the
+ * hero's body touches (its radius + the hero's + `POT_MARGIN`) — the bot steps away from the mark's centre; on the centre itself,
+ * across the throw's line. The pot that lands first goes first. Null — no pot flies at him (no pitcher: never anything).
+ */
+export function potDodge(world: World): Vec | null {
+  const hero = world.hero, reach = pitchMarkRadius(world) + heroRadius(world.params) + POT_MARGIN;
+  const pot = potsInFlight(world).filter(p => Math.hypot(hero.x - p.x, hero.y - p.y) < reach).sort((a, b) => a.left - b.left)[0];
+  if (!pot) return null;
+  const dx = hero.x - pot.x, dy = hero.y - pot.y, d = Math.hypot(dx, dy);
+  if (d > 0.05) return { x: dx / d, y: dy / d };
+  const tx = pot.x - pot.x0, ty = pot.y - pot.y0, t = Math.hypot(tx, ty) || 1;
+  return { x: -ty / t, y: tx / t };
 }

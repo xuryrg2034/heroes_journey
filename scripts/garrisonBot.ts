@@ -24,7 +24,8 @@ import type { Loadout } from '../src/realtime/sim/kit';
 import type { Enemy, World } from '../src/realtime/sim/world';
 import type { RtRunState } from '../src/realtime/run/rtRun';
 import { playChain } from './loopBot';
-import { shotDodge } from './shotDodge';
+import { pairChain } from './pairBot';
+import { potDodge, shotDodge } from './shotDodge';
 import { shoveChain } from './shoveBot';
 
 /** The bot drinks a healing potion at this HP or lower. */
@@ -225,6 +226,11 @@ export interface BotFightOptions {
   /** Task 51з: keep the fight's journal (the proof of «Поход дня»), and a reader of the world before each tick (run/fightOutcome.ts). */
   record?: boolean;
   beforeTick?: (w: World) => void;
+  /**
+   * Task 59б: the wardens' pair — 'planner' (scripts/pairBot.ts: leans to the warden A, takes the partner, cancels a chain the highlight
+   * angers); absent — the «careless» greedy chain, as before.
+   */
+  pairs?: 'planner';
 }
 export interface BotFight { sim: Simulation; timeout: boolean; lastSource: string | null }
 
@@ -239,8 +245,9 @@ export function botFight(run: RtRunState, options: BotFightOptions): BotFight {
   let lastSource: string | null = null, timeout = false, left = false, dodging = false;
   for (let tick = 0; tick < options.limit * 60 && w.status === 'playing'; tick++) {
     // Task 57а: a shot about to touch the hero — a step aside; once clear, the hero stops until the next walk (nothing while no shot flies).
+    // Task 59б: a pot's mark under the hero goes first — a step off it (nothing while no pot flies at him).
     if (tick % 3 === 0 && !w.move) {
-      const aside = shotDodge(w);
+      const aside = potDodge(w) ?? shotDodge(w);
       if (aside) { sim.command({ t: 'walk', x: aside.x, y: aside.y }); dodging = true; }
       else if (dodging) { sim.command({ t: 'walk', x: 0, y: 0 }); dodging = false; }
     }
@@ -265,7 +272,7 @@ export function botFight(run: RtRunState, options: BotFightOptions): BotFight {
       if (w.chain.some(l => l.kind === 'object')) sim.command({ t: 'release' }); else if (w.chain.length) sim.command({ t: 'cancel' });
     }
     // Task 55а: on an arena with things the bot shoves first when it is worth it (scripts/shoveBot.ts; no thing — no command).
-    if (tick % 45 === 20) { if (options.aim) aimAtCore(sim, options.aim); else if (!shoveChain(sim)) playChain(sim); }
+    if (tick % 45 === 20) { if (options.aim) aimAtCore(sim, options.aim); else if (!shoveChain(sim)) { if (options.pairs === 'planner') pairChain(sim); else playChain(sim); } }
     if (tick % 400 === 200) sim.command({ t: 'spin' });
     if (tick % 500 === 300 && canJump(w)) sim.command({ t: 'jump', x: w.hero.x + 2, y: w.hero.y - 1 });
     if (tick % 10 === 0 && w.hero.hp - buffer <= HEAL_AT && (w.kit?.items.healing ?? 0) > 0) sim.command({ t: 'item', kind: 'healing', x: w.hero.x, y: w.hero.y });
