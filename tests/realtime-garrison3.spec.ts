@@ -210,12 +210,14 @@ test('task 59а view: «Привратники (проба)» — a chain into o
   await quiet(page);
   await expect.poll(async () => (await snap(page)).garrison.wardens.keys).toBe(2);
   await shot(page, 'wardens-pair');
-  const s0 = await snap(page);
-  const [a] = s0.enemies.filter(e => e.kind === 'warden').sort((x, y) => x.id - y.id);
-  // A weak link of A's colour beside it: the chain kills one of the pair.
-  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [a.x + 0.6, a.y + 3] as const);
-  const weak = await place(page, a.x - 0.4, a.y + 1.8, a.color, 0);
-  await drawChain(page, [weak, a.id], false);
+  // The probe (sim/arenasStep3.ts): the pair above four columns of five weak enemies, one colour each (x 7.6, 8.8, 10, 11.2; the tops at y 5.2).
+  const COLUMNS = [7.6, 8.8, 10, 11.2];
+  const pairOf = async (): Promise<Snap['enemies']> => (await snap(page)).enemies.filter(e => e.kind === 'warden').sort((x, y) => x.x - y.x);
+  const [a] = await pairOf();
+  // Kill one of the pair: the top of A's column, then A (the hero stands between the columns, at the top).
+  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [COLUMNS[a.color] + 0.6, 5.7] as const);
+  const top = (await snap(page)).enemies.find(e => e.kind === 'basic' && Math.abs(e.x - COLUMNS[a.color]) < 0.2 && Math.abs(e.y - 5.2) < 0.3)!;
+  await drawChain(page, [top.id, a.id], false);
   await expect.poll(async () => (await snap(page)).garrison.wardens.warn).toBe(1);
   await shot(page, 'wardens-warn');
   await page.mouse.up();
@@ -229,12 +231,14 @@ test('task 59а view: «Привратники (проба)» — a chain into o
   await sameHash(page);
   // A new fight: both in one chain through the colour freed by «Смена цвета».
   await page.evaluate(() => (window as any).__realtime.restart());
-  await quiet(page, [['colorShiftLinks', 4]]); // the sandbox has 0; the pass through 6 links of colour A needs 6 — 4 with three weak links as in the Node check
+  await quiet(page, [['colorShiftLinks', 6]]); // the sandbox has 0; the run's 6
   await expect.poll(async () => (await snap(page)).garrison.wardens.keys).toBe(2);
-  const pair = (await snap(page)).enemies.filter(e => e.kind === 'warden').sort((x, y) => x.id - y.id);
-  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [pair[0].x + 0.6, pair[0].y + 3] as const);
-  const weak3 = [await place(page, pair[0].x + 0.2, pair[0].y + 1.8, pair[0].color, 0), await place(page, pair[0].x - 1, pair[0].y + 1.4, pair[0].color, 0), await place(page, pair[0].x - 1.2, pair[0].y, pair[0].color, 0)];
-  await drawChain(page, [...weak3, pair[0].id, pair[1].id], false);
+  const pair = await pairOf();
+  // Five links of A's column from the bottom up, A, then B (the colour is free from the sixth link on).
+  const column = (await snap(page)).enemies.filter(e => e.kind === 'basic' && Math.abs(e.x - COLUMNS[pair[0].color]) < 0.2).sort((x, y) => y.y - x.y);
+  expect(column.length).toBe(5);
+  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [COLUMNS[pair[0].color] + 0.6, 10.2] as const);
+  await drawChain(page, [...column.map(e => e.id), pair[0].id, pair[1].id], false);
   await expect.poll(async () => (await snap(page)).garrison.wardens.gold).toBe(2);
   expect((await snap(page)).garrison.wardens.warn).toBe(0);
   await shot(page, 'wardens-gold');
