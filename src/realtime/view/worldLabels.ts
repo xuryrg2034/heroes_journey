@@ -22,6 +22,9 @@ import { KNIGHT } from '../sim/enemies/garrison';
 import { ROCK_RADIUS, TAIL_OUTER, TROLL } from '../sim/enemies/troll';
 import { BARREL, wardrobeTopple } from '../sim/enemies/castle';
 import { CHIEF, chiefMove } from '../sim/enemies/chief';
+import { RECRUIT, recruitCurrent, recruitGroup } from '../sim/enemies/recruit';
+import { WARDEN, wardenPartner } from '../sim/enemies/warden';
+import { pitchMarkRadius, potsInFlight } from '../sim/pitch';
 
 /** The three labels of the run (the ids are the v1 hints' Б6, Б8, Б9: the memory and the run record keep their keys). */
 export type LabelId = 'b6' | 'b8' | 'b9' | OmenLabelId;
@@ -51,6 +54,10 @@ export const LABEL_TEXT = {
   shackle: 'В кандалах — сначала разруби',
   /** Task 41: the prisoner the player's dash set loose riots (design 16.10.2026: a flash over it, once a run). */
   riot: 'На волю!',
+  /** Task 59а (spec 8): the first mark of a pitcher's pot, the first line of recruits, the first pair of wardens. */
+  pitch: 'Уйди с метки',
+  recruits: 'По номерам: 1, 2, 3, 4',
+  wardens: 'Обоих — одной цепью',
 } as const;
 /** Task 56 (spec 6, ≤ 4 words each): the omens' labels — at the mark, at the pool, at the first sleeper, at the first horned enemy, at the sack. */
 export const OMEN_LABEL_TEXT: Readonly<Record<OmenLabelId, string>> = {
@@ -401,4 +408,38 @@ export class WorldLabelLayer {
 
   hideAll(): void { for (const el of this.els.values()) el.hidden = true; this.shownNow = []; }
   shown(): ShownLabel[] { return this.shownNow.map(l => ({ ...l })); }
+}
+
+/** Task 59а: real seconds each of the garrison's step-3 labels hangs (the mark flies 1.8 s at the first throw; the others are read at once). */
+export const GARRISON3_LABEL_LIFE = { pitch: 2, recruits: 3, wardens: 3 } as const;
+export type Garrison3LabelId = keyof typeof GARRISON3_LABEL_LIFE;
+/** Arena units: how high the labels hang over their object. */
+const RECRUIT_LABEL_LIFT = 1.1, WARDEN_LABEL_LIFT = 1.0, MARK_LABEL_GAP = 0.25;
+
+/**
+ * Task 59а (spec 8, «Подписи у места»): the labels of the three new kinds — «Уйди с метки» over the mark of a pot in the air,
+ * «По номерам: 1, 2, 3, 4» over the current recruit of the first line in view, «Обоих — одной цепью» over the warden of the first pair
+ * in view nearest the hero. The host shows each once a run (the sandbox: a fight), the barrel's rule; a label of the view only,
+ * no Param, no journal. Null — none of the kind stands in view.
+ */
+export function garrison3Label(w: World, id: Garrison3LabelId, onScreen: (p: Vec) => boolean): LabelSpec | null {
+  const near = <T extends Vec>(list: readonly T[]): T | null => {
+    let best: T | null = null, d = Infinity;
+    for (const e of list) { if (!onScreen(e)) continue; const de = (e.x - w.hero.x) ** 2 + (e.y - w.hero.y) ** 2; if (de < d) { d = de; best = e; } }
+    return best;
+  };
+  if (id === 'pitch') {
+    const pot = near(potsInFlight(w));
+    return pot ? { id: 'pitch', text: LABEL_TEXT.pitch, at: { x: pot.x, y: pot.y }, place: 'above', lift: pitchMarkRadius(w) + MARK_LABEL_GAP } : null;
+  }
+  if (id === 'recruits') {
+    const list = w.enemies.filter(e => e.kind === RECRUIT && (e.vars.rn ?? 0) > 0);
+    const e = near(list);
+    if (!e) return null;
+    const cur = recruitCurrent(w.enemies, recruitGroup(e));
+    const first = list.find(x => recruitGroup(x) === recruitGroup(e) && x.vars.rn === cur) ?? e;
+    return { id: 'recruits', text: LABEL_TEXT.recruits, at: { x: first.x, y: first.y }, place: 'above', lift: RECRUIT_LABEL_LIFT };
+  }
+  const pair = near(w.enemies.filter(e => e.kind === WARDEN && !!wardenPartner(w, e)));
+  return pair ? { id: 'wardens', text: LABEL_TEXT.wardens, at: { x: pair.x, y: pair.y }, place: 'above', lift: WARDEN_LABEL_LIFT } : null;
 }

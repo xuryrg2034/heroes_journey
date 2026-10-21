@@ -295,6 +295,34 @@ function boarCount(world: World): number {
   return world.enemies.filter(e => e.kind === 'boar').length + world.markers.filter(m => m.kind === 'boar').length + world.queue.filter(q => q.kind === 'boar').length;
 }
 
+/** Task 59а: the recruits (enemies/recruit.ts `RECRUIT`; no import: the registry loads after). */
+const RECRUIT_KIND = 'recruit';
+/** Task 59а (spec 4.3): at most this many formations of recruits on an arena at once (standing, at markers and in the queue). */
+export const RECRUIT_FORMATIONS_MAX = 2;
+
+/** Task 59а: the colour of each formation of recruits on the arena, at its markers and in the queue (by its formation; a lone one — itself). */
+function recruitFormations(world: World): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const e of world.enemies) if (e.kind === RECRUIT_KIND) out.set(e.vars.fm ?? -e.id, e.color);
+  for (const m of world.markers) if (m.kind === RECRUIT_KIND) out.set(m.formation ?? -m.id, m.color);
+  world.queue.forEach((q, i) => { if (q.kind === RECRUIT_KIND) out.set(q.formation ?? -1e6 - i, q.color); });
+  return out;
+}
+
+/**
+ * Task 59а (spec 4.3, `Params.recruits`): a new formation of recruits may come — fewer than `RECRUIT_FORMATIONS_MAX` stand, at markers and
+ * in the queue — in a colour none of them has: `color` if free, else one of the free colours of the palette (a draw of `behavior:recruit`).
+ * Null — it does not come (the roll goes on to the next kind).
+ */
+function recruitColor(world: World, color: number): number | null {
+  const formations = recruitFormations(world);
+  if (formations.size >= RECRUIT_FORMATIONS_MAX) return null;
+  const used = new Set(formations.values());
+  if (!used.has(color)) return color;
+  const free = palette(world).filter(c => !used.has(c));
+  return free.length ? free[Math.floor(world.rng.stream('behavior:recruit').next() * free.length)] : null;
+}
+
 /** Task 57а: bodies of these kinds on the arena, at markers and in the queue (the caps of the new shooters count them all). */
 export function kindCount(world: World, kinds: readonly string[]): number {
   const of = (k: string): boolean => kinds.includes(k);
@@ -311,6 +339,12 @@ function rollSingle(world: World, color: number, anchor: Vec | null): QueuedSpaw
     if (rollRng(world).next() >= extra.share) continue;
     // Task 57а: a kind at its cap brings none (the next kinds roll on); nothing for a kind without a cap.
     if (enemyKind(extra.kind).capped?.(world, kinds => kindCount(world, kinds))) continue;
+    // Task 59а: at most two formations of recruits, of different colours (nothing changes without the law).
+    if (extra.kind === RECRUIT_KIND && p.recruits) {
+      const own = recruitColor(world, color);
+      if (own === null) continue;
+      color = own;
+    }
     const hp = extra.hp ?? enemyKind(extra.kind).hp(p) ?? rollHp(world);
     return { kind: extra.kind, color, hp, anchor };
   }
