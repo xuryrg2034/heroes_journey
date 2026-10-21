@@ -19,12 +19,12 @@
  * (chain.ts `planChain(...).anger`).
  *
  * State in `enemy.vars`: `fm` the formation, `wp` the partner's id (while the pair stands), `wd` 1 — the pair was drawn, `wa` the anger's
- * seconds left, `ws` 1 — a «Размах» winds up, `wt` its windup left, `wc` the pause left, `wf` 1 after the first swing of the fight.
+ * seconds left, `ws` 1 — a «Размах» winds up, `wt` its windup left of `ww`, `wc` the pause left, `wf` 1 after the first swing of the fight.
  */
 import { dhypot } from '../detMath';
 import { dist, pushOutOfObstacles } from '../geometry';
 import { enemyGroundFactor, enemySpeed, type Enemy, type World } from '../world';
-import { FIRST_WINDUP_FACTOR, knightPauseOf, swingStrike, swingWindupOf } from './garrison';
+import { FIRST_WINDUP_FACTOR, knightPauseOf, knightSwingRadius, swingStrike, swingWindupOf } from './garrison';
 import { bodyRadiusOf, registerBehavior, registerEnemyKind } from './kinds';
 import { palette } from '../spawn';
 
@@ -50,6 +50,18 @@ export const wardenAngry = (e: Pick<Enemy, 'kind' | 'vars'>): boolean => e.kind 
 /** The warden's partner while the pair stands (undefined — none). */
 export function wardenPartner(world: World, e: Enemy): Enemy | undefined {
   return e.kind === WARDEN && e.vars.wp !== undefined ? world.enemies.find(o => o.id === e.vars.wp) : undefined;
+}
+
+/** The view: the anger now — seconds `left` of `total` (`wardenAnger`); null — calm. */
+export function wardenAnger(world: World, e: Enemy): { left: number; total: number } | null {
+  return wardenAngry(e) ? { left: e.vars.wa, total: wardenAngerOf(world) } : null;
+}
+
+/** The view: the angry warden's «Размах» winding up — the knight's circle (`knightSwing`'s shape); null — none. */
+export function wardenSwing(world: World, e: Enemy): { x: number; y: number; r: number; progress: number } | null {
+  const v = e.vars;
+  if (e.kind !== WARDEN || v.ws !== 1) return null;
+  return { x: e.x, y: e.y, r: knightSwingRadius(world), progress: Math.max(0, Math.min(1, 1 - Math.max(0, v.wt) / Math.max(1e-6, v.ww ?? v.wt))) };
 }
 
 /** The colours of a pair: A from the palette, B another that is not A's twin (one draw each of `behavior:warden`). */
@@ -92,12 +104,12 @@ function angerStep(world: World, e: Enemy, dt: number): boolean {
     if (v.wt > TIME_EPS || world.move) return true;
     world.events.push({ type: 'warden', action: 'swing', stage: 'hit', id: e.id, x: e.x, y: e.y });
     swingStrike(world, e, WARDEN_SWING_SOURCE);
-    delete v.ws; v.wc = knightPauseOf(world);
+    delete v.ws; delete v.ww; v.wc = knightPauseOf(world);
     return true;
   }
   v.wc = Math.max(0, (v.wc ?? 0) - dt);
   if (v.wc > TIME_EPS || world.status !== 'playing') return false;
-  v.ws = 1; v.wt = swingWindupOf(world) * (v.wf === 1 ? 1 : FIRST_WINDUP_FACTOR); v.wf = 1;
+  v.ws = 1; v.wt = swingWindupOf(world) * (v.wf === 1 ? 1 : FIRST_WINDUP_FACTOR); v.ww = v.wt; v.wf = 1;
   world.events.push({ type: 'warden', action: 'swing', stage: 'start', id: e.id, x: e.x, y: e.y });
   return true;
 }
@@ -132,7 +144,7 @@ registerBehavior({
       if ((v.wa ?? 0) > 0) {
         v.wa = Math.max(0, v.wa - dt);
         if (v.wa <= TIME_EPS) {
-          delete v.wa; delete v.ws; delete v.wt; delete v.wc;
+          delete v.wa; delete v.ws; delete v.wt; delete v.ww; delete v.wc;
           world.events.push({ type: 'warden', action: 'anger', stage: 'end', id: e.id, x: e.x, y: e.y });
         }
       }

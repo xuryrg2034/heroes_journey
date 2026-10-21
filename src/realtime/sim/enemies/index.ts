@@ -57,7 +57,7 @@ export { TROLL, TROLL_CLUB, TROLL_MOVES, TROLL_ROCK, TROLL_TAIL, trollCore, trol
 export { CHIEF, CHIEF_LADLE, CHIEF_MOVES, CHIEF_SACK, chiefCore, chiefMove, chiefState, whistleColors, type ChiefMoveId } from './chief';
 // Task 59а: the recruits for the view.
 export { RECRUIT, recruitCurrent, recruitGroup, recruitNumber, recruitQueue } from './recruit';
-export { WARDEN, wardenAngry, wardenPartner } from './warden';
+export { WARDEN, wardenAnger, wardenAngry, wardenPartner, wardenSwing } from './warden';
 export { PITCHER, pitcherWindup } from './pitcher';
 // Task 55а: the castle's things and the rook for the view.
 export { BARREL, ROOK, WARDROBE, rookLine, wardrobeLying, wardrobeTopple } from './castle';

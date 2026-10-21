@@ -14,7 +14,7 @@
 import { registerArena } from './arenas';
 import { planChain } from './chain';
 import { kindOf } from './enemies/kinds';
-import { WARDEN, wardenAngry, wardenPartner } from './enemies/warden';
+import { WARDEN, wardenAnger, wardenAngry, wardenPartner, wardenSwing } from './enemies/warden';
 import { brandPaintable } from './fusions';
 import { COUNTER_TALISMANS, FUSIONS, HAMMERS } from './buildIds';
 import type { Loadout } from './kit';
@@ -91,6 +91,9 @@ check('a chain that kills one: the highlight names the angry partner; after the 
     assert(kindOf(b).speedClassOf!(b) === 'fast' && touchDamage(w, b) === 2, `seed ${k}: fast, touch 2`);
     const swing = ticks(sim, ticksOf(2.05));
     assert(of(swing, 'warden').some(e => e.action === 'swing' && e.stage === 'start'), `seed ${k}: «Размах» begins 2 s after`);
+    // The view's helpers: the anger's clock, the swing's circle winding up.
+    const sw = wardenSwing(w, b), ang = wardenAnger(w, b);
+    assert(sw && sw.progress > 0 && sw.progress < 0.2 && ang && ang.total === 8 && ang.left < 6.1 && ang.left > 5.8, `seed ${k}: the view's anger ${JSON.stringify(ang)} and swing ${JSON.stringify(sw)}`);
     const rest = ticks(sim, ticksOf(6.1));
     assert(of(rest, 'warden').some(e => e.action === 'swing' && e.stage === 'hit') && of(rest, 'warden').some(e => e.action === 'anger' && e.stage === 'end'), `seed ${k}: struck, then calm`);
     assert(!wardenAngry(b) && kindOf(b).speedClassOf!(b) === 'slow' && touchDamage(w, b) === 0, `seed ${k}: calm again (touch as a plain enemy: 0 here)`);
