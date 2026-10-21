@@ -1173,6 +1173,27 @@ export function chronicleSection(runs: readonly RunRecord[]): string {
     `Предметы «видел, не взял» (последний поход сессии): ${seenShare.length ? `медиана ${pct(Math.round(100 * median(seenShare)), 100)} от видевших и взятых` : 'нет данных'}.`].join('\n');
 }
 
+/** Task 51е «Трофеи»: the trophies' titles of the report (the perch's order). */
+const TROPHY_TITLES: readonly [string, string][] = [['jailer', 'Гиря Тюремщика'], ['severed', 'Обрубок цепи'], ['troll', 'Рог Тролля'], ['chief', 'Котелок Главаря'], ['shackles', 'Сломанные кандалы'],
+  ['castellan', 'Знамя Кастеляна'], ['ash', 'Доска Испытания'], ['bestiary', 'Чернильница Неясыти'], ['long-chain', 'Длинная цепь']];
+/**
+ * Task 51е «Трофеи» (`RunRecord.trophies`; docs/design-notes/task-51-camp-l3.md, section 10): each trophy — the runs that earned it and
+ * the viewer's run number (median, the earliest); «Доска Испытания» — its marks by step. The retro (run 0) is not a run: not counted.
+ */
+export function trophiesSection(runs: readonly RunRecord[]): string {
+  const list = runs.filter(r => r.trophies?.length);
+  if (!list.length) return '_походов с трофеями нет_';
+  const rows = TROPHY_TITLES.map(([id, title]) => {
+    const got = list.filter(r => r.trophies!.some(t => t === id || (id === 'ash' && t.startsWith('ash:'))));
+    const at = got.flatMap(r => (r.viewerRun !== undefined ? [r.viewerRun] : []));
+    return [title, got.length, at.length ? n1(median(at)) : '—', at.length ? Math.min(...at) : '—'];
+  });
+  const marks = list.flatMap(r => r.trophies!.filter(t => t.startsWith('ash:')).map(t => t.slice(4)));
+  return ['Трофей — сколько походов его заработали и номер похода зрителя (медиана, самый ранний). Ретро (поход 0) — не поход, здесь не считается.', '',
+    table(['Трофей', 'Походов', 'Поход зрителя (медиана)', 'Самый ранний'], rows), '',
+    `Засечки «Доски Испытания» по ступеням: ${marks.length ? [...new Set(marks)].sort((a, b) => Number(a) - Number(b)).map(m => `${m} — ${marks.filter(x => x === m).length}`).join('; ') : 'нет'}.`].join('\n');
+}
+
 /** Task 50 «Выборы»: build choices a run (`RunRecord.choices` of `BUILD_CHOICE_SOURCES`), all of them and the knack screen's apart. */
 export function choicesSection(runs: readonly RunRecord[]): string {
   if (!runs.length) return '_походов нет_';
@@ -1366,6 +1387,8 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Поход дня', '', dailySection(runs), '',
     // Task 58 «Летопись».
     '## Летопись', '', chronicleSection(runs), '',
+    // Task 51е «Трофеи».
+    '## Трофеи', '', trophiesSection(runs), '',
     '## Элиты', '', ELITE_LEGEND, '', table(ELITE_HEAD, eliteRows(runFights, sandbox)), '',
     '## Однорукий гоблин', '', SLOT_LEGEND, '', table(SLOT_HEAD, [slotRow('походы', runFights), slotRow('песочница', sandbox)].filter((r): r is (string | number)[] => !!r)), '',
     // Task 20: how the hero left the lit idol's circle.

@@ -17,6 +17,8 @@ import { NPC_LINES, npcLine, pickLine, questLine, type DeathCause, type LineKey 
 import { rowWord } from './metaEnd';
 import { toadLine, toadRunKey } from './heroLines';
 import type { WarmupId, WarmupRecords } from '../run/warmup';
+import type { RtTrophy, RtTrophyEarned } from '../run/trophies';
+import { perchHtml, trophyKey } from './trophyView';
 import { warmupRows } from './warmupFlow';
 import { dailyButtonHtml, dailyPanelHtml, dailyReasonHtml, type DailyTools } from './dailyView';
 import type { RtDailyView } from '../run/rtDaily';
@@ -83,13 +85,18 @@ export interface HearthHost {
   bought?(npc: NpcId, level: number, price: number): void;
   /** Back to the open run's map. */
   back(): void;
-  sound?(kind: 'buy' | 'open'): void;
+  sound?(kind: 'buy' | 'open' | 'reward0'): void;
   /** Task 58: the chronicle (the profile store's: `profileChronicle`). */
   chronicle?: ChronicleSource;
   /** Task 58: the P8 memory of kinds and affixes (view/newSeen.ts), handed to the chronicle once when the camp opens (the retro). */
   memory?(): ChronicleMemory;
   /** Telemetry (58а `chronicleOpened`): the window was closed — the pages looked at, the seconds it was open, «✦» on when opened. */
   chronicleOpened?(opened: { pages: readonly string[]; seconds: number; unread: boolean }): void;
+  /**
+   * Task 51е «Трофеи» (core's profile store): `list` — the perch (in the order they came), `earned` — what the last run of the meta earned
+   * (`RtMetaEnd.trophies`, after a reload too), `import` — the retro, once a profile (called when the camp opens, after the chronicle's).
+   */
+  trophies?: { list(): RtTrophy[]; earned(): RtTrophyEarned[]; import(): void };
   /** Task 51ж «Разминка»: the layouts' records (`meta.warmup`) and the start of an attempt on layout `id` (absent — no «Чурбаки»). */
   warmup?: { records(): WarmupRecords | undefined; start(id: WarmupId): void };
   /** Task 51з «Поход дня»: the button under «В поход» (absent - none), its model, «Начать», and the proof's tools. */
@@ -103,6 +110,8 @@ export interface HearthShown {
   heroes: MetaHeroId[]; hero: MetaHeroId; heroLine: string;
   /** Task 58: the chronicle window (open, the page, the counts, the cards by state). */
   chronicle: ChronicleShown;
+  /** Task 51е: the perch now - the trophies on it (ids, in order), the ones falling on their hooks this visit, the hooks. */
+  trophies: { held: string[]; dropping: string[]; hooks: number; line: string };
   /** Task 51ж: the choice of the warmup's layouts is open now (the rows it shows: id, name, record). */
   warmup: { open: boolean; rows: { id: WarmupId; title: string; record: string }[] };
 }
@@ -123,9 +132,11 @@ export class HearthView {
   /** Task 51д: the line over a trace (the leaver's goodbye said on this visit, then the owl's line of a click on it). */
   private leaveSaid = new Map<NpcId, string>();
   private traceSay: { npc: NpcId; text: string } | null = null;
+  /** Task 51е: the trophies that fall on their hooks in this visit (the first entry after the run that earned them). */
+  private dropping = new Set<string>();
   /** Task 51з: the panel of the run of the day is open. */
   private dailyOpen = false;
-  readonly shown: HearthShown = { open: false, npcs: [], empty: 0, bubble: null, line: '', bought: 0, heroes: [], hero: 'cat', heroLine: '', warmup: { open: false, rows: [] }, chronicle: { ...EMPTY_CHRONICLE_SHOWN } };
+  readonly shown: HearthShown = { open: false, npcs: [], empty: 0, bubble: null, line: '', bought: 0, heroes: [], hero: 'cat', heroLine: '', warmup: { open: false, rows: [] }, chronicle: { ...EMPTY_CHRONICLE_SHOWN }, trophies: { held: [], dropping: [], hooks: 10, line: '' } };
 
   constructor(private readonly host: HearthHost) {
     this.el = document.createElement('div');
@@ -161,6 +172,16 @@ export class HearthView {
     // Task 58: the retro - the P8 memory goes to the chronicle (its source ignores a repeat).
     const memory = this.host.memory?.();
     if (memory) this.host.chronicle?.import(memory);
+    // Task 51е: the retro of the trophies (once a profile), then the drop: what the last run earned and the camp has not shown yet falls
+    // on its hook with the reward's sound; the memory of the drop is the profile's (`hearth.lines['trophy-drop:<key>']`), so a repeat
+    // entry or a reload after the camp does not drop it again, and a reload before the camp does.
+    this.dropping = new Set();
+    if (this.host.trophies) {
+      this.host.trophies.import();
+      const lines = this.host.meta.hearth().lines, fresh = this.host.trophies.earned().filter(e => !lines[`trophy-drop:${trophyKey(e)}`]);
+      for (const e of fresh) { this.dropping.add(e.id); this.host.meta.markLine(`trophy-drop:${trophyKey(e)}`); }
+      if (fresh.length) this.host.sound?.('reward0');
+    }
     // Task 49: the first camp after the rescue - her one line names the deed (`first_camp`, said once).
     this.heroLine = '';
     const camp = this.host.meta.hearth();
@@ -201,6 +222,7 @@ export class HearthView {
   draw(): void {
     const h = this.host.meta.hearth(), here = this.npcsHere(h);
     this.unreadCount = this.host.chronicle?.view().unread ?? 0;
+    const perch = this.host.trophies ? this.perchHtml() : '';
     const places = HEARTH_PLACES.map((npc, i) => {
       const at = PLACE_AT[i], live = npc && here.includes(npc) ? npc : null;
       // An empty place: the background's stump or rug as it is (a dark log only without the background).
@@ -225,7 +247,7 @@ export class HearthView {
     const center = `<div class="rt-hearth-fire-wrap">${FIRE_SVG}</div><div class="rt-hearth-glow"></div><div class="rt-hearth-center"><div class="rt-hearth-bar" data-testid="hearth-bar" title="Опыт героя"><i style="width:${(bar.k * 100).toFixed(1)}%"></i><em>${h.xp}${bar.to !== null ? ` / ${bar.to}` : ''}</em></div>${next}${record}${this.host.daily ? `<div class="rt-hearth-gorow">${go}${dailyButtonHtml(this.host.daily.view())}</div>` : go}${this.host.daily ? dailyReasonHtml(this.host.daily.view()) : ''}</div>`;
     const head = `<header class="rt-hearth-head"><b>Очаг</b><span class="rt-hearth-stock" data-testid="hearth-stock" title="Запас лагеря">${ICON}<b>${h.stock}</b></span></header>`;
     this.shown.heroLine = this.heroLine;
-    this.el.innerHTML = head + `<div class="rt-hearth-stage">${center}${places}${this.heroesHtml()}${this.warmupHtml()}${this.bubbleHtml(h)}</div>${this.chronicleWindow()}${this.warmupChoiceHtml()}${this.dailyOpen && this.host.daily ? dailyPanelHtml(this.host.daily.view(), this.host.daily.tools) : ''}`;
+    this.el.innerHTML = head + `<div class="rt-hearth-stage">${perch}${center}${places}${this.heroesHtml()}${this.warmupHtml()}${this.bubbleHtml(h)}</div>${this.chronicleWindow()}${this.warmupChoiceHtml()}${this.dailyOpen && this.host.daily ? dailyPanelHtml(this.host.daily.view(), this.host.daily.tools) : ''}`;
   }
 
   /**
@@ -328,14 +350,37 @@ export class HearthView {
     return chronicleHtml(view, this.chron);
   }
 
+  /** Task 51е: the perch of the camp (the profile's trophies; the ones that fall now carry `rt-drop`). */
+  private perchHtml(): string {
+    const list = this.host.trophies!.list();
+    Object.assign(this.shown.trophies, { held: list.map(t => t.id), dropping: [...this.dropping], hooks: 10 });
+    return perchHtml(list, this.dropping, artUrl);
+  }
+
+  /**
+   * Task 51е: the owl's `trophy` line for a trophy the last run earned and she has not said yet (the memory `owl:trophy:<key>`, once per
+   * trophy); the two lines go in turn by how many she has said. Null - nothing to say.
+   */
+  private trophyLine(h: HearthState): { text: string; keys: string[] } | null {
+    const earned = this.host.trophies?.earned().filter(e => !h.lines[`owl:trophy:${trophyKey(e)}`]) ?? [];
+    if (!earned.length) return null;
+    const said = Object.keys(h.lines).filter(key => key.startsWith('owl:trophy:')).length, list = NPC_LINES.owl.trophy ?? [];
+    return list.length ? { text: list[said % list.length], keys: earned.map(e => `owl:trophy:${trophyKey(e)}`) } : null;
+  }
+
   private say(npc: NpcId, h: HearthState): void {
     // Task 58: the retro brought old pages - the owl says why, once a profile (`retro` stays true; the memory of the line is the profile's).
     if (npc === 'owl' && !h.lines['owl:chronicle_retro'] && this.host.chronicle?.view().retro) {
       const retro = npcLine('owl', 'chronicle_retro', undefined, h.lines);
-      if (retro) { this.said.add(npc); this.host.meta.markLine(retro.id); this.lastLine = retro.text; this.shown.line = retro.text; return; }
+      if (retro) { this.host.meta.markLine(retro.id); this.lastLine = retro.text; this.shown.line = retro.text; return; }
     }
     const l = this.said.has(npc) ? undefined : h.last;
     // The quest's result belongs to the NPC who gave it (the camp's quest was that run's).
+    // Task 51е: a new trophy on the perch - the owl says it once per trophy (after the retro line, if that is due).
+    if (npc === 'owl') {
+      const trophy = this.trophyLine(h);
+      if (trophy) { for (const key of trophy.keys) this.host.meta.markLine(key); this.lastLine = trophy.text; this.shown.line = trophy.text; return; }
+    }
     const quest = l?.quest !== undefined && h.quest?.npc === npc;
     const bought = this.boughtNow?.npc === npc ? this.boughtNow.level : undefined;
     const line = pickLine(npc, {
