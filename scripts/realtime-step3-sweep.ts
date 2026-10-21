@@ -104,7 +104,7 @@ function variants(arena: string): Variant[] {
   const of = (hypothesis: number): number[] => [0, hypothesis, hypothesis * 2 > 1 ? 1 : hypothesis * 2];
   if (arena === TARWORKS_ARENA.id) return of(PITCHER_SHARE).map(share => ({ title: `доля смолокуров ${share}`, share, planner: true }));
   if (arena === BARRACKS_ARENA.id) return of(RECRUIT_SHARE).map(share => ({ title: `доля строёв ${share}`, share, planner: true }));
-  if (arena === BARBICAN_ARENA.id) return [0, BARBICAN_PAIR_SHARE, 0.5].flatMap(share => [false, true].map(planner => ({ title: `pairShare ${share}, ${planner ? 'планировщик' : 'небрежный'}`, share, planner })));
+  if (arena === BARBICAN_ARENA.id) return of(BARBICAN_PAIR_SHARE).flatMap(share => [false, true].map(planner => ({ title: `pairShare ${share}, ${planner ? 'планировщик' : 'небрежный'}`, share, planner })));
   return [{ title: 'как в игре', share: null, planner: true }];
 }
 
