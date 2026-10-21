@@ -802,6 +802,11 @@ export interface World {
   pots?: Pot[];
   /** Task 59а: the pools of pitch, the common pause, the burnt enemies' pauses — absent until the first throw. */
   pitch?: PitchState;
+  /**
+   * Task 59а (`Params.recruits`, enemies/recruit.ts): where each formation's latest recruit fell — the place of its `drill` event (`lx`,
+   * `ly`); an entry leaves with its drill (or at the next death once its group is gone). Absent until a recruit dies under the law.
+   */
+  recruitFell?: Record<number, [number, number]>;
   /** Task 55а (shove.ts): the things sliding now after a dash's shove — absent while none (worlds without a shove hash as before). */
   shoves?: Shove[];
   /** Task 56 «Гроза» (omens.ts, `Params.omenStorm`): the next mark and the mark standing — absent until the rule acts (worlds hash as before). */
