@@ -4,7 +4,7 @@
  * bans; the spec's scenario passes by journal commands and the journal replays to the same hash. Node only:
  * `npm run test:realtime-step3-arenas`. Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
-import { BARBICAN_ARENA, BARBICAN_PAIR_SHARE, BARRACKS_ARENA, STEP3_RUN_ARENAS, TARWORKS_ARENA } from './arenasStep3';
+import { BARBICAN_ARENA, BARRACKS_ARENA, STEP3_RUN_ARENAS, TARWORKS_ARENA } from './arenasStep3';
 import { enemyRefusal, planChain, reachOf } from './chain';
 import { CROSSBOW } from './enemies/crossbow';
 import { GUARD, KNIGHT } from './enemies/garrison';
@@ -137,7 +137,7 @@ function barbican(sim: Simulation): { a: Enemy; b: Enemy; tinted: Enemy[] } {
 }
 const BARBICAN_SEEDS = [1, 2, 3, 4, 5, 6];
 
-check('«Барбакан»: the pair at the gate draws A and B; the guards\' line and the two weak enemies before it take A — five links of A (6 seeds); the inflow leans to A', () => {
+check('«Барбакан»: the pair at the gate draws A and B; the guards\' line and the two weak enemies before it take A — five links of A (6 seeds); the inflow draws its colours as on any arena (no pairShare, design 22.10.2026)', () => {
   const colours = new Set<number>();
   for (const k of BARBICAN_SEEDS) {
     const { a, b, tinted } = barbican(fight(BARBICAN_ARENA.id, k));
@@ -145,7 +145,7 @@ check('«Барбакан»: the pair at the gate draws A and B; the guards\' li
     colours.add(a.color);
   }
   assert(colours.size >= 2, `the colour A differs between seeds (${[...colours].join(', ')})`);
-  assert(BARBICAN_ARENA.pairShare === BARBICAN_PAIR_SHARE && BARBICAN_PAIR_SHARE > 0, 'the inflow leans to A');
+  assert(BARBICAN_ARENA.pairShare === undefined, 'no pairShare on «Барбакан»: the inflow draws as on any arena, no draw more');
 });
 
 check('«Барбакан»: a chain into one warden — the highlight names the anger, the other is angry after the pass; with «Смена цвета» 6 — five of A, A, B in one chain: both fall, no anger (6 seeds)', () => {

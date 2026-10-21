@@ -160,16 +160,14 @@ export const BARRACKS_ARENA: ArenaTemplate = registerArena({
   recruits: true,
 });
 
-/** Баланс (гипотеза 21.10.2026, до замера бота): this share of the newcomers of «Барбакан» take the colour A of the living pair (`pairShare`). */
-export const BARBICAN_PAIR_SHARE = 0.3;
-
 /**
  * «Барбакан» (`g-barbican`; garrison rows 8–9, the branch `den`): kill 25 (spec В12: the pair is not the goal) — the wardens' first meeting.
  * The feature — the pair at the gate: two wardens before the door between two gate towers (walls), a guards' line and two weak enemies
  * of the pair's colour A just before them (`pairTint`: the colour A once the pair is drawn), three plain enemies of other colours lower in
  * the yard. The player's decision: gather five links of A, then the warden A (the sixth frees the colour, «Смена цвета» 6), then B — both
- * in one pass, no anger; a chain into one of them makes the other angry («Размах», touch 2). The newcomers: guards' lines, and
- * `BARBICAN_PAIR_SHARE` of the colour draws take A of the living pair (spec 7.1: else six links of A at the pair do not gather).
+ * in one pass, no anger; a chain into one of them makes the other angry («Размах», touch 2). The newcomers: guards' lines, their colours
+ * drawn as on any arena — no `pairShare` (design 22.10.2026 after the bot's measure: a share of 0.3 gave the planner as many pairs without
+ * anger as 0, so the start's five links of A by `pairTint` are enough; the field is absent, no draw more — the mechanic stays for a template).
  */
 export const BARBICAN_ARENA: ArenaTemplate = registerArena({
   id: 'g-barbican',
@@ -193,7 +191,6 @@ export const BARBICAN_ARENA: ArenaTemplate = registerArena({
   ],
   phaseOverride: NO_PACKS,
   newcomers: [{ kind: GUARD, share: GUARD_SHARE, group: GUARD_FORMATION }],
-  pairShare: BARBICAN_PAIR_SHARE,
   garrison: true,
   wardens: true,
 });

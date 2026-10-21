@@ -27,7 +27,9 @@ import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { arenaTemplate } from '../src/realtime/sim/arenas';
 import '../src/realtime/sim/arenasBoss';
-import { BARBICAN_ARENA, BARBICAN_PAIR_SHARE, BARRACKS_ARENA, PITCHER_SHARE, RECRUIT_SHARE, TARWORKS_ARENA } from '../src/realtime/sim/arenasStep3';
+import { BARBICAN_ARENA, BARRACKS_ARENA, PITCHER_SHARE, RECRUIT_SHARE, TARWORKS_ARENA } from '../src/realtime/sim/arenasStep3';
+/** «Барбакан»: the hypothesis of the measure 21.10.2026 (the game has no `pairShare` since design 22.10.2026; the script puts it on). */
+const BARBICAN_PAIR_SHARE = 0.3;
 import { PITCHER } from '../src/realtime/sim/enemies/pitcher';
 import { RECRUIT, recruitGroup, recruitNumber } from '../src/realtime/sim/enemies/recruit';
 import { WARDEN } from '../src/realtime/sim/enemies/warden';
