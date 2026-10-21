@@ -194,7 +194,7 @@ export const RT_FUSIONS: readonly RtTalismanDef[] = [
   { id: FU.hunterBlast, name: 'Подрыв', rarity: 'fusion', field: FORM_FIELD[FU.hunterBlast], excludes: [HM.return, FU.boomerang],
     effect: 'Цепь из 3+ звеньев: взрыв радиусом 1,5 вокруг последнего звена, удар 1. Последнее звено — элита или крепкий: взрыв 2,25, удар 4, с элиты 2 пластины. После элиты или крепкого звенья получают +3 силы' },
   { id: FU.frostWave, name: 'Ледяная волна', rarity: 'fusion', field: FORM_FIELD[FU.frostWave],
-    effect: 'Путь прохода 2 с морозит врагов. Цепь из 4+ звеньев: волна радиусом 2 бьёт на 1; выжившие замерзают на 3 с и хрупки (следующий удар цепи ×2)' },
+    effect: 'Путь прохода 2 с морозит врагов; замёрзшие хрупки (следующий удар цепи ×2). Цепь из 4+ звеньев: волна радиусом 2 бьёт на 1; выжившие замерзают на 3 с и хрупки' },
 ];
 /** A fusion of the run (`RT_FUSIONS`). */
 export const isRtFusion = (id: RtTalismanId): boolean => RT_FUSIONS.some(entry => entry.id === id);
