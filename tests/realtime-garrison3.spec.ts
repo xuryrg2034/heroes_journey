@@ -20,7 +20,7 @@ interface G3 {
   recruits: { numbers: number; current: number; dim: number; bans: number; currentNumber: number; refused: number; drills: number; unlinks: number };
   wardens: { keys: number; gold: number; warn: number; anger: number; swings: number; starts: number; ends: number; hits: number };
   sounds: { throws: number; lands: number; ignites: number; keys: number };
-  worldParams: { pitch?: boolean; pitchHeroSlow?: number; pitchEnemySlow?: number; crowdSlow?: number; heroThroughEnemies?: boolean; pitchLife?: number }; heroFactor: number;
+  worldParams: { pitch?: boolean; pitchHeroSlow?: number; pitchEnemySlow?: number; crowdSlow?: number; heroThroughEnemies?: boolean; pitchLife?: number }; heroFactor: number; crowdFactor: number; inputX: number; near1: number;
 }
 interface Snap {
   hint: string | null; chain: number[]; arena: string; status: string; time: number; menuOpen: boolean; energy: number;
@@ -114,13 +114,13 @@ async function cameraSettled(page: Page): Promise<void> {
 }
 
 /** A hero's walk sampled in the page on every frame (`seconds` of game time with `key` down); the frames are what the test reasons from. */
-interface WalkFrame { t: number; x: number; y: number; inPitch: number; pools: number; crowd: boolean; factor: number }
+interface WalkFrame { t: number; x: number; y: number; inPitch: number; pools: number; crowd: boolean; factor: number; cf: number; ix: number; near: number }
 async function sampledWalk(page: Page, key: string, seconds: number): Promise<WalkFrame[]> {
   await page.evaluate(() => { (window as any).__g3walk = []; });
   await page.keyboard.down(key);
   const frames = await untilFrame(page, (sn, until: number, late) => {
     const w = window as any, log = w.__g3walk as WalkFrame[];
-    if (!log.length || log[log.length - 1].t !== sn.time) log.push({ t: sn.time, x: sn.hero.x, y: sn.hero.y, inPitch: sn.garrison.heroInPitch, pools: sn.garrison.pools, crowd: !!sn.heroInCrowd, factor: sn.garrison.heroFactor });
+    if (!log.length || log[log.length - 1].t !== sn.time) log.push({ t: sn.time, x: sn.hero.x, y: sn.hero.y, inPitch: sn.garrison.heroInPitch, pools: sn.garrison.pools, crowd: !!sn.heroInCrowd, factor: sn.garrison.heroFactor, cf: sn.garrison.crowdFactor, ix: sn.garrison.inputX, near: sn.garrison.near1 });
     return log[0].t + until <= sn.time || late ? log : undefined;
   }, seconds, seconds + 5);
   await page.keyboard.up(key);
@@ -135,12 +135,18 @@ function walkSpeed(frames: readonly WalkFrame[], inPitch: boolean): { speed: num
   for (let i = 1; i < frames.length; i++) {
     const a = frames[i - 1], b = frames[i], want = inPitch ? 1 : 0;
     if (a.inPitch !== want || b.inPitch !== want || b.t <= a.t) continue;
+    // Only pairs with no crowd round the hero at either end: the crowd's ×crowdSlow stacks with the pool and is no part of the comparison.
+    if (a.crowd || b.crowd) { crowd++; continue; }
     dist += Math.hypot(b.x - a.x, b.y - a.y); seconds += b.t - a.t; pairs++;
-    if (b.crowd) crowd++;
   }
   return { speed: seconds > 0 ? dist / seconds : 0, seconds, pairs, crowd };
 }
-const frameTable = (frames: readonly WalkFrame[]): string => frames.map(f => `t ${f.t.toFixed(3)} x ${f.x.toFixed(3)} y ${f.y.toFixed(3)} pitch ${f.inPitch} pools ${f.pools} crowd ${f.crowd ? 1 : 0} poolFactor ${f.factor}`).join('\n');
+/** The real length of a walk: the game seconds from the first to the last frame with the input on, and the enemies nearer than 1 at its start. */
+function walkLength(frames: readonly WalkFrame[]): { seconds: number; near1AtStart: number } {
+  const on = frames.filter(f => f.ix !== 0);
+  return { seconds: on.length ? on[on.length - 1].t - on[0].t : 0, near1AtStart: on.length ? on[0].near : -1 };
+}
+const frameTable = (frames: readonly WalkFrame[]): string => frames.map(f => `t ${f.t.toFixed(3)} x ${f.x.toFixed(3)} y ${f.y.toFixed(3)} pitch ${f.inPitch} pools ${f.pools} crowd ${f.crowd ? 1 : 0} poolFactor ${f.factor} crowdFactor ${f.cf} inputX ${f.ix} near1 ${f.near}`).join('\n');
 
 const place = (page: Page, x: number, y: number, color: number, hp: number, kind = 'basic'): Promise<number> =>
   page.evaluate(([x, y, color, hp, kind]) => (window as any).__realtime.place(x, y, color, hp, kind), [x, y, color, hp, kind] as const);
@@ -195,7 +201,8 @@ test('task 59а view: «Смолокур (проба)» — the mark stands the 
   // In the pool he walks slower than out of it (×0.6). No more pots: the walk is measured on the frames of the page (the key goes down at
   // once, nothing is read around it), then, once the pool has dried, from the same point again — the same crowd, wall and camera, the pool
   // is the only difference. If the check fails, the frames are in its message: whether the hero stood in the pool and what slowed him.
-  await page.evaluate(() => (window as any).__realtime.setParam('pitchReload', 1000));
+  // No more pots, and no crowd: the pitcher has done its two throws, the field is cleared by the journalled `clear` (the pool stays).
+  await page.evaluate(() => { const rt = (window as any).__realtime; rt.setParam('pitchReload', 1000); rt.clear(false); });
   await gameWait(page, 0.5); // the hit's knock is over: the walk starts from a standing hero
   const spot = (await snap(page)).hero;
   const inFrames = await sampledWalk(page, 'KeyA', 0.3);
@@ -207,7 +214,8 @@ test('task 59а view: «Смолокур (проба)» — the mark stands the 
   const outFrames = await sampledWalk(page, 'KeyA', 0.3);
   const onGround = walkSpeed(outFrames, false);
   const wp = (await snap(page)).garrison.worldParams;
-  const report = `opened by the menu button step3-arena-1, then setParam (no restart); world params ${JSON.stringify(wp)}
+  const report = `walks: in the pool ${JSON.stringify(walkLength(inFrames))}, on the ground ${JSON.stringify(walkLength(outFrames))}
+`+`opened by the menu button step3-arena-1, then setParam (no restart); world params ${JSON.stringify(wp)}
 in the pool ${JSON.stringify(inPool)}, on the ground at the same spot ${JSON.stringify(onGround)}
 -- in the pool, frames:
 ${frameTable(inFrames)}

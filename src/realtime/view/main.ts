@@ -45,7 +45,7 @@ import { inThorns, inWater, overCliff, setFlowClock, type Vec } from '../sim/geo
 import { crowdLifetime, defaultParams, type ParamKey, type Params } from '../sim/params';
 import { isRtDailyDate, rtArenaParams, rtPageParams } from '../run/rtRun';
 import { replay, Simulation, type Journal } from '../sim/simulation';
-import { focusGuarded, goalLamps, goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World, type WorldEvent } from '../sim/world';
+import { crowdFactor, focusGuarded, goalLamps, goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World, type WorldEvent } from '../sim/world';
 import { liveShots } from '../sim/shots';
 import { linkPoint, pickRadius } from '../sim/chain';
 import { ChainAudio } from './audio';
@@ -2029,7 +2029,7 @@ async function boot(): Promise<void> {
         /** Task 38: the sim's tethers and what the view drew of them in the last frame (lines, red ones). */
         tethers: { list: (w.tethers ?? []).map(t => ({ ...t })), ...renderer.tetherShown },
         /** Task 38: the hounds in frenzy drawn, the Castellan's lunge lanes, «Караул!» calls shown. */
-        garrison: { ...renderer.garrisonShown, ...renderer.garrison3Shown, sounds: { ...garrison3Sounds }, /** For the tests' failure reports: the world's own numbers the pool's slowdown reads, and the hero's live pitch factor (1 — no pool under him). */ worldParams: { pitch: w.params.pitch, pitchHeroSlow: w.params.pitchHeroSlow, pitchEnemySlow: w.params.pitchEnemySlow, crowdSlow: w.params.crowdSlow, heroThroughEnemies: w.params.heroThroughEnemies, pitchLife: w.params.pitchLife }, heroFactor: heroPitchFactor(w) },
+        garrison: { ...renderer.garrisonShown, ...renderer.garrison3Shown, sounds: { ...garrison3Sounds }, /** For the tests' failure reports: the world's own numbers the pool's slowdown reads, and the hero's live pitch factor (1 — no pool under him). */ worldParams: { pitch: w.params.pitch, pitchHeroSlow: w.params.pitchHeroSlow, pitchEnemySlow: w.params.pitchEnemySlow, crowdSlow: w.params.crowdSlow, heroThroughEnemies: w.params.heroThroughEnemies, pitchLife: w.params.pitchLife }, heroFactor: heroPitchFactor(w), crowdFactor: crowdFactor(w), inputX: w.input.x, near1: w.enemies.filter(e => Math.hypot(e.x - w.hero.x, e.y - w.hero.y) < 1).length },
         /** Task 43: the full Castellan's court and the bolts (render.ts `courtShown`). */
         court: { ...renderer.courtShown },
         /** Task 57а: the forest shooters — the slinger's lines, the hive's dots, the shots and the wisps' light drawn in the frame; the sparks shown (shooterView.ts). */
