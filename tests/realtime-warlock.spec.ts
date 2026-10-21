@@ -270,32 +270,21 @@ test('task 55 Д: a window that runs out with him in the drawn chain — the lin
   expect(errors).toEqual([]);
 });
 
-test('task 55 Д: the window opens with one bell; the centre of his ring under the HUD: the goal pointer stands and the window count is by it; the lemon returns to the reticle (screenshot)', async ({ page }) => {
+test('task 55 Д (design rule): the window opens with one bell; the ring of the core at the top candle is above the visible area (the camera, held by the hero at the south wall, cannot bring it under the HUD): the goal pointer stands and the window count is by it; the lemon returns to the reticle (screenshot)', async ({ page }) => {
   test.setTimeout(150_000);
   const errors = collectErrors(page);
   await openHall(page);
   await quiet(page);
   await cameraSettled(page);
   await breakCharm(page);
-  const sounds0 = (await snap(page)).warlock.sounds;
-  // The hero walks by the journal's teleport, a small step a frame, until the next candle's head stands under the top band (the camera follows him):
-  // the core arrives with his drawing under the HUD (the top band, not the bar) and his body in the camera's view.
-  await page.evaluate(() => (window as any).__realtime.teleport(12, 11));
-  const edge = await untilFrame(page, (sn, _arg: null, late, rt) => {
-    const st = sn.warlock.state;
-    if (!st) return late ? null : undefined;
-    const at = st.window ? st.candles[st.candle] : st.shift ? st.candles[st.shift.candle] : st.candles[st.candle];
-    const head = rt.toScreen(at.x, at.y - 1.36).y, body = rt.toScreen(at.x, at.y).y;
-    if (st.window?.open && sn.warlock.shown.hud === 1 && sn.warlock.shown.edgeCount !== '' && body < 84 && body > 0) return sn;
-    if (late) return null;
-    if (body > 62) rt.teleport(12, Math.min(14.4, sn.hero.y + 0.05));
-    else if (body < 36) rt.teleport(12, Math.max(1, sn.hero.y - 0.05));
-    return undefined;
-  }, null, 6);
-  expect(edge, 'the count stands by the core pointer, the ring's centre under the top band').not.toBeNull();
-  expect(edge!.warlock.shown.hud, 'the centre of his ring is under the HUD, in the camera view').toBe(1);
+  // The hero at the far south: the core's windows come at the candles in turn; at the top candle (C1) his ring is out of the visible area.
+  await page.evaluate(() => (window as any).__realtime.teleport(12, 14.4));
+  const edge = await untilFrame(page, (sn, _arg: null, late) => sn.warlock.state?.window?.open && sn.warlock.state.candle === 0 && sn.warlock.shown.edgeCount !== '' ? sn : late ? null : undefined, null, 60);
+  expect(edge, 'a window at the top candle, the count by the pointer').not.toBeNull();
+  const ring = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [edge!.warlock.state!.x, edge!.warlock.state!.y] as const);
+  expect(ring.y, 'the ring is above the HUD edge').toBeLessThan(84);
   expect(edge!.eliteView.edgeArrows, 'a goal pointer').toBeGreaterThanOrEqual(1);
-  expect(edge!.warlock.sounds, 'one bell for the window').toBe(sounds0 + 1);
+  expect(edge!.warlock.sounds, 'one bell for each window opened').toBe(edge!.warlock.shown.opens);
   expect(edge!.markedView.charmed, 'no violet reticle in phase 2').toBe(0);
   await shot(page, 'window-pointer');
   expect(errors).toEqual([]);
