@@ -29,6 +29,8 @@ import type { World } from '../src/realtime/sim/world';
 const args = process.argv.slice(2);
 const option = (name: string, fallback: string): string => { const at = args.indexOf(name); return at >= 0 ? args[at + 1] : fallback; };
 const VIEWERS = Number(option('--viewers', '300')), RUNS = Number(option('--runs', '4')), START = option('--start', 'none'), LIMIT = Number(option('--limit', '240'));
+/** Task 57а (design 21.10.2026): `--alternate on|off` — the runs take the key `arcsAlternate` or not (default — on, as a new run). */
+const ALTERNATE = option('--alternate', 'on') !== 'off';
 const ALL_ARCS = ['bust', 'wolf', 'elite', 'brazier', 'cliff', 'boar', 'water', 'shield', 'buttons', 'archer', 'sapper', 'leader', 'lynx', 'affix', 'thorns', 'porcupine', 'shaman', 'horde', 'part', 'chest'];
 const ARC_IDS = SCHEDULE_SHOOTER_ARCS.map(arc => arc.id);
 const RUN_PARAMS = rtRunParams(defaultParams());
@@ -61,15 +63,21 @@ let emptyPairs = 0, viewersLeft = 0;
  */
 const firstRun = new Map<number, number>(), arcsLeftAtFirst: number[] = [], farthest: Map<number, number>[] = Array.from({ length: RUNS }, () => new Map());
 let alarms = 0;
+/**
+ * Design's acceptance (21.10.2026): the lag from the run in which a 57 arc opened (its needs all met at the start or during the run) to
+ * the run of the first 57 kind (0 — the same run; −1 — no first meeting within `RUNS`), and the run in which every arc of task 26 was met
+ * (0 — not within `RUNS`).
+ */
+const lags = new Map<number, number>(), oldDone = new Map<number, number>();
 const started = Date.now();
 for (let k = 1; k <= VIEWERS; k++) {
   let history = START === 'all' ? [...ALL_ARCS] : [];
-  let previousEmpty = false, first = 0, deepest = 0;
+  let previousEmpty = false, first = 0, deepest = 0, opened = 0, done = 0;
   for (let r = 1; r <= RUNS; r++) {
     const seed = r === 1 ? Math.imul(k, 2654435761) >>> 0 : mixSeed(Math.imul(k, 2654435761) >>> 0, r);
     const fought: Fought[] = [], open = arcOpen(history);
     if (open) openAtStart[r - 1]++;
-    const run = walkRun({ k, seed, create: { gift: k % 2 ? 'full' : 'mini', garrison: false, forestShooters: true, schedule: history }, fight: state => fight(state, fought) }).run;
+    const run = walkRun({ k, seed, create: { gift: k % 2 ? 'full' : 'mini', garrison: false, forestShooters: true, arcsAlternate: ALTERNATE, schedule: history }, fight: state => fight(state, fought) }).run;
     fights.push(...fought);
     const seen = new Set(run.battles.flatMap(record => record.seen ?? []));
     const fresh = SCHEDULE_SHOOTER_KINDS.filter(kind => seen.has(kind) && !history.includes(kind));
@@ -82,7 +90,11 @@ for (let k = 1; k <= VIEWERS; k++) {
     if (!fresh.length && previousEmpty && open) emptyPairs++;
     previousEmpty = !fresh.length && open;
     history = [...new Set([...history, ...seen])].sort();
+    if (!opened && (open || arcOpen(history) || fresh.length)) opened = r;
+    if (!done && SCHEDULE_ARCS.every(arc => history.includes(arc.id))) done = r;
   }
+  if (opened) lags.set(first ? first - opened : -1, (lags.get(first ? first - opened : -1) ?? 0) + 1);
+  oldDone.set(done, (oldDone.get(done) ?? 0) + 1);
   if (SCHEDULE_SHOOTER_KINDS.some(kind => !history.includes(kind))) viewersLeft++;
   firstRun.set(first, (firstRun.get(first) ?? 0) + 1);
   if (!first && deepest >= 3) alarms++;
@@ -90,7 +102,7 @@ for (let k = 1; k <= VIEWERS; k++) {
 
 const head = (() => { try { return execSync('git rev-parse --short HEAD').toString().trim(); } catch { return '?'; } })();
 const pct = (n: number, of: number): string => (of ? `${Math.round(100 * n / of)}%` : '—');
-console.log(`Задача 57а: дуги новых стрелков по походам зрителя, ${VIEWERS} зрителей × ${RUNS} походов, история до похода 1 — ${START === 'all' ? 'встречены все дуги первых походов' : 'пусто (новый зритель)'}, предел боя ${LIMIT} с, ${new Date().toISOString().slice(0, 10)}, HEAD ${head}, ${Math.round((Date.now() - started) / 1000)} с (эвристика, жадный бот).\n`);
+console.log(`Задача 57а: дуги новых стрелков по походам зрителя, ${VIEWERS} зрителей × ${RUNS} походов, история до похода 1 — ${START === 'all' ? 'встречены все дуги первых походов' : 'пусто (новый зритель)'}, ключ arcsAlternate ${ALTERNATE ? 'вкл.' : 'выкл.'}, предел боя ${LIMIT} с, ${new Date().toISOString().slice(0, 10)}, HEAD ${head}, ${Math.round((Date.now() - started) / 1000)} с (эвристика, жадный бот).\n`);
 
 console.log('### 1. Ряд первой встречи (потолок — `maxRow`)\n');
 console.log('| Дуга | Потолок | Встреч | Ряды (число) | Позже потолка |');
@@ -130,3 +142,15 @@ console.log('\n| Поход | Наибольший ряд (число зрите
 console.log('| --- | --- |');
 for (let r = 1; r <= RUNS; r++) console.log(`| ${r} | ${[...farthest[r - 1]].sort((a, b) => a[0] - b[0]).map(([row, n]) => `${row}: ${n}`).join(', ')} |`);
 console.log(`\n**Тревога:** зрителей, чьи походы доходили до ряда 3+, но вида 57 нет за ${RUNS} походов (первая встреча — не раньше похода ${RUNS + 1}): ${alarms} из ${VIEWERS}.`);
+
+
+console.log('\n### 5. Приёмка дизайна (21.10.2026): от открытия дуги 57 до первой встречи; когда кончились старые дуги\n');
+console.log('| Отставание первой встречи от похода, где дуга открылась | Зрителей |');
+console.log('| --- | --- |');
+for (const lag of [0, 1, 2, 3]) console.log(`| ${lag} | ${lags.get(lag) ?? 0} |`);
+console.log(`| не встречен за ${RUNS} походов (дуга открылась) | ${lags.get(-1) ?? 0} |`);
+console.log(`| дуга не открылась за ${RUNS} походов | ${VIEWERS - [...lags.values()].reduce((a, b) => a + b, 0)} |`);
+console.log('\n| Поход, к концу которого встречены все дуги задачи 26 | Зрителей |');
+console.log('| --- | --- |');
+for (let r = 1; r <= RUNS; r++) console.log(`| ${r} | ${oldDone.get(r) ?? 0} |`);
+console.log(`| не за ${RUNS} походов | ${oldDone.get(0) ?? 0} |`);
