@@ -104,7 +104,8 @@ check('the recruits: the formation seen, refusals out of order — a press on #2
   }
 });
 
-check('the step-backs in a fight with recruits (design 21.10.2026): the pointer back on the link before the last, a recruit taken off — both counters +1; the same step-back in a fight without recruits — no counter of step 3 (3 seeds)', () => {
+check('the step-backs in a fight with recruits (design 21.10.2026): the pointer back on the link before the last, or a sweep ending over it, a recruit taken off — both counters +1 each time; the same step-back in a fight without recruits — no counter of step 3 (3 seeds)', () => {
+  let swept = 0;
   for (const k of [1, 2, 3]) {
     const f = new Watched(RECRUIT_TEST_ARENA.id, k);
     f.run(1);
@@ -115,6 +116,15 @@ check('the step-backs in a fight with recruits (design 21.10.2026): the pointer 
     assert((f.world.chain.length as number) === 2, `seed ${k}: stepped back to #2 (${f.world.chain.length})`);
     const all = f.observer.summary(), s = all.garrison.step3!;
     assert(all.chain.backsteps === 1 && s.backsteps === 1 && s.recruitBacksteps === 1, `seed ${k}: ${all.chain.backsteps} / ${JSON.stringify({ b: s.backsteps, r: s.recruitBacksteps })}`);
+    // The sweep of the ui's finding: the chain again to #3, then one stroke from #3 that ends over #2 (the link before the last) — again
+    // +1 each (#2 and #3 next to each other in the line: no other body under the stroke).
+    if (Math.abs(line[1].x - line[2].x) < 1) {
+      f.cmd({ t: 'drag', x: line[2].x, y: line[2].y, mode: 'full' });
+      f.cmd({ t: 'sweep', fx: line[2].x, fy: line[2].y, x: line[1].x, y: line[1].y });
+      const again = f.observer.summary().garrison.step3!;
+      assert((f.world.chain.length as number) === 2 && again.backsteps === 2 && again.recruitBacksteps === 2, `seed ${k}: the sweep over #2 (${f.world.chain.length}, ${again.backsteps}, ${again.recruitBacksteps})`);
+      swept++;
+    }
     // A column of weak enemies of the wardens' probe, from its bottom (no recruit on that arena).
     const plain = new Watched(WARDEN_TEST_ARENA.id, k);
     const weak = plain.world.enemies.filter(e => e.kind === 'basic' && Math.abs(e.x - WARDEN_TEST_COLUMNS[1]) < 0.01).sort((a, b) => b.y - a.y).slice(0, 3);
@@ -124,6 +134,7 @@ check('the step-backs in a fight with recruits (design 21.10.2026): the pointer 
     const p = plain.observer.summary();
     assert(n >= 2 && p.chain.backsteps === 1 && (p.garrison.step3?.backsteps ?? 0) === 0 && (p.garrison.step3?.recruitBacksteps ?? 0) === 0, `seed ${k}: no step 3 counter without recruits (${n}, ${p.chain.backsteps}, ${JSON.stringify(p.garrison.step3)})`);
   }
+  assert(swept >= 1, `seeds with the sweep: ${swept}`);
 });
 
 check('the wardens: the pair seen; a chain into one — an anger, the angry touch\'s HP, «Размах» a threat `warden-swing`; both by one pass — the pair cleared, no anger (2 seeds)', () => {
