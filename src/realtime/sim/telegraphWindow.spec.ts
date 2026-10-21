@@ -244,6 +244,7 @@ check('task 59а (spec 3.6): «Размах» with the hero in pitch and the cro
   const n = REACTION + slowed(RUN) / RUN.heroSpeed;
   console.log(`   рыцарь/привратник: размах, герой в смоле и толпе (поход): окно ${round2(swing.window(RUN))} с, нужно ${round2(n)} с — запрет состава`);
   assert(swing.window(RUN) < n, `the swing in pitch fits now (${swing.window(RUN)} ≥ ${round2(n)}): the ban may be stale — ask the design`);
+  // No arena holds a pitcher yet (20.10.2026): this walks an empty set. Task 59б: with the first pitcher arena, assert one was found.
   const broken = registeredArenas().map(pitchSwingClash).filter((x): x is string => !!x);
   assert(!broken.length, `arenas with a pitcher and «Размах»: ${broken.join('; ')}`);
   const probe = { id: 'probe', enemies: [{ x: 1, y: 1, color: 0, kind: PITCHER }], newcomers: [{ kind: KNIGHT, share: 1 }] } as unknown as ArenaTemplate;
