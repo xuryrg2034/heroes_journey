@@ -960,6 +960,9 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   // «Ядро в окне — первым» (21.10.2026): the bosses' arenas pick the core in its window first when the values have it off; values
   // without the key (a journal before it, a run saved without the flag) — the nearest, as before. A journal keeps the copy.
   if ((arena.troll || arena.chief || arena.warlock) && params.corePickFirst === false) params = { ...copyParams(params), corePickFirst: true };
+  // «Зона нажатия босса по рисунку» (21.10.2026): a boss's arena (the frame) presses by its drawing when the values have it off; values
+  // without the key (a journal before it, a run saved without the flag) — the circles only. A journal keeps the copy.
+  if (arena.bossFrame && params.bossPickArt === false) params = { ...copyParams(params), bossPickArt: true };
   // Task 57а: an arena of the new shooters plays its own timer when the values have none (and the archer in it; a journal keeps the copy).
   if (arena.volleyGap && !params.volleyGap) params = { ...copyParams(params), volleyGap: arena.volleyGap };
   if (arena.volleyArcher && !params.volleyArcher) params = { ...copyParams(params), volleyArcher: true };

@@ -69,6 +69,8 @@ import { cutTethers, dashPathPoints, dropShackleOf, planTetherCuts, settleTether
 import { behindGrate, gateLever, grateLinkDrop, jumpDownFree, onGallery } from './enemies/garrison';
 // Task 48: the Troll's window (the refusal, one hit per window, the drop from the drawn chain).
 import { TROLL, trollLinkDrop, trollReserve, trollShut, trollWards, trollWindowOn } from './enemies/troll';
+// «Зона нажатия босса по рисунку»: the drawing's ellipse of a boss body (`Params.bossPickArt`).
+import { artEllipseDepth, bossArtEllipse } from './bossArt';
 import { WARLOCK, warlockCharmOn, warlockClosed, warlockLinkDrop, warlockReserve, warlockShut, warlockSpellbound, warlockWards } from './enemies/warlock';
 // Task 57а «Лес: стрелки»: the dash puts out the light shots it touches (`Params.snuffShots`).
 import { snuffAlong, snuffing } from './shots';
@@ -1621,11 +1623,12 @@ const coreWindowOpen = (world: World, e: Enemy): boolean =>
   || (e.kind === WARLOCK && warlockCharmOn(world) && !warlockClosed(world, e));
 
 /**
- * The link under the pointer — an enemy or an object — among those that pass the checks, nearest to the pointer. `coreFirst` — a pick
+ * The link under the pointer — an enemy or an object — among those that pass the checks, nearest to the pointer; `art` (with
+ * `Params.bossPickArt`) — then, nothing in its circle, a boss body whose drawing holds it. `coreFirst` — a pick
  * of what the pointer takes (the press, the drag, the hint's «возьмётся», the loop's closing): with `Params.corePickFirst` a boss core in
  * its open window that passes the checks and has the pointer in its circle wins over any nearer body or object (the nearest such core).
  */
-function pick(world: World, p: Vec, acceptEnemy: (e: Enemy) => boolean, acceptObject: (o: ArenaObject) => boolean, coreFirst = false): ChainLink | null {
+function pick(world: World, p: Vec, acceptEnemy: (e: Enemy) => boolean, acceptObject: (o: ArenaObject) => boolean, coreFirst = false, art = coreFirst): ChainLink | null {
   // Buttons, the door and crystals keep their press circle of before (× 1.3): only the enemy one grew back to 0.59.
   const ro = OBJECT_RADIUS * 1.3;
   let best: ChainLink | null = null, bestD = Infinity;
@@ -1643,6 +1646,15 @@ function pick(world: World, p: Vec, acceptEnemy: (e: Enemy) => boolean, acceptOb
   for (const o of world.objects) {
     const d = dist(o, p);
     if (d <= ro && d < bestD && acceptObject(o)) { best = { kind: 'object', id: o.id }; bestD = d; }
+  }
+  // «Зона нажатия босса по рисунку» (`Params.bossPickArt`, design 21.10.2026): no body or object in its circle — a boss body (a core or
+  // a part) whose drawing's ellipse holds the pointer (bossArt.ts `bossArtEllipse`), the one the pointer is deepest in.
+  if (!best && art && world.params.bossPickArt) {
+    let depth = Infinity;
+    for (const e of world.enemies) {
+      const zone = bossArtEllipse(world, e), q = zone ? artEllipseDepth(zone, p) : Infinity;
+      if (q <= 1 && q < depth && acceptEnemy(e)) { best = { kind: 'enemy', id: e.id }; depth = q; }
+    }
   }
   return best;
 }
@@ -1819,7 +1831,7 @@ export function hoverRefusal(world: World, p: Vec, held = false): Refusal | null
   if (pick(world, p,
     e => inChain(world, e) >= 0 || canLink(world, e, plan),
     o => linkIndex(world, { kind: 'object', id: o.id }) >= 0 || canLinkObject(world, o, plan), true)) return null;
-  const under = pick(world, p, () => true, () => true);
+  const under = pick(world, p, () => true, () => true, false, true);
   if (!under) return null;
   if (under.kind === 'enemy') { const e = findEnemy(world, under.id); return e ? enemyRefusal(world, e, plan) : null; }
   const o = findObject(world, under.id);
