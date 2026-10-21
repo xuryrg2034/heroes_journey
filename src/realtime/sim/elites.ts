@@ -52,7 +52,7 @@ import { blockedAt, dist, inWater, overCliff, pushOutOfCliffs, type Vec } from '
 import { heroRadius } from './params';
 import { MAX_AFFIXES, MAX_PLATES, RESOURCE_KINDS, SLOT_ITEMS, emptyKit, type ItemKind, type ResourceKind } from './kit';
 import { nextPaletteColor } from './spawn';
-import { OBJECT_RADIUS, canBeHurt, enemyFrozen, hurtHero, noteBlock, type ArenaObject, type Enemy, type KillCause, type World, type EnemyKind } from './world';
+import { OBJECT_RADIUS, bossCoreWards, canBeHurt, enemyFrozen, hurtHero, noteBlock, type ArenaObject, type Enemy, type KillCause, type World, type EnemyKind } from './world';
 import { oathEliteDown } from './oath';
 
 /** A weak elite (0 HP) gets this HP. */
@@ -331,6 +331,8 @@ export function updateAffixes(world: World, dt: number): void {
     // Never below 0 HP: the trail weakens, it never kills (so it credits nobody, design answer 4).
     const damage = Math.min(e.hp, Math.max(0, p.trailEnemyDamage));
     if (damage <= 0) continue;
+    // «Дыры ядра боссов» (`coreTrailWard`): a boss core's rules first — closed, it rings, unhurt (in the Troll's window: its one hit).
+    if (p.coreTrailWard && bossCoreWards(world, e, 'fire-trail')) continue;
     e.hp -= damage;
     e.singed = Math.max(0.05, p.trailEnemyPause);
     e.hurtFlash = Math.max(p.hitFlash, 0.01);

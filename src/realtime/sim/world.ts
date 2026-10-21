@@ -1623,6 +1623,14 @@ export function killEnemy(world: World, e: Enemy, cause: KillCause): void {
  * A hit of `damage` on an enemy from outside the chain (an arrow, a blast). As a chain hit: it kills when the damage is not
  * less than the HP (a weak enemy, 0 HP, dies from any hit), otherwise the HP drop. An immune kind (the reaper) is not hurt.
  */
+/**
+ * «Дыры ядра боссов» (21.10.2026): a hit of `source` on a boss core asks its rules (the Troll's window, the Chief's feast) — true: it
+ * does not land (the core rings). The same wards `damageEnemy` asks; any other enemy — false.
+ */
+export function bossCoreWards(world: World, e: Enemy, source: string): boolean {
+  return (e.kind === TROLL && trollWards(world, e, source)) || (e.kind === CHIEF && chiefWards(world, e, source));
+}
+
 export function damageEnemy(world: World, e: Enemy, damage: number, cause: KillCause): void {
   if (damage <= 0 || kindOf(e).immune || !world.enemies.includes(e)) return;
   // Task 48: the Troll's core outside his window (or its hit spent) is not hurt (event `trollWindow` `block`; nothing on other kinds).

@@ -10,9 +10,10 @@
  * - the shaman's beam on a core of 0 HP: with the key it never lifts the core; without it — the old path;
  * - the Troll's window, «Ледяная волна» and «Подрыв» at the end of one chain: with the key the highlight's plates on the core are
  *   the dash's (one); without it — the old highlight: two;
+ * - the same with «Ударная волна» II in «Ледяная волна»: the end's wave and the start's both round the core — one plate shown;
  * - every fight replays from its journal. Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
-import { FUSIONS } from './buildIds';
+import { COUNTER_TALISMANS, FUSIONS } from './buildIds';
 import { planChain } from './chain';
 import { CHIEF, CHIEF_LADLE, CHIEF_SACK } from './enemies/chief';
 import { TROLL, TROLL_CLUB, TROLL_ROCK } from './enemies/troll';
@@ -109,10 +110,12 @@ check('the shaman\'s beam on a core of 0 HP (the trail took its last HP in the T
       trailPast(sim, core);
       ticks(sim, ticksOf(3), [], () => core.hp === 0);
       assert(core.hp === 0, `seed ${k}, key ${key}: the core at 0 HP (${core.hp})`);
-      // A shaman beside it, the hero away.
+      // A shaman beside it; nobody walks now (the shaman keeps the core within its beam's reach), the hero away.
+      sim.command({ t: 'param', key: 'enemySpeed', value: 0 });
       sim.command({ t: 'teleport', x: 20, y: 12 });
       place(sim, { x: core.x - 1.6, y: core.y + 1.8 }, 2, 1, { kind: 'shaman' });
-      const out = ticks(sim, ticksOf(4));
+      // Its first beam after its cooldown and the beam's time (its first wait up to the cooldown 6 s, then the beam 1.5 s).
+      const out = ticks(sim, ticksOf(14));
       const lifted = of(out, 'enemySignal').some(e => e.signal === 'empower' && e.enemyId === core.id);
       if (key) assert(core.hp === 0 && !lifted, `seed ${k}: the shaman never lifts the core (${core.hp})`);
       else assert(core.hp > 0 && lifted, `seed ${k}: without the key the old path — the core lifted (${core.hp})`);
@@ -141,11 +144,40 @@ check('the Troll\'s window, «Ледяная волна» and «Подрыв» a
       assert(w.chain.length === 4, `seed ${k}: four links (${w.chain.length})`);
       const onCore = [...plan.wave?.bodies ?? [], ...plan.blast?.bodies ?? []].filter(b => b.id === core.id);
       const planned = onCore.reduce((s, b) => s + ((b.platesBefore ?? 0) - (b.platesAfter ?? 0)), 0);
-      const before = core.armor!.plates;
       sim.command({ t: 'release' });
-      settle(sim);
-      const taken = before - core.armor!.plates;
+      // The plates the dash's hits take off the core (a part severed by the wave or the blast costs the core its own plate after the
+      // dash — not a hit of the window).
+      const taken = of(settle(sim), 'elitePlates').filter(e => e.enemyId === core.id && e.action === 'strip').reduce((n, e) => n + (e.removed ?? 0), 0);
       if (key) assert(taken === 1 && planned === taken, `seed ${k}: the highlight's plates ${planned} = the dash's ${taken}`);
+      else assert(taken === 1 && planned === 2, `seed ${k}: without the key — the old highlight, ${planned} plates for the dash's ${taken}`);
+      assert(replays(sim), `seed ${k}, key ${key}: replay`);
+    }
+  }
+});
+
+check('the Troll\'s window, «Ударная волна» II in «Ледяная волна» — the end\'s wave and the start\'s both round the core: with the key the highlight\'s plates on the core are the dash\'s (one); without it — the old highlight, two', () => {
+  const kit: Loadout = { talismans: [FUSIONS.frostWave], honed: [COUNTER_TALISMANS.shockwave] };
+  for (const k of SEEDS) {
+    for (const key of [undefined, true]) {
+      const sim = new Simulation({ arena: 'troll', params: quiet(key, { counterWindow: true, trollPlates: 5, trollHp: 4 }), seed: seedOf(k), record: true, loadout: kit }), w = sim.world;
+      ticks(sim, 1);
+      const core = kindOf(w, TROLL);
+      freeze(sim, kindOf(w, TROLL_ROCK));
+      sim.command({ t: 'teleport', x: 12, y: 6.5 });
+      ticks(sim, ticksOf(12), [], ev => of(ev, 'trollWindow').some(e => e.action === 'open'));
+      freeze(sim, kindOf(w, TROLL_CLUB));
+      // From beside the core, a loop of four links that ends beside it again: both waves reach the core.
+      sim.command({ t: 'teleport', x: 11.2, y: 3.9 });
+      const links = [{ x: 10.4, y: 5.3 }, { x: 11.4, y: 6.5 }, { x: 12.7, y: 5.6 }, { x: 13, y: 4 }].map(p => place(sim, p, 0, 0));
+      sim.command({ t: 'begin', x: links[0].x, y: links[0].y });
+      for (const e of links.slice(1)) sim.command({ t: 'drag', x: e.x, y: e.y, mode: 'full' });
+      const plan = planChain(w);
+      assert(w.chain.length === 4 && plan.wave?.second, `seed ${k}: four links and both waves (${w.chain.length})`);
+      const body = [...plan.wave!.bodies, ...plan.wave!.second!.bodies].find(b => b.id === core.id);
+      const planned = (body?.platesBefore ?? 0) - (body?.platesAfter ?? 0);
+      sim.command({ t: 'release' });
+      const taken = of(settle(sim), 'elitePlates').filter(e => e.enemyId === core.id && e.action === 'strip').reduce((n, e) => n + (e.removed ?? 0), 0);
+      if (key) assert(taken === 1 && planned === 1 && !plan.wave!.second!.bodies.some(b => b.id === core.id), `seed ${k}: the highlight's plates ${planned} = the dash's ${taken}; the start's wave leaves the core out`);
       else assert(taken === 1 && planned === 2, `seed ${k}: without the key — the old highlight, ${planned} plates for the dash's ${taken}`);
       assert(replays(sim), `seed ${k}, key ${key}: replay`);
     }
