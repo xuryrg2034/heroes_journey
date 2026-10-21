@@ -11,6 +11,10 @@ import { AFFIX_IDS } from '../sim/elites';
 import { FUSION_RECIPES } from '../sim/buildIds';
 import { GUARD, HANDLER, HOUND, KEYMASTER, KNIGHT } from '../sim/enemies/garrison';
 import { CROSSBOW } from '../sim/enemies/crossbow';
+// Task 59б: the kinds of the garrison's step 3.
+import { PITCHER } from '../sim/enemies/pitcher';
+import { RECRUIT } from '../sim/enemies/recruit';
+import { WARDEN } from '../sim/enemies/warden';
 import { JAILER_RUN_ARENAS, TROLL_RUN_ARENAS } from '../sim/arenasBoss';
 import { SCHEDULE_KINDS } from './schedule';
 import { GARRISON_FINAL_ARENA } from './garrison';
@@ -26,7 +30,8 @@ export const RT_CHRONICLE_LEVELS: readonly number[] = [1, 2];
 
 /** Bestiary: the forest's kinds (the schedule's special kinds; the weak enemy has no caption — no entry) and the garrison's. */
 export const RT_CHRONICLE_FOREST_KINDS: readonly string[] = [...SCHEDULE_KINDS];
-export const RT_CHRONICLE_GARRISON_KINDS: readonly string[] = [GUARD, HANDLER, HOUND, KEYMASTER, CROSSBOW, KNIGHT];
+/** Task 59б (spec 10): the step 3's three join the garrison's chapter — 6 → 9 (the page 18 → 21). */
+export const RT_CHRONICLE_GARRISON_KINDS: readonly string[] = [GUARD, HANDLER, HOUND, KEYMASTER, CROSSBOW, KNIGHT, PITCHER, RECRUIT, WARDEN];
 /** Every kind with an entry (what `chronicleMeet` keeps). */
 export const RT_CHRONICLE_KINDS: readonly string[] = [...RT_CHRONICLE_FOREST_KINDS, ...RT_CHRONICLE_GARRISON_KINDS];
 export const RT_CHRONICLE_AFFIXES: readonly string[] = AFFIX_IDS;

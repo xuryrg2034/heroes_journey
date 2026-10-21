@@ -29,8 +29,12 @@ import {
 import { isRtForm, rtFormField } from './rtTalismans';
 import { FUSION_RECIPES } from '../sim/buildIds';
 import { rtChronicleParts, RT_CHRONICLE_BOSSES, RT_CHRONICLE_GARRISON_KINDS, isRtChronicleFusion, isRtChronicleItem } from './chronicleCatalog';
-import { rtChronicleHint, type RtChronicleView } from './chroniclePages';
-import type { RtChronicle } from './chronicle';
+import { rtChronicleHint, rtChronicleView, type RtChronicleView } from './chroniclePages';
+import { rtChronicleMeet, type RtChronicle } from './chronicle';
+import { CHRONICLE_FIXTURES } from '../view/chronicleFixtures.testkit';
+import { PITCHER } from '../sim/enemies/pitcher';
+import { RECRUIT } from '../sim/enemies/recruit';
+import { WARDEN } from '../sim/enemies/warden';
 import { TROLL_RUN_ARENAS } from '../sim/arenasBoss';
 import { RtRecorder } from '../telemetry/recorder';
 import { memoryJournalStore, type KeyValueStore } from '../telemetry/buffer';
@@ -410,6 +414,21 @@ await check('telemetry: the run record\'s `chronicle` (its list and the pages), 
   assert(['Бестиарий', 'Талисманы и формы', 'Первые находки', 'Подсказка Неясыти', '1–3', '11–20'].every(word => section.includes(word)), section);
   assert(chronicleSection([]).includes('нет'), 'no runs — a line');
   rec.dispose();
+});
+
+await check('task 59б (spec 10): the garrison’s chapter holds 9 kinds — the step 3’s pitcher, recruit and warden unknown until met, «seen» once a fight shows them; the page grows by 3', () => {
+  const profile = parseRtProfile(JSON.stringify(CHRONICLE_FIXTURES.garrison()));
+  const before = rtChronicleView(profile, 'cat', { gambler: true, monk: true });
+  const chapter = (view: RtChronicleView) => view.pages.find(p => p.id === 'bestiary')!.chapters.find(c => c.id === 'garrison')!;
+  const novel = [PITCHER, RECRUIT, WARDEN];
+  assert(RT_CHRONICLE_GARRISON_KINDS.length === 9 && novel.every(id => RT_CHRONICLE_GARRISON_KINDS.includes(id)), 'nine kinds');
+  assert(chapter(before).entries.length === 9 && novel.every(id => chapter(before).entries.find(e => e.id === id)?.state === 'unknown'), 'unknown before');
+  const met = rtChronicleMeet(profile.meta!.chronicle, { kinds: novel, affixes: [] });
+  assert(met.changed, 'the meeting writes');
+  const after = rtChronicleView({ ...profile, meta: { ...profile.meta!, chronicle: met.chronicle } }, 'cat', { gambler: true, monk: true });
+  assert(novel.every(id => chapter(after).entries.find(e => e.id === id)?.state === 'seen'), 'seen after');
+  const have = (view: RtChronicleView): number => view.pages.find(p => p.id === 'bestiary')!.have;
+  assert(have(after) === have(before) + 3, `the page ${have(before)} → ${have(after)}`);
 });
 
 console.log(`realtime-chronicle: ${checks} checks passed`);
