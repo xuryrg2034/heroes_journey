@@ -5,7 +5,7 @@
  * centre), the half-axes — half its width and height. One number for the simulation and the view: the boxes below are the view's
  * (trollView `TROLL_ART`, chiefView `CHIEF_ART`, warlockView `WARLOCK_ART`, render.ts `JAILER_ART` and `GARRISON_ART`, the parts'
  * `CLUB_ART`, `ROCK_ART`, `KNOT_ART`, `LADLE_ART`, `SACK_ART`) with the pictures' aspects (public/art/characters/*.png), and the view
- * reads the zone from `bossArtEllipse` (it copies no rule). Pure: nothing here changes the world; only `detMath`.
+ * reads the zone from `bossArtEllipse` (it copies no rule). The full Castellan's crossbow stand is a part too. Pure: nothing here changes the world; only `detMath`.
  */
 import { datan2, dcos, dsin } from './detMath';
 import { enemyArtRadius } from './enemies/kinds';
@@ -34,6 +34,8 @@ export const BOSS_ART: Readonly<Record<string, BossArtBox>> = {
   'troll-tail': { side: 2.3, aspect: 645 / 760 },
   'chief-ladle': { side: 3.4, aspect: 481 / 751, dy: -0.35 },
   'chief-sack': { side: 2.8, aspect: 677 / 751, dy: -0.35 },
+  // The full Castellan's crossbow on its stand (render.ts `GARRISON_ART` `STAND`, on its feet as the garrison's art).
+  'castellan-crossbow': { side: 3.6, aspect: 1096 / 1310, feet: 1 },
 };
 /** The club's kind (enemies/troll.ts `TROLL_CLUB`). */
 const CLUB = 'troll-club';
@@ -71,26 +73,26 @@ export function bossArtEllipse(world: World, e: Enemy): ArtEllipse | null {
 }
 
 /**
- * The drawing order of the bosses' bodies (design 21.10.2026): a part is drawn over its core. Higher — on top. One number for the
- * simulation (the overlap rule, `artPick`) and the view (it draws the bodies by it).
+ * The drawing order (design 21.10.2026: «on top» is what the player sees on top, the view's order): render.ts draws the bodies by
+ * their y (`zIndex = e.y`: lower on the screen — over). At an equal y the view keeps the order its stable sorts left (the body added
+ * later, or the one that was lower before) — history, not the world: the simulation takes the later body (the higher id) there, and
+ * the view is to draw by this same comparison (an explicit tie key, ui). True — `a` is drawn over `b`.
  */
-export const BOSS_ART_LAYER: Readonly<Record<string, number>> = {
-  troll: 0, chief: 0, warlock: 0, jailer: 0, castellan: 0,
-  'troll-club': 1, 'troll-rock': 1, 'troll-tail': 1, 'chief-ladle': 1, 'chief-sack': 1,
-};
+export function artDrawnAbove(a: Pick<Enemy, 'y' | 'id'>, b: Pick<Enemy, 'y' | 'id'>): boolean {
+  return a.y > b.y || (a.y === b.y && a.id > b.id);
+}
 
 /**
  * The overlap rule of the drawings (design 21.10.2026), in one place: among the boss bodies whose drawings hold `p`, those `accept` lets
- * the chain take; of them the one drawn on top (`BOSS_ART_LAYER`), a tie — the one `p` is deeper in. Null — none. A pick that accepts
- * every body (the hint's «what is under the pointer») gets the one on top: its refusal is the one shown.
+ * the chain take; of them the one drawn on top (`artDrawnAbove`). Null — none. A pick that accepts every body (the hint's «what is under
+ * the pointer») gets the one on top: its refusal is the one shown.
  */
 export function artPick(world: World, p: Vec, accept: (e: Enemy) => boolean): Enemy | null {
-  let best: Enemy | null = null, layer = -Infinity, depth = Infinity;
+  let best: Enemy | null = null;
   for (const e of world.enemies) {
-    const zone = bossArtEllipse(world, e), q = zone ? artEllipseDepth(zone, p) : Infinity;
-    if (q > 1 || !accept(e)) continue;
-    const l = BOSS_ART_LAYER[e.kind] ?? 0;
-    if (l > layer || (l === layer && q < depth)) { best = e; layer = l; depth = q; }
+    const zone = bossArtEllipse(world, e);
+    if (!zone || artEllipseDepth(zone, p) > 1 || !accept(e)) continue;
+    if (!best || artDrawnAbove(e, best)) best = e;
   }
   return best;
 }

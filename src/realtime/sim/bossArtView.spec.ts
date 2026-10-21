@@ -40,6 +40,7 @@ check('the boxes: the cores\' sides and feet, the parts\' sides and the ladle\'s
     ['troll-tail', numberIn(troll, /const KNOT_ART = ([\d.]+);/, 'KNOT_ART'), undefined, undefined],
     ['chief-ladle', numberIn(chief, /const LADLE_ART = ([\d.]+)/, 'LADLE_ART'), undefined, -numberIn(render, /part\.position\.set\(0, -r \* ([\d.]+)\)/, 'chief part drop')],
     ['chief-sack', numberIn(chief, /SACK_ART = ([\d.]+);/, 'SACK_ART'), undefined, -numberIn(render, /part\.position\.set\(0, -r \* ([\d.]+)\)/, 'chief part drop')],
+    ['castellan-crossbow', numberIn(render, /\[STAND\]: \{ id: 'garrison-crossbow', size: ([\d.]+) \}/, 'GARRISON_ART stand'), 1, undefined],
   ];
   for (const [kind, side, feet, dy] of want) {
     const box = BOSS_ART[kind];
@@ -49,7 +50,7 @@ check('the boxes: the cores\' sides and feet, the parts\' sides and the ladle\'s
 });
 
 check('the aspects: the pictures\' height / width (the knot is drawn with the rock\'s picture)', () => {
-  const pictures: Record<string, string> = { troll: 'troll', chief: 'chief', warlock: 'warlock', jailer: 'jailer', castellan: 'castellan', 'troll-club': 'troll-club', 'troll-rock': 'troll-rock', 'troll-tail': 'troll-rock', 'chief-ladle': 'chief-ladle', 'chief-sack': 'chief-sack' };
+  const pictures: Record<string, string> = { troll: 'troll', chief: 'chief', warlock: 'warlock', jailer: 'jailer', castellan: 'castellan', 'troll-club': 'troll-club', 'troll-rock': 'troll-rock', 'troll-tail': 'troll-rock', 'chief-ladle': 'chief-ladle', 'chief-sack': 'chief-sack', 'castellan-crossbow': 'garrison-crossbow' };
   for (const [kind, id] of Object.entries(pictures)) assert(near(BOSS_ART[kind].aspect, aspectOf(id)), `${kind}: the table ${BOSS_ART[kind].aspect}, ${id}.png ${aspectOf(id)}`);
 });
 
@@ -59,6 +60,11 @@ check('the club\'s pose: the grip and the paw\'s angle are the view\'s', () => {
     const v = pattern.exec(troll)?.[1], s = pattern.exec(sim)?.[1];
     assert(v !== undefined && v === s, `${name}: the view ${v}, the table ${s}`);
   }
+});
+
+check('the drawing order: the view draws the bodies by their y (`zIndex = e.y`, sorted), as `artDrawnAbove`', () => {
+  const render = source('render.ts');
+  assert(/view\.root\.zIndex = e\.y;/.test(render) && /this\.enemyLayer\.sortableChildren = true;/.test(render), 'render.ts: the bodies sorted by their y');
 });
 
 console.log(`boss art = view: ${checks} checks passed`);
