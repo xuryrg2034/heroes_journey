@@ -1,6 +1,7 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
 import { gameWait, untilFrame } from './realtimeFrames';
+import { breakCharm } from './warlockRoute';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
 
 /**
@@ -176,21 +177,8 @@ test('«Ядро в окне — первым»: the warlock — in his window a
     for (const [k, v] of [['enemySpeed', 0], ['speedSpread', 0], ['baseIntervalMin', 1000], ['baseIntervalMax', 1000], ['baseFloor', 0], ['contactDamage', 0], ['wardrobePeriod', 1000], ['shoveDistance', 6]] as const) rt.setParam(k, v);
   });
   await cameraSettled(page);
-  // His wardrobe into the wall twice (the mouse presses on it; the hero stands right below).
-  const wardrobe = (await snap(page)).warlock.state!.wardrobe!;
-  for (let i = 0; i < 2; i++) {
-    const w = (await snap(page)).castle.things.find(t => t.id === wardrobe)!;
-    await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y + 1), [w.x, w.y] as const);
-    await cameraSettled(page);
-    await mouseTo(page, async () => (await snap(page)).castle.things.find(t => t.id === wardrobe)!, 3);
-    await page.mouse.down();
-    await expect.poll(async () => (await snap(page)).chain).toEqual([wardrobe]);
-    await page.mouse.up();
-    const done = await untilFrame(page, (s, _arg: null, late) => s.castle.shoves.length === 0 && s.moving === null ? true : late ? false : undefined, null, 10);
-    expect(done, 'the shove is over').toBe(true);
-  }
-  const fell = await untilFrame(page, (s, _arg: null, late) => s.warlock.state?.phase === 2 ? true : late ? false : undefined, null, 4);
-  expect(fell, 'the charm fell').toBe(true);
+  // His wardrobe into the wall by the mouse until it breaks (tests/warlockRoute.ts, shared with the warlock spec).
+  await breakCharm(page);
   // The window of the next arrival: the moment it opens the core is frozen (the window waits for the mouse). First, shut: the window of an arrival
   // that has not come yet is closed — a body on the core is the pick (the core is frozen at once so no arrival comes meanwhile).
   const st = (await snap(page)).warlock.state!;

@@ -1,6 +1,7 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
 import { gameWait, untilFrame } from './realtimeFrames';
+import { breakCharm } from './warlockRoute';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
 
 /**
@@ -85,29 +86,6 @@ async function mouseTo(page: Page, at: () => Promise<{ x: number; y: number }>, 
 }
 const coreAt = (page: Page) => async (): Promise<{ x: number; y: number }> => { const s = (await snap(page)).warlock.state!; return { x: s.x, y: s.y }; };
 const thingAt = (page: Page, id: number) => async (): Promise<{ x: number; y: number }> => (await snap(page)).castle.things.find(t => t.id === id)!;
-
-/** One shove of his wardrobe north, from right below it: the mouse presses on it and lets go; waits for the run to end. */
-async function shoveNorth(page: Page, id: number): Promise<void> {
-  const w = await thingAt(page, id)();
-  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y + 1), [w.x, w.y] as const);
-  await cameraSettled(page);
-  await mouseTo(page, thingAt(page, id), 3);
-  await page.mouse.down();
-  await expect.poll(async () => (await snap(page)).chain).toEqual([id]);
-  await page.mouse.up();
-  const done = await untilFrame(page, (sn, _arg: null, late) => sn.castle.shoves.length === 0 && sn.moving === null ? { ok: true } : late ? { ok: false } : undefined, null, 10);
-  expect(done.ok, 'the shove is over').toBe(true);
-}
-
-/** Breaks his wardrobe at the north wall (two shoves) and waits for the charm to fall. */
-async function breakCharm(page: Page): Promise<void> {
-  const id = (await snap(page)).warlock.state!.wardrobe!;
-  await shoveNorth(page, id);
-  expect((await snap(page)).castle.things.find(t => t.id === id)?.durability, 'the wall wore the wardrobe').toBe(1);
-  await shoveNorth(page, id);
-  const fell = await untilFrame(page, (sn, _arg: null, late) => sn.warlock.state?.phase === 2 ? true : late ? false : undefined, null, 4);
-  expect(fell, 'the charm fell').toBe(true);
-}
 
 /**
  * Past the charm's end: waits for the sign of the shift, stands the hero a unit below the lit candle (the journal's teleport), puts the mouse on
