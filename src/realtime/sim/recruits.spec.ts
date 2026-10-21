@@ -100,6 +100,9 @@ check('the chain takes only the current number: a press on another starts nothin
     assert(byNumber(w).length === 0 && w.stats.kills === kills + 4, `seed ${k}: all fell`);
     const drill = of(events, 'recruit').find(e => e.action === 'drill');
     assert(drill?.energy === 2 && w.energy === Math.min(7, energy + 2 + 4 * w.params.energyPerKill), `seed ${k}: +2 energy (${energy} → ${w.energy})`);
+    // The view's place of the «+2»: where the formation's last recruit fell (its kill event, the tick it died); the hero's x, y stay.
+    const lastKill = of(events, 'kill').filter(e => line.some(r => r.id === e.enemyId)).pop()!;
+    assert(drill.lx === lastKill.x && drill.ly === lastKill.y && drill.x === w.hero.x && drill.y === w.hero.y, `seed ${k}: drill at the last recruit (${drill.lx}, ${drill.ly}) / (${lastKill.x}, ${lastKill.y})`);
     assert(replays(sim), `seed ${k}: replay`);
   }
 });

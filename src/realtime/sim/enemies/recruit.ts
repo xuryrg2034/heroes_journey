@@ -191,6 +191,10 @@ registerBehavior({
   },
   step: lineStep,
   onDeath(world, e, cause) {
+    // For the event `drill` only (its `lx`, `ly`): where the group's last recruit fell (not world state: the hash never reads it).
+    let fell = lastFell.get(world);
+    if (!fell) lastFell.set(world, fell = new Map());
+    fell.set(recruitGroup(e), { x: e.x, y: e.y });
     // Design 21.10.2026: a member finished by a source that is not the pass's own spoils its formation's bonus for this move.
     const move = world.move;
     if (move?.drill && !PASS_SOURCES.has(cause.source)) {
@@ -227,13 +231,17 @@ export function wholeFormations(world: World): number[] {
  * The pass is over: each formation whole at its release with no member left gives `recruitBonus` energy (event `recruit` `drill`); the
  * groups that still stand are returned (a return run of the same pass may finish them).
  */
+/** The view's data of the event `drill`: per world, the place each group's latest dead recruit fell (event data, never the world's state). */
+const lastFell = new WeakMap<World, Map<number, { x: number; y: number }>>();
+
 export function drillEnd(world: World, groups: readonly number[], energyMax: number): number[] {
   const left: number[] = [];
   for (const g of groups) {
     if (world.enemies.some(e => e.kind === RECRUIT && recruitGroup(e) === g)) { left.push(g); continue; }
     const bonus = Math.max(0, world.params.recruitBonus ?? RECRUIT_BONUS);
     world.energy = Math.min(energyMax, world.energy + bonus);
-    world.events.push({ type: 'recruit', action: 'drill', id: g, x: world.hero.x, y: world.hero.y, energy: bonus });
+    const last = lastFell.get(world)?.get(g);
+    world.events.push({ type: 'recruit', action: 'drill', id: g, x: world.hero.x, y: world.hero.y, energy: bonus, ...last ? { lx: last.x, ly: last.y } : {} });
   }
   return left;
 }
