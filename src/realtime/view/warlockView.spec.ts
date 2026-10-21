@@ -279,4 +279,19 @@ check('the view puts a window count under the HUD edge beside the ring when his 
   assert(label.position.y < h.core.y * U - R, 'with the head in view the count stands at the head');
 });
 
+check('«Прямая» under the charm (core 21.10.2026): the run reaches him and rings off once — the view shows that «звон» as a spark, he stays unhurt', () => {
+  for (const k of [1, 2, 3]) {
+    const h = hall(k, { pierceEnabled: true, pierceLength: 4 });
+    const c = { x: h.core.x, y: h.core.y };
+    h.sim.command({ t: 'teleport', x: c.x, y: c.y + 5.4 });
+    const ls = [4.4, 3.4, 2.4].map(d => h.sim.command({ t: 'place', x: c.x, y: c.y + d, color: 0, hp: 0, kind: 'basic' }) as number).map(id => h.w.enemies.find(e => e.id === id)!);
+    draw(h.sim, ls);
+    assert(h.w.chain.length === 3 && planChain(h.w).pierce, `seed ${k}: a pierce is drawn`);
+    const before = h.view.shown.sparks, plates = h.core.armor!.plates;
+    release(h);
+    assert(h.events.some(e => e.type === 'warlockCharm' && e.action === 'block' && e.source === 'pierce'), `seed ${k}: the sim rang off`);
+    assert(h.view.shown.sparks === before + 1 && h.core.armor!.plates === plates && h.core.hp === 2, `seed ${k}: one spark (${h.view.shown.sparks - before}), unhurt`);
+  }
+});
+
 console.log('warlockView: all checks passed');
