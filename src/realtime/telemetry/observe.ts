@@ -94,6 +94,7 @@ import type { Command } from '../sim/commands';
 import { WOLF_RUSH } from '../sim/enemies/wolf';
 import { BOSS_CLEAR, JAILER } from '../sim/enemies/jailer';
 import { CASTELLAN, KNIGHT, houndFrenzied, prisonerRioting } from '../sim/enemies/garrison';
+import { WISP } from '../sim/enemies/wisp';
 import { TROLL, TROLL_CLUB, TROLL_CLUB_SOURCE, TROLL_ROCK, TROLL_ROCK_SOURCE, TROLL_TAIL, TROLL_TAIL_SOURCE } from '../sim/enemies/troll';
 import { kindOf } from '../sim/enemies/kinds';
 import { dist, inThorns, inWater } from '../sim/geometry';
@@ -279,7 +280,7 @@ export function createFightObserver(start: World): FightObserver {
     // Task 25: enemies new since the last look (ids only grow in a world) are remembered for the cause of death.
     let top = seenId;
     for (const e of w.enemies) {
-      if (e.id > seenId) { seen.set(e.id, e); if (e.id > top) top = e.id; if (e.kind === KNIGHT) s.garrison.knights++; if (e.kind === 'wolf' && s.boss?.troll) s.boss.troll.wolves++; }
+      if (e.id > seenId) { seen.set(e.id, e); if (e.id > top) top = e.id; if (e.kind === KNIGHT) s.garrison.knights++; if (e.kind === 'wolf' && s.boss?.troll) s.boss.troll.wolves++; if (e.kind === WISP) s.forest.wisps.appeared++; }
       if (e.elite && !elites.has(e.id)) { elites.set(e.id, { born: w.time, chains: 0, lastDash: -1 }); s.elites.count++; }
     }
     seenId = top;
@@ -340,6 +341,8 @@ export function createFightObserver(start: World): FightObserver {
           // Task 41: a rioting prisoner's kill (`riot`) counts with the hounds' frenzy, and apart.
           if (ev.source === 'hound' || ev.source === 'riot') s.chain.frenzyKills++;
           if (ev.source === 'riot') s.garrison.riotKills++;
+          // Task 57а: a wisp the chain killed.
+          if (ev.source === 'chain' && seen.get(ev.enemyId)?.kind === WISP) s.forest.wisps.chainKills++;
           // Task 43: a knight killed (by any source).
           if (seen.get(ev.enemyId)?.kind === KNIGHT) s.garrison.knightKills++;
           else if (ev.source === 'slot-bust') s.slot.bustKills++;
@@ -444,6 +447,17 @@ export function createFightObserver(start: World): FightObserver {
         case 'frenzy': if (ev.action === 'start' && ev.riot) s.garrison.riots++; return;
         // Task 43: a knight shed its armour (the offensive began).
         case 'knightShed': s.garrison.knightSheds++; return;
+        // Task 57а «Лес: стрелки»: windups, the shots' ends, the wisps going out.
+        case 'shooter': if (ev.action === 'aim') bump(s.forest.volleys, ev.kind); return;
+        case 'shot':
+          if (ev.action === 'hit') bump(s.forest.shots.hit, ev.kind);
+          else if (ev.action === 'block') bump(s.forest.shots.block, ev.kind);
+          else if (ev.action === 'snuff') { if (ev.by === 'bomb') s.forest.shots.snuffBomb++; else s.forest.shots.snuffDash++; }
+          return;
+        case 'wisp':
+          if (ev.action !== 'out') return;
+          if (ev.why === 'touch') s.forest.wisps.touched++; else if (ev.why === 'block') s.forest.wisps.blocked++; else s.forest.wisps.faded++;
+          return;
         case 'tether':
           if (ev.action === 'cut') s.chain.cuts++;
           // Task 40: the keymaster's shackles — put on, cut (the game second of the first cut).
