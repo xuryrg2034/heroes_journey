@@ -84,12 +84,12 @@ export interface HearthHost {
   /** Back to the open run's map. */
   back(): void;
   sound?(kind: 'buy' | 'open'): void;
-  /** Task 58: the chronicle (core's; `chronicleStub.ts` until 58а lands). */
+  /** Task 58: the chronicle (the profile store's: `profileChronicle`). */
   chronicle?: ChronicleSource;
   /** Task 58: the P8 memory of kinds and affixes (view/newSeen.ts), handed to the chronicle once when the camp opens (the retro). */
   memory?(): ChronicleMemory;
-  /** Telemetry (58а): the chronicle opened / a page opened. */
-  chronicleOpened?(page: string, unread: boolean): void;
+  /** Telemetry (58а `chronicleOpened`): the window was closed — the pages looked at, the seconds it was open, «✦» on when opened. */
+  chronicleOpened?(opened: { pages: readonly string[]; seconds: number; unread: boolean }): void;
   /** Task 51ж «Разминка»: the layouts' records (`meta.warmup`) and the start of an attempt on layout `id` (absent — no «Чурбаки»). */
   warmup?: { records(): WarmupRecords | undefined; start(id: WarmupId): void };
   /** Task 51з «Поход дня»: the button under «В поход» (absent - none), its model, «Начать», and the proof's tools. */
@@ -140,7 +140,7 @@ export class HearthView {
     probe.onerror = () => { this.el.classList.add('rt-hearth-noart'); this.el.style.removeProperty('--hearth-art'); };
     probe.src = artUrl('camp/hearth.png');
     window.addEventListener('resize', () => { if (!this.el.hidden) this.fit(); });
-    window.addEventListener('keydown', event => { if (event.key === 'Escape' && !this.el.hidden && (this.bubble || this.chron || this.warmupChoice)) { this.bubble = null; this.chron = null; this.warmupChoice = false; this.draw(); } });
+    window.addEventListener('keydown', event => { if (event.key === 'Escape' && !this.el.hidden && (this.bubble || this.chron || this.warmupChoice)) { this.bubble = null; this.dropChron(); this.warmupChoice = false; this.draw(); } });
     // Task 58: the strip under the cards follows the card the pointer is over (a click keeps it).
     this.el.addEventListener('mouseover', event => {
       const card = (event.target as HTMLElement).closest<HTMLElement>('[data-action="chron-card"]'), strip = this.el.querySelector<HTMLElement>('[data-testid="chron-line"]');
@@ -157,7 +157,7 @@ export class HearthView {
   get isOpen(): boolean { return !this.el.hidden; }
 
   open(): void {
-    this.el.hidden = false; this.bubble = null; this.chron = null; this.warmupChoice = false; this.dailyOpen = false; this.said.clear(); this.leaveSaid.clear(); this.traceSay = null;
+    this.el.hidden = false; this.bubble = null; this.dropChron(); this.warmupChoice = false; this.dailyOpen = false; this.said.clear(); this.leaveSaid.clear(); this.traceSay = null;
     // Task 58: the retro - the P8 memory goes to the chronicle (its source ignores a repeat).
     const memory = this.host.memory?.();
     if (memory) this.host.chronicle?.import(memory);
@@ -175,7 +175,7 @@ export class HearthView {
     this.draw();
   }
 
-  close(): void { this.el.hidden = true; this.shown.open = false; }
+  close(): void { this.dropChron(); this.el.hidden = true; this.shown.open = false; }
 
   private sayHero(key: Parameters<typeof toadLine>[0]): void {
     const line = toadLine(key, this.host.meta.hearth().lines);
@@ -200,7 +200,7 @@ export class HearthView {
 
   draw(): void {
     const h = this.host.meta.hearth(), here = this.npcsHere(h);
-    this.unreadPages = this.host.chronicle?.view().pages.filter(p => p.unread).length ?? 0;
+    this.unreadCount = this.host.chronicle?.view().unread ?? 0;
     const places = HEARTH_PLACES.map((npc, i) => {
       const at = PLACE_AT[i], live = npc && here.includes(npc) ? npc : null;
       // An empty place: the background's stump or rug as it is (a dark log only without the background).
@@ -211,7 +211,7 @@ export class HearthView {
       // Task 58: «✦» at Неясыть's name while the chronicle holds the new (the quest's «!» stays where it is).
       // Task 51в (design 17.10.2026): «✦» over a guest who has come until the first click on them (the meeting line is said - the profile's
       // memory `npc:first` / `npc:first_self` counts it, so the sign does not come back after a reload); «!» stays the quest's.
-      const fresh = live === 'owl' ? (this.unreadPages ? '<i class="rt-hearth-chron-mark" title="В летописи новое" data-testid="hearth-chron-mark">✦</i>' : '')
+      const fresh = live === 'owl' ? (this.unreadCount ? '<i class="rt-hearth-chron-mark" title="В летописи новое" data-testid="hearth-chron-mark">✦</i>' : '')
         : !h.lines[`${live}:first`] && !h.lines[`${live}:first_self`] ? '<i class="rt-hearth-new-mark" data-testid="hearth-new-' + live + '" title="Новое">✦</i>' : '';
       const quest = fresh + (h.quest?.npc === live ? '<i class="rt-hearth-quest-mark" title="Задание">!</i>' : '');
       return `<button class="rt-hearth-place rt-hearth-npc${this.bubble === live ? ' rt-on' : ''}" style="left:${at.x}px;top:${at.y}px" data-action="npc" data-npc="${live}" data-testid="hearth-npc-${live}" title="${esc(NPCS[live].name)}">${fig}${quest}<span class="rt-hearth-name">${esc(NPCS[live].name)}</span></button>`;
@@ -298,7 +298,7 @@ export class HearthView {
       return `<li class="${level >= lv ? 'rt-done' : shut ? 'rt-locked' : ''}" data-testid="up-${npc}-${lv}-row"><div><b>${esc(shut ? lock.name : name)}</b><small>${esc(shut ? lock.rule : NPCS[npc].rules[k])}</small></div>${action}</li>`;
     }).join('');
     const quest = h.quest?.npc === npc ? `<p class="rt-hearth-quest" data-testid="hearth-quest">${esc(questLine(npc, h.quest.id === 'owl-forest', h.lines))} <small>+10 опыта, +3 запаса</small></p>` : '';
-    const unread = npc === 'owl' ? this.unreadPages : 0;
+    const unread = npc === 'owl' ? this.unreadCount : 0;
     const book = npc === 'owl' && this.host.chronicle ? `<button class="rt-other rt-hearth-book" data-action="chron-open" data-testid="hearth-chronicle">Летопись${unread ? ` <span class="rt-hearth-book-new" data-testid="hearth-chronicle-new">✦ ${unread}</span>` : ''}</button>` : '';
     // UI-01б: the bubble stands in the free middle above the fire (between the back figures and over none of the places), at the top of the scene.
     void i; void at; void right;
@@ -306,10 +306,20 @@ export class HearthView {
       + `<p class="rt-hearth-who"><b>${esc(NPCS[npc].name)}</b> · ${esc(NPCS[npc].who)}</p><p class="rt-hearth-line" data-testid="hearth-line">${esc(this.lastLine)}</p>${quest}<ul class="rt-hearth-ups">${rows}</ul>${book}</div>`;
   }
 
-  /** Task 58: how many pages hold the new (the owl's button and the camp's «✦»); the pages, not the entries. Read once a draw. */
-  private unreadPages = 0;
+  /** Task 58: how many entries are new (the owl's button «Летопись ✦ N» and the camp's «✦»): the contract's `unread`. Read once a draw. */
+  private unreadCount = 0;
 
   /** Task 58: the window «Летопись» over the camp (null — closed). Opening it reads the unread (`read`) after the pages were drawn once with their marks. */
+  /** Task 58 telemetry: the window was opened at `t0`, these pages were looked at. */
+  private chronSeen: { t0: number; pages: string[]; unread: boolean } | null = null;
+
+  /** Closes the window of the chronicle and reports the visit once. */
+  private dropChron(): void {
+    const seen = this.chronSeen;
+    this.chron = null; this.chronSeen = null;
+    if (seen) this.host.chronicleOpened?.({ pages: seen.pages, seconds: (performance.now() - seen.t0) / 1000, unread: seen.unread });
+  }
+
   private chronicleWindow(): string {
     const source = this.host.chronicle;
     if (!this.chron || !source) { Object.assign(this.shown.chronicle, EMPTY_CHRONICLE_SHOWN); return ''; }
@@ -361,20 +371,21 @@ export class HearthView {
       // The unread are read at once (the camp behind the window loses its «✦»); the window keeps the marks of its tabs until a page is opened.
       this.host.chronicle?.read();
       this.chron = { page: 'bestiary', selected: null, marks: marks.filter(id => id !== 'bestiary') };
-      this.host.chronicleOpened?.('bestiary', marks.length > 0);
+      this.chronSeen = { t0: performance.now(), pages: ['bestiary'], unread: marks.length > 0 };
       this.draw();
       return;
     }
     if (action === 'chron-page') {
       if (this.chron) {
         const page = target.dataset.page as ChronicleUi['page'];
-        this.host.chronicleOpened?.(page, this.chron.marks.includes(page));
+        if (this.chronSeen && !this.chronSeen.pages.includes(page)) this.chronSeen.pages.push(page);
+        if (this.chronSeen && this.chron.marks.includes(page)) this.chronSeen.unread = true;
         this.chron = { page, selected: null, marks: this.chron.marks.filter(id => id !== page) }; this.draw();
       }
       return;
     }
     if (action === 'chron-card') { if (this.chron) { this.chron = { ...this.chron, selected: target.dataset.entry ?? null }; this.draw(); } return; }
-    if (action === 'chron-close') { if (event.target === target || target.tagName === 'BUTTON') { this.chron = null; this.draw(); } return; }
+    if (action === 'chron-close') { if (event.target === target || target.tagName === 'BUTTON') { this.dropChron(); this.draw(); } return; }
     if (action === 'trace') {
       const npc = target.dataset.npc as NpcId, line = npcLine('owl', `trace_${npc}` as LineKey, h.last?.hero, h.lines);
       this.bubble = null;

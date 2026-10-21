@@ -1,17 +1,16 @@
 import { type Page } from '@playwright/test';
 import { test, expect, skipHabit } from './realtimeTest';
 import { leaveResult } from './realtimeResult';
+import { CHRONICLE_FIXTURES } from '../src/realtime/view/chronicleFixtures.testkit';
 
 /**
- * Task 58б «Летопись» (design 17.10.2026, docs/design-notes/task-58-discovery.md), the view on the STUB of the chronicle (view/chronicleStub.ts;
- * core's 58а replaces it): the owl's book in the camp — «✦» at Неясыть, the button «Летопись ✦ N», the window with six tabs, the cards
+ * Task 58б «Летопись» (design 17.10.2026, docs/design-notes/task-58-discovery.md), the view on core's chronicle (58а: the profile's
+ * `meta.chronicle`; the tests store profiles of view/chronicleFixtures.testkit.ts and read the stored profile back): the owl's book in the camp — «✦» at Неясыть, the button «Летопись ✦ N», the window with six tabs, the cards
  * and the strip of the chosen one, Esc / the background / «Закрыть»; the end screen's line from a real fight of a meta run; a `?seed=` run
- * writes nothing. Real mouse and keys at 1280×720. The fixtures (`__realtime.run.chronicleFixture`) stand for the contract, not for rules.
+ * writes nothing. Real mouse and keys at 1280×720.
  * Screenshots go to $SHOT_DIR when it is set.
  */
 const PROFILE = 'ashen-oath-rt-profile-v1';
-const HEARTH = { stock: 3, levels: { owl: 0, herb: 0, smith: 0 }, met: {}, lines: { 'owl:first': 2 }, quiet: 0 };
-const META = { heroes: { cat: { xp: 20, packs: [], record: { row: 3, won: false, xp: 20 } } }, hearth: HEARTH };
 
 const shot = async (page: Page, name: string): Promise<void> => {
   if (!process.env.SHOT_DIR) return;
@@ -26,15 +25,18 @@ function collectErrors(page: Page): string[] {
   return errors;
 }
 
-async function openRun(page: Page, url = '/'): Promise<void> {
+/** The game with the stored profile `fixture` (view/chronicleFixtures.testkit.ts); the prologue is done. */
+async function openRun(page: Page, fixture = 'novice', url = '/'): Promise<void> {
+  const profile = CHRONICLE_FIXTURES[fixture]!();
   await page.goto('/');
-  await page.evaluate(([key, meta]) => { localStorage.clear(); localStorage.setItem('ashen-oath-realtime-prologue-done', '1'); localStorage.setItem(key as string, JSON.stringify({ version: 1, giftFull: false, runs: 3, meta })); }, [PROFILE, META] as const);
+  await page.evaluate(([key, stored]) => { localStorage.clear(); localStorage.setItem('ashen-oath-realtime-prologue-done', '1'); localStorage.setItem(key as string, JSON.stringify(stored)); }, [PROFILE, profile] as const);
   await page.goto(url);
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
 }
 
 const shown = (page: Page) => page.evaluate(() => (window as any).__realtime.run.chronicleShown());
-const fixture = (page: Page, name: string) => page.evaluate(n => (window as any).__realtime.run.chronicleFixture(n), name);
+/** The chronicle as the game stored it (the profile's `meta.chronicle`). */
+const stored = (page: Page) => page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? '{}').meta?.chronicle ?? {}, PROFILE);
 
 /** The camp from the run screen's «Лагерь», then Неясыть's bubble. */
 async function toCamp(page: Page): Promise<void> {
@@ -45,10 +47,8 @@ async function toCamp(page: Page): Promise<void> {
 test('task 58: «✦» at Неясыть, the button «Летопись ✦ N»; the window opens with six tabs and the counts of the contract; a card gives its line; Esc closes; the «✦» is gone', async ({ page }) => {
   test.setTimeout(90_000);
   const errors = collectErrors(page);
-  await openRun(page);
-  expect(await fixture(page, 'unread')).toBe(true);
+  await openRun(page, 'unread');
   await toCamp(page);
-  await fixture(page, 'unread');
   // The new is marked at the owl's name before anything is opened.
   await expect(page.getByTestId('hearth-chron-mark')).toBeVisible();
   await shot(page, 'camp-owl-mark');
@@ -115,10 +115,9 @@ test('task 58: «✦» at Неясыть, the button «Летопись ✦ N»;
 test('task 58: the book after the garrison — its chapters open, the next level is an unnamed «…», the longest page fits 1280×720 without scrolling; a half recipe shows «Иней на клинке + ?»', async ({ page }) => {
   test.setTimeout(90_000);
   const errors = collectErrors(page);
-  await openRun(page);
+  await openRun(page, 'novice');
   await toCamp(page);
   // The first camp of a newcomer: every page once (shots for the design).
-  await fixture(page, 'novice');
   await page.getByTestId('hearth-npc-owl').click();
   await page.getByTestId('hearth-chronicle').click();
   for (const id of ['bestiary', 'bosses', 'events', 'items', 'heroes', 'hearth']) {
@@ -130,12 +129,13 @@ test('task 58: the book after the garrison — its chapters open, the next level
   }
   await page.keyboard.press('Escape');
   // After the garrison.
-  await fixture(page, 'garrison');
+  await openRun(page, 'garrison');
+  await toCamp(page);
   await page.getByTestId('hearth-npc-owl').click();
   await page.getByTestId('hearth-chronicle').click();
   await expect(page.getByTestId('chron-chapter-garrison')).toBeVisible();
   await expect(page.getByTestId('chron-card-guard')).toContainText('Стражник');
-  await expect(page.getByTestId('chron-blank')).toHaveCount(1);
+  await expect(page.getByTestId('chron-blank')).toHaveCount(0);
   await expect(page.getByTestId('chron-chapter-forest')).toContainText('8 / 8');
   await expect(page.getByTestId('chron-full')).toHaveCount(1);
   await shot(page, 'chronicle-garrison-bestiary');
@@ -155,7 +155,8 @@ test('task 58: the book after the garrison — its chapters open, the next level
   await shot(page, 'chronicle-garrison-heroes');
   await page.keyboard.press('Escape');
   // The half recipe.
-  await fixture(page, 'fusionHalf');
+  await openRun(page, 'fusionHalf');
+  await toCamp(page);
   await page.getByTestId('hearth-npc-owl').click();
   await page.getByTestId('hearth-chronicle').click();
   await page.getByTestId('chron-tab-items').click();
@@ -204,14 +205,12 @@ test('task 58: a kind that comes into view in a fight of a meta run reaches the 
   test.setTimeout(150_000);
   const errors = collectErrors(page);
   await openRun(page);
-  // The retro went in when the page's camp state was read; start from a clean stub.
-  await fixture(page, 'novice');
-  expect((await shown(page)).calls.meet).toBe(0);
+  await openRun(page, 'novice');
+  expect((await stored(page)).kinds ?? []).not.toContain('lynx');
   await toBattle(page);
   await lynxThenLose(page);
-  const calls = (await shown(page)).calls;
-  expect(calls.meet).toBeGreaterThan(0);
-  expect(calls.lastMeet.kinds).toContain('lynx');
+  // The kind that came into view in the fight is in the stored chronicle.
+  expect((await stored(page)).kinds).toContain('lynx');
   await expect(page.getByTestId('meta-end')).toBeVisible();
   await expect(page.getByTestId('meta-chronicle')).toContainText('В летописи: +');
   await expect(page.getByTestId('meta-chronicle')).toContainText('Рысь');
@@ -232,11 +231,11 @@ test('task 58: a kind that comes into view in a fight of a meta run reaches the 
 test('task 58: a given seed (`?seed=`) writes nothing to the chronicle', async ({ page }) => {
   test.setTimeout(120_000);
   const errors = collectErrors(page);
-  await openRun(page, '/?seed=7');
+  await openRun(page, 'novice', '/?seed=7');
   await toBattle(page);
   expect(await page.evaluate(() => (window as any).__realtime.run.state()?.seeded)).toBe(true);
   await page.evaluate(() => { const rt = (window as any).__realtime, hero = rt.snapshot().hero; rt.place(hero.x + 2.5, hero.y, 0, 3, 'lynx'); });
   await page.waitForTimeout(1200);
-  expect((await shown(page)).calls.meet).toBe(0);
+  expect((await stored(page)).kinds ?? []).not.toContain('lynx');
   expect(errors).toEqual([]);
 });

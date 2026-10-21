@@ -12,7 +12,7 @@ import { rtTalisman, rtTalismanText } from '../run/rtTalismans';
 import { BUILD_LABELS, labelOf } from './buildColumn';
 import { NPCS, type NpcId } from './metaModel';
 import { AFFIX_CAPTIONS, KIND_CAPTIONS } from './newSeen';
-import type { ChronicleAdded, ChronicleChapter, ChronicleEntry, ChroniclePage, ChroniclePageId, ChronicleView } from './chronicleModel';
+import type { ChronicleChapter, ChronicleEntry, ChroniclePage, ChroniclePageId, ChronicleView } from './chronicleModel';
 
 const esc = (s: string): string => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 
@@ -30,7 +30,7 @@ export const CHRONICLE_CHAPTER_TITLES: Readonly<Record<string, string>> = {
 const BOSS_NAMES: Readonly<Record<string, string>> = { jailer: 'Тюремщик', troll: 'Тролль', chief: 'Главарь', castellan: 'Кастелян', warlock: 'Колдун' };
 const BOSS_ART: Readonly<Record<string, string>> = { jailer: 'jailer', troll: 'troll', chief: 'chief', castellan: 'castellan' };
 const BRANCH_TEXT: Readonly<Record<string, string>> = { trails: 'после Тюремщика', den: 'ветка Тролля', camp: 'ветка Главаря', common: 'любая ветка' };
-const NPC_ART: Readonly<Record<string, string>> = { owl: 'npc-owl', herb: 'npc-herbalist', smith: 'npc-smith' };
+const NPC_ART: Readonly<Record<string, string>> = { owl: 'npc-owl', herb: 'npc-herbalist', smith: 'npc-smith', gambler: 'npc-gambler', monk: 'npc-monk' };
 const HERO_ART: Readonly<Record<string, string>> = { cat: 'player', toad: 'toad' };
 const HERO_NAMES: Readonly<Record<string, string>> = { cat: 'Кот', toad: 'Ведунья' };
 const GARRISON_ART: Readonly<Record<string, string>> = { guard: 'garrison-guard', handler: 'garrison-houndmaster', hound: 'garrison-hound', keymaster: 'garrison-keymaster', crossbow: 'garrison-crossbowman', knight: 'garrison-knight' };
@@ -254,9 +254,9 @@ const chaptersWord = (n: number): string => `${n} ${n % 10 === 1 && n % 100 !== 
  * The end screen's lines under the record (section 5.2): «В летописи: +3 · Рысь · Призма · Гнездо дикобразов» (up to three names, then
  * «и ещё N»; nothing new — no line) and, for a new chapter, «+1 глава · Гарнизон». Names only of what the viewer has seen.
  */
-export function chronicleEndLines(added: ChronicleAdded): string[] {
+export function chronicleEndLines(added: readonly string[]): string[] {
   const names: string[] = [], chapters: string[] = [];
-  for (const ref of added.refs) {
+  for (const ref of added) {
     if (ref.startsWith('chapter:')) { const title = CHRONICLE_CHAPTER_TITLES[ref.slice(8)]; if (title) chapters.push(title); continue; }
     const name = refName(ref);
     if (name) names.push(name);

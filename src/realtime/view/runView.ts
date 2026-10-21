@@ -54,7 +54,7 @@ import { ICON as STOCK_ICON, MetaEndView, type MetaSound } from './metaEnd';
 import { HearthView, NPC_ART, artUrl } from './hearthView';
 import { chronicleEndLines } from './chronicleView';
 import { AFFIX_IDS } from '../sim/elites';
-import type { ChronicleSource } from './chronicleModel';
+import { profileChronicle, type ChronicleSource } from './chronicleModel';
 import type { WarmupId, WarmupMerge } from '../run/warmup';
 import { DailySessionStore, DailyTools, dailyEndHtml, type DailySession } from './dailyView';
 import { RT_STEP_FNS, createRtDailyRun, rtDailyClaim, rtDailyProof, rtDailyView, rtStep, RtDailyProofStore, type RtDailyView, type RtStepCall, type RtStepFn } from '../run/rtDaily';
@@ -142,12 +142,12 @@ export interface RunHost {
    */
   newSeen?: { store: NewSeenStore; on(): boolean };
   /**
-   * Task 58 «Летопись»: the chronicle (core's; `chronicleStub.ts` until 58а lands). The camp's window and the end screen's line read it;
-   * the fights write it (`main.ts`: kinds that come into view in a meta run). Absent (the sandbox) — no chronicle.
+   * Task 58 «Летопись»: on (not in the sandbox) — the view reads the chronicle of the profile store (`this.chronicle`): the camp's window
+   * and the end screen's line; the fights write it (`main.ts`: kinds that come into view in a meta run, `chronicle.meet`).
    */
-  chronicle?: ChronicleSource;
-  /** Telemetry (58а): a page of the chronicle opened (and whether it held the new). */
-  chronicleOpened?(page: string, unread: boolean): void;
+  chronicle?: boolean;
+  /** Telemetry (58а `RunRecorder.chronicleOpened`): the window of the chronicle was closed in the camp after `run`. */
+  chronicleOpened?(run: RtRunState | null, opened: { pages: readonly string[]; seconds: number; unread: boolean }): void;
   /**
    * «Обучение» (view/hints.ts): the viewer's memory of what was shown, the toggle «Подсказки» (`on`, `set`) and the button
    * «Обучение» on the gear (task 6, step 4): it clears the memory and `startPrologue()` plays the prologue «Опушка» again over the
@@ -423,6 +423,8 @@ export class RunView {
   private run: RtRunState | null;
   private readonly store = createRtRunStore();
   private readonly profile = createRtProfileStore();
+  /** Task 58: the chronicle of the profile store (null in the sandbox). */
+  readonly chronicle: ChronicleSource | null;
   /** «Обучение v1»: the lines on the screens (first two appearances each); absent in the sandbox. */
   private readonly lines: ScreenLines | null;
   private selected: string | null = null;
@@ -540,6 +542,7 @@ export class RunView {
     window.addEventListener('keydown', event => { if (!this.el.hidden && !event.ctrlKey && !event.metaKey && !event.altKey && event.key !== 'Shift') this.skipStaged(); }, { capture: true });
     this.lines = host.hints ? new ScreenLines(host.hints.store, host.hints.on) : null;
     this.meta = host.meta ? new ProfileMeta(this.profile) : null;
+    this.chronicle = host.chronicle && host.meta ? profileChronicle(this.profile) : null;
     const meta = this.meta;
     this.hearth = meta ? new HearthView({
       meta,
@@ -549,10 +552,10 @@ export class RunView {
       bought: (npc, level, price) => this.host.meta?.buy?.(this.run, npc, level, price),
       back: () => this.open(),
       sound: kind => this.host.meta?.sound(kind),
-      ...host.chronicle ? { chronicle: host.chronicle } : {},
+      ...this.chronicle ? { chronicle: this.chronicle } : {},
       // The retro: the P8 memory of kinds and affixes (this device's), once when the camp opens.
       memory: () => { const seen = this.host.newSeen?.store; return { kinds: seen ? Object.keys(KIND_CAPTIONS).filter(k => seen.hasKind(k)) : [], affixes: seen ? AFFIX_IDS.filter(id => seen.hasAffix(id)) : [] }; },
-      ...host.chronicleOpened ? { chronicleOpened: host.chronicleOpened } : {},
+      ...host.chronicleOpened ? { chronicleOpened: opened => this.host.chronicleOpened?.(this.run, opened) } : {},
       ...host.daily ? { daily: { view: () => this.dailyViewNow(), start: () => this.startDaily(), tools: this.dailyTools } } : {},
       ...host.warmup ? { warmup: { records: () => this.profile.warmup(), start: (id: WarmupId) => this.host.warmup?.start(id) } } : {},
     }) : null;
@@ -599,7 +602,7 @@ export class RunView {
   }
 
   /** Task 58: the lines of the end screen's block under the record - what this run wrote in the chronicle (none - no line). */
-  private chronicleLines(key: string): string[] { return this.host.chronicle ? chronicleEndLines(this.host.chronicle.added(key)) : []; }
+  private chronicleLines(key: string): string[] { return this.chronicle ? chronicleEndLines(this.chronicle.added(key)) : []; }
 
   /** Tasks 36–37: the meta block of the ended run (created once per run; a reload shows its end state at once). */
   private metaEndOf(run: RtRunState, play: boolean): MetaEndView | null {

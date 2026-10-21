@@ -62,7 +62,6 @@ import { RunView, type ArenaItemNotice } from './runView';
 import { runRow } from '../run/arenaPools';
 import { rtFeatKinds, rtNode, rtRunBestChain } from '../run/rtRun';
 import { NewSeenStore } from './newSeen';
-import { ChronicleStub } from './chronicleStub';
 import { HintStore, purseResultLine } from './hints';
 import { TOAD_LINES } from './heroLines';
 import { ToadLesson, isToad } from './toadLesson';
@@ -806,8 +805,6 @@ async function boot(): Promise<void> {
   const firstMeets = sandbox ? null : new FirstMeetStore();
   const meetFirst = (id: FirstMeetId): void => { if (firstMeets && !firstMeets.has(id) && firstMeets.meet(id)) recorder?.firstMeet(runView?.state ?? null, id); };
   let newOnMap = loadNewOnMap();
-  // Task 58 «Летопись»: the chronicle - TEMPORARY the in-memory stub of `chronicleStub.ts` until core's (58а) replaces it. Not in the sandbox.
-  const chronicle = sandbox ? null : new ChronicleStub();
   const runView: RunView | null = sandbox ? null : new RunView({
     startArena(arenaId, seed, hero, label, loadout, notice, roster, rules) {
       runLabel = label;
@@ -874,8 +871,9 @@ async function boot(): Promise<void> {
     ],
     session: { clock: sessionClock, on: () => sessionClockOn },
     ...newSeen ? { newSeen: { store: newSeen, on: () => newOnMap } } : {},
-    // Telemetry `chronicle-open` / `hint` is core's (58а): `chronicleOpened` of the host is its place.
-    ...chronicle ? { chronicle } : {},
+    // Task 58 «Летопись»: the camp's book and the end screen's line (the profile store's chronicle; not in the sandbox). Telemetry: the visit's pages and seconds.
+    chronicle: true,
+    chronicleOpened: (run, opened) => { if (run) recorder?.chronicleOpened(run, opened); },
     // Task 26 «Расписание леса»: the history's start from the older memory (design 15.10.2026), read once per profile.
     scheduleSeed: () => scheduleSeedHistory(SCHEDULE_KINDS.filter(kind => !!newSeen?.hasKind(kind)), AFFIX_IDS.filter(id => !!newSeen?.hasAffix(id)), FIRST_MEET_IDS.filter(id => !!firstMeets?.has(id))),
     fx: { get: () => renderer.fxLevel, set: setFx },
@@ -891,7 +889,7 @@ async function boot(): Promise<void> {
   // Task 35, С1: a run resumed from the save keeps the level in its record too.
   recorder?.fxLevel(runView?.state ?? null, renderer.fxLevel);
   // Task 58: only a run of the meta writes the chronicle - not `?seed=` / `?hero=` (a seeded run), not the prologue, not the sandbox.
-  if (chronicle && runView) renderer.chronicle = { on: () => !prologue && runView.arenaOpen && !!runView.state && !runView.state.seeded && !!runView.hearth, meet: (kinds, affixes) => chronicle.meet(kinds, affixes) };
+  if (runView?.chronicle) { const chronicle = runView.chronicle; renderer.chronicle = { on: () => !prologue && runView.arenaOpen && !!runView.state && !runView.state.seeded && !!runView.hearth, meet: (kinds, affixes) => chronicle.meet(kinds, affixes) }; }
   if (newSeen && runView) renderer.newSeen = { store: newSeen, live: () => runView.arenaOpen, on: () => newOnMap, meet: id => recorder?.firstMeet(runView.state, id) };
   /**
    * The finished run arena goes into the run in the frame it ended (HP, kills, damage, time) and is saved at once: a
@@ -2183,12 +2181,10 @@ async function boot(): Promise<void> {
       /** Task 49: the hero cards of the screen (ids, the chosen one, the best «Испытание» marks, the laws) and the cage scene (null - none). */
       heroesShown: () => runView.heroesShown(),
       /**
-       * Task 58 (tests): the chronicle window now (open, page, counts, cards by state, the selected card and its line); the stub's calls
-       * (`meet`, `import`, `read`) and the last `meet`'s kinds; `chronicleFixture(name)` swaps the stub's state for a fixture
-       * (`novice`, `garrison`, `fusionHalf`, `unread`) - TEMPORARY, with the stub, until core's chronicle (58а) lands.
+       * Task 58 (tests): the chronicle window now (open, page, counts, cards by state, the selected card and its line). The book itself is
+       * the profile's (`meta.chronicle` in the stored profile): tests seed and read it there.
        */
-      chronicleShown: () => ({ ...(runView.hearth?.shown.chronicle ?? {}), calls: chronicle ? { ...chronicle.calls, lastMeet: { ...chronicle.calls.lastMeet } } : null }),
-      chronicleFixture: (name: string) => { const ok = chronicle?.load(name) ?? false; runView.hearth?.draw(); return ok; },
+      chronicleShown: () => runView.hearth?.shown.chronicle ?? null,
       /** Task 47, tests only: multiplies the times of the staged screens (С6, С8) by `k` — a slow reveal to act in the middle of it. */
       screenPace: (k: number) => { runView.screenPace = k > 0 ? k : 1; },
       winArena: async () => {

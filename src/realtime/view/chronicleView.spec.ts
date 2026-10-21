@@ -1,20 +1,24 @@
 /**
  * Task 58б «Летопись», the view (view/chronicleView.ts, view/chronicleModel.ts): the window is drawn from the CONTRACT of section 7.4 and
  * from nothing else — a hidden entry is not drawn, a «?» card has no name, a locked card has no name, the next level's tab is «…» with no
- * name, a fusion «?» shows the half the viewer knows, the counts are the contract's. The fixtures are the stub's (view/chronicleStub.ts,
- * TEMPORARY until core's 58а): they stand for the contract, they are not the rules. Also the end screen's line (nothing new — no line; more
- * than three names — «и ещё N»). Node only: `npm run test:realtime-chronicle-view`. The end-to-end view is tests/realtime-chronicle.spec.ts.
+ * name, a fusion «?» shows the half the viewer knows, the counts are the contract's. The contract is core's (`rtChronicleView` over the
+ * stored profiles of chronicleFixtures.testkit.ts, read back by `parseRtProfile` as the game does), the checks are of what the viewer
+ * sees. Also the end screen's line (nothing new — no line; more than three names — «и ещё N») and the source over the profile store. Node
+ * only: `npm run test:realtime-chronicle-view`. The end-to-end view is tests/realtime-chronicle.spec.ts.
  */
 import './nodeNavigator.testkit';
 import { FOREST_EVENTS } from '../forest/forestEvents';
-import { CHRONICLE_FIXTURES, ChronicleStub, emptyStubState, stubView } from './chronicleStub';
+import { CHRONICLE_FIXTURES, chronicleViewOf } from './chronicleFixtures.testkit';
+import { rtChronicleView } from '../run/chroniclePages';
+import { parseRtProfile, createRtProfileStore, RT_PROFILE_STORAGE_KEY, type RunStorage } from '../run/rtRunStorage';
+import { profileChronicle } from './chronicleModel';
 import { chapterCount, chronicleEndLines, chronicleHtml, chronicleShown, entryText, refName } from './chronicleView';
 import type { ChroniclePageId, ChronicleView } from './chronicleModel';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 function check(name: string, run: () => void): void { run(); console.log(`ok - ${name}`); }
 
-const view = (name: string): ChronicleView => stubView(CHRONICLE_FIXTURES[name]!());
+const view = (name: string): ChronicleView => chronicleViewOf(name);
 const html = (v: ChronicleView, page: ChroniclePageId, selected: string | null = null): string => chronicleHtml(v, { page, selected, marks: [] });
 const card = (h: string, id: string): string => {
   const at = h.indexOf(`data-testid="chron-card-${id}"`);
@@ -40,7 +44,7 @@ check('a kind not met is a «?» with no name and no picture; a met one has the 
   assert(!unknown.includes('data-line="Рысь'), 'the strip gives nothing away for «?»');
 });
 
-check('the next level is one blank «…» tab with no name and no cards; the garrison kinds are not drawn at all', () => {
+check('the next level is one blank «…» tab with no name and no cards; the garrison kinds are not drawn at all (before the garrison)', () => {
   const v = view('novice'), h = html(v, 'bestiary');
   assert(h.includes('data-testid="chron-blank"') && h.split('data-testid="chron-blank"').length === 2, 'exactly one blank tab');
   for (const kind of ['guard', 'handler', 'hound', 'keymaster', 'crossbow', 'knight']) assert(!has(h, kind) && !h.includes(`data-entry="${kind}"`), `${kind} is hidden`);
@@ -56,10 +60,10 @@ check('the elite chapter appears only after a first elite', () => {
   assert(later.includes('Свойства элит') && has(later, 'fiery') && has(later, 'fat'), 'chapter after the elites');
 });
 
-check('after the garrison: its chapter is open, the next level is a blank tab, the Castellan is won in run 14', () => {
+check('after the garrison: its chapter is open, no blank tab is left (the last level of this build), the Castellan is won in run 14', () => {
   const v = view('garrison'), h = html(v, 'bestiary');
   assert(has(h, 'guard') && card(h, 'guard').includes('Стражник') && !card(h, 'knight').includes('Рыцарь'), 'garrison kinds follow the contract');
-  assert(h.includes('Гарнизон ·') && h.split('data-testid="chron-blank"').length === 2 && !h.includes('Замок'), 'one blank tab, unnamed');
+  assert(h.includes('Гарнизон ·') && !h.includes('chron-blank') && !h.includes('Замок'), 'no blank tab: the last level of this build is open');
   const bosses = html(v, 'bosses');
   assert(card(bosses, 'castellan').includes('побеждён, поход 14') && card(bosses, 'jailer').includes('побеждён, поход 3') && card(bosses, 'troll').includes('встречен'), 'boss states');
 });
@@ -118,17 +122,19 @@ check('a full chapter wears its seal; the counts of a chapter come from its entr
 check('heroes: the cat only, then Ведунья «?» after the Jailer, then freed; the Испытание ladder up to the best step', () => {
   const none = html(view('novice'), 'heroes');
   assert(has(none, 'cat') && !has(none, 'toad') && !none.includes('Испытание'), 'a newcomer: the cat only');
-  const s = CHRONICLE_FIXTURES.novice!(); s.bosses = { jailer: { met: true } };
-  const caged = html(stubView(s), 'heroes');
+  const raw = CHRONICLE_FIXTURES.novice!() as { meta: { chronicle: Record<string, unknown> } };
+  raw.meta.chronicle.bosses = { jailer: { met: 1 } };
+  const caged = html(rtChronicleView(parseRtProfile(JSON.stringify(raw)), 'cat', { gambler: true, monk: true }), 'heroes');
   assert(has(caged, 'toad') && card(caged, 'toad').includes('data-state="unknown"') && !card(caged, 'toad').includes('Ведунья'), 'Ведунья «?» once the Jailer is met');
   const v = view('garrison'), h = html(v, 'heroes');
-  assert(card(h, 'toad').includes('Ведунья') && card(h, 'toad').includes('поход 3'), 'freed in run 3');
+  assert(card(h, 'toad').includes('Ведунья') && card(h, 'toad').includes('поход 3') && card(h, 'cat').includes('data-state="met"'), 'freed in run 3; the cat is met');
   assert(h.includes('Испытание · Кот') && card(h, 'ash:cat:5').includes('data-state="seen"') && card(h, 'ash:cat:6').includes('data-state="unknown"'), 'ladder to V');
   assert(chronicleShown(v, { page: 'heroes', selected: null, marks: [] }).cards === 2 + 16, '18 on the page: 2 heroes + 16 steps');
 });
 
-check('the camp page: the owl met; the others «?» until they come', () => {
+check('the camp page: the owl met; the others «?» until they come (Шиш and Евлампий have places while their camp is on)', () => {
   const h = html(view('novice'), 'hearth');
+  assert(has(h, 'gambler') && has(h, 'monk') && card(h, 'gambler').includes('data-state="unknown"') && !card(h, 'gambler').includes('Шиш'), 'the goblin and the monk wait unnamed');
   assert(card(h, 'owl').includes('Неясыть') && card(h, 'herb').includes('data-state="unknown"') && !card(h, 'herb').includes('Марфа'), 'Марфа unnamed');
   assert(card(html(view('garrison'), 'hearth'), 'smith').includes('Ерофей'), 'Ерофей named once met');
 });
@@ -142,30 +148,31 @@ check('the strip: the chosen card gives its line (a «?» gives nothing); unread
   assert(!chronicleHtml(view('unread'), { page: 'bestiary', selected: null, marks: [] }).includes('chron-new'), 'none once read');
 });
 
-check('the stub: meet adds a kind once with the unread mark; import is the retro (no unread); read clears; the run keeps its list by key', () => {
-  const stub = new ChronicleStub(emptyStubState());
-  stub.import({ kinds: ['wolf'], affixes: [] });
-  assert(stub.view().pages[0]!.unread === false && stub.view().pages[0]!.have === 1, 'the retro is read');
-  stub.import({ kinds: ['boar'], affixes: [] });
-  assert(stub.view().pages[0]!.have === 1, 'a repeat of the import is ignored');
-  stub.meet(['lynx'], ['fiery']); stub.meet(['lynx'], []);
-  const v = stub.view();
-  assert(v.pages[0]!.unread && v.pages[0]!.have === 3, 'lynx and the fiery affix are new, once');
-  const added = stub.added('run-1');
-  assert(added.refs.join() === 'kind:lynx,affix:fiery', added.refs.join());
-  assert(stub.added('run-1').refs.join() === added.refs.join() && stub.added('run-2').refs.length === 0, 'the same run, the same list; the next run starts empty');
-  stub.read();
-  assert(!stub.view().pages[0]!.unread, 'read clears');
+check('the source over the profile store: meet adds a kind once with the unread mark; import is the retro (no unread); read clears; the run keeps its list', () => {
+  const data = new Map<string, string>();
+  const storage: RunStorage = { getItem: key => data.get(key) ?? null, setItem: (key, value) => { data.set(key, value); }, removeItem: key => { data.delete(key); } };
+  data.set(RT_PROFILE_STORAGE_KEY, JSON.stringify({ version: 1, giftFull: false, runs: 3, meta: { heroes: { cat: { xp: 20, packs: [], record: { row: 3, won: false, xp: 20 } } } } }));
+  const source = profileChronicle(createRtProfileStore(storage, { chronicle: true }));
+  source.import({ kinds: ['wolf'], affixes: [] });
+  assert(!source.view().pages[0]!.unread && source.view().pages[0]!.have === 1 && source.view().unread === 0, 'the retro is read');
+  source.import({ kinds: ['boar'], affixes: [] });
+  assert(source.view().pages[0]!.have === 1, 'a repeat of the import is ignored');
+  source.meet(['lynx'], ['fiery']); source.meet(['lynx'], []);
+  const v = source.view();
+  assert(v.pages[0]!.unread && v.pages[0]!.have === 3 && v.unread === 2, 'lynx and the fiery affix are new, once');
+  source.read();
+  assert(!source.view().pages[0]!.unread && source.view().unread === 0, 'read clears');
+  assert(source.added('no-such-run').length === 0, 'a run that did not end has no list');
 });
 
 check('the end screen lines: nothing new - none; up to three names; more - «и ещё N»; a chapter on its own line', () => {
-  assert(chronicleEndLines({ refs: [] }).length === 0, 'no line for nothing');
-  const three = chronicleEndLines({ refs: ['kind:lynx', 'item:prism', 'event:porcupine-nest'] });
+  assert(chronicleEndLines([]).length === 0, 'no line for nothing');
+  const three = chronicleEndLines(['kind:lynx', 'item:prism', 'event:porcupine-nest']);
   assert(three.join('|') === 'В летописи: +3 · Рысь · Призма · Гнездо дикобразов', three.join('|'));
-  assert(chronicleEndLines({ refs: ['kind:lynx', 'kind:wolf', 'kind:boar', 'kind:shaman', 'kind:archer'] })[0] === 'В летописи: +5 · Рысь · Волк · Кабан · и ещё 2', 'more than three');
-  assert(chronicleEndLines({ refs: ['kind:guard', 'chapter:garrison'] }).join('|') === 'В летописи: +1 · Стражник|+1 глава · Гарнизон', 'a new chapter');
-  assert(chronicleEndLines({ refs: ['chapter:garrison'] }).join('|') === '+1 глава · Гарнизон', 'only the chapter');
-  assert(chronicleEndLines({ refs: ['kind:no-such-kind', 'chapter:no-such'] }).length === 0, 'an id the code does not know is not shown');
+  assert(chronicleEndLines(['kind:lynx', 'kind:wolf', 'kind:boar', 'kind:shaman', 'kind:archer'])[0] === 'В летописи: +5 · Рысь · Волк · Кабан · и ещё 2', 'more than three');
+  assert(chronicleEndLines(['kind:guard', 'chapter:garrison']).join('|') === 'В летописи: +1 · Стражник|+1 глава · Гарнизон', 'a new chapter');
+  assert(chronicleEndLines(['chapter:garrison']).join('|') === '+1 глава · Гарнизон', 'only the chapter');
+  assert(chronicleEndLines(['kind:no-such-kind', 'chapter:no-such']).length === 0, 'an id the code does not know is not shown');
   assert(refName('boss:troll') === 'Тролль' && refName('ash:cat:5') === 'Испытание V' && refName('npc:herb') === 'Марфа' && refName('hero:toad') === 'Ведунья', 'names of the other refs');
 });
 
