@@ -62,6 +62,12 @@ export interface StartEnemy {
    * the newcomers' fresh ids). Omitted — none.
    */
   formation?: number;
+  /**
+   * Task 59б («Барбакан», spec 7.1 and risk 5): the enemy takes the colour A of the arena's first pair of wardens when the pair draws its
+   * colours (enemies/warden.ts `drawPairs`, the same draw: no draw more) — a formation and weak enemies «of colour A» beside the pair.
+   * Its own `color` stays while no pair is drawn (the law `wardens` off). Omitted — its own colour.
+   */
+  pairTint?: true;
 }
 
 /**
@@ -245,6 +251,12 @@ export interface ArenaTemplate extends ArenaShape {
   recruits?: boolean;
   /** Task 59а: the arena plays the wardens' law of the pair (`Params.wardens` on in the world's copy). «Барбакан» and its probe. Omitted — as given. */
   wardens?: boolean;
+  /**
+   * Task 59б («Барбакан», spec 7.1: «приток с перевесом цвета A»): this share of the newcomers' colour draws takes the colour A of the
+   * arena's living pair of wardens instead (spawn.ts `rollColor`: one draw more of the stream `spawnRoll`, only on an arena with the
+   * field; no pair standing — the colour drawn). Omitted — the draws of before.
+   */
+  pairShare?: number;
   /**
    * Task 40: start enemies that stand too in a deep fight (`Loadout.deep`: the run gives it to «Ров» on garrison rows 8–9, to
    * «Галерея» and «Караульня» from row 8 once «Ров» was played) — after `enemies`. Omitted — none; without `deep` never read.
