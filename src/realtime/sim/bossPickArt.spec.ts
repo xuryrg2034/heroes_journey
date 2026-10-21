@@ -14,7 +14,9 @@
  * - the Chief's feast, three eaters drawn: the drag to his head — with the key the core, without it nothing;
  * - the overlap of drawings (design 21.10.2026), the Chief's shoulder under the ladle (out of every circle): «on top» is the view's
  *   order (the larger y; the core over the parts): both takeable — the core; the core closed — the ladle; neither — the core's refusal;
- *   at an equal y the later body; the full Castellan's crossbow: the edge of its drawing takes it;
+ *   at an equal y the later body; the full Castellan's crossbow: the edge of its drawing takes it, beside the drawing nothing;
+ * - the press zone is the link everywhere: «Развилка»'s dwell on the club kept through a jitter over its drawing; a closed loop opens
+ *   on the club's drawing; the rock in the air has no zone;
  * - the warlock charmed: his head — «под чарами»; his window after the charm: the head takes him;
  * - the Jailer and the Castellan: the head — with the key the core or the core's refusal, without it nothing;
  * - the bosses' arenas put the key on; values without it keep it absent; another arena keeps it off;
@@ -22,6 +24,7 @@
  * - every fight replays from its journal. Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import { WARLOCK_ARENA } from './arenasCastle';
+import { FORMS } from './buildIds';
 import { artEllipseDepth, bossArtEllipse } from './bossArt';
 import { enemyRefusal, hoverRefusal, pickAt, pickRadius, planChain } from './chain';
 import { CHIEF, CHIEF_LADLE, CHIEF_SACK, chiefState } from './enemies/chief';
@@ -300,6 +303,15 @@ check('the full Castellan\'s crossbow on its stand: a click on the edge of its d
       assert(Math.hypot(edge.x - stand.x, edge.y - stand.y) > pickRadius(w, stand), `seed ${k}: the edge out of the stand's circle`);
       const got = press(sim, edge);
       assert(got.took === (key ? stand.id : null) && got.said === got.took, `seed ${k}, key ${key}: took ${got.took} (stand ${stand.id}, hint ${got.hint})`);
+      // Beside the drawing (the view's: 1.30 wide in its box on the feet, its centre 0.29 above the body's): 0.68 aside at that height
+      // is out of the picture and out of the circle — nothing (a zone by the sim's own art scale 1.1 and the feet rule took it).
+      const beside = at(stand, 0.68, -0.29);
+      assert(Math.hypot(beside.x - stand.x, beside.y - stand.y) > pickRadius(w, stand), `seed ${k}: beside out of the circle`);
+      const off = press(sim, beside);
+      assert(off.took === null && off.said === null, `seed ${k}, key ${key}: beside the drawing — nothing (${off.took})`);
+      // The top of the drawing (the picture centred in its box: its top 0.83 above the body's centre): 0.78 above takes it.
+      const top = press(sim, at(stand, 0, -0.78));
+      assert(top.took === (key ? stand.id : null), `seed ${k}, key ${key}: the drawing's top — ${top.took}`);
       assert(replays(sim), `seed ${k}, key ${key}: replay`);
     }
   }
@@ -331,6 +343,70 @@ check('a crowd body standing before the warlock\'s chest (his back is open floor
       assert(got.took === body.id && got.said === body.id, `seed ${k}, key ${key}: the body (${got.took}; body ${body.id}, core ${core.id})`);
       assert(replays(sim), `seed ${k}, key ${key}: replay`);
     }
+  }
+});
+
+check('the press zone is the link everywhere: «Развилка»\'s dwell on an older link — the club — is not reset by a jitter over its drawing out of its circle; a closed loop opens on the last link\'s drawing — the club\'s', () => {
+  // The club in his paw: 0.9 from the grip along the handle (out of its circle, in its drawing).
+  const handle = (club: Enemy): Vec => at(club, -0.3702 * 0.9, -0.9290 * 0.9);
+  for (const k of SEEDS) {
+    // «Развилка»: the club the oldest of three links; the pointer rests on it, then jitters over its drawing.
+    const sim = new Simulation({ arena: 'troll', params: quiet(true, { forkDwell: 0.25, loopEnabled: false }), seed: seedOf(k), record: true, loadout: { talismans: [FORMS.fork] } }), w = sim.world;
+    ticks(sim, 1);
+    const club = kindOf(w, TROLL_CLUB)!;
+    freeze(sim, club); freeze(sim, kindOf(w, TROLL_ROCK));
+    sim.command({ t: 'teleport', x: 10.4, y: 4.4 });
+    const links = [{ x: 11, y: 3.7 }, { x: 11.2, y: 4.9 }].map(q => sim.command({ t: 'place', x: q.x, y: q.y, color: club.color, hp: 0, kind: 'basic' }) as number);
+    sim.command({ t: 'begin', x: club.x, y: club.y });
+    for (const id of links) { const e = w.enemies.find(x => x.id === id)!; sim.command({ t: 'drag', x: e.x, y: e.y, mode: 'full' }); }
+    assert(w.chain.length === 3 && w.chain[0].id === club.id, `seed ${k}: the club the oldest of three (${w.chain.map(l => l.id)})`);
+    sim.command({ t: 'drag', x: club.x, y: club.y, mode: 'full' });
+    const since = w.forkAnchor?.since;
+    assert(w.forkAnchor?.id === club.id && since !== undefined, `seed ${k}: the dwell on the club began`);
+    ticks(sim, 3);
+    const j = handle(club);
+    sim.command({ t: 'drag', x: j.x, y: j.y, mode: 'full' });
+    assert(w.forkAnchor?.id === club.id && w.forkAnchor.since === since, `seed ${k}: the jitter over its drawing keeps the dwell (${JSON.stringify(w.forkAnchor)}, began ${since})`);
+    assert(replays(sim), `seed ${k}: replay (fork)`);
+    // «Печать»: three links and the club last, closed on the first; the pointer on the club's drawing opens it.
+    const loop = new Simulation({ arena: 'troll', params: quiet(true, { loopEnabled: true }), seed: seedOf(k), record: true }), lw = loop.world;
+    ticks(loop, 1);
+    const lclub = kindOf(lw, TROLL_CLUB)!;
+    freeze(loop, lclub); freeze(loop, kindOf(lw, TROLL_ROCK));
+    loop.command({ t: 'teleport', x: 10.4, y: 5.4 });
+    const three = [{ x: 10, y: 4.6 }, { x: 11, y: 4.8 }, { x: 11, y: 3.6 }].map(q => loop.command({ t: 'place', x: q.x, y: q.y, color: lclub.color, hp: 0, kind: 'basic' }) as number);
+    const first = lw.enemies.find(x => x.id === three[0])!;
+    loop.command({ t: 'begin', x: first.x, y: first.y });
+    for (const id of three.slice(1)) { const e = lw.enemies.find(x => x.id === id)!; loop.command({ t: 'drag', x: e.x, y: e.y, mode: 'full' }); }
+    loop.command({ t: 'drag', x: lclub.x, y: lclub.y, mode: 'full' });
+    loop.command({ t: 'drag', x: first.x, y: first.y, mode: 'full' });
+    assert(lw.chain.length === 4 && lw.chain[3].id === lclub.id && lw.chainClosed === 'first', `seed ${k}: closed with the club last (${lw.chain.map(l => l.id)}, ${lw.chainClosed})`);
+    const h = handle(lclub);
+    loop.command({ t: 'drag', x: h.x, y: h.y, mode: 'full' });
+    assert(!lw.chainClosed, `seed ${k}: the club's drawing opens the loop (${lw.chainClosed})`);
+    assert(replays(loop), `seed ${k}: replay (loop)`);
+  }
+});
+
+check('the Troll\'s rock in the air («Бросок камня», its last 0.4 s; the view hides it by his paw): no press zone then — its drawing\'s edge takes it in the windup, nothing in the flight', () => {
+  for (const k of SEEDS) {
+    const sim = new Simulation({ arena: 'troll', params: quiet(true), seed: seedOf(k), record: true }), w = sim.world;
+    ticks(sim, 1);
+    const core = kindOf(w, TROLL)!, rock = kindOf(w, TROLL_ROCK)!;
+    freeze(sim, kindOf(w, TROLL_CLUB));
+    sim.command({ t: 'teleport', x: rock.x + 0.3, y: rock.y + 1.6 });
+    const edge = at(rock, 0.6, 0);
+    assert(Math.hypot(edge.x - rock.x, edge.y - rock.y) > pickRadius(w, rock), `seed ${k}: the edge out of the rock's circle`);
+    let windup = false, flight = false;
+    for (let i = 0; i < ticksOf(20) && !flight; i++) {
+      sim.tick(); w.events.splice(0);
+      if (w.move || core.vars.mv === undefined) continue;
+      const said = pickAt(w, edge)?.id ?? null, inAir = bossArtEllipse(w, rock) === null;
+      if (!inAir && said === rock.id) windup = true;
+      if (inAir) { flight = true; assert(said === null, `seed ${k}: the rock in the air — nothing (${said})`); }
+    }
+    assert(windup && flight, `seed ${k}: the windup took the rock, the flight came (${windup}, ${flight})`);
+    assert(replays(sim), `seed ${k}: replay`);
   }
 });
 

@@ -960,7 +960,7 @@ export interface Params {
    * «Ядро в окне — первым» (design 21.10.2026, the pick's defect: a crowd body standing on the core is nearer to the pointer, a click
    * into the window took it). On: a boss core (the Troll's, the Chief's, the warlock's) in its open window that the pointer is inside
    * the press circle of (chain.ts `pickRadius`) and the chain may take now is picked before any nearer body or object (chain.ts
-   * `pick`: the press, the drag, the ring «что возьмётся», the hint, the loop's closing). Off by default and in journals without the
+   * `pick`: the press, the drag, the hint, the loop's closing). Off by default and in journals without the
    * key: the nearest, as before. The run turns it on by its flag (run/rtRun.ts `corePickFirst`), the bosses' arenas for themselves.
    */
   corePickFirst: boolean;
@@ -968,7 +968,7 @@ export interface Params {
    * «Зона нажатия босса по рисунку» (design 21.10.2026, task-48 §24): a boss body's drawing (the Troll, the Chief, the warlock, the
    * Jailer, the Castellan; the Troll's and the Chief's parts) is a press zone — the ellipse inscribed in its box (sim/bossArt.ts
    * `bossArtEllipse`). The press circle (`pickRadius`) first, as before; nothing in it — the boss body whose drawing holds the
-   * pointer (chain.ts `pick`: the press, the drag, the ring «что возьмётся», the hint and its refusal). Reach, sight and the strike
+   * pointer (chain.ts `pick`: the press, the drag, the hint and its refusal, the loop, «Развилка»'s dwell). Reach, sight and the strike
    * stay the body's. Off by default and in journals without the key: the circles only. The run turns it on by its flag, the bosses'
    * arenas for themselves (`ArenaTemplate.bossFrame`).
    */

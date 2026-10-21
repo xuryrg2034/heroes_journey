@@ -15,7 +15,7 @@
  *   a white ring on each link that dropped out.
  * Coordinates are arena pixels (`unit` per arena unit); `r` is the drawing radius of a body in px.
  */
-import { BOSS_ART } from '../sim/bossArt';
+import { BOSS_ART, CLUB_AXIS, CLUB_GRIP, CLUB_HAND } from '../sim/bossArt';
 import { countPlace, type VisibleArea } from './edgeMarkers';
 import { ColorMatrixFilter, Container, Graphics, Text } from 'pixi.js';
 import { characterSprite, hasCharacterArt } from '../art/characterAssets';
@@ -43,11 +43,6 @@ export const TROLL_FEET = BOSS_ART.troll.feet ?? 0;
 export const CLUB_ART = BOSS_ART['troll-club'].side;
 export const ROCK_ART = BOSS_ART['troll-rock'].side;
 export const KNOT_ART = BOSS_ART['troll-tail'].side;
-/** The club's axis in its picture (head → handle, radians) and the grip's point (the share of the picture). */
-const CLUB_AXIS = Math.atan2(380, 640);
-const CLUB_GRIP = { x: 0.92, y: 0.88 };
-/** Where the club's head points while it is in the paw (up and a little left, radians). */
-const CLUB_HAND = -1.95;
 /** Distance of a part's HP plaque from its centre along the line from the core, in body radii (the weight's plaque stands at 1.45). */
 const PART_BADGE: Readonly<Record<string, number>> = { [TROLL_CLUB]: 1.7, [TROLL_ROCK]: 2.3, [TROLL_TAIL]: 1.8 };
 

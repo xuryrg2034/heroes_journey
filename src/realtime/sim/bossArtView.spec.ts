@@ -47,12 +47,22 @@ check('the aspects: the pictures\' height / width (the knot is drawn with the ro
   for (const [kind, id] of Object.entries(pictures)) assert(near(BOSS_ART[kind].aspect, aspectOf(id)), `${kind}: the table ${BOSS_ART[kind].aspect}, ${id}.png ${aspectOf(id)}`);
 });
 
-check('the club\'s pose: the grip and the paw\'s angle are the view\'s', () => {
-  const troll = source('trollView.ts'), sim = readFileSync(new URL('./bossArt.ts', import.meta.url), 'utf8');
-  for (const [name, pattern] of [['CLUB_GRIP', /const CLUB_GRIP = (\{ x: [\d.]+, y: [\d.]+ \});/], ['CLUB_HAND', /const CLUB_HAND = (-?[\d.]+);/], ['CLUB_AXIS', /const CLUB_AXIS = \w+\.?\w*\((\d+, \d+)\);/]] as const) {
-    const v = pattern.exec(troll)?.[1], s = pattern.exec(sim)?.[1];
-    assert(v !== undefined && v === s, `${name}: the view ${v}, the table ${s}`);
-  }
+check('the placing: troll, chief, warlock stand on the picture\'s own bottom (the sprite at −height / 2 over the feet); the Jailer and the garrison\'s art in a square box on its feet (the picture centred in it); the table says the same', () => {
+  const troll = source('trollView.ts'), chief = source('chiefView.ts'), warlock = source('warlockView.ts'), render = source('render.ts');
+  const ownBottom = (text: string, feet: RegExp): boolean => /sprite\.position\.set\(0, -sprite\.height \/ 2\)/.test(text) && feet.test(text);
+  assert(ownBottom(troll, /root\.position\.set\(0, r \* TROLL_FEET\)/), 'trollView: the picture on its feet');
+  assert(ownBottom(chief, /root\.position\.set\(0, r \* CHIEF_FEET\)/), 'chiefView: the picture on its feet');
+  assert(ownBottom(warlock, /const base = r \* WARLOCK_FEET;[\s\S]*root\.position\.set\(0, base\)/), 'warlockView: the picture on its feet');
+  assert(/sprite\.position\.set\(0, r \* \(JAILER_FEET - JAILER_ART \/ 2\)\)/.test(render), 'render.ts: the Jailer in its box on the feet');
+  assert(/sprite\.position\.set\(0, r \* \(1 - gart\.size \/ 2\)\)/.test(render), 'render.ts: the garrison\'s art in its box on the feet');
+  for (const kind of ['troll', 'chief', 'warlock']) assert(BOSS_ART[kind].feet !== undefined && !BOSS_ART[kind].box, `${kind}: on the picture's bottom`);
+  for (const kind of ['jailer', 'castellan', 'castellan-crossbow']) assert(BOSS_ART[kind].feet !== undefined && BOSS_ART[kind].box, `${kind}: in its box`);
+});
+
+check('the scale: the view draws a body picture with the sim `bossArtRadius` (`enemyDrawRadius` × `enemyArtScale`, no kind `artScale`)', () => {
+  const render = source('render.ts'), sim = readFileSync(new URL('./bossArt.ts', import.meta.url), 'utf8');
+  assert(/view\.root\.scale\.set\(pop \* bossArtRadius\(world\.params, e\) \/ BASE_ENEMY_RADIUS\);/.test(render), 'render.ts: the body scaled by bossArtRadius');
+  assert(/return enemyDrawRadius\(params\) \* enemyArtScale\(params, e\);/.test(sim), 'bossArt.ts: the radius');
 });
 
 console.log(`boss art = view: ${checks} checks passed`);

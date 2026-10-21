@@ -9,7 +9,7 @@
  * arc of the shieldbearer, the archer's line, the sapper's fuse and blast ring (`drawSignals`); the porcupine's quills (its
  * drawing) and the «−1 HP» badge on a porcupine link of the drawn chain (`drawChain`).
  */
-import { BOSS_ART } from '../sim/bossArt';
+import { BOSS_ART, bossArtRadius } from '../sim/bossArt';
 import { drawRanks } from './drawOrder';
 import { Application, Container, Graphics, GraphicsContext, Particle, ParticleContainer, Sprite, Text, type Texture } from 'pixi.js';
 import { COLORS, PALE, drawTerrain, makePlayer, type HeroArtId } from '../art/art';
@@ -1505,7 +1505,8 @@ export class RealtimeRenderer {
       // Design smoke v65 (D2): a fight opened on the boss shows the bodies born with it whole (the glide holds their first tick).
       const pop = this.openedOnBoss && e.age >= world.time - 1e-9 ? 1 : Math.min(1, 0.35 + e.age / 0.2 * 0.65);
       // Stage 2, step 3: an elite is drawn larger (its body stays); task 12 — a leader too (`enemyArtScale`, the sim's own scale).
-      view.root.scale.set(scale * pop * enemyArtScale(world.params, e));
+      // The picture's radius is the sim's (`bossArtRadius`: the draw radius × the elite's or leader's scale) — the press zone of the boss drawings reads the same.
+      view.root.scale.set(pop * bossArtRadius(world.params, e) / BASE_ENEMY_RADIUS);
       // Task 55 (design 21.10.2026): the drawing order is the sim's comparison, `artDrawnAbove` (the larger y; at an equal y the larger id) — an explicit rank, not the history of a stable sort.
       view.root.zIndex = ranks.get(e.id) ?? e.y;
       // Camera: bodies off screen are not drawn (a margin keeps a body half in view and its strike lunge).

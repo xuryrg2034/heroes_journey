@@ -1070,7 +1070,7 @@ function loopGesture(world: World, p: Vec): boolean {
     const kind = world.chainClosed;
     // The nearest link of the chain under the pointer must be the last one: with the first and the last close together the
     // pointer between them does not flip the loop on every event.
-    const under = pick(world, p, e => inChain(world, e) >= 0, o => linkIndex(world, { kind: 'object', id: o.id }) >= 0);
+    const under = pick(world, p, e => inChain(world, e) >= 0, o => linkIndex(world, { kind: 'object', id: o.id }) >= 0, false, true);
     if (under && under.kind === last.kind && under.id === last.id) { delete world.chainClosed; world.events.push({ type: 'loop', action: 'open', kind }); }
     return true;
   }
@@ -1763,7 +1763,8 @@ export function dragChain(world: World, p: Vec, mode: DragMode = 'full'): void {
  */
 function leaveForkAnchor(world: World, p: Vec): void {
   const fa = world.forkAnchor!;
-  const on = pick(world, p, e => fa.kind === 'enemy' && e.id === fa.id, o => fa.kind === 'object' && o.id === fa.id);
+  // A boss part's drawing is its link as everywhere (`Params.bossPickArt`): a jitter over it does not leave it.
+  const on = pick(world, p, e => fa.kind === 'enemy' && e.id === fa.id, o => fa.kind === 'object' && o.id === fa.id, false, true);
   if (on) return;
   if (!fa.ready && forkAnchorNow(world)) fa.ready = true;
   else if (!fa.ready || !forkAnchorNow(world)) delete world.forkAnchor;
