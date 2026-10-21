@@ -23,7 +23,7 @@ import { defaultParams, type Params } from '../sim/params';
 import { Simulation } from '../sim/simulation';
 import type { Enemy, World, WorldEvent } from '../sim/world';
 import { Camera, CAMERA } from './camera';
-import { CAST_STEP, DASH_RIM, DASH_WIDTH, GLYPH_WORD, WORD_GAP, WitchView, glyphCaption, polylinePrefix, wordAnchor, type WitchShown } from './witchView';
+import { CAST_STEP, DASH_RIM, DASH_WIDTH, GLYPH_WORD, WORD_GAP, WitchView, lighten, glyphCaption, polylinePrefix, wordAnchor, type WitchShown } from './witchView';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 function check(name: string, run: () => void): void { run(); console.log(`ok - ${name}`); }
@@ -181,7 +181,7 @@ check('the first rune: dim ring from 3 runes; the pointer on it with a ring that
   f.sim.command({ t: 'drag', x: PENTAGON[0].x, y: PENTAGON[0].y, mode: 'full' });
   assert(f.w.chainClosed === 'first', 'the pointer event on the first rune closes the ring');
   highlight(view, f.w, PENTAGON[0]);
-  assert(sh(view).word === 'Кольцо' && sh(view).contour === 'figure' && sh(view).contourInk === 0xff5050 && sh(view).firstRing === 2, 'closed: the word, the lit ring and the dashed contour in the chain colour');
+  assert(sh(view).word === 'Кольцо' && sh(view).contour === 'figure' && sh(view).contourInk === 0xffb9b9 && lighten(0xff5050) === 0xffb9b9 && lighten(0x000000) === 0x999999 && sh(view).contourInk !== 0xffffff && sh(view).firstRing === 2, 'closed: the word, the lit ring and the dashed contour in the chain colour');
   const frame = wordAnchor(chainRunes(f.w.chain), U), want = (() => { const xs = chainRunes(f.w.chain).map(p => p.x), ys = chainRunes(f.w.chain).map(p => p.y); return { x: (Math.min(...xs) + Math.max(...xs)) / 2 * U, y: Math.min(...ys) * U - 16 }; })();
   assert(WORD_GAP === 16 && frame.x === want.x && frame.y === want.y, 'the word stands over the middle of the frame, 16 px above its top');
   assert(JSON.stringify(sh(view).wordAt) === JSON.stringify(want), `the word is drawn there: ${JSON.stringify(sh(view).wordAt)} vs ${JSON.stringify(want)}`);

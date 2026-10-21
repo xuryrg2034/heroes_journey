@@ -27,6 +27,13 @@ const RUNE_R = 5, RUNE_RIM = 2.5;
 /** The dashes of a contour (design 21.10.2026): 3 px of colour in a 1 px navy rim; the words stand 16 px above the contour's frame. */
 export const DASH_WIDTH = 3, DASH_RIM = 1, WORD_GAP = 16, WORD_HEIGHT = 26;
 
+/** The chain colour lightened toward white by `DASH_LIGHT` (design 21.10.2026: the figure's dashes read over bodies of the chain colour; pure white is the flashes' and the dropped links'). */
+export const DASH_LIGHT = 0.6;
+export function lighten(color: number, k = DASH_LIGHT): number {
+  const ch = (shift: number): number => Math.round(((color >> shift) & 255) * (1 - k) + 255 * k);
+  return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+}
+
 /** Where the words of a contour stand (px): the middle of its frame, `WORD_GAP` above its top. */
 export function wordAnchor(points: readonly Vec[], unit: number): Vec {
   let x0 = Infinity, x1 = -Infinity, y0 = Infinity;
@@ -168,7 +175,7 @@ export class WitchView {
     // Design 21.10.2026: no preview before the touch. A closed chain (the figure taken) — the contour dashed in the chain's colour, no fill; a refusal — grey.
     if (on || closed) {
       const pts = runes.map(v => ({ x: v.x * U, y: v.y * U }));
-      const dash = refusal ? GREY : ink;
+      const dash = refusal ? GREY : lighten(ink);
       this.dashedPolygon(g, pts, dash);
       s.contour = refusal ? 'refused' : 'figure';
       s.contourInk = dash; s.contourWidth = DASH_WIDTH; s.contourRim = DASH_RIM;
