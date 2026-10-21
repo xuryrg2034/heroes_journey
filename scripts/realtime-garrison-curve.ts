@@ -45,6 +45,8 @@ const SEEDS = Number(option('--seeds', '300')), LIMIT = Number(option('--limit',
 const MOAT = args.includes('--moat');
 /** Task 43: `--step2 off` — the garrison of step 1б; `--garrison-only` — the pass «гарнизон» alone. */
 const STEP2_OFF = option('--step2', 'on') === 'off', GARRISON_ONLY = args.includes('--garrison-only'), FOREST_ONLY = args.includes('--forest-only');
+// «Метка у героя» (20.10.2026): `--markers off` — the runs are created without the flag `markerSeek` (the markers of before).
+const MARKERS_OFF = option('--markers', 'on') === 'off';
 
 /**
  * Task 40, pass 3: the Castellan's sets of the sweep — the knobs that matter most, put on by the script only. `plates` — the core's
@@ -237,7 +239,7 @@ function tuneCastellan(w: World, set: CastellanSet, first: boolean): void {
 function pass(real: (run: RtRunState) => boolean): Tally {
   const t = tally();
   for (let k = 1; k <= SEEDS; k++) {
-    const run = walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, ...MOAT ? { moat: true } : {}, ...STEP2_OFF ? { step2: false } : {} }, fight: state => (real(state) ? fight(state, t) : null) }).run;
+    const run = walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, ...MOAT ? { moat: true } : {}, ...STEP2_OFF ? { step2: false } : {}, ...MARKERS_OFF ? { markerSeek: false } : {} }, fight: state => (real(state) ? fight(state, t) : null) }).run;
     t.runs++;
     const keys = new Set([...run.visited, ...run.result ? [run.result.nodeId] : []].map(id => keyOf(run, id)));
     // A run in the garrison passed every row of the forest.

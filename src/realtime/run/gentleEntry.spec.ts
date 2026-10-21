@@ -117,7 +117,7 @@ check('tough newcomers: a gentle run keeps 1–2 HP on row 5 and gets 3 HP from 
 
 /** The run row and arena of every arena a run meets, its outcomes faked as victories (the run's own commands, no simulation); the old run — without the task-17 flags and the Jailer's fight (task 28: its node plays the pool). */
 function arenaRows(seed: number, k: number, gentle: boolean): [number, string][] {
-  let run = createRtRun(seed, { gift: 'mini', ...gentle ? {} : { ...RT_TASK17_OFF, jailer: false, troll: false } });
+  let run = createRtRun(seed, { gift: 'mini', ...gentle ? {} : { ...RT_TASK17_OFF, jailer: false, troll: false, markerSeek: false } });
   const out: [number, string][] = [];
   for (let step = 0; step < 200 && !run.result; step++) {
     const pending = run.pending;
@@ -281,7 +281,7 @@ check('the final of a gentle run whose hero never fought a porcupine: none in it
       else if (met && metRuns < 2) { assert(finalPorcupines(at.run, 40, k) > 0, `seed ${k}: the old final`); metRuns++; }
     }
     if (oldFinals < 2) {
-      const old = walkFights(seedOf(k + 900), k, { ...RT_TASK17_OFF, troll: false }, 6, toFinal);
+      const old = walkFights(seedOf(k + 900), k, { ...RT_TASK17_OFF, troll: false, markerSeek: false }, 6, toFinal);
       if (old) { assert(rtArenaLoadout(old.run).withoutKinds === undefined && finalPorcupines(old.run, 40, k) > 0, `seed ${k}: an old run's final keeps it`); oldFinals++; }
     }
   }
@@ -508,7 +508,7 @@ check('saves: a new run keeps its three flags and `secondWindSpent`; a save with
   const oldRun = parseRtRun(JSON.stringify(old));
   assert(oldRun && oldRun.gentleEntry === undefined && oldRun.startPotion === undefined && oldRun.secondWind === undefined, 'a save without the flags loads');
   const battle = rowRun(3, true, 1)!, oldBattle: RtRunState = { ...structuredClone(battle) };
-  delete oldBattle.gentleEntry; delete oldBattle.shortFuse; delete oldBattle.forms; delete oldBattle.potionCap; delete oldBattle.bossHoles; // tasks 30, 41, «Дыры ядра»: a save before them too
+  delete oldBattle.gentleEntry; delete oldBattle.shortFuse; delete oldBattle.forms; delete oldBattle.potionCap; delete oldBattle.bossHoles; delete oldBattle.markerSeek; // tasks 30, 41, «Дыры ядра», the markers (20.10.2026): a save before them too
   assert(rtArenaLoadout(battle).randomElites === false && rtArenaLoadout(oldBattle).randomElites === true, 'the old save plays the old row 3');
   assert(same(rtArenaRules(oldBattle), {}) || same(rtArenaRules(oldBattle), { markedGoals: true }), 'no row params for the old save');
   for (const bad of [{ gentleEntry: false }, { gentleEntry: 1 }, { startPotion: false }, { secondWind: 1 }, { secondWindSpent: true }, { secondWindSpent: false }]) {
