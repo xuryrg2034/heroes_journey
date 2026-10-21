@@ -25,8 +25,8 @@ import { rtGarrisonNodeId } from './garrison';
 import { seedOf, walkRun } from './metaWalk.testkit';
 import { arenaKinds } from './arenaKinds';
 import { runRow, SHOOTER_POOLS } from './arenaPools';
-import { isScheduleElement, readyArc, scheduleKinds, SCHEDULE_KINDS, SCHEDULE_SHOOTER_KINDS } from './schedule';
-import { createRtRun, parseRtRun, rtArenaLoadout, rtArenaParams, rtNode, rtRunParams, RT_FOREST_SHOOTERS_ON, RT_FOREST_SHOOTERS_PARAMS, serializeRtRun, type RtArenaOutcome, type RtRunState } from './rtRun';
+import { isScheduleElement, readyArc, scheduleKinds, schedulePlan, SCHEDULE_KINDS, SCHEDULE_SHOOTER_KINDS } from './schedule';
+import { arenaSeed, createRtRun, parseRtRun, rtArenaLoadout, rtArenaParams, rtNode, rtRunParams, rtScheduleMet, RT_FOREST_SHOOTERS_ON, RT_FOREST_SHOOTERS_PARAMS, serializeRtRun, type RtArenaOutcome, type RtRunState } from './rtRun';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -156,12 +156,31 @@ check('the alternation of the arcs (design 21.10.2026, the run key `arcsAlternat
   assert(readyArc(ctx([])) === 'sapper' && readyArc(ctx(['bust', 'wolf'])) === 'slinger' && readyArc(ctx(['wolf', 'slinger'])) === 'sapper' && readyArc(ctx(['wolf', 'slinger', 'sapper'])) === 'slinger', 'the old first, then by turns');
   assert(readyArc(ctx(['wolf'], false)) === 'sapper' && readyArc({ ...ctx(['wolf']), shooters: false }) === 'sapper', 'without the key (or the shooters) — the old list first');
   assert(readyArc({ ...ctx(['wolf']), row: 6 }) === 'sapper', 'past its rows the new arc is not offered: the old one');
+  // Review 21.10.2026: a hard node teaches only the elite's arc — the alternation does not hand it the slinger (the elite would be lost).
+  const hardMet = new Set(['bust', 'wolf', 'brazier', 'cliff', 'boar', 'water', 'shield', 'buttons', 'archer']);
+  const hard = (alternate: boolean) => schedulePlan({ seed: 12345, node: 'hard', row: 4, fight: 5, met: hardMet, recent: ['p-yard', 'glade'], shooters: true, alternate, arcs: ['wolf', 'archer'] });
+  assert(hard(true).arc === 'elite' && JSON.stringify(hard(true)) === JSON.stringify(hard(false)), `the hard node: ${JSON.stringify(hard(true))} / ${JSON.stringify(hard(false))}`);
+  assert(schedulePlan({ seed: 12345, node: 'battle', row: 4, fight: 5, met: hardMet, recent: ['p-yard', 'glade'], shooters: true, alternate: true, arcs: ['wolf', 'archer'] }).arc === 'slinger', 'an ordinary node takes the turn');
   const on = createRtRun(seedOf(5), { forestShooters: true }), off = createRtRun(seedOf(5), { forestShooters: false }), plain = createRtRun(seedOf(5), { forestShooters: true, arcsAlternate: false });
   assert(on.arcsAlternate === true && off.arcsAlternate === undefined && plain.arcsAlternate === undefined, 'the key with the shooters (`RT_ARCS_ALTERNATE_ON`)');
   const raw = JSON.parse(serializeRtRun(off)) as Record<string, unknown>; raw.arcsAlternate = true;
   assert(parseRtRun(JSON.stringify(raw)) === null, 'the key without the shooters is no run');
   // Whole runs of a viewer who met the first ten arcs: with the key a new kind comes in more runs (the old arcs no longer take every fight).
   const history = [...met], newcomers = (alternate: boolean) => Array.from({ length: 20 }, (_, i) => planned(i + 1, history, alternate)).filter(fights => fights.some(f => f.arc && SCHEDULE_SHOOTER_KINDS.includes(f.arc))).length;
+  // Every hard node of keyed runs of a viewer who has not met the elite (real run commands) planned as without the key: the same arena and arc.
+  let hardNodes = 0, hardElite = 0;
+  for (let i = 0; i < 40; i++) for (const f of planned(i + 1, [...hardMet], true)) {
+    const node = rtNode(f.state, f.nodeId)!;
+    if (node.type !== 'hard') continue;
+    const metNow = rtScheduleMet(f.state), arcs = f.state.picks.flatMap(pick => pick.nodeId !== f.nodeId && pick.arc ? [pick.arc] : []);
+    const recent = f.state.picks.flatMap(pick => pick.nodeId !== f.nodeId && pick.arena ? [pick.arena] : []);
+    const base = { seed: f.state.pending!.kind === 'battle' ? arenaSeed(f.state, f.nodeId) : 0, node: 'hard' as const, row: f.row, fight: recent.length + 1, met: metNow, recent, shooters: true, arcs };
+    const plan = schedulePlan({ ...base, alternate: true });
+    assert(JSON.stringify(plan) === JSON.stringify(schedulePlan(base)) && plan.arena === f.arena && (plan.arc ?? undefined) === f.arc, `${f.nodeId}: a hard node as without the key (${JSON.stringify(plan)}, played ${f.arena} ${f.arc})`);
+    hardNodes++; if (f.arc === 'elite') hardElite++;
+  }
+  console.log(`   hard nodes of keyed runs: ${hardNodes}, the elite's arc on ${hardElite}`);
+  assert(hardNodes >= 5 && hardElite >= 1, `hard nodes ${hardNodes}, the elite on ${hardElite}`);
   const withKey = newcomers(true), without = newcomers(false);
   console.log(`   runs meeting a new shooter (20 runs, the first ten arcs met): with the key ${withKey}, without ${without}`);
   assert(withKey > without, `with the key ${withKey}, without ${without}`);

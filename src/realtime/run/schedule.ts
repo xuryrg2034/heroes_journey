@@ -169,7 +169,9 @@ const takesEliteArc = (node: ScheduleNode): boolean => node === 'battle' || node
 export function readyArc(ctx: Pick<ScheduleContext, 'node' | 'row' | 'fight' | 'met' | 'shooters' | 'alternate' | 'arcs'>): string | null {
   const ready = (a: Arc): boolean => !ctx.met.has(a.id) && (a.needs ?? []).every(n => ctx.met.has(n)) && ctx.row >= (a.minRow ?? 0) && ctx.row <= (a.maxRow ?? Infinity) && ctx.fight >= (a.minFight ?? 0)
     && (!ELITE_ARCS.includes(a.id) || takesEliteArc(ctx.node));
-  if (!ctx.alternate || !ctx.shooters) return scheduleArcs(ctx.shooters).find(ready)?.id ?? null;
+  // Task 57а (review 21.10.2026): the alternation only among the arcs the node teaches — a hard node teaches only the elite's arc
+  // (`schedulePlan`: «Застава» or practice), so there the first ready arc of the list as before (the turn does not move).
+  if (!ctx.alternate || !ctx.shooters || ctx.node === 'hard') return scheduleArcs(ctx.shooters).find(ready)?.id ?? null;
   // Task 57а (design 21.10.2026): both ready — the new shooters' arc when the run's last arc fight was an old one, else the old one
   // (the bust counts as old: it is the first fight's).
   const old = SCHEDULE_ARCS.find(ready), fresh = SCHEDULE_SHOOTER_ARCS.find(ready);
