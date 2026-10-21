@@ -958,6 +958,8 @@ export interface Params {
   /** The ring: runes at least; the largest ÷ the least distance from the area's centre to a corner at most. */
   glyphRingMin: number;
   glyphRingRatio: number;
+  /** The ring: no corner sharper than this — the cosine of the sharpest angle allowed (0.707 — 45°; 0 — 90°). */
+  glyphRingCorner: number;
   // ---- Task 54 «Главарь с котелком» (sim/enemies/chief.ts, sim/arenasBoss.ts `chief`; docs/realtime-elite-behaviors.md, «Главарь (задача 54)»). ----
   /**
    * The Chief's feast (design 17.10.2026, docs/design-notes/task-54-chief.md, 7): with the frame on, the Chief's core is closed outside
@@ -1614,7 +1616,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   glyphMinArea: 1.5,
   glyphMinThick: 0.6,
   glyphRingMin: 5,
-  glyphRingRatio: 1.6,
+  glyphRingRatio: 2,
+  glyphRingCorner: 0.707,
   // Task 54 «Главарь с котелком» (enemies/chief.ts): the feast off by default (the arena «Стан Главаря» turns it on); his numbers
   // (hypotheses of the spec, read on his arena only).
   chiefFeast: false,
@@ -2192,6 +2195,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('glyphMinThick', 'Ведунья v2', 'Фигура: наименьшая толщина', 0, 3, 0.05, 5, 'ед.'),
   n('glyphRingMin', 'Ведунья v2', 'Кольцо: рун не меньше', 3, 10, 1, 5),
   n('glyphRingRatio', 'Ведунья v2', 'Кольцо: округлость', 1, 3, 0.05, 5, '×', 'Наибольшее расстояние от центра площади до вершины ÷ наименьшее.'),
+  n('glyphRingCorner', 'Ведунья v2', 'Кольцо: острота угла', 0, 1, 0.01, 5, 'cos', 'Угол у вершины не острее этого: 0,707 — 45°, 0 — 90°.'),
   // Task 54 «Главарь с котелком» (enemies/chief.ts, docs/realtime-elite-behaviors.md, «Главарь (задача 54)»).
   { kind: 'bool', key: 'chiefFeast', group: 'Главарь', label: '«Обед!» Главаря', stage: 5,
     hint: 'Главарь закрыт вне окна «Обеда!» («вне окна»). В окне его берёт только цепь цвета варева, в которой до него не меньше трёх звеньев этого цвета («в очередь»); одно попадание за окно, другой урон его не ранит. Арена «Стан Главаря» включает правило сама.' },

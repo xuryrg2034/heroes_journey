@@ -259,6 +259,11 @@ check('the classifier\'s corpus: rings, squares, triangles, the refusals «ни�
   assert(kind(poly(10, 6.5, 9.7, 6.2, 9.8, 5.8, 10.2, 5.8, 10.3, 6.2)) === 'small', 'a tiny ring — small');
   assert(kind(poly(8, 5, 12, 5, 12, 8, 10, 6, 8, 8)) === 'notFigure', 'a hollow contour — no figure');
   assert(kind(poly(8, 6, 10, 5, 14, 5.6, 14, 6.4, 10, 7)) === 'notFigure', 'a pentagon with a sharp corner — no ring');
+  // Design 21.10.2026: a ring may have a dent (star-shaped from its area's centre), its corners up to 45°.
+  assert(kind(poly(10, 7.3, 8.764, 6.402, 9.238, 5.752, 9.236, 4.948, 10.764, 4.948, 11.236, 6.402)) === 'ring', 'a pentagon with one dent — a ring');
+  assert(kind(poly(10, 11, 8.764, 6.402, 9.236, 4.948, 10.764, 4.948, 11.236, 6.402)) === 'notFigure', 'a star with a 30° spike — no figure');
+  assert(kind(poly(10, 7.9, 8.764, 6.402, 9.236, 4.948, 10.764, 4.948, 11.236, 6.402)) === 'ring', 'a pentagon with an 80° corner — a ring (to 45° allowed)');
+  assert(glyphClass({ ...p, glyphRingCorner: 0 }, poly(10, 7.9, 8.764, 6.402, 9.236, 4.948, 10.764, 4.948, 11.236, 6.402)).hasOwnProperty('refusal'), 'with `glyphRingCorner` 0 (the rule of 90°) the 80° corner is refused');
   const s = classifyGlyph(p, [...SQUARE]), t = classifyGlyph(p, poly(8, 5, 11, 5, 9.5, 7.6)), r = classifyGlyph(p, [...PENTAGON]);
   assert('refusal' in s && s.refusal === 'notFigure' && 'refusal' in t && t.refusal === 'notFigure' && 'kind' in r && r.kind === 'ring', 'stage A: the square and the triangle refused, the ring');
 });
