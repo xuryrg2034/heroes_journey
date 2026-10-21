@@ -25,6 +25,8 @@ import './arenasPrologue';
 import './arenasBoss';
 // Task 38: the arenas of the garrison register on import too.
 import './arenasGarrison';
+// Task 57а: the sandbox arena of the forest shooters registers on import too.
+import './arenasShooters';
 // Task 55а: the castle's arenas of step 1а register on import too.
 import './arenasCastle';
 import { withRoster, withoutKinds, type RosterArena } from './rosters';
