@@ -11,7 +11,7 @@ import { replay, type Journal } from '../src/realtime/sim/simulation';
  * here: that they stand on the screen at the right time. Waits are in game time (tests/realtimeFrames.ts); a fight's journal replays
  * in Node to the hash of the page. Screenshots go to $SHOT_DIR when it is set (design 14: the shots at 1280×720).
  * Written 21.10.2026 by the ui session on branch ui/task-59a and NOT RUN there (the probe arenas «Смолокур (проба)», «Новобранцы
- * (проба)», «Привратники (проба)» were not in the tree yet: the menu buttons are found by these names). Run it once after design's smoke.
+ * (проба)», «Привратники (проба)» were not in the tree yet: the menu buttons are found by the test ids step3-arena-1..3). Run it once after design's smoke.
  */
 interface G3 {
   windups: number; pots: number; marks: number; marksLit: number; pools: number; burning: number; poolFire: number; heroInPitch: number; drops: number; trail: number;
@@ -38,13 +38,13 @@ function collectErrors(page: Page): string[] {
 }
 
 /** The sandbox with fresh storage; the probe arena `name` opened by a real click in the menu (the menu is reopened by M). */
-async function openProbe(page: Page, name: string): Promise<void> {
+async function openProbe(page: Page, n: 1 | 2 | 3): Promise<void> {
   await page.goto('/?sandbox=1');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
   await expect(page.getByTestId('menu')).toBeVisible();
-  const button = page.locator('.rt-arena', { hasText: name }).first();
-  await expect(button, `the sandbox menu has «${name}»`).toBeVisible();
+  const button = page.getByTestId(`step3-arena-${n}`);
+  await expect(button, `the sandbox menu has step3-arena-${n}`).toBeVisible();
   await button.click();
   await expect(page.getByTestId('menu')).toBeHidden();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
@@ -95,7 +95,7 @@ async function flight(page: Page, lands0: number): Promise<void> {
 test('task 59а view: «Смолокур (проба)» — the mark stands the whole flight; the hero who walks off by the keys keeps his HP, the one who stands loses 1; the pool slows him', async ({ page }) => {
   test.setTimeout(120_000);
   const errors = collectErrors(page);
-  await openProbe(page, 'Смолокур (проба)');
+  await openProbe(page, 1);
   await quiet(page);
   // The first throw: the pot over the pitcher in the windup, then the pot in the air with its mark.
   await untilFrame(page, (sn, _a, late) => sn.garrison.windups > 0 || late ? sn.garrison.windups : undefined, null, 12);
@@ -145,7 +145,7 @@ test('task 59а view: «Смолокур (проба)» — the mark stands the 
 test('task 59а view: «Смолокур (проба)» — a chain with «Огненный проход» across a pool: its fiery rim in the highlight, the flame after the pass', async ({ page }) => {
   test.setTimeout(120_000);
   const errors = collectErrors(page);
-  await openProbe(page, 'Смолокур (проба)');
+  await openProbe(page, 1);
   await quiet(page, [['pitchReload', 1000]]);
   await page.evaluate(() => (window as any).__realtime.useBuild({ hammer: 'fire-pass' }, 5));
   await quiet(page, [['pitchReload', 1000]]);
@@ -172,7 +172,7 @@ test('task 59а view: «Смолокур (проба)» — a chain with «Ог�
 test('task 59а view: «Новобранцы (проба)» — a press on №2 is «не по порядку» and starts nothing; a chain 1 → 4 by the mouse: the line falls, +2 energy', async ({ page }) => {
   test.setTimeout(120_000);
   const errors = collectErrors(page);
-  await openProbe(page, 'Новобранцы (проба)');
+  await openProbe(page, 2);
   await quiet(page);
   await expect.poll(async () => (await snap(page)).garrison.recruits.numbers).toBe(4);
   const s0 = await snap(page);
@@ -206,7 +206,7 @@ test('task 59а view: «Новобранцы (проба)» — a press on №2 
 test('task 59а view: «Привратники (проба)» — a chain into one: the red ring «гнев будет», then the anger and «Размах»; a new fight, a chain through 6 of colour A to the pair: both fall, the keys burn gold, no ring', async ({ page }) => {
   test.setTimeout(180_000);
   const errors = collectErrors(page);
-  await openProbe(page, 'Привратники (проба)');
+  await openProbe(page, 3);
   await quiet(page);
   await expect.poll(async () => (await snap(page)).garrison.wardens.keys).toBe(2);
   await shot(page, 'wardens-pair');
@@ -229,7 +229,7 @@ test('task 59а view: «Привратники (проба)» — a chain into o
   await sameHash(page);
   // A new fight: both in one chain through the colour freed by «Смена цвета».
   await page.evaluate(() => (window as any).__realtime.restart());
-  await quiet(page, [['colorShiftLinks', 4]]);
+  await quiet(page, [['colorShiftLinks', 4]]); // the sandbox has 0; the pass through 6 links of colour A needs 6 — 4 with three weak links as in the Node check
   await expect.poll(async () => (await snap(page)).garrison.wardens.keys).toBe(2);
   const pair = (await snap(page)).enemies.filter(e => e.kind === 'warden').sort((x, y) => x.id - y.id);
   await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [pair[0].x + 0.6, pair[0].y + 3] as const);
