@@ -28,6 +28,8 @@ import { blockedAt, overCliff, type Vec } from './geometry';
 import { behaviorOf, bodyRadiusOf, kindOf } from './enemies/kinds';
 import { BOSS_CORES } from './enemies/jailer';
 import { platesOf } from './elites';
+// Task 59а: a recruit out of order is a stop, not a crushed body (the law of order; enemies/recruit.ts).
+import { RECRUIT, recruitInOrder } from './enemies/recruit';
 import { damageEnemy, killEnemy, pushOutOfSolids, type Enemy, type World } from './world';
 
 export type ShoveStop = 'wall' | 'body' | 'thing' | 'core' | 'cliff' | 'end';
@@ -112,6 +114,16 @@ export function shovePath(world: World, thing: Enemy, dir: Vec): ShovePlan {
     met.push({ e, at: Math.max(0, along - Math.sqrt(Math.max(0, reach * reach - lat * lat))), kind: stopKind(e) });
   }
   met.sort((a, b) => a.at - b.at || a.e.id - b.e.id);
+  // Task 59а: the weak recruits ahead are crushed by their numbers — one out of order (counting those crushed before it) stops the thing
+  // as a body and is not struck (nothing hurts it out of order); nothing changes without recruits.
+  const crushedRecruits = new Set<number>();
+  let refused: number | undefined;
+  for (const m of met) {
+    if (m.at >= stopAt || m.kind !== null) break;
+    if (m.e.kind !== RECRUIT) continue;
+    if (!recruitInOrder(world, m.e, world.enemies, crushedRecruits)) { m.kind = 'body'; refused = m.e.id; break; }
+    crushedRecruits.add(m.e.id);
+  }
   const first = met.find(m => m.kind !== null);
   if (first && first.at < stopAt) { stopAt = first.at; stop = first.kind!; target = first.e.id; }
   const crushed = met.filter(m => m.kind === null && m.at < stopAt).map(m => ({ id: m.e.id, at: m.at }));
@@ -121,7 +133,7 @@ export function shovePath(world: World, thing: Enemy, dir: Vec): ShovePlan {
   const wear: { id: number; left: number }[] = [], breaks: number[] = [];
   const hit = target !== undefined ? world.enemies.find(e => e.id === target)! : null;
   if (stop === 'wall') ownLeft = barrel ? 0 : own - 1;
-  if ((stop === 'body' || stop === 'core') && hit && !kindOf(hit).immune) {
+  if ((stop === 'body' || stop === 'core') && hit && !kindOf(hit).immune && hit.id !== refused) {
     const damage = impactOf(world, thing.kind), plate = platesOf(hit) > 0;
     if (damage > 0) impact = { id: hit.id, damage, plate, killed: !plate && damage >= hit.hp };
   }

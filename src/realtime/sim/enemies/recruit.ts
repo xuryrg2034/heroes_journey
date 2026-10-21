@@ -154,10 +154,33 @@ function drawNumbers(world: World, members: readonly Enemy[]): void {
   }
 }
 
+/**
+ * Spec 4.2, variant А (design 21.10.2026): the drawn chain read from its start keeps a recruit link only while its number is the current
+ * one of its group (counting the recruit links kept before it: they die in the pass); any other drops alone (event `recruit` `unlink`,
+ * not a hit). Groups count apart; the other links stay. The numbers drawn while a chain was drawn are what puts a link out of order.
+ */
+function dropOutOfOrder(world: World): void {
+  const kept = new Set<number>(), dropped: Enemy[] = [];
+  world.chain = world.chain.filter(l => {
+    const e = l.kind === 'enemy' ? world.enemies.find(x => x.id === l.id) : undefined;
+    if (!e || e.kind !== RECRUIT) return true;
+    if (!recruitInOrder(world, e, world.enemies, kept)) { dropped.push(e); return false; }
+    kept.add(e.id);
+    return true;
+  });
+  if (!dropped.length) return;
+  delete world.chainClosed;
+  for (const e of dropped) world.events.push({ type: 'recruit', action: 'unlink', id: e.id, x: e.x, y: e.y });
+}
+
 registerBehavior({
   id: RECRUIT,
   beforeStep(world, members) {
-    if (recruitsOn(world)) drawNumbers(world, members);
+    if (recruitsOn(world)) {
+      // No numbers during the hero's move (design 21.10.2026): the pass keeps the order its release saw.
+      if (!world.move) drawNumbers(world, members);
+      if (world.chain.length) dropOutOfOrder(world);
+    }
     // No guard on the arena (their group step did not run): the recruits of a formation keep a line of their own.
     if (world.params.guardFormation && !world.enemies.some(g => g.kind === 'guard')) {
       const line = members.filter(e => e.vars.fm !== undefined && !enemyFrozen(e));

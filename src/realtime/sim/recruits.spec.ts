@@ -161,6 +161,116 @@ check('the bonus by the pass: a ring of «Печать» round the formation kil
   }
 });
 
+registerArena({
+  id: 'recruit-barracks', name: 'Казарма (тест)', summary: 'Тест притока новобранцев', goal: 'kills', killGoal: 999, width: 22, height: 14,
+  heroStart: { x: 11, y: 12 }, obstacles: [], buttons: [], door: { x: 21.3, y: 7 }, garrison: true, enemies: [],
+  newcomers: [{ kind: RECRUIT, share: 1, group: 4 }],
+});
+
+check('spec 4.3: the newcomers never bring a third formation of recruits, nor a second of the same colour — standing, at markers and in the queue (60 s with a clear every 8 s, 4 seeds)', () => {
+  for (const k of [1, 2, 3, 4]) {
+    const p = defaultParams();
+    p.contactDamage = 0; p.heroHp = 99; p.hitstop = false; p.recruits = true;
+    const sim = new Simulation({ arena: 'recruit-barracks', params: p, seed: seedOf(k), record: true }), w = sim.world;
+    const seen = new Set<number>();
+    let most = 0;
+    for (let t = 1; t <= ticksOf(60); t++) {
+      if (t % ticksOf(8) === 0) sim.command({ t: 'clear', keepMarked: false });
+      sim.tick(); w.events.length = 0;
+      const groups = new Map<number, number>();
+      for (const e of w.enemies) if (e.kind === RECRUIT) groups.set(e.vars.fm ?? -e.id, e.color);
+      for (const m of w.markers) if (m.kind === RECRUIT) groups.set(m.formation ?? -m.id, m.color);
+      for (const q of w.queue) if (q.kind === RECRUIT && q.formation !== undefined) groups.set(q.formation, q.color);
+      for (const g of groups.keys()) seen.add(g);
+      most = Math.max(most, groups.size);
+      assert(groups.size <= 2, `seed ${k}, tick ${t}: ${groups.size} formations`);
+      assert(new Set(groups.values()).size === groups.size, `seed ${k}, tick ${t}: two formations of one colour (${JSON.stringify([...groups])})`);
+    }
+    assert(most === 2 && seen.size >= 4, `seed ${k}: the cap acted (most ${most}, formations ${seen.size})`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
+check('the castle\u2019s shove (task 55а) by the law of order: a barrel shoved through #1 crushes it and rolls on; through #3 with #1 alive it stops on #3, which stays whole — the highlight\u2019s shove = the run (3 seeds)', () => {
+  for (const k of [1, 2, 3]) {
+    for (const n of [0, 2]) {
+      const sim = yard(k, { shove: true, maxEnemies: 1 }), w = sim.world, line = byNumber(w), target = line[n], x = target.x;
+      sim.command({ t: 'teleport', x, y: 7.6 });
+      const weak = place(sim, { x, y: 6.7 }, 0, 'basic', 2), barrel = place(sim, { x, y: 5.5 }, 0, 'barrel');
+      draw(sim, [weak, barrel]);
+      assert(w.chain.length === 2, `seed ${k}, #${n + 1}: the chain ends on the barrel`);
+      const plan = planChain(w).shove!;
+      assert(plan, `seed ${k}, #${n + 1}: the highlight shows the shove`);
+      sim.command({ t: 'release' });
+      const events = ticks(sim, ticksOf(4), [], ww => !ww.move && !ww.shoves);
+      const crushed = of(events, 'shove').filter(e => e.action === 'crush').map(e => e.target);
+      assert(JSON.stringify(crushed) === JSON.stringify(plan.crushed.map(c => c.id)), `seed ${k}, #${n + 1}: crushed as planned (${JSON.stringify(crushed)} / ${JSON.stringify(plan.crushed)})`);
+      if (n === 0) {
+        assert(plan.crushed.some(c => c.id === target.id) && !w.enemies.includes(target), `seed ${k}: #1 crushed`);
+      } else {
+        assert(plan.stop === 'body' && plan.target === target.id && !plan.impact && !plan.crushed.length, `seed ${k}: the plan stops on #3 without a strike (${JSON.stringify(plan)})`);
+        assert(w.enemies.includes(target) && target.hp === 0, `seed ${k}: #3 whole`);
+      }
+      assert(replays(sim), `seed ${k}, #${n + 1}: replay`);
+    }
+  }
+});
+
+registerArena({
+  id: 'recruit-trio', name: 'Трое новобранцев', summary: 'Тест номеров во время рисования', goal: 'kills', killGoal: 999, width: 20, height: 12,
+  heroStart: { x: 10, y: 5.6 }, obstacles: [], buttons: [], door: { x: 19.3, y: 6 }, garrison: true,
+  enemies: [9.1, 10, 10.9].map(x => ({ x, y: 4, color: 0, kind: RECRUIT, formation: 1 })),
+});
+function trio(k: number, extra: Partial<Params> = {}): Simulation {
+  const sim = new Simulation({ arena: 'recruit-trio', params: quiet({ maxEnemies: 1, ...extra }), seed: seedOf(k), record: true });
+  sim.tick();
+  return sim;
+}
+
+check('spec 4.2, variant А: numbers drawn while a chain holds a formation — read from its start, a recruit link stays only as its group\u2019s current number (the kept ones counted), any other drops alone (event `recruit` `unlink`); the highlight = the pass (8 seeds)', () => {
+  const patterns = new Set<string>();
+  for (let k = 1; k <= 8; k++) {
+    const sim = trio(k), w = sim.world, west = w.enemies.filter(e => e.kind === RECRUIT).sort((a, b) => a.x - b.x);
+    assert(west.length === 3 && west.every(e => !e.vars.rn), `seed ${k}: three recruits, no numbers yet (the formation is not whole)`);
+    draw(sim, west);
+    assert(w.chain.length === 3, `seed ${k}: all three drawn before the numbers`);
+    const events = ticks(sim, ticksOf(1.5), [], ww => west.every(e => ww.enemies.includes(e) && e.vars.rn));
+    ticks(sim, 1, events);
+    // The rule read from the numbers: the next kept link must hold the smallest number not kept yet.
+    const expect: number[] = [];
+    let next = 1;
+    for (const e of west) if (e.vars.rn === next) { expect.push(e.id); next++; }
+    const kept = w.chain.map(l => l.id), unlinked = of(events, 'recruit').filter(e => e.action === 'unlink').map(e => e.id);
+    assert(JSON.stringify(kept) === JSON.stringify(expect), `seed ${k}: kept ${JSON.stringify(kept)}, the rule ${JSON.stringify(expect)} (numbers ${west.map(e => e.vars.rn).join('-')})`);
+    assert(JSON.stringify(unlinked.sort()) === JSON.stringify(west.map(e => e.id).filter(id => !expect.includes(id)).sort()), `seed ${k}: the dropped ones unlinked (${JSON.stringify(unlinked)})`);
+    assert(!of(events, 'recruit').some(e => e.action === 'refused'), `seed ${k}: a drop is no hit`);
+    patterns.add(west.map(e => e.vars.rn).join('-'));
+    const plan = planChain(w);
+    assert(plan.links.every(l => l.outcome?.killed), `seed ${k}: the highlight — the kept ones fall`);
+    const pass = release(sim);
+    assert(expect.every(id => !w.enemies.some(e => e.id === id)) && west.filter(e => !expect.includes(e.id)).every(e => w.enemies.includes(e)), `seed ${k}: the pass = the highlight`);
+    assert(!of(pass, 'recruit').some(e => e.action === 'refused'), `seed ${k}: nothing refused in the pass`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+  assert(patterns.size >= 2, `the numbers differ by seed (${[...patterns].join(', ')})`);
+});
+
+check('design 21.10.2026: no numbers during the hero\u2019s move — the formation due in the pass gets them after it (4 seeds)', () => {
+  for (const k of [1, 2, 3, 4]) {
+    const sim = trio(k), w = sim.world, members = w.enemies.filter(e => e.kind === RECRUIT);
+    const away = [{ x: 8.2, y: 6.2 }, { x: 6.6, y: 6.8 }, { x: 5, y: 7.4 }, { x: 3.4, y: 8 }].map(at => place(sim, at, 0, 'basic', 2));
+    ticks(sim, ticksOf(0.6));
+    draw(sim, away);
+    sim.command({ t: 'release' });
+    let during = 0;
+    for (let i = 0; i < 120 && w.move; i++) { sim.tick(); w.events.length = 0; if (w.move) during = Math.max(during, members[0].age); assert(members.every(e => !e.vars.rn) || !w.move, `seed ${k}: no numbers in the pass`); }
+    assert(during >= 1, `seed ${k}: the pass outlived the wait (${during.toFixed(2)})`);
+    ticks(sim, 1);
+    assert(members.every(e => e.vars.rn), `seed ${k}: the numbers after the pass`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
 check('out of order nothing hurts a recruit: the bomb on #3 with #1 alive — no damage, event `recruit` `refused`; the bomb on #1 — it dies (3 seeds)', () => {
   for (const k of [1, 2, 3]) {
     const sim = yard(k), w = sim.world, line = byNumber(w);
