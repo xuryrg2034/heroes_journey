@@ -26,6 +26,12 @@ import './crossbow';
 import './troll';
 // Task 54 «Главарь с котелком»: the boss of the camp's branch — his core and his two parts (`Params.bossFrame`, his feast `Params.chiefFeast`).
 import './chief';
+// Task 59а «Гарнизон, шаг 3»: the recruits (the law of order).
+import './recruit';
+// Task 59а: the wardens (the pair and the anger).
+import './warden';
+// Task 59а: the pitcher (the law of pitch, pitch.ts).
+import './pitcher';
 // Task 55а «Замок: толчок»: the barrel, the wardrobe and the rook.
 import './castle';
 // Task 55, stage Д «Колдун v0»: the castle's final boss (`Params.bossFrame`, his charm and windows `Params.warlockCharm`).
@@ -51,6 +57,10 @@ export { KNIGHT, KNIGHT_LANE_WIDTH, knightLane, knightOffensive, knightState, kn
 export { TROLL, TROLL_CLUB, TROLL_MOVES, TROLL_ROCK, TROLL_TAIL, trollCore, trollMove, trollState, type TrollMoveId } from './troll';
 // Task 54: the Chief for the view.
 export { CHIEF, CHIEF_LADLE, CHIEF_MOVES, CHIEF_SACK, chiefCore, chiefMove, chiefState, whistleColors, type ChiefMoveId } from './chief';
+// Task 59а: the recruits for the view.
+export { RECRUIT, recruitCurrent, recruitGroup, recruitNumber, recruitQueue } from './recruit';
+export { WARDEN, wardenAnger, wardenAngry, wardenPartner, wardenSwing } from './warden';
+export { PITCHER, pitcherWindup } from './pitcher';
 // Task 55а: the castle's things and the rook for the view.
 export { BARREL, ROOK, WARDROBE, rookLine, wardrobeLying, wardrobeTopple } from './castle';
 // Task 57а: the forest shooters for the view.

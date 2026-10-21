@@ -45,6 +45,10 @@ export const KIND_CAPTIONS: Readonly<Record<string, string>> = {
   // Task 55а (design 17.10.2026, spec 11): the castle's kinds — the barrel is a thing, no kind of the bestiary.
   wardrobe: 'Шкаф — кончи цепь на нём: толкнёшь',
   rook: 'Ладья — бьёт по прямой первое тело',
+  // Task 59а (design 17.10.2026, spec 8): the garrison's step 3.
+  pitcher: 'Смолокур — горшок смолы: уйдите с метки, в смоле вязнут все',
+  recruit: 'Новобранец — бейте по номерам: 1, 2, 3, 4',
+  warden: 'Привратник — двое разных цветов: погиб один — второй в гневе',
 };
 /** The final captions of the elite affixes (a run fight has the elite armour on: «Толстый» is +1 plate, «Стремительный» −1). */
 export const AFFIX_CAPTIONS: Readonly<Record<AffixId, string>> = {

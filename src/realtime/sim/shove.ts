@@ -28,6 +28,8 @@ import { blockedAt, overCliff, type Vec } from './geometry';
 import { behaviorOf, bodyRadiusOf, kindOf } from './enemies/kinds';
 import { BOSS_CORES } from './enemies/jailer';
 import { platesOf } from './elites';
+// Task 59а: a recruit out of order is a stop, not a crushed body (the law of order; enemies/recruit.ts).
+import { RECRUIT, recruitInOrder } from './enemies/recruit';
 import { damageEnemy, killEnemy, pushOutOfSolids, type Enemy, type World } from './world';
 
 export type ShoveStop = 'wall' | 'body' | 'thing' | 'core' | 'cliff' | 'end';
@@ -94,9 +96,10 @@ function stopKind(e: Enemy): 'thing' | 'core' | 'body' | null {
 
 /**
  * The path of `thing` shoved along the unit direction `dir` (task 55а, spec 2.3): the same function for the highlight and the dash.
- * Reads the world only (no state, no random draw).
+ * Reads the world only (no state, no random draw). `gone` (task 59а) — the chain's links the pass kills before the shove: the law of
+ * order counts them dead (as «Прямая»'s `chainKills`).
  */
-export function shovePath(world: World, thing: Enemy, dir: Vec): ShovePlan {
+export function shovePath(world: World, thing: Enemy, dir: Vec, gone?: ReadonlySet<number>): ShovePlan {
   const p = world.params, arena = world.arena, r = bodyRadiusOf(p, thing), from = { x: thing.x, y: thing.y };
   const most = lengthOf(world, thing.kind);
   // Walls, trees, the edge, a cliff: marched along the path.
@@ -115,6 +118,16 @@ export function shovePath(world: World, thing: Enemy, dir: Vec): ShovePlan {
     met.push({ e, at: Math.max(0, along - Math.sqrt(Math.max(0, reach * reach - lat * lat))), kind: stopKind(e) });
   }
   met.sort((a, b) => a.at - b.at || a.e.id - b.e.id);
+  // Task 59а: the weak recruits ahead are crushed by their numbers — one out of order (counting those crushed before it) stops the thing
+  // as a body and is not struck (nothing hurts it out of order); nothing changes without recruits.
+  const crushedRecruits = new Set<number>(gone);
+  let refused: number | undefined;
+  for (const m of met) {
+    if (m.at >= stopAt || m.kind !== null) break;
+    if (m.e.kind !== RECRUIT) continue;
+    if (!recruitInOrder(world, m.e, world.enemies, crushedRecruits)) { m.kind = 'body'; refused = m.e.id; break; }
+    crushedRecruits.add(m.e.id);
+  }
   const first = met.find(m => m.kind !== null);
   if (first && first.at < stopAt) { stopAt = first.at; stop = first.kind!; target = first.e.id; }
   const crushed = met.filter(m => m.kind === null && m.at < stopAt).map(m => ({ id: m.e.id, at: m.at }));
@@ -124,7 +137,7 @@ export function shovePath(world: World, thing: Enemy, dir: Vec): ShovePlan {
   const wear: { id: number; left: number }[] = [], breaks: number[] = [];
   const hit = target !== undefined ? world.enemies.find(e => e.id === target)! : null;
   if (stop === 'wall') ownLeft = barrel ? 0 : own - 1;
-  if ((stop === 'body' || stop === 'core') && hit && !kindOf(hit).immune) {
+  if ((stop === 'body' || stop === 'core') && hit && !kindOf(hit).immune && hit.id !== refused) {
     // Task 55, stage Д: the warlock's core takes 1 (a plate, none — 1 HP) from any thing (spec 2.3, «то же» for the barrel).
     const damage = hit.kind === WARLOCK ? WARLOCK_IMPACT : impactOf(world, thing.kind), plate = platesOf(hit) > 0;
     if (damage > 0) impact = { id: hit.id, damage, plate, killed: !plate && damage >= hit.hp };

@@ -146,6 +146,30 @@ export class ChainAudio {
     }
   }
 
+  /** Task 59а: the pitcher throws — a low wet glug as the pot leaves its hands. */
+  pitchThrow(volume: number): void {
+    this.swell(180, 90, 'sine', 0.22, volume * 0.5);
+    this.tone(430, 'triangle', 0.05, volume * 0.14, 0.04);
+  }
+
+  /** Task 59а: the pot falls — a heavy wet slap. */
+  pitchLand(volume: number): void {
+    this.tone(88, 'sine', 0.16, volume * 0.7);
+    this.tone(240, 'sawtooth', 0.07, volume * 0.18, 0.01);
+  }
+
+  /** Task 59а: the pitch catches fire — a whoomp and the crackle of the burning tar. */
+  pitchIgnite(volume: number): void {
+    this.tone(120, 'sawtooth', 0.28, volume * 0.3);
+    for (const [i, f] of [1900, 2600, 2200, 3000].entries()) this.tone(f, 'square', 0.02, volume * 0.13, 0.04 + i * 0.045);
+  }
+
+  /** Task 59а: the warden's anger — a clank of keys (three high iron taps, out of step). */
+  keys(volume: number): void {
+    for (const [i, f] of [1760, 2349, 2093].entries()) this.tone(f, 'triangle', 0.07, volume * 0.32, i * 0.055);
+    this.tone(330, 'square', 0.04, volume * 0.2);
+  }
+
   /** Task 38: a tether cut by the dash snaps — a short crack and a rope's twang falling. */
   snap(volume: number): void {
     this.tone(1400, 'square', 0.03, volume * 0.5);
