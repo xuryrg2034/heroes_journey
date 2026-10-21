@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, skipHabit } from './realtimeTest';
 import { leaveResult } from './realtimeResult';
 import { trophyProfile, RT_PROFILE_STORAGE_KEY } from './trophyProfiles';
 import { NPC_LINES } from '../src/realtime/view/npcLines';
@@ -179,6 +179,7 @@ test('task 51е: a run with a given seed earns no trophy (a real fight lost); th
   const before = (await stored(page)).meta;
   await page.getByTestId('run-new').click();
   await expect(page.getByTestId('run-gift')).toBeVisible();
+  await skipHabit(page);
   await page.locator('[data-action="gift"]:not([disabled])').last().click();
   await expect(page.getByTestId('run-gift')).toBeHidden();
   const nodes = page.locator('[data-status="available"]');

@@ -866,3 +866,6 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-hearth-hung.rt-drop img, .rt-hearth-hung.rt-drop .rt-hearth-trophy-fb { animation: rt-trophy-drop .7s cubic-bezier(.3, 1.4, .5, 1) both; }
 @keyframes rt-trophy-drop { 0% { transform: translateY(-60px); opacity: 0; } 55% { transform: translateY(0); opacity: 1; } 75% { transform: translateY(-8px); } 100% { transform: translateY(0); } }
 @media (prefers-reduced-motion: reduce) { .rt-hearth-hung.rt-drop img, .rt-hearth-hung.rt-drop .rt-hearth-trophy-fb { animation: none; } }
+/* Task 51е: the header bar is wider than its two items; it must not catch the pointer over the perch and the panel below it (the stock keeps its title). */
+.rt-hearth-head { pointer-events: none; }
+.rt-hearth-head .rt-hearth-stock { pointer-events: auto; }
