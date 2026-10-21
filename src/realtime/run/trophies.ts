@@ -89,15 +89,18 @@ export function rtTrophiesAdd(previous: readonly RtTrophy[] | undefined, earned:
 }
 
 /**
- * The retro (spec 4, question 9), whenever the camp opens — only what the profile knows for sure, with run 0: the Castellan's banner (a
- * hero's record passed the garrison, `wonLevel` 2), «Чернильница Неясыти» (the chronicle's forest bestiary full — its retro read
- * `profile.seen` once). Nothing new — `changed` false (no write).
+ * The retro (spec 4, question 9), once a profile (review 21.10.2026: `trophiesSince` marks it done, as the chronicle's `since`) — only
+ * what the profile knows for sure, with run 0: the Castellan's banner (a hero's record passed the garrison, `wonLevel` 2), «Чернильница
+ * Неясыти» (the chronicle's forest bestiary full without the kinds of the run in progress, `chronicle.fresh`: those are that run's, its
+ * end gives the trophy with its number). Done before — `changed` false (no write); else the mark and the trophies found are written.
  */
-export function rtTrophiesImport(meta: RtMeta | undefined): { trophies: RtTrophy[] | undefined; changed: boolean } {
+export function rtTrophiesImport(meta: RtMeta | undefined, runs: number): { trophies: RtTrophy[] | undefined; since: number; changed: boolean } {
+  if (meta?.trophiesSince !== undefined) return { trophies: meta.trophies, since: meta.trophiesSince, changed: false };
+  const fresh = meta?.chronicle?.fresh ?? [], kinds = (meta?.chronicle?.kinds ?? []).filter(id => !fresh.includes(`kind:${id}`));
   const earned: RtTrophyEarned[] = [
     ...RT_HERO_IDS.some(id => meta?.heroes[id]?.record?.wonLevel === 2) ? [{ id: 'castellan' as const }] : [],
-    ...rtBestiaryFull(meta?.chronicle) ? [{ id: 'bestiary' as const }] : [],
+    ...rtBestiaryFull({ kinds }) ? [{ id: 'bestiary' as const }] : [],
   ];
-  const { trophies, added } = rtTrophiesAdd(meta?.trophies, earned, 0);
-  return { trophies, changed: added.length > 0 };
+  const { trophies } = rtTrophiesAdd(meta?.trophies, earned, 0);
+  return { trophies, since: runs, changed: true };
 }

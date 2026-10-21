@@ -110,7 +110,7 @@ await check('«Чернильница Неясыти» stays when the forest gai
     const next = metaRun(s, 2);
     const end = s.endRunMeta(next.walk.run)!;
     assert(!(end.trophies ?? []).some(t => t.id === 'bestiary') && same(held(s, 'bestiary'), ink), `kept as it was, not earned again (${JSON.stringify(end.trophies)})`);
-    assert(!s.trophiesImport() && same(held(s, 'bestiary'), ink), 'the retro adds nothing, removes nothing');
+    assert(s.trophiesImport() && !s.trophiesImport() && same(held(s, 'bestiary'), ink), 'the retro (its mark once) adds nothing, removes nothing');
     assert(s.chronicle().pages.find(p => p.id === 'bestiary')!.chapters.find(ch => ch.id === 'forest')!.entries.some(e => e.id === 'later-kind' && e.state === 'unknown'), 'the chapter shows the new kind «?»');
   } finally { forest.pop(); }
 });
@@ -141,7 +141,30 @@ await check('the retro: only the Castellan\'s banner (`wonLevel` 2) and «Чер
   const old = memoryStorage();
   old.data.set(RT_PROFILE_STORAGE_KEY, JSON.stringify({ version: 1, giftFull: true, runs: 3, won: true, meta: { heroes: { cat: { xp: 90, packs: [], record: { row: 10, won: true, xp: 60, wonLevel: 1 } } } } }));
   const before = text(old);
-  assert(!store(old).trophiesImport() && text(old) === before, 'nothing known: no trophy, no write');
+  const oldStore = store(old);
+  assert(oldStore.trophiesImport() && same(oldStore.trophies(), []) && oldStore.load().meta?.trophiesSince === 3 && !text(old).includes('"trophies":'), 'nothing known: no trophy, only the mark');
+  assert(text(old) !== before && !oldStore.trophiesImport(), 'the mark: once');
+});
+
+await check('the retro once (review 21.10.2026): the forest filled by the fights of a run not ended yet gives the trophy at that run\'s end, with its number', () => {
+  const storage = memoryStorage(), s = store(storage);
+  // The first camp after the release: the chronicle's and the trophies' retro (nothing old) — the marks.
+  s.chronicleImport({ kinds: [], affixes: [] });
+  assert(s.trophiesImport() && s.load().meta?.trophiesSince === 0 && same(s.trophies(), []), 'the retro\'s mark, nothing found');
+  // A run whose fights meet every forest kind; the camp opens before its end (a reload, an abandoned run): no retro trophy.
+  const { walk, viewerRun } = metaRun(s, 2);
+  s.chronicleMeet(walk.run, { kinds: SCHEDULE_KINDS, affixes: [] });
+  assert(!s.trophiesImport() && same(s.trophies(), []), 'after the mark: the retro adds nothing');
+  s.endRunMeta(walk.run);
+  assert(same(held(s, 'bestiary'), { id: 'bestiary', run: viewerRun }) && viewerRun >= 1, `the trophy with the run\'s number ${JSON.stringify(s.trophies())}`);
+  // Even a first retro does not count the kinds of a run in progress (its fresh ones): they are that run's.
+  const t = store();
+  const run = metaRun(t, 3).walk.run;
+  t.chronicleImport({ kinds: [], affixes: [] });
+  t.chronicleMeet(run, { kinds: SCHEDULE_KINDS, affixes: [] });
+  assert(t.trophiesImport() && same(t.trophies(), []), 'a first retro: no run 0 for the kinds of a run in progress');
+  t.endRunMeta(run);
+  assert(held(t, 'bestiary')?.run === 1, 'its end gives it');
 });
 
 await check('a profile before the first trophy reads and writes byte for byte; the field is the meta\'s last key, reads back and reads strictly', () => {

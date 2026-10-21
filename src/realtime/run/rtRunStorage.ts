@@ -391,10 +391,10 @@ export function createRtProfileStore(storage: RunStorage | null = browserStorage
     trophies: () => structuredClone(read().meta?.trophies ?? []),
     trophiesImport: () => {
       if (!trophiesOn) return false;
-      const profile = read(), retro = rtTrophiesImport(profile.meta);
+      const profile = read(), retro = rtTrophiesImport(profile.meta, profile.runs ?? 0);
       if (!retro.changed) return false;
       const { trophies: _old, ...meta } = profile.meta ?? { heroes: {} };
-      return write({ ...profile, meta: { ...meta, ...retro.trophies ? { trophies: retro.trophies } : {} } });
+      return write({ ...profile, meta: { ...meta, trophiesSince: retro.since, ...retro.trophies ? { trophies: retro.trophies } : {} } });
     },
     chronicleAdded: runKey => { const applied = read().meta?.applied; return applied?.key === runKey ? [...applied.end.chronicle?.added ?? []] : []; },
     omensStart: ({ ash, history, seeded }) => {

@@ -193,6 +193,8 @@ export interface RtMeta {
   offered?: string[];
   /** Task 58 «Летопись»: what the viewer found (run/chronicle.ts); absent — nothing written yet. */
   chronicle?: RtChronicle;
+  /** Task 51е: the retro of the trophies done — the viewer's runs then (`rtTrophiesImport`, once a profile); absent — not yet. */
+  trophiesSince?: number;
   /** Task 51е «Трофеи»: the trophies on the camp's perch (run/trophies.ts); absent — none yet. The meta's last key. */
   trophies?: RtTrophy[];
   /** The last run applied (its key) and its result: a second call for the same run returns it. */
@@ -770,7 +772,8 @@ export function parseRtMeta(value: unknown): RtMeta | undefined {
   // Task 51ж: the warmup records — only valid ones (`isWarmupBest`); none — absent (a profile before it reads as stored).
   const warmupEntries = isPlain(value.warmup) ? Object.entries(value.warmup).filter(([id, record]) => isWarmupBest(id, record)) : [];
   const warmup = warmupEntries.length ? Object.fromEntries(warmupEntries.map(([id, record]) => [id, { best: (record as { best: number }).best }])) as WarmupRecords : undefined;
-  // Task 51е: the trophies (known ids, each once; malformed dropped; none — absent), the last key.
+  // Task 51е: the retro's mark; the trophies (known ids, each once; malformed dropped; none — absent), the last key.
+  const trophiesSince = typeof value.trophiesSince === 'number' && Number.isInteger(value.trophiesSince) && value.trophiesSince >= 0 ? value.trophiesSince : undefined;
   const trophies = parseRtTrophies(value.trophies);
-  return { heroes, ...hero ? { hero } : {}, ...freed ? { freed } : {}, ...hearth ? { hearth } : {}, ...offered ? { offered } : {}, ...applied ? { applied } : {}, ...warmup ? { warmup } : {}, ...chronicle ? { chronicle } : {}, ...trophies ? { trophies } : {} };
+  return { heroes, ...hero ? { hero } : {}, ...freed ? { freed } : {}, ...hearth ? { hearth } : {}, ...offered ? { offered } : {}, ...applied ? { applied } : {}, ...warmup ? { warmup } : {}, ...chronicle ? { chronicle } : {}, ...trophiesSince !== undefined ? { trophiesSince } : {}, ...trophies ? { trophies } : {} };
 }
