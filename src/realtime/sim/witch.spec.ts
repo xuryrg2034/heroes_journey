@@ -13,6 +13,9 @@
  * - the figures: a ring of 5 enemies drawn with the mouse's commands and closed on its first rune — the seal inside (the hit and the hold),
  *   the shield after it; a square of 4 — refused «не фигура», the release an open chain, no shield (a touch hurts); the classifier's corpus;
  * - the focus: a link adds 0.5 s, not the full reserve; energy 0 — the ring as well; the pause after a release;
+ * - a thing of the castle (task 55а, design 21.10.2026): the chain ends on it unstruck, no figure, no shield; the discharge shoves it along
+ *   the chain's last segment (a lone thing — from Ведунья) exactly as the highlight planned: where it slides, whom it crushes, whom it
+ *   strikes;
  * - the items of the path (the pierce, «Возврат», the fire) do nothing and show nothing; «Ледяная печать», ranks II and the windows of the
  *   Troll and the Chief: the highlight is the discharge;
  * - the highlight is the discharge on 8 seeds with walking enemies and newcomers; every fight replays to the hash every 300 ticks.
@@ -22,6 +25,7 @@ import { registerArena } from './arenas';
 import { COUNTER_TALISMANS, HAMMERS } from './buildIds';
 import { castCircle, enemyRefusal, objectRefusal, planChain, type ChainPlan } from './chain';
 import { CHIEF } from './enemies/chief';
+import { BARREL } from './enemies/castle';
 import { TROLL, TROLL_ROCK } from './enemies/troll';
 import { wall, type Vec } from './geometry';
 import { classifyGlyph, glyphClass } from './glyphs';
@@ -40,6 +44,10 @@ const seedOf = (k: number): number => Math.imul(k, 2654435761) >>> 0;
 const ticksOf = (seconds: number): number => Math.round(seconds / SIM_DT);
 const SEEDS = [1, 2, 3];
 
+registerArena({
+  id: 'witch-castle', name: 'Замок Ведуньи', summary: 'Тест Ведуньи v2 с вещами', goal: 'kills', width: 30, height: 14,
+  heroStart: { x: 6, y: 7 }, obstacles: [wall(29, 0, 1, 14)], buttons: [], door: { x: 1, y: 0.7 }, enemies: [], killGoal: 99, castle: true,
+});
 registerArena({
   id: 'witch-field', name: 'Поле Ведуньи', summary: 'Тест Ведуньи v2', goal: 'kills', width: 30, height: 12,
   heroStart: { x: 5, y: 6 }, obstacles: [wall(14, 3, 0.5, 6)], buttons: [{ x: 8, y: 2 }], door: { x: 28.5, y: 6 }, enemies: [], killGoal: 99,
@@ -88,7 +96,8 @@ function release(f: Fight): { plan: ChainPlan; events: WorldEvent[] } {
 }
 /** The plan's strikes are the discharge's: per link — the damage and whether it died (links with no outcome — none). */
 function sameAsPlan(what: string, plan: ChainPlan, events: readonly WorldEvent[]): void {
-  const planned = plan.links.flatMap(l => (l.outcome && l.link.kind === 'enemy' ? [`${l.link.id}:${l.outcome.damage}:${l.outcome.killed}`] : []));
+  // A thing (task 55а) is no strike: the plan marks it, the discharge strikes nothing there.
+  const planned = plan.links.flatMap(l => (l.outcome && l.link.kind === 'enemy' && !l.outcome.thing ? [`${l.link.id}:${l.outcome.damage}:${l.outcome.killed}`] : []));
   const struck = of(events, 'chainHit').map(h => `${h.enemyId}:${h.damage}:${h.killed}`);
   assert(JSON.stringify(planned) === JSON.stringify(struck), `${what}: the plan ${planned} vs the discharge ${struck}`);
 }
@@ -288,6 +297,42 @@ check('the focus: a link adds 0.5 s, not the full reserve (v1 — the full one);
   assert(f.sim.command({ t: 'begin', x: b.x, y: b.y }) === false && !w.chain.length, 'no chain in the pause');
   tick(f, ticksOf(0.25));
   assert(f.sim.command({ t: 'begin', x: b.x, y: b.y }) === true, 'a chain after the pause');
+});
+
+// ---- A thing of the castle (task 55а; design 21.10.2026) ----
+
+check('a thing of the castle: the chain ends on the barrel unstruck; the discharge shoves it as the highlight planned (its stop, the crushed, the struck); a lone barrel — from her; no shield', () => {
+  let crushedAll = 0;
+  for (let k = 1; k <= 6; k++) {
+    for (const lone of [false, true]) {
+      const f = fight(quiet({ shove: true }), k, TOAD, 'witch-castle'), w = f.w;
+      // The seed turns the line: the barrel 2.6 from her, the weak link before it (not lone), weak bodies on the lane beyond and a tough
+      // one where the barrel may stop.
+      const dy = ((k * 37) % 9 - 4) / 10, len = Math.sqrt(1 + dy * dy), ux = 1 / len, uy = dy / len, at = (d: number): Vec => ({ x: 6 + ux * d, y: 7 + uy * d });
+      const a = lone ? null : place(f, at(1.3)), barrel = place(f, at(2.6), 0, 0, BARREL);
+      const weak = [place(f, at(4.4 + (k % 3) * 0.3)), place(f, at(6 + (k % 2) * 0.5))], tough = place(f, at(8.2 + (k % 4) * 0.4), 3, 1);
+      draw(f, a ? [a, barrel] : [barrel]);
+      assert(w.chain.length === (a ? 2 : 1), `seed ${k}: the barrel taken (${w.chain.length})`);
+      const { plan, events } = release(f);
+      const shove = plan.shove!;
+      assert(shove && shove.thing === barrel.id && !plan.seal && plan.noShield && plan.endsOnThing, `seed ${k} lone ${lone}: the highlight's shove, no figure, no shield`);
+      const dirWant = a ? { x: barrel.x - a.x, y: barrel.y - a.y } : { x: barrel.x - 6, y: barrel.y - 7 }, dl = Math.sqrt(dirWant.x ** 2 + dirWant.y ** 2);
+      assert(Math.abs(shove.dir.x - dirWant.x / dl) < 1e-6 && Math.abs(shove.dir.y - dirWant.y / dl) < 1e-6, `seed ${k} lone ${lone}: the direction — the last segment (${JSON.stringify(shove.dir)})`);
+      sameAsPlan(`seed ${k} lone ${lone}`, plan, events);
+      assert(!of(events, 'chainHit').some(h => h.enemyId === barrel.id) && w.hero.chainShield === 0 && !w.move, `seed ${k}: the barrel unstruck, no shield, no move`);
+      tick(f, ticksOf(4));
+      const crushed = shove.crushed.map(c => c.id);
+      assert(crushed.every(id => !w.enemies.some(e => e.id === id)) && weak.filter(e => !crushed.includes(e.id)).every(e => w.enemies.includes(e)), `seed ${k} lone ${lone}: the crushed as planned (${crushed})`);
+      const struck = shove.impact ? (shove.impact.killed ? !w.enemies.includes(tough) : tough.hp === 3 - shove.impact.damage) : tough.hp === 3;
+      assert(struck, `seed ${k} lone ${lone}: the tough one as planned (${JSON.stringify(shove.impact)}, HP ${tough.hp})`);
+      const thing = w.enemies.find(e => e.id === barrel.id);
+      assert(shove.breaks.includes(barrel.id) ? !thing : !!thing && Math.abs(thing.x - shove.to.x) < 1e-6 && Math.abs(thing.y - shove.to.y) < 1e-6, `seed ${k} lone ${lone}: the barrel stopped where planned`);
+      assert(of(f.events, 'shove').some(e => e.action === 'start'), `seed ${k}: the shove ran`);
+      crushedAll += crushed.length;
+      assert(replays(f), `seed ${k}: replay`);
+    }
+  }
+  assert(crushedAll > 0, 'some shove crushed somebody');
 });
 
 // ---- The items of the path ----
