@@ -283,6 +283,39 @@ check('a listed pool does not dry during the pass: released as its life runs out
   }
 });
 
+check('four pools held by the pass\u2019s list: a pot landing in the pass still lands (the hero in the pass — blocked), no fifth pool, no listed pool dries; all four light after (2 seeds)', () => {
+  for (const k of [1, 2]) {
+    const sim = yard(k, { pitchReload: 0.5, pitchGap: 0, pitchLife: 60 }, 'pitch-yard', { talismans: [], hammer: HAMMERS.fire }), w = sim.world;
+    place(sim, { x: 12, y: 6 }, 1, PITCHER, 1);
+    for (const x of [4, 5.5, 7, 8.5]) {
+      sim.command({ t: 'teleport', x, y: 6 });
+      const got = ticks(sim, ticksOf(6), [], has('pool'));
+      assert(pots(got, 'pool').length === 1, `seed ${k}: a pool at ${x}`);
+    }
+    const four = pitchPools(w).map(q => q.id);
+    assert(four.length === 4, `seed ${k}: four pools (${four.length})`);
+    // The fifth pot in the air: released so that it lands in the pass.
+    ticks(sim, ticksOf(4), [], has('throw'));
+    ticks(sim, ticksOf(2), [], ww => (potsInFlight(ww)[0]?.left ?? 0) <= 0.25);
+    assert(potsInFlight(w).length === 1, `seed ${k}: a pot in the air`);
+    sim.command({ t: 'teleport', x: 3, y: 6 });
+    draw(sim, [4.5, 6, 7.5, 9].map(x => place(sim, { x, y: 6 }, 0)));
+    const plan = planChain(w);
+    assert(JSON.stringify([...plan.fire?.pitch ?? []].sort()) === JSON.stringify([...four].sort()), `seed ${k}: the highlight lists all four (${JSON.stringify(plan.fire?.pitch)})`);
+    const hp = w.hero.hp;
+    sim.command({ t: 'release' });
+    const events: WorldEvent[] = [];
+    let landedInPass = false;
+    for (let i = 0; i < 300 && (w.move || i === 0); i++) { const now = ticks(sim, 1); events.push(...now); if (w.move && pots(now, 'land').length) landedInPass = true; }
+    assert(landedInPass && pots(events, 'land').length === 1, `seed ${k}: the pot landed in the pass`);
+    assert(!pots(events, 'pool').length && !pots(events, 'dry').length, `seed ${k}: no fifth pool, nothing dried`);
+    assert(w.hero.hp === hp, `seed ${k}: the hero in the pass not hurt (HP ${hp} → ${w.hero.hp})`);
+    const lit = pots(events, 'ignite').map(e => e.id).sort();
+    assert(JSON.stringify(lit) === JSON.stringify([...four].sort()), `seed ${k}: all four lit after the pass (${JSON.stringify(lit)})`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
 check('a burning pool: an enemy in it −1, again after 1 s — killed, credited (`pitch-fire`); the hero in it loses nothing; gone after 2 s', () => {
   const { sim } = firstPool(1, {}, { talismans: [], hammer: HAMMERS.fire }), w = sim.world, pool = pitchPools(w)[0];
   draw(sim, acrossPool(sim));
