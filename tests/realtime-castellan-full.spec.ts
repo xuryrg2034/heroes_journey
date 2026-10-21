@@ -12,6 +12,25 @@ import { gameWait } from './realtimeFrames';
  */
 const snap = (page: Page): Promise<any> => page.evaluate(() => (window as any).__realtime.snapshot());
 
+/**
+ * The pointer onto the arena point (x, y) and kept there. The camera leads towards the pointer (camera.ts: a fifth of hero→pointer), so
+ * after a move the arena point under the pointer drifts by up to that lead; the pointer follows (x, y) until the camera stopped (two
+ * reads 0.1 game s apart agree). Without it a press on a lever 1.3 from the hero lands up to 0.26 past it — on a body that stands just
+ * behind the lever the nearest-centre pick takes the body (v78 smoke, 21.10.2026).
+ */
+async function aim(page: Page, x: number, y: number): Promise<void> {
+  const screen = (): Promise<{ x: number; y: number }> => page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [x, y] as const);
+  let at = await screen();
+  await page.mouse.move(at.x, at.y);
+  for (let i = 0; i < 40; i++) {
+    await gameWait(page, 0.1);
+    const now = await screen();
+    if (Math.abs(now.x - at.x) < 0.5 && Math.abs(now.y - at.y) < 0.5) return;
+    at = now;
+    await page.mouse.move(at.x, at.y);
+  }
+}
+
 function collectErrors(page: Page): string[] {
   const errors: string[] = [];
   page.on('pageerror', error => errors.push(error.message));
@@ -56,8 +75,8 @@ test('task 43: «Двор кастеляна (полный)» — «за реш�
   expect(core.armor?.plates).toBe(5);
   // The hero at the moat's yard edge below the core: the pointer over the core — «за решёткой»; a press takes nothing.
   await page.evaluate(() => (window as any).__realtime.teleport(10, 5.6));
-  const pc = await settled(core.x, core.y);
-  await page.mouse.move(pc.x, pc.y);
+  await settled(core.x, core.y);
+  await aim(page, core.x, core.y);
   await expect.poll(async () => (await read()).loop.hintText).toBe('за решёткой');
   await page.mouse.down();
   await page.mouse.up();
@@ -67,8 +86,8 @@ test('task 43: «Двор кастеляна (полный)» — «за реш�
   const lever = (await read()).objects.find(o => o.kind === 'lever' && o.gate && o.y > 12)!;
   await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [lever.x, lever.y - 1.3] as const);
   // The camera follows the hero: the screen points are read once it settled.
-  const pl = await settled(lever.x, lever.y);
-  await page.mouse.move(pl.x, pl.y);
+  await settled(lever.x, lever.y);
+  await aim(page, lever.x, lever.y);
   await page.mouse.down();
   await expect.poll(async () => (await read()).chain).toEqual([lever.id]);
   await page.mouse.up();
@@ -77,7 +96,7 @@ test('task 43: «Двор кастеляна (полный)» — «за реш�
   await page.evaluate(() => (window as any).__realtime.teleport(10, 5.6));
   const pw = await settled(core.x, core.y);
   await page.mouse.move(pw.x + 2, pw.y + 2);
-  await page.mouse.move(pw.x, pw.y);
+  await aim(page, core.x, core.y);
   await expect.poll(async () => (await read()).loop.hintText).toBe(null);
   await page.mouse.down();
   await expect.poll(async () => (await read()).chain).toEqual([core.id]);
@@ -136,8 +155,8 @@ test('task 43 view: the court — the gallery in view, levers, the grate and its
   // stands by the goal arrow.
   const lever = (await snap(page)).objects.find((o: { kind: string; gate?: boolean; y: number }) => o.kind === 'lever' && o.gate && o.y > 12);
   await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [lever.x, lever.y - 1.3] as const);
-  const pl = await settled(lever.x, lever.y);
-  await page.mouse.move(pl.x, pl.y);
+  await settled(lever.x, lever.y);
+  await aim(page, lever.x, lever.y);
   await page.mouse.down();
   await expect.poll(async () => (await snap(page)).chain).toEqual([lever.id]);
   await page.screenshot({ path: 'artifacts/realtime-court-lever-chain.png' });
