@@ -18,6 +18,7 @@ import { dist, type Vec } from './geometry';
 import type { Enemy, World } from './world';
 import { boomerangFull } from './fusions';
 import { trollShut } from './enemies/troll';
+import { chiefGuarded } from './enemies/chief';
 
 /** «Возврат»: reach from the way back (plus the body radius). */
 export const RETURN_RADIUS = 0.5;
@@ -79,7 +80,8 @@ export function firstTouch(world: World, path: readonly Vec[], e: Enemy, reach: 
 export function returnTargets(world: World, path: readonly Vec[], skip: readonly number[]): { e: Enemy; at: number }[] {
   return enemiesNearPath(world, path, RETURN_RADIUS)
     // Task 48: the Troll's core closed (its window's hit spent) — the run passes it by.
-    .filter(e => !skip.includes(e.id) && !trollShut(world, e))
+    // Task 54: the Chief's core under the feast's rule — the run passes it by.
+    .filter(e => !skip.includes(e.id) && !trollShut(world, e) && !chiefGuarded(world, e))
     .map(e => ({ e, at: firstTouch(world, path, e, RETURN_RADIUS) }))
     .sort((a, b) => a.at - b.at);
 }

@@ -1,5 +1,5 @@
 /**
- * Task 57а (ui report 17.10.2026: the page fell with «Cannot access 'shooters' before initialization»): every module of the simulation
+ * Tasks 57а, 55а (ui report 17.10.2026: the page fell with «Cannot access 'shooters' before initialization»): every module of the simulation
  * that registers or reads a registry at its load must work when it is the FIRST module imported — the view imports them in its own
  * order (a cycle shots ⇄ enemies broke it). Each module below is imported first in a fresh Node process. Node only:
  * `npm run test:realtime-import-order`.
@@ -7,7 +7,7 @@
 // @ts-expect-error node modules have no declarations here
 import { spawnSync } from 'node:child_process';
 // @ts-expect-error node modules have no declarations here
-import { readdirSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 // @ts-expect-error node modules have no declarations here
 import { dirname, join } from 'node:path';
 // @ts-expect-error node modules have no declarations here
@@ -20,7 +20,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const plain = (f: string): boolean => f.endsWith('.ts') && !f.endsWith('.spec.ts') && !f.endsWith('.testkit.ts');
 // The registries' modules and every kind (they register at load), the world and the runner.
 const modules = [
-  ...['shots.ts', 'shooterRegistry.ts', 'world.ts', 'chain.ts', 'simulation.ts', 'hash.ts', 'items.ts', 'spawn.ts'].map(f => join(here, f)),
+  ...['shots.ts', 'shooterRegistry.ts', 'shove.ts', 'world.ts', 'chain.ts', 'simulation.ts', 'hash.ts', 'items.ts', 'spawn.ts'].map(f => join(here, f)).filter((f: string) => existsSync(f)),
   ...readdirSync(join(here, 'enemies')).filter(plain).map((f: string) => join(here, 'enemies', f)),
 ];
 const failed: string[] = [];

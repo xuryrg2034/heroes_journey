@@ -8,6 +8,7 @@
 import { OUTPOST_ARENA, registerArena, type ArenaTemplate } from './arenas';
 import { JAILER, JAILER_ARENA_HP, JAILER_WEIGHT } from './enemies/jailer';
 import { TROLL, TROLL_CLUB, TROLL_ROCK, TROLL_TAIL } from './enemies/troll';
+import { CHIEF, CHIEF_LADLE, CHIEF_SACK } from './enemies/chief';
 import { pond, tree, wall } from './geometry';
 
 /** Task 48: the den's back wall reaches y = this (the core at 2.2, its body 0.32: a hero's body of 0.28 cannot stand between). */
@@ -103,10 +104,63 @@ export const TROLL_ARENA: ArenaTemplate = registerArena({
   gates: [{ x: 0.8, y: 6 }, { x: 23.2, y: 6 }, { x: 12, y: 14.4 }],
 });
 
+/**
+ * Task 54 «Главарь с котелком» (design 17.10.2026, docs/design-notes/task-54-chief.md, 5; the layout's owner — level-designer, these
+ * are the spec's first numbers): «Стан Главаря», 24×15 — the chief's yard behind a palisade across the field (a gate of 6 in its
+ * centre, passages of 4 at the edges); the Chief stands by his cauldron (an obstacle circle of 1.0) at the back palisade (no place
+ * behind him), the ladle in his right hand, the sack over his left shoulder; the eaters' seats a half-ring of 1.6 round him from the
+ * south; a brazier at each gate post (a long chain through the crowd in the gate takes +2), a watering hole in the east of the yard
+ * (slows the crowd), four tents (cover from «Горсть перца»), three gates (`gates`: west, east, south) where «Свисток» calls, the door
+ * behind the back palisade (open with the Chief's death, `bossClears`). The crowd: basic enemies only (and the tough), no wolf packs,
+ * no boars; its floor and pace × `chiefCrowd`. The arena turns on the frame, the boss's death ending the fight, the colourless core,
+ * the boss's solid bodies and the Chief's feast for itself.
+ */
+export const CHIEF_ARENA: ArenaTemplate = registerArena({
+  id: 'chief',
+  name: 'Стан Главаря',
+  summary: 'Босс: Главарь у котелка. Вне «Обеда!» его не ранит ничто. На «Обед!» гоблины у котелка берут цвет варева, четверо садятся есть; 4 с Главаря берёт цепь цвета варева, в которой до него не меньше трёх звеньев этого цвета. Отруби половник и мешок — каждая часть снимает пластину. Убей Главаря — бой кончится, дверь откроется.',
+  goal: 'marked',
+  width: 24,
+  height: 15,
+  heroStart: { x: 12, y: 12.5 },
+  obstacles: [
+    // The back palisade: no place behind the cauldron and the Chief.
+    wall(8, 0, 8, 1.6),
+    // The cauldron (a solid circle; «Обед!»'s centre — `chief.cauldron`).
+    { shape: 'circle', kind: 'tree', x: 12.8, y: 2.9, r: 1 },
+    // The yard's palisade: the gate in the centre (6), the passages at the edges (4).
+    wall(4, 8.6, 5, 0.8),
+    wall(15, 8.6, 5, 0.8),
+    pond(19.5, 5.5, 1.5),
+    tree(4, 4),
+    tree(20.5, 2.5),
+    tree(3.5, 12),
+    tree(20.5, 12),
+  ],
+  braziers: [{ x: 9.6, y: 9 }, { x: 14.4, y: 9 }],
+  buttons: [],
+  door: { x: 21.5, y: 0.8 },
+  // The parts' colours are rolled by the seed (enemies/chief.ts `partColors`), the core's is the brew; the template's are placeholders.
+  enemies: [
+    { x: 11, y: 3, color: 1, kind: CHIEF, marked: true },
+    { x: 11.6, y: 2.2, color: 0, kind: CHIEF_LADLE },
+    { x: 10.2, y: 2.2, color: 1, kind: CHIEF_SACK },
+  ],
+  phaseOverride: { wolfShare: 0, boarShare: 0 },
+  bossFrame: true,
+  bossClears: true,
+  jailerColorless: true,
+  chief: { cauldron: { x: 12.8, y: 2.9 }, seats: [{ x: 11.8, y: 4.4 }, { x: 10.7, y: 4.6 }, { x: 9.8, y: 4 }, { x: 9.4, y: 3 }] },
+  gates: [{ x: 1, y: 5 }, { x: 23, y: 5 }, { x: 12, y: 14.4 }],
+});
+
 /** The boss arenas of the sandbox menu (the view adds them after the camera samples). */
 export const BOSS_ARENAS: readonly ArenaTemplate[] = [JAILER_ARENA];
-/** Task 48: the forest's boss of the sandbox menu — at its end, after the garrison's arenas (`?arena=30`: the numbers before stay). */
-export const FOREST_BOSS_ARENAS: readonly ArenaTemplate[] = [TROLL_ARENA];
+/**
+ * Task 48: the forest's bosses of the sandbox menu — at its end, after the garrison's arenas (`?arena=30` the Troll; task 54:
+ * `?arena=31` the Chief — the numbers before stay).
+ */
+export const FOREST_BOSS_ARENAS: readonly ArenaTemplate[] = [TROLL_ARENA, CHIEF_ARENA];
 /** Task 48: the arenas of the run's Troll fight (run/rtRun.ts `RtRunState.troll`; a save names only these at its den boss). */
 export const TROLL_RUN_ARENAS: readonly string[] = [TROLL_ARENA.id];
 /** Task 28: the arenas of the run's Jailer fight (run/rtRun.ts; a save names only these at its Jailer node). */

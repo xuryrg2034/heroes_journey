@@ -23,10 +23,11 @@ export const RT_TELEMETRY_SCHEMA = 1;
 export const ID_SEGMENT_RE = /^[A-Za-z0-9_-]{1,64}$/;
 /**
  * A record id: `S/R/run`, `S/R/<fight>/fight`, `S/R/<fight>/j<i>of<n>`, `S/R/<fight>/n<tick>` (S — session, R — run);
- * `S/P/prologue` — one playthrough of the prologue «Опушка» (P — its key `prologueKey`; from 13.10.2026).
+ * `S/P/prologue` — one playthrough of the prologue «Опушка» (P — its key `prologueKey`; from 13.10.2026); `S/W/warmup` — one attempt
+ * of the camp's warmup (W — its key `warmupKey`; task 51ж, 17.10.2026).
  * The Vite plugin (ТC) checks every POSTed id with it: a valid id is a safe relative path.
  */
-export const RECORD_ID_RE = /^[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9_-]{1,64}\/(?:run|prologue|[A-Za-z0-9_-]{1,64}\/(?:fight|j(?:0|[1-9][0-9]{0,5})of[1-9][0-9]{0,5}|n(?:0|[1-9][0-9]{0,9})))$/;
+export const RECORD_ID_RE = /^[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9_-]{1,64}\/(?:run|prologue|warmup|[A-Za-z0-9_-]{1,64}\/(?:fight|j(?:0|[1-9][0-9]{0,5})of[1-9][0-9]{0,5}|n(?:0|[1-9][0-9]{0,9})))$/;
 /** The run key of the sandbox fights (decision 8). */
 export const SANDBOX_RUN = 'sandbox';
 
@@ -50,6 +51,8 @@ export function runKey(timeMs: number, seed: number): string { return `r${count(
 
 /** A prologue key: `p<start time base36>-<salt hex>` (one playthrough of the prologue «Опушка»; the header's `run`). */
 export function prologueKey(timeMs: number, salt: number): string { return `p${count(Math.floor(timeMs), 'time').toString(36)}-${(salt >>> 0).toString(16)}`; }
+/** A warmup key: `w<start time base36>-<salt hex>` (one attempt of the camp's warmup; the header's `run`). */
+export function warmupKey(timeMs: number, salt: number): string { return `w${count(Math.floor(timeMs), 'time').toString(36)}-${(salt >>> 0).toString(16)}`; }
 
 /**
  * A fight key: `f<index, 2 digits>-<node>-a<attempt>` (`f03-n5a-a1`). `index` — the fight's number in the run (or the
@@ -64,6 +67,7 @@ export function fightKey(index: number, nodeId: string | null | undefined, attem
 
 export const runRecordId = (session: string, run: string): string => `${segment(session, 'session')}/${segment(run, 'run')}/run`;
 export const prologueRecordId = (session: string, key: string): string => `${segment(session, 'session')}/${segment(key, 'prologue key')}/prologue`;
+export const warmupRecordId = (session: string, key: string): string => `${segment(session, 'session')}/${segment(key, 'warmup key')}/warmup`;
 export const fightRecordId = (session: string, run: string, fight: string): string => `${segment(session, 'session')}/${segment(run, 'run')}/${segment(fight, 'fight')}/fight`;
 export function journalPartId(session: string, run: string, fight: string, index: number, parts: number): string {
   if (count(index, 'part') >= count(parts, 'parts')) throw new Error(`telemetry id: part ${index} of ${parts}`);
@@ -76,6 +80,7 @@ export const noteRecordId = (session: string, run: string, fight: string, tick: 
 export type ParsedRecordId =
   | { kind: 'run'; session: string; run: string }
   | { kind: 'prologue'; session: string; run: string }
+  | { kind: 'warmup'; session: string; run: string }
   | { kind: 'fight'; session: string; run: string; fight: string }
   | { kind: 'journal'; session: string; run: string; fight: string; index: number; parts: number }
   | { kind: 'note'; session: string; run: string; fight: string; tick: number };
@@ -85,6 +90,7 @@ export function parseRecordId(id: unknown): ParsedRecordId | null {
   const [session, run, fight, last] = id.split('/');
   if (fight === 'run' && last === undefined) return { kind: 'run', session, run };
   if (fight === 'prologue' && last === undefined) return { kind: 'prologue', session, run };
+  if (fight === 'warmup' && last === undefined) return { kind: 'warmup', session, run };
   if (last === 'fight') return { kind: 'fight', session, run, fight };
   const part = /^j(\d+)of(\d+)$/.exec(last);
   if (part) {
@@ -96,7 +102,7 @@ export function parseRecordId(id: unknown): ParsedRecordId | null {
 
 // ---- Records ----
 
-export type RtRecordKind = 'run' | 'fight' | 'journal' | 'note' | 'prologue';
+export type RtRecordKind = 'run' | 'fight' | 'journal' | 'note' | 'prologue' | 'warmup';
 
 /** The common header of every record. */
 export interface RtHeader {
@@ -324,6 +330,12 @@ export interface RunHearth {
    * «Склянка в гарнизон» — the kinds offered and the one taken; «Правка в гарнизоне» — the garrison's free rerolls given. Absent — none.
    */
   garrisonMaps?: number; garrisonMap?: number; gateItems?: string[]; gateItem?: string; garrisonRerolls?: number;
+  /** Task 51в (Шиш, from 17.10.2026): «Шишова лавка» (1; with «Лавка в гарнизоне» 2) and «Размен» given. */
+  shopRerolls?: number; swap?: true;
+  /** Task 51г (Евлампий, from 17.10.2026): the vows taken. */
+  vows?: string[];
+  /** Task 51д (from 17.10.2026): the NPC away for this run. */
+  away?: string;
 }
 /** Task 44: the fusions of a run (`RunRecord.fusions`). Rows are run rows (1…). */
 export interface RunFusions {
@@ -334,6 +346,11 @@ export interface RunFusions {
 }
 /** Task 37: the run's quest and (once the run ended) whether it was done. */
 export interface RunQuest { npc: string; id: string; done?: boolean }
+/**
+ * Task 56 «Приметы»: a choice of the route where an omen stood among the nodes open (`RunRecord.omenRoutes`) — the level and the run row
+ * of the node taken, the nodes open with their omens as the map showed them, the node taken.
+ */
+export interface RunOmenRoute { level: number; row: number; offered: { nodeId: string; omen?: string }[]; chosen: string }
 /** Task 50: a card of the knack screen (`RunKnack`): a counter to rank II (`hone`) or a new one. */
 export interface RunKnackCard { id: string; hone?: true }
 /** Task 50 «Сноровка»: one knack screen of a run (`RunRecord.knacks`) — its node and run row, the cards, the one taken (null — «Пропустить»), real seconds open. */
@@ -435,6 +452,12 @@ export interface RunRecord extends RtHeader {
   /** Task 37: what the camp gave this run at its start; the run's quest. */
   hearth?: RunHearth;
   quest?: RunQuest;
+  /** Task 51в (from 17.10.2026): the NPCs who came to the camp after this run — `path` the deed or the fallback, the viewer's run number. */
+  arrive?: { npc: string; path: 'deed' | 'self'; viewerRun?: number }[];
+  /** Task 51г (from 17.10.2026): the run's vows, each kept or not (counted runs only: the Jailer's row reached). */
+  vows?: { id: string; kept: boolean }[];
+  /** Task 51д (from 17.10.2026): the NPC away of this run — met at a rest of its zone (its node, the deal) or not («не дождался»). */
+  npcMeet?: { npc: string; met: boolean; nodeId?: string; deal?: string };
   /**
    * Task 44 «Сплавы» (from 16.10.2026): the run has fusions (`RtRunState.fusions`) and what happened to them — the halves taken (their
    * row), the pairs collected, the fusions made at a rest and the rests closed by the heal or the craft with a pair ready. Absent — a
@@ -453,6 +476,11 @@ export interface RunRecord extends RtHeader {
    * (absent — «Без повадки», or not chosen yet). `heroId` of the meta stands beside it (task 49 compares them).
    */
   habitsOn?: true;
+  /**
+   * Task 51з «Поход дня» (from 17.10.2026): the run of the day — its date, the attempt's number on the date (1 — the first), whether it
+   * is the first, and `verified` — its proof passed the check by replay («Проверить»). Absent — an ordinary run (older records too).
+   */
+  daily?: { date: string; attempt: number; first: boolean; verified?: true };
   habit?: string;
   /** Task 49 «Второй герой» (from 16.10.2026): the run's hero other than the cat (`RtRunState.heroId`); absent — the cat (older records too). */
   hero?: 'toad';
@@ -461,6 +489,18 @@ export interface RunRecord extends RtHeader {
    * Absent — none.
    */
   freed?: { hero: 'toad'; row: number };
+  /**
+   * Task 56 «Приметы» (from 17.10.2026): the run had the omens (`RtRunState.omens`) — its pool, the levels' omens (as each level began),
+   * the route choices where an omen stood among the nodes open (`omenRoutes`: written only then), the steps off the map's links under
+   * «Перепутье». Absent — a run without them (older records too).
+   */
+  omensOn?: true;
+  omenPool?: string[];
+  levelOmens?: { level: number; id: string }[];
+  omenRoutes?: RunOmenRoute[];
+  crossroadsSteps?: number;
+  /** Task 56 «Ярмарочный день»: the omen's free rerolls spent (merchants). Absent — none. */
+  fairRerolls?: number;
   /** The Params of the run, once per run (decision 3): the journals name them by `params.hash`. Named `runParams` because `params` is the header's `{storage, hash}`. */
   runParams: Params;
 }
@@ -481,6 +521,8 @@ export interface FightRecord extends RtHeader {
   level?: 2;
   /** Task 26 (from 15.10.2026): the scheduled fight's arc (`RunNode.arc`; `practice`); absent — not a scheduled fight (older records too). */
   arc?: string;
+  /** Task 56 «Приметы» (from 17.10.2026): the fight's omens — its node's and its level's (the run's battle card); absent — none (older records too). */
+  omens?: { id: string; scope: 'node' | 'level' }[];
   seed: number;
   outcome: FightOutcome;
   /** Ticks run and game seconds (`world.time`). */
@@ -593,7 +635,31 @@ export interface PrologueRecord extends RtHeader {
 /** Rooms of a prologue record without `roomCount` (task 6, before 13.10.2026 task 9). */
 export const PROLOGUE_ROOMS_V1 = 6;
 
-export type RtRecord = RunRecord | FightRecord | JournalPart | NoteRecord | PrologueRecord;
+/** How a warmup attempt ended: its time limit, a clear field, the hero's death, or «Выход» (the view's own end; no score). */
+export type WarmupEndKind = 'limit' | 'clear' | 'death' | 'exit';
+
+/**
+ * The warmup record (`S/W/warmup`, task 51ж, 17.10.2026; telemetry/warmup.ts): one attempt of a camp's warmup layout (run/warmup.ts)
+ * — light, without its journal (the layouts' determinism is checked by the Node tests). Older logs have none; the report's section
+ * «Разминка» reads «нет данных».
+ */
+export interface WarmupRecord extends RtHeader {
+  kind: 'warmup';
+  /** The layout (`warmup-line`, `warmup-mix`, `warmup-gap`). */
+  layout: string;
+  end: WarmupEndKind;
+  /** The attempt's score (`warmupScore`); null — none (a death, an exit, «Пестрота» not cleared, nothing done). */
+  score: number | null;
+  /** The layout's best before the attempt (null — none). */
+  before: number | null;
+  /** The attempt set a new best (the view's line `warmup_record`). */
+  record: boolean;
+  /** Game seconds of the attempt (`world.time`) and real ones (frames without pause), to 0.01. */
+  gameSeconds: number;
+  realSeconds: number;
+}
+
+export type RtRecord = RunRecord | FightRecord | JournalPart | NoteRecord | PrologueRecord | WarmupRecord;
 
 /** A receiver of records (the artifact's `window.__rtTelemetrySink`, the dev-server channel …). A failed write keeps the record in the browser buffer. */
 export interface RtTelemetrySink {
@@ -647,7 +713,12 @@ function runMetaOk(r: Record<string, unknown>): boolean {
     // Task 51б: level 3 of the camp.
     && (hearth.garrisonMaps === undefined || whole(hearth.garrisonMaps, 2)) && (hearth.garrisonMap === undefined || whole(hearth.garrisonMap))
     && (hearth.gateItems === undefined || (Array.isArray(hearth.gateItems) && hearth.gateItems.every(id => typeof id === 'string'))) && (hearth.gateItem === undefined || typeof hearth.gateItem === 'string')
-    && (hearth.garrisonRerolls === undefined || whole(hearth.garrisonRerolls, 1)))) return false;
+    && (hearth.garrisonRerolls === undefined || whole(hearth.garrisonRerolls, 1))
+    && (hearth.shopRerolls === undefined || whole(hearth.shopRerolls, 1)) && (hearth.swap === undefined || hearth.swap === true)
+    && (hearth.vows === undefined || (Array.isArray(hearth.vows) && hearth.vows.every(id => typeof id === 'string'))) && (hearth.away === undefined || typeof hearth.away === 'string'))) return false;
+  if (r.npcMeet !== undefined && !(plain(r.npcMeet) && typeof r.npcMeet.npc === 'string' && typeof r.npcMeet.met === 'boolean' && (r.npcMeet.nodeId === undefined || typeof r.npcMeet.nodeId === 'string') && (r.npcMeet.deal === undefined || typeof r.npcMeet.deal === 'string'))) return false;
+  if (r.vows !== undefined && !(Array.isArray(r.vows) && r.vows.every(v => plain(v) && typeof v.id === 'string' && typeof v.kept === 'boolean'))) return false;
+  if (r.arrive !== undefined && !(Array.isArray(r.arrive) && r.arrive.every(a => plain(a) && typeof a.npc === 'string' && (a.path === 'deed' || a.path === 'self') && (a.viewerRun === undefined || whole(a.viewerRun, 1))))) return false;
   if (quest !== undefined && !(plain(quest) && typeof quest.npc === 'string' && typeof quest.id === 'string' && (quest.done === undefined || typeof quest.done === 'boolean'))) return false;
   return true;
 }
@@ -698,6 +769,11 @@ export function checkRecord(value: unknown): string | null {
       // Task 50 (16.10.2026): optional — the knack screens (cards with an id, a node, a row), the counters on rank II, the archetype.
       if (r.knacksOn !== undefined && r.knacksOn !== true) return 'run knacksOn';
       if (r.habitsOn !== undefined && r.habitsOn !== true) return 'run habitsOn';
+      // Task 51з (17.10.2026): optional — the run of the day.
+      if (r.daily !== undefined) {
+        const d = r.daily as Record<string, unknown> | null;
+        if (!d || typeof d !== 'object' || typeof d.date !== 'string' || !Number.isInteger(d.attempt) || (d.attempt as number) < 1 || typeof d.first !== 'boolean' || (d.verified !== undefined && d.verified !== true)) return 'run daily';
+      }
       if (r.habit !== undefined && !(typeof r.habit === 'string' && r.habitsOn === true)) return 'run habit';
       // Task 49 (16.10.2026): optional — the run's hero (`toad`), the hero this run freed and the row.
       if (r.hero !== undefined && r.hero !== 'toad') return 'run hero';
@@ -741,6 +817,8 @@ export function checkRecord(value: unknown): string | null {
       if (r.resources !== undefined && !runResourcesOk(r.resources)) return 'run resources';
       // Tasks 36–37 (15.10.2026): optional — the meta of the run and the camp.
       if (!runMetaOk(r)) return 'run meta';
+      // Task 56 (17.10.2026): optional — the omens of the run.
+      if (!runOmensOk(r)) return 'run omens';
       return null;
     case 'fight': {
       if (r.fight !== parsed.fight || typeof r.arena !== 'string' || !num('seed') || !num('ticks') || !num('time') || !num('hpIn') || !num('hpOut') || typeof r.endHash !== 'string' || !r.summary) return 'fight fields';
@@ -748,6 +826,10 @@ export function checkRecord(value: unknown): string | null {
       if (r.arc !== undefined && !(typeof r.arc === 'string' && r.arc.length > 0)) return 'fight arc';
       // Task 38: the garrison's fights only (a node of the garrison).
       if (r.level !== undefined && !(r.level === 2 && typeof r.nodeId === 'string' && r.nodeId.startsWith('g:'))) return 'fight level';
+      // Task 56: the fight's omens (a run's fight), the counters of the summary.
+      if (r.omens !== undefined && !(typeof r.nodeId === 'string' && Array.isArray(r.omens) && r.omens.length && r.omens.every(o => { const x = o as Record<string, unknown> | null; return !!x && typeof x.id === 'string' && (x.scope === 'node' || x.scope === 'level'); }))) return 'fight omens';
+      const fired = (r.summary as Record<string, unknown>).omenFired;
+      if (fired !== undefined && !(!!fired && typeof fired === 'object' && Object.values(fired).every(v => typeof v === 'number' && Number.isFinite(v) && v >= 0))) return 'fight omenFired';
       const j = r.journal as Record<string, unknown> | undefined;
       if (!j || typeof j.parts !== 'number' || typeof j.chars !== 'number' || typeof j.digest !== 'string' || typeof j.encoding !== 'string') return 'fight journal meta';
       return null;
@@ -778,6 +860,14 @@ export function checkRecord(value: unknown): string | null {
           return !!x && typeof x === 'object' && typeof x.inside === 'boolean' && nullNum(x.outAfter) && nullNum(x.damage);
         }))) return 'prologue room busts';
       }
+      return null;
+    }
+    case 'warmup': {
+      if (typeof r.layout !== 'string' || !['limit', 'clear', 'death', 'exit'].includes(r.end as string)) return 'warmup layout or end';
+      const score = (x: unknown): boolean => x === null || (typeof x === 'number' && Number.isFinite(x) && x > 0);
+      if (!score(r.score) || !score(r.before) || typeof r.record !== 'boolean') return 'warmup score, before or record';
+      if (r.record && r.score === null) return 'warmup record without a score';
+      if (!['gameSeconds', 'realSeconds'].every(k => num(k) && (r[k] as number) >= 0)) return 'warmup seconds';
       return null;
     }
   }
@@ -1006,6 +1096,12 @@ export interface FightSummary {
    * a replay cannot see them (not compared by `summaryDiff`). Absent — not counted (the sandbox, older records).
    */
   novelty?: number;
+  /**
+   * Task 56 «Приметы» (from 17.10.2026; absent — no omen rule acted, older records too): the omens' counters from the world — `storm:strike`,
+   * `storm:kill`, `storm:hero` (hits), `drowse:woke` (the game second), `rollcall:touch`, `harvest:resetAll`; the released links taken in
+   * water (`flood:wet`) and of the colour on the roll call (`rollcall:link`).
+   */
+  omenFired?: Record<string, number>;
 }
 
 /**
@@ -1413,3 +1509,19 @@ export const nullObserver: FightObserverFactory = () => ({ command() { /* nothin
  * view replays the journal up to `tick` and shows that world, paused.
  */
 export type ReplayTo = (journal: Journal, tick: number) => Promise<void>;
+
+/** Task 56 «Приметы»: the omen fields of a run record — only with `omensOn`; the pool and the ids strings; the routes and the count whole. */
+function runOmensOk(r: Record<string, unknown>): boolean {
+  const on = r.omensOn === true, strings = (x: unknown): boolean => Array.isArray(x) && x.every(id => typeof id === 'string');
+  if (r.omensOn !== undefined && !on) return false;
+  if (r.omenPool !== undefined && !(on && strings(r.omenPool))) return false;
+  if (r.levelOmens !== undefined && !(on && Array.isArray(r.levelOmens) && r.levelOmens.every(l => { const o = l as Record<string, unknown> | null; return !!o && Number.isInteger(o.level) && typeof o.id === 'string'; }))) return false;
+  if (r.omenRoutes !== undefined && !(on && Array.isArray(r.omenRoutes) && r.omenRoutes.every(route => {
+    const o = route as Record<string, unknown> | null;
+    return !!o && Number.isInteger(o.level) && Number.isInteger(o.row) && typeof o.chosen === 'string' && Array.isArray(o.offered)
+      && o.offered.every(n => { const x = n as Record<string, unknown> | null; return !!x && typeof x.nodeId === 'string' && (x.omen === undefined || typeof x.omen === 'string'); });
+  }))) return false;
+  if (r.crossroadsSteps !== undefined && !(on && Number.isInteger(r.crossroadsSteps) && (r.crossroadsSteps as number) >= 1)) return false;
+  if (r.fairRerolls !== undefined && !(on && Number.isInteger(r.fairRerolls) && (r.fairRerolls as number) >= 1)) return false;
+  return true;
+}

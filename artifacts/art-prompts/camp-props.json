@@ -71,5 +71,11 @@
     "file": "public/art/camp/trophy-chain.png",
     "generator": "built-in image_gen",
     "prompt": "a long thin chain coiled into a ring, bright turquoise glow on the links Use case: stylized-concept. Production transparent PNG game prop icon for Ashen Oath. ONE object only, centered, front three-quarter view, chunky readable silhouette that reads at 48px, 8% empty margin. Whimsical dark-fantasy 2D indie-game illustration, thick irregular dark NAVY outline, thinner interior lines, flat color blocks, simple two-step cel shading, minimal detail, no texture, no grain. Palette: deep navy, slate blue, muted steel blue, dark violet, desaturated turquoise, small warm-orange and pale-yellow accents, plus the object's natural colours. GENUINELY TRANSPARENT alpha background, no scenery, no floor, no shadow, no text, no letters, no numbers, no labels, no frame, no sheet. NOT photorealistic, NOT painterly, NOT 3D, NOT glossy."
+  },
+  {
+    "id": "warmup-dummies",
+    "file": "public/art/camp/warmup-dummies.png",
+    "generator": "built-in image_gen",
+    "prompt": "two straw training dummies standing on two short sawn tree stumps, side by side, the left one slightly taller and leaning, burlap sack heads with stitched X marks and a twine belt, one has a small dent of an axe cut and loose straw sticking out, a rough wooden peg through each dummy into its stump Use case: stylized-concept. Production transparent PNG game prop for Ashen Oath, placed at a forest campfire. ONE prop group only (two dummies on two stumps), centered, front three-quarter view, chunky readable silhouette that reads at 64px, 8% empty margin. Whimsical dark-fantasy 2D indie-game illustration, thick irregular dark NAVY outline, thinner interior lines, large angular asymmetric shapes, flat color blocks, simple two-step cel shading, minimal detail, no texture, no grain. Palette: deep navy, slate blue, muted steel blue, dark violet, desaturated turquoise, warm straw yellow and ochre, brown wood, small warm-orange firelight accents on the right side. GENUINELY TRANSPARENT alpha background, no scenery, no floor, no grass, no shadow, no text, no letters, no numbers, no labels, no frame, no sheet. No faces drawn except stitched X marks. NOT photorealistic, NOT painterly, NOT anime, NOT 3D, NOT glossy."
   }
 ]

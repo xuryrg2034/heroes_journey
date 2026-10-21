@@ -58,12 +58,15 @@ export const KIND_PLURAL: Readonly<Record<string, string>> = {
   troll: 'Тролль', 'troll-club': 'дубины', 'troll-rock': 'камни', 'troll-tail': 'хвосты',
   // Task 57а (spec 12): the forest shooters.
   slinger: 'пращники', hive: 'ульи', wisp: 'светляки',
+  // Task 54a (the Chief's fight at its start: the core and his two parts).
+  chief: 'Главарь', 'chief-ladle': 'половники', 'chief-sack': 'мешки',
 };
 /** Task 43: a garrison kind standing once at the fight's start (the card counts the start: «псарь, псы ×2»). */
 export const KIND_ONE: Readonly<Record<string, string>> = {
   basic: 'обычный', guard: 'стражник', handler: 'псарь', hound: 'пёс', keymaster: 'ключник', crossbow: 'арбалетчик', knight: 'рыцарь', castellan: 'Кастелян', 'castellan-crossbow': 'арбалет на станке',
   troll: 'Тролль', 'troll-club': 'дубина', 'troll-rock': 'камень', 'troll-tail': 'хвост',
   slinger: 'пращник', hive: 'улей', wisp: 'светляк',
+  chief: 'Главарь', 'chief-ladle': 'половник', 'chief-sack': 'мешок',
 };
 
 /**

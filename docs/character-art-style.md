@@ -169,6 +169,7 @@ NOT smooth plastic surfaces, NOT excessive gradients.
 Предметы для задачи 51 (разделы 3.4 и 4), Codex `image_gen`, промпты — `artifacts/art-prompts/camp-props.json`; RGBA, прозрачный фон, проверено глазами на листе 16.10.2026 — стиль един с `troll-club.png` и `jailer-cage.png`, читаются в малом размере. Подключение — ui с видом задачи 51.
 - `public/art/camp/trace-basket.png` (корзина Марфы), `trace-wheel.png` (точильное колесо Ерофея), `trace-mug.png` (кружка с костями Шиша) — около 512 px.
 - `public/art/camp/trophy-jailer.png` (гиря с цепью), `trophy-severed.png` (обрубок цепи), `trophy-troll.png` (рог Тролля), `trophy-chief.png` (котелок Главаря), `trophy-shackles.png` (сломанные кандалы), `trophy-castellan.png` (знамя Кастеляна), `trophy-ash.png` (доска Испытания с восемью засечками), `trophy-bestiary.png` (чернильница Неясыти), `trophy-chain.png` (длинная цепь кольцом) — 256×256.
+- `public/art/camp/warmup-dummies.png` — «Чурбаки» разминки 51ж: два соломенных чучела на пнях, мешковина с крестом-стежком, 975×1000; `check-art.mjs` PASS 21.10.2026, глазами — стиль един со следами. Подключение — ui (вид 51ж), до него — SVG-замена.
 
 ### Босс леса — Главарь с котелком (17.10.2026)
 
@@ -199,4 +200,4 @@ NOT smooth plastic surfaces, NOT excessive gradients.
 
 Наборы для задач 59 и 60, Codex `image_gen`, промпты — `artifacts/art-prompts/garrison.json` и `castle.json`; обрезка по силуэту (2 %) сделана дизайном после генерации. `check-art.mjs` — PASS для восьми; глазами — стиль един с гарнизоном и замком 1а.
 - Гарнизон: `garrison-pitcher.png` (Смолокур — горшок со смолой на плече), `garrison-recruit.png` (Новобранец — шлем на глаза, бирка без номера: номер рисует вид), `garrison-warden.png` (Привратник — алебарда-ключ, половина лат цветная).
-- Замок: `castle-queen.png` (Ферзь), `castle-butler.png` (Дворецкий — вешалка во фраке с подносом), `castle-chandelier.png` (Люстра), `castle-poltergeist.png` (Полтергейст), `castle-jester.png` (Шут). `castle-candelabra.png` (Подсвечник) — повтор генерации (первые две попытки не дали картинки).
+- Замок: `castle-queen.png` (Ферзь), `castle-butler.png` (Дворецкий — вешалка во фраке с подносом), `castle-chandelier.png` (Люстра), `castle-poltergeist.png` (Полтергейст), `castle-jester.png` (Шут). `castle-candelabra.png` (Подсвечник) — кованый крест с четырьмя свечами (бирюзовое пламя), лицо на основании; первая версия была слишком похожа на известного мультперсонажа-подсвечник и заменена (17.10.2026).

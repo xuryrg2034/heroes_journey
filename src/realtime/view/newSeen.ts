@@ -42,6 +42,9 @@ export const KIND_CAPTIONS: Readonly<Record<string, string>> = {
   slinger: 'Пращник — три камня веером: шагни между линиями',
   hive: 'Улей — кольцо ос: встань в просвет или подойди вплотную',
   wisp: 'Светляк — летит за тобой: возьми в цепь его цвета',
+  // Task 55а (design 17.10.2026, spec 11): the castle's kinds — the barrel is a thing, no kind of the bestiary.
+  wardrobe: 'Шкаф — кончи цепь на нём: толкнёшь',
+  rook: 'Ладья — бьёт по прямой первое тело',
 };
 /** The final captions of the elite affixes (a run fight has the elite armour on: «Толстый» is +1 plate, «Стремительный» −1). */
 export const AFFIX_CAPTIONS: Readonly<Record<AffixId, string>> = {
