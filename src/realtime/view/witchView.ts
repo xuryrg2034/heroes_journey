@@ -14,8 +14,8 @@
  *   body the sim struck (a link that left the circle or went behind a wall has no `chainHit`, so it has no flash).
  */
 import { Container, Graphics, Text } from 'pixi.js';
-import { chainRunes, linkPoint, loopKindAt, loopRefusal, pickRadius, REFUSAL_TEXT, type ChainPlan } from '../sim/chain';
-import { glyphClass, type GlyphKind, type GlyphResult } from '../sim/glyphs';
+import { castFirstRune, chainRunes, linkPoint, loopKindAt, loopRefusal, REFUSAL_TEXT, witchGlyphClass, type ChainPlan } from '../sim/chain';
+import type { GlyphKind, GlyphResult } from '../sim/glyphs';
 import { witchOn } from '../sim/kit';
 import { enemyDrawRadius } from '../sim/params';
 import type { Vec } from '../sim/geometry';
@@ -118,7 +118,6 @@ export class WitchView {
     this.clear();
     if (!witchOn(world)) return;
     const U = this.unit, s = this.shown, bodyR = enemyDrawRadius(world.params);
-    const first = world.chain[0], firstEnemy = first?.kind === 'enemy' ? world.enemies.find(e => e.id === first.id) : undefined;
     const runes = chainRunes(world.chain);
     for (const link of world.chain) {
       if (link.kind !== 'enemy' || !link.rune) continue;
@@ -134,8 +133,10 @@ export class WitchView {
       g.circle(link.rune.x * U, link.rune.y * U, RUNE_R).fill(ink).stroke({ color: NAVY, width: RUNE_RIM });
       s.runes++;
     }
-    if (runes.length < 3 || !first || first.kind !== 'enemy' || !first.rune) return;
-    const r0 = first.rune, ring = (firstEnemy ? pickRadius(world, firstEnemy) : 0.6) * U;
+    // The closing target is the sim's (`castFirstRune`: the first rune and the pick radius).
+    const target = castFirstRune(world);
+    if (runes.length < 3 || !target) return;
+    const r0 = target, ring = target.r * U;
     const closed = !!world.chainClosed;
     // The pointer on the closing target and why it would or would not close: the sim's own answers (`loopKindAt`, `loopRefusal`).
     const on = !closed && !!pointer && loopKindAt(world, pointer) === 'first';
@@ -161,7 +162,8 @@ export class WitchView {
       s.word = text.text;
     }
     if (this.showFigure) {
-      const result = glyphClass(world.params, runes);
+      const result = witchGlyphClass(world);
+      if (!result) return;
       let cx = 0, cy = 0;
       for (const v of runes) { cx += v.x; cy += v.y; }
       const text = this.label(1);
@@ -198,7 +200,9 @@ export class WitchView {
     const U = this.unit, thread = p.thread.map(v => ({ x: v.x * U, y: v.y * U }));
     const g = new Graphics();
     this.fxLayer.addChild(g);
-    const flashes = world.events.flatMap(ev => (ev.type === 'chainHit' ? [{ at: { x: ev.x * U, y: ev.y * U } }] : [])).map((f, i) => ({ ...f, delay: i * CAST_STEP }));
+    // The sim's `cast` event: a flash only where `struck` (a link that left the circle or went behind a wall has none), in the drawn order.
+    const cast = world.events.find(ev => ev.type === 'cast');
+    const flashes = (cast && cast.type === 'cast' ? cast.links.filter(l => l.struck).map(l => ({ at: { x: l.x * U, y: l.y * U } })) : []).map((f, i) => ({ ...f, delay: i * CAST_STEP }));
     this.casts.push({ thread, ink: p.ink, length: polylineLength(thread), age: 0, g, flashes });
     this.shown.casts++;
     this.shown.running = this.casts.length;
