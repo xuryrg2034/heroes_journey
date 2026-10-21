@@ -18,7 +18,7 @@ import { rtOmenPool, rtOmensGate, type RtOmenId } from './omens';
 import { rtWonLevelOf } from './rtMeta';
 import { parseRtDailyLog, rtDailyBegin, rtDailyFinish, type RtDailyClaim, type RtDailyLog } from './rtDaily';
 import { warmupMerge, type WarmupId, type WarmupMerge, type WarmupRecords } from './warmup';
-import { rtChronicleImport, rtChronicleMeet, rtChronicleMetaRefs, rtChronicleNote, rtChronicleRead, type RtChronicleMemory } from './chronicle';
+import { rtChronicleImport, rtChronicleMeet, rtChronicleMetaRefs, rtChronicleNote, rtChronicleRead, type RtChronicleMemory, type RtChronicleMet } from './chronicle';
 import { rtChronicleCounts, rtChronicleView, type RtChronicleView } from './chroniclePages';
 
 /**
@@ -223,10 +223,11 @@ export interface RtProfileStore {
    */
   chronicle(hero?: RtHeroId): RtChronicleView;
   /**
-   * Task 58 (variant A): kinds and affixes came into view in a fight of a meta run (the caller checked: not `?seed=`, not the sandbox,
-   * not the prologue) — the new ones join the chronicle (repeats ignored). False — nothing new, the chronicle off, or not stored.
+   * Task 58 (variant A): kinds, affixes, an elite came into view in a fight of `run` (the caller checked: not the sandbox, not the
+   * prologue) — the new ones join the chronicle (repeats ignored). A run with a given seed (`?seed=`, «Поход дня») writes nothing. False —
+   * nothing new, a seeded run, the chronicle off, or not stored.
    */
-  chronicleMeet(kinds: readonly string[], affixes: readonly string[]): boolean;
+  chronicleMeet(run: Pick<RtRunState, 'seeded'>, met: RtChronicleMet): boolean;
   /** Task 58: the retro from the view's П8 memory, once a profile (later calls do nothing). False — done before, off, or not stored. */
   chronicleImport(memory: RtChronicleMemory): boolean;
   /** Task 58: the window opened — the unread are read. False — nothing unread, off, or not stored. */
@@ -364,9 +365,9 @@ export function createRtProfileStore(storage: RunStorage | null = browserStorage
       return freed.hero;
     },
     chronicle: hero => { const profile = read(); return rtChronicleView(profile, heroOf(profile, hero), npcs); },
-    chronicleMeet: (kinds, affixes) => {
-      if (!chronicleOn) return false;
-      const profile = read(), met = rtChronicleMeet(profile.meta?.chronicle, kinds, affixes);
+    chronicleMeet: (run, fight) => {
+      if (!chronicleOn || run.seeded) return false;
+      const profile = read(), met = rtChronicleMeet(profile.meta?.chronicle, fight);
       return met.changed && write({ ...profile, meta: withChronicle(profile.meta, met.chronicle) });
     },
     chronicleImport: memory => {

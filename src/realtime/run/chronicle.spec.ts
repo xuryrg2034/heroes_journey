@@ -5,6 +5,8 @@
  * - 58в: every item a screen showed is written at least as seen; a field's item replaced reads as taken; the note `shown` changes no
  *   draw (state for state), is absent without the flag and reads strictly; it holds only what a screen displayed (a real reroll notes the
  *   options on the screen) and never an item locked by the packs;
+ * - «Свойства элит» from the chronicle's own fact (the history read once by the retro; «Обучение» never shrinks the book); a stored
+ *   chronicle reads strictly (garbage dropped, an empty field absent); a seeded run's fights write nothing;
  * - «видел» never lowers «взял» (an item taken, then seen in a later run, stays taken);
  * - a meta run's end writes what it did: the events entered (the circle), the items taken and seen, the fusions made, the bosses met and
  *   won with the viewer's run, the hero freed, the garrison's chapter; the run's list (`chronicleAdded`) holds its fights' kinds too;
@@ -18,12 +20,14 @@
  */
 import { offeredNow, ok, seedOf, walkRun, type Walk } from './metaWalk.testkit';
 import { createRtProfileStore, parseRtProfile, RT_PROFILE_STORAGE_KEY, type RtProfileStore, type RunStorage } from './rtRunStorage';
-import { rtRunKey } from './rtMeta';
+import { parseRtMeta, rtRunKey } from './rtMeta';
+import { RT_DAILY_PRESET } from './rtDaily';
 import {
   createRtRun, parseRtRun, rtChooseHammer, rtChooseTalisman, rtHammerRerollView, rtInnate, rtRerollHammers, rtRerollTalismans, rtRerollView, rtShopLeave, rtShopReroll, rtShopRerollView,
   serializeRtRun, type RtRunState,
 } from './rtRun';
-import { isRtForm } from './rtTalismans';
+import { isRtForm, rtFormField } from './rtTalismans';
+import { FUSION_RECIPES } from '../sim/buildIds';
 import { rtChronicleParts, RT_CHRONICLE_BOSSES, RT_CHRONICLE_GARRISON_KINDS, isRtChronicleFusion, isRtChronicleItem } from './chronicleCatalog';
 import { rtChronicleHint, type RtChronicleView } from './chroniclePages';
 import type { RtChronicle } from './chronicle';
@@ -179,27 +183,88 @@ await check('58в: the note `shown` changes no draw (a run with it walks the run
     && read({ shown: [base.shown[0], base.shown[0]] }) === null && read({ shown: [...base.shown, base.talismans[0]] }) === null && read({ chronicle: 1 }) === null, 'malformed notes refused');
 });
 
+await check('«Свойства элит» from the chronicle itself: the retro reads the history once; «Обучение» and later runs never shrink the book', () => {
+  const storage = memoryStorage();
+  storage.data.set(RT_PROFILE_STORAGE_KEY, JSON.stringify({ version: 1, giftFull: true, runs: 4, seen: ['wolf', 'elite'], meta: { heroes: { cat: { xp: 40, packs: [] } } } }));
+  const store = createRtProfileStore(storage, { chronicle: true });
+  const chapters = (): string[] => store.chronicle().pages.find(p => p.id === 'bestiary')!.chapters.map(ch => ch.id);
+  assert(!chapters().includes('affixes'), 'before the retro: no chapter');
+  store.chronicleImport({ kinds: [], affixes: [] });
+  const imported = store.chronicle();
+  assert(chapters().includes('affixes') && chronicleOf(store).elites === true && !chronicleOf(store).affixes, `the retro: an elite without an affix — the chapter (${JSON.stringify(chronicleOf(store))})`);
+  store.resetSchedule(seedOf(8));
+  assert((store.load().seen ?? []).length === 0 && chapters().includes('affixes') && same(store.chronicle().total, imported.total), '«Обучение»: the history empty, the book the same');
+  const { walk } = metaRun(store, 8);
+  store.endRunMeta(walk.run);
+  assert(chapters().includes('affixes') && store.chronicle().total[1] >= imported.total[1], 'a new run: the chapter stays, the book only grows');
+  // The history is never read again: an elite of the history after the retro adds nothing; a fight's elite (no affix) does.
+  const fresh = createRtProfileStore(memoryStorage(), { chronicle: true });
+  fresh.chronicleImport({ kinds: [], affixes: [] });
+  fresh.meetSchedule(['elite', 'affix:fiery'], seedOf(9));
+  assert(!fresh.chronicle().pages.find(p => p.id === 'bestiary')!.chapters.some(ch => ch.id === 'affixes'), 'the history after the retro: not read');
+  const run = metaRun(fresh, 9).walk.run;
+  assert(fresh.chronicleMeet(run, { kinds: [], affixes: [], elite: true }) && fresh.chronicle().pages.find(p => p.id === 'bestiary')!.chapters.some(ch => ch.id === 'affixes'), 'a fight\'s elite: the chapter');
+});
+
+await check('a stored chronicle reads strictly: unknown ids, `__proto__`, negative counts, `ash:cat:9`, a non-object dropped; an empty field absent', () => {
+  const meta = (chronicle: unknown) => parseRtMeta({ heroes: {}, chronicle });
+  const c = meta(JSON.parse(JSON.stringify({ kinds: ['wolf', 'no-kind', 5, 'wolf'], affixes: ['fiery', 'x'], elites: 1,
+    bosses: { jailer: { met: -1 }, troll: { met: 2, won: -3 }, castellan: 'x', warlock: { met: 1 } }, events: ['brook', 'nope'],
+    items: { prism: 2, whetstone: 1, 'no-item': 2, 'fire-pass': 3 }, fusions: ['fusion-spear', 'prism'],
+    unread: ['ash:cat:9', 'ash:cat:8', 'kind:wolf', 'kind:no', 'chapter:castle', 'bad', 'kind:wolf'], fresh: 7, since: -1, retro: 'yes' }).replace('"items":{', '"items":{"__proto__":2,')))!.chronicle!;
+  assert(same(c, { kinds: ['wolf'], affixes: ['fiery'], bosses: { troll: { met: 2 } }, events: ['brook'], items: { prism: 2, whetstone: 1 }, fusions: ['fusion-spear'], unread: ['ash:cat:8', 'kind:wolf'] }), `the garbage dropped: ${JSON.stringify(c)}`);
+  assert(Object.getPrototypeOf(c.items) === Object.prototype && !Object.prototype.hasOwnProperty.call(c.items, '__proto__'), '`__proto__` not kept');
+  for (const empty of [{}, { kinds: [], items: {}, bosses: {}, unread: [] }, 'chronicle', 5, null, ['wolf']]) assert(meta(empty)!.chronicle === undefined && !('chronicle' in meta(empty)!), `empty or not an object: no field (${JSON.stringify(empty)})`);
+});
+
+await check('a fusion «seen»: both parts taken in one run, the form part replaced before the counter came (never held together)', () => {
+  // Seeds 55 and 98 (garrison runs; a search over 200 seeds, 21.10.2026): the walk takes a recipe's form, replaces it by a form of the
+  // same field, then takes the recipe's counter.
+  let cases = 0;
+  for (const k of [55, 98]) {
+    const store = createRtProfileStore(memoryStorage(), { chronicle: true });
+    const { walk } = metaRun(store, k, { garrison: true, locked: [] }, { talisman: (run, options) => {
+      const gone = FUSION_RECIPES.find(r => run.talismansGone.includes(r.form) && !run.talismans.includes(r.form));
+      if (gone && options.includes(gone.counter)) return gone.counter;
+      const held = FUSION_RECIPES.find(r => run.talismans.includes(r.form));
+      if (held && !gone) return options.find(id => id !== held.form && rtFormField(id) === rtFormField(held.form)) ?? null;
+      return !held && !gone ? options.find(id => FUSION_RECIPES.some(r => r.form === id)) ?? null : null;
+    } });
+    store.endRunMeta(walk.run);
+    const items = chronicleOf(store).items ?? {};
+    for (const r of FUSION_RECIPES) if (walk.run.talismansGone.includes(r.form) && walk.run.talismans.includes(r.counter) && !walk.run.talismans.includes(r.fusion)) {
+      assert(items[r.form] === 2 && items[r.counter] === 2 && items[r.fusion] === 1, `seed ${k}: ${r.fusion} seen (${items[r.form]}, ${items[r.counter]}, ${items[r.fusion]})`);
+      assert(store.chronicle().pages.find(p => p.id === 'items')!.chapters.some(ch => ch.id === 'fusions'), `seed ${k}: the fusions' chapter`);
+      cases++;
+    }
+  }
+  assert(cases >= 2, `covered: ${cases}`);
+});
+
 await check('the fights\' kinds (`chronicleMeet`) join the run\'s list; repeats and unknown ids write nothing; the list stays the run\'s after a reload', () => {
   const storage = memoryStorage(), store = createRtProfileStore(storage, { chronicle: true });
   const { walk } = metaRun(store, 1, {}, {});
-  assert(store.chronicleMeet(['wolf', 'boar', 'no-such-kind'], ['fiery']), 'new kinds written');
+  assert(store.chronicleMeet(walk.run, { kinds: ['wolf', 'boar', 'no-such-kind'], affixes: ['fiery'] }), 'new kinds written');
   const text = profileText(storage);
-  assert(!store.chronicleMeet(['boar', 'wolf'], ['fiery']) && !store.chronicleMeet(['no-such-kind'], ['no-affix']) && profileText(storage) === text, 'repeats and unknown ids: no write');
+  assert(!store.chronicleMeet(walk.run, { kinds: ['boar', 'wolf'], affixes: ['fiery'], elite: true }) && !store.chronicleMeet(walk.run, { kinds: ['no-such-kind'], affixes: ['no-affix'] }) && profileText(storage) === text, 'repeats and unknown ids: no write');
   const end = store.endRunMeta(walk.run)!;
   assert(['kind:wolf', 'kind:boar', 'affix:fiery'].every(ref => end.chronicle!.added.includes(ref)) && !end.chronicle!.added.includes('kind:no-such-kind'), `the run's list ${end.chronicle!.added}`);
   const again = createRtProfileStore(storage, { chronicle: true });
   assert(same(again.chronicleAdded(rtRunKey(walk.run)), end.chronicle!.added) && same(again.chronicleAdded('another'), []), 'the list after a reload; another key — none');
   // The next run's list starts empty: the kinds met before its end are its own.
   const next = metaRun(again, 2);
-  again.chronicleMeet(['lynx'], []);
+  again.chronicleMeet(next.walk.run, { kinds: ['lynx'], affixes: [] });
   const nextEnd = again.endRunMeta(next.walk.run)!;
   assert(nextEnd.chronicle!.added.includes('kind:lynx') && !nextEnd.chronicle!.added.includes('kind:wolf'), `the next run's list ${nextEnd.chronicle!.added}`);
 });
 
 await check('a run with a given seed writes nothing; an abandoned run writes; the same end twice writes once; «Обучение» keeps the chronicle', () => {
   const storage = memoryStorage(), store = createRtProfileStore(storage, { chronicle: true });
-  store.chronicleMeet(['wolf'], []);
+  store.chronicleMeet(metaRun(store, 2).walk.run, { kinds: ['wolf'], affixes: [] });
   const text = profileText(storage), seeded = walkRun({ k: 3, create: { gift: 'full', garrison: false, seeded: true } });
+  // A seeded run (`?seed=`) and «Поход дня» (seeded too): its fights' kinds and its end write nothing.
+  const daily = createRtRun(seedOf(4), { ...RT_DAILY_PRESET, schedule: [], garrison: false });
+  assert(daily.seeded && !store.chronicleMeet(seeded.run, { kinds: ['lynx', 'guard'], affixes: ['swift'], elite: true }) && !store.chronicleMeet(daily, { kinds: ['lynx'], affixes: [] }), 'a seeded run\'s kinds: nothing');
   assert(store.endRunMeta(seeded.run) === null && profileText(storage) === text, 'a seeded run: nothing');
   // Abandoned on its way (no result): the events entered so far are written.
   let mid: RtRunState | undefined;
@@ -217,7 +282,7 @@ await check('the chronicle off: no field ever; a profile before the first write 
   const off = memoryStorage(), on = memoryStorage();
   const a = createRtProfileStore(off, { chronicle: false });
   for (let k = 1; k <= 4; k++) { const { walk } = metaRun(a, k, { garrison: k === 2, chronicle: false }); a.endRunMeta(walk.run); a.freeHero(walk.run); }
-  assert(!a.chronicleMeet(['wolf'], []) && !a.chronicleImport({ kinds: ['wolf'], affixes: [] }) && !a.chronicleRead() && !profileText(off).includes('chronicle'), 'off: nothing written');
+  assert(!a.chronicleMeet({}, { kinds: ['wolf'], affixes: [] }) && !a.chronicleImport({ kinds: ['wolf'], affixes: [] }) && !a.chronicleRead() && !profileText(off).includes('chronicle'), 'off: nothing written');
   // A profile of before (no field) under a store with the chronicle on: what writes no chronicle keeps it byte for byte.
   on.data.set(RT_PROFILE_STORAGE_KEY, profileText(off));
   const c = createRtProfileStore(on, { chronicle: true });
@@ -308,7 +373,7 @@ await check('the owl\'s hint: different targets on different profiles, always ob
 await check('read: the unread are read (the pages\' «✦», the count), once', () => {
   const storage = memoryStorage(), store = createRtProfileStore(storage, { chronicle: true });
   const { walk } = metaRun(store, 1);
-  store.chronicleMeet(['wolf'], []);
+  store.chronicleMeet(walk.run, { kinds: ['wolf'], affixes: [] });
   store.endRunMeta(walk.run);
   const before = store.chronicle();
   assert(before.unread > 0 && before.pages.find(p => p.id === 'bestiary')!.unread, 'unread before');
@@ -323,7 +388,7 @@ await check('telemetry: the run record\'s `chronicle` (its list and the pages), 
   const store = createRtProfileStore(memoryStorage(), { chronicle: true });
   const { walk } = metaRun(store, 2);
   rec.runStarted(null, createRtRun(walk.run.seed, { garrison: false, gift: 'full' }));
-  store.chronicleMeet(['wolf', 'boar'], []);
+  store.chronicleMeet(walk.run, { kinds: ['wolf', 'boar'], affixes: [] });
   const end = store.endRunMeta(walk.run)!, view = store.chronicle();
   rec.runMetaEnd(walk.run, end);
   rec.chronicleOpened(walk.run, { pages: ['bestiary', 'items'], seconds: 12.34, unread: true });
