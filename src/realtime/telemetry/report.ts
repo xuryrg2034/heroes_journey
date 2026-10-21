@@ -18,7 +18,7 @@ import { createFightObserver, median, DEATH_SERIES_WINDOW, WOLF_RUSH_SOURCE } fr
 import {
   checkRecord, emptyFightSummary, orderedParts, unpackJournal, withSummaryDefaults, OATH_STAKE_SOURCE, DIE_SOURCE, CASINO_SOURCE, RT_TELEMETRY_FORMAT, SANDBOX_RUN,
   type DeathGuard, type FightDeath, type FightRecord, type FightSummary, type JournalPart, type NoteRecord, type PrologueFrom, type PrologueRecord, type RtRecord, type WarmupRecord, type RunRecord, type ThreatTally,
-  type RunNodeVisit, type TrollBossSummary,
+  type GarrisonStep3Summary, type RunNodeVisit, type TrollBossSummary,
 } from './schema';
 import { THREAT_KINDS, ThreatTracker, type ThreatWarning } from './threats';
 import { RT_DEATH_ABILITY, RT_KIND_TITLES } from '../run/rtRunEnd';
@@ -1886,6 +1886,8 @@ export interface GarrisonStats {
   step3: {
     arenas: Record<string, { fights: number; deaths: number }>;
     formations: number; drills: number; pairs: number; pairsCleared: number; angers: number;
+    /** Design 22.10.2026: how the angers ended, over the records that have the counters (null — none has: older records). */
+    angerEnds: { angers: number; killed: number; calm: number; atEnd: number } | null;
     pitchFights: number; pitchSeconds: number; fireFights: number; ignites: number; drill: Record<string, number>;
   };
 }
@@ -1931,10 +1933,12 @@ function step3Stats(runs: readonly RunRecord[], own: readonly FightEntry[], sums
   for (const r of runs) if (r.drill) bump(drill, r.drill);
   const all = sums.flatMap(s => (s.garrison.step3 ? [{ s, t: s.garrison.step3 }] : []));
   const pitch = all.filter(x => x.t.pots > 0), fire = pitch.filter(x => (x.s.build.fired['fire-pass'] ?? 0) > 0);
+  const ended = all.filter(x => x.t.angerKilled !== undefined), sum = (f: (t: GarrisonStep3Summary) => number): number => ended.reduce((a, x) => a + f(x.t), 0);
   return {
     arenas, drill,
     formations: all.reduce((a, x) => a + x.t.formations, 0), drills: all.reduce((a, x) => a + x.t.drills, 0),
     pairs: all.reduce((a, x) => a + x.t.pairs, 0), pairsCleared: all.reduce((a, x) => a + x.t.pairsCleared, 0), angers: all.reduce((a, x) => a + x.t.angers, 0),
+    angerEnds: ended.length ? { angers: sum(t => t.angers), killed: sum(t => t.angerKilled ?? 0), calm: sum(t => t.angerCalm ?? 0), atEnd: sum(t => t.angerAtEnd ?? 0) } : null,
     pitchFights: pitch.length, pitchSeconds: pitch.reduce((a, x) => a + x.t.pitchSeconds, 0),
     fireFights: fire.length, ignites: fire.reduce((a, x) => a + x.t.ignites.path + x.t.ignites.burning, 0),
   };
@@ -1967,7 +1971,7 @@ export function garrisonSection(runs: readonly RunRecord[], runFights: readonly 
   const t = st.step3, ratio = (a: number, b: number): string => (b ? `${a} из ${b} (${pct(a, b)})` : '—');
   const step3Arenas = STEP3_ARENAS.filter(id => t.arenas[id]).map(id => [arenaTitle(id), t.arenas[id].fights, t.arenas[id].deaths, pct(t.arenas[id].deaths, t.arenas[id].fights)]);
   const step3 = [step3Arenas.length ? table(['Арена шага 3', 'Боёв', 'Смертей', 'Доля'], step3Arenas) : '_боёв на аренах шага 3 нет_', '',
-    `Шаг 3: строёв одним проходом ${ratio(t.drills, t.formations)}; пар без гнева ${ratio(t.pairsCleared, t.pairs)}, гневов ${t.angers}; в смоле ${t.pitchFights ? n1(t.pitchSeconds / t.pitchFights) : '—'} с на бой со смолой (${t.pitchFights}); поджогов ${t.fireFights ? n1(t.ignites / t.fireFights) : '—'} на бой со смолой и огнём (${t.fireFights}). Набор троп: ${Object.keys(t.drill).length ? Object.entries(t.drill).map(([d, n]) => `${d === 'barracks' ? '«Казарма»' : '«Ристалище»'} ${n}`).join(', ') : '—'}.`].join('\n');
+    `Шаг 3: строёв одним проходом ${ratio(t.drills, t.formations)}; пар без гнева ${ratio(t.pairsCleared, t.pairs)}, гневов ${t.angers}, конец гнева: ${t.angerEnds ? `убит в гневе ${t.angerEnds.killed}, остыл ${t.angerEnds.calm}, бой кончился ${t.angerEnds.atEnd}${t.angerEnds.angers < t.angers ? ` (из ${t.angerEnds.angers} гневов со счётчиком)` : ''}` : '—'}; в смоле ${t.pitchFights ? n1(t.pitchSeconds / t.pitchFights) : '—'} с на бой со смолой (${t.pitchFights}); поджогов ${t.fireFights ? n1(t.ignites / t.fireFights) : '—'} на бой со смолой и огнём (${t.fireFights}). Набор троп: ${Object.keys(t.drill).length ? Object.entries(t.drill).map(([d, n]) => `${d === 'barracks' ? '«Казарма»' : '«Ристалище»'} ${n}`).join(', ') : '—'}.`].join('\n');
   return [GARRISON_LEGEND, '', table(['Ряд', 'Дошли', 'Доля', 'Смертей'], curve), '', fights, '',
     damage.length ? table(['Урон герою в гарнизоне', 'HP', 'Доля'], damage) : '_урона в боях гарнизона нет_', '', knights, '', carts, '', step3].join('\n');
 }

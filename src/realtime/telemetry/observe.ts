@@ -224,10 +224,12 @@ export function createFightObserver(start: World): FightObserver {
   const elites = new Map<number, { born: number; chains: number; lastDash: number }>();
   // Task 43: the last dash (`s.chain.count`) that struck each knight.
   const knightDash = new Map<number, number>();
-  // Task 59б: the summary of step 3 (made at its first number), the formations seen, the wardens' pairs (open — not yet gone), the angry.
+  // Task 59б: the summary of step 3 (made at its first number), the formations seen, the wardens' pairs (open — not yet gone), the angry
+  // (`angered`: ever; `raging`: the anger runs now — design 22.10.2026, how each anger ends).
   const step3 = (): GarrisonStep3Summary => (s.garrison.step3 ??= { pots: 0, potHits: 0, pitchSeconds: 0, ignites: { path: 0, burning: 0 }, pitchKills: 0,
-    formations: 0, orderRefusals: 0, orderBlocks: 0, drills: 0, unlinks: 0, backsteps: 0, recruitBacksteps: 0, pairs: 0, pairsCleared: 0, angers: 0, angerDamage: 0 });
-  const formations = new Set<number>(), pairs = new Map<string, [number, number]>(), angered = new Set<number>();
+    formations: 0, orderRefusals: 0, orderBlocks: 0, drills: 0, unlinks: 0, backsteps: 0, recruitBacksteps: 0, pairs: 0, pairsCleared: 0, angers: 0, angerDamage: 0,
+    angerKilled: 0, angerCalm: 0, angerAtEnd: 0 });
+  const formations = new Set<number>(), pairs = new Map<string, [number, number]>(), angered = new Set<number>(), raging = new Set<number>();
   let goalsDone = start.greedStart !== null;
   // К7: the curse is on now (a world that starts cursed — a test — counts from its own ticks).
   if (start.curse) { s.chest.taken = start.curse.tick; s.chest.liftedAt = start.curse.lifted ?? null; }
@@ -510,7 +512,11 @@ export function createFightObserver(start: World): FightObserver {
           else if (ev.action === 'unlink') step3().unlinks++;
           else if (ev.action === 'order') { const key = `order:${skipKey(ev.id, ev.links ?? 0)}`; if (!skips.has(key)) { skips.add(key); step3().orderRefusals++; } }
           return;
-        case 'warden': if (ev.action === 'anger' && ev.stage === 'start') { step3().angers++; angered.add(ev.id); } return;
+        case 'warden':
+          if (ev.action === 'anger' && ev.stage === 'start') { step3().angers++; angered.add(ev.id); raging.add(ev.id); }
+          // Its clock is over: calm again.
+          else if (ev.action === 'anger' && ev.stage === 'end' && raging.delete(ev.id)) step3().angerCalm = (step3().angerCalm ?? 0) + 1;
+          return;
         // Task 57а «Лес: стрелки»: windups, the shots' ends, the wisps going out.
         case 'shooter': if (ev.action === 'aim') bump(s.forest.volleys, ev.kind); return;
         case 'shot':
@@ -838,6 +844,8 @@ export function createFightObserver(start: World): FightObserver {
         const a = Math.min(e.id, e.vars.wp), b = Math.max(e.id, e.vars.wp), key = `${a}:${b}`;
         if (!pairs.has(key)) { pairs.set(key, [a, b]); step3().pairs++; }
       }
+      // An angry warden gone from the arena while angry (any source) — killed in its anger.
+      for (const id of raging) if (!enemies.some(e => e.id === id)) { raging.delete(id); step3().angerKilled = (step3().angerKilled ?? 0) + 1; }
       for (const [key, [a, b]] of pairs) {
         if (enemies.some(e => e.id === a || e.id === b)) continue;
         pairs.delete(key);
@@ -856,6 +864,8 @@ export function createFightObserver(start: World): FightObserver {
       out.tempo.toDoor = w.status === 'victory' ? end : null;
       out.build.active = (w.kit?.talismans ?? []).filter(id => !FIRING.has(id));
       out.elites.aliveAtEnd = w.enemies.filter(e => elites.has(e.id)).length;
+      // Task 59б: the angers still running when the fight ended.
+      if (out.garrison.step3) out.garrison.step3.angerAtEnd = raging.size;
       // Task 41: the refused healing loot still lying (picked up later with room in the hand — gone from the arena).
       out.abilities.capLeft = [...capRefused].filter(id => w.objects.some(o => o.id === id)).length;
       // Casino stage 1: a spin still shown when the fight ended (the door, a defeat) never acts.
