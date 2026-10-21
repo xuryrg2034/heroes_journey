@@ -30,6 +30,7 @@ import { bodyRadiusOf, enemyArtRadius, kindOf } from './enemies/kinds';
 import { dist, type Vec } from './geometry';
 import { completeGoals, damageEnemy, enemyFrozen, type Enemy, type World } from './world';
 import type { ItemKind } from './kit';
+import { snuffAround } from './shots';
 
 /** Why the consumable cannot be used at `p` now (the view shows it); null — it can. */
 export type ItemRefusal = 'over' | 'none' | 'move' | 'target' | 'far' | 'full';
@@ -105,6 +106,8 @@ export function useItem(world: World, kind: ItemKind, p: Vec): boolean {
     world.events.push({ type: 'item', kind, x: at.x, y: at.y, radius: 0, targets: 1 });
     // The bombs left tell this use from another one in the same tick (elites.ts `stripPlates`: one firing, one strip).
     damageEnemy(world, at, params.bombDamage, { source: 'bomb', credited: true, firing: world.kit!.items.bomb });
+    // Task 57а (`snuffShots`, shots.ts): the light shots round its target are put out (nothing without the key or a shot).
+    snuffAround(world, at);
     usedForGoal(world);
     return true;
   }

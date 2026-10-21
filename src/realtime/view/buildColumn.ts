@@ -120,6 +120,7 @@ export const FIRE_TEXT: Readonly<Record<string, string>> = {
 /**
  * Task 29: the forms' rules (the hover card; the sandbox, and since task 30 a run with forms). After the report
  * «Талисманы меняющие стиль игры» and the sim's modules (sim/forms.ts, frostPass.ts, chain.ts `loopOn`, pierce.ts `pierceOn`).
+ * «Наледь» has no text here: its card is the catalogue's (`rtTalisman(FROST_PASS).effect`, with the brittle rule).
  */
 const FORM_RULES: Readonly<Record<string, string>> = {
   [F.seal]: 'Замкни цепь в кольцо — удар по всем врагам внутри. С «Развилкой» кольца нет.',
@@ -127,7 +128,6 @@ const FORM_RULES: Readonly<Record<string, string>> = {
   [F.fork]: 'Следующее звено — в досягаемости любого звена цепи, не только последнего.',
   [F.alien]: 'Раз за цепь одно звено может быть чужого цвета; цвет цепи прежний.',
   [F.twins]: 'Цвета разбиты на пары, пара — один цвет: 1 и 3, 2 и 4.',
-  [FROST_PASS]: 'Путь прохода 2 с морозит врагов, которые в него входят.',
 };
 
 /**

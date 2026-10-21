@@ -265,10 +265,14 @@ const SOURCE_TITLES: Record<string, string> = {
   knight: 'касание рыцаря', 'knight-charge': 'рывок рыцаря', 'knight-swing': 'размах рыцаря',
   // Task 48: the Troll's moves.
   'troll-club': '«Удар дубиной»', 'troll-rock': '«Бросок камня»', 'troll-tail': '«Хвост метёт»',
+  // Task 57а «Лес: стрелки».
+  stone: 'камень пращника', wasp: 'оса улья', wisp: 'светляк', slinger: 'касание пращника',
   // Task 55а: the castle's moves and the rook's touch; the shove's kills (the player's).
   'wardrobe-topple': '«Падение шкафа»', 'rook-strike': '«Удар ладьи»', rook: 'касание ладьи', shove: 'толчок',
 };
 const THREAT_TITLES: Record<string, string> = {
+  // Task 57а «Лес: стрелки».
+  sling: 'веер пращника', hive: 'кольцо улья', wisp: 'светляк',
   archer: 'метка лучника', boar: 'полоса кабана', wolf: 'бросок стаи волков', lynx: 'прыжок рыси', sapper: 'фитиль и взрыв сапёра', 'sapper-instant': 'взрыв сапёра без предупреждения',
   flail: 'кистень Тюремщика', throw: 'бросок гири Тюремщика',
   // Task 43: the law of the crossbow (the crossbowman, the Castellan's crossbow).
@@ -1124,6 +1128,72 @@ export function heroesSection(runs: readonly RunRecord[], entries: readonly Figh
     first < 0 ? 'Спасения Ведуньи в записях нет (`RunRecord.freed`).' : `После спасения (поход ${ordered[first].run}): походов ${after.length}, из них Ведуньей ${chose} (${pct(chose, after.length)}).`].join('\n');
 }
 
+/** Task 58 «Летопись»: the pages' titles of the report. */
+const CHRONICLE_PAGE_TITLES: Readonly<Record<string, string>> = { bestiary: 'Бестиарий', bosses: 'Боссы', events: 'События', items: 'Талисманы и формы', heroes: 'Герои', hearth: 'Очаг' };
+const CHRONICLE_BUCKETS: readonly { title: string; from: number; to: number }[] = [{ title: '1–3', from: 1, to: 3 }, { title: '4–10', from: 4, to: 10 }, { title: '11–20', from: 11, to: 20 }, { title: '21+', from: 21, to: Infinity }];
+/** The first finds the section follows: the ref's predicate. */
+const CHRONICLE_FIRSTS: readonly { title: string; is: (ref: string) => boolean }[] = [
+  { title: 'глава «Гарнизон»', is: ref => ref === 'chapter:garrison' },
+  { title: 'первый сплав', is: ref => ref.startsWith('item:fusion-') },
+  { title: 'Тролль', is: ref => ref === 'boss:troll' },
+  { title: 'Кастелян', is: ref => ref === 'boss:castellan' },
+];
+/**
+ * Task 58 «Летопись» (`RunRecord.chronicle`, `chronicleOpen`, `hint`; docs/design-notes/task-58-discovery.md, section 10): the share of
+ * each page written by the viewer's run, the viewer's run of the first finds, the window opened after a run, the hint followed by the next
+ * run of the session (heuristic: the session stands for the viewer), the items seen and not taken.
+ */
+export function chronicleSection(runs: readonly RunRecord[]): string {
+  const list = runs.filter(r => r.chronicle);
+  if (!list.length) return '_походов с Летописью нет_';
+  const pages = Object.keys(CHRONICLE_PAGE_TITLES);
+  const rows = CHRONICLE_BUCKETS.map(b => {
+    const inside = list.filter(r => r.viewerRun !== undefined && r.viewerRun >= b.from && r.viewerRun <= b.to);
+    return [b.title, inside.length, ...pages.map(id => {
+      const shares = inside.flatMap(r => { const p = r.chronicle!.pages[id]; return p && p[1] ? [p[0] / p[1]] : []; });
+      return shares.length ? `${Math.round(100 * median(shares))}%` : '—';
+    })];
+  });
+  const firsts = CHRONICLE_FIRSTS.map(f => {
+    const at = list.filter(r => r.viewerRun !== undefined && r.chronicle!.added.some(f.is)).map(r => r.viewerRun!);
+    return `${f.title} — ${at.length ? `медиана ${n1(median(at))} (записей ${at.length})` : 'нет'}`;
+  });
+  const opened = list.filter(r => r.chronicleOpen?.length), withNew = list.filter(r => r.chronicle!.added.length);
+  const bySession = new Map<string, RunRecord[]>();
+  for (const r of [...list].sort((a, b) => a.at.localeCompare(b.at))) bySession.set(r.session, [...bySession.get(r.session) ?? [], r]);
+  let hinted = 0, followed = 0;
+  for (const own of bySession.values()) own.forEach((r, i) => { if (!r.hint || i + 1 >= own.length) return; hinted++; if (own[i + 1].chronicle!.added.includes(r.hint.target)) followed++; });
+  const latest = [...bySession.values()].map(own => own[own.length - 1].chronicle!).filter(c => c.seenItems !== undefined && c.pages.items);
+  const seenShare = latest.map(c => { const all = c.seenItems! + c.pages.items![0]; return all ? c.seenItems! / all : 0; });
+  return ['Доля записанного — медиана `have / known` страницы (видимые главы) у походов с этим номером похода зрителя. Эвристика до плейтеста: Летопись открывают < 15 % визитов — её не видно или она скучна; подсказке следуют < 10 % — тексты пустые, > 70 % — подсказка ведёт маршрут.', '',
+    table(['Походы зрителя', 'Походов', ...pages.map(id => CHRONICLE_PAGE_TITLES[id])], rows), '',
+    `Первые находки (номер похода зрителя): ${firsts.join('; ')}.`, '',
+    `Окно «Летопись» после похода: открыто ${pct(opened.length, list.length)} визитов (${opened.length} из ${list.length}); после похода с новыми записями («✦») — ${pct(withNew.filter(r => r.chronicleOpen?.length).length, withNew.length)}.`, '',
+    `Подсказка Неясыти: показана после ${list.filter(r => r.hint).length} походов; следующий поход той же сессии записал её цель — ${pct(followed, hinted)} (${followed} из ${hinted}).`, '',
+    `Предметы «видел, не взял» (последний поход сессии): ${seenShare.length ? `медиана ${pct(Math.round(100 * median(seenShare)), 100)} от видевших и взятых` : 'нет данных'}.`].join('\n');
+}
+
+/** Task 51е «Трофеи»: the trophies' titles of the report (the perch's order). */
+const TROPHY_TITLES: readonly [string, string][] = [['jailer', 'Гиря Тюремщика'], ['severed', 'Обрубок цепи'], ['troll', 'Рог Тролля'], ['chief', 'Котелок Главаря'], ['shackles', 'Сломанные кандалы'],
+  ['castellan', 'Знамя Кастеляна'], ['ash', 'Доска Испытания'], ['bestiary', 'Чернильница Неясыти'], ['long-chain', 'Длинная цепь']];
+/**
+ * Task 51е «Трофеи» (`RunRecord.trophies`; docs/design-notes/task-51-camp-l3.md, section 10): each trophy — the runs that earned it and
+ * the viewer's run number (median, the earliest); «Доска Испытания» — its marks by step. The retro (run 0) is not a run: not counted.
+ */
+export function trophiesSection(runs: readonly RunRecord[]): string {
+  const list = runs.filter(r => r.trophies?.length);
+  if (!list.length) return '_походов с трофеями нет_';
+  const rows = TROPHY_TITLES.map(([id, title]) => {
+    const got = list.filter(r => r.trophies!.some(t => t === id || (id === 'ash' && t.startsWith('ash:'))));
+    const at = got.flatMap(r => (r.viewerRun !== undefined ? [r.viewerRun] : []));
+    return [title, got.length, at.length ? n1(median(at)) : '—', at.length ? Math.min(...at) : '—'];
+  });
+  const marks = list.flatMap(r => r.trophies!.filter(t => t.startsWith('ash:')).map(t => t.slice(4)));
+  return ['Трофей — сколько походов его заработали и номер похода зрителя (медиана, самый ранний). Ретро (поход 0) — не поход, здесь не считается.', '',
+    table(['Трофей', 'Походов', 'Поход зрителя (медиана)', 'Самый ранний'], rows), '',
+    `Засечки «Доски Испытания» по ступеням: ${marks.length ? [...new Set(marks)].sort((a, b) => Number(a) - Number(b)).map(m => `${m} — ${marks.filter(x => x === m).length}`).join('; ') : 'нет'}.`].join('\n');
+}
+
 /** Task 50 «Выборы»: build choices a run (`RunRecord.choices` of `BUILD_CHOICE_SOURCES`), all of them and the knack screen's apart. */
 export function choicesSection(runs: readonly RunRecord[]): string {
   if (!runs.length) return '_походов нет_';
@@ -1304,6 +1374,8 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Босс', '', bossSection(fights), '',
     // Task 40 «Гарнизон, шаг 1б»: the survival through both levels, the garrison's fights and the cart.
     '## Гарнизон', '', garrisonSection(runs, runFights), '',
+    // Task 57а «Лес: стрелки».
+    '## Лес: новые виды', '', forestShootersSection(fights), '',
     '## Сплавы', '', fusionsSection(runs, fights), '',
     // Task 49 «Второй герой».
     '## Герои', '', heroesSection(runs, runFights), '',
@@ -1313,6 +1385,10 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Приметы', '', omensSection(runs, runFights), '',
     '## Выборы', '', choicesSection(runs), '',
     '## Поход дня', '', dailySection(runs), '',
+    // Task 58 «Летопись».
+    '## Летопись', '', chronicleSection(runs), '',
+    // Task 51е «Трофеи».
+    '## Трофеи', '', trophiesSection(runs), '',
     '## Элиты', '', ELITE_LEGEND, '', table(ELITE_HEAD, eliteRows(runFights, sandbox)), '',
     '## Однорукий гоблин', '', SLOT_LEGEND, '', table(SLOT_HEAD, [slotRow('походы', runFights), slotRow('песочница', sandbox)].filter((r): r is (string | number)[] => !!r)), '',
     // Task 20: how the hero left the lit idol's circle.
@@ -1853,4 +1929,34 @@ export function garrisonSection(runs: readonly RunRecord[], runFights: readonly 
   const carts = st.carts.length ? `Повозка: походов ${st.carts.length}, сдано мед. ${n1(median(st.carts.map(c => c.n)))}, запас до сдачи мед. ${n1(median(st.carts.map(c => c.before)))}.` : 'Повозка: сдач нет.';
   return [GARRISON_LEGEND, '', table(['Ряд', 'Дошли', 'Доля', 'Смертей'], curve), '', fights, '',
     damage.length ? table(['Урон герою в гарнизоне', 'HP', 'Доля'], damage) : '_урона в боях гарнизона нет_', '', knights, '', carts].join('\n');
+}
+
+/**
+ * Task 57а «Лес: стрелки» (heuristic, not a balance verdict): the fights where a new shooter acted (a windup of a slinger or a hive, a
+ * wisp seen) — by arena: fights, deaths and their sources, the hero's damage from the shots and the wisps and its share of all his
+ * damage there, the fight's length; the volleys, the shots' ends and the wisps in all.
+ */
+const FOREST_SOURCES: readonly string[] = ['stone', 'wasp', 'wisp'];
+const FOREST_LEGEND = 'Задача 57а (с 17.10.2026; эвристика, не оценка баланса): бои, где действовал новый стрелок леса — замах пращника или улья (`forest.volleys`) или светляк на арене (`forest.wisps.appeared`), по аренам: боёв, смертей и их источники, урон герою от камней, ос и светляков (`damage.bySource`: `stone`, `wasp`, `wisp`) и его доля во всём уроне этих боёв, длина боя (игровые секунды, медиана). Ниже — замахи по виду, концы снарядов (попали, щит, погашено проходом и бомбой — `snuffShots`) и светляки (появилось, убито цепью, коснулось героя, щит, погасло само).';
+export function forestShootersSection(fights: readonly FightEntry[]): string {
+  const own = fights.map(e => ({ e, s: e.analysis ? e.analysis.summary : withSummaryDefaults(e.record.summary) }))
+    .filter(({ s }) => Object.keys(s.forest.volleys).length > 0 || s.forest.wisps.appeared > 0);
+  if (!own.length) return `${FOREST_LEGEND}\n\n_боёв с новыми стрелками нет_`;
+  const arenas = [...new Set(own.map(x => x.e.record.arena))].sort();
+  const rows = arenas.map(arena => {
+    const list = own.filter(x => x.e.record.arena === arena), deaths = list.filter(x => x.s.death);
+    const from = list.reduce((a, x) => a + FOREST_SOURCES.reduce((b, id) => b + (x.s.damage.bySource[id] ?? 0), 0), 0), total = list.reduce((a, x) => a + x.s.damage.total, 0);
+    const bySource = FOREST_SOURCES.map(id => `${sourceTitle(id)} ${deaths.filter(x => x.s.death?.source === id).length}`).join(', ');
+    return [arenaTitle(arena), list.length, deaths.length, bySource, from, pct(from, total), n1(median(list.map(x => x.e.record.time)))];
+  });
+  const sum = (f: (s: FightSummary['forest']) => number): number => own.reduce((a, x) => a + f(x.s.forest), 0);
+  const kinds = (pick: (s: FightSummary['forest']) => Record<string, number>, title: (k: string) => string = sourceTitle): string => {
+    const all: Record<string, number> = {};
+    for (const x of own) for (const [k, n] of Object.entries(pick(x.s.forest))) all[k] = (all[k] ?? 0) + n;
+    return Object.keys(all).length ? Object.entries(all).map(([k, n]) => `${title(k)} ${n}`).join(', ') : '—';
+  };
+  const volleys = kinds(s => s.volleys, kindTitle);
+  return [FOREST_LEGEND, '', table(['Арена', 'Боёв', 'Смертей', 'Смертей по источнику', 'Урон от снарядов и светляков, HP', 'Доля урона', 'Длина боя, с мед.'], rows), '',
+    `Замахи: ${volleys}. Снаряды: попали ${kinds(s => s.shots.hit)}; щит ${kinds(s => s.shots.block)}; погашено проходом ${sum(s => s.shots.snuffDash)}, бомбой ${sum(s => s.shots.snuffBomb)}.`,
+    `Светляки: появилось ${sum(s => s.wisps.appeared)}, убито цепью ${sum(s => s.wisps.chainKills)}, коснулось героя ${sum(s => s.wisps.touched)}, щит ${sum(s => s.wisps.blocked)}, погасло само ${sum(s => s.wisps.faded)}.`].join('\n');
 }

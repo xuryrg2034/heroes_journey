@@ -353,7 +353,7 @@ test('task 28: the Jailer in a run — the bar only in its fight; bombs sever th
     if (pending) {
       // The run's seed is random: «Фляга росы» excludes «Клятва голода», so the route never takes it — the Jailer's oath screen
       // keeps its oath (task 50 run, 17.10.2026: a route that took it saw 2 cards).
-      await page.locator('[data-action="habit"][data-habit="none"]:not([disabled]), [data-action="gift"]:not([disabled]), [data-action="find"]:not([disabled]), [data-action="gift-pick"]:not([data-pick="dew-flask"]), [data-action="talisman"]:not([data-option="dew-flask"]), [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
+      await page.locator('[data-action="habit"][data-habit="none"][aria-pressed="false"], [data-action="gift"]:not([disabled]), [data-action="find"]:not([disabled]), [data-action="gift-pick"]:not([data-pick="dew-flask"]), [data-action="talisman"]:not([data-option="dew-flask"]), [data-action="hammer"], [data-testid="shop-leave"], [data-testid="rest-heal"], [data-action="event-option"]:not([disabled])').first().click();
       continue;
     }
     const node = page.locator('[data-status="available"]').first();

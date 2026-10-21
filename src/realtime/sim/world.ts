@@ -18,7 +18,7 @@ import type { HammerEventKind } from './buildIds';
 import type { BoarState } from './enemies/boar';
 import { behaviorOf, bodyRadiusOf, enemyKind, groupBehaviors, kindOf } from './enemies/kinds';
 import { FlowField, type Vec, blockedAt, dist, hasZone, inThorns, inWater, lineOfSight, overCliff, pushOutOfCliffs, pushOutOfObstacles } from './geometry';
-import { type Params, type Pressure, DEFAULT_PARAMS, copyParams, enemyBodyRadius, heroRadius, invulnerabilityFor, pressureAt } from './params';
+import { type Params, type Pressure, CORE_WARD_KEYS, DEFAULT_PARAMS, copyParams, enemyBodyRadius, heroRadius, invulnerabilityFor, pressureAt } from './params';
 import { hasTalisman, kitOf, type ItemKind, type Kit, type Loadout, type ResourceKind } from './kit';
 import { affixSpeedFactor, eliteDeath, makeElite, platesOf, stripPlates, touchLoot, updateAffixes, updateArmor, type AffixId, type EliteArmor, type TrailPoint } from './elites';
 import { updateBurning } from './items';
@@ -48,6 +48,8 @@ import { curseTouch, placeChest, touchChest, type CurseState } from './chest';
 import { updateShoves, type Shove, type ShovePlan, type ShoveStop } from './shove';
 // Task 56 «Приметы» (omens.ts): the omens' fight rules — the storm, the sleep, the pools, the roll call.
 import { drowseSweep, floodArena, omensEarly, omensLate, rageFactor, rollcallTouch, type DrowseWorld, type FloodWorld, type RollcallWorld, type StormWorld } from './omens';
+// Task 57а «Лес: стрелки» (shots.ts): the shots of the arena and the shooters' timer.
+import { FOREST_VOLLEY_GAP, updateShots, type Shot, type ShotKind } from './shots';
 
 /**
  * Id of a registered enemy kind (enemies/*): prototype kinds `basic`, `wolf` (fast, hits harder next to other wolves),
@@ -616,7 +618,23 @@ export type WorldEvent =
    */
   | { type: 'omen'; omen: 'storm'; action: 'mark' | 'strike'; x: number; y: number; r: number }
   | { type: 'omen'; omen: 'drowse'; action: 'wake'; cause: 'pass' | 'time'; count: number }
-  | { type: 'omen'; omen: 'rollcall'; action: 'call'; color: number };
+  | { type: 'omen'; omen: 'rollcall'; action: 'call'; color: number }
+  /**
+   * Task 57а (shots.ts, enemies/slinger.ts, hive.ts): a shooter's windup began (`aim`: the slinger's three `lines` fixed now, from the
+   * hand to the wall or the range; the hive's ring `points` — the wasps to come) or its volley left (`loose`: the stones fly, the
+   * wasps hang). The rules never read it.
+   */
+  | { type: 'shooter'; action: 'aim' | 'loose'; id: number; kind: string; x: number; y: number; lines?: { x0: number; y0: number; x1: number; y1: number }[]; points?: Vec[] }
+  /**
+   * Task 57а (shots.ts): a shot ended — `hit` the hero, `block` (a shield took it), `snuff` (`by` the dash or a bomb, `snuffShots`),
+   * `end` (a wall, a tree, the edge, or its flight ran out; `by: 'owner'` — it hung and its shooter died). The rules never read it.
+   */
+  | { type: 'shot'; action: 'hit' | 'block' | 'snuff' | 'end'; id: number; kind: ShotKind; owner: number; x: number; y: number; by?: 'dash' | 'bomb' | 'owner' }
+  /**
+   * Task 57а (enemies/wisp.ts, «Светляк»): it lit and flies (`lit`), or it went out without a kill (`out`: its flight ran out —
+   * `life`; it touched the hero — `touch`; a shield took the touch — `block`). The rules never read it.
+   */
+  | { type: 'wisp'; action: 'lit' | 'out'; id: number; x: number; y: number; why?: 'life' | 'touch' | 'block' };
 
 export interface World {
   arena: ArenaTemplate;
@@ -768,6 +786,10 @@ export interface World {
   flood?: FloodWorld;
   /** Task 56 «Перекличка» (omens.ts, `Params.omenRollcall`): the colour on the roll call and the next call — absent until the rule acts. */
   rollcall?: RollcallWorld;
+  /** Task 57а (shots.ts): the shots of the arena — absent until the first one flies (worlds without shooters hash as before). */
+  shots?: Shot[];
+  /** Task 57а (`Params.volleyGap`, shots.ts): game seconds left on the arena's shooters' timer — absent until the first windup it starts. */
+  volley?: number;
 }
 
 /**
@@ -871,8 +893,20 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   // Task 54: the Chief's arena plays his feast and the boss's solid bodies (when the values have them off; a journal keeps the copy).
   if (arena.chief && params.chiefFeast === false) params = { ...copyParams(params), chiefFeast: true };
   if (arena.chief && params.trollSolid === false) params = { ...copyParams(params), trollSolid: true };
+  // «Дыры ядра боссов» (21.10.2026): the Troll's and the Chief's arenas play the core's wards (`CORE_WARD_KEYS`) when the values have
+  // them off; values without the keys (a journal before them, a run saved without `bossHoles`: run/rtRun.ts `rtArenaParams`) — the old
+  // paths. A journal keeps the copy.
+  if (arena.troll || arena.chief) {
+    for (const key of CORE_WARD_KEYS) if (params[key] === false) params = { ...copyParams(params), [key]: true };
+  }
   // Task 55а: an arena of the castle plays the law of the shove (when the values have it off; a journal keeps the copy).
   if (arena.castle && !params.shove) params = { ...copyParams(params), shove: true };
+  // Task 57а: an arena of the new shooters plays its own timer when the values have none (and the archer in it; a journal keeps the copy).
+  if (arena.volleyGap && !params.volleyGap) params = { ...copyParams(params), volleyGap: arena.volleyGap };
+  if (arena.volleyArcher && !params.volleyArcher) params = { ...copyParams(params), volleyArcher: true };
+  // Task 57а: the sandbox arena of the shooters plays the run's rules of the layer (as `RT_FOREST_SHOOTERS_PARAMS`).
+  if (arena.forestShooters && !params.volleyGap) params = { ...copyParams(params), volleyGap: FOREST_VOLLEY_GAP };
+  if (arena.forestShooters && !params.snuffShots) params = { ...copyParams(params), snuffShots: true };
   const maxHp = start ? Math.max(1, Math.floor(start.maxHp)) : params.heroHp;
   const hp = start ? Math.max(1, Math.min(maxHp, Math.floor(start.hp))) : params.heroHp;
   // Stage 2, step 3 («Песочные часы»): the phase table starts later — the delay is the talisman's, read once at the start.
@@ -1595,6 +1629,14 @@ export function killEnemy(world: World, e: Enemy, cause: KillCause): void {
  * A hit of `damage` on an enemy from outside the chain (an arrow, a blast). As a chain hit: it kills when the damage is not
  * less than the HP (a weak enemy, 0 HP, dies from any hit), otherwise the HP drop. An immune kind (the reaper) is not hurt.
  */
+/**
+ * «Дыры ядра боссов» (21.10.2026): a hit of `source` on a boss core asks its rules (the Troll's window, the Chief's feast) — true: it
+ * does not land (the core rings). The same wards `damageEnemy` asks; any other enemy — false.
+ */
+export function bossCoreWards(world: World, e: Enemy, source: string): boolean {
+  return (e.kind === TROLL && trollWards(world, e, source)) || (e.kind === CHIEF && chiefWards(world, e, source));
+}
+
 export function damageEnemy(world: World, e: Enemy, damage: number, cause: KillCause): void {
   if (damage <= 0 || kindOf(e).immune || !world.enemies.includes(e)) return;
   // Task 48: the Troll's core outside his window (or its hit spent) is not hurt (event `trollWindow` `block`; nothing on other kinds).
@@ -1841,11 +1883,14 @@ function separate(world: World): Map<Enemy, Enemy> | null {
   const rng = world.rng.stream('separate');
   // Body radii once per step (a kind may have its own size; the prototype kinds share one).
   const radii = enemies.map(e => bodyRadiusOf(params, e)), touch = enemies.map(e => touchDistanceOf(params, e));
+  // Task 57а (`EnemyBehavior.crowd`): an anchored body (the hive) never yields; a ghost (the flying wisp) takes no part at all.
+  const crowd = enemies.map(e => behaviorOf(e).crowd?.(world, e));
   for (let pass = 0; pass < SEPARATION_PASSES; pass++) {
     for (let i = 0; i < enemies.length; i++) {
       const a = enemies[i], ra = radii[i];
       for (let j = i + 1; j < enemies.length; j++) {
         const b = enemies[j], min = ra + radii[j];
+        if (crowd[i] === 'ghost' || crowd[j] === 'ghost') continue;
         let dx = b.x - a.x, dy = b.y - a.y;
         const d2 = dx * dx + dy * dy;
         if (d2 >= min * min) continue;
@@ -1855,7 +1900,7 @@ function separate(world: World): Map<Enemy, Enemy> | null {
         // Overlap split by mass: the charging boar barely yields, the crowd gets shoved aside.
         const ma = kindOf(a).mass(world, a), mb = kindOf(b).mass(world, b), overlap = min - d;
         // Task 48: a solid body never yields (the other takes the whole overlap; two solid ones stay as they are).
-        const sa = solidBody(world, a), sb = solidBody(world, b);
+        const sa = solidBody(world, a) || crowd[i] === 'anchored', sb = solidBody(world, b) || crowd[j] === 'anchored';
         if (sa && sb) continue;
         const pa = sa ? 0 : sb ? overlap : overlap * mb / (ma + mb), pb = sb ? 0 : sa ? overlap : overlap * ma / (ma + mb);
         a.x -= dx * pa; a.y -= dy * pa; b.x += dx * pb; b.y += dy * pb;
@@ -1864,13 +1909,14 @@ function separate(world: World): Map<Enemy, Enemy> | null {
     }
     for (let i = 0; i < enemies.length; i++) {
       const e = enemies[i], heroMin = touch[i];
+      if (crowd[i] === 'ghost') continue;
       const dx = e.x - hero.x, dy = e.y - hero.y, d = dhypot(dx, dy);
       // While dashing or jumping the hero passes through bodies (design answer 4).
       const ahead = dx * wx + dy * wy;
       // Task 43: a body that runs through the hero now (the knight's «Рывок») is not put back on his touch circle.
       if (d < heroMin && !world.move && behaviorOf(e).passesHero?.(world, e)) { /* it runs on */ }
-      // Task 48: a solid body is not moved by the hero (he is put out of it instead, `pushOutOfSolids`).
-      else if (d < heroMin && !world.move && solidBody(world, e)) { /* it stands */ }
+      // Task 48: a solid body is not moved by the hero (he is put out of it instead, `pushOutOfSolids`); task 57а: nor an anchored one.
+      else if (d < heroMin && !world.move && (solidBody(world, e) || crowd[i] === 'anchored')) { /* it stands */ }
       else if (d < heroMin && !world.move && parting && ahead > 0) {
         // Across the way: keep the distance along it, move sideways onto the touch circle.
         const side = dx * -wy + dy * wx, sign = Math.abs(side) > 1e-6 ? Math.sign(side) : (e.id % 2 ? 1 : -1);
@@ -1900,6 +1946,8 @@ export function dropIntoCliffs(world: World, shoved: Map<Enemy, Enemy> | null, c
   for (const e of [...world.enemies]) {
     if (world.status !== 'playing') return;
     if (!world.enemies.includes(e) || !overCliff(e, arena)) continue;
+    // Task 57а: a ghost (the flying wisp) flies over a cliff.
+    if (behaviorOf(e).crowd?.(world, e) === 'ghost') continue;
     if (kindOf(e).immune) { pushOutOfObstacles(e, bodyRadiusOf(world.params, e), arena); continue; }
     // Task 27 (design 15.10.2026): a boss's part is held by its core — no push throws it over (a sever by chance is no skill).
     if (e.partOf !== undefined && world.params.bossFrame) { pushOutOfObstacles(e, bodyRadiusOf(world.params, e), arena); continue; }
@@ -2079,6 +2127,10 @@ export function update(world: World, dt: number, realDt = dt): void {
   const shoved = separate(world);
   // Stage 3a (М2): bodies pushed over a cliff fall (only on an arena with a cliff).
   dropIntoCliffs(world, shoved, undefined, knocked);
+  // Task 57а (shots.ts): the shooters' timer and the shots, after the enemies moved, before the blasts and the touches (nothing
+  // without a shooter or a shot).
+  updateShots(world, dt);
+  if (world.status !== 'playing') return;
   updateBlasts(world, dt);
   if (world.status !== 'playing') return;
   // Casino stage 1 («Однорукий гоблин»): the roll after the goals, the reels, the arrows (nothing while the toggle is off).

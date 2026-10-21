@@ -295,6 +295,12 @@ function boarCount(world: World): number {
   return world.enemies.filter(e => e.kind === 'boar').length + world.markers.filter(m => m.kind === 'boar').length + world.queue.filter(q => q.kind === 'boar').length;
 }
 
+/** Task 57а: bodies of these kinds on the arena, at markers and in the queue (the caps of the new shooters count them all). */
+export function kindCount(world: World, kinds: readonly string[]): number {
+  const of = (k: string): boolean => kinds.includes(k);
+  return world.enemies.filter(e => of(e.kind)).length + world.markers.filter(m => of(m.kind)).length + world.queue.filter(q => of(q.kind)).length;
+}
+
 /**
  * A newcomer outside a pack: the arena template's own kinds by their shares (stage 1 of the transition: new kinds join
  * without a change here), then a boar by its share (under the cap), otherwise a basic enemy.
@@ -303,6 +309,8 @@ function rollSingle(world: World, color: number, anchor: Vec | null): QueuedSpaw
   const p = world.params;
   for (const extra of world.arena.newcomers ?? []) {
     if (rollRng(world).next() >= extra.share) continue;
+    // Task 57а: a kind at its cap brings none (the next kinds roll on); nothing for a kind without a cap.
+    if (enemyKind(extra.kind).capped?.(world, kinds => kindCount(world, kinds))) continue;
     const hp = extra.hp ?? enemyKind(extra.kind).hp(p) ?? rollHp(world);
     return { kind: extra.kind, color, hp, anchor };
   }
