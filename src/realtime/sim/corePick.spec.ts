@@ -10,12 +10,14 @@
  * - the window closed (the Troll before it, the warlock charmed), the pointer outside the core's circle, the core struck in this window,
  *   the Chief's queue short (the core may not join yet), no window rule at all (turned off by `param`) — the body, with the key too;
  * - a crystal on the core in its window: with the key the core, without it the crystal;
+ * - «Печать»: the chain's first link on the core, the pointer back on it inside the core's circle — with the key the loop does not
+ *   close and the core joins (`loopKindAt` and `pickAt` agree), without it the loop closes;
  * - the bosses' arenas put the key on from the panel's values (off); values without it keep it absent; another arena keeps it off;
  * - the run: a new run's fights have the key, a save without the flag — no key in its fights' values;
  * - every fight replays from its journal. Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import { WARLOCK_ARENA } from './arenasCastle';
-import { hoverRefusal, pickAt, pickRadius, planChain } from './chain';
+import { hoverRefusal, loopKindAt, pickAt, pickRadius, planChain } from './chain';
 import { CHIEF, CHIEF_LADLE, CHIEF_SACK, chiefState } from './enemies/chief';
 import { WARDROBE } from './enemies/castle';
 import { TROLL, TROLL_CLUB, TROLL_ROCK } from './enemies/troll';
@@ -94,6 +96,30 @@ check('the Troll\'s window, a body on the core, the pointer on the body inside t
       const far = place(sim, onCore(core, r + 0.25), 2), out = press(sim, { x: far.x, y: far.y });
       assert(out.took === far.id && out.said === far.id, `seed ${k}, key ${key}: outside the circle — the body (${out.took})`);
       sim.command({ t: 'cancel' });
+      assert(replays(sim), `seed ${k}, key ${key}: replay`);
+    }
+  }
+});
+
+check('«Печать» (sandbox `loopEnabled`), the Troll\'s window: the chain\'s first link on the core, four links drawn, the pointer back on the first link inside the core\'s circle — with the key the loop does not close and the core joins (`loopKindAt` null, `pickAt` the core); without it the loop closes on the first link', () => {
+  for (const k of SEEDS) {
+    for (const key of [undefined, true] as const) {
+      const { sim, w, core } = trollOpen(k, key);
+      sim.command({ t: 'param', key: 'loopEnabled', value: true });
+      const first = place(sim, onCore(core, pickRadius(w, core) * 0.5), 1, 0);
+      const rest = [{ x: 12.9, y: 3.3 }, { x: 13.3, y: 4.4 }, { x: 11.5, y: 3.6 }].map(q => place(sim, q, 1, 0));
+      // The press on the first link's far side, out of the core's circle (inside it the press takes the core, the rule).
+      const ux = (first.x - core.x) / Math.hypot(first.x - core.x, first.y - core.y), uy = (first.y - core.y) / Math.hypot(first.x - core.x, first.y - core.y);
+      sim.command({ t: 'begin', x: first.x + ux * 0.35, y: first.y + uy * 0.35 });
+      for (const e of rest) sim.command({ t: 'drag', x: e.x, y: e.y, mode: 'full' });
+      assert(w.chain.length === 4 && w.chain[0].id === first.id, `seed ${k}, key ${key}: four links from the one on the core (${w.chain.map(l => l.id)})`);
+      const at = { x: first.x, y: first.y };
+      const closes = loopKindAt(w, at), said = pickAt(w, at)?.id;
+      sim.command({ t: 'drag', x: at.x, y: at.y, mode: 'full' });
+      if (key) {
+        assert(closes === null && said === core.id, `seed ${k}: the loop does not close (${closes}), pickAt the core (${said})`);
+        assert(!w.chainClosed && (w.chain.length as number) === 5 && w.chain[4].id === core.id, `seed ${k}: the core joined, no loop (${w.chainClosed}, ${w.chain.map(l => l.id)})`);
+      } else assert(closes === 'first' && w.chainClosed === 'first' && w.chain.length === 4, `seed ${k}: without the key the loop closes on the first link (${closes}, ${w.chainClosed})`);
       assert(replays(sim), `seed ${k}, key ${key}: replay`);
     }
   }
