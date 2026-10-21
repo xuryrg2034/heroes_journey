@@ -222,7 +222,7 @@ ${frameTable(inFrames)}
 -- on the ground, frames:
 ${frameTable(outFrames)}`;
   // The same lines go to the plain log of a passing run too (the numbers of the walk, the world's pitch numbers).
-  console.log(`garrison3 pool walk: ${report.split('\n')[0]}
+  console.log(`garrison3 pool walk: ${report.split('\n').slice(0, 3).join(' | ')}
 in the pool ${JSON.stringify(inPool)}, on the ground ${JSON.stringify(onGround)}`);
   expect(inPool.pairs, `the hero walked in the pool on some frames
 ${report}`).toBeGreaterThan(2);
