@@ -237,6 +237,15 @@ export interface ArenaTemplate extends ArenaShape {
    */
   shackles?: boolean;
   /**
+   * Task 59а «Гарнизон, шаг 3»: the arena plays the law of pitch (the pitcher's pot and the pools) — the world gets a copy with
+   * `Params.pitch` on (world.ts `createWorld`; the journal keeps that copy). «Смолокурня» and its probe. Omitted — the values as given.
+   */
+  pitch?: boolean;
+  /** Task 59а: the arena plays the recruits' law of order (`Params.recruits` on in the world's copy). «Казарма» and its probe. Omitted — as given. */
+  recruits?: boolean;
+  /** Task 59а: the arena plays the wardens' law of the pair (`Params.wardens` on in the world's copy). «Барбакан» and its probe. Omitted — as given. */
+  wardens?: boolean;
+  /**
    * Task 40: start enemies that stand too in a deep fight (`Loadout.deep`: the run gives it to «Ров» on garrison rows 8–9, to
    * «Галерея» and «Караульня» from row 8 once «Ров» was played) — after `enemies`. Omitted — none; without `deep` never read.
    */
@@ -279,6 +288,13 @@ export interface ArenaTemplate extends ArenaShape {
    * copy); its crowd's floor and pace go by `chiefCrowd` (spawn.ts). Omitted — the values as given.
    */
   chief?: { cauldron: Vec; seats: readonly Vec[] };
+  /**
+   * Task 55, stage Д «Колдун v0» (sim/arenasCastle.ts «Зал колдуна»; enemies/warlock.ts): the warlock's arena — the candles of his
+   * «Перенос» (marks on the floor, not bodies; the core stands at one). The world plays `Params.warlockCharm` and `Params.trollSolid` on
+   * when the given values have them off and `warlockCrowd` `WARLOCK_CROWD` when they hold 1 (world.ts `createWorld`; the journal keeps
+   * that copy); its crowd's floor and pace go by `warlockCrowd` (spawn.ts). Omitted — the values as given.
+   */
+  warlock?: { candles: readonly Vec[] };
 }
 
 /**

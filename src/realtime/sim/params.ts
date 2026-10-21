@@ -935,6 +935,18 @@ export interface Params {
   trollSnoreRegrow: number;
   trollRoarPeriod: number;
   trollCrowd: number;
+  /**
+   * «Дыры ядра боссов» (task 55, stage Д, core's review 21.10.2026). `coreTrailWard`: the fire trail of an elite (elites.ts
+   * `updateAffixes`) asks the boss core's rules (world.ts `bossCoreWards`: the Troll's window and its one hit, the Chief's «only the
+   * chain») before it burns a core — a closed one rings (`block`), unhurt. `coreShamanWard`: the shaman's beam never takes a boss
+   * core (the Troll's and the Chief's, with the frame on). `trollShadowOnce`: the highlight's end shadows strike the Troll's core once a window — the
+   * end blast after a wave (chain.ts `planFusionEnd`) and the start's wave of «Ударная волна» II after the end's (talismansRt.ts)
+   * showed two plates, the dash takes one. Off
+   * by default and in journals without the keys: the old paths.
+   */
+  coreTrailWard: boolean;
+  coreShamanWard: boolean;
+  trollShadowOnce: boolean;
   // ---- Task 62 «Ведунья v2: радиус и фигуры», stage A (sim/glyphs.ts, chain.ts; spec docs/design-notes/task-62-witch-v2.md). ----
   // Read only while the kit holds Ведунья's law (`Loadout.hero` 'toad') and `witchV2` is on (`witchOn`); the cat and Ведунья v1 never
   // read them. Journals without the keys play the old path.
@@ -1121,6 +1133,57 @@ export interface Params {
   knightSwingDamage: number;
   /** Task 43: game seconds between the knight's moves in the offensive (and from the shed armour to its first move). */
   knightPause: number;
+  // ---- Task 59а «Гарнизон, шаг 3» (sim/enemies/recruit.ts …; docs/realtime-elite-behaviors.md, «Гарнизон, шаг 3»). ----
+  // The new kinds come only by an arena's template or roster: without them no key below is read. Journals without a key — the default.
+  /**
+   * Task 59а «Новобранцы»: the law of order — a formation's numbers, the chain takes only the current one (refusal «не по порядку»), out of
+   * order nothing hurts a recruit, the whole formation by one pass gives `recruitBonus` energy. Off by default: plain slow enemies of a line.
+   */
+  recruits: boolean;
+  /** Task 59а: the energy for the whole formation by one pass (journals without the key: 2). */
+  recruitBonus: number;
+  /**
+   * Task 59а «Привратники»: the law of the pair — two of different colours (not twins); one dead and the other alive after the hero's
+   * move — the survivor is angry `wardenAnger` s (fast, its touch `wardenAngerTouch`, «Размах» by the knight's keys). Off by default.
+   */
+  wardens: boolean;
+  /** Task 59а: the warden's HP (journals without the key: 2). */
+  wardenHp: number;
+  /** Task 59а: the anger's length (game s; 8). */
+  wardenAnger: number;
+  /** Task 59а: the touch in the anger (2). */
+  wardenAngerTouch: number;
+  /**
+   * Task 59а «Смолокур»: the law of pitch — the pitcher's pot (windup, a mark at the hero's place at the throw, a hit in its circle) and the
+   * pools of pitch (the hero and the enemies walk slower in them; the hero's fire lights them). Off by default: a plain slow enemy.
+   */
+  pitch: boolean;
+  /** Task 59а: the pot's windup (game s; journals without the key: 0.6). */
+  pitchWindup: number;
+  /** Task 59а: the pot's flight (game s; 1.2; the fight's first ×1.5). */
+  pitchFlight: number;
+  /** Task 59а: the circle of the pot's hit around its mark (0.7). */
+  pitchRadius: number;
+  /** Task 59а: the pot's damage to the hero (1). */
+  pitchDamage: number;
+  /** Task 59а: the radius of a pool of pitch (1). */
+  pitchPoolRadius: number;
+  /** Task 59а: game seconds a pool lies before it dries (4). */
+  pitchLife: number;
+  /** Task 59а: the hero's walk in a pool (×0.6). */
+  pitchHeroSlow: number;
+  /** Task 59а: the enemies' walk in a pool (×0.4). */
+  pitchEnemySlow: number;
+  /** Task 59а: the pitcher's reload (game s; 5). */
+  pitchReload: number;
+  /** Task 59а: the pitchers' common pause — no windup sooner after any pitcher's throw (game s; 2.5). */
+  pitchGap: number;
+  /** Task 59а: the pitcher keeps this far from the hero at least (4) … */
+  pitchNear: number;
+  /** … and at most (7); it throws within this + 1. */
+  pitchFar: number;
+  /** Task 59а: game seconds a lit pool burns before it is gone (2). */
+  pitchBurn: number;
   // ---- Task 55а «Замок: толчок» (sim/shove.ts, sim/enemies/castle.ts; docs/realtime-elite-behaviors.md, «Замок: толчок»). ----
   // The things (the barrel, the wardrobe) and the rook stand only on the castle's arenas; without one no key below is read and no world
   // field appears. Journals without a key play the default below (the kinds' numbers: `params.x ?? CONST`).
@@ -1152,6 +1215,23 @@ export interface Params {
   rookWindup: number;
   /** Task 55а: the strike's damage to the hero (2). */
   rookDamage: number;
+  // ---- Task 55, stage Д «Колдун v0» (sim/enemies/warlock.ts; spec task-55 §6). Read on his arena only («Зал колдуна»). ----
+  /**
+   * The warlock's charm and windows: while his wardrobe stands he is spellbound (the chain refuses him, `spellbound`; nothing but a
+   * shove hurts him); his wardrobe broken — a window `warlockWindow` s after each «Перенос», one hit. Off by default and in journals
+   * without the key (the core takes every hit); his arena turns it on for itself.
+   */
+  warlockCharm: boolean;
+  /** The core's HP (2) and boss plates (4). */
+  warlockHp: number;
+  warlockPlates: number;
+  /** «Перенос»: every this many s while charmed (10; the first on the 6th s), then every `warlockShiftFast` s from the arrival (5). */
+  warlockShift: number;
+  warlockShiftFast: number;
+  /** The window after an arrival, his wardrobe broken (game s; 1.5). */
+  warlockWindow: number;
+  /** The crowd's floor and pace on his arena (×; 1 — his arena plays `WARLOCK_CROWD` 0.9 when the values hold 1). */
+  warlockCrowd: number;
   // ---- Task 56 «Приметы» (sim/omens.ts, docs/realtime-slice.md, «Приметы»; spec docs/design-notes/task-56-omens.md). ----
   // Every rule is off by default; journals without a key play as before (the numbers — their defaults, `omenNum`). The run turns a
   // rule on for the fight of a node or a level with that omen (run/omens.ts); the sandbox — the panel group «Приметы».
@@ -1641,6 +1721,10 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   trollSnoreRegrow: 1,
   trollRoarPeriod: 20,
   trollCrowd: 1,
+  // «Дыры ядра боссов» (21.10.2026): off — the old paths.
+  coreTrailWard: false,
+  coreShamanWard: false,
+  trollShadowOnce: false,
   // Task 62 «Ведунья v2» stage A: off; the numbers of the spec (section 5).
   witchV2: false,
   witchCastRadius: 2,
@@ -1711,6 +1795,27 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   knightSwingRadius: 1.6,
   knightSwingDamage: 2,
   knightPause: 2,
+  // Task 59а «Гарнизон, шаг 3»: off by default (the run will turn them on with its flag `step3`, task 59б).
+  recruits: false,
+  recruitBonus: 2,
+  wardens: false,
+  wardenHp: 2,
+  wardenAnger: 8,
+  wardenAngerTouch: 2,
+  pitch: false,
+  pitchWindup: 0.6,
+  pitchFlight: 1.2,
+  pitchRadius: 0.7,
+  pitchDamage: 1,
+  pitchPoolRadius: 1,
+  pitchLife: 4,
+  pitchHeroSlow: 0.6,
+  pitchEnemySlow: 0.4,
+  pitchReload: 5,
+  pitchGap: 2.5,
+  pitchNear: 4,
+  pitchFar: 7,
+  pitchBurn: 2,
   // Task 55а «Замок: толчок»: off by default (the castle's arenas turn it on for themselves).
   shove: false,
   shoveDistance: 3,
@@ -1724,6 +1829,14 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   rookPeriod: 3.5,
   rookWindup: 1,
   rookDamage: 2,
+  // Task 55, stage Д «Колдун v0»: off by default (his arena turns the charm on and his crowd for itself).
+  warlockCharm: false,
+  warlockHp: 2,
+  warlockPlates: 4,
+  warlockShift: 10,
+  warlockShiftFast: 5,
+  warlockWindow: 1.5,
+  warlockCrowd: 1,
   // Task 56 «Приметы» (sim/omens.ts, bag.ts): every rule off; the numbers of the spec (section 2.2).
   omenStorm: false,
   omenStormFirst: 6,
@@ -1787,7 +1900,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('heroSpeed', 'Перемещение', 'Скорость героя (WASD, стрелки)', 0, 10, 0.25, 4, 'ед/с', 'Свободное движение; в фокусе замедлено вместе со временем. На проходе цепи и в прыжке ввод не действует.'),
   { kind: 'bool', key: 'heroThroughEnemies', group: 'Перемещение', label: 'Сквозь врагов', stage: 4,
     hint: 'Включено (по умолчанию с этапа D): герой проходит сквозь толпу, расталкивая тела, и в толпе идёт медленнее; касание ранит. Выключено: враги — препятствие, толпа может зажать героя (выход — цепь или прыжок).' },
-  n('crowdSlow', 'Перемещение', 'Замедление в толпе', 0.1, 1, 0.05, 4, '×', 'Пока круг героя перекрывает тело хотя бы одного врага (при «Сквозь врагов»), ходьба медленнее. Складывается только с водой: вода × толпа.'),
+  n('crowdSlow', 'Перемещение', 'Замедление в толпе', 0.1, 1, 0.05, 4, '×', 'Пока круг героя перекрывает тело хотя бы одного врага (при «Сквозь врагов»), ходьба медленнее. Складывается с водой или смолой: вода × толпа, смола × толпа (смола в воде не лежит).'),
   n('enemyScale', 'Враги', 'Размер врага', 0.4, 1.5, 0.05, 4, '×', 'Множитель рисунка и тела всех врагов (кабан, волк, Жнец — тоже); зона касания и расталкивание — вместе с телом. Круг героя не меняется.'),
   n('enemyRadius', 'Враги', 'Радиус рисунка врага (при размере 1)', 0.2, 0.7, 0.01, 1, 'ед.'),
   n('bodyRadius', 'Враги', 'Радиус тела (толкание; при размере 1)', 0.15, 0.7, 0.01, 1, 'ед.'),
@@ -2233,6 +2346,13 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('trollSnoreRegrow', 'Тролль', '«Храп»: пластин за сон', 0, 3, 1, 5, '', '0 — «Храп» без отрастания.'),
   n('trollRoarPeriod', 'Тролль', '«Рык»: раз в', 5, 60, 1, 5, 'с', 'Во второй и третьей фазе; первый — при входе во вторую.'),
   n('trollCrowd', 'Тролль', 'Тролль: толпа', 0.25, 2, 0.05, 5, '×', 'Множитель плотности и темпа пополнения толпы. Арена «Берлога тролля» ставит 0,3, если на панели 1.'),
+  // «Дыры ядра боссов» (21.10.2026).
+  { kind: 'bool', key: 'coreTrailWard', group: 'Босс', label: 'Огненный след уважает ядро', stage: 5,
+    hint: 'Огненный след элиты не жжёт закрытое ядро босса (Тролль вне окна, Главарь всегда — «звон»); в окне Тролля след — его одно попадание. Арены Тролля и Главаря и поход включают сами.' },
+  { kind: 'bool', key: 'coreShamanWard', group: 'Босс', label: 'Шаман не трогает ядро', stage: 5,
+    hint: 'Луч шамана никогда не берёт ядро Тролля и Главаря (ядро на 0 HP не поднимается). Арены Тролля и Главаря и поход включают сами.' },
+  { kind: 'bool', key: 'trollShadowOnce', group: 'Босс', label: 'Тени конца: одно попадание за окно', stage: 5,
+    hint: 'Подсветка концов прохода (волна, взрыв) бьёт ядро Тролля один раз за окно — как проход. Арены Тролля и Главаря и поход включают сами.' },
   // Task 62 «Ведунья v2», stage A (chain.ts, sim/glyphs.ts): only Ведунья (the build's «Герой») with the key on.
   { kind: 'bool', key: 'witchV2', group: 'Ведунья v2', label: 'Ведунья v2: круг и фигуры', stage: 5,
     hint: 'Только для Ведуньи. Звенья — враги в круге 2 × R вокруг неё, расстояние между звеньями не важно; пока цепь в руке, она не ходит. Отпускание — разряд на месте: удары по звеньям в порядке рисования в один такт, выживший не обрывает. Цепь, замкнутая на первом звене, — фигура; кольцо (5+) — «Печать». Щит — только после фигуры.' },
@@ -2297,6 +2417,30 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('knightSwingRadius', 'Гарнизон', 'Рыцарь: радиус размаха', 0.5, 4, 0.1, 5, 'ед.', 'Враги в круге теряют 1 HP (элита — пластину); убийства не засчитываются игроку.'),
   n('knightSwingDamage', 'Гарнизон', 'Рыцарь: урон размаха', 0, 5, 1, 5),
   n('knightPause', 'Гарнизон', 'Рыцарь: пауза между приёмами', 0.5, 6, 0.25, 5, 'с'),
+  // Task 59а «Гарнизон, шаг 3».
+  { kind: 'bool', key: 'recruits', group: 'Гарнизон', label: 'Новобранцы: по номерам', stage: 5,
+    hint: 'Строй из 4 с номерами 1–4: цепь берёт только текущий номер («не по порядку»); не по порядку их не ранит ничто; весь строй одним проходом — энергия.' },
+  n('recruitBonus', 'Гарнизон', 'Новобранцы: энергия за весь строй', 0, 7, 1, 5),
+  { kind: 'bool', key: 'wardens', group: 'Гарнизон', label: 'Привратники: пара и гнев', stage: 5,
+    hint: 'Пара двух разных цветов: погиб один, второй жив после прохода — второй в гневе (быстрый, касание 2, «Размах»). Оба одним проходом — гнева нет.' },
+  n('wardenHp', 'Гарнизон', 'Привратник: HP', 0, 6, 1, 5),
+  n('wardenAnger', 'Гарнизон', 'Привратник: гнев', 1, 20, 0.5, 5, 'с'),
+  n('wardenAngerTouch', 'Гарнизон', 'Привратник: касание в гневе', 0, 5, 1, 5),
+  { kind: 'bool', key: 'pitch', group: 'Гарнизон', label: 'Смолокур: горшок и смола', stage: 5,
+    hint: 'Горшок летит в точку героя в момент броска (метка), бьёт в круге; на месте — лужа смолы: в ней вязнут все. Огонь героя её поджигает.' },
+  n('pitchWindup', 'Гарнизон', 'Смолокур: замах', 0.1, 3, 0.1, 5, 'с'),
+  n('pitchFlight', 'Гарнизон', 'Смолокур: полёт горшка', 0.3, 4, 0.1, 5, 'с', 'Первый бросок в бою — ×1,5.'),
+  n('pitchRadius', 'Гарнизон', 'Смолокур: круг удара', 0.2, 2, 0.05, 5, 'ед.'),
+  n('pitchDamage', 'Гарнизон', 'Смолокур: урон горшка', 0, 5, 1, 5),
+  n('pitchPoolRadius', 'Гарнизон', 'Смола: радиус лужи', 0.3, 3, 0.05, 5, 'ед.'),
+  n('pitchLife', 'Гарнизон', 'Смола: жизнь лужи', 0.5, 12, 0.5, 5, 'с'),
+  n('pitchHeroSlow', 'Гарнизон', 'Смола: ходьба героя', 0.1, 1, 0.05, 5, '×'),
+  n('pitchEnemySlow', 'Гарнизон', 'Смола: ходьба врагов', 0.1, 1, 0.05, 5, '×'),
+  n('pitchReload', 'Гарнизон', 'Смолокур: перезарядка', 0.5, 15, 0.5, 5, 'с'),
+  n('pitchGap', 'Гарнизон', 'Смолокуры: общая пауза', 0, 10, 0.5, 5, 'с', 'Замах любого смолокура — не раньше этого после прошлого броска любого.'),
+  n('pitchNear', 'Гарнизон', 'Смолокур: держится не ближе', 1, 10, 0.5, 5, 'ед.'),
+  n('pitchFar', 'Гарнизон', 'Смолокур: держится не дальше', 2, 14, 0.5, 5, 'ед.'),
+  n('pitchBurn', 'Гарнизон', 'Смола: горение лужи', 0.5, 8, 0.5, 5, 'с'),
   // Task 55а «Замок: толчок» (sim/shove.ts, sim/enemies/castle.ts).
   { kind: 'bool', key: 'shove', group: 'Замок', label: 'Толчок', stage: 5,
     hint: 'Вещь (бочка, шкаф) — последнее звено цепи; конец прохода толкает её по последнему отрезку: давит слабых, бьёт первое крепкое. Арены замка включают сами.' },
@@ -2311,6 +2455,15 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('rookPeriod', 'Замок', 'Ладья: отдых', 0.5, 10, 0.25, 5, 'с'),
   n('rookWindup', 'Замок', 'Удар ладьи: замах', 0.2, 3, 0.1, 5, 'с', 'Ось через ладью в обе стороны фиксируется в начале замаха; бьёт первое тело на каждой половине. Первый замах боя 1,5 с.'),
   n('rookDamage', 'Замок', 'Удар ладьи: урон героя', 0, 5, 1, 5),
+  // Task 55, stage Д «Колдун v0» (sim/enemies/warlock.ts).
+  { kind: 'bool', key: 'warlockCharm', group: 'Замок', label: 'Колдун: чары и окна', stage: 5,
+    hint: 'Пока цел шкаф Колдуна — Колдун под чарами: цепь его не берёт, ранит только толчок. Шкаф сломан — окно 1,5 с после каждого «Переноса», одно попадание. Арена «Зал колдуна» включает сама.' },
+  n('warlockHp', 'Замок', 'Колдун: HP', 1, 6, 1, 5),
+  n('warlockPlates', 'Замок', 'Колдун: пластины', 0, 8, 1, 5),
+  n('warlockShift', 'Замок', '«Перенос» под чарами: раз в', 3, 20, 0.5, 5, 'с'),
+  n('warlockShiftFast', 'Замок', '«Перенос» без чар: раз в', 2, 12, 0.5, 5, 'с'),
+  n('warlockWindow', 'Замок', 'Колдун: окно после «Переноса»', 0.5, 4, 0.1, 5, 'с'),
+  n('warlockCrowd', 'Замок', 'Колдун: толпа', 0.25, 2, 0.05, 5, '×', 'Множитель плотности и темпа пополнения толпы. Арена «Зал колдуна» ставит 0,9, если на панели 1.'),
   // Task 56 «Приметы» (sim/omens.ts): the sandbox's toggles of the omens that are new rules (off; the run sets them by its omens).
   { kind: 'bool', key: 'omenStorm', group: 'Приметы', label: '«Гроза»', stage: 5,
     hint: 'Раз в 7 с (первая — на 6-й) метка у самой плотной толпы (от 3 врагов); через 1,2 с удар: враги в круге −3 в зачёт, элита — пластина; герой в круге −2 (не в проходе, не в прыжке, щиты не спасают). Жнец и боссы — не цель.' },
@@ -2412,6 +2565,12 @@ export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor:
 export function runParams(params: Params, forced: Readonly<Partial<Params>> = {}): Params { return Object.assign(copyParams(params), RUN_FORCED, forced); }
 
 /** A deep copy (the journal keeps the values a run started with). */
+/**
+ * «Дыры ядра боссов» (21.10.2026): the keys of the boss core's wards. The Troll's and the Chief's arenas play them on (world.ts
+ * `createWorld`), a run with the flag `bossHoles` too (run/rtRun.ts `rtArenaParams`); values without them play the old paths.
+ */
+export const CORE_WARD_KEYS = ['coreTrailWard', 'coreShamanWard', 'trollShadowOnce'] as const;
+
 export function copyParams(params: Params): Params { return { ...params, phases: params.phases.map(p => ({ ...p })) }; }
 
 /** Keys of `source` in the order of `order`'s keys, then the keys `order` lacks in their given order; values as they are. */
