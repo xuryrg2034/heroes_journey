@@ -392,6 +392,24 @@ check('the window is time (design 21.10.2026): it runs out while a barrel still 
   }
 });
 
+registerArena({ ...WARLOCK_ARENA, id: 'warlock-cluster', name: 'Колдун, свечи кучей', warlock: { candles: [{ x: 12, y: 3.2 }, { x: 6, y: 10 }, { x: 6.8, y: 10 }, { x: 6.4, y: 10.7 }] } });
+check('no candle fits and several are left (the hero within 1 of all three others): «Перенос» draws among them by its stream — never his own, the targets vary with the seed, the same seed — the same target (review 21.10.2026)', () => {
+  const targets = new Set<number>();
+  for (let k = 1; k <= 8; k++) {
+    const first = (): number => {
+      const h = hall(k, {}, { x: 6.4, y: 10.25 }, 'warlock-cluster'), events: WorldEvent[] = [];
+      ticks(h.sim, ticksOf(6.5), events);
+      const arrive = of(events, 'warlockShift').find(e => e.action === 'arrive');
+      assert(arrive && arrive.candle !== 0 && replays(h.sim), `seed ${k}: an arrival at another candle (${arrive?.candle})`);
+      return arrive.candle;
+    };
+    const a = first();
+    assert(first() === a, `seed ${k}: the same seed, the same candle`);
+    targets.add(a);
+  }
+  assert(targets.size >= 2, `the targets vary: ${[...targets]}`);
+});
+
 registerArena({ ...WARLOCK_ARENA, id: 'warlock-two', name: 'Колдун, две свечи', warlock: { candles: [{ x: 12, y: 3.2 }, { x: 4.5, y: 7 }] } });
 check('no candle fits (the other one is by the hero and the nearest to him): «Перенос» goes to another candle all the same (design 21.10.2026)', () => {
   for (const k of SEEDS) {
