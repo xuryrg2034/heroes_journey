@@ -20,8 +20,9 @@ const META = {
   heroes: { cat: { xp: 40, packs: [], record: { row: 9, won: true, xp: 40 } }, toad: { xp: 5, packs: [] } },
   freed: { toad: { row: 5 } },
   hearth: {
+  // The retro line of the owl (task 58) is said already: the panel check reads the ordinary lines.
     stock: 10, levels: { owl: 1, herb: 1, smith: 1, gambler: 1, monk: 1 }, met: { herb: true, smith: true, gambler: true, monk: true },
-    lines: { 'owl:first': 2, 'herb:first': 2, 'smith:first': 2, 'gambler:first': 2, 'monk:first': 2, 'toad:first_camp': 1 }, quiet: 0,
+    lines: { 'owl:first': 2, 'herb:first': 2, 'smith:first': 2, 'gambler:first': 2, 'monk:first': 2, 'toad:first_camp': 1, 'owl:chronicle_retro': 1 }, quiet: 0,
   },
 };
 
