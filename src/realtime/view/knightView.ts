@@ -31,6 +31,27 @@ const SHARDS = [
   { x: 0.05, y: 0.1, vx: 0.15, rot: 1.6, s: 0.55 },
 ] as const;
 
+/**
+ * «Размах»: the sim's circle (`knightSwing`'s shape — the knight's and the angry warden's), hatched in the threat colour, a pie
+ * filling clockwise with the windup, a bright arc on its rim. Task 59а: shared with the wardens (garrison3View.ts).
+ */
+export function drawSwingCircle(g: Graphics, unit: number, sw: { x: number; y: number; r: number; progress: number }): void {
+  const x = sw.x * unit, y = sw.y * unit, R = sw.r * unit, a0 = -Math.PI / 2, a1 = a0 + Math.PI * 2 * sw.progress;
+  g.circle(x, y, R).fill({ color: THREAT, alpha: 0.1 });
+  if (sw.progress > 0.005) g.moveTo(x, y).lineTo(x, y - R).arc(x, y, R, a0, a1).closePath().fill({ color: THREAT, alpha: 0.2 });
+  const k = Math.SQRT1_2, step = 0.32 * unit;
+  for (let s = -R + step / 2; s < R; s += step) {
+    const h = Math.sqrt(Math.max(0, R * R - s * s)), cx = x + k * s, cy = y + k * s;
+    g.moveTo(cx - k * h, cy + k * h).lineTo(cx + k * h, cy - k * h);
+  }
+  g.stroke({ color: THREAT, width: 2.5, alpha: 0.5 });
+  g.circle(x, y, R).stroke({ color: THREAT_OUTLINE, width: 5, alpha: 0.8 }).circle(x, y, R).stroke({ color: THREAT, width: 2, alpha: 0.95 });
+  if (sw.progress > 0.005) {
+    g.moveTo(x, y - R).arc(x, y, R, a0, a1).stroke({ color: THREAT_OUTLINE, width: 10, alpha: 0.85, cap: 'round' });
+    g.moveTo(x, y - R).arc(x, y, R, a0, a1).stroke({ color: THREAT, width: 5, alpha: 1, cap: 'round' });
+  }
+}
+
 interface Fx { kind: 'shed' | 'swing'; x: number; y: number; r: number; born: number; life: number }
 
 export class KnightView {
@@ -60,20 +81,7 @@ export class KnightView {
       const sw = e.kind === KNIGHT ? knightSwing(world, e) : null;
       if (!sw || !sees(e)) continue;
       this.shown.swings++;
-      const x = sw.x * this.unit, y = sw.y * this.unit, R = sw.r * this.unit, a0 = -Math.PI / 2, a1 = a0 + Math.PI * 2 * sw.progress;
-      g.circle(x, y, R).fill({ color: THREAT, alpha: 0.1 });
-      if (sw.progress > 0.005) g.moveTo(x, y).lineTo(x, y - R).arc(x, y, R, a0, a1).closePath().fill({ color: THREAT, alpha: 0.2 });
-      const k = Math.SQRT1_2, step = 0.32 * this.unit;
-      for (let s = -R + step / 2; s < R; s += step) {
-        const h = Math.sqrt(Math.max(0, R * R - s * s)), cx = x + k * s, cy = y + k * s;
-        g.moveTo(cx - k * h, cy + k * h).lineTo(cx + k * h, cy - k * h);
-      }
-      g.stroke({ color: THREAT, width: 2.5, alpha: 0.5 });
-      g.circle(x, y, R).stroke({ color: THREAT_OUTLINE, width: 5, alpha: 0.8 }).circle(x, y, R).stroke({ color: THREAT, width: 2, alpha: 0.95 });
-      if (sw.progress > 0.005) {
-        g.moveTo(x, y - R).arc(x, y, R, a0, a1).stroke({ color: THREAT_OUTLINE, width: 10, alpha: 0.85, cap: 'round' });
-        g.moveTo(x, y - R).arc(x, y, R, a0, a1).stroke({ color: THREAT, width: 5, alpha: 1, cap: 'round' });
-      }
+      drawSwingCircle(g, this.unit, sw);
     }
   }
 

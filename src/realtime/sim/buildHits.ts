@@ -13,6 +13,7 @@ import { PLATES_BY_SOURCE, platesOf } from './elites';
 import { bodyRadiusOf, kindOf } from './enemies/kinds';
 import { dist, type Vec } from './geometry';
 import { damageEnemy, type Enemy, type World } from './world';
+import { orderRecruits, recruitGateList } from './enemies/recruit';
 import type { BuildSource } from './buildIds';
 
 /** Distance from `p` to the segment a–b. */
@@ -26,19 +27,21 @@ const targetable = (e: Enemy): boolean => !kindOf(e).immune;
 
 /** Enemies whose body touches the circle of `radius` at `p` (not the reaper), in arena order. */
 export function enemiesInCircle(world: World, p: Vec, radius: number): Enemy[] {
-  return world.enemies.filter(e => targetable(e) && dist(e, p) <= radius + bodyRadiusOf(world.params, e));
+  // Task 59а: a formation's recruits by their numbers (the hits go one by one: the law of order takes them in turn).
+  return orderRecruits(world.enemies.filter(e => targetable(e) && dist(e, p) <= radius + bodyRadiusOf(world.params, e)));
 }
 
 /** Enemies whose body comes within `radius` of the path (points in order; one point — a circle), not the reaper. */
 export function enemiesNearPath(world: World, path: readonly Vec[], radius: number): Enemy[] {
   if (!path.length) return [];
-  return world.enemies.filter(e => {
+  // Task 59а: a formation's recruits by their numbers.
+  return orderRecruits(world.enemies.filter(e => {
     if (!targetable(e)) return false;
     const reach = radius + bodyRadiusOf(world.params, e);
     if (path.length === 1) return dist(e, path[0]) <= reach;
     for (let i = 1; i < path.length; i++) if (segmentDistance(path[i - 1], path[i], e) <= reach) return true;
     return false;
-  });
+  }));
 }
 
 /** A hit of the player's build on `e`: `damage`, credited, named `source`. */
@@ -55,8 +58,10 @@ export function buildHit(world: World, e: Enemy, damage: number, source: BuildSo
 export function shadowHitAll(enemies: readonly Enemy[], targets: readonly Enemy[], damage: number, source: BuildSource): Enemy[] {
   const hit = new Set(targets.map(e => e.id));
   if (damage <= 0 || !hit.size) return [...enemies];
+  // Task 59а: the recruits the law of order refuses in the targets' order stay as they are (as `damageEnemy`).
+  const refused = recruitGateList(enemies, targets);
   return enemies.flatMap(e => {
-    if (!hit.has(e.id) || kindOf(e).immune) return [e];
+    if (!hit.has(e.id) || kindOf(e).immune || refused.has(e.id)) return [e];
     const plates = platesOf(e);
     if (plates > 0) return [{ ...e, armor: { ...e.armor!, plates: plates - Math.min(plates, Math.max(1, PLATES_BY_SOURCE[source] ?? 1)) } }];
     return damage >= e.hp ? [] : [{ ...e, hp: e.hp - damage }];

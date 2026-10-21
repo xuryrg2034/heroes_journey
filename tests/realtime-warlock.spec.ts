@@ -291,26 +291,37 @@ test('task 55 Д (design rule): the window opens with one bell; the ring of the 
 });
 
 test('task 55 Д (design rule): the ring in view with the head cut off by the HUD — no pointer; the window count is pushed under the HUD edge, beside the ring (screenshot)', async ({ page }) => {
-  test.setTimeout(150_000);
+  test.setTimeout(330_000);
   const errors = collectErrors(page);
   await openHall(page);
   await quiet(page);
   await cameraSettled(page);
   await breakCharm(page);
   await page.evaluate(() => (window as any).__realtime.teleport(12, 11));
-  // The ring's centre a hand below the top band (the head above it): the hero steps until the camera puts the arriving core there.
+  // The ring's centre a hand below the top band (the head above it): only the side candles C2 and C3 (index 1, 2; y = 7) can stand there — the camera
+  // cannot bring the lower candle C4 (y 9.6) or the upper C1 (y 3.2) to the band (pw-core-m59a trace, 21.10.2026: the window came at C4, the body stayed at ~216 px).
+  // The camera's centre is clamped to `arenaH + under - viewH / 2` (camera.ts:33 `clampAxis`, render.ts:892 `bounds`, a boss view adds the action bar's inset `under` =
+  // edgeInset.bottom / (UNIT * scale)): the body of C2/C3 stands at 360 + 72 * (7 - c) px, 100…150 px for c = 10.6…10.1, the clamp is about 10.8 — room of 0.2 units
+  // (14 px) above and 0.3 (20 px) below, so the hero steps (the teleport, 0.05 a frame) to put the camera there. The route waits for such a window (40 s of
+  // game time, the windows come every 5 s): windows at C1 and C4 are let go by, no step is made for them.
+  // The budget is a count of windows, not seconds (design, task 55: the candle stays random, the seed is not fixed): up to 10 windows are let to open; the
+  // time (150 s of game time) is only a safety. A window falls at C2/C3 in about half the cases (from C1 or C4: 2 of 3 others; from C2 or C3: 1 of 3), so ten
+  // windows miss every fitting one in about (1/2)^10 = 0.1 % of fights (the windows are not independent; the number is a guide).
   const seen = await untilFrame(page, (sn, _arg: null, late, rt) => {
-    const st = sn.warlock.state;
+    const st = sn.warlock.state, w = window as any;
     if (!st) return late ? null : undefined;
-    const at = st.window ? st.candles[st.candle] : st.shift ? st.candles[st.shift.candle] : st.candles[st.candle];
-    const body = rt.toScreen(at.x, at.y).y, head = rt.toScreen(at.x, at.y - 1.36).y;
-    if (st.window?.open && sn.warlock.shown.count !== '' && body > 100 && head < 84) return { sn, body, head };
-    if (late) return null;
+    w.__w299 ??= sn.warlock.shown.opens;
+    const target = st.window ? st.candle : st.shift ? st.shift.candle : st.candle, side = target === 1 || target === 2;
+    const at = st.candles[target], body = rt.toScreen(at.x, at.y).y, head = rt.toScreen(at.x, at.y - 1.36).y;
+    if (st.window?.open && side && sn.warlock.shown.count !== '' && body > 100 && head < 84) return { sn, body, head, candle: st.candle };
+    if (late || (sn.warlock.shown.opens - w.__w299 >= 10 && !st.window?.open)) return null;
+    if (!side) return undefined;
     if (body > 150) rt.teleport(12, Math.min(14.4, sn.hero.y + 0.05));
     else if (body < 120) rt.teleport(12, Math.max(1, sn.hero.y - 0.05));
     return undefined;
-  }, null, 6);
-  expect(seen, 'the ring is in view, the head is under the band').not.toBeNull();
+  }, null, 150);
+  expect(seen, 'a window at a side candle (index 1 or 2) with the ring in view and the head under the band within 10 windows').not.toBeNull();
+  expect([1, 2], `the window's candle ${seen?.candle}`).toContain(seen!.candle);
   const s = seen!.sn as Snap;
   expect(s.warlock.shown.hud, 'the ring can be clicked: no pointer').toBe(0);
   expect(s.warlock.shown.edgeCount, 'no count by a pointer').toBe('');

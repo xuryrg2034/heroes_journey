@@ -56,9 +56,13 @@ import { chainFeel, DashLinks, QUIET_LINKS } from './chainFeel';
 import { FX_DEFAULT, FlashGate, HEAVY_LINE, LONG_ARM_FLASH, SPEED_LINES, SPEED_LINE_GAP, SPEED_LINE_LEN, SQUASH_TIME, shardCount, shardLife, squashScale, type FxLevel, type SquashKind } from './juice';
 import { CASTELLAN, GUARD, HANDLER, HOUND, KEYMASTER, KNIGHT, LEVER_COOLDOWN, STAND, castellanGrate, castellanMove, gateLeverLeft, gateLeverReady, houndFrenzied, knightLane, knightSwingRadius, prisonerRioting } from '../sim/enemies/garrison';
 import { CROSSBOW, crossbowLine } from '../sim/enemies/crossbow';
+import { PITCHER } from '../sim/enemies/pitcher';
+import { RECRUIT } from '../sim/enemies/recruit';
+import { WARDEN } from '../sim/enemies/warden';
 import { drawBoltLine, drawGateLever, drawGrate } from './courtView';
 import { tetherCrossing } from '../sim/tethers';
-import { castellanMarks, drawFallenShackle, drawFrenzy, drawLeash, drawLock, drawShackle, drawSnap, guardMarks, handlerMarks, houndMarks, keymasterMarks, knightMarks } from './garrisonView';
+import { castellanMarks, drawFallenShackle, drawFrenzy, drawLeash, drawLock, drawShackle, drawSnap, guardMarks, handlerMarks, houndMarks, keymasterMarks, knightMarks, pitcherMarks, recruitMarks, wardenMarks } from './garrisonView';
+import { Garrison3View } from './garrison3View';
 import { KnightView } from './knightView';
 import { BARREL, ROOK, WARDROBE } from '../sim/enemies/castle';
 import { CastleView, barrelMarks, drawHanger, drawParquet, isThingKind, rookMarks, wardrobeMarks } from './castleView';
@@ -498,6 +502,9 @@ export class RealtimeRenderer {
   castleLane(id: number): ReturnType<CastleView['laneOf']> { return this.castle.laneOf(id); }
   castlePose(id: number): ReturnType<CastleView['poseOf']> { return this.castle.poseOf(id); }
   get knightShown(): KnightView['shown'] { return this.knight.shown; }
+  /** Task 59а: the pitcher's pots, marks and pools, the recruits' plaques, the wardens' keys and anger (garrison3View.ts); `shown` is what the tests read. */
+  private readonly garrison3 = new Garrison3View(UNIT, (text, x, y, color) => this.floatText(text, x, y, color));
+  get garrison3Shown(): Garrison3View['shown'] { return this.garrison3.shown; }
   /** Task 38 (tests read it): frenzied hounds drawn in the last frame, the Castellan's lunge lanes, «Караул!» calls shown so far. */
   readonly garrisonShown = { frenzy: 0, lunges: 0, calls: 0, riots: 0 };
   /**
@@ -1292,6 +1299,10 @@ export class RealtimeRenderer {
       else if (kind === CASTELLAN) castellanMarks(ctx, r);
       else if (kind === KEYMASTER) keymasterMarks(ctx, r);
       else if (kind === KNIGHT) knightMarks(ctx, r);
+      // Task 59а: the pitcher, the recruit, the warden (procedural until the art is registered in characterAssets.ts).
+      else if (kind === PITCHER) pitcherMarks(ctx, r);
+      else if (kind === RECRUIT) recruitMarks(ctx, r);
+      else if (kind === WARDEN) wardenMarks(ctx, r);
     }
     // Task 55а: the castle's stand-ins (procedural until the art is registered in characterAssets.ts): the barrel, the wardrobe, the rook.
     if (!art || !hasCharacterArt(art.id)) {
@@ -1594,6 +1605,9 @@ export class RealtimeRenderer {
       this.knight.shown.lanes++;
     }
     this.knight.drawSwing(g, world, e => this.sees(e, 3));
+    // Task 59а: the pools, the pots' marks, the angry wardens' rings and «Размах».
+    this.garrison3.beginFrame();
+    this.garrison3.drawGround(g, world, this.signTools, this.clock, enemyDrawRadius(p) * UNIT, (pt, margin) => this.sees(pt, margin));
     // Task 55а: the wardrobe's topple strip, the rook's line, the running shoves.
     this.castle.beginFrame();
     this.castle.drawLanes(g, world, this.signTools, p => this.sees(p, 6));
@@ -2183,6 +2197,8 @@ export class RealtimeRenderer {
     this.knight.drawOver(g, world, this.clock, px, enemyDrawRadius(p) * UNIT, hasCharacterArt(GARRISON_ART[KNIGHT].id) ? GARRISON_ART[KNIGHT].size : 1.9, e => this.sees(e, 1.5));
     // Task 55а: the things' notches and the shove's effects.
     this.castle.drawOver(g, world, this.clock, px, enemyDrawRadius(p) * UNIT, e => this.sees(e, 1.5));
+    // Task 59а: the pot over the pitcher and in the air, the drops in pitch, the recruits' plaques, the wardens' keys.
+    this.garrison3.drawOver(g, world, this.clock, enemyDrawRadius(p) * UNIT, px, chainInk, e => this.sees(e, 1.5));
     shown.pips = pips; shown.filledPips = filled; shown.windows = windows; shown.hotWindows = hot; shown.plaques = this.plaques.size;
   }
 
@@ -3085,6 +3101,8 @@ export class RealtimeRenderer {
         if (kick > 0 && (this.shakeLeft <= 0.02 || kick > this.shakeAmp)) { this.shakeLeft = this.shakeTotal = 0.12; this.shakeAmp = kick; }
         continue;
       }
+      // Task 59а: the pot's throw, fall and fire; the recruits' refusals and line; the wardens' anger and swing.
+      if ((ev.type === 'pot' || ev.type === 'recruit' || ev.type === 'warden') && this.garrison3.onEvent(ev, world, this.clock, enemyDrawRadius(world.params) * UNIT)) continue;
       // Task 43: the knight's shed and the swing's hit.
       if (ev.type === 'knightShed' || ev.type === 'knightMove') { this.knight.onEvent(ev, world, this.clock, enemyDrawRadius(world.params) * UNIT, knightSwingRadius(world)); continue; }
       // Task 38: the Castellan calls the guard — «Караул!» over the core (the formation's markers show where they come).
@@ -3564,6 +3582,8 @@ export class RealtimeRenderer {
     }
     const plan = planChain(world), color = chainColor(world), ink = color === null ? 0xffffff : chainInk(color);
     this.drawnPlan = plan;
+    // Task 59а: the fiery rim of the pools the path lights, the ring of the warden who will be angry, gold keys, the bans on recruits out of order — all from the plan.
+    this.garrison3.drawPlan(g, world, plan, this.clock, enemyDrawRadius(p) * UNIT, e => this.sees(e, 1.5));
     this.loopShown.hint = 0;
     // Line hero → links, navy under the chain color.
     const pts: Vec[] = [{ x: hero.x, y: hero.y }];
@@ -4611,6 +4631,7 @@ export class RealtimeRenderer {
     for (const sp of this.sparks) sp.g.destroy();
     this.sparks.length = 0;
     this.shooters.reset();
+    this.garrison3.reset();
     for (const f of this.floating) f.text.destroy();
     this.floating.length = 0;
     for (const b of this.bursts) b.g.destroy();
