@@ -1087,6 +1087,11 @@ export interface FightSummary {
    */
   garrison: GarrisonSummary;
   /**
+   * Task 57а «Лес: стрелки» (from 17.10.2026; absent in older records — `withSummaryDefaults` reads 0 and empty maps): the new forest
+   * shooters' numbers of the fight (`ForestSummary`).
+   */
+  forest: ForestSummary;
+  /**
    * Task 16 telemetry (from 14.10.2026): the viewer's first meetings during the fight (`RtRecorder.firstMeet`), counted by the view —
    * a replay cannot see them (not compared by `summaryDiff`). Absent — not counted (the sandbox, older records).
    */
@@ -1097,6 +1102,18 @@ export interface FightSummary {
    * water (`flood:wet`) and of the colour on the roll call (`rollcall:link`).
    */
   omenFired?: Record<string, number>;
+}
+
+/**
+ * Task 57а (observe.ts): the forest shooters of a fight — windups begun by the shooter's kind (`shooter` `aim`: `slinger`, `hive`); shots
+ * that hit the hero and those a shield took, by the shot's kind (`stone`, `wasp`; `shot` `hit` / `block`); shots put out by the dash and
+ * by a bomb (`shot` `snuff`, `snuffShots`); wisps («Светляк») — seen on the arena, killed by the chain, gone out on the hero (`touch` —
+ * hurt, `blocked` — a shield took it), gone out by their flight's end (`faded`).
+ */
+export interface ForestSummary {
+  volleys: Record<string, number>;
+  shots: { hit: Record<string, number>; block: Record<string, number>; snuffDash: number; snuffBomb: number };
+  wisps: { appeared: number; chainKills: number; touched: number; blocked: number; faded: number };
 }
 
 /** Task 40: the garrison's numbers of a fight (`FightSummary.garrison`). */
@@ -1447,6 +1464,7 @@ export function emptyFightSummary(): FightSummary {
     death: null,
     boss: null,
     garrison: { shackles: 0, shackleCuts: 0, firstShackleCut: null, frenzyHits: 0, frenzyDamage: 0, riots: 0, riotKills: 0, riotDamage: 0, knights: 0, knightSheds: 0, knightKills: 0, knightChains: 0 },
+    forest: { volleys: {}, shots: { hit: {}, block: {}, snuffDash: 0, snuffBomb: 0 }, wisps: { appeared: 0, chainKills: 0, touched: 0, blocked: 0, faded: 0 } },
   };
 }
 

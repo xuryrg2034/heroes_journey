@@ -17,6 +17,7 @@
  * the merchant sells consumables, the gift has its usual buttons. The trunk, the bosses, the ladder and the bar of
  * openings are not in the slice.
  */
+import { FOREST_VOLLEY_GAP } from '../sim/shots';
 import { ITEM_KINDS, mixSeed, rewardChoices } from '../forest/items';
 import type { ItemKind, ResourceKind } from '../forest/types';
 import { CRAFT_COST, emptyMaterials, RESOURCE_KINDS, RESOURCES } from '../forest/resources';
@@ -243,6 +244,8 @@ export function rtArenaParams(run: RtArenaRules | RtRunState, params: Params): P
   if (rules.forms) Object.assign(out, RT_FORMS_PARAMS);
   // Task 41 «Три зелья»: a run with the cap plays it in the fight (a healing loot stays on the floor with a full hand).
   if (rules.potionCap) out.potionCap = rules.potionCap;
+  // Task 57а «Лес: стрелки»: a forest fight of a run with the flag plays the shooters' timer and the snuffing.
+  if (rules.forestShooters) Object.assign(out, RT_FOREST_SHOOTERS_PARAMS);
   // Task 17 «Пологий вход»: the row's invulnerability after a hit and the tough touch from row 3 (`rtRowGrace`).
   if (rules.gentleRow !== undefined) {
     out.invulnerability = rtRowGrace(rules.gentleRow);
@@ -261,13 +264,17 @@ export interface RtArenaRules {
   markedGoals?: true; gentleRow?: number; shortFuse?: true; forms?: true; potionCap?: number;
   /** Task 56 «Приметы»: the fight omens of the open battle — its level's, then its node's (`rtFightOmens`; absent — none). */
   omens?: RtOmenId[];
+  /** Task 57а «Лес: стрелки»: a forest fight of a run with `forestShooters` plays the new shooters' rules (`RT_FOREST_SHOOTERS_PARAMS`). */
+  forestShooters?: true;
 }
 export function rtArenaRules(run: RtRunState): RtArenaRules {
   const pending = run.pending, node = pending?.kind === 'battle' ? rtNode(run, pending.nodeId) : undefined;
   // Task 38: a garrison fight has no gentle row (the invulnerability 0.5 s and the tough touch from its row 1).
   const gentle = run.gentleEntry && node && !rtGarrisonNodeId(node.id);
+  // Task 57а: the new shooters are the forest's — a garrison fight keeps its values.
+  const shooters = run.forestShooters && !(node && rtGarrisonNodeId(node.id));
   const omens = pending?.kind === 'battle' ? fightOmenList(pending.omens) : [];
-  return { ...run.markedGoals ? { markedGoals: true as const } : {}, ...gentle ? { gentleRow: runRow(node.row) } : {}, ...run.shortFuse ? { shortFuse: true as const } : {}, ...run.forms ? { forms: true as const } : {}, ...run.potionCap ? { potionCap: run.potionCap } : {}, ...omens.length ? { omens } : {} };
+  return { ...run.markedGoals ? { markedGoals: true as const } : {}, ...gentle ? { gentleRow: runRow(node.row) } : {}, ...run.shortFuse ? { shortFuse: true as const } : {}, ...run.forms ? { forms: true as const } : {}, ...run.potionCap ? { potionCap: run.potionCap } : {}, ...omens.length ? { omens } : {}, ...shooters ? { forestShooters: true as const } : {} };
 }
 /** Task 56: the omens of a fight in the order they act (spec 5.1): the level's, then the node's. */
 const fightOmenList = (omens: RtFightOmens | undefined): RtOmenId[] => (omens ? [...omens.level ? [omens.level] : [], ...omens.node ? [omens.node] : []] : []);
@@ -278,6 +285,17 @@ const fightOmenList = (omens: RtFightOmens | undefined): RtOmenId[] => (omens ? 
  * Existing hashed keys: a journal of such a fight keeps them; nothing new in `Params`.
  */
 export const RT_FORMS_PARAMS: Readonly<Partial<Params>> = Object.freeze({ counterWindow: true, twinsAlternate: true, twinsNoShift: true, returnFixed: true });
+/**
+ * Task 57а «Лес: стрелки» (design 17.10.2026, spec 4.2, 4.4; П3): the rules a forest fight of a run with the flag `forestShooters`
+ * plays — the arena's shooters' timer 2.5 s (the archer stays out of it, Д1), the dash and the bomb put out the light shots. Both act
+ * only while a new shooter stands or a shot flies.
+ */
+export const RT_FOREST_SHOOTERS_PARAMS: Readonly<Partial<Params>> = Object.freeze({ volleyGap: FOREST_VOLLEY_GAP, snuffShots: true });
+/**
+ * Task 57а: a new run keeps the flag `forestShooters`. Off until the forest's arenas, arcs and pools of the new shooters are in
+ * (level design, spec 10.2–10.4): the flag alone brings no new kind.
+ */
+export const RT_FOREST_SHOOTERS_ON = false;
 /**
  * Hygiene of task 17 (design answer 1, 13.10.2026): the values the page plays with — the sandbox its saved panel (`panel`),
  * the run (and its prologue) the defaults with the run's own numbers (`rtRunParams`). The sandbox panel changes only the
@@ -770,6 +788,14 @@ export interface RtRunState {
    */
   relicFill?: true;
   /**
+   * Task 57а «Лес: стрелки» (design 17.10.2026, docs/design-notes/task-57-forest-enemies.md, 10): the run's forest fights play the
+   * rules of the new shooters (`RT_FOREST_SHOOTERS_PARAMS` in `rtArenaParams`: the arena's shooters' timer, the dash and the bomb put
+   * out the light shots); the forest's arcs and pools of «Пращник», «Улей», «Светляк» come with it (level design). Set when the run is
+   * created (`RT_FOREST_SHOOTERS_ON`). Absent — a run saved before it (or created without it): the schedule, the pools, the rosters and
+   * the fights' values byte for byte as before, to its end.
+   */
+  forestShooters?: true;
+  /**
    * Task 41 «Три зелья» (design 16.10.2026, docs/design-notes/task-41-prisoner-potions.md): at most this many healing potions in hand
    * (`RT_POTION_CAP`) — a healing choice of a find, the merchant, the gift or a rest's craft is refused with a full hand
    * (`rtItemRefusal`), a reward's healing beyond it does not join (`items-capped`), the fights play it (`Params.potionCap`). A hand
@@ -1049,7 +1075,7 @@ export const rtDailySeed = (date: string): number => mixSeed(metaSalt('daily'), 
  * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
  * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
  */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; troll?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; relicFill?: boolean; potionCap?: number; knacks?: boolean; habits?: boolean; hero?: RtHeroId; omens?: readonly string[]; daily?: string } = {}): RtRunState {
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; troll?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; relicFill?: boolean; potionCap?: number; knacks?: boolean; habits?: boolean; hero?: RtHeroId; omens?: readonly string[]; daily?: string; forestShooters?: boolean } = {}): RtRunState {
   const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
   // Task 12 (13.10.2026): the goal layouts of the `marked` arenas, as the mix — on as `RT_RUN_FORCED` says unless the option says.
   const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
@@ -1090,6 +1116,8 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   const step2 = moat && (options.step2 ?? RT_GARRISON_STEP2_ON);
   // Task 51 (design 17.10.2026): the relic screens filled — its own flag, only with the garrison (the relic screens are its).
   const relicFill = garrison && (options.relicFill ?? RT_RELIC_FILL_ON);
+  // Task 57а «Лес: стрелки» (17.10.2026): the new shooters of the forest, by `RT_FOREST_SHOOTERS_ON` unless the option says.
+  const forestShooters = options.forestShooters ?? RT_FOREST_SHOOTERS_ON;
   // Task 41 «Три зелья» (16.10.2026): the cap of healing potions, `RT_POTION_CAP` unless the option says (0 — none, as a save before it).
   const potionCap = Math.max(0, Math.floor(options.potionCap ?? RT_POTION_CAP));
   // Task 49: Ведунья's run keeps her id (with or without the meta); the cat's — `cat` with the meta's snapshot only, as before.
@@ -1099,7 +1127,7 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   const run: RtRunState = {
     version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {},
     // Task 51з: the run of the day (only seeded, its seed the date's; run/rtDaily.ts `createRtDailyRun`).
-    ...options.seeded && isRtDailyDate(options.daily) && (seed >>> 0) === rtDailySeed(options.daily) ? { daily: options.daily } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked } : {}, ...heroId ? { heroId } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...relicFill ? { relicFill: true as const } : {}, ...potionCap ? { potionCap } : {}, ...pool.length ? { omens: { pool } } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    ...options.seeded && isRtDailyDate(options.daily) && (seed >>> 0) === rtDailySeed(options.daily) ? { daily: options.daily } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked } : {}, ...heroId ? { heroId } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...relicFill ? { relicFill: true as const } : {}, ...potionCap ? { potionCap } : {}, ...pool.length ? { omens: { pool } } : {}, ...forestShooters ? { forestShooters: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
@@ -3983,6 +4011,8 @@ function checkRun(value: unknown): RtRunState | null {
   if (value.relicFill !== undefined && !(value.relicFill === true && value.garrison === true)) return null;
   // Task 43: a flag, only with «Ров».
   if (value.step2 !== undefined && !(value.step2 === true && value.moat === true)) return null;
+  // Task 57а: a flag; absent — a save before it (or a run without the new shooters).
+  if (value.forestShooters !== undefined && value.forestShooters !== true) return null;
   // Task 41: the cap of healing potions, a whole number from 1; absent — a save before it (no cap).
   if (value.potionCap !== undefined && !(isCount(value.potionCap) && value.potionCap >= 1)) return null;
   // Task 56: the omens (the pool and the levels' rolls); the count of off-link steps (1 or more, only under «Перепутье» — the path below).
