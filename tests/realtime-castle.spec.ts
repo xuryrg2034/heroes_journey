@@ -98,11 +98,12 @@ test('task 55а: the sandbox menu has the group «Замок» with three arenas
   await expect(page.getByTestId('castle-arena-3')).toContainText('Бальный зал');
   await expect(page.getByTestId('castle-arena-4')).toHaveCount(0);
   await shot(page, 'menu');
-  const total = await page.locator('.rt-arena').count();
+  // The castle's first arena by its place in the menu (groups after it — the shooters, the garrison's step 3 probes — move the end).
+  const first = await page.locator('.rt-arena').evaluateAll(els => els.findIndex(e => e.getAttribute('data-testid') === 'castle-arena-1') + 1);
   const want: [string, number, number][] = [['c-hall', 3, 3], ['c-enfilade', 5, 3], ['c-ballroom', 8, 6]];
   for (const [i, [arena, notches, things]] of want.entries()) {
-    // `?arena=N` opens the same arena at once (N counts from 1 over the whole menu; the castle's three are the last).
-    await page.goto(`/?sandbox=1&arena=${total - 2 + i}`);
+    // `?arena=N` opens the same arena at once (N counts from 1 over the whole menu).
+    await page.goto(`/?sandbox=1&arena=${first + i}`);
     await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
     await expect.poll(async () => (await snap(page)).arena).toBe(arena);
     await cameraSettled(page);
