@@ -306,6 +306,63 @@ check('the fire of «Огненный проход» is no hit of the pass (desi
   assert(seen === 3, `seeds with #4 next to #1: ${seen}`);
 });
 
+/** A formation of 4 with room between the places (2.2 apart): a barrel fits between two of them. */
+const WIDE = [6.7, 8.9, 11.1, 13.3];
+registerArena({
+  id: 'recruit-wide', name: 'Широкий строй', summary: 'Тест толчка по строю', goal: 'kills', killGoal: 999, width: 20, height: 12,
+  heroStart: { x: 10, y: 6 }, obstacles: [], buttons: [], door: { x: 19.3, y: 6 }, garrison: true,
+  enemies: WIDE.map(x => ({ x, y: 4, color: 0, kind: RECRUIT, formation: 1 })),
+});
+
+check('review 59а: the shove counts the chain\u2019s own kills — the chain [#1, barrel] with the barrel between #1 and #2 crushes #2 (dead #1 makes it current); the highlight = the run (4 seeds)', () => {
+  let seen = 0;
+  for (let k = 1; k <= 30 && seen < 4; k++) {
+    const sim = new Simulation({ arena: 'recruit-wide', params: quiet({ shove: true, maxEnemies: 1 }), seed: seedOf(k), record: true });
+    sim.tick();
+    const w = sim.world, line = byNumber(w), one = line[0], two = line[1];
+    // #1 and #2 next to each other: the barrel fits between them.
+    if (Math.abs(one.x - two.x) > 2.3) continue;
+    seen++;
+    const dir = Math.sign(two.x - one.x), barrel = place(sim, { x: (one.x + two.x) / 2, y: 4 }, 0, 'barrel');
+    sim.command({ t: 'teleport', x: one.x - dir * 1.2, y: 5.2 });
+    draw(sim, [one, barrel]);
+    assert(w.chain.length === 2, `seed ${k}: [#1, barrel] drawn`);
+    const plan = planChain(w).shove!;
+    assert(plan && plan.crushed.some(c => c.id === two.id), `seed ${k}: the highlight crushes #2 (${JSON.stringify(plan)})`);
+    sim.command({ t: 'release' });
+    const events = ticks(sim, ticksOf(4), [], ww => !ww.move && !ww.shoves);
+    const crushed = of(events, 'shove').filter(e => e.action === 'crush').map(e => e.target);
+    assert(JSON.stringify(crushed) === JSON.stringify(plan.crushed.map(c => c.id)) && !w.enemies.includes(two), `seed ${k}: crushed as planned, #2 gone (${JSON.stringify(crushed)})`);
+    assert(!of(events, 'recruit').some(e => e.action === 'refused'), `seed ${k}: nothing refused`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+  assert(seen === 4, `seeds with #1 next to #2: ${seen}`);
+});
+
+check('review 59а: no numbers while a shoved barrel slides — a ride through a formation whose numbers fall due in it never crushes a recruit out of order; the highlight = the run (4 seeds)', () => {
+  for (const k of [1, 2, 3, 4]) {
+    const sim = trio(k, { shove: true }), w = sim.world, members = w.enemies.filter(e => e.kind === RECRUIT);
+    sim.command({ t: 'teleport', x: 6, y: 4.7 });
+    const weak = place(sim, { x: 7, y: 4 }, 0, 'basic', 2), barrel = place(sim, { x: 8, y: 4 }, 0, 'barrel');
+    // Released so that the numbers fall due during the ride (the formation of 3 waits 1 s).
+    ticks(sim, ticksOf(0.9));
+    assert(members.every(e => !e.vars.rn), `seed ${k}: no numbers yet`);
+    draw(sim, [weak, barrel]);
+    const plan = planChain(w).shove!;
+    assert(plan && members.every(e => plan.crushed.some(c => c.id === e.id)), `seed ${k}: the highlight crushes all three`);
+    sim.command({ t: 'release' });
+    const events: WorldEvent[] = [];
+    let rode = false;
+    for (let i = 0; i < 300 && (w.move || w.shoves || i === 0); i++) { sim.tick(); events.push(...w.events.splice(0)); if (w.shoves) rode = true; }
+    // The crushes go west to east; a numbered victim must come by its number (1, 2, 3 …), never out of order.
+    const numbers = of(events, 'shove').filter(e => e.action === 'crush').map(e => members.find(m => m.id === e.target)?.vars.rn ?? 0);
+    assert(numbers.every(n => !n) || numbers.every((n, i) => n === i + 1), `seed ${k}: crushed by the numbers ${numbers.join('-')}`);
+    const crushed = of(events, 'shove').filter(e => e.action === 'crush').map(e => e.target);
+    assert(rode && JSON.stringify(crushed) === JSON.stringify(plan.crushed.map(c => c.id)) && members.every(e => !w.enemies.includes(e)), `seed ${k}: crushed as planned (${JSON.stringify(crushed)})`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
 check('out of order nothing hurts a recruit: the bomb on #3 with #1 alive — no damage, event `recruit` `refused`; the bomb on #1 — it dies (3 seeds)', () => {
   for (const k of [1, 2, 3]) {
     const sim = yard(k), w = sim.world, line = byNumber(w);

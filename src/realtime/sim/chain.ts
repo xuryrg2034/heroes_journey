@@ -462,7 +462,9 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
     if (isThing(enemy) && shoveOn(world)) {
       out.push({ link, outcome: thingOutcome(power) });
       endsOnThing = true;
-      if (!endsOnSurvivor && !cleared) { stopPower = power; pathEnd = linkIndex + 1; shove = shovePath(world, enemy, shoveDirection(world, links, linkIndex, enemy)); }
+      // Task 59а: the links this pass kills before the thing are dead for the law of order by the shove.
+      const chainKills = new Set(out.flatMap(l => (l.link.kind === 'enemy' && l.outcome?.killed ? [l.link.id] : [])));
+      if (!endsOnSurvivor && !cleared) { stopPower = power; pathEnd = linkIndex + 1; shove = shovePath(world, enemy, shoveDirection(world, links, linkIndex, enemy), chainKills); }
       continue;
     }
     const ctx: LinkContext | null = build ? { chain, index: ++index, enemy, id: enemy.id, elite: !!enemy.elite, elitesBefore: elites, power, plan: true, crystalsBefore: crystals, ...colorless ? { colorlessBefore: colorless } : {}, ...far?.has(enemy.id) ? { far: true as const } : {} } : null;

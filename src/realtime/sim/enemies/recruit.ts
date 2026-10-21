@@ -178,8 +178,9 @@ registerBehavior({
   id: RECRUIT,
   beforeStep(world, members) {
     if (recruitsOn(world)) {
-      // No numbers during the hero's move (design 21.10.2026): the pass keeps the order its release saw.
-      if (!world.move) drawNumbers(world, members);
+      // No numbers during the hero's move (design 21.10.2026) or while a shoved thing slides (its crushed list was fixed by the release):
+      // the pass keeps the order its release saw.
+      if (!world.move && !world.shoves?.length) drawNumbers(world, members);
       if (world.chain.length) dropOutOfOrder(world);
     }
     // No guard on the arena (their group step did not run): the recruits of a formation keep a line of their own.

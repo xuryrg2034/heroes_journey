@@ -93,9 +93,10 @@ function stopKind(e: Enemy): 'thing' | 'core' | 'body' | null {
 
 /**
  * The path of `thing` shoved along the unit direction `dir` (task 55а, spec 2.3): the same function for the highlight and the dash.
- * Reads the world only (no state, no random draw).
+ * Reads the world only (no state, no random draw). `gone` (task 59а) — the chain's links the pass kills before the shove: the law of
+ * order counts them dead (as «Прямая»'s `chainKills`).
  */
-export function shovePath(world: World, thing: Enemy, dir: Vec): ShovePlan {
+export function shovePath(world: World, thing: Enemy, dir: Vec, gone?: ReadonlySet<number>): ShovePlan {
   const p = world.params, arena = world.arena, r = bodyRadiusOf(p, thing), from = { x: thing.x, y: thing.y };
   const most = lengthOf(world, thing.kind);
   // Walls, trees, the edge, a cliff: marched along the path.
@@ -116,7 +117,7 @@ export function shovePath(world: World, thing: Enemy, dir: Vec): ShovePlan {
   met.sort((a, b) => a.at - b.at || a.e.id - b.e.id);
   // Task 59а: the weak recruits ahead are crushed by their numbers — one out of order (counting those crushed before it) stops the thing
   // as a body and is not struck (nothing hurts it out of order); nothing changes without recruits.
-  const crushedRecruits = new Set<number>();
+  const crushedRecruits = new Set<number>(gone);
   let refused: number | undefined;
   for (const m of met) {
     if (m.at >= stopAt || m.kind !== null) break;
