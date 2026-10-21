@@ -74,10 +74,9 @@ export const POOL_ROSTERS: readonly RosterDef[] = [
   { id: 'quills-powder', title: 'Колючки и порох', mode: 'replace', kinds: [['porcupine', 0.12], ['sapper', 0.1]] },
   { id: 'shaman-shield', title: 'Шаманский щит', mode: 'replace', kinds: [['shaman', 0.06], ['shield', 0.15]] },
   { id: 'hunt', title: 'Охота', mode: 'replace', kinds: [['lynx', 0.1], ['archer', 0.12]] },
-  // Task 57а (level design 20.10.2026): the wisp's first meeting on «Излучина» (the schedule's arc `wisp`): wisps over the water. Баланс
-  // (21.10.2026, provisional until design accepts it; the bot: 0.12 and 2 living — 36 % deaths of the lesson): 0.06, at most 1 living.
-  // Needs a met wisp anywhere else (`rosterChoices`): a run without the flag `forestShooters` never meets one.
-  { id: 'wisps', title: 'Светляки', mode: 'replace', kinds: [['wisp', 0.06]], caps: { wisp: 1 } },
+  // Task 57а (level design 20.10.2026): the wisp's first meeting on «Излучина» (the schedule's arc `wisp`): wisps over the water, held
+  // by their own cap (2 living). Needs a met wisp anywhere else (`rosterChoices`): a run without the flag `forestShooters` never meets one.
+  { id: 'wisps', title: 'Светляки', mode: 'replace', kinds: [['wisp', 0.12]] },
 ];
 
 /** Баланс: the roles an anchor arena may add — one kind each, a little below a pool roster's share. */

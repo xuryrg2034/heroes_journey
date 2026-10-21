@@ -176,7 +176,7 @@ function greedyChain(sim: Simulation): void {
   sim.command({ t: 'release' });
 }
 
-check('the fights of the new shooters (the first of each arena and roster, built as the run builds them, 40 s of journal commands): the caps of spec 4.3 hold every tick (slingers 3, hives 2, wisps 2 — «Светляки» 1, shooters 4); each replays from its journal', () => {
+check('the fights of the new shooters (the first of each arena and roster, built as the run builds them, 40 s of journal commands): the caps of spec 4.3 hold every tick (slingers 3, hives 2, wisps 2, shooters 4); each replays from its journal', () => {
   const RUN_PARAMS = rtRunParams(defaultParams());
   const wanted = new Map<string, Planned>();
   for (const { fights } of [...SCHEDULED, ...POOLED]) for (const f of fights) {
@@ -197,9 +197,7 @@ check('the fights of the new shooters (the first of each arena and roster, built
       const count = (kinds: readonly string[]) => w.enemies.filter(e => kinds.includes(e.kind)).length;
       most = { slinger: Math.max(most.slinger, count([SLINGER])), hive: Math.max(most.hive, count([HIVE])), wisp: Math.max(most.wisp, count([WISP])), shooters: Math.max(most.shooters, count(SHOOTER_KINDS)) };
     }
-    // «Светляки» (the wisp's lesson) holds one living wisp (the roster's cap, 21.10.2026), every other fight the kind's own 2.
-    const wispCap = p.roster === 'wisps' ? 1 : WISP_MAX;
-    assert(most.slinger <= SLINGER_MAX && most.hive <= HIVE_MAX && most.wisp <= wispCap && most.shooters <= SHOOTERS_MAX, `${tag}: caps ${JSON.stringify(most)}`);
+    assert(most.slinger <= SLINGER_MAX && most.hive <= HIVE_MAX && most.wisp <= WISP_MAX && most.shooters <= SHOOTERS_MAX, `${tag}: caps ${JSON.stringify(most)}`);
     assert(replay(JSON.parse(JSON.stringify(sim.exportJournal()!))).hash() === sim.hash(), `${tag}: the fight replays from its journal`);
     console.log(`   ${tag}: most on the arena ${JSON.stringify(most)}, kills ${w.stats.kills}, ${w.status}`);
   }
