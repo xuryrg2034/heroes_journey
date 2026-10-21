@@ -1142,7 +1142,7 @@ export interface Params {
   warlockShiftFast: number;
   /** The window after an arrival, his wardrobe broken (game s; 1.5). */
   warlockWindow: number;
-  /** The crowd's floor and pace on his arena (×; 1 — his arena plays `WARLOCK_CROWD` 0.45 when the values hold 1). */
+  /** The crowd's floor and pace on his arena (×; 1 — his arena plays `WARLOCK_CROWD` 0.9 when the values hold 1). */
   warlockCrowd: number;
   // ---- Task 56 «Приметы» (sim/omens.ts, docs/realtime-slice.md, «Приметы»; spec docs/design-notes/task-56-omens.md). ----
   // Every rule is off by default; journals without a key play as before (the numbers — their defaults, `omenNum`). The run turns a
@@ -2291,7 +2291,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('warlockShift', 'Замок', '«Перенос» под чарами: раз в', 3, 20, 0.5, 5, 'с'),
   n('warlockShiftFast', 'Замок', '«Перенос» без чар: раз в', 2, 12, 0.5, 5, 'с'),
   n('warlockWindow', 'Замок', 'Колдун: окно после «Переноса»', 0.5, 4, 0.1, 5, 'с'),
-  n('warlockCrowd', 'Замок', 'Колдун: толпа', 0.25, 2, 0.05, 5, '×', 'Множитель плотности и темпа пополнения толпы. Арена «Зал колдуна» ставит 0,45, если на панели 1.'),
+  n('warlockCrowd', 'Замок', 'Колдун: толпа', 0.25, 2, 0.05, 5, '×', 'Множитель плотности и темпа пополнения толпы. Арена «Зал колдуна» ставит 0,9, если на панели 1.'),
   // Task 56 «Приметы» (sim/omens.ts): the sandbox's toggles of the omens that are new rules (off; the run sets them by its omens).
   { kind: 'bool', key: 'omenStorm', group: 'Приметы', label: '«Гроза»', stage: 5,
     hint: 'Раз в 7 с (первая — на 6-й) метка у самой плотной толпы (от 3 врагов); через 1,2 с удар: враги в круге −3 в зачёт, элита — пластина; герой в круге −2 (не в проходе, не в прыжке, щиты не спасают). Жнец и боссы — не цель.' },
