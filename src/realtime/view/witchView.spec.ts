@@ -141,7 +141,8 @@ check('the first rune: dim ring from 3 runes; the pointer on it with a ring that
   f.sim.command({ t: 'drag', x: PENTAGON[0].x, y: PENTAGON[0].y, mode: 'full' });
   assert(f.w.chainClosed === 'first', 'the pointer event on the first rune closes the ring');
   highlight(view, f.w, PENTAGON[0]);
-  assert(sh(view).word === 'Кольцо' && sh(view).contour === '' && sh(view).firstRing === 2, 'closed: the word stays, the ring is lit, the closed outline is the loop\'s (no dashes)');
+  assert(sh(view).word === 'Кольцо' && sh(view).contour === 'figure' && sh(view).firstRing === 2, 'closed: the word, the lit ring and the dashed contour in the chain colour');
+  assert(planChain(f.w).seal !== undefined && planChain(f.w).seal!.ring.length === 5, 'the seal prognosis (the marks of the bodies inside) is the plan, drawn by the loop view');
 });
 
 check('a square of 4: the same contour grey at the pointer, no word, and the sim\'s old reason «не фигура» is the hint', () => {

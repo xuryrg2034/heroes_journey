@@ -11,8 +11,8 @@ import { replay, type Journal } from '../src/realtime/sim/simulation';
  * first rune, the word «Кольцо», the seal inside and the hero in place after the release; a square of four — refused «не фигура», grey contour; the
  * discharge's thread and flashes; «Показать фигуру»; the camera that keeps her in the centre while she draws. The journal of each fight replays in
  * Node to the page's hash. The rules are Node's (`npm run test:realtime-witch`, `test:realtime-witch-view`); this test looks at what the player sees
- * by real mouse input. Shots (1280×720) go to SHOT_DIR (default artifacts/); the «-deut» ones are the same shots through a deuteranopia matrix
- * (a simulation of the shot's pixels in the test; the game has no colour-blind filter).
+ * by real mouse input.
+ * Shots (1280×720) go to SHOT_DIR (default artifacts/).
  */
 const SHOTS = process.env.SHOT_DIR ?? 'artifacts';
 const snap = (page: Page): Promise<any> => page.evaluate(() => (window as any).__realtime.snapshot());
@@ -49,28 +49,9 @@ async function sameHash(page: Page): Promise<void> {
   expect(replay(recorded.journal).hash()).toBe(recorded.hash);
 }
 
-/** A 1280×720 shot, and the same through a deuteranopia matrix (Machado, severity 1.0) as `<name>-deut.png`. */
-async function shot(page: Page, name: string, deut = false): Promise<void> {
-  const png = await page.screenshot({ path: `${SHOTS}/${name}.png` });
-  if (!deut) return;
-  const url = await page.evaluate(async b64 => {
-    const img = await createImageBitmap(await (await fetch(`data:image/png;base64,${b64}`)).blob());
-    const cv = document.createElement('canvas'); cv.width = img.width; cv.height = img.height;
-    const g = cv.getContext('2d')!; g.drawImage(img, 0, 0);
-    const data = g.getImageData(0, 0, img.width, img.height), d = data.data;
-    const lin = (c: number): number => { const v = c / 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
-    const enc = (v: number): number => { const c = Math.min(1, Math.max(0, v)); return Math.round(255 * (c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055)); };
-    for (let i = 0; i < d.length; i += 4) {
-      const r = lin(d[i]), gr = lin(d[i + 1]), b = lin(d[i + 2]);
-      d[i] = enc(0.367322 * r + 0.860646 * gr - 0.227968 * b);
-      d[i + 1] = enc(0.280085 * r + 0.672501 * gr + 0.047413 * b);
-      d[i + 2] = enc(-0.011820 * r + 0.042940 * gr + 0.968881 * b);
-    }
-    g.putImageData(data, 0, 0);
-    return cv.toDataURL('image/png');
-  }, png.toString('base64'));
-  const { writeFileSync } = await import('node:fs');
-  writeFileSync(`${SHOTS}/${name}-deut.png`, Buffer.from(url.split(',')[1], 'base64'));
+/** A 1280×720 shot. */
+async function shot(page: Page, name: string): Promise<void> {
+  await page.screenshot({ path: `${SHOTS}/${name}.png` });
 }
 
 /** A regular pentagon of radius 1.3 round (8, 5.5), the first corner on top (no body overlaps). */
@@ -102,7 +83,7 @@ test('the circle of casting: whole in the frame, thin without a chain, in the ch
     expect(p.y).toBeGreaterThan(hud.y + hud.height);
     expect(p.y).toBeLessThan(720);
   }
-  await shot(page, 'witch-circle-idle', true);
+  await shot(page, 'witch-circle-idle');
   // A chain in hand: the same circle in the chain's colour.
   await place(page, 10.4, 5.5, 0, 3);
   const at = await screen(page, 10.4, 5.5);
@@ -110,7 +91,7 @@ test('the circle of casting: whole in the frame, thin without a chain, in the ch
   await page.mouse.down();
   await expect.poll(async () => (await snap(page)).witch.shown.circle).toBe(2);
   expect((await snap(page)).reachCircles).toBe(1);
-  await shot(page, 'witch-circle-chain', true);
+  await shot(page, 'witch-circle-chain');
   await page.mouse.up();
   await sameHash(page);
   // The cat: no v2 circle, her R.
@@ -153,7 +134,7 @@ test('bodies out of the circle are muted once (also the foreign colour out of it
   // The runes did not follow the bodies: the first rune is where the first body was taken.
   expect(s.witch.runes[0].x).toBeCloseTo(10.6, 1);
   expect(s.enemies.find((e: any) => e.id === first).x).toBeLessThan(10.2);
-  await shot(page, 'witch-chain-muted', true);
+  await shot(page, 'witch-chain-muted');
   await page.mouse.up();
   await sameHash(page);
   expect(errors).toEqual([]);
@@ -175,10 +156,10 @@ test('the ring: five enemies by the real mouse, closed on the first rune — the
   const first = await screen(page, PENTAGON[0][0], PENTAGON[0][1]);
   await page.mouse.move(first.x, first.y, { steps: 4 });
   await expect.poll(async () => (await snap(page)).loop.closed).toBe('first');
-  await expect.poll(async () => (await snap(page)).witch.shown).toMatchObject({ word: 'Кольцо', firstRing: 2 });
+  await expect.poll(async () => (await snap(page)).witch.shown).toMatchObject({ word: 'Кольцо', firstRing: 2, contour: 'figure' });
   expect((await snap(page)).loop.shown).toMatchObject({ closed: 1, marks: 1 });
   expect((await snap(page)).hint).toBeNull();
-  await shot(page, 'witch-ring-closed', true);
+  await shot(page, 'witch-ring-closed');
   await page.mouse.up();
   // The discharge: the thread and the flashes are on the screen right after the release; she has not moved a step.
   await expect.poll(async () => (await snap(page)).witch.shown.casts).toBe(1);
@@ -209,7 +190,7 @@ test('a square of four: the closing is refused «не фигура» — the sam
   const s = await snap(page);
   expect(s.loop.closed).toBeNull();
   expect(s.witch.shown).toMatchObject({ contour: 'refused', word: '' });
-  await shot(page, 'witch-refused-square', true);
+  await shot(page, 'witch-refused-square');
   await page.mouse.up();
   // An open chain: the four are struck one after another from where she stands.
   await expect.poll(async () => (await snap(page)).enemies.filter((e: any) => ids.includes(e.id)).length).toBe(0);

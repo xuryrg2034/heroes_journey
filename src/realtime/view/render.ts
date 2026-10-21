@@ -4265,9 +4265,12 @@ export class RealtimeRenderer {
       shown.closed = 1;
       const pts = seal.ring.map(v => ({ x: v.x * UNIT, y: v.y * UNIT }));
       const poly = (): void => { g.moveTo(pts[0].x, pts[0].y); for (let i = 1; i < pts.length; i++) g.lineTo(pts[i].x, pts[i].y); g.closePath(); };
-      poly(); g.fill({ color: ink, alpha: 0.15 });
-      poly(); g.stroke({ color: NAVY, width: 8, alpha: 0.6, join: 'round' });
-      poly(); g.stroke({ color: ink, width: 4, alpha: 0.95, join: 'round' });
+      // Task 62 (design 21.10.2026): Ведунья v2's closed figure is a dashed contour (view/witchView.ts), no fill; the marks inside stay.
+      if (!witchOn(world)) {
+        poly(); g.fill({ color: ink, alpha: 0.15 });
+        poly(); g.stroke({ color: NAVY, width: 8, alpha: 0.6, join: 'round' });
+        poly(); g.stroke({ color: ink, width: 4, alpha: 0.95, join: 'round' });
+      }
       for (const id of seal.inside) {
         const e = world.enemies.find(x => x.id === id);
         if (!e) continue;

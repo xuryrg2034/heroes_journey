@@ -148,7 +148,8 @@ export class WitchView {
       g.circle(r0.x * U, r0.y * U, ring).stroke({ color: NAVY, width: 7, alpha: 0.5 });
       g.circle(r0.x * U, r0.y * U, ring).stroke({ color: ink, width: 3.5, alpha: 0.95 });
     } else g.circle(r0.x * U, r0.y * U, ring).stroke({ color: ink, width: 1.5, alpha: 0.45 });
-    if (on) {
+    // Design 21.10.2026: no preview before the touch. A closed chain (the figure taken) — the contour dashed in the chain's colour, no fill; a refusal — grey.
+    if (on || closed) {
       const pts = runes.map(v => ({ x: v.x * U, y: v.y * U }));
       this.dashedPolygon(g, pts, refusal ? GREY : ink);
       s.contour = refusal ? 'refused' : 'figure';
