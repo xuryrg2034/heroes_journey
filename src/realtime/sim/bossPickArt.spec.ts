@@ -15,6 +15,7 @@
  * - the overlap of drawings (design 21.10.2026), the Chief's shoulder under the ladle (out of every circle): «on top» is the view's
  *   order (the larger y; the core over the parts): both takeable — the core; the core closed — the ladle; neither — the core's refusal;
  *   at an equal y the later body; the full Castellan's crossbow: the edge of its drawing takes it, beside the drawing nothing;
+ * - the drawings count where the pointer stands: a swipe's points across the Jailer's drawing take no core, a pointer event on it does;
  * - the press zone is the link everywhere: «Развилка»'s dwell on the club kept through a jitter over its drawing; a closed loop opens
  *   on the club's drawing; the rock in the air has no zone;
  * - the warlock charmed: his head — «под чарами»; his window after the charm: the head takes him;
@@ -407,6 +408,34 @@ check('the Troll\'s rock in the air («Бросок камня», its last 0.4 s
     }
     assert(windup && flight, `seed ${k}: the windup took the rock, the flight came (${windup}, ${flight})`);
     assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
+check('the drawings count where the pointer stands (design 21.10.2026): a swipe from a link to the Jailer\'s weight across his drawing (no body there, out of the circles) — its sweep points take no core; a pointer event on the drawing on the way — the core joins', () => {
+  for (const k of SEEDS) {
+    for (const stop of [false, true]) {
+      const sim = new Simulation({ arena: 'jailer', params: quiet(true), seed: seedOf(k), record: true }), w = sim.world;
+      ticks(sim, 1);
+      const core = kindOf(w, JAILER)!, weight = kindOf(w, 'jailer-weight')!;
+      freeze(sim, core, 60); freeze(sim, weight, 60);
+      sim.command({ t: 'teleport', x: 5.6, y: 5.0 });
+      const a1 = sim.command({ t: 'place', x: 6.6, y: 5.2, color: weight.color, hp: 0, kind: 'basic' }) as number;
+      sim.command({ t: 'begin', x: 6.6, y: 5.2 });
+      assert(w.chain.length === 1 && w.chain[0].id === a1 && enemyRefusal(w, core) === null, `seed ${k}: a link, the core takeable (${enemyRefusal(w, core)})`);
+      // The way down to the weight crosses the core's drawing (0.84–0.92 deep) out of every circle.
+      const mid = { x: 6.65, y: 5.85 };
+      assert(Math.hypot(mid.x - core.x, mid.y - core.y) > pickRadius(w, core) && Math.hypot(mid.x - weight.x, mid.y - weight.y) > pickRadius(w, weight), `seed ${k}: the way out of the circles`);
+      if (stop) {
+        // One pointer event lands on the drawing: the core joins there (a survivor: nothing joins after it).
+        sim.command({ t: 'sweep', fx: 6.6, fy: 5.2, x: mid.x, y: mid.y });
+        sim.command({ t: 'sweep', fx: mid.x, fy: mid.y, x: weight.x, y: weight.y });
+        assert(w.chain.some(l => l.id === core.id), `seed ${k}: the event on the drawing took the core (${w.chain.map(l => l.id)})`);
+      } else {
+        sim.command({ t: 'sweep', fx: 6.6, fy: 5.2, x: weight.x, y: weight.y });
+        assert(w.chain.map(l => l.id).join() === [a1, weight.id].join(), `seed ${k}: the swipe's points took no core (${w.chain.map(l => l.id)}; core ${core.id}, weight ${weight.id})`);
+      }
+      assert(replays(sim), `seed ${k}, stop ${stop}: replay`);
+    }
   }
 });
 

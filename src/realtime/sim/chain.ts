@@ -1725,7 +1725,7 @@ export function dragChain(world: World, p: Vec, mode: DragMode = 'full'): void {
   if (mode !== 'full' && pointerShiftColor(world) !== null) {
     // Task 34 telemetry: the body the path without `shiftAtPointer` would have taken here (the nearest one `canLink` allows).
     const seeLinks = seesLinks(world, mode);
-    const old = pick(world, p, e => (seeLinks && inChain(world, e) >= 0) || canLink(world, e, plan), o => (seeLinks && linkIndex(world, { kind: 'object', id: o.id }) >= 0) || canLinkObject(world, o, plan), true);
+    const old = pick(world, p, e => (seeLinks && inChain(world, e) >= 0) || canLink(world, e, plan), o => (seeLinks && linkIndex(world, { kind: 'object', id: o.id }) >= 0) || canLinkObject(world, o, plan), true, mode !== 'sweep');
     if (old?.kind === 'enemy' && linkIndex(world, old) < 0 && (target?.kind !== 'enemy' || target.id !== old.id)) world.events.push({ type: 'shiftSkip', enemyId: old.id, links: world.chain.length });
   }
   if (!target) return;
@@ -1789,7 +1789,9 @@ const heroHeld = (world: World, p: Vec, mode: DragMode): boolean =>
  * for the pointer event (`full`) and the held pointer with `holdNearest` (task 39), the chain's own links. A link of the chain —
  * `full` truncates there (the step back), `append` does nothing; null — nothing. Task 34: on a colour free by «Смена цвета» a
  * sweep point and the held pointer take only the chain's colour. Task 42: with `holdHeroLink` a held or sweep point in the hero's
- * circle picks nothing, nor the pointer event there on an empty chain. `dragChain` acts on it; the view does not call it (the tests
+ * circle picks nothing, nor the pointer event there on an empty chain. «Зона нажатия по рисунку» (design 21.10.2026): the drawings count
+ * where the pointer really stands — the event (`full`) and the held pointer (`append`); a sweep point between two events takes bodies by
+ * their circles only. `dragChain` acts on it; the view does not call it (the tests
  * read it as the drag's own answer).
  */
 export function pickAt(world: World, p: Vec, mode: DragMode = 'full', plan: ChainPlan = planChain(world, world.chain, NO_PIERCE)): ChainLink | null {
@@ -1798,7 +1800,7 @@ export function pickAt(world: World, p: Vec, mode: DragMode = 'full', plan: Chai
   const keepsColor = (e: Enemy): boolean => free === null || colorlessLink(world, e) || sameColor(world, e.color, free);
   return pick(world, p,
     e => (seeLinks && inChain(world, e) >= 0) || (canLink(world, e, plan) && keepsColor(e)),
-    o => (seeLinks && linkIndex(world, { kind: 'object', id: o.id }) >= 0) || canLinkObject(world, o, plan), true);
+    o => (seeLinks && linkIndex(world, { kind: 'object', id: o.id }) >= 0) || canLinkObject(world, o, plan), true, mode !== 'sweep');
 }
 
 /**
