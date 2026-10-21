@@ -9,6 +9,8 @@
  * arc of the shieldbearer, the archer's line, the sapper's fuse and blast ring (`drawSignals`); the porcupine's quills (its
  * drawing) and the «−1 HP» badge on a porcupine link of the drawn chain (`drawChain`).
  */
+import { BOSS_ART } from '../sim/bossArt';
+import { drawRanks } from './drawOrder';
 import { Application, Container, Graphics, GraphicsContext, Particle, ParticleContainer, Sprite, Text, type Texture } from 'pixi.js';
 import { COLORS, PALE, drawTerrain, makePlayer, type HeroArtId } from '../art/art';
 import { characterSprite, hasCharacterArt, type CharacterArtId } from '../art/characterAssets';
@@ -171,11 +173,11 @@ const NOTCH_GOLD = 0xffd36b;
 /** Task 38: the garrison's art by kind and its size (box side, in body radii). */
 const GARRISON_ART: Readonly<Record<string, { id: CharacterArtId; size: number }>> = {
   [GUARD]: { id: 'garrison-guard', size: 3.4 }, [HANDLER]: { id: 'garrison-houndmaster', size: 3.4 },
-  [HOUND]: { id: 'garrison-hound', size: 2.9 }, [CASTELLAN]: { id: 'castellan', size: 4.2 },
+  [HOUND]: { id: 'garrison-hound', size: 2.9 }, [CASTELLAN]: { id: 'castellan', size: BOSS_ART.castellan.side },
   // Task 40: the keymaster.
   [KEYMASTER]: { id: 'garrison-keymaster', size: 3.4 },
   // Task 43: the crossbowman and the Castellan's crossbow on its stand.
-  [CROSSBOW]: { id: 'garrison-crossbowman', size: 3.4 }, [STAND]: { id: 'garrison-crossbow', size: 3.6 },
+  [CROSSBOW]: { id: 'garrison-crossbowman', size: 3.4 }, [STAND]: { id: 'garrison-crossbow', size: BOSS_ART['castellan-crossbow'].side },
   // Task 43: the knight (heavier: a taller box).
   [KNIGHT]: { id: 'garrison-knight', size: 3.7 },
   // Task 57а: the forest shooters (the box is in body radii of the kind's own drawing scale; the colour reads on the disc and the plaque).
@@ -335,8 +337,8 @@ function hatchCircle(g: Graphics, X: number, Y: number, R: number, step: number)
  */
 const bossPipRadius = (e: Enemy, r: number, below: boolean): number => (e.kind !== JAILER ? r * 1.06 : below ? r * 1.35 : r * (JAILER_ART - JAILER_FEET + 0.1));
 /** Task 27: the Jailer's illustration — its size in body radii (about 1.5 times the hero's height) and where its feet stand. */
-const JAILER_ART = 5.4;
-const JAILER_FEET = 1.0;
+export const JAILER_ART = BOSS_ART.jailer.side;
+export const JAILER_FEET = BOSS_ART.jailer.feet ?? 0;
 /** The core's row goes under it while its weight hangs this far (units) above its centre, back over it once the weight is this far below. */
 const BOSS_PIP_FLIP = 0.3;
 /** Task 27: the weight's HP plaque — this many body radii out from the ball's centre, away from its core. */
@@ -498,6 +500,11 @@ export class RealtimeRenderer {
   /** Task 55а: the castle's things, the wardrobe's topple, the rook's line, the shove (`castleView.ts`). */
   private readonly castle = new CastleView(UNIT);
   get castleShown(): CastleView['shown'] { return this.castle.shown; }
+  /** The bodies' ids as the enemy layer draws them now, bottom to top (the tests read it: it is `artDrawnAbove`'s order). */
+  drawnOrder(): number[] {
+    const ids = [...this.enemyViews].filter(([, v]) => v.root.parent === this.enemyLayer).sort(([, a], [, b]) => a.root.zIndex - b.root.zIndex).map(([id]) => id);
+    return ids;
+  }
   /** The wardrobe's topple lane as drawn last frame (tests). */
   castleLane(id: number): ReturnType<CastleView['laneOf']> { return this.castle.laneOf(id); }
   castlePose(id: number): ReturnType<CastleView['poseOf']> { return this.castle.poseOf(id); }
@@ -1383,7 +1390,7 @@ export class RealtimeRenderer {
     // Task 54a: the Chief - his large drawing over the disc (grey while closed, the brew's colour in the window); a part - its drawing behind its colour disc.
     let chiefArt: ChiefArt | undefined;
     if (e.kind === CHIEF) { chiefArt = buildChief(r); body.addChild(chiefArt.root); }
-    else if (isChiefKind(e.kind)) { const part = buildChiefPart(e.kind, r); if (part) { part.position.set(0, -r * 0.35); body.addChildAt(part, 0); } }
+    else if (isChiefKind(e.kind)) { const part = buildChiefPart(e.kind, r); if (part) { part.position.set(0, r * (BOSS_ART[e.kind]?.dy ?? -0.35)); body.addChildAt(part, 0); } }
     // Task 55 Д: the warlock - his large drawing over the disc (floating; the dazed one in his window).
     let warlockArt: WarlockArt | undefined;
     if (e.kind === WARLOCK) { warlockArt = buildWarlock(r); body.addChild(warlockArt.root); }
@@ -1420,6 +1427,7 @@ export class RealtimeRenderer {
   }
 
   private syncEnemies(world: World): void {
+    const ranks = drawRanks(world.enemies);
     const look = world.params.enemyLook, seen = new Set<number>();
     let quillsRaised = 0, quillsTrembling = 0;
     const scale = enemyDrawRadius(world.params) / BASE_ENEMY_RADIUS;
@@ -1498,7 +1506,8 @@ export class RealtimeRenderer {
       const pop = this.openedOnBoss && e.age >= world.time - 1e-9 ? 1 : Math.min(1, 0.35 + e.age / 0.2 * 0.65);
       // Stage 2, step 3: an elite is drawn larger (its body stays); task 12 — a leader too (`enemyArtScale`, the sim's own scale).
       view.root.scale.set(scale * pop * enemyArtScale(world.params, e));
-      view.root.zIndex = e.y;
+      // Task 55 (design 21.10.2026): the drawing order is the sim's comparison, `artDrawnAbove` (the larger y; at an equal y the larger id) — an explicit rank, not the history of a stable sort.
+      view.root.zIndex = ranks.get(e.id) ?? e.y;
       // Camera: bodies off screen are not drawn (a margin keeps a body half in view and its strike lunge).
       view.root.visible = this.sees(e, 1.5);
       // Task 29 «Близнецы»: the pair of the chain's colour is the chain's colour — not muted (`sameColor`, the chain's own rule).

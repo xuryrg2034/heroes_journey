@@ -17,6 +17,7 @@
  *   drawn chain: a white ring on each link that dropped out; the recolour: a ring of the brew's colour on each body painted.
  * Coordinates are arena pixels (`unit` per arena unit); `r` is the drawing radius of a body in px.
  */
+import { BOSS_ART } from '../sim/bossArt';
 import { countPlace, type VisibleArea } from './edgeMarkers';
 import { ColorMatrixFilter, Container, Graphics, Sprite, Text } from 'pixi.js';
 import { characterSprite, hasCharacterArt } from '../art/characterAssets';
@@ -37,9 +38,9 @@ const LADLE_WOOD = 0x9a6a3a, LADLE_IRON = 0x6e7480, SACK_CLOTH = 0xb59a6a;
 const SKIN = 0x7bd3a5, CLOAK = 0x4a3563;
 
 /** The core's drawing: its box side in body radii (about 2 heroes tall), the feet's place; the parts' boxes. */
-export const CHIEF_ART = 5.4;
-export const CHIEF_FEET = 1.0;
-const LADLE_ART = 3.4, SACK_ART = 2.8;
+export const CHIEF_ART = BOSS_ART.chief.side;
+export const CHIEF_FEET = BOSS_ART.chief.feet ?? 0;
+export const LADLE_ART = BOSS_ART['chief-ladle'].side, SACK_ART = BOSS_ART['chief-sack'].side;
 /** The cauldron's drawing: its width in units, the picture's aspect, its throat (the share of the picture: centre x from the middle, centre y from the middle, half sides). */
 export const CAULDRON_W = 2.9;
 const CAULDRON_ASPECT = 813 / 1000;

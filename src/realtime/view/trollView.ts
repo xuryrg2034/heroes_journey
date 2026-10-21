@@ -15,6 +15,7 @@
  *   a white ring on each link that dropped out.
  * Coordinates are arena pixels (`unit` per arena unit); `r` is the drawing radius of a body in px.
  */
+import { BOSS_ART } from '../sim/bossArt';
 import { countPlace, type VisibleArea } from './edgeMarkers';
 import { ColorMatrixFilter, Container, Graphics, Text } from 'pixi.js';
 import { characterSprite, hasCharacterArt } from '../art/characterAssets';
@@ -35,13 +36,13 @@ const SKIN_DARK = 0x3f6870;
 const SPARK_GREY = 0xc7ccd1;
 
 /** The Troll's drawing: its box side in body radii (about 2.3 times the hero's height), the share of the box's height it takes, where its feet stand. */
-export const TROLL_ART = 6.8;
-export const TROLL_ART_ASPECT = 1226 / 1300;
-export const TROLL_FEET = 1.0;
+export const TROLL_ART = BOSS_ART.troll.side;
+export const TROLL_ART_ASPECT = BOSS_ART.troll.aspect;
+export const TROLL_FEET = BOSS_ART.troll.feet ?? 0;
 /** The weapons' boxes in body radii: the club's longer side, the rock, the tail's knot (the same rock, smaller). */
-const CLUB_ART = 5;
-const ROCK_ART = 3.4;
-const KNOT_ART = 2.3;
+export const CLUB_ART = BOSS_ART['troll-club'].side;
+export const ROCK_ART = BOSS_ART['troll-rock'].side;
+export const KNOT_ART = BOSS_ART['troll-tail'].side;
 /** The club's axis in its picture (head → handle, radians) and the grip's point (the share of the picture). */
 const CLUB_AXIS = Math.atan2(380, 640);
 const CLUB_GRIP = { x: 0.92, y: 0.88 };

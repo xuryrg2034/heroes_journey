@@ -1,0 +1,213 @@
+import { type Page } from '@playwright/test';
+import { test, expect } from './realtimeTest';
+import { gameWait, untilFrame } from './realtimeFrames';
+import { replay, type Journal } from '../src/realtime/sim/simulation';
+import { artEllipseDepth, type ArtEllipse } from '../src/realtime/sim/bossArt';
+
+/**
+ * «Зона нажатия босса по рисунку» (`Params.bossPickArt`, design 21.10.2026, docs/design-notes/task-48-troll.md §24), by real input at 1280×720: a click
+ * on a boss's drawing out of its press circle (the head, the chest, the club's picture) takes the boss or says why not. The Troll: in his window a click
+ * in the head — the chain [core]; out of the window — the refusal «вне окна» at the cursor and nothing taken; a click on the club's picture takes the
+ * club; with the key off (`setParam('bossPickArt', false)`, journalled) the same click in the head takes nothing and says nothing. The warlock: in his
+ * window the chest and the head take the core. Before every click the test checks that the pointer is inside the drawing's ellipse (`artEllipseDepth` of the
+ * sim, the zone read from the page by `__realtime.bossArt`) and out of the feet's circle (`pickRadius`). The arenas are opened by their menu buttons with the
+ * name checked. The bodies are drawn in the order of `artDrawnAbove` (the snapshot's `drawnOrder`), whatever the order they came in. The rules are in Node
+ * (`npm run test:realtime-boss-pick-art`, `test:realtime-draw-order`); here the player's click. The crowd is the default. Added 21.10.2026 by the ui
+ * session on branch ui/boss-pick-art.
+ */
+interface Zone extends ArtEllipse { ring: number }
+interface Shot {
+  hint: string | null; loop: { hintText: string | null }; chain: number[]; moving: string | null; time: number; arena: string; menuOpen: boolean; drawnOrder: number[];
+  hero: { x: number; y: number };
+  enemies: { id: number; kind: string; x: number; y: number; hp: number }[];
+  castle: { things: { id: number; x: number; y: number; durability: number }[]; shoves: unknown[] };
+  warlock: { state: { id: number; x: number; y: number; wardrobe: number | null; window: { open: boolean; hit: boolean } | null; phase: number } | null };
+  troll: { glow: number };
+  bossBar: { plates: number };
+}
+const snap = (page: Page): Promise<Shot> => page.evaluate(() => (window as any).__realtime.snapshot());
+const shot = async (page: Page, name: string): Promise<void> => { if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/bosspick-${name}.png` }); };
+
+function collectErrors(page: Page): string[] {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+  return errors;
+}
+
+async function sameHash(page: Page): Promise<void> {
+  const recorded = await page.evaluate(() => { const rt = (window as any).__realtime; return { journal: rt.journal(), hash: rt.hash() }; }) as { journal: Journal; hash: string };
+  expect(replay(recorded.journal).hash()).toBe(recorded.hash);
+}
+
+async function cameraSettled(page: Page): Promise<void> {
+  const still = await untilFrame(page, (_snap, _arg: null, late, rt) => {
+    const h = rt.snapshot().hero, s = rt.toScreen(h.x, h.y), w = window as any, last = w.__bpCam;
+    w.__bpCam = { x: s.x, y: s.y, n: last && Math.abs(last.x - s.x) < 0.5 && Math.abs(last.y - s.y) < 0.5 ? last.n + 1 : 0 };
+    return w.__bpCam.n >= 5 ? true : late ? false : undefined;
+  }, null, 4);
+  expect(still, 'the camera came to rest').toBe(true);
+}
+
+const zoneOf = async (page: Page, id: number): Promise<Zone> => {
+  const z = await page.evaluate(([id]) => (window as any).__realtime.bossArt(id), [id] as const) as Zone | null;
+  expect(z, `the drawing of ${id} has a press zone`).not.toBeNull();
+  return z!;
+};
+
+/**
+ * The pointer's point on a boss's drawing: the ellipse's centre moved by (`u`, `v`) of its half-axes along the axes (u right, v up). Checked here, before
+ * the click: inside the ellipse (`artEllipseDepth` <= 1) and out of the feet's circle of the body (`pickRadius`). The mouse goes there and the hint is read.
+ */
+async function aimOnDrawing(page: Page, id: number, u: number, v: number): Promise<{ x: number; y: number }> {
+  const z = await zoneOf(page, id), body = (await snap(page)).enemies.find(e => e.id === id)!;
+  const p = { x: z.x + (u * z.a) * z.cos - (-v * z.b) * z.sin, y: z.y + (u * z.a) * z.sin + (-v * z.b) * z.cos };
+  expect(artEllipseDepth(z, p), 'the pointer is inside the drawing ellipse').toBeLessThanOrEqual(1);
+  expect(Math.hypot(p.x - body.x, p.y - body.y), 'the pointer is out of the feet circle').toBeGreaterThan(z.ring);
+  const t = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [p.x, p.y] as const);
+  await page.mouse.move(t.x, t.y, { steps: 4 });
+  return p;
+}
+
+const settleDash = (page: Page): Promise<boolean> => untilFrame(page, (s, _arg: null, late) => s.moving === null && s.chain.length === 0 ? true : late ? false : undefined, null, 12);
+
+/** The Troll's den by its menu button; no newcomers, nobody walks, no touch; the rock frozen. */
+async function openDen(page: Page): Promise<{ core: number; club: number }> {
+  await page.goto('/?sandbox=1');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect(page.getByTestId('boss-arena-2')).toContainText('Берлога тролля');
+  await page.getByTestId('boss-arena-2').click();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
+  await expect.poll(async () => (await snap(page)).arena).toBe('troll');
+  await expect.poll(() => page.evaluate(() => (window as any).__realtime.camera().intro)).toBe(0);
+  await page.evaluate(() => {
+    const rt = (window as any).__realtime;
+    for (const [k, v] of [['enemySpeed', 0], ['speedSpread', 0], ['baseIntervalMin', 1000], ['baseIntervalMax', 1000], ['baseFloor', 0], ['contactDamage', 0]] as const) rt.setParam(k, v);
+  });
+  const s = await snap(page), core = s.enemies.find(e => e.kind === 'troll')!, club = s.enemies.find(e => e.kind === 'troll-club')!;
+  await page.evaluate(([rock]) => (window as any).__realtime.chill(rock, 600), [s.enemies.find(e => e.kind === 'troll-rock')!.id] as const);
+  return { core: core.id, club: club.id };
+}
+
+test('«Зона по рисунку»: the Troll — the head in the window takes the core, shut it says «вне окна» and takes nothing, the club\'s picture takes the club, the key off takes nothing', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors = collectErrors(page);
+  const { core, club } = await openDen(page);
+  const c0 = (await snap(page)).enemies.find(e => e.id === core)!;
+  // Shut: the club frozen in his paw, the hero below the core.
+  await page.evaluate(([club]) => (window as any).__realtime.chill(club, 600), [club] as const);
+  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x + 0.3, y + 1.6), [c0.x, c0.y] as const);
+  await cameraSettled(page);
+  await aimOnDrawing(page, core, 0, 0.55);
+  await expect.poll(async () => (await snap(page)).hint, { message: 'the core refusal at the cursor' }).toBe('outOfWindow');
+  expect((await snap(page)).loop.hintText).toBe('вне окна');
+  await shot(page, 'troll-shut-head');
+  await page.mouse.down();
+  await gameWait(page, 0.2);
+  expect((await snap(page)).chain, 'the window is shut: nothing is taken').toEqual([]);
+  await page.mouse.up();
+  // The club's picture (the zone's centre, out of the club's circle): the press takes the club.
+  await aimOnDrawing(page, club, 0, 0);
+  await page.mouse.down();
+  await expect.poll(async () => (await snap(page)).chain, { message: 'the press on the club\'s picture takes the club' }).toEqual([club]);
+  await shot(page, 'troll-club');
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  // The window: the club strikes (the hero in its reach), the core is frozen the moment it lights.
+  await page.evaluate(([club]) => (window as any).__realtime.chill(club, 0), [club] as const);
+  await page.evaluate(() => (window as any).__realtime.teleport(12, 6.5));
+  const lit = await untilFrame(page, (s, _arg: null, late, rt) => s.troll.glow === 1 ? (rt.chill(s.enemies.find((e: any) => e.kind === 'troll').id, 60), rt.chill(s.enemies.find((e: any) => e.kind === 'troll-club').id, 600), true) : late ? false : undefined, null, 25);
+  expect(lit, 'the window is lit').toBe(true);
+  const c1 = (await snap(page)).enemies.find(e => e.id === core)!;
+  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x + 0.3, y + 1.6), [c1.x, c1.y] as const);
+  await cameraSettled(page);
+  // The window open: the head takes the core, no refusal at the cursor.
+  await aimOnDrawing(page, core, 0, 0.55);
+  await expect.poll(async () => (await snap(page)).hint, { message: 'no refusal on the head in the window' }).toBeNull();
+  await page.mouse.down();
+  await expect.poll(async () => (await snap(page)).chain, { message: 'the head takes the core' }).toEqual([core]);
+  await shot(page, 'troll-window-head');
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  // The key off (the sandbox's own `setParam`, journalled): the same click takes nothing and says nothing.
+  await page.evaluate(() => (window as any).__realtime.setParam('bossPickArt', false));
+  await aimOnDrawing(page, core, 0, 0.55);
+  await page.mouse.down();
+  await gameWait(page, 0.2);
+  expect((await snap(page)).chain, 'key off: nothing taken').toEqual([]);
+  expect((await snap(page)).hint, 'key off: no refusal').toBeNull();
+  await page.mouse.up();
+  await page.evaluate(() => (window as any).__realtime.setParam('bossPickArt', true));
+  // Key on again: the head takes the core and the dash takes a plate.
+  await aimOnDrawing(page, core, 0, 0.55);
+  await page.mouse.down();
+  await expect.poll(async () => (await snap(page)).chain).toEqual([core]);
+  await page.mouse.up();
+  expect(await settleDash(page), 'the dash is over').toBe(true);
+  expect((await snap(page)).bossBar.plates, 'a plate was taken').toBe(3);
+  await sameHash(page);
+  expect(errors).toEqual([]);
+});
+
+test('«Зона по рисунку»: the warlock — in his window the chest and the head take the core', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors = collectErrors(page);
+  await page.goto('/?sandbox=1');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect(page.getByTestId('castle-arena-4')).toContainText('Зал колдуна');
+  await page.getByTestId('castle-arena-4').click();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
+  await expect.poll(async () => (await snap(page)).arena).toBe('c-warlock');
+  await expect.poll(async () => (await snap(page)).menuOpen).toBe(false);
+  await page.evaluate(() => {
+    const rt = (window as any).__realtime;
+    for (const [k, v] of [['enemySpeed', 0], ['speedSpread', 0], ['baseIntervalMin', 1000], ['baseIntervalMax', 1000], ['baseFloor', 0], ['contactDamage', 0], ['wardrobePeriod', 1000], ['shoveDistance', 6]] as const) rt.setParam(k, v);
+  });
+  await cameraSettled(page);
+  // His wardrobe into the wall twice by the mouse (the route of tests/realtime-warlock.spec.ts).
+  const wardrobe = (await snap(page)).warlock.state!.wardrobe!;
+  for (let i = 0; i < 2; i++) {
+    const w = (await snap(page)).castle.things.find(t => t.id === wardrobe)!;
+    await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y + 1), [w.x, w.y] as const);
+    await cameraSettled(page);
+    const at = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [w.x, w.y] as const);
+    await page.mouse.move(at.x, at.y, { steps: 3 });
+    await page.mouse.down();
+    await expect.poll(async () => (await snap(page)).chain).toEqual([wardrobe]);
+    await page.mouse.up();
+    const done = await untilFrame(page, (s, _arg: null, late) => s.castle.shoves.length === 0 && s.moving === null ? true : late ? false : undefined, null, 10);
+    expect(done, 'the shove is over').toBe(true);
+  }
+  const fell = await untilFrame(page, (s, _arg: null, late) => s.warlock.state?.phase === 2 ? true : late ? false : undefined, null, 4);
+  expect(fell, 'the charm fell').toBe(true);
+  // The window of the next arrival: the core is frozen the moment it opens.
+  const open = await untilFrame(page, (s, _arg: null, late, rt) => s.warlock.state?.window?.open ? (rt.chill(s.warlock.state.id, 60), s.warlock.state) : late ? null : undefined, null, 12);
+  expect(open, 'the window opened').not.toBeNull();
+  const id = (open as { id: number }).id, c = (await snap(page)).enemies.find(e => e.id === id)!;
+  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x + 0.3, y + 1.6), [c.x, c.y] as const);
+  await cameraSettled(page);
+  for (const [name, v] of [['chest', 0], ['head', 0.5]] as const) {
+    await aimOnDrawing(page, id, 0, v);
+    await expect.poll(async () => (await snap(page)).hint, { message: `${name}: no refusal in the window` }).toBeNull();
+    await page.mouse.down();
+    await expect.poll(async () => (await snap(page)).chain, { message: `the ${name} takes the core` }).toEqual([id]);
+    await shot(page, `warlock-${name}`);
+    await page.keyboard.press('Escape');
+    await page.mouse.up();
+  }
+  await sameHash(page);
+  expect(errors).toEqual([]);
+});
+
+test('the drawing order: bodies at one height are drawn by their ids — the later one over, whatever order the views were made in', async ({ page }) => {
+  const errors = collectErrors(page);
+  await openDen(page);
+  const ids = await page.evaluate(() => { const rt = (window as any).__realtime; return [rt.place(5, 9, 0, 0, 'basic'), rt.place(6.5, 9, 1, 0, 'basic'), rt.place(8, 9, 2, 0, 'basic')]; }) as number[];
+  const order = await untilFrame(page, (s, ids: number[], late) => ids.every(id => s.drawnOrder.includes(id)) ? s.drawnOrder.filter((id: number) => ids.includes(id)) : late ? null : undefined, ids, 4);
+  expect(order, 'the bodies are drawn').not.toBeNull();
+  expect(order, 'the larger id is on top at an equal y').toEqual([...ids].sort((a, b) => a - b));
+  await sameHash(page);
+  expect(errors).toEqual([]);
+});
