@@ -31,6 +31,8 @@ import { defaultParams, type Params } from '../src/realtime/sim/params';
 import type { World } from '../src/realtime/sim/world';
 import { FINAL_ARENA, runRow } from '../src/realtime/run/arenaPools';
 import '../src/realtime/sim/arenasBoss';
+import { arenaTemplate } from '../src/realtime/sim/arenas';
+import '../src/realtime/sim/arenasStep3';
 import { rtGarrisonNodeId } from '../src/realtime/run/garrison';
 import { walkRun } from '../src/realtime/run/metaWalk.testkit';
 import { outcomeOf } from '../src/realtime/run/runFight.testkit';
@@ -63,6 +65,22 @@ const SCHEDULE = HISTORY === 'first' ? { schedule: [] as string[] } : HISTORY ==
  * measure needs the colour shift to the pair). Absent — as before.
  */
 const STEP3 = args.includes('--step3'), PLANNER = args.includes('--planner');
+/**
+ * Task 59б: `--shares g-barracks=0.06,g-tarworks=0.03,g-barbican=0` — the step-3 inflow shares put on by the SCRIPT into the registered
+ * templates for the whole run («Казарма» — the recruits' newcomer share, «Смолокурня» — the pitchers', «Барбакан» — `pairShare`; the
+ * game keeps its numbers, as `--castellan`; such fights do not replay from a journal of the real template). Absent — the game's.
+ */
+const SHARES = option('--shares', '');
+for (const pair of SHARES ? SHARES.split(',') : []) {
+  const [id, value] = pair.split('='), share = Number(value), t = arenaTemplate(id) as { newcomers?: { kind: string; share: number }[]; pairShare?: number };
+  if (!Number.isFinite(share)) throw new Error(`--shares: ${pair}`);
+  if (id === 'g-barbican') t.pairShare = share;
+  else {
+    const entry = t.newcomers?.find(n => n.kind === (id === 'g-tarworks' ? 'pitcher' : id === 'g-barracks' ? 'recruit' : ''));
+    if (!entry) throw new Error(`--shares: no step-3 share on ${id}`);
+    entry.share = share;
+  }
+}
 
 /**
  * Task 40, pass 3: the Castellan's sets of the sweep — the knobs that matter most, put on by the script only. `plates` — the core's
@@ -324,7 +342,7 @@ if (SET) {
 const whole = GARRISON_ONLY ? null : pass(() => true), garrison = FOREST_ONLY ? null : pass(run => !!run.garrisonLevel);
 if (BOSS_AIM) console.log(`Бот целит в ядро босса (--boss-aim): Тюремщик, Кастелян${TROLL_FIGHT ? ', Тролль (финал леса — «Берлога тролля», --troll)' : '; у финала леса ядра нет'}.\n`);
 const head = (() => { try { return execSync('git rev-parse --short HEAD').toString().trim(); } catch { return '?'; } })();
-console.log(`Задача 40, часть Е: кривая выживания бота через лес и гарнизон, ${SEEDS} seed, предел боя ${LIMIT} с, «Ров» ${MOAT ? 'вкл.' : 'по флагу игры'}, шаг 2 ${STEP2_OFF ? 'выкл.' : 'по флагу игры'}, шаг 3 ${STEP3 ? 'вкл.' : 'по флагу игры'}${PLANNER ? ', пары — планировщик' : ''} (эвристика, жадный бот), ${new Date().toISOString().slice(0, 10)}, HEAD ${head}, ${Math.round((Date.now() - started) / 1000)} с.\n`);
+console.log(`Задача 40, часть Е: кривая выживания бота через лес и гарнизон, ${SEEDS} seed, предел боя ${LIMIT} с, «Ров» ${MOAT ? 'вкл.' : 'по флагу игры'}, шаг 2 ${STEP2_OFF ? 'выкл.' : 'по флагу игры'}, шаг 3 ${STEP3 ? 'вкл.' : 'по флагу игры'}${PLANNER ? ', пары — планировщик' : ''}${SHARES ? `, доли ${SHARES}` : ''} (эвристика, жадный бот), ${new Date().toISOString().slice(0, 10)}, HEAD ${head}, ${Math.round((Date.now() - started) / 1000)} с.\n`);
 if (whole) print('Весь поход: все бои настоящие', whole, ['л', 'г']);
 if (garrison) print('Гарнизон от «Предместья»: бои леса выиграны обходом, бои гарнизона настоящие', garrison, ['г']);
 // Task 43: the Jailer's fights of both passes (the second plays the forest by the walk: only the first's count).
