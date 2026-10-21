@@ -22,7 +22,7 @@ import { runRow } from '../src/realtime/run/arenaPools';
 import { walkRun } from '../src/realtime/run/metaWalk.testkit';
 import { outcomeOf } from '../src/realtime/run/runFight.testkit';
 import { rtArenaLoadout, rtArenaParams, rtNode, rtRunParams, type RtArenaOutcome, type RtRunState } from '../src/realtime/run/rtRun';
-import { SCHEDULE_SHOOTER_ARCS, SCHEDULE_SHOOTER_KINDS } from '../src/realtime/run/schedule';
+import { SCHEDULE_ARCS, SCHEDULE_SHOOTER_ARCS, SCHEDULE_SHOOTER_KINDS } from '../src/realtime/run/schedule';
 import { botFight } from './garrisonBot';
 import type { World } from '../src/realtime/sim/world';
 
@@ -55,10 +55,16 @@ const perRun: Map<number, number>[] = Array.from({ length: RUNS }, () => new Map
 /** An arc of task 57 is open before a run: its kind not met, its needs met. */
 const arcOpen = (history: readonly string[]): boolean => SCHEDULE_SHOOTER_ARCS.some(arc => !history.includes(arc.id) && (arc.needs ?? []).every(n => history.includes(n)));
 let emptyPairs = 0, viewersLeft = 0;
+/**
+ * Design 21.10.2026 (the new viewer): the run of the viewer's first new kind of task 57 (0 — not within `RUNS`) with the arcs of task 26
+ * still not met before that run; the farthest run row of each run; the alarm — a viewer whose runs reached row 3+ and met no kind of 57.
+ */
+const firstRun = new Map<number, number>(), arcsLeftAtFirst: number[] = [], farthest: Map<number, number>[] = Array.from({ length: RUNS }, () => new Map());
+let alarms = 0;
 const started = Date.now();
 for (let k = 1; k <= VIEWERS; k++) {
   let history = START === 'all' ? [...ALL_ARCS] : [];
-  let previousEmpty = false;
+  let previousEmpty = false, first = 0, deepest = 0;
   for (let r = 1; r <= RUNS; r++) {
     const seed = r === 1 ? Math.imul(k, 2654435761) >>> 0 : mixSeed(Math.imul(k, 2654435761) >>> 0, r);
     const fought: Fought[] = [], open = arcOpen(history);
@@ -67,6 +73,10 @@ for (let k = 1; k <= VIEWERS; k++) {
     fights.push(...fought);
     const seen = new Set(run.battles.flatMap(record => record.seen ?? []));
     const fresh = SCHEDULE_SHOOTER_KINDS.filter(kind => seen.has(kind) && !history.includes(kind));
+    const row = Math.max(0, ...[...run.visited, ...run.result ? [run.result.nodeId] : []].map(id => runRow(rtNode(run, id)!.row)));
+    farthest[r - 1].set(row, (farthest[r - 1].get(row) ?? 0) + 1);
+    deepest = Math.max(deepest, row);
+    if (!first && fresh.length) { first = r; arcsLeftAtFirst.push(SCHEDULE_ARCS.filter(arc => !history.includes(arc.id)).length); }
     perRun[r - 1].set(fresh.length, (perRun[r - 1].get(fresh.length) ?? 0) + 1);
     for (const f of fought) if (f.arc && ARC_IDS.includes(f.arc) && fresh.includes(f.arc)) firsts.push({ arc: f.arc, row: f.row, died: f.died, run: r });
     if (!fresh.length && previousEmpty && open) emptyPairs++;
@@ -74,6 +84,8 @@ for (let k = 1; k <= VIEWERS; k++) {
     history = [...new Set([...history, ...seen])].sort();
   }
   if (SCHEDULE_SHOOTER_KINDS.some(kind => !history.includes(kind))) viewersLeft++;
+  firstRun.set(first, (firstRun.get(first) ?? 0) + 1);
+  if (!first && deepest >= 3) alarms++;
 }
 
 const head = (() => { try { return execSync('git rev-parse --short HEAD').toString().trim(); } catch { return '?'; } })();
@@ -105,3 +117,16 @@ console.log(`| Поход | Дуга 57 открыта на старте | ${[0,
 console.log(`| --- | --- | ${[0, 1, 2, 3].map(() => '---').join(' | ')} |`);
 for (let r = 1; r <= RUNS; r++) console.log(`| ${r} | ${openAtStart[r - 1]} | ${[0, 1, 2, 3].map(n => perRun[r - 1].get(n) ?? 0).join(' | ')} |`);
 console.log(`\nДва «пустых» похода подряд при открытой дуге: ${emptyPairs}. Зрителей, у которых после ${RUNS} походов осталась дуга: ${viewersLeft} из ${VIEWERS}.`);
+
+
+console.log('\n### 4. Первая встреча вида 57 по номеру похода (решение дизайна 21.10.2026)\n');
+console.log('| Поход первой встречи | Зрителей |');
+console.log('| --- | --- |');
+for (let r = 1; r <= RUNS; r++) console.log(`| ${r} | ${firstRun.get(r) ?? 0} |`);
+console.log(`| не встречен за ${RUNS} походов | ${firstRun.get(0) ?? 0} |`);
+const sortedLeft = [...arcsLeftAtFirst].sort((a, b) => a - b), mid = sortedLeft.length ? sortedLeft[(sortedLeft.length - 1) >> 1] : null;
+console.log(`\nДуг задачи 26, не встреченных перед походом первой встречи: медиана ${mid ?? '—'}, от ${sortedLeft[0] ?? '—'} до ${sortedLeft[sortedLeft.length - 1] ?? '—'}.`);
+console.log('\n| Поход | Наибольший ряд (число зрителей) |');
+console.log('| --- | --- |');
+for (let r = 1; r <= RUNS; r++) console.log(`| ${r} | ${[...farthest[r - 1]].sort((a, b) => a[0] - b[0]).map(([row, n]) => `${row}: ${n}`).join(', ')} |`);
+console.log(`\n**Тревога:** зрителей, чьи походы доходили до ряда 3+, но вида 57 нет за ${RUNS} походов (первая встреча — не раньше похода ${RUNS + 1}): ${alarms} из ${VIEWERS}.`);
