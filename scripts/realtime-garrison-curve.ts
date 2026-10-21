@@ -140,7 +140,7 @@ const jailerArena = (id: string): boolean => (JAILER_RUN_ARENAS as readonly stri
 
 interface Tally { reached: Map<string, number>; deaths: Map<string, number>; damage: Map<string, number[]>; outcomes: Record<string, number>; fights: number; timeouts: number; runs: number;
   /** Task 43: the garrison's fights by arena and loadout: deaths and damage of each. */
-  arenas: Map<string, { deaths: number; damage: number[] }> }
+  arenas: Map<string, { deaths: number; damage: number[]; blows: Record<string, number>; bySource: Record<string, number>; rows: Record<string, number> }> }
 const tally = (): Tally => ({ reached: new Map(), deaths: new Map(), damage: new Map(), outcomes: { victory: 0, defeat: 0, open: 0 }, fights: 0, timeouts: 0, runs: 0, arenas: new Map() });
 /** The level and run row of a node id («л N» / «г N»). */
 const keyOf = (run: RtRunState, id: string): string => `${rtGarrisonNodeId(id) ? 'г' : 'л'} ${runRow(rtNode(run, id)!.row)}`;
@@ -167,15 +167,17 @@ function fight(run: RtRunState, t: Tally): RtArenaOutcome {
   const damage: Record<string, number> = {}, groups: Record<TrollGroup, number> = { crowd: 0, core: 0, parts: 0, moves: 0 }, kinds = new Map<number, string>();
   const played = botFight(troll ? { ...run, pending: { ...pending, arena: 'troll' } } : run, { params, loadout, limit: LIMIT, ...BOSS_AIM ? { aim: BOSS_CORES } : {},
     ...castellan ? { afterTick: (world: World, tick: number) => tuneCastellan(world, castellan, tick === 0) } : {},
-    ...troll ? { seen: (world: World) => {
+    // Task 57а (21.10.2026): every fight's damage by its hit source (the per-arena table splits it); the Troll's groups as before.
+    seen: (world: World) => {
       for (const e of world.enemies) if (!kinds.has(e.id)) kinds.set(e.id, e.kind);
       for (const ev of world.events) {
         if (ev.type !== 'hit') continue;
         damage[ev.source] = (damage[ev.source] ?? 0) + ev.damage;
+        if (!troll) continue;
         const kind = ev.source === 'touch' ? kinds.get(ev.enemyId) : undefined;
         groups[kind === 'troll' ? 'core' : kind?.startsWith('troll-') ? 'parts' : ['troll-club', 'troll-rock', 'troll-tail'].includes(ev.source) ? 'moves' : 'crowd'] += ev.damage;
       }
-    } } : {} });
+    } });
   const w = played.sim.world, lastSource = played.lastSource;
   if (played.timeout) t.timeouts++;
   if (w.enemies.some(e => e.kind === 'jailer') || jailerArena(pending.arena)) jailerFights.push({ won: w.status === 'victory', time: w.time, hpIn: run.hp });
@@ -188,8 +190,15 @@ function fight(run: RtRunState, t: Tally): RtArenaOutcome {
     const arc = run.picks.find(pick => pick.nodeId === pending.nodeId)?.arc;
     const tag = rtGarrisonNodeId(pending.nodeId) ? `${pending.arena}${loadout.knights ? ` +р${loadout.knights}` : ''}${loadout.bolts ? ' +арб' : ''}${loadout.deep ? ' +глуб' : ''}`
       : `л: ${pending.arena}${pending.roster ? `/${pending.roster}` : ''}${arc ? ` #${arc}` : ''}`;
-    const entry = t.arenas.get(tag) ?? { deaths: 0, damage: [] };
-    entry.damage.push(w.stats.damageTaken); if (w.status !== 'victory') entry.deaths++;
+    const entry = t.arenas.get(tag) ?? { deaths: 0, damage: [], blows: {}, bySource: {}, rows: {} };
+    entry.damage.push(w.stats.damageTaken);
+    for (const [source, n] of Object.entries(damage)) entry.bySource[source] = (entry.bySource[source] ?? 0) + n;
+    if (w.status !== 'victory') {
+      entry.deaths++;
+      const blow = played.timeout ? 'timeout' : lastSource ?? '?';
+      entry.blows[blow] = (entry.blows[blow] ?? 0) + 1;
+      entry.rows[key] = (entry.rows[key] ?? 0) + 1;
+    }
     t.arenas.set(tag, entry);
   }
   if (VERBOSE) console.log(`  ${pending.nodeId} ${pending.arena}${pending.roster ? `/${pending.roster}` : ''}: ${w.status}, HP ${run.hp} → ${w.hero.hp}, урон ${w.stats.damageTaken}, ${w.time.toFixed(1)} с, цели ${w.greedStart?.toFixed(1) ?? '—'}`);
@@ -258,10 +267,11 @@ function print(title: string, t: Tally, levels: readonly string[]): void {
   console.log(`Доля смертей среди дошедших: ${levels.includes('л') ? `${wall('л 5', 'Тюремщик (л5)')}, ${wall('л 10', 'финал леса (л10)')}, ` : ''}${wall('г 10', 'Кастелян (г10)')}.`);
   console.log('');
   // Task 43: the garrison's fights by arena (and the loadout's knights, crossbowmen, deep enemies).
-  console.log('| Арена (л: — лес; /состав, #дуга) | Боёв | Смертей | Доля | Урон за бой, мед. |');
-  console.log('| --- | --- | --- | --- | --- |');
+  console.log('| Арена (л: — лес; /состав, #дуга) | Боёв | Смертей | Доля | Урон за бой, мед. | Смертельный удар | Урон по источникам, всего | Ряды смертей |');
+  console.log('| --- | --- | --- | --- | --- | --- | --- | --- |');
+  const top = (m: Record<string, number>): string => Object.entries(m).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(', ') || '—';
   for (const [tag, entry] of [...t.arenas].sort((a, b) => a[0].localeCompare(b[0]))) {
-    console.log(`| ${tag} | ${entry.damage.length} | ${entry.deaths} | ${Math.round(100 * entry.deaths / entry.damage.length)}% | ${f1(median(entry.damage))} |`);
+    console.log(`| ${tag} | ${entry.damage.length} | ${entry.deaths} | ${Math.round(100 * entry.deaths / entry.damage.length)}% | ${f1(median(entry.damage))} | ${top(entry.blows)} | ${top(entry.bySource)} | ${top(entry.rows)} |`);
   }
   console.log('');
 }
