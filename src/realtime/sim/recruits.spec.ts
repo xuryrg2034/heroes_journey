@@ -15,6 +15,7 @@
  */
 import { registerArena } from './arenas';
 import { enemyRefusal, planChain, REFUSAL_TEXT } from './chain';
+import { BOLT_SOURCE, CROSSBOW } from './enemies/crossbow';
 import { RECRUIT } from './enemies/recruit';
 import type { Vec } from './geometry';
 import { worldState } from './hash';
@@ -123,6 +124,26 @@ check('out of order nothing hurts a recruit: the bomb on #3 with #1 alive — no
     assert(w.enemies.includes(line[2]) && refused?.id === line[2].id && refused.source === 'bomb', `seed ${k}: #3 untouched`);
     w.events.length = 0;
     assert(sim.command({ t: 'item', kind: 'bomb', x: line[0].x, y: line[0].y }) && !w.enemies.includes(line[0]), `seed ${k}: #1 died`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
+check('the body stays a body (spec 4.2): a bolt through #3 with #1 alive stops on it — #3 untouched (event `refused`), the hero behind it unhurt; bodies pressed into #3 part it as any body (3 seeds)', () => {
+  for (const k of [1, 2, 3]) {
+    const sim = yard(k), w = sim.world, line = byNumber(w), third = line[2], x = third.x, y = third.y;
+    // The crossbowman above the line, the hero below: the bolt's line runs through #3 first.
+    sim.command({ t: 'teleport', x, y: y + 4 });
+    place(sim, { x, y: y - 3 }, 1, CROSSBOW, 1);
+    const hp = w.hero.hp, events = ticks(sim, ticksOf(2), [], ww => !!of(ww.events, 'bolt').find(e => e.action === 'shot'));
+    events.push(...w.events.splice(0));
+    const shot = of(events, 'bolt').find(e => e.action === 'shot');
+    const refused = of(events, 'recruit').find(e => e.action === 'refused' && e.id === third.id);
+    assert(shot?.hit === 'enemy' && shot.target === third.id, `seed ${k}: the bolt stopped on #3 (${JSON.stringify(shot)})`);
+    assert(w.enemies.includes(third) && third.hp === 0 && refused?.source === BOLT_SOURCE && w.hero.hp === hp, `seed ${k}: #3 untouched, the hero unhurt (HP ${hp} → ${w.hero.hp})`);
+    // A body put into #3: the parting pushes #3 aside, as any body.
+    place(sim, { x: third.x + 0.1, y: third.y }, 1, 'basic', 2);
+    ticks(sim, 1);
+    assert(Math.abs(third.x - x) > 0.05, `seed ${k}: #3 parted (${(third.x - x).toFixed(3)})`);
     assert(replays(sim), `seed ${k}: replay`);
   }
 });
