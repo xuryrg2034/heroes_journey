@@ -475,6 +475,43 @@ function relocateMarker(world: World, m: SpawnMarker): void {
   m.timeLeft = m.total;
 }
 
+/** «Метка у героя» (`Params.markerSeek`): the scan's step (units) — a bound on the points it tries, not a rule of the game. */
+export const SEEK_STEP = 0.5;
+/**
+ * `Params.markerSeek`: the marker `m` the hero came near — the random search first (as `relocateMarker`, the same draws); nothing
+ * found — the free point nearest to the marker by the scan (`seekPoint`); either way a whole warning at the new place. No free point
+ * anywhere — the marker waits where it is, its timer held (the caller skips its countdown this tick).
+ */
+function seekMarker(world: World, m: SpawnMarker): void {
+  const anchor = findAnchor(world);
+  const p = (anchor ? pointNear(world, anchor) : null) ?? seekPoint(world, m);
+  if (!p) return;
+  m.x = p.x; m.y = p.y;
+  m.timeLeft = m.total;
+}
+
+/**
+ * The scan of `Params.markerSeek`: the points of a `SEEK_STEP` grid over the arena (Т5: over the spawn rectangle of a big arena),
+ * kept off its edges by a body's radius, that a marker may take (`anchorValid` — no wall, tree or water, off the hero's ring; not on
+ * another marker; not on an enemy) — the one nearest to `from` (the first in the grid's order of equals). No draw of any stream.
+ */
+function seekPoint(world: World, from: Vec): Vec | null {
+  const r = enemyBodyRadius(world.params), a = world.arena;
+  const box = isBigArena(a) ? spawnRect(a, world.hero) : { x: 0, y: 0, w: a.width, h: a.height };
+  const x0 = Math.max(r, box.x), x1 = Math.min(a.width - r, box.x + box.w), y0 = Math.max(r, box.y), y1 = Math.min(a.height - r, box.y + box.h);
+  let best: Vec | null = null, bestD = Infinity;
+  for (let y = y0; y <= y1 + 1e-9; y += SEEK_STEP) {
+    for (let x = x0; x <= x1 + 1e-9; x += SEEK_STEP) {
+      const p = { x, y }, d = dist(p, from);
+      if (d >= bestD || !anchorValid(world, p)) continue;
+      if (world.markers.some(o => o !== from && dist(o, p) < r * 1.8)) continue;
+      if (world.enemies.some(e => dist(e, p) < r * 1.5)) continue;
+      best = p; bestD = d;
+    }
+  }
+  return best;
+}
+
 /**
  * Density floor of the phase: when the arena thins out, the gap is queued at once (singles or a wolf pack, any color).
  * Т5: the floor and the limit grow with the arena's area (`scaledFloor`, `enemyLimit`; 16×10 — as before).
@@ -487,6 +524,8 @@ function crowdFactorOf(world: World): number {
   if (world.arena.troll) return world.params.trollCrowd ?? 1;
   // Task 54: the Chief's crowd (`Params.chiefCrowd`; read on his arena only).
   if (world.arena.chief) return world.params.chiefCrowd ?? 1;
+  // Task 55, stage Д: the warlock's crowd (`Params.warlockCrowd`; read on his arena only).
+  if (world.arena.warlock) return world.params.warlockCrowd ?? 1;
   return world.arena.castellanFull ? world.params.castellanCrowd ?? 1 : 1;
 }
 
@@ -524,7 +563,11 @@ export function updateSpawning(world: World, dt: number): void {
   placeQueued(world, dt);
   for (let i = world.markers.length - 1; i >= 0; i--) {
     const m = world.markers[i];
-    if (dist(m, world.hero) < world.params.spawnMinDistance) { relocateMarker(world, m); continue; }
+    if (dist(m, world.hero) < world.params.spawnMinDistance) {
+      // «Метка у героя»: with `markerSeek` the marker finds a place or waits with its timer held (the old path: the whole warning again).
+      if (world.params.markerSeek) seekMarker(world, m); else relocateMarker(world, m);
+      continue;
+    }
     m.timeLeft -= dt;
     if (m.timeLeft > 0) continue;
     world.markers.splice(i, 1);

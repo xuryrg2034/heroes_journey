@@ -20,6 +20,7 @@
  * Phase A (Т2, docs/realtime-phase-a.md, section 4): an arena's roster (sim/rosters.ts) is chosen after its arena by the
  * node's own roll (`pickRoster`), not by a stream: the arenas are chosen as before.
  */
+import { APIARY_ARENA, SCREE_ARENA } from '../sim/arenasShooters';
 import { FOREST_TRUNK_LAST_ROW } from '../forest/forestMap';
 import { arenaTemplate } from '../sim/arenas';
 import { poolRosterChoices, rosterChoices } from '../sim/rosters';
@@ -80,8 +81,15 @@ const GENTLE_POOLS = gentlePools(ARENA_POOLS), GENTLE_POOLS_BEFORE_MIX = gentleP
  * The pools a run plays: with the roster mix (`mix`) — `ARENA_POOLS`, without it (a save before 11.10.2026) —
  * `ARENA_POOLS_BEFORE_MIX`; with the gentle entry (`gentle`, task 17) «Колючие заросли» on rows 7–8 in either.
  */
-export const runArenaPools = (mix: boolean, gentle = false): readonly ArenaPoolEntry[] =>
-  gentle ? (mix ? GENTLE_POOLS : GENTLE_POOLS_BEFORE_MIX) : mix ? ARENA_POOLS : ARENA_POOLS_BEFORE_MIX;
+export const runArenaPools = (mix: boolean, gentle = false, shooters = false): readonly ArenaPoolEntry[] => {
+  const pools = gentle ? (mix ? GENTLE_POOLS : GENTLE_POOLS_BEFORE_MIX) : mix ? ARENA_POOLS : ARENA_POOLS_BEFORE_MIX;
+  return shooters ? [...pools, ...SHOOTER_POOLS] : pools;
+};
+/**
+ * Баланс, task 57а «Лес: стрелки» (level design 20.10.2026, spec 10.3; a run with the flag `forestShooters`): «Осыпь» on run rows 3–7
+ * (the slinger's own arena), «Пасека» 4–8 (the hive's) — at the end of the list, so the order of the earlier candidates stays.
+ */
+export const SHOOTER_POOLS: readonly ArenaPoolEntry[] = [{ arena: SCREE_ARENA.id, rows: [3, 7] }, { arena: APIARY_ARENA.id, rows: [4, 8] }];
 /** Arena 9 «Застава»: every hard battle (section 5, «трудные узлы»). */
 export const HARD_ARENA = 'outpost';
 /** Arena 10 «Последний рубеж»: the final of the run — every boss node (section 3: the boss nodes lead to the final arena). */
@@ -99,10 +107,14 @@ export const ARENA_TITLES: Readonly<Record<string, string>> = {
   'g-yard': 'Плац', 'g-kennel': 'Псарня', 'g-gallery': 'Галерея', 'g-guardroom': 'Караульня', 'g-castellan': 'Двор кастеляна',
   // Task 48 «Тролль»: the den boss's arena (sim/arenasBoss.ts).
   troll: 'Берлога тролля',
+  // Task 57а «Лес: стрелки»: the new shooters' own arenas (sim/arenasShooters.ts).
+  'f-scree': 'Осыпь', 'f-apiary': 'Пасека',
 };
 export const arenaTitle = (arena: string): string => ARENA_TITLES[arena] ?? arena;
 /** Every arena a run may play (a save naming another one is malformed). */
 export const RUN_ARENAS: readonly string[] = [...ARENA_POOLS.map(entry => entry.arena), HARD_ARENA, FINAL_ARENA];
+/** Task 57а: the arenas a run with the flag `forestShooters` may play besides `RUN_ARENAS` (its saves name them). */
+export const SHOOTER_RUN_ARENAS: readonly string[] = SHOOTER_POOLS.map(entry => entry.arena);
 
 /** Row of the run of a map row: the real-time run starts past the trunk, at map row 5 (run row 1). */
 export const runRow = (mapRow: number): number => mapRow - FOREST_TRUNK_LAST_ROW;
@@ -115,13 +127,19 @@ export function arenaCandidates(row: number, pools: readonly ArenaPoolEntry[] = 
 /** The four new kinds of the slice (section 4) and their own arenas 4–7 (section 5). */
 export const NEW_KINDS = ['shield', 'archer', 'sapper', 'porcupine'] as const;
 export const OWN_ARENAS: Readonly<Record<string, string>> = { shield: 'shields', archer: 'archers', sapper: 'powder', porcupine: 'thorns' };
-/** The new kinds an arena brings: its newcomers and the enemies standing on it from the start. */
-export function arenaNewKinds(arena: string): string[] {
-  const t = arenaTemplate(arena), kinds = new Set([...(t.newcomers ?? []).map(entry => entry.kind), ...t.enemies.map(entry => entry.kind ?? 'basic')]);
-  return NEW_KINDS.filter(kind => kinds.has(kind));
+/** Task 57а: the new shooters of the pools (a run with `forestShooters`) and their own arenas («Осыпь», «Пасека»). The wisp has none in the pools. */
+export const SHOOTER_NEW_KINDS: readonly string[] = ['slinger', 'hive'];
+export const SHOOTER_OWN_ARENAS: Readonly<Record<string, string>> = { slinger: 'f-scree', hive: 'f-apiary' };
+/** The new kinds of the pools' rule (`shooters` — the flag `forestShooters`). */
+export const poolNewKinds = (shooters = false): readonly string[] => (shooters ? [...NEW_KINDS, ...SHOOTER_NEW_KINDS] : NEW_KINDS);
+const ownArena = (kind: string): string => OWN_ARENAS[kind] ?? SHOOTER_OWN_ARENAS[kind];
+/** The new kinds an arena brings: its newcomers and the enemies standing on it from the start (`kinds` — those the rule knows). */
+export function arenaNewKinds(arena: string, kinds: readonly string[] = NEW_KINDS): string[] {
+  const t = arenaTemplate(arena), here = new Set([...(t.newcomers ?? []).map(entry => entry.kind), ...t.enemies.map(entry => entry.kind ?? 'basic')]);
+  return kinds.filter(kind => here.has(kind));
 }
 /** The new kinds the run has met: those of the arenas it entered (`history`). */
-export const metKinds = (history: readonly string[]): Set<string> => new Set(history.flatMap(arenaNewKinds));
+export const metKinds = (history: readonly string[], kinds: readonly string[] = NEW_KINDS): Set<string> => new Set(history.flatMap(arena => arenaNewKinds(arena, kinds)));
 
 /** The last run row of an arena's pool (0 for an arena outside the pools). */
 const lastRow = (arena: string, pools: readonly ArenaPoolEntry[]): number => pools.find(entry => entry.arena === arena)?.rows[1] ?? 0;
@@ -140,18 +158,18 @@ const lastRow = (arena: string, pools: readonly ArenaPoolEntry[]): number => poo
  * The pool stream then chooses among them with the window of repeats (`pickArena`); the numbers of the arena are those
  * of the node's row, as for any arena. Hard battles and the final are not ordinary nodes: they play their one arena.
  */
-export function ordinaryArenaChoices(row: number, history: readonly string[], pools: readonly ArenaPoolEntry[] = ARENA_POOLS, firstMeetingLastRow = Infinity): string[] {
-  const candidates = arenaCandidates(row, pools), met = metKinds(history), unmet = (arena: string) => arenaNewKinds(arena).filter(kind => !met.has(kind));
+export function ordinaryArenaChoices(row: number, history: readonly string[], pools: readonly ArenaPoolEntry[] = ARENA_POOLS, firstMeetingLastRow = Infinity, kinds: readonly string[] = NEW_KINDS): string[] {
+  const candidates = arenaCandidates(row, pools), met = metKinds(history, kinds), unmet = (arena: string) => arenaNewKinds(arena, kinds).filter(kind => !met.has(kind));
   // Task 17 (`firstMeetingLastRow`, a gentle run: 8): past that row no first meeting — the candidates that bring no unmet kind
   // (rule 3), else the whole row (rule 4; the rows past 8 always have arenas without the four kinds).
   if (row > firstMeetingLastRow) {
     const fitting = candidates.filter(arena => !unmet(arena).length);
     return fitting.length ? fitting : [...candidates];
   }
-  const overdue = NEW_KINDS.filter(kind => !met.has(kind) && row > lastRow(OWN_ARENAS[kind], pools)).map(kind => OWN_ARENAS[kind]);
+  const overdue = kinds.filter(kind => !met.has(kind) && row > lastRow(ownArena(kind), pools)).map(ownArena);
   if (overdue.length) return overdue;
   const own = new Set<string>();
-  for (const arena of candidates) for (const kind of unmet(arena)) own.add(OWN_ARENAS[kind]);
+  for (const arena of candidates) for (const kind of unmet(arena)) own.add(ownArena(kind));
   // Keep the order of the pools (the stream's choice depends on it): the row's own arenas first, then those from outside.
   const ordered = [...candidates.filter(arena => own.has(arena)), ...[...own].filter(arena => !candidates.includes(arena))];
   if (ordered.length) return ordered;
@@ -195,8 +213,8 @@ export function pickArena(candidates: readonly string[], history: readonly strin
  * shaman once the run entered their own arena (design answer 3, 09.10.2026). A roster never brings an unmet kind, so a
  * roster does not change what the run has met: the choice of arenas stays as before.
  */
-export function rosterMet(history: readonly string[]): Set<string> {
-  const met: Set<string> = metKinds(history);
+export function rosterMet(history: readonly string[], shooters = false): Set<string> {
+  const met: Set<string> = metKinds(history, poolNewKinds(shooters));
   if (history.includes('lynx-den')) met.add('lynx');
   if (history.includes('shaman-circle')) met.add('shaman');
   return met;
@@ -223,15 +241,15 @@ export const MIXED_ROSTER_ARENAS: Readonly<Record<string, readonly string[]>> = 
  * run is spent: the arenas are chosen as before. `mix` — the run's roster mix (`MIXED_ROSTER_ARENAS`); without it «Застава»
  * and «Брод» keep their own composition, as before 11.10.2026.
  */
-export function pickRoster(arena: string, row: number, history: readonly string[], rosters: readonly string[], roll: number, mix = false): string | undefined {
+export function pickRoster(arena: string, row: number, history: readonly string[], rosters: readonly string[], roll: number, mix = false, shooters = false): string | undefined {
   const excluded = mix ? MIXED_ROSTER_ARENAS[arena] : undefined;
   if (excluded) {
     // The roster mix: the top bit of the roll keeps the own composition, else the window over the admissible pool rosters
     // (its low bits choose, as for any roster).
     if ((roll >>> 31) === 0) return undefined;
-    return pickWithWindow(poolRosterChoices(rosterMet(history)).filter(id => !excluded.includes(id)), rosters, roll) ?? undefined;
+    return pickWithWindow(poolRosterChoices(rosterMet(history, shooters)).filter(id => !excluded.includes(id)), rosters, roll) ?? undefined;
   }
-  const choices = rosterChoices(arena, row, rosterMet(history));
+  const choices = rosterChoices(arena, row, rosterMet(history, shooters));
   if (!choices) return undefined;
   const roster = pickWithWindow(choices, rosters, roll);
   if (!roster) throw new Error(`no roster for «${arena}»`);

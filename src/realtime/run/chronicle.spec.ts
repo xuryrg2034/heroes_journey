@@ -28,10 +28,12 @@ import {
 } from './rtRun';
 import { isRtForm, rtFormField } from './rtTalismans';
 import { FUSION_RECIPES } from '../sim/buildIds';
-import { rtChronicleParts, RT_CHRONICLE_BOSSES, RT_CHRONICLE_GARRISON_KINDS, isRtChronicleFusion, isRtChronicleItem } from './chronicleCatalog';
+import { chronicleForestKinds, chronicleGarrisonKinds, rtChronicleParts, RT_CHRONICLE_BOSSES, RT_CHRONICLE_FOREST_KINDS, RT_CHRONICLE_GARRISON_KINDS, isRtChronicleFusion, isRtChronicleItem } from './chronicleCatalog';
+import { CHRONICLE_FIXTURES, chronicleProfile } from '../view/chronicleFixtures.testkit';
+import { RT_FOREST_SHOOTERS_ON } from './rtRun';
+import { RT_GARRISON_STEP3_ON } from './garrison';
 import { rtChronicleHint, rtChronicleView, type RtChronicleView } from './chroniclePages';
 import { rtChronicleMeet, type RtChronicle } from './chronicle';
-import { CHRONICLE_FIXTURES } from '../view/chronicleFixtures.testkit';
 import { PITCHER } from '../sim/enemies/pitcher';
 import { RECRUIT } from '../sim/enemies/recruit';
 import { WARDEN } from '../sim/enemies/warden';
@@ -416,19 +418,53 @@ await check('telemetry: the run record\'s `chronicle` (its list and the pages), 
   rec.dispose();
 });
 
-await check('task 59б (spec 10): the garrison’s chapter holds 9 kinds — the step 3’s pitcher, recruit and warden unknown until met, «seen» once a fight shows them; the page grows by 3', () => {
-  const profile = parseRtProfile(JSON.stringify(CHRONICLE_FIXTURES.garrison()));
-  const before = rtChronicleView(profile, 'cat', { gambler: true, monk: true });
-  const chapter = (view: RtChronicleView) => view.pages.find(p => p.id === 'bestiary')!.chapters.find(c => c.id === 'garrison')!;
+await check('task 59б (spec 10; review 21.10.2026): the chapter «Гарнизон» by the flag of step 3 — 6 kinds with it off (the build now), 9 with it on (the pitcher, the recruit, the warden unknown, then «seen»); the owl’s hint takes them only with the flag; a kind met before stays in the profile with the flag off', () => {
   const novel = [PITCHER, RECRUIT, WARDEN];
-  assert(RT_CHRONICLE_GARRISON_KINDS.length === 9 && novel.every(id => RT_CHRONICLE_GARRISON_KINDS.includes(id)), 'nine kinds');
-  assert(chapter(before).entries.length === 9 && novel.every(id => chapter(before).entries.find(e => e.id === id)?.state === 'unknown'), 'unknown before');
+  assert(!RT_GARRISON_STEP3_ON && RT_CHRONICLE_GARRISON_KINDS.join() === chronicleGarrisonKinds(false).join() && chronicleGarrisonKinds(false).length === 6, `flag off: ${RT_CHRONICLE_GARRISON_KINDS}`);
+  assert(chronicleGarrisonKinds(true).length === 9 && novel.every(id => chronicleGarrisonKinds(true).includes(id)), `flag on: ${chronicleGarrisonKinds(true)}`);
+  const profile = parseRtProfile(JSON.stringify(CHRONICLE_FIXTURES.garrison()));
+  const chapter = (view: RtChronicleView) => view.pages.find(p => p.id === 'bestiary')!.chapters.find(c => c.id === 'garrison')!;
+  const view = (pr: typeof profile, step3?: boolean) => rtChronicleView(pr, 'cat', { gambler: true, monk: true, ...step3 === undefined ? {} : { step3 } });
+  assert(chapter(view(profile)).entries.length === 6 && chapter(view(profile, false)).entries.length === 6, 'six without the flag');
+  const before = view(profile, true);
+  assert(chapter(before).entries.length === 9 && novel.every(id => chapter(before).entries.find(e => e.id === id)?.state === 'unknown'), 'nine with the flag, unknown before');
   const met = rtChronicleMeet(profile.meta!.chronicle, { kinds: novel, affixes: [] });
-  assert(met.changed, 'the meeting writes');
-  const after = rtChronicleView({ ...profile, meta: { ...profile.meta!, chronicle: met.chronicle } }, 'cat', { gambler: true, monk: true });
-  assert(novel.every(id => chapter(after).entries.find(e => e.id === id)?.state === 'seen'), 'seen after');
-  const have = (view: RtChronicleView): number => view.pages.find(p => p.id === 'bestiary')!.have;
-  assert(have(after) === have(before) + 3, `the page ${have(before)} → ${have(after)}`);
+  assert(met.changed && novel.every(id => met.chronicle?.kinds?.includes(id)), 'the meeting writes — with the flag off too (the profile keeps them)');
+  const after = { ...profile, meta: { ...profile.meta!, chronicle: met.chronicle } };
+  assert(novel.every(id => chapter(view(after, true)).entries.find(e => e.id === id)?.state === 'seen'), 'seen after, with the flag');
+  assert(chapter(view(after)).entries.length === 6 && !novel.some(id => chapter(view(after)).entries.some(e => e.id === id)), 'the flag off: the chapter shows none of them');
+  const reread = parseRtProfile(JSON.stringify({ ...profile, meta: { ...profile.meta!, chronicle: met.chronicle } }));
+  assert(novel.every(id => reread.meta?.chronicle?.kinds?.includes(id)), 'a kind met before stays in the profile with the flag off');
+  // The owl's hint: over every candidate of a profile that met no garrison kind — the step 3's only with the flag.
+  const hints = (step3?: boolean): Set<string> => {
+    const raw = JSON.parse(JSON.stringify(CHRONICLE_FIXTURES.garrison())) as Record<string, any>;
+    raw.meta.chronicle = { ...raw.meta.chronicle, kinds: (raw.meta.chronicle.kinds as string[]).filter(id => !['guard', 'handler', 'hound'].includes(id)) };
+    const out = new Set<string>();
+    for (let runs = 1; runs <= 200; runs++) {
+      const pr = parseRtProfile(JSON.stringify({ ...raw, runs }));
+      const h = rtChronicleHint(pr, 'cat', { gambler: true, monk: true, ...step3 === undefined ? {} : { step3 } });
+      if (h?.key === 'hint_garrison') out.add(h.target);
+    }
+    return out;
+  };
+  const off = hints(), on = hints(true);
+  assert(off.size > 0 && !novel.some(id => off.has(`kind:${id}`)), `the hint without the flag: ${[...off].join(', ')}`);
+  assert(novel.some(id => on.has(`kind:${id}`)), `the hint with the flag takes them: ${[...on].join(', ')}`);
+});
+
+await check('task 57а (design 21.10.2026): the chapter «Лес» comes from the kinds of the schedule under the flag — 8 entries with `forestShooters` off (the build now), 11 with it on (the slinger, the hive, the wisp unknown, the met kinds kept); a shooter met before stays in the profile whatever the flag', () => {
+  assert(!RT_FOREST_SHOOTERS_ON && RT_CHRONICLE_FOREST_KINDS.join() === chronicleForestKinds(false).join() && chronicleForestKinds(false).length === 8, `flag off: ${RT_CHRONICLE_FOREST_KINDS}`);
+  assert(chronicleForestKinds(true).length === 11 && ['slinger', 'hive', 'wisp'].every(kind => chronicleForestKinds(true).includes(kind)), `flag on: ${chronicleForestKinds(true)}`);
+  const raw = JSON.parse(JSON.stringify(chronicleProfile('unread'))) as Record<string, any>;
+  raw.meta.chronicle = { ...raw.meta.chronicle, kinds: [...new Set([...(raw.meta.chronicle?.kinds ?? []), 'wisp'])].sort() };
+  const profile = parseRtProfile(JSON.stringify(raw));
+  assert(profile.meta?.chronicle?.kinds?.includes('wisp'), 'a wisp met before stays in the profile with the flag off');
+  const forest = (on: boolean | undefined) => rtChronicleView(profile, 'cat', { gambler: true, monk: true, ...on === undefined ? {} : { shooters: on } }).pages.find(page => page.id === 'bestiary')!.chapters.find(chapter => chapter.id === 'forest')!;
+  const off = forest(undefined), offExplicit = forest(false), on = forest(true);
+  assert(off.entries.length === 8 && offExplicit.entries.length === 8 && on.entries.length === 11, `entries ${off.entries.length} / ${offExplicit.entries.length} / ${on.entries.length}`);
+  const state = (chapter: typeof on, id: string) => chapter.entries.find(entry => entry.id === id)?.state;
+  assert(['boar', 'lynx', 'wolf'].every(id => state(off, id) === 'seen' && state(on, id) === 'seen'), 'the met kinds stay seen');
+  assert(state(on, 'wisp') === 'seen' && state(on, 'slinger') === 'unknown' && state(on, 'hive') === 'unknown' && state(off, 'wisp') === undefined, 'the shooters with the flag on');
 });
 
 console.log(`realtime-chronicle: ${checks} checks passed`);

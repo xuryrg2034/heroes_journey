@@ -19,7 +19,7 @@ import type { BoarState } from './enemies/boar';
 import { behaviorOf, bodyRadiusOf, enemyKind, groupBehaviors, kindOf } from './enemies/kinds';
 import { FlowField, type Vec, blockedAt, dist, hasZone, inThorns, inWater, lineOfSight, overCliff, pushOutOfCliffs, pushOutOfObstacles } from './geometry';
 import { type Params, type Pressure, CORE_WARD_KEYS, DEFAULT_PARAMS, copyParams, enemyBodyRadius, heroRadius, invulnerabilityFor, pressureAt } from './params';
-import { hasTalisman, kitOf, type ItemKind, type Kit, type Loadout, type ResourceKind } from './kit';
+import { hasTalisman, kitOf, witchOn, type ItemKind, type Kit, type Loadout, type ResourceKind } from './kit';
 import { affixSpeedFactor, eliteDeath, makeElite, platesOf, stripPlates, touchLoot, updateAffixes, updateArmor, type AffixId, type EliteArmor, type TrailPoint } from './elites';
 import { updateBurning } from './items';
 import { RngStreams } from './rng';
@@ -33,6 +33,7 @@ import { TROLL, TROLL_CROWD, trollWards } from './enemies/troll';
 import { RECRUIT, noteRefused, orderRecruits, recruitInOrder } from './enemies/recruit';
 // Task 54: the Chief's feast guards his core from every source but the chain in his window (enemies/chief.ts).
 import { CHIEF, chiefWards, seatedEater } from './enemies/chief';
+import { WARLOCK, WARLOCK_CROWD, warlockWards } from './enemies/warlock';
 // Task 59а: the law of pitch — the pots, the pools and their slowdown (pitch.ts).
 import { enemyPitchFactor, heroPitchFactor, updatePitch, type PitchState, type Pot } from './pitch';
 // Casino stage 1 («Однорукий гоблин», slot.ts): the slot's state and step.
@@ -207,6 +208,11 @@ export const OBJECT_RADIUS = 0.45;
  */
 export type ChainLink = ({ kind: 'enemy'; id: number } | { kind: 'object'; id: number }) & {
   fork?: { kind: 'enemy' | 'object'; id: number };
+  /**
+   * Task 62 «Ведунья v2» (chain.ts `withRune`): the enemy's point when it was taken — the contour of a figure is made of them (an enemy
+   * that walks away leaves its rune). Absent on every other link (chains without v2 hash as before).
+   */
+  rune?: Vec;
   /**
    * Task 56 (omens.ts `omenLink`), fixed when the link is taken: «Половодье» — the enemy's centre was in water (`wet`: its hit +1);
    * «Перекличка» — its colour was on the roll call (`call`: +0.5 energy). Absent otherwise (chains without them hash as before).
@@ -629,6 +635,12 @@ export type WorldEvent =
   | { type: 'thing'; action: 'break'; id: number; x: number; y: number; by: ShoveStop }
   /** Task 55а (enemies/castle.ts): «Падение шкафа» — `windup` (the lane fixed), `hit`, `rise` (it stands up). */
   | { type: 'wardrobe'; action: 'windup' | 'hit' | 'rise'; id: number; x: number; y: number }
+  /** Task 55, stage Д «Колдун v0» (enemies/warlock.ts): the charm's «звон» (`block`) and its end (`broken`). */
+  | { type: 'warlockCharm'; action: 'block' | 'broken'; id: number; x: number; y: number; source?: string }
+  /** Task 55, stage Д: the warlock's window after an arrival (his charm gone): `dropped` — the links an `unlink` took from the chain. */
+  | { type: 'warlockWindow'; action: 'open' | 'hit' | 'block' | 'close' | 'unlink'; id: number; x: number; y: number; source?: string; dropped?: number[] }
+  /** Task 55, stage Д: «Перенос» — the target candle's sign begins (`mark`), he stands at it (`arrive`). */
+  | { type: 'warlockShift'; action: 'mark' | 'arrive'; id: number; candle: number; x: number; y: number }
   /**
    * Task 55а: «Удар ладьи» — `aim` (the axis fixed both ways, from (`x0`, `y0`) to (`x1`, `y1`)) and `shot` (`plus`, `minus` — what each
    * half struck: `hero`, `enemy`, `thing` — the shelter; absent — nothing).
@@ -808,6 +820,8 @@ export interface World {
    * `ly`); an entry leaves with its drill (or at the next death once its group is gone). Absent until a recruit dies under the law.
    */
   recruitFell?: Record<number, [number, number]>;
+  /** Task 62 «Ведунья v2» (chain.ts `castDischarge`): the game second of the last discharge (the pause after it). Absent until one. */
+  castAt?: number;
   /** Task 55а (shove.ts): the things sliding now after a dash's shove — absent while none (worlds without a shove hash as before). */
   shoves?: Shove[];
   /** Task 56 «Гроза» (omens.ts, `Params.omenStorm`): the next mark and the mark standing — absent until the rule acts (worlds hash as before). */
@@ -936,8 +950,17 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   if (arena.troll || arena.chief) {
     for (const key of CORE_WARD_KEYS) if (params[key] === false) params = { ...copyParams(params), [key]: true };
   }
+  // «Дыры ядра» Колдуна (21.10.2026): «Зал колдуна» plays `warlockHoles` when the values have it off (without the key — the old paths).
+  if (arena.warlock && params.warlockHoles === false) params = { ...copyParams(params), warlockHoles: true };
   // Task 55а: an arena of the castle plays the law of the shove (when the values have it off; a journal keeps the copy).
   if (arena.castle && !params.shove) params = { ...copyParams(params), shove: true };
+  // Task 55, stage Д: the warlock's arena plays his charm, the boss's solid bodies and his crowd (when the values hold the old ones).
+  if (arena.warlock && !params.warlockCharm) params = { ...copyParams(params), warlockCharm: true };
+  if (arena.warlock && !params.trollSolid) params = { ...copyParams(params), trollSolid: true };
+  if (arena.warlock && (params.warlockCrowd ?? DEFAULT_PARAMS.warlockCrowd) === DEFAULT_PARAMS.warlockCrowd) params = { ...copyParams(params), warlockCrowd: WARLOCK_CROWD };
+  // «Ядро в окне — первым» (21.10.2026): the bosses' arenas pick the core in its window first when the values have it off; values
+  // without the key (a journal before it, a run saved without the flag) — the nearest, as before. A journal keeps the copy.
+  if ((arena.troll || arena.chief || arena.warlock) && params.corePickFirst === false) params = { ...copyParams(params), corePickFirst: true };
   // Task 57а: an arena of the new shooters plays its own timer when the values have none (and the archer in it; a journal keeps the copy).
   if (arena.volleyGap && !params.volleyGap) params = { ...copyParams(params), volleyGap: arena.volleyGap };
   if (arena.volleyArcher && !params.volleyArcher) params = { ...copyParams(params), volleyArcher: true };
@@ -1677,6 +1700,15 @@ export function bossCoreWards(world: World, e: Enemy, source: string): boolean {
   return (e.kind === TROLL && trollWards(world, e, source)) || (e.kind === CHIEF && chiefWards(world, e, source));
 }
 
+/**
+ * The fire trail on `e` (elites.ts `updateAffixes`): true — it does not burn (the core rings). `coreTrailWard`: the Troll's and the
+ * Chief's core rules (`bossCoreWards`); `warlockHoles`: the warlock's (charmed, out of his window — it rings; in it — the window's one hit).
+ */
+export function coreTrailWards(world: World, e: Enemy): boolean {
+  const p = world.params;
+  return (!!p.coreTrailWard && bossCoreWards(world, e, 'fire-trail')) || (!!p.warlockHoles && e.kind === WARLOCK && warlockWards(world, e, 'fire-trail'));
+}
+
 export function damageEnemy(world: World, e: Enemy, damage: number, cause: KillCause): void {
   if (damage <= 0 || kindOf(e).immune || !world.enemies.includes(e)) return;
   // Task 59а: a recruit out of order is not hurt — the law of order (event `recruit` `refused`; nothing on other kinds).
@@ -1685,6 +1717,8 @@ export function damageEnemy(world: World, e: Enemy, damage: number, cause: KillC
   if (e.kind === TROLL && trollWards(world, e, cause.source)) return;
   // Task 54: the Chief's core — the chain's hit in his window only (event `chiefFeast` `block`; nothing on other kinds).
   if (e.kind === CHIEF && chiefWards(world, e, cause.source)) return;
+  // Task 55, stage Д: the warlock's core — a shove's strike always; charmed — nothing else; then his window's one hit (event `warlockCharm` / `warlockWindow` `block`).
+  if (e.kind === WARLOCK && warlockWards(world, e, cause.source)) return;
   // Package «Урон имеет значение»: an armoured elite with plates loses plates, not HP (elites.ts — the one place of the rule).
   if (platesOf(e) > 0) { stripPlates(world, e, cause); return; }
   const killed = damage >= e.hp;
@@ -1844,6 +1878,8 @@ function stepHeroWalk(world: World, dt: number): void {
   const { hero, params, input } = world;
   world.heroWalk.x = 0; world.heroWalk.y = 0;
   if (world.status !== 'playing' || world.move || hero.knock > 0) return;
+  // Task 62: Ведунья v2 stands while a chain is in her hand (the input stays; she walks again after the release).
+  if (world.chain.length && witchOn(world)) return;
   const len = dhypot(input.x, input.y);
   // Phase B: the build may change the hero's speed (`heroSpeedOf`; without a build module — `heroSpeed`).
   const heroSpeed = heroSpeedOf(world);

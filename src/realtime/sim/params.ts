@@ -204,6 +204,15 @@ export interface Params {
    * turns it on (run/rtRun.ts `RT_RUN_FORCED`); the sandbox panel has a toggle.
    */
   spawnGroupHold: boolean;
+  /**
+   * «Метка у героя» (council 20.10.2026; docs/design-notes/codex-idea-enemy-behavior-variety.md, 13): a spawn marker the hero comes
+   * within `spawnMinDistance` of moves away by the random search as before (spawn.ts `relocateMarker`); when that finds no place, it
+   * takes the free point nearest to it by a bounded scan of the arena (the spawn rectangle on a big one; `seekMarker`) with a whole
+   * warning there, and with no free point anywhere it waits where it is — its timer neither runs nor starts again. Off by default and
+   * in journals without the key: the old path (the whole warning again every tick: the enemy never came while the hero stood by).
+   * A run with its flag (run/rtRun.ts `RtRunState.markerSeek`) turns it on; the sandbox panel has a toggle.
+   */
+  markerSeek: boolean;
   // Growth over time and the time limit
   angerTierSeconds: number;
   angerSpeedStep: number;
@@ -947,6 +956,46 @@ export interface Params {
   coreTrailWard: boolean;
   coreShamanWard: boolean;
   trollShadowOnce: boolean;
+  /**
+   * «Ядро в окне — первым» (design 21.10.2026, the pick's defect: a crowd body standing on the core is nearer to the pointer, a click
+   * into the window took it). On: a boss core (the Troll's, the Chief's, the warlock's) in its open window that the pointer is inside
+   * the press circle of (chain.ts `pickRadius`) and the chain may take now is picked before any nearer body or object (chain.ts
+   * `pick`: the press, the drag, the ring «что возьмётся», the hint, the loop's closing). Off by default and in journals without the
+   * key: the nearest, as before. The run turns it on by its flag (run/rtRun.ts `corePickFirst`), the bosses' arenas for themselves.
+   */
+  corePickFirst: boolean;
+  /**
+   * «Дыры ядра» Колдуна (task 55, stage Д, core's decision 21.10.2026: one key for his three holes): the fire trail asks his core's rules
+   * (world.ts `coreTrailWards`: charmed — it rings; out of his window — it rings; in it — the window's one hit), the shaman's beam never
+   * takes his core, the highlight's end shadows strike it once a window (chain.ts `planFusionEnd`, talismansRt.ts «Ударная волна» II).
+   * Off by default and in journals without the key: the old paths. «Зал колдуна» puts it on, a run with `bossHoles` too (`CORE_WARD_KEYS`).
+   */
+  warlockHoles: boolean;
+  // ---- Task 62 «Ведунья v2: радиус и фигуры», stage A (sim/glyphs.ts, chain.ts; spec docs/design-notes/task-62-witch-v2.md). ----
+  // Read only while the kit holds Ведунья's law (`Loadout.hero` 'toad') and `witchV2` is on (`witchOn`); the cat and Ведунья v1 never
+  // read them. Journals without the keys play the old path.
+  /** Ведунья v2: the circle of casting, links anywhere in it, the release a discharge in place, the ring — a recognized figure. */
+  witchV2: boolean;
+  /** The circle's radius × R of the build without «Длинная рука» (2 × 1.875 = 3.75). */
+  witchCastRadius: number;
+  /** Focus seconds a new link adds (not the full reserve); 0 — none. */
+  witchFocusPerLink: number;
+  /** The sweep of the mouse between pointer events takes links (off: only the press, the pointer event and the held pointer). */
+  witchSweep: boolean;
+  /** Game seconds of the after-chain shield after a recognized figure (no kills needed); an open chain gives none. */
+  witchFigureShield: number;
+  /** Game seconds after a release before a new chain may begin. */
+  witchReleaseGap: number;
+  /** The figure: a rune nearer than this × the contour's diameter to the line of its neighbours is dropped (simplification). */
+  glyphStraight: number;
+  /** The figure's least area (square units) and thickness (2 × area ÷ the largest diameter, units). */
+  glyphMinArea: number;
+  glyphMinThick: number;
+  /** The ring: runes at least; the largest ÷ the least distance from the area's centre to a corner at most. */
+  glyphRingMin: number;
+  glyphRingRatio: number;
+  /** The ring: no corner sharper than this — the cosine of the sharpest angle allowed (0.707 — 45°; 0 — 90°). */
+  glyphRingCorner: number;
   // ---- Task 54 «Главарь с котелком» (sim/enemies/chief.ts, sim/arenasBoss.ts `chief`; docs/realtime-elite-behaviors.md, «Главарь (задача 54)»). ----
   /**
    * The Chief's feast (design 17.10.2026, docs/design-notes/task-54-chief.md, 7): with the frame on, the Chief's core is closed outside
@@ -1190,6 +1239,23 @@ export interface Params {
   rookWindup: number;
   /** Task 55а: the strike's damage to the hero (2). */
   rookDamage: number;
+  // ---- Task 55, stage Д «Колдун v0» (sim/enemies/warlock.ts; spec task-55 §6). Read on his arena only («Зал колдуна»). ----
+  /**
+   * The warlock's charm and windows: while his wardrobe stands he is spellbound (the chain refuses him, `spellbound`; nothing but a
+   * shove hurts him); his wardrobe broken — a window `warlockWindow` s after each «Перенос», one hit. Off by default and in journals
+   * without the key (the core takes every hit); his arena turns it on for itself.
+   */
+  warlockCharm: boolean;
+  /** The core's HP (2) and boss plates (4). */
+  warlockHp: number;
+  warlockPlates: number;
+  /** «Перенос»: every this many s while charmed (10; the first on the 6th s), then every `warlockShiftFast` s from the arrival (5). */
+  warlockShift: number;
+  warlockShiftFast: number;
+  /** The window after an arrival, his wardrobe broken (game s; 1.5). */
+  warlockWindow: number;
+  /** The crowd's floor and pace on his arena (×; 1 — his arena plays `WARLOCK_CROWD` 0.9 when the values hold 1). */
+  warlockCrowd: number;
   // ---- Task 56 «Приметы» (sim/omens.ts, docs/realtime-slice.md, «Приметы»; spec docs/design-notes/task-56-omens.md). ----
   // Every rule is off by default; journals without a key play as before (the numbers — their defaults, `omenNum`). The run turns a
   // rule on for the fight of a node or a level with that omen (run/omens.ts); the sandbox — the panel group «Приметы».
@@ -1355,6 +1421,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   markerDelay: 1,
   spawnMinDistance: 3,
   spawnGroupHold: false,
+  markerSeek: false,
   angerTierSeconds: 30,
   angerSpeedStep: 0,
   reaperEnabled: false,
@@ -1683,6 +1750,23 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   coreTrailWard: false,
   coreShamanWard: false,
   trollShadowOnce: false,
+  // «Ядро в окне — первым» (21.10.2026): off — the nearest, as before.
+  corePickFirst: false,
+  // «Дыры ядра» Колдуна (21.10.2026): off — the old paths.
+  warlockHoles: false,
+  // Task 62 «Ведунья v2» stage A: off; the numbers of the spec (section 5).
+  witchV2: false,
+  witchCastRadius: 2,
+  witchFocusPerLink: 0.5,
+  witchSweep: false,
+  witchFigureShield: 0.5,
+  witchReleaseGap: 0.25,
+  glyphStraight: 0.08,
+  glyphMinArea: 1.5,
+  glyphMinThick: 0.6,
+  glyphRingMin: 5,
+  glyphRingRatio: 2,
+  glyphRingCorner: 0.707,
   // Task 54 «Главарь с котелком» (enemies/chief.ts): the feast off by default (the arena «Стан Главаря» turns it on); his numbers
   // (hypotheses of the spec, read on his arena only).
   chiefFeast: false,
@@ -1774,6 +1858,14 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   rookPeriod: 3.5,
   rookWindup: 1,
   rookDamage: 2,
+  // Task 55, stage Д «Колдун v0»: off by default (his arena turns the charm on and his crowd for itself).
+  warlockCharm: false,
+  warlockHp: 2,
+  warlockPlates: 4,
+  warlockShift: 10,
+  warlockShiftFast: 5,
+  warlockWindow: 1.5,
+  warlockCrowd: 1,
   // Task 56 «Приметы» (sim/omens.ts, bag.ts): every rule off; the numbers of the spec (section 2.2).
   omenStorm: false,
   omenStormFirst: 6,
@@ -1904,6 +1996,8 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('spawnMinDistance', 'Появление', 'Запретный радиус у героя', 0, 6, 0.25, 1, 'ед.'),
   { kind: 'bool', key: 'spawnGroupHold', group: 'Появление', label: 'Группа держится вместе', stage: 5,
     hint: 'Члену группы негде встать у якоря — он ждёт у того же якоря до 1 с, потом новый якорь всей оставшейся группе. Выключено — член группы теряет якорь и может выйти далеко от своих. В походе включено.' },
+  { kind: 'bool', key: 'markerSeek', group: 'Появление', label: 'Метка у героя ищет место', stage: 5,
+    hint: 'Герой подошёл к метке появления, а случайный поиск не нашёл ей нового места — метка встаёт на ближайшее свободное место арены вне запретного радиуса (с полным предупреждением). Места нет совсем — ждёт, её отсчёт стоит. Выключено — метка каждый такт начинает отсчёт заново, враг не выходит, пока герой рядом. Новый поход включает.' },
   n('angerSpeedStep', 'Время', 'Рост скорости за ступень', 0, 0.5, 0.01, 1, '', 'По умолчанию 0: быстрых даёт состав фаз.'),
   n('angerTierSeconds', 'Время', 'Ступень роста скорости', 5, 120, 5, 1, 'с'),
   { kind: 'bool', key: 'reaperEnabled', group: 'Время', label: 'Жнец (после целей)', stage: 1 },
@@ -2290,6 +2384,26 @@ export const PARAM_DEFS: readonly ParamDef[] = [
     hint: 'Луч шамана никогда не берёт ядро Тролля и Главаря (ядро на 0 HP не поднимается). Арены Тролля и Главаря и поход включают сами.' },
   { kind: 'bool', key: 'trollShadowOnce', group: 'Босс', label: 'Тени конца: одно попадание за окно', stage: 5,
     hint: 'Подсветка концов прохода (волна, взрыв) бьёт ядро Тролля один раз за окно — как проход. Арены Тролля и Главаря и поход включают сами.' },
+  // «Ядро в окне — первым» (21.10.2026).
+  { kind: 'bool', key: 'corePickFirst', group: 'Босс', label: 'Ядро в окне — первым', stage: 5,
+    hint: 'Указатель в круге ядра босса в его окне (ядро можно взять сейчас) берёт ядро, даже если центр другого тела ближе. Арены Тролля, Главаря и Колдуна и поход включают сами.' },
+  { kind: 'bool', key: 'warlockHoles', group: 'Босс', label: 'Дыры ядра Колдуна', stage: 5,
+    hint: 'Огненный след уважает чары и окно Колдуна («звон»; в окне — одно попадание), шаман не берёт его ядро, тени конца бьют ядро один раз за окно. «Зал колдуна» и поход включают сами.' },
+  // Task 62 «Ведунья v2», stage A (chain.ts, sim/glyphs.ts): only Ведунья (the build's «Герой») with the key on.
+  { kind: 'bool', key: 'witchV2', group: 'Ведунья v2', label: 'Ведунья v2: круг и фигуры', stage: 5,
+    hint: 'Только для Ведуньи. Звенья — враги в круге 2 × R вокруг неё, расстояние между звеньями не важно; пока цепь в руке, она не ходит. Отпускание — разряд на месте: удары по звеньям в порядке рисования в один такт, выживший не обрывает. Цепь, замкнутая на первом звене, — фигура; кольцо (5+) — «Печать». Щит — только после фигуры.' },
+  n('witchCastRadius', 'Ведунья v2', 'Круг колдовства', 1.5, 2.5, 0.1, 5, '× R'),
+  n('witchFocusPerLink', 'Ведунья v2', 'Фокус за звено', 0, 3, 0.1, 5, 'с', '0 — звено фокус не обновляет.'),
+  { kind: 'bool', key: 'witchSweep', group: 'Ведунья v2', label: 'Протяжка берёт звенья', stage: 5,
+    hint: 'Выключено: звенья берут только нажатие, событие указателя и неподвижный курсор — путь мыши через середину фигуры их не берёт.' },
+  n('witchFigureShield', 'Ведунья v2', 'Щит после фигуры', 0, 3, 0.1, 5, 'с'),
+  n('witchReleaseGap', 'Ведунья v2', 'Пауза между отпусканиями', 0, 2, 0.05, 5, 'с'),
+  n('glyphStraight', 'Ведунья v2', 'Фигура: допуск прямой', 0, 0.3, 0.01, 5, '× диаметр', 'Руна ближе к прямой соседей, чем это × диаметр контура, не вершина.'),
+  n('glyphMinArea', 'Ведунья v2', 'Фигура: наименьшая площадь', 0, 10, 0.1, 5, 'кв. ед.'),
+  n('glyphMinThick', 'Ведунья v2', 'Фигура: наименьшая толщина', 0, 3, 0.05, 5, 'ед.'),
+  n('glyphRingMin', 'Ведунья v2', 'Кольцо: рун не меньше', 3, 10, 1, 5),
+  n('glyphRingRatio', 'Ведунья v2', 'Кольцо: округлость', 1, 3, 0.05, 5, '×', 'Наибольшее расстояние от центра площади до вершины ÷ наименьшее.'),
+  n('glyphRingCorner', 'Ведунья v2', 'Кольцо: острота угла', 0, 1, 0.01, 5, 'cos', 'Угол у вершины не острее этого: 0,707 — 45°, 0 — 90°.'),
   // Task 54 «Главарь с котелком» (enemies/chief.ts, docs/realtime-elite-behaviors.md, «Главарь (задача 54)»).
   { kind: 'bool', key: 'chiefFeast', group: 'Главарь', label: '«Обед!» Главаря', stage: 5,
     hint: 'Главарь закрыт вне окна «Обеда!» («вне окна»). В окне его берёт только цепь цвета варева, в которой до него не меньше трёх звеньев этого цвета («в очередь»); одно попадание за окно, другой урон его не ранит. Арена «Стан Главаря» включает правило сама.' },
@@ -2377,6 +2491,15 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('rookPeriod', 'Замок', 'Ладья: отдых', 0.5, 10, 0.25, 5, 'с'),
   n('rookWindup', 'Замок', 'Удар ладьи: замах', 0.2, 3, 0.1, 5, 'с', 'Ось через ладью в обе стороны фиксируется в начале замаха; бьёт первое тело на каждой половине. Первый замах боя 1,5 с.'),
   n('rookDamage', 'Замок', 'Удар ладьи: урон героя', 0, 5, 1, 5),
+  // Task 55, stage Д «Колдун v0» (sim/enemies/warlock.ts).
+  { kind: 'bool', key: 'warlockCharm', group: 'Замок', label: 'Колдун: чары и окна', stage: 5,
+    hint: 'Пока цел шкаф Колдуна — Колдун под чарами: цепь его не берёт, ранит только толчок. Шкаф сломан — окно 1,5 с после каждого «Переноса», одно попадание. Арена «Зал колдуна» включает сама.' },
+  n('warlockHp', 'Замок', 'Колдун: HP', 1, 6, 1, 5),
+  n('warlockPlates', 'Замок', 'Колдун: пластины', 0, 8, 1, 5),
+  n('warlockShift', 'Замок', '«Перенос» под чарами: раз в', 3, 20, 0.5, 5, 'с'),
+  n('warlockShiftFast', 'Замок', '«Перенос» без чар: раз в', 2, 12, 0.5, 5, 'с'),
+  n('warlockWindow', 'Замок', 'Колдун: окно после «Переноса»', 0.5, 4, 0.1, 5, 'с'),
+  n('warlockCrowd', 'Замок', 'Колдун: толпа', 0.25, 2, 0.05, 5, '×', 'Множитель плотности и темпа пополнения толпы. Арена «Зал колдуна» ставит 0,9, если на панели 1.'),
   // Task 56 «Приметы» (sim/omens.ts): the sandbox's toggles of the omens that are new rules (off; the run sets them by its omens).
   { kind: 'bool', key: 'omenStorm', group: 'Приметы', label: '«Гроза»', stage: 5,
     hint: 'Раз в 7 с (первая — на 6-й) метка у самой плотной толпы (от 3 врагов); через 1,2 с удар: враги в круге −3 в зачёт, элита — пластина; герой в круге −2 (не в проходе, не в прыжке, щиты не спасают). Жнец и боссы — не цель.' },
@@ -2483,6 +2606,11 @@ export function runParams(params: Params, forced: Readonly<Partial<Params>> = {}
  * `createWorld`), a run with the flag `bossHoles` too (run/rtRun.ts `rtArenaParams`); values without them play the old paths.
  */
 export const CORE_WARD_KEYS = ['coreTrailWard', 'coreShamanWard', 'trollShadowOnce'] as const;
+/**
+ * The keys a run with the flag `bossHoles` plays (run/rtRun.ts `rtArenaParams`; a run without it — none of them): the Troll's and the
+ * Chief's (`CORE_WARD_KEYS`) and the warlock's one (`warlockHoles`, 21.10.2026; «Зал колдуна» puts it on for itself, world.ts).
+ */
+export const BOSS_HOLE_KEYS = [...CORE_WARD_KEYS, 'warlockHoles'] as const;
 
 export function copyParams(params: Params): Params { return { ...params, phases: params.phases.map(p => ({ ...p })) }; }
 

@@ -74,6 +74,9 @@ export const POOL_ROSTERS: readonly RosterDef[] = [
   { id: 'quills-powder', title: 'Колючки и порох', mode: 'replace', kinds: [['porcupine', 0.12], ['sapper', 0.1]] },
   { id: 'shaman-shield', title: 'Шаманский щит', mode: 'replace', kinds: [['shaman', 0.06], ['shield', 0.15]] },
   { id: 'hunt', title: 'Охота', mode: 'replace', kinds: [['lynx', 0.1], ['archer', 0.12]] },
+  // Task 57а (level design 20.10.2026): the wisp's first meeting on «Излучина» (the schedule's arc `wisp`): wisps over the water, held
+  // by their own cap (2 living). Needs a met wisp anywhere else (`rosterChoices`): a run without the flag `forestShooters` never meets one.
+  { id: 'wisps', title: 'Светляки', mode: 'replace', kinds: [['wisp', 0.12]] },
 ];
 
 /** Баланс: the roles an anchor arena may add — one kind each, a little below a pool roster's share. */
@@ -86,6 +89,9 @@ export const ANCHOR_ROLES: readonly RosterDef[] = [
   { id: '+sapper', title: 'сапёры', mode: 'add', kinds: [['sapper', 0.1]] },
   { id: '+shaman', title: 'шаман', mode: 'add', kinds: [['shaman', 0.06]] },
   { id: '+lynx', title: 'рыси', mode: 'add', kinds: [['lynx', 0.08]] },
+  // Task 57а (level design 20.10.2026): the partner roles of the new shooters (a met kind only: old choices stay as they were).
+  { id: '+slinger', title: 'пращники', mode: 'add', kinds: [['slinger', 0.06]] },
+  { id: '+wisp', title: 'светляки', mode: 'add', kinds: [['wisp', 0.08]] },
 ];
 
 /**

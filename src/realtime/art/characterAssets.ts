@@ -27,6 +27,8 @@ export const CHARACTER_ART_IDS = [
   'castle-wardrobe', 'castle-rook', 'castle-barrel',
   // Task 54a: the camp boss, his cauldron, ladle and sack (the drawn stand-ins of view/chiefView.ts stay the fallback).
   'chief', 'chief-cauldron', 'chief-ladle', 'chief-sack',
+  // Task 55 Д «Колдун v0»: the warlock and the warlock in his window, «сбит» (the drawn stand-ins of view/warlockView.ts stay the fallback).
+  'warlock', 'warlock-dazed',
 ] as const;
 
 export type CharacterArtId = typeof CHARACTER_ART_IDS[number];

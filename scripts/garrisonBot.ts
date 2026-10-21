@@ -15,6 +15,8 @@ import { canJump, jumpDownOpen, nextCandidates, nextObjectCandidates, objectRefu
 import { castellanGrate, gateLeverReady } from '../src/realtime/sim/enemies/garrison';
 import { TROLL, trollState } from '../src/realtime/sim/enemies/troll';
 import { CHIEF, chiefMove, chiefState } from '../src/realtime/sim/enemies/chief';
+import { WARLOCK, warlockState } from '../src/realtime/sim/enemies/warlock';
+import { isThing, shovePath } from '../src/realtime/sim/shove';
 import { enemyArtRadius } from '../src/realtime/sim/enemies/kinds';
 import { lineOfSight } from '../src/realtime/sim/geometry';
 import { blockedAt, type Vec } from '../src/realtime/sim/geometry';
@@ -64,6 +66,8 @@ export function aimAtCore(sim: Simulation, kinds: readonly string[]): void {
   if (core.kind === TROLL) { aimAtTroll(sim, core); return; }
   // Task 54: the Chief — in his window a queue of the brew into the core, else his parts.
   if (core.kind === CHIEF) { aimAtChief(sim, core); return; }
+  // Task 55, stage Д: the warlock — his window open: into the core; else shoves at him (barrels first, then his wardrobe).
+  if (core.kind === WARLOCK) { aimAtWarlock(sim, core); return; }
   // Task 43: the full Castellan behind his grate — the bot goes to the nearest ready lever and pulls it (a chain of one link);
   // no lever ready — the greedy chain. With the grate up it hunts the core as below.
   const grate = castellanGrate(w);
@@ -208,6 +212,64 @@ function aimAtChief(sim: Simulation, core: Enemy): void {
   playChain(sim);
 }
 
+/**
+ * Task 55, stage Д: the warlock's policy (spec 13, «толчок в цель»; reworked 21.10.2026 after the first measure — it barely hit him). His
+ * window open — a chain into the core. Else the shoves: for each free thing the path of a shove at him (`shovePath`, the highlight's own
+ * function) — one that stops at his core is a candidate (the value: the strike, the bodies it crushes, less the walk to the spot behind
+ * the thing); while he is charmed and no thing reaches him, his own wardrobe at a wall along an axis (two such break the charm). The bot
+ * walks to the spot behind the best thing (no chain on the way once near: a dash would carry it off), and there plays the shove when the
+ * highlight confirms the stop (cancelled otherwise). Nothing — the greedy chain while it walks towards him. His touch hurts: within
+ * `WARLOCK_CLEAR` of him the bot steps off first; his charm gone, a «Перенос» marked — it waits by the target candle for the window.
+ */
+/** The spot behind a thing; no chain on the way this near the spot; off his body this near; the wait by the target candle. */
+const WARLOCK_BEHIND = 0.9, WARLOCK_NEAR = 3, WARLOCK_CLEAR = 1.1, WARLOCK_WAIT = 1.5;
+function aimAtWarlock(sim: Simulation, core: Enemy): void {
+  const w = sim.world, state = warlockState(w);
+  if (state?.window?.open) { chainToward(sim, core, core); return; }
+  const dist = (a: Vec, b: Vec): number => Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
+  const charmed = !!state?.spellbound;
+  // His touch hurts: off his body first.
+  const off = dist(core, w.hero);
+  if (off < WARLOCK_CLEAR) { sim.command({ t: 'walk', x: (w.hero.x - core.x) / (off || 1), y: (w.hero.y - core.y) / (off || 1) }); return; }
+  // His charm gone and a «Перенос» marked: to a spot by the target candle (on the hero's side), ready for the window.
+  if (!charmed && state?.shift) {
+    const c = state.candles[state.shift.candle], d = dist(c, w.hero) || 1, spot = { x: c.x + (w.hero.x - c.x) / d * WARLOCK_WAIT, y: c.y + (w.hero.y - c.y) / d * WARLOCK_WAIT };
+    if (dist(spot, w.hero) > 0.3) { const step = stepToward(w, spot), len = Math.sqrt(step.x ** 2 + step.y ** 2) || 1; sim.command({ t: 'walk', x: step.x / len, y: step.y / len }); }
+    else sim.command({ t: 'walk', x: 0, y: 0 });
+    return;
+  }
+  let best: { thing: Enemy; dir: Vec; spot: Vec; stop: string; value: number } | null = null;
+  for (const thing of w.enemies) {
+    if (!isThing(thing) || w.shoves?.some(s => s.thing === thing.id || s.target === thing.id)) continue;
+    const d = dist(thing, core) || 1, dirs: Vec[] = [{ x: (core.x - thing.x) / d, y: (core.y - thing.y) / d }];
+    // His wardrobe while charmed: the four axes too (a wall wears it; two walls break the charm).
+    if (charmed && thing.vars.wl === core.id) dirs.push({ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 });
+    for (const dir of dirs) {
+      const plan = shovePath(w, thing, dir), spot = { x: thing.x - dir.x * WARLOCK_BEHIND, y: thing.y - dir.y * WARLOCK_BEHIND };
+      if (blockedAt(spot, heroRadius(w.params), w.arena, false)) continue;
+      const atCore = plan.stop === 'core' && plan.target === core.id, atWall = charmed && thing.vars.wl === core.id && plan.stop === 'wall';
+      if (!atCore && !atWall) continue;
+      const value = (atCore ? 10 : 4) + plan.crushed.length - 0.4 * dist(w.hero, spot);
+      if (!best || value > best.value) best = { thing, dir, spot, stop: plan.stop, value };
+    }
+  }
+  if (!best) {
+    const d = dist(core, w.hero) || 1;
+    if (d > WARLOCK_NEAR) sim.command({ t: 'walk', x: (core.x - w.hero.x) / d, y: (core.y - w.hero.y) / d });
+    playChain(sim);
+    return;
+  }
+  if (dist(best.spot, w.hero) > 0.3) {
+    const step = stepToward(w, best.spot), len = Math.sqrt(step.x ** 2 + step.y ** 2) || 1;
+    sim.command({ t: 'walk', x: step.x / len, y: step.y / len });
+    if (dist(best.spot, w.hero) > WARLOCK_NEAR) playChain(sim);
+    return;
+  }
+  sim.command({ t: 'walk', x: 0, y: 0 });
+  sim.command({ t: 'begin', x: best.thing.x, y: best.thing.y });
+  if (planChain(w).shove?.stop === best.stop) sim.command({ t: 'release' }); else { sim.command({ t: 'cancel' }); playChain(sim); }
+}
+
 export interface BotFightOptions {
   params: Params;
   loadout: Loadout;
@@ -265,7 +327,8 @@ export function botFight(run: RtRunState, options: BotFightOptions): BotFight {
           if (w.hero.y > 3.2 && canJump(w, { x: w.hero.x, y: w.hero.y + 2.5 })) sim.command({ t: 'jump', x: w.hero.x, y: w.hero.y + 2.5 });
         } else sim.command({ t: 'walk', x: d.x, y: d.y });
       }
-      else if (tick % 60 === 0) { const [x, y] = [[1, 0], [0, 1], [-1, 0], [0, -1], [1, 1], [-1, -1]][(tick / 60) % 6]; sim.command({ t: 'walk', x, y }); }
+      // Task 55, stage Д: in the warlock's fight the aim walks the hero (to the spots behind the things) — no pattern walk over it.
+      else if (tick % 60 === 0 && !(options.aim?.includes(WARLOCK) && w.enemies.some(e => e.kind === WARLOCK))) { const [x, y] = [[1, 0], [0, 1], [-1, 0], [0, -1], [1, 1], [-1, -1]][(tick / 60) % 6]; sim.command({ t: 'walk', x, y }); }
     }
     // Leaving: a chain straight into the open door when it is within reach (it wins), else the greedy chain clears the way.
     if (leaving && tick % 15 === 5 && !w.move && !w.chain.length) {
@@ -273,7 +336,9 @@ export function botFight(run: RtRunState, options: BotFightOptions): BotFight {
       if (w.chain.some(l => l.kind === 'object')) sim.command({ t: 'release' }); else if (w.chain.length) sim.command({ t: 'cancel' });
     }
     // Task 55а: on an arena with things the bot shoves first when it is worth it (scripts/shoveBot.ts; no thing — no command).
-    if (tick % 45 === 20) { if (options.aim) aimAtCore(sim, options.aim); else if (!shoveChain(sim)) step3Chain(sim, options.pairs === 'planner'); }
+    // Task 55, stage Д: the warlock's aim steers every 0.25 s (its walk to a spot needs it; other fights as before).
+    const warlockAim = !!options.aim?.includes(WARLOCK) && w.enemies.some(e => e.kind === WARLOCK);
+    if (warlockAim ? tick % 15 === 5 : tick % 45 === 20) { if (options.aim) aimAtCore(sim, options.aim); else if (!shoveChain(sim)) step3Chain(sim, options.pairs === 'planner'); }
     if (tick % 400 === 200) sim.command({ t: 'spin' });
     if (tick % 500 === 300 && canJump(w)) sim.command({ t: 'jump', x: w.hero.x + 2, y: w.hero.y - 1 });
     if (tick % 10 === 0 && w.hero.hp - buffer <= HEAL_AT && (w.kit?.items.healing ?? 0) > 0) sim.command({ t: 'item', kind: 'healing', x: w.hero.x, y: w.hero.y });

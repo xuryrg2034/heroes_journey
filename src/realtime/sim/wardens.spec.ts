@@ -280,8 +280,9 @@ check('task 59б «Барбакан»: `pairShare` 0.3 — the newcomers take A 
   assert(all >= 40 && a / all > 0.36 && a / all < 0.6, `the share of A ${a} / ${all}`);
 });
 
-check('task 59б: an arena without `pairTint` and `pairShare` draws as before — 30 s of «Привратники (проба)» with its newcomers on 3 seeds, the hashes of the base 8afcb20d', () => {
-  const want = ['1f69cda4add007aa', '515505bab37c42dd', '448f69c0ed686893'];
+check('task 59б: an arena without `pairTint` and `pairShare` draws as before — 30 s of «Привратники (проба)» with its newcomers on 3 seeds, the hashes of the base (main 15d09001, before 59б)', () => {
+  // The base: main 15d09001 (with 59а, before 59б; on 8afcb20d before the merge of main — 1f69cda4…, 515505ba…, 448f69c0…).
+  const want = ['52b223fbbb9c44aa', '887be2dd3484ef8b', '35770c47312b096d'];
   [1, 2, 3].forEach((k, i) => {
     const p = defaultParams(); p.contactDamage = 0; p.heroHp = 99; p.hitstop = false;
     const sim = new Simulation({ arena: 'g-warden-test', params: p, seed: seedOf(k), record: true });

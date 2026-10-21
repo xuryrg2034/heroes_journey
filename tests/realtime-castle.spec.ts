@@ -89,25 +89,26 @@ async function walkUntil(page: Page, key: string, done: (hero: { x: number; y: n
   expect(reached, `walked with ${key}`).toBe(true);
 }
 
-test('task 55а: the sandbox menu has the group «Замок» with three arenas; a click opens each — the things with their notches, the parquet and walls (screenshots)', async ({ page }) => {
+test('task 55а: the sandbox menu has the group «Замок» with four arenas (the fourth - «Зал колдуна», task 55 Д); a click opens each — the things with their notches, the parquet and walls (screenshots)', async ({ page }) => {
   const errors = collectErrors(page);
   await openMenu(page);
   await expect(page.locator('h3.rt-arenas-head', { hasText: 'Замок' })).toBeVisible();
   await expect(page.getByTestId('castle-arena-1')).toContainText('Прихожая');
   await expect(page.getByTestId('castle-arena-2')).toContainText('Анфилада');
   await expect(page.getByTestId('castle-arena-3')).toContainText('Бальный зал');
-  await expect(page.getByTestId('castle-arena-4')).toHaveCount(0);
+  await expect(page.getByTestId('castle-arena-4')).toContainText('Зал колдуна');
+  await expect(page.getByTestId('castle-arena-5')).toHaveCount(0);
   await shot(page, 'menu');
-  // The castle's first arena by its place in the menu (groups after it — the shooters, the garrison's step 3 probes — move the end).
-  const first = await page.locator('.rt-arena').evaluateAll(els => els.findIndex(e => e.getAttribute('data-testid') === 'castle-arena-1') + 1);
-  const want: [string, number, number][] = [['c-hall', 3, 3], ['c-enfilade', 5, 3], ['c-ballroom', 8, 6]];
+  // `?arena=N` counts from 1 over the whole menu: the castle group's first button is at its place there.
+  const first = 1 + await page.locator('.rt-arena').evaluateAll(els => els.findIndex(e => e.getAttribute('data-testid') === 'castle-arena-1'));
+  const want: [string, number, number][] = [['c-hall', 3, 3], ['c-enfilade', 5, 3], ['c-ballroom', 8, 6], ['c-warlock', -1, 5]];
   for (const [i, [arena, notches, things]] of want.entries()) {
-    // `?arena=N` opens the same arena at once (N counts from 1 over the whole menu).
     await page.goto(`/?sandbox=1&arena=${first + i}`);
     await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
     await expect.poll(async () => (await snap(page)).arena).toBe(arena);
     await cameraSettled(page);
-    await expect.poll(async () => (await snap(page)).castle.shown.notches).toBe(notches);
+    // The notches are counted for the things in the camera's view; the warlock's hall is larger than the screen (-1: not counted).
+    if (notches >= 0) await expect.poll(async () => (await snap(page)).castle.shown.notches).toBe(notches);
     const s = await snap(page);
     expect(s.castle.things).toHaveLength(things);
     expect(s.castle.things.filter(t => t.kind === 'barrel').every(t => t.durability === 1) && s.castle.things.filter(t => t.kind === 'wardrobe').every(t => t.durability === 2)).toBe(true);

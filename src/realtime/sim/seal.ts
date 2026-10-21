@@ -15,6 +15,7 @@
 import { orderRecruits } from './enemies/recruit';
 import { kindOf } from './enemies/kinds';
 import { chiefGuarded, chiefWards } from './enemies/chief';
+import { warlockSpellbound, warlockWards } from './enemies/warlock';
 import { talismanFired } from './build';
 import { FUSIONS } from './buildIds';
 import { insidePolygon, type Vec } from './geometry';
@@ -84,6 +85,8 @@ export function strikeSeal(world: World, seal: SealMove): void {
   if (seal.ice && froze) talismanFired(world, FUSIONS.iceSeal);
   // Task 54: the Chief's core in the ring is left out of `inside` (the seal never lands on it, the highlight shows no outcome) — its «звон».
   for (const e of world.enemies) if (chiefGuarded(world, e) && insidePolygon(seal.ring, e)) chiefWards(world, e, SEAL_SOURCE);
+  // Task 55, stage Д (design 21.10.2026): the warlock's core charmed in the ring — likewise its «звон» (`warlockCharm` `block`), no damage.
+  for (const e of world.enemies) if (warlockSpellbound(world, e) && insidePolygon(seal.ring, e)) warlockWards(world, e, SEAL_SOURCE);
   world.events.push({ type: 'seal', phase: 'strike', kind: seal.kind, points: seal.ring.map(p => ({ x: p.x, y: p.y })), inside: struck, links: seal.links });
   if (struck.length && world.params.hitstop) world.hitstop = Math.max(world.hitstop, SEAL_HITSTOP);
 }

@@ -101,6 +101,7 @@ import { WARDEN, wardenAngry } from '../sim/enemies/warden';
 import { inPitch, PITCH_FIRE_SOURCE, POT_SOURCE } from '../sim/pitch';
 import type { GarrisonStep3Summary } from './schema';
 import { TROLL, TROLL_CLUB, TROLL_CLUB_SOURCE, TROLL_ROCK, TROLL_ROCK_SOURCE, TROLL_TAIL, TROLL_TAIL_SOURCE } from '../sim/enemies/troll';
+import { WARLOCK } from '../sim/enemies/warlock';
 import { kindOf } from '../sim/enemies/kinds';
 import { dist, inThorns, inWater } from '../sim/geometry';
 import { heroRadius } from '../sim/params';
@@ -256,14 +257,18 @@ export function createFightObserver(start: World): FightObserver {
   // Task 43: the full Castellan's core too (only on his arena: the Castellan v0 keeps no boss summary, as before).
   const fullCastellan = !!start.arena.castellanFull && start.params.bossFrame;
   // Task 48: the Troll's core (his own summary `boss.troll`).
-  const bossCore = start.params.bossFrame ? start.enemies.find(e => e.kind === JAILER || e.kind === TROLL || (fullCastellan && e.kind === CASTELLAN)) : undefined;
-  const troll = bossCore?.kind === TROLL;
+  // Task 55, stage Д: the warlock's core (his own summary `boss.warlock`).
+  const bossCore = start.params.bossFrame ? start.enemies.find(e => e.kind === JAILER || e.kind === TROLL || e.kind === WARLOCK || (fullCastellan && e.kind === CASTELLAN)) : undefined;
+  const troll = bossCore?.kind === TROLL, warlock = bossCore?.kind === WARLOCK;
   // Task 49: Ведунья's fight — `bare` the game time until which an open chain left her where the cat would stand shielded.
   const toad = sealOnlyShield(start);
   if (toad) s.damage.unshielded = { hits: 0, damage: 0 };
   let sealDash = false, bare = -1;
   if (bossCore) s.boss = { diedAt: null, severedAt: null, moves: {}, ...fullCastellan ? { castellan: { raises: 0, openSeconds: 0, windowsHit: 0, windowsMissed: 0, parts: [], bolts: { shots: 0, hero: 0, enemies: 0 }, phase: 1 } } : {},
-    ...troll ? { troll: { windows: {}, blocks: {}, snores: { slept: 0, woken: 0 }, wolves: 0, parts: [], phase: 1, unlinks: 0, damage: { crowd: 0, core: 0, parts: 0, moves: 0 } } } : {} };
+    ...troll ? { troll: { windows: {}, blocks: {}, snores: { slept: 0, woken: 0 }, wolves: 0, parts: [], phase: 1, unlinks: 0, damage: { crowd: 0, core: 0, parts: 0, moves: 0 } } } : {},
+    ...warlock ? { warlock: { charmBrokenAt: null, wardrobeBy: null, hits: {}, barrels: 0, windows: { opened: 0, hit: 0 }, shifts: 0, blocks: {}, unlinks: 0, phase: 1 } } : {} };
+  /** Task 55, stage Д: the warlock's window open now (its hit landed). */
+  let warlockWindow: { hit: boolean } | null = null;
   /** Task 48: the Troll's window open now (what opened it, its hit landed). */
   let trollWindow: { source: string; hit: boolean } | null = null;
   /** Task 43: the grate's open since (game s; null — down) and the lever's window now (its core hit or not). */
@@ -395,7 +400,7 @@ export function createFightObserver(start: World): FightObserver {
         // Task 43: the full Castellan's moves (lunge, guard), the grate and its windows, «Болт».
         case 'castellanMove': if (s.boss?.castellan && ev.stage === 'start') bump(s.boss.moves, ev.move); else if (s.boss?.castellan && ev.move === 'guard') bump(s.boss.moves, 'guard'); return;
         case 'bossPhase': {
-          const b = s.boss?.castellan ?? s.boss?.troll;
+          const b = s.boss?.castellan ?? s.boss?.troll ?? s.boss?.warlock;
           if (b) b.phase = Math.max(b.phase, ev.phase);
           return;
         }
@@ -414,6 +419,37 @@ export function createFightObserver(start: World): FightObserver {
             if (trollWindow.source === 'snore') { if (trollWindow.hit) t.snores.woken++; else t.snores.slept++; }
             trollWindow = null;
           }
+          return;
+        }
+        // Task 55, stage Д: the warlock — his charm («звон», its fall), his windows, «Перенос», the shoves' strikes at him, his wardrobe broken.
+        case 'warlockCharm': {
+          const t = s.boss?.warlock;
+          if (!t) return;
+          if (ev.action === 'block') bump(t.blocks, ev.source ?? 'other');
+          else if (t.charmBrokenAt === null) t.charmBrokenAt = round2(world.time);
+          return;
+        }
+        case 'warlockWindow': {
+          const t = s.boss?.warlock;
+          if (!t) return;
+          if (ev.action === 'open') { warlockWindow = { hit: false }; t.windows.opened++; }
+          else if (ev.action === 'hit') { bump(t.hits, ev.source ?? 'other'); if (warlockWindow && !warlockWindow.hit) { warlockWindow.hit = true; t.windows.hit++; } }
+          else if (ev.action === 'block') bump(t.blocks, ev.source ?? 'other');
+          else if (ev.action === 'unlink') t.unlinks++;
+          else if (ev.action === 'close') warlockWindow = null;
+          return;
+        }
+        case 'warlockShift': if (s.boss?.warlock && ev.action === 'arrive') s.boss.warlock.shifts++; return;
+        case 'shove': {
+          const t = s.boss?.warlock;
+          if (!t || ev.action !== 'impact' || !bossCore || ev.target !== bossCore.id) return;
+          bump(t.hits, 'shove');
+          if ((world.enemies.find(e => e.id === ev.thingId) ?? seen.get(ev.thingId))?.kind === 'barrel') t.barrels++;
+          return;
+        }
+        case 'thing': {
+          const t = s.boss?.warlock, thing = world.enemies.find(e => e.id === ev.id) ?? seen.get(ev.id);
+          if (t && bossCore && t.wardrobeBy === null && thing?.vars.wl === bossCore.id) t.wardrobeBy = ev.by;
           return;
         }
         case 'grate': {

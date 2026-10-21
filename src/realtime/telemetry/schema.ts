@@ -1193,6 +1193,21 @@ export interface BossSummary {
   castellan?: CastellanBossSummary;
   /** Task 48 (from 16.10.2026): the Troll's fight only (`troll` — absent for the other bosses and older records). */
   troll?: TrollBossSummary;
+  /** Task 55, stage Д (from 21.10.2026): the warlock's fight only (`warlock` — absent for the other bosses and older records). */
+  warlock?: WarlockBossSummary;
+}
+/**
+ * Task 55, stage Д «Колдун v0» (observe.ts; spec task-55 §10): the game second his charm fell (null — it stood to the end) and what broke
+ * his wardrobe (`thing` `break` `by`: `core` — shoved into him, `wall`, `thing`, `body`, `end`; null — whole); the hits that landed on
+ * him by source (`shove` — a thing's strike, `chain`, `pierce`, …) and the barrels stopped at him; his windows after «Перенос» (opened,
+ * with a hit); the arrivals of «Перенос»; the hits that did not land by source (the charm's «звон» and the closed window); the drop-outs
+ * of the drawn chain; the phase reached.
+ */
+export interface WarlockBossSummary {
+  charmBrokenAt: number | null; wardrobeBy: string | null;
+  hits: Record<string, number>; barrels: number;
+  windows: { opened: number; hit: number }; shifts: number;
+  blocks: Record<string, number>; unlinks: number; phase: number;
 }
 /**
  * Task 48 «Тролль» (observe.ts): his windows by what opened them (`club`, `tail`, `snore`: opened, with the window's hit), the hits on
