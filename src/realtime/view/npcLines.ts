@@ -12,10 +12,12 @@ export type LineKey = 'first' | 'first_self' | 'win_first' | 'win' | `death_${De
   | 'quest_give' | 'quest_give_final' | 'quest_done' | 'quest_fail' | 'idle' | 'about_owl' | 'about_herb' | 'about_smith' | 'about_gambler' | 'about_monk' | 'locked3' | 'pack'
   | 'win_garrison_first' | 'meet_hello' | 'back_met' | 'first_won' | 'first_lost' | 'casino_won' | 'casino_lost'
   | 'habit_first' | 'knack_first' | 'vow_kept' | 'vow_broken' | 'memory_cuts' | 'memory_castellan'
-  | 'leave' | 'back_missed' | 'meet_deal' | 'meet_no' | 'trace_herb' | 'trace_smith' | 'trace_gambler' | 'warmup_record';
+  | 'leave' | 'back_missed' | 'meet_deal' | 'meet_no' | 'trace_herb' | 'trace_smith' | 'trace_gambler' | 'warmup_record' | 'chronicle_retro';
 
 export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly string[]>>>> = {
   owl: {
+    // Task 58в (spec 6.3): once a profile, after the retro (`RtChronicleView.retro`, which stays true for good); the memory `owl:chronicle_retro` says it was said.
+    chronicle_retro: ['Старые страницы размыло дождём. Что помню — вписала, остальное пиши заново.'],
     first: ['Ещё один кот с топором. Садись, запишу тебя — пока есть что записывать.', 'Я Неясыть, летописица леса. Твоя первая страница вышла короткой.'],
     win_first: ['Лес пройден! Придётся вклеить лист: такой концовки я не заготовила.'],
     win: ['Победа. Записала крупно, чтобы ты прочёл без очков.', 'Опять дошёл до конца. Скучно, но аккуратно — это я ценю.', 'Ещё одна глава дописана. Чернила на такие главы уходят быстрее.'],

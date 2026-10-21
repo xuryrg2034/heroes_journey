@@ -128,11 +128,21 @@ test('the gift full: the row «Повадка» first, the gift buttons wait for
   await page.reload();
   await expect(page.getByTestId('gift-habits')).toHaveAttribute('data-chosen', 'false');
   await expect(page.getByTestId('gift-0')).toBeDisabled();
+  // Design 21.10.2026 (§19): the row stays live until the gift button is pressed — a slip of the mouse is not final.
+  await page.getByTestId('habit-none').click();
+  expect(await shown(page)).toMatchObject({ row: true, chosen: true, habit: null });
+  await expect(page.getByTestId('habit-none')).toHaveAttribute('aria-pressed', 'true');
+  await shot(page, 'habit-gift-none-chosen');
   await page.getByTestId('habit-cold').click();
   expect(await shown(page)).toMatchObject({ row: true, chosen: true, habit: 'cold' });
-  await expect(page.getByTestId('gift-habits-hint'), 'the line goes once the habit is chosen').toHaveCount(0);
+  await expect(page.getByTestId('gift-habits-hint'), 'the line stays until the gift button').toHaveText('Предметы с этим знаком будут попадаться чаще');
   await expect(page.getByTestId('habit-cold')).toHaveAttribute('aria-pressed', 'true');
-  await expect(page.getByTestId('habit-flame')).toBeDisabled();
+  await expect(page.getByTestId('habit-none')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByTestId('habit-cold')).toHaveClass(/rt-on/);
+  await expect(page.getByTestId('habit-none')).not.toHaveClass(/rt-on/);
+  await expect(page.getByTestId('habit-flame')).toBeEnabled();
+  await expect(page.getByTestId('habit-none')).toBeEnabled();
+  await shot(page, 'habit-gift-card-chosen');
   const available = rtGiftView(run)!.options.filter(entry => entry.available).map(entry => entry.index);
   for (const index of available) await expect(page.getByTestId(`gift-${index}`)).toBeEnabled();
   await shot(page, 'habit-gift-after');
