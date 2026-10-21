@@ -3,7 +3,8 @@
  * `npm run test:realtime-chronicle`. Whole runs walked by the run's own commands (metaWalk.testkit.ts), the profile as the view keeps it
  * (`createRtProfileStore` with the chronicle on):
  * - 58в: every item a screen showed is written at least as seen; a field's item replaced reads as taken; the note `shown` changes no
- *   draw (state for state), is absent without the flag and reads strictly;
+ *   draw (state for state), is absent without the flag and reads strictly; it holds only what a screen displayed (a real reroll notes the
+ *   options on the screen) and never an item locked by the packs;
  * - «видел» never lowers «взял» (an item taken, then seen in a later run, stays taken);
  * - a meta run's end writes what it did: the events entered (the circle), the items taken and seen, the fusions made, the bosses met and
  *   won with the viewer's run, the hero freed, the garrison's chapter; the run's list (`chronicleAdded`) holds its fights' kinds too;
@@ -15,10 +16,13 @@
  * - the telemetry's fields, `checkRecord`, the report's section «Летопись».
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
-import { offeredNow, seedOf, walkRun, type Walk } from './metaWalk.testkit';
+import { offeredNow, ok, seedOf, walkRun, type Walk } from './metaWalk.testkit';
 import { createRtProfileStore, parseRtProfile, RT_PROFILE_STORAGE_KEY, type RtProfileStore, type RunStorage } from './rtRunStorage';
 import { rtRunKey } from './rtMeta';
-import { createRtRun, parseRtRun, rtInnate, serializeRtRun, type RtRunState } from './rtRun';
+import {
+  createRtRun, parseRtRun, rtChooseHammer, rtChooseTalisman, rtHammerRerollView, rtInnate, rtRerollHammers, rtRerollTalismans, rtRerollView, rtShopLeave, rtShopReroll, rtShopRerollView,
+  serializeRtRun, type RtRunState,
+} from './rtRun';
 import { isRtForm } from './rtTalismans';
 import { rtChronicleParts, RT_CHRONICLE_BOSSES, RT_CHRONICLE_GARRISON_KINDS, isRtChronicleFusion, isRtChronicleItem } from './chronicleCatalog';
 import { rtChronicleHint, type RtChronicleView } from './chroniclePages';
@@ -125,6 +129,37 @@ await check('58в «видел»: every item a screen showed (forms, hammers, th
     for (const id of walk.run.shown ?? []) if (isRtChronicleItem(id) && !walk.run.talismans.includes(id)) assert(items[id] !== undefined, `seed ${k}: ${id} noted`);
   }
   assert(forms >= 5 && hammers >= 1 && knacks >= 3 && replaced >= 1, `covered: forms ${forms}, hammer screens ${hammers}, knack screens ${knacks}, «Близнецы» replaced ${replaced}`);
+});
+
+await check('58в: `shown` holds only what a screen displayed (a reroll notes the options on the screen before it, nothing drawn and dropped unseen); never an item locked by the packs', () => {
+  let lockedRuns = 0, talismanRerolls = 0, hammerRerolls = 0, shopRerolls = 0;
+  for (let k = 1; k <= 12; k++) {
+    // A new profile: its packs lock their items (`store.locked()`; the hammer runs — odd seeds — none: a locked hammer leaves nothing to
+    // reroll to); the camp gives free rerolls of the Jailer's screens and the merchant's.
+    const store = createRtProfileStore(memoryStorage(), { chronicle: true });
+    const displayed = new Set<string>(), screens: RtRunState[] = [];
+    const { walk } = metaRun(store, k, { knacks: true, garrison: k % 3 === 0, hearth: { jailerRerolls: 1, shopRerolls: 1 }, ...k % 2 ? { forms: false, fusions: false, locked: [] } : {} }, { circle: true, each: state => {
+      for (const id of offeredNow(state)) displayed.add(id.replace(/:2$/, ''));
+      for (const id of state.shown ?? []) assert(displayed.has(id), `seed ${k}: ${id} in shown, never on a screen`);
+      assert(!(state.shown ?? []).some(id => state.locked?.includes(id)), `seed ${k}: a locked item in shown`);
+      if (!screens.some(s => s.pending?.kind === state.pending?.kind) && (rtRerollView(state)?.available || rtHammerRerollView(state)?.available || rtShopRerollView(state)?.available)) screens.push(state);
+    } });
+    if (walk.run.locked?.length && walk.run.shown?.length) lockedRuns++;
+    // The rerolls made for real: the notes of the screen closed after are only the options of the screen before and after the reroll.
+    for (const before of screens) {
+      const kind = before.pending!.kind;
+      const rerolled = ok(kind === 'talisman' ? rtRerollTalismans(before) : kind === 'hammer' ? rtRerollHammers(before) : rtShopReroll(before), `seed ${k}: ${kind} reroll`);
+      const onScreen = (s: RtRunState): string[] => s.pending?.kind === 'shop' ? (s.pending.stock.talisman ? [s.pending.stock.talisman] : []) : (s.pending as { options: string[] }).options;
+      // The reroll notes at most the screen's options before it (the merchant's talisman at once: its stock has no list of the rerolled).
+      assert((rerolled.shown ?? []).filter(id => !before.shown?.includes(id)).every(id => onScreen(before).includes(id)), `seed ${k}: a reroll notes only the screen before it`);
+      const closed = ok(kind === 'talisman' ? rtChooseTalisman(rerolled, null) : kind === 'hammer' ? rtChooseHammer(rerolled, null) : rtShopLeave(rerolled), `seed ${k}: ${kind} closed`);
+      const fresh = (closed.shown ?? []).filter(id => !before.shown?.includes(id)), seen = [...onScreen(before), ...onScreen(rerolled)];
+      assert(fresh.length && fresh.every(id => seen.includes(id)), `seed ${k}: ${kind} notes ${fresh} of the screens ${seen}`);
+      assert(!fresh.some(id => closed.locked?.includes(id)), `seed ${k}: no locked item noted`);
+      if (kind === 'talisman') talismanRerolls++; else if (kind === 'hammer') hammerRerolls++; else shopRerolls++;
+    }
+  }
+  assert(lockedRuns >= 4 && talismanRerolls >= 2 && hammerRerolls >= 2 && shopRerolls >= 2, `covered: runs with locks ${lockedRuns}, rerolls: screens ${talismanRerolls}, hammers ${hammerRerolls}, merchant ${shopRerolls}`);
 });
 
 await check('58в: the note `shown` changes no draw (a run with it walks the run without it, state for state); without the flag no field; a save of it reads strictly', () => {
