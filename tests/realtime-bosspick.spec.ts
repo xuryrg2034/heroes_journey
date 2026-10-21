@@ -1,6 +1,7 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
 import { gameWait, untilFrame } from './realtimeFrames';
+import { breakCharm } from './warlockRoute';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
 import { artEllipseDepth, type ArtEllipse } from '../src/realtime/sim/bossArt';
 
@@ -166,22 +167,8 @@ test('«Зона по рисунку»: the warlock — in his window the chest 
     for (const [k, v] of [['enemySpeed', 0], ['speedSpread', 0], ['baseIntervalMin', 1000], ['baseIntervalMax', 1000], ['baseFloor', 0], ['contactDamage', 0], ['wardrobePeriod', 1000], ['shoveDistance', 6]] as const) rt.setParam(k, v);
   });
   await cameraSettled(page);
-  // His wardrobe into the wall twice by the mouse (the route of tests/realtime-warlock.spec.ts).
-  const wardrobe = (await snap(page)).warlock.state!.wardrobe!;
-  for (let i = 0; i < 2; i++) {
-    const w = (await snap(page)).castle.things.find(t => t.id === wardrobe)!;
-    await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y + 1), [w.x, w.y] as const);
-    await cameraSettled(page);
-    const at = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [w.x, w.y] as const);
-    await page.mouse.move(at.x, at.y, { steps: 3 });
-    await page.mouse.down();
-    await expect.poll(async () => (await snap(page)).chain).toEqual([wardrobe]);
-    await page.mouse.up();
-    const done = await untilFrame(page, (s, _arg: null, late) => s.castle.shoves.length === 0 && s.moving === null ? true : late ? false : undefined, null, 10);
-    expect(done, 'the shove is over').toBe(true);
-  }
-  const fell = await untilFrame(page, (s, _arg: null, late) => s.warlock.state?.phase === 2 ? true : late ? false : undefined, null, 4);
-  expect(fell, 'the charm fell').toBe(true);
+  // His wardrobe into the wall by the mouse until it breaks (tests/warlockRoute.ts, shared).
+  await breakCharm(page);
   // The window of the next arrival: the core is frozen the moment it opens.
   const open = await untilFrame(page, (s, _arg: null, late, rt) => s.warlock.state?.window?.open ? (rt.chill(s.warlock.state.id, 60), s.warlock.state) : late ? null : undefined, null, 12);
   expect(open, 'the window opened').not.toBeNull();
