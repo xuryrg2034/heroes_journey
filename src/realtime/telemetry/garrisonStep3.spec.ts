@@ -16,7 +16,8 @@ import { pitchPools } from '../sim/pitch';
 import { replay, Simulation, SIM_DT } from '../sim/simulation';
 import type { Enemy, World } from '../sim/world';
 import { createFightObserver } from './observe';
-import type { FightObserver } from './schema';
+import { garrisonStats, type FightEntry } from './report';
+import { checkRecord, emptyFightSummary, fightRecordId, RT_TELEMETRY_SCHEMA, step3SummaryOk, withSummaryDefaults, type FightObserver, type FightSummary, type GarrisonStep3Summary } from './schema';
 import { ThreatTracker } from './threats';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
@@ -161,6 +162,70 @@ check('the wardens: the pair seen; a chain into one — an anger, the angry touc
     const t = both.step3()!;
     assert(t && t.pairs === 1 && t.pairsCleared === 1 && t.angers === 0, `seed ${k}: both by one pass ${JSON.stringify(t)}`);
   }
+});
+
+/** «Привратники (проба)»: a chain into the warden A (the top of its colour's column, then A) — B is angry after the pass. */
+function angerB(k: number, extra: Partial<Params> = {}): { f: Watched; b: Enemy } {
+  const f = new Watched(WARDEN_TEST_ARENA.id, k, extra);
+  f.run(1);
+  const [a, b] = f.world.enemies.filter(e => e.kind === WARDEN).sort((x, y) => x.id - y.id);
+  const top = f.world.enemies.filter(e => e.kind === 'basic' && e.color === a.color && Math.abs(e.x - WARDEN_TEST_COLUMNS[a.color]) < 0.01).sort((x, y) => x.y - y.y)[0];
+  f.cmd({ t: 'teleport', x: 9.4, y: 6.2 });
+  f.draw([top, a]);
+  f.pass();
+  assert(wardenAngry(b), `seed ${k}: B angry`);
+  return { f, b };
+}
+
+check('the anger\'s ends (design 22.10.2026): killed in its anger, its clock over, the fight lost while it runs — one each; the three add up to `angers`; the record check takes it; the replay gives the same (2 seeds)', () => {
+  for (const k of [1, 2]) {
+    // Killed: a link of B's colour placed beside it, then B (HP 2: the second link kills it).
+    const { f: killed, b } = angerB(k);
+    const link = killed.place({ x: b.x, y: b.y + 1.1 }, 0, b.color);
+    killed.cmd({ t: 'teleport', x: b.x, y: b.y + 2.4 });
+    killed.draw([killed.world.enemies.find(e => e.id === link)!, b]);
+    killed.pass();
+    assert(!killed.world.enemies.includes(b), `seed ${k}: B fell`);
+    // Calm: the hero away, the 8 s run out.
+    const { f: calm, b: cb } = angerB(k);
+    calm.cmd({ t: 'teleport', x: 2, y: 10.5 });
+    calm.run(ticksOf(9));
+    assert(!wardenAngry(cb) && calm.world.enemies.includes(cb), `seed ${k}: B calm again, alive`);
+    // At the end: the hero of 2 HP beside the angry B — its touch 2 ends the fight in the anger.
+    const { f: end, b: eb } = angerB(k, { heroHp: 2, contactDamage: 1 });
+    end.cmd({ t: 'teleport', x: eb.x, y: eb.y + 0.6 });
+    end.run(ticksOf(4));
+    assert(end.world.status === 'defeat' && wardenAngry(eb), `seed ${k}: the fight lost in the anger (${end.world.status})`);
+    for (const [name, f, want] of [['killed', killed, [1, 0, 0]], ['calm', calm, [0, 1, 0]], ['at the end', end, [0, 0, 1]]] as const) {
+      const t = f.step3()!, got = [t.angerKilled, t.angerCalm, t.angerAtEnd];
+      assert(t.angers === 1 && JSON.stringify(got) === JSON.stringify(want), `seed ${k} ${name}: ${JSON.stringify({ angers: t.angers, got })}`);
+      assert(step3SummaryOk(t), `seed ${k} ${name}: the record check takes it`);
+      assert(JSON.stringify(f.replayed()) === JSON.stringify(t), `seed ${k} ${name}: the replay's summary is the live one`);
+    }
+  }
+});
+
+check('an older record without the anger\'s ends reads as before (no field added), the report shows «—»; the record check refuses a part of them, a wrong sum, an unknown key', () => {
+  const t: GarrisonStep3Summary = { ...emptyFightSummary().garrison.step3 ?? { pots: 0, potHits: 0, pitchSeconds: 0, ignites: { path: 0, burning: 0 }, pitchKills: 0, formations: 0, orderRefusals: 0, orderBlocks: 0, drills: 0, unlinks: 0, backsteps: 0, recruitBacksteps: 0, pairs: 1, pairsCleared: 0, angers: 1, angerDamage: 0 } };
+  const old = emptyFightSummary();
+  old.garrison.step3 = t;
+  const read = withSummaryDefaults(JSON.parse(JSON.stringify(old)));
+  assert(read.garrison.step3 && !('angerKilled' in read.garrison.step3) && step3SummaryOk(read.garrison.step3), 'the old block reads as it was');
+  const entry = (summary: FightSummary): FightEntry => ({ record: { level: 2, nodeId: 'g:r1c0', arena: 'g-barbican', summary }, run: null, notes: [], journal: null, error: null } as unknown as FightEntry);
+  assert(garrisonStats([], [entry(read)]).step3.angerEnds === null, 'the report: «—» for older records');
+  const fresh = withSummaryDefaults(JSON.parse(JSON.stringify(old)));
+  fresh.garrison.step3 = { ...t, angerKilled: 1, angerCalm: 0, angerAtEnd: 0 };
+  assert(JSON.stringify(garrisonStats([], [entry(read), entry(fresh)]).step3.angerEnds) === JSON.stringify({ angers: 1, killed: 1, calm: 0, atEnd: 0 }), 'the report sums the records that have them');
+  assert(!step3SummaryOk({ ...t, angerKilled: 1 }), 'a part of them — refused');
+  assert(!step3SummaryOk({ ...t, angerKilled: 1, angerCalm: 1, angerAtEnd: 0 }), 'a wrong sum — refused');
+  assert(!step3SummaryOk({ ...t, angerEnds: 1 }), 'an unknown key — refused');
+  // The same through a fight record's check (the recorder's and the export's).
+  const record = (summary: FightSummary): Record<string, unknown> => ({ schema: RT_TELEMETRY_SCHEMA, id: fightRecordId('s1', 'r1', 'f0'), kind: 'fight', session: 's1', run: 'r1', fight: 'f0', build: 'b', at: 't',
+    params: { storage: 'x', hash: 'h' }, arena: 'g-barbican', seed: 1, ticks: 1, time: 1, hpIn: 1, hpOut: 1, endHash: 'e', summary, outcome: 'defeat', journal: { parts: 1, chars: 1, digest: 'd', encoding: 'e' } });
+  assert(checkRecord(record(read)) === null && checkRecord(record(fresh)) === null, `a record old and new passes (${checkRecord(record(read))}, ${checkRecord(record(fresh))})`);
+  const broken = withSummaryDefaults(JSON.parse(JSON.stringify(fresh)));
+  broken.garrison.step3 = { ...t, angerKilled: 2, angerCalm: 0, angerAtEnd: 0 };
+  assert(checkRecord(record(broken)) === 'fight step3', `a wrong sum in a record — 'fight step3' (${checkRecord(record(broken))})`);
 });
 
 console.log(`garrison step 3 telemetry: ${checks} checks passed`);

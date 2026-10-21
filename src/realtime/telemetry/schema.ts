@@ -853,6 +853,8 @@ export function checkRecord(value: unknown): string | null {
       if (r.omens !== undefined && !(typeof r.nodeId === 'string' && Array.isArray(r.omens) && r.omens.length && r.omens.every(o => { const x = o as Record<string, unknown> | null; return !!x && typeof x.id === 'string' && (x.scope === 'node' || x.scope === 'level'); }))) return 'fight omens';
       const fired = (r.summary as Record<string, unknown>).omenFired;
       if (fired !== undefined && !(!!fired && typeof fired === 'object' && Object.values(fired).every(v => typeof v === 'number' && Number.isFinite(v) && v >= 0))) return 'fight omenFired';
+      // Task 59б: the step 3's block of the summary (the anger's ends from 22.10.2026).
+      if (!step3SummaryOk(((r.summary as Record<string, unknown>).garrison as Record<string, unknown> | undefined)?.step3)) return 'fight step3';
       const j = r.journal as Record<string, unknown> | undefined;
       if (!j || typeof j.parts !== 'number' || typeof j.chars !== 'number' || typeof j.digest !== 'string' || typeof j.encoding !== 'string') return 'fight journal meta';
       return null;
@@ -1173,6 +1175,27 @@ export interface GarrisonStep3Summary {
    */
   backsteps: number; recruitBacksteps: number;
   pairs: number; pairsCleared: number; angers: number; angerDamage: number;
+  /**
+   * Design 22.10.2026 (§12): how each anger ended — the angry warden gone from the arena while angry (`angerKilled`), its clock over
+   * (`warden` `anger` `end`: `angerCalm`), the fight over while it was angry (`angerAtEnd`); the three add up to `angers`. From
+   * 22.10.2026; absent — an older record (the report shows «—»).
+   */
+  angerKilled?: number; angerCalm?: number; angerAtEnd?: number;
+}
+
+/** The keys of `GarrisonStep3Summary` (`checkRecord`: a record's step 3 has no other key). */
+export const GARRISON_STEP3_KEYS: readonly string[] = ['pots', 'potHits', 'pitchSeconds', 'ignites', 'pitchKills', 'formations', 'orderRefusals', 'orderBlocks', 'drills', 'unlinks',
+  'backsteps', 'recruitBacksteps', 'pairs', 'pairsCleared', 'angers', 'angerDamage', 'angerKilled', 'angerCalm', 'angerAtEnd'];
+
+/** A record's `summary.garrison.step3` (absent — fine): known keys only; the anger's ends all three or none, whole, adding up to `angers`. */
+export function step3SummaryOk(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const t = value as Record<string, unknown>;
+  if (Object.keys(t).some(k => !GARRISON_STEP3_KEYS.includes(k))) return false;
+  const ends = [t.angerKilled, t.angerCalm, t.angerAtEnd];
+  if (ends.every(v => v === undefined)) return true;
+  return ends.every(v => Number.isInteger(v) && (v as number) >= 0) && ends.reduce((a: number, v) => a + (v as number), 0) === t.angers;
 }
 
 /**
