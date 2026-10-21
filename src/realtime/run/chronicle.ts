@@ -13,7 +13,7 @@ import {
   RT_CHRONICLE_AFFIXES, RT_CHRONICLE_ASH_STEPS, RT_CHRONICLE_BOSSES, RT_CHRONICLE_CASINO, RT_CHRONICLE_EVENTS, RT_CHRONICLE_ITEMS, RT_CHRONICLE_KINDS, RT_CHRONICLE_PAGES,
   isRtChronicleBoss, isRtChronicleFusion, isRtChronicleItem, rtChronicleParts, type RtChronicleBoss,
 } from './chronicleCatalog';
-import { isRtForm } from './rtTalismans';
+import { isRtForm, rtFormField } from './rtTalismans';
 import { isScheduleElement } from './schedule';
 
 export interface RtChronicle {
@@ -144,11 +144,13 @@ export function rtChronicleNote(previous: RtChronicle | undefined, refs: readonl
 /**
  * The items a run took: its talismans; a form or a fusion it held and lost (a form of the same field replaced it; a fusion took its
  * parts) — every form and fusion in `talismansGone` was taken, never left on a screen (`rtChooseTalisman` and the merchant keep the
- * forms out of it); the parts of every fusion made; the hammer. The hero's innate items (Ведунья's «Печать») are not taken.
+ * forms out of it); task 58в: in a run with `chronicle`, an item of a field («Близнецы», «Якорь у героя») in `talismansGone` and not
+ * in `shown` — replaced, so taken; the parts of every fusion made; the hammer. The hero's innate items (Ведунья's «Печать») are not taken.
  */
-export function rtChronicleTaken(run: Pick<RtRunState, 'talismans' | 'talismansGone' | 'hammer' | 'heroId'>): string[] {
+export function rtChronicleTaken(run: Pick<RtRunState, 'talismans' | 'talismansGone' | 'hammer' | 'heroId' | 'chronicle' | 'shown'>): string[] {
   const innate = rtInnate(run);
-  const held = [...run.talismans, ...run.talismansGone.filter(id => isRtForm(id) || isRtChronicleFusion(id)), ...run.hammer ? [run.hammer] : []];
+  const replaced = (id: string): boolean => !!run.chronicle && rtFormField(id) !== null && !run.shown?.includes(id);
+  const held = [...run.talismans, ...run.talismansGone.filter(id => isRtForm(id) || isRtChronicleFusion(id) || replaced(id)), ...run.hammer ? [run.hammer] : []];
   const parts = held.filter(isRtChronicleFusion).flatMap(rtChronicleParts);
   return [...new Set([...held, ...parts])].filter(id => isRtChronicleItem(id) && !innate.includes(id));
 }
@@ -167,7 +169,8 @@ export function rtChronicleRun(previous: RtChronicle | undefined, run: RtRunStat
   c.events = ev.list; refs.push(...ev.added.map(id => `event:${id}`));
   // Items: taken (2) over seen (1).
   const taken = rtChronicleTaken(run), items = { ...c.items };
-  for (const id of run.talismansGone) if (isRtChronicleItem(id) && !taken.includes(id) && !items[id]) items[id] = 1;
+  // Task 58в: `shown` — the forms, the field's items, the hammers, the rerolled and the knack's refused cards a screen showed.
+  for (const id of [...run.talismansGone, ...run.shown ?? []]) if (isRtChronicleItem(id) && !taken.includes(id) && !items[id]) items[id] = 1;
   for (const recipe of RT_CHRONICLE_ITEMS.fusions) {
     const parts = rtChronicleParts(recipe), innate = rtInnate(run);
     if (!taken.includes(recipe) && !items[recipe] && parts.every(part => run.talismans.includes(part) || innate.includes(part))) items[recipe] = 1;

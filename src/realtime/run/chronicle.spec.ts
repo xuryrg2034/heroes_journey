@@ -2,6 +2,8 @@
  * Task 58 «Летопись», core 58а (docs/design-notes/task-58-discovery.md, sections 4, 6.1, 7, 8, 10 and 11). Node only:
  * `npm run test:realtime-chronicle`. Whole runs walked by the run's own commands (metaWalk.testkit.ts), the profile as the view keeps it
  * (`createRtProfileStore` with the chronicle on):
+ * - 58в: every item a screen showed is written at least as seen; a field's item replaced reads as taken; the note `shown` changes no
+ *   draw (state for state), is absent without the flag and reads strictly;
  * - «видел» never lowers «взял» (an item taken, then seen in a later run, stays taken);
  * - a meta run's end writes what it did: the events entered (the circle), the items taken and seen, the fusions made, the bosses met and
  *   won with the viewer's run, the hero freed, the garrison's chapter; the run's list (`chronicleAdded`) holds its fights' kinds too;
@@ -13,10 +15,10 @@
  * - the telemetry's fields, `checkRecord`, the report's section «Летопись».
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
-import { seedOf, walkRun, type Walk } from './metaWalk.testkit';
+import { offeredNow, seedOf, walkRun, type Walk } from './metaWalk.testkit';
 import { createRtProfileStore, parseRtProfile, RT_PROFILE_STORAGE_KEY, type RtProfileStore, type RunStorage } from './rtRunStorage';
 import { rtRunKey } from './rtMeta';
-import { createRtRun, rtInnate, type RtRunState } from './rtRun';
+import { createRtRun, parseRtRun, rtInnate, serializeRtRun, type RtRunState } from './rtRun';
 import { isRtForm } from './rtTalismans';
 import { rtChronicleParts, RT_CHRONICLE_BOSSES, RT_CHRONICLE_GARRISON_KINDS, isRtChronicleFusion, isRtChronicleItem } from './chronicleCatalog';
 import { rtChronicleHint, type RtChronicleView } from './chroniclePages';
@@ -42,7 +44,7 @@ const chronicleOf = (store: RtProfileStore): RtChronicle => store.load().meta?.c
 /** A meta run of the store: started (the viewer's run number), walked with the camp's flags, its fights' kinds met on the way. */
 function metaRun(store: RtProfileStore, k: number, create: Record<string, unknown> = {}, extra: Partial<Parameters<typeof walkRun>[0]> = {}): { walk: Walk; viewerRun: number } {
   const viewerRun = store.startRun().run;
-  const walk = walkRun({ k, create: { gift: 'full', garrison: false, forms: true, fusions: true, locked: store.locked(), hearth: store.hearthStart(seedOf(k)).flags, ...create }, ...extra });
+  const walk = walkRun({ k, create: { gift: 'full', garrison: false, forms: true, fusions: true, chronicle: true, locked: store.locked(), hearth: store.hearthStart(seedOf(k)).flags, ...create }, ...extra });
   return { walk, viewerRun };
 }
 const entry = (view: RtChronicleView, page: string, chapter: string, id: string) =>
@@ -99,6 +101,49 @@ await check('«видел» never lowers «взял»: an item taken in one run 
   assert(kept >= 2, `covered: ${kept} items taken earlier and seen later`);
 });
 
+await check('58в «видел»: every item a screen showed (forms, hammers, the merchant, the knack, the rerolled) is written at least as seen; a field\'s item replaced reads as taken', () => {
+  let forms = 0, hammers = 0, knacks = 0, replaced = 0;
+  // Seeds 7 and 23 (garrison runs) meet «Якорь у героя» after «Близнецы» (found by a search over 500 seeds, 21.10.2026).
+  const seeds = [...Array.from({ length: 12 }, (_, i) => ({ k: i + 1, garrison: (i + 1) % 3 === 0 })), { k: 7, garrison: true }, { k: 23, garrison: true }];
+  for (const { k, garrison } of seeds) {
+    // A new profile a run: what this run wrote, nothing of an earlier one.
+    const store = createRtProfileStore(memoryStorage(), { chronicle: true });
+    const shownNow = new Set<string>();
+    // The walk takes «Близнецы» when offered, «Якорь у героя» whenever offered (the same field «Звено» — one replaces the other).
+    const pick = (run: RtRunState, options: readonly string[]): string | null =>
+      options.includes('form-twins') && !run.talismans.includes('hero-anchor') ? 'form-twins' : options.includes('hero-anchor') ? 'hero-anchor' : null;
+    const { walk } = metaRun(store, k, { knacks: true, garrison, locked: [], ...k % 4 === 0 ? { forms: false, fusions: false } : {} }, { circle: true, jailerReroll: k % 2 ? 'form' : 'hammer', talisman: pick, each: state => {
+      if (state.pending?.kind === 'gift') return;
+      for (const id of offeredNow(state)) if (!id.endsWith(':2')) shownNow.add(id);
+      if (state.pending?.kind === 'hammer') hammers++;
+      if (state.pending?.kind === 'knack') knacks++;
+    } });
+    store.endRunMeta(walk.run);
+    const items = chronicleOf(store).items ?? {};
+    for (const id of shownNow) if (isRtChronicleItem(id)) { assert((items[id] ?? 0) >= 1, `seed ${k}: ${id} shown — written (${walk.run.shown})`); if (isRtForm(id)) forms++; }
+    for (const id of ['form-twins', 'hero-anchor']) if (walk.run.talismansGone.includes(id) && !walk.run.shown?.includes(id)) { assert(items[id] === 2, `seed ${k}: ${id} replaced — taken`); replaced++; }
+    for (const id of walk.run.shown ?? []) if (isRtChronicleItem(id) && !walk.run.talismans.includes(id)) assert(items[id] !== undefined, `seed ${k}: ${id} noted`);
+  }
+  assert(forms >= 5 && hammers >= 1 && knacks >= 3 && replaced >= 1, `covered: forms ${forms}, hammer screens ${hammers}, knack screens ${knacks}, «Близнецы» replaced ${replaced}`);
+});
+
+await check('58в: the note `shown` changes no draw (a run with it walks the run without it, state for state); without the flag no field; a save of it reads strictly', () => {
+  for (let k = 1; k <= 8; k++) {
+    const strip = (run: RtRunState): string => { const copy = structuredClone(run) as Partial<RtRunState>; delete copy.chronicle; delete copy.shown; return JSON.stringify(copy); };
+    const a: string[] = [], b: string[] = [];
+    let noted = false;
+    walkRun({ k, create: { gift: 'full', garrison: k % 2 === 0, knacks: true, chronicle: true }, jailerReroll: 'form', each: state => { a.push(strip(state)); if (state.shown) noted = true; assert(serializeRtRun(parseRtRun(serializeRtRun(state))!) === serializeRtRun(state), `seed ${k}: reads back`); } });
+    walkRun({ k, create: { gift: 'full', garrison: k % 2 === 0, knacks: true, chronicle: false }, jailerReroll: 'form', each: state => { b.push(JSON.stringify(state)); assert(!('shown' in state) && !('chronicle' in state), `seed ${k}: no field without the flag`); } });
+    assert(same(a, b), `seed ${k}: the same walk`);
+    assert(noted, `seed ${k}: something noted`);
+  }
+  const run = walkRun({ k: 3, create: { gift: 'full', garrison: false, chronicle: true } }).run, base = JSON.parse(serializeRtRun(run));
+  assert(base.shown?.length, 'a noted run');
+  const read = (patch: Record<string, unknown>) => parseRtRun(JSON.stringify({ ...base, ...patch }));
+  assert(read({}) !== null && read({ chronicle: undefined }) === null && read({ shown: [] }) === null && read({ shown: ['no-such-item'] }) === null
+    && read({ shown: [base.shown[0], base.shown[0]] }) === null && read({ shown: [...base.shown, base.talismans[0]] }) === null && read({ chronicle: 1 }) === null, 'malformed notes refused');
+});
+
 await check('the fights\' kinds (`chronicleMeet`) join the run\'s list; repeats and unknown ids write nothing; the list stays the run\'s after a reload', () => {
   const storage = memoryStorage(), store = createRtProfileStore(storage, { chronicle: true });
   const { walk } = metaRun(store, 1, {}, {});
@@ -136,7 +181,7 @@ await check('a run with a given seed writes nothing; an abandoned run writes; th
 await check('the chronicle off: no field ever; a profile before the first write reads and writes byte for byte', () => {
   const off = memoryStorage(), on = memoryStorage();
   const a = createRtProfileStore(off, { chronicle: false });
-  for (let k = 1; k <= 4; k++) { const { walk } = metaRun(a, k, { garrison: k === 2 }); a.endRunMeta(walk.run); a.freeHero(walk.run); }
+  for (let k = 1; k <= 4; k++) { const { walk } = metaRun(a, k, { garrison: k === 2, chronicle: false }); a.endRunMeta(walk.run); a.freeHero(walk.run); }
   assert(!a.chronicleMeet(['wolf'], []) && !a.chronicleImport({ kinds: ['wolf'], affixes: [] }) && !a.chronicleRead() && !profileText(off).includes('chronicle'), 'off: nothing written');
   // A profile of before (no field) under a store with the chronicle on: what writes no chronicle keeps it byte for byte.
   on.data.set(RT_PROFILE_STORAGE_KEY, profileText(off));
