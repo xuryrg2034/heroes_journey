@@ -1,14 +1,17 @@
 /**
- * Task 59б: the bot of the step-3 measures (scripts/shotDodge.ts `potDodge`, scripts/pairBot.ts `pairChain`) does what its policy says, by
- * the game's own commands on the arenas of step 3 (sim/arenasStep3.ts). A check of the measuring tool on a few seeds, not of a bot's
- * win: the dodge leaves a pot's mark and is silent with no pot; the planner clears the pair in one pass when five links of A lead to
- * it, and never releases a chain the highlight angers. Node only: `npm run test:realtime-step3-bot`. Seeds `Math.imul(k, 2654435761) >>> 0`.
+ * Task 59б: the bot of the step-3 measures (scripts/shotDodge.ts `potDodge`, scripts/step3Bot.ts `step3Chain`; spec 13: its three skills)
+ * does what its policy says, by the game's own commands on the arenas of step 3 (sim/arenasStep3.ts). A check of the measuring tool on a
+ * few seeds, not of a bot's win: the dodge leaves a pot's mark and is silent with no pot; the chain goes by the numbers 1 → 4; the
+ * planner clears the pair in one pass when five links of A lead to it, and never releases a chain the highlight angers; with nothing
+ * of step 3 the chain is the greedy one, command for command. Node only: `npm run test:realtime-step3-bot`. Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
-import { pairChain } from '../../../scripts/pairBot';
+import { playChain } from '../../../scripts/loopBot';
 import { potDodge } from '../../../scripts/shotDodge';
+import { step3Chain } from '../../../scripts/step3Bot';
 import { BARBICAN_ARENA, BARRACKS_ARENA, TARWORKS_ARENA } from './arenasStep3';
 import { planChain } from './chain';
 import { GUARD } from './enemies/garrison';
+import { RECRUIT } from './enemies/recruit';
 import { WARDEN, wardenAngry } from './enemies/warden';
 import { defaultParams, type Params } from './params';
 import { potsInFlight } from './pitch';
@@ -31,7 +34,7 @@ function quiet(extra: Partial<Params> = {}, walk = false): Params {
   return Object.assign(p, extra);
 }
 function fight(arena: string, k: number, walk = false, extra: Partial<Params> = {}): Simulation {
-  const sim = new Simulation({ arena, params: quiet(extra, walk), seed: seedOf(k) });
+  const sim = new Simulation({ arena, params: quiet(extra, walk), seed: seedOf(k), record: true });
   sim.tick();
   return sim;
 }
@@ -79,23 +82,63 @@ function atBarbican(k: number, extra: Partial<Params>): { sim: Simulation; a: En
 check('the planner, «Смена цвета» 6 (the run\'s): from the five links of A it draws five A → A → B and releases — both wardens fall in one pass, no anger (4 seeds)', () => {
   for (const k of SEEDS) {
     const { sim, a, b } = atBarbican(k, { colorShiftLinks: 6 }), w = sim.world;
-    assert(pairChain(sim) === 1, `seed ${k}: released`);
+    assert(step3Chain(sim, true) === 1, `seed ${k}: released`);
     const events = ticks(sim, ticksOf(3));
     assert(!w.enemies.includes(a) && !w.enemies.includes(b) && !events.some(e => e.type === 'warden'), `seed ${k}: both fell, no anger`);
   }
 });
 
-check('the planner, «Смена цвета» off: the pair cannot fall in one chain — the angering chain is cancelled, a chain without the wardens goes; both stand calm (4 seeds)', () => {
+check('the planner, «Смена цвета» off: a warden of a standing pair is never its link — the chain goes without the pair, both stand calm (4 seeds)', () => {
   for (const k of SEEDS) {
     const { sim, a, b } = atBarbican(k, { colorShiftLinks: 0 }), w = sim.world;
+    assert(step3Chain(sim, true) === 1, `seed ${k}: a chain released`);
+    ticks(sim, ticksOf(3));
+    assert(w.enemies.includes(a) && w.enemies.includes(b) && !wardenAngry(a) && !wardenAngry(b), `seed ${k}: the pair stands, calm`);
+  }
+});
+
+check('the planner reads the highlight: B moved out of reach (a built scene: 3 units off) — the chain that frees the colour at A would anger B, so it is cancelled; the released chain angers nobody, the pair stands calm (4 seeds)', () => {
+  for (const k of SEEDS) {
+    const { sim, a, b } = atBarbican(k, { colorShiftLinks: 6 }), w = sim.world;
+    b.x += 3;
     let shown: number[] | undefined;
     const command = sim.command.bind(sim);
-    // The highlight at the moment of each release.
     sim.command = (c => { if (c.t === 'release') shown = planChain(w).anger; return command(c); }) as typeof sim.command;
-    assert(pairChain(sim) === 1, `seed ${k}: a chain released`);
+    assert(step3Chain(sim, true) === 1, `seed ${k}: a chain released`);
     assert(!shown?.length, `seed ${k}: the released chain angers nobody in the highlight`);
     ticks(sim, ticksOf(3));
     assert(w.enemies.includes(a) && w.enemies.includes(b) && !wardenAngry(a) && !wardenAngry(b), `seed ${k}: the pair stands, calm`);
+  }
+});
+
+check('the numbers: in «Казарма» from where the hero stands the chain goes 1 → 4 through the near formation — it falls whole, +2 (both modes, 4 seeds)', () => {
+  for (const k of SEEDS) for (const planner of [false, true]) {
+    const sim = fight(BARRACKS_ARENA.id, k), w = sim.world, near = w.enemies.filter(e => e.kind === RECRUIT && e.color === 0);
+    assert(step3Chain(sim, planner) === 1, `seed ${k}: released`);
+    const events = ticks(sim, ticksOf(3));
+    assert(near.every(e => !w.enemies.includes(e)) && events.some(e => e.type === 'recruit' && e.action === 'drill' && e.energy === 2), `seed ${k} ${planner ? 'planner' : 'careless'}: the formation fell whole, +2`);
+  }
+});
+
+check('the numbers first: a plain enemy of colour 0 nearer the hero than the formation and out of its reach (a built scene) — the bot still begins at the current number and the formation falls whole in the first chain (4 seeds)', () => {
+  for (const k of SEEDS) {
+    const sim = fight(BARRACKS_ARENA.id, k), w = sim.world;
+    const plain = w.enemies.find(e => e.kind === 'basic' && e.color === 0)!;
+    plain.x = w.hero.x; plain.y = w.hero.y + 1.1;
+    assert(step3Chain(sim, false) === 1, `seed ${k}: released`);
+    const events = ticks(sim, ticksOf(3));
+    assert(events.some(e => e.type === 'recruit' && e.action === 'drill' && e.energy === 2) && w.enemies.includes(plain), `seed ${k}: the formation fell whole, the plain one stands`);
+  }
+});
+
+check('nothing of step 3 for the bot (no numbered recruit; the pair without the planner): the chain is the greedy one, command for command (journal hash)', () => {
+  for (const [arena, k] of [['g-yard', 1], ['g-gallery', 2], [BARBICAN_ARENA.id, 3], [TARWORKS_ARENA.id, 4]] as const) {
+    const a = fight(arena, k, true), b = fight(arena, k, true);
+    for (let tick = 0; tick < ticksOf(12); tick++) {
+      if (tick % 45 === 20) { step3Chain(a, false); playChain(b); }
+      a.tick(); b.tick();
+    }
+    assert(a.hash() === b.hash() && JSON.stringify(a.exportJournal()) === JSON.stringify(b.exportJournal()), `${arena}: the same fight`);
   }
 });
 

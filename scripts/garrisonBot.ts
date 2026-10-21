@@ -24,7 +24,7 @@ import type { Loadout } from '../src/realtime/sim/kit';
 import type { Enemy, World } from '../src/realtime/sim/world';
 import type { RtRunState } from '../src/realtime/run/rtRun';
 import { playChain } from './loopBot';
-import { pairChain } from './pairBot';
+import { step3Chain } from './step3Bot';
 import { potDodge, shotDodge } from './shotDodge';
 import { shoveChain } from './shoveBot';
 
@@ -227,8 +227,9 @@ export interface BotFightOptions {
   record?: boolean;
   beforeTick?: (w: World) => void;
   /**
-   * Task 59б: the wardens' pair — 'planner' (scripts/pairBot.ts: leans to the warden A, takes the partner, cancels a chain the highlight
-   * angers); absent — the «careless» greedy chain, as before.
+   * Task 59б: the wardens' pair — 'planner' (scripts/step3Bot.ts: leans to the warden A, takes it when it frees the colour, then the
+   * partner; cancels a chain the highlight angers); absent — the «careless» bot takes the wardens as any enemy. The numbers of the
+   * recruits — in both (no recruit, no planner's pair: the greedy chain, as before).
    */
   pairs?: 'planner';
 }
@@ -272,7 +273,7 @@ export function botFight(run: RtRunState, options: BotFightOptions): BotFight {
       if (w.chain.some(l => l.kind === 'object')) sim.command({ t: 'release' }); else if (w.chain.length) sim.command({ t: 'cancel' });
     }
     // Task 55а: on an arena with things the bot shoves first when it is worth it (scripts/shoveBot.ts; no thing — no command).
-    if (tick % 45 === 20) { if (options.aim) aimAtCore(sim, options.aim); else if (!shoveChain(sim)) { if (options.pairs === 'planner') pairChain(sim); else playChain(sim); } }
+    if (tick % 45 === 20) { if (options.aim) aimAtCore(sim, options.aim); else if (!shoveChain(sim)) step3Chain(sim, options.pairs === 'planner'); }
     if (tick % 400 === 200) sim.command({ t: 'spin' });
     if (tick % 500 === 300 && canJump(w)) sim.command({ t: 'jump', x: w.hero.x + 2, y: w.hero.y - 1 });
     if (tick % 10 === 0 && w.hero.hp - buffer <= HEAL_AT && (w.kit?.items.healing ?? 0) > 0) sim.command({ t: 'item', kind: 'healing', x: w.hero.x, y: w.hero.y });
