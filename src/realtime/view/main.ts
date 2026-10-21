@@ -69,7 +69,7 @@ import { TOAD_LINES } from './heroLines';
 import { ToadLesson, isToad } from './toadLesson';
 import { findLoopHint, type LoopHintFigure } from './loopHint';
 import { ITEM_PULSE_ID, setPulse } from './pulse';
-import { barrelLabel, bossMoveLabels, BOSS_LABEL_LIFE, detectLabels, harvestLabel, labelActions, LEVER_OVER_LINE, omenLabels, RIOT_LABEL_LIFE, riotLabel, riotStarted, shackleCut, shackleLabel, shackleMet, WorldLabelLayer, type LabelSpec } from './worldLabels';
+import { barrelLabel, bossMoveLabels, BOSS_LABEL_LIFE, detectLabels, GARRISON3_LABEL_LIFE, garrison3Label, type Garrison3LabelId, harvestLabel, labelActions, LEVER_OVER_LINE, omenLabels, RIOT_LABEL_LIFE, riotLabel, riotStarted, shackleCut, shackleLabel, shackleMet, WorldLabelLayer, type LabelSpec } from './worldLabels';
 import { prologueHandSpot, prologueJumpAim, prologueLoadout, prologueParams, prologueRoom, prologueRoute, prologueShieldLinks, prologueSpinReady } from '../run/prologue';
 import { RT_RUN_HP } from '../run/hpScale';
 import { HAND_IDLE, HandGuide, PROLOGUE_ROOM_COUNT, SHIELD_HAND_IDLE, PrologueStore, TITLE_SECONDS, prologueCarry, prologueEntryRoom, prologueGoalLine, prologueLabel, prologueSeed, roomTitle, type PrologueHooks, type PrologueLabelMemo, type RoomOutcome } from './prologueFlow';
@@ -436,6 +436,8 @@ async function boot(): Promise<void> {
   /** Task 35, С4: the build's sounds asked for so far — «Тяжёлый клинок» thuds, «Пятое звено» bells (tests read them). */
   // Task 47, С4: the hammers' sounds (`crackles`, `pops`, `swishes`, `rings`), «Быстрые ноги»' `whistles`, «Ударная волна»'s `hums`
   // (`humLast` — the last hum's strength).
+  /** Task 59а: the garrison's step-3 sounds asked for so far — the pot's throw and fall, the pitch lit, the warden's keys (tests read them). */
+  const garrison3Sounds = { throws: 0, lands: 0, ignites: 0, keys: 0 };
   const itemSounds = { thuds: 0, bells: 0, crackles: 0, pops: 0, swishes: 0, rings: 0, whistles: 0, hums: 0, humLast: 0, hones: 0 };
   /** Task 47, С4: the hero dashed in the last frame (the whistle sounds at a dash's start). */
   let dashHeard = false;
@@ -535,6 +537,11 @@ async function boot(): Promise<void> {
   let riotShown: string | null = null, riot: { id: number; life: number } | null = null;
   /** Task 55а: «Кончи цепь на бочке — покатится» — `barrelShown` the key whose first barrel came into view (once a run, the sandbox: a fight), `barrelLife` real seconds left. */
   let barrelShown: string | null = null, barrelLife = 0;
+  /**
+   * Task 59а: «Уйди с метки», «По номерам: 1, 2, 3, 4», «Обоих — одной цепью» (worldLabels.ts `garrison3Label`) — each at the first of its
+   * kind, once a run (the sandbox: a fight), the barrel's rule (the run follows «Подсказки»). `shown` — the key whose first came.
+   */
+  const garrison3Labels: { id: Garrison3LabelId; shown: string | null; life: number }[] = (Object.keys(GARRISON3_LABEL_LIFE) as Garrison3LabelId[]).map(id => ({ id, shown: null, life: 0 }));
   const shackleKey = (): string => (sandbox ? `fight:${fightNo}` : `run:${runView?.state?.seed ?? ''}`);
   /** Task 28: the fight has a boss — the arena's band under the HUD keeps room for the boss bar (`relayout`). */
   let bossBand = false;
@@ -1517,6 +1524,11 @@ async function boot(): Promise<void> {
         // Task 22: every hit on the hero (one in 0.3 s at most).
         else if (ev.type === 'hit') { if (soundGate.pass('hurt', now / 1000)) audio.hurt(soundVolume()); }
         else if (ev.type === 'enemySignal') audio.signal(ev.signal, soundVolume());
+        // Task 59а: the pot leaves the pitcher's hands, falls, and the pitch catches fire; the warden's anger clanks its keys (one sound per event).
+        else if (ev.type === 'pot' && ev.action === 'throw') { audio.pitchThrow(soundVolume()); garrison3Sounds.throws++; }
+        else if (ev.type === 'pot' && ev.action === 'land') { audio.pitchLand(soundVolume()); garrison3Sounds.lands++; }
+        else if (ev.type === 'pot' && ev.action === 'ignite') { audio.pitchIgnite(soundVolume()); garrison3Sounds.ignites++; }
+        else if (ev.type === 'warden' && ev.action === 'anger' && ev.stage === 'start') { audio.keys(soundVolume()); garrison3Sounds.keys++; }
         // Casino stage 1 («Однорукий гоблин»): coins as it appears, the lever, the result.
         else if (ev.type === 'slot') {
           if (ev.action === 'appear') audio.coins(soundVolume());
@@ -1533,6 +1545,8 @@ async function boot(): Promise<void> {
     // Phase B (Д5): an item fired — its icon flashes in the column (the renderer writes the short text at the hero).
     for (const ev of w.events) if (ev.type === 'talismanFired') buildColumn.flash(ev.id, true, ev.rank === 2);
     // Stage E: a short flash of the focus bar when a link refreshes it.
+    // Task 59а: the whole line of recruits fell by one pass — the energy readout flashes (no new HUD item: the same text).
+    if (w.events.some(ev => ev.type === 'recruit' && ev.action === 'drill')) { energyText.classList.remove('rt-energy-gain'); void energyText.offsetWidth; energyText.classList.add('rt-energy-gain'); }
     if (w.events.some(ev => ev.type === 'focusRefill')) { focusBar.classList.remove('rt-focus-flash'); void focusBar.offsetWidth; focusBar.classList.add('rt-focus-flash'); }
     // The hero and enemies are drawn between the last two ticks (the world is put back after drawing).
     motion.drawBetween(w, sim.alpha, () => renderer.render(w, live ? realDt : 0, ui));
@@ -1642,6 +1656,17 @@ async function boot(): Promise<void> {
         const spec = barrelLife > 0 && w.status === 'playing' ? barrelLabel(w, p => renderer.sees(p)) : null;
         if (!spec) barrelLife = 0;
         else if (!runScreenOpen && !menuOpen) specs.push(spec);
+      }
+      // Task 59а: the new garrison kinds' labels (the barrel's rule).
+      for (const l of garrison3Labels) {
+        const see = (p: Vec): boolean => renderer.sees(p);
+        if (l.shown !== key && w.status === 'playing' && !runScreenOpen && !menuOpen && (sandbox || (hintsOn && !!runView?.arenaOpen)) && garrison3Label(w, l.id, see)) { l.shown = key; l.life = GARRISON3_LABEL_LIFE[l.id]; }
+        if (l.life > 0) {
+          l.life -= live ? realDt : 0;
+          const spec = l.life > 0 && w.status === 'playing' ? garrison3Label(w, l.id, see) : null;
+          if (!spec) l.life = 0;
+          else if (!runScreenOpen && !menuOpen) specs.push(spec);
+        }
       }
       if (specs.length) {
         const stageBox = stage.getBoundingClientRect();
@@ -1992,7 +2017,7 @@ async function boot(): Promise<void> {
         /** Task 38: the sim's tethers and what the view drew of them in the last frame (lines, red ones). */
         tethers: { list: (w.tethers ?? []).map(t => ({ ...t })), ...renderer.tetherShown },
         /** Task 38: the hounds in frenzy drawn, the Castellan's lunge lanes, «Караул!» calls shown. */
-        garrison: { ...renderer.garrisonShown },
+        garrison: { ...renderer.garrisonShown, ...renderer.garrison3Shown, sounds: { ...garrison3Sounds } },
         /** Task 43: the full Castellan's court and the bolts (render.ts `courtShown`). */
         court: { ...renderer.courtShown },
         /** Task 57а: the forest shooters — the slinger's lines, the hive's dots, the shots and the wisps' light drawn in the frame; the sparks shown (shooterView.ts). */

@@ -208,3 +208,30 @@ export function knightMarks(ctx: GraphicsContext, r: number): void {
   ctx.moveTo(-r * 1.3, r * 0.75).lineTo(-r * 1.3, -r * 0.55).stroke({ color: STEEL, width: 3.5, cap: 'round' });
   ctx.moveTo(-r * 1.5, r * 0.55).lineTo(-r * 1.1, r * 0.55).stroke({ color: 0xc8a56b, width: 4, cap: 'round' });
 }
+
+/** Task 59а: the pitcher's stand-in — a sooty leather apron over the belly, a ladle at the side, a dark kerchief with a sly brow. */
+export function pitcherMarks(ctx: GraphicsContext, r: number): void {
+  ctx.roundRect(-r * 0.62, r * 0.05, r * 1.24, r * 0.82, r * 0.2).fill(0x5a3a22).stroke({ color: NAVY, width: 3 });
+  ctx.moveTo(-r * 0.3, r * 0.2).lineTo(r * 0.3, r * 0.2).stroke({ color: NAVY, width: 2, alpha: 0.7 });
+  ctx.ellipse(0, -r * 0.82, r * 0.7, r * 0.26).fill(0x3a2a20).stroke({ color: NAVY, width: 3 });
+  ctx.moveTo(r * 1.0, r * 0.7).lineTo(r * 1.0, -r * 0.35).stroke({ color: NAVY, width: 6, cap: 'round' });
+  ctx.moveTo(r * 1.0, r * 0.7).lineTo(r * 1.0, -r * 0.35).stroke({ color: LEATHER, width: 3, cap: 'round' });
+  ctx.circle(r * 1.0, -r * 0.5, r * 0.22).fill(IRON).stroke({ color: NAVY, width: 3 });
+}
+/** Task 59а: the recruit's stand-in — a helmet too big, slipped over the eyes, and a wooden spear (head up) at the side. */
+export function recruitMarks(ctx: GraphicsContext, r: number): void {
+  ctx.ellipse(r * 0.04, -r * 0.62, r * 0.88, r * 0.62).fill(STEEL).stroke({ color: NAVY, width: 3 });
+  ctx.moveTo(-r * 0.75, -r * 0.3).lineTo(r * 0.8, -r * 0.34).stroke({ color: NAVY, width: 4, cap: 'round' });
+  ctx.moveTo(-r * 1.1, r * 0.8).lineTo(-r * 1.1, -r * 1.0).stroke({ color: NAVY, width: 6, cap: 'round' });
+  ctx.moveTo(-r * 1.1, r * 0.8).lineTo(-r * 1.1, -r * 1.0).stroke({ color: LEATHER, width: 3, cap: 'round' });
+  ctx.poly([-r * 1.25, -r * 1.0, -r * 1.1, -r * 1.45, -r * 0.95, -r * 1.0]).fill(STEEL).stroke({ color: NAVY, width: 2.5, join: 'round' });
+}
+/** Task 59а: the warden's stand-in — a dark hood with a squint and a big key on the shoulder (the pair's belt key is drawn per frame). */
+export function wardenMarks(ctx: GraphicsContext, r: number): void {
+  ctx.ellipse(0, -r * 0.7, r * 0.86, r * 0.5).fill(0x2b3440).stroke({ color: NAVY, width: 3 });
+  ctx.moveTo(-r * 0.4, -r * 0.3).lineTo(-r * 0.08, -r * 0.24).moveTo(r * 0.08, -r * 0.24).lineTo(r * 0.4, -r * 0.3).stroke({ color: NAVY, width: 3, cap: 'round' });
+  ctx.moveTo(r * 0.6, -r * 0.2).lineTo(r * 1.15, -r * 1.15).stroke({ color: NAVY, width: 7, cap: 'round' });
+  ctx.moveTo(r * 0.6, -r * 0.2).lineTo(r * 1.15, -r * 1.15).stroke({ color: 0xc8a56b, width: 3.5, cap: 'round' });
+  ctx.circle(r * 1.2, -r * 1.3, r * 0.26).stroke({ color: NAVY, width: 6 });
+  ctx.circle(r * 1.2, -r * 1.3, r * 0.26).stroke({ color: 0xc8a56b, width: 3 });
+}
