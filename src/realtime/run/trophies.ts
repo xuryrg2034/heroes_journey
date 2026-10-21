@@ -49,9 +49,12 @@ export function parseRtTrophies(value: unknown): RtTrophy[] | undefined {
   return out.length ? out : undefined;
 }
 
-/** The forest's chapter of the chronicle's bestiary is full (every kind of the forest met in a meta run, or by the retro). */
-export const rtBestiaryFull = (chronicle: RtChronicle | undefined): boolean =>
-  RT_CHRONICLE_FOREST_KINDS.every(id => chronicle?.kinds?.includes(id));
+/**
+ * The forest's chapter of the chronicle's bestiary is full (every kind of the forest met in a meta run, or by the retro): `kinds` — the
+ * chapter's kinds (task 57а: those of this build, `RT_CHRONICLE_FOREST_KINDS` — with the shooters' flag on, eleven).
+ */
+export const rtBestiaryFull = (chronicle: Pick<RtChronicle, 'kinds'> | undefined, kinds: readonly string[] = RT_CHRONICLE_FOREST_KINDS): boolean =>
+  kinds.every(id => chronicle?.kinds?.includes(id));
 
 /**
  * What a meta run earned (spec 4), no randomness: the Jailer won (a won fight on his arenas), his weight severed, the Troll won (the
