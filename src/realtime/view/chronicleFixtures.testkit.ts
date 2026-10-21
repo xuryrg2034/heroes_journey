@@ -36,6 +36,8 @@ export const CHRONICLE_FIXTURES: Readonly<Record<string, () => Raw>> = {
   }),
   /** A half recipe: «Иней на клинке» is taken, its fusion's «?» shows «Иней на клинке + ?» (a pair of another fusion was held: the chapter shows). */
   fusionHalf: () => profile({ kinds: ['boar', 'wolf'], events: ['brook'], items: { whetstone: 2, 'frost-edge': 2, prism: 1, 'fusion-boomerang': 1 } }),
+  /** The retro brought old pages (`retro`, `since` set): the owl says `chronicle_retro` once; the memory of the line is the profile's. */
+  retro: () => profile({ kinds: ['boar', 'wolf'], retro: true }),
   /** Unread marks on two pages (a kind and an item). */
   unread: () => profile({ kinds: ['boar', 'lynx', 'wolf'], items: { whetstone: 2, prism: 2 }, unread: ['kind:lynx', 'item:prism'] }),
 };

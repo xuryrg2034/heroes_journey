@@ -169,6 +169,24 @@ test('task 58: the book after the garrison — its chapters open, the next level
   expect(errors).toEqual([]);
 });
 
+test('task 58: the owl says why the old pages are thin once (the retro); after a reload the line does not come back', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = collectErrors(page);
+  const RETRO = 'Старые страницы размыло дождём';
+  await openRun(page, 'retro');
+  await toCamp(page);
+  await page.getByTestId('hearth-npc-owl').click();
+  await expect(page.getByTestId('hearth-line')).toContainText(RETRO);
+  expect(await page.evaluate(key => JSON.parse(localStorage.getItem(key) ?? '{}').meta?.hearth?.lines?.['owl:chronicle_retro'], PROFILE)).toBe(1);
+  // A reload (the stored profile stays): the owl speaks as always.
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
+  await toCamp(page);
+  await page.getByTestId('hearth-npc-owl').click();
+  await expect(page.getByTestId('hearth-line')).not.toContainText(RETRO);
+  expect(errors).toEqual([]);
+});
+
 /** The first battle of the run: new run, the first battle node, entered. */
 async function toBattle(page: Page): Promise<void> {
   await page.getByTestId('run-new').click();

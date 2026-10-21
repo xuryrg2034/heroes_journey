@@ -329,6 +329,11 @@ export class HearthView {
   }
 
   private say(npc: NpcId, h: HearthState): void {
+    // Task 58: the retro brought old pages - the owl says why, once a profile (`retro` stays true; the memory of the line is the profile's).
+    if (npc === 'owl' && !h.lines['owl:chronicle_retro'] && this.host.chronicle?.view().retro) {
+      const retro = npcLine('owl', 'chronicle_retro', undefined, h.lines);
+      if (retro) { this.said.add(npc); this.host.meta.markLine(retro.id); this.lastLine = retro.text; this.shown.line = retro.text; return; }
+    }
     const l = this.said.has(npc) ? undefined : h.last;
     // The quest's result belongs to the NPC who gave it (the camp's quest was that run's).
     const quest = l?.quest !== undefined && h.quest?.npc === npc;

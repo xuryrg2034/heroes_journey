@@ -12,6 +12,7 @@ import { CHRONICLE_FIXTURES, chronicleViewOf } from './chronicleFixtures.testkit
 import { rtChronicleView } from '../run/chroniclePages';
 import { parseRtProfile, createRtProfileStore, RT_PROFILE_STORAGE_KEY, type RunStorage } from '../run/rtRunStorage';
 import { profileChronicle } from './chronicleModel';
+import { npcLine } from './npcLines';
 import { chapterCount, chronicleEndLines, chronicleHtml, chronicleShown, entryText, refName } from './chronicleView';
 import type { ChroniclePageId, ChronicleView } from './chronicleModel';
 
@@ -163,6 +164,20 @@ check('the source over the profile store: meet adds a kind once with the unread 
   source.read();
   assert(!source.view().pages[0]!.unread && source.view().unread === 0, 'read clears');
   assert(source.added('no-such-run').length === 0, 'a run that did not end has no list');
+});
+
+check('the retro line: the owl has the words of the spec; the profile remembers it was said (a reload does not bring it back)', () => {
+  const data = new Map<string, string>();
+  const storage: RunStorage = { getItem: key => data.get(key) ?? null, setItem: (key, value) => { data.set(key, value); }, removeItem: key => { data.delete(key); } };
+  data.set(RT_PROFILE_STORAGE_KEY, JSON.stringify(CHRONICLE_FIXTURES.retro!()));
+  const store = createRtProfileStore(storage, { chronicle: true });
+  assert(profileChronicle(store).view().retro, 'the book says retro');
+  const line = npcLine('owl', 'chronicle_retro', undefined, store.load().meta!.hearth!.lines);
+  assert(line?.text === 'Старые страницы размыло дождём. Что помню — вписала, остальное пиши заново.', 'the words of the spec');
+  assert(!store.load().meta!.hearth!.lines[line.id], 'not said yet');
+  store.markLine(line.id);
+  const again = createRtProfileStore(storage, { chronicle: true });
+  assert(again.load().meta!.hearth!.lines['owl:chronicle_retro'] === 1 && profileChronicle(again).view().retro, 'said once, remembered by the profile, the book still says retro');
 });
 
 check('the end screen lines: nothing new - none; up to three names; more - «и ещё N»; a chapter on its own line', () => {
