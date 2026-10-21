@@ -66,13 +66,13 @@ function rockInFlight(world: World, e: Enemy): boolean {
 const CLUB = 'troll-club';
 
 /**
- * The club's pose (trollView `buildPartArt`, `posePartArt`): the picture hangs from its grip (the share `CLUB_GRIP` of the picture) at
+ * The club's pose (trollView `buildPartArt`, `posePartArt`; exported — the view's pose is to read them): the picture hangs from its grip (the share `CLUB_GRIP` of the picture) at
  * the part's centre, turned by `head + π − CLUB_AXIS` — its head up and a little left in the paw (`CLUB_HAND`), along the line from the
  * core while it lies.
  */
-const CLUB_GRIP = { x: 0.92, y: 0.88 };
-const CLUB_AXIS = datan2(380, 640);
-const CLUB_HAND = -1.95;
+export const CLUB_GRIP = { x: 0.92, y: 0.88 };
+export const CLUB_AXIS = datan2(380, 640);
+export const CLUB_HAND = -1.95;
 
 /** A press zone: the ellipse's centre, half-axes along its own axes, and the axes' turn (`cos`, `sin`; 1, 0 — upright). */
 export interface ArtEllipse { x: number; y: number; a: number; b: number; cos: number; sin: number }
