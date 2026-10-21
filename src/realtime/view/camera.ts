@@ -23,6 +23,11 @@ export const CAMERA = {
    * (ease-in-out); the game holds its first tick meanwhile. The scale stays the fights' own.
    */
   bossIntro: 1.2,
+  /**
+   * Task 62 (design 21.10.2026): while Ведунья v2 draws, the camera glides to her in this many real seconds (smoothing time, as `smooth`) and keeps her in
+   * the centre: no lead, no dead zone, and the scale stays the fights' own.
+   */
+  hold: 0.2,
 } as const;
 
 /** The size of the view in units and the arena it must stay inside. */
@@ -94,6 +99,19 @@ export class Camera {
     const k = 1 - Math.exp(-dt / CAMERA.smooth);
     this.x += (kx - this.x) * k;
     this.y += (ky - this.y) * k;
+    this.clamp(b);
+  }
+
+  /**
+   * Task 62: one frame of the hold — the camera closes the distance to the hero (clamped to the arena, `keep` as in `update`) with smoothing time
+   * `CAMERA.hold`; `dt` 0 (pause, menus) only clamps. `offset` (units) moves the goal off the hero: the view puts her in the middle of the visible field
+   * (between the HUD and the action bar), not of the screen.
+   */
+  hold(dt: number, hero: Vec2, b: CameraBounds, keep?: CameraKeep | null, offset: Vec2 = { x: 0, y: 0 }): void {
+    if (dt <= 0) { this.clamp(b); return; }
+    const t = this.target({ x: hero.x + offset.x, y: hero.y + offset.y }, b, keep), k = 1 - Math.exp(-dt / CAMERA.hold);
+    this.x += (t.x - this.x) * k;
+    this.y += (t.y - this.y) * k;
     this.clamp(b);
   }
 

@@ -29,6 +29,7 @@ import { BOSS_ARENAS, FOREST_BOSS_ARENAS, JAILER_RUN_ARENAS } from '../sim/arena
 import { SHOOTERS_ARENAS } from '../sim/arenasShooters';
 // Task 59а: the probes of the garrison's step 3 at the very end of the sandbox menu.
 import { STEP3_ARENAS, STEP3_RUN_ARENAS } from '../sim/arenasStep3';
+import { heroPitchFactor } from '../sim/pitch';
 // Task 38: the garrison's arenas at the end of the sandbox menu (`?arena=20…24`).
 import { GARRISON_ARENAS } from '../sim/arenasGarrison';
 import { CASTLE_ARENAS } from '../sim/arenasCastle';
@@ -37,23 +38,24 @@ import { rookLine, wardrobeLying, wardrobeTopple, WARDROBE, ROOK } from '../sim/
 import { durabilityOf, isThing } from '../sim/shove';
 import { canSpin } from '../sim/abilities';
 import { ITEM_REFUSAL_TEXT, itemRefusal } from '../sim/items';
-import { SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
+import { SLOT_ITEMS, witchOn, type ItemKind, type Loadout } from '../sim/kit';
 import { ENERGY_MAX, JUMP_REFUSAL_TEXT, REFUSAL_TEXT, canJump, colorShiftIds, colorShiftLeft, colorShiftOf, hoverRefusal, jumpCostOf, jumpDownOpen, jumpRefusal, planChain, type JumpRefusal, type Refusal } from '../sim/chain';
 import type { Command } from '../sim/commands';
 import { inThorns, inWater, overCliff, setFlowClock, type Vec } from '../sim/geometry';
 import { crowdLifetime, defaultParams, type ParamKey, type Params } from '../sim/params';
 import { isRtDailyDate, rtArenaParams, rtPageParams } from '../run/rtRun';
 import { replay, Simulation, type Journal } from '../sim/simulation';
-import { focusGuarded, goalLamps, goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World, type WorldEvent } from '../sim/world';
+import { crowdFactor, focusGuarded, goalLamps, goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World, type WorldEvent } from '../sim/world';
 import { liveShots } from '../sim/shots';
-import { linkPoint, pickRadius } from '../sim/chain';
+import { castCircle, enemyRefusal, linkPoint, pickRadius } from '../sim/chain';
+import { bossArtEllipse } from '../sim/bossArt';
 import { ChainAudio } from './audio';
 import { chainFeel, QUIET_GAIN } from './chainFeel';
 import { FX_LEVELS, HEAVY_SEMIS, fxLevelOf, waveStrength, type FxLevel } from './juice';
 import type { MetaSound } from './metaEnd';
 type MetaSoundKind = MetaSound | 'buy' | 'open' | 'heal' | 'fuse' | 'reward0' | 'reward1' | 'reward2';
 import { DebugPanel, formatTime } from './debugPanel';
-import { loadFx, loadHintsOn, loadLinkDepth, loadParams, loadRoleBadges, loadSandboxBuild, loadNewOnMap, loadSessionClock, loadSound, PARAMS_STORAGE_KEY, saveFx, saveHintsOn, saveLinkDepth, saveNewOnMap, saveParams, saveRoleBadges, saveSandboxBuild, saveSessionClock, saveSound, type SoundSetting } from './paramStorage';
+import { loadFx, loadHintsOn, loadLinkDepth, loadParams, loadRoleBadges, loadSandboxBuild, loadNewOnMap, loadSessionClock, loadShowGlyph, loadSound, PARAMS_STORAGE_KEY, saveFx, saveHintsOn, saveLinkDepth, saveNewOnMap, saveParams, saveRoleBadges, saveSandboxBuild, saveSessionClock, saveShowGlyph, saveSound, type SoundSetting } from './paramStorage';
 import { SessionClock } from './session';
 import { CHAIN_COLORS, FINAL_FLASH, PLAYER_FX, TARGET, RealtimeRenderer, type RenderUi } from './render';
 import { focusMaxOf } from '../sim/build';
@@ -597,10 +599,12 @@ async function boot(): Promise<void> {
   /** Every command goes through here: the telemetry sees the world before it changes and the command after it. */
   const command = (cmd: Command) => {
     recorder?.beforeCommand(sim.world);
+    // Task 62: Ведунья v2 — the thread of the chain as drawn, before the discharge empties it.
+    if (cmd.t === 'release') renderer.noteCast(sim.world);
     const done = sim.command(cmd);
     recorder?.afterCommand(cmd, sim.world);
     // П2: the released chain's enemy links (the plan at the release) decide the dash's sound and shake.
-    if (cmd.t === 'release') renderer.dashLinks.release(sim.world);
+    if (cmd.t === 'release') { renderer.dashLinks.release(sim.world); if (!done) renderer.witch.drop(); }
     return done;
   };
   renderer.buildArena(world().arena);
@@ -775,8 +779,16 @@ async function boot(): Promise<void> {
     const option = (id: string) => ({ value: id, label: labelOf(id).title });
     const choose = (key: 'talisman' | 'relic' | 'hammer' | 'end' | 'link' | 'path') => (value: string): void => { sandboxBuild[key] = value; saveSandboxBuild(sandboxBuild); };
     // Task 49: the hero of the next arena — the cat or Ведунья (her law in the kit: «Печать» innate, the shield only after a ring).
-    panel.addBuildChoice('Герой', 'build-hero', [{ value: '', label: 'кот' }, { value: 'toad', label: 'ведунья' }], sandboxHero ?? '', value => { sandboxHero = isLoadoutHero(value) ? value : null; },
-      'Задача 49: герой с новой арены. Ведунья: «Печать» врождённая, щит цепи — только после кольца.');
+    // Task 62: «ведунья v2» is Ведунья with the key `witchV2` (the panel's group «Ведунья v2»): the circle, the discharge and the figures.
+    panel.addBuildChoice('Герой', 'build-hero', [{ value: '', label: 'кот' }, { value: 'toad', label: 'ведунья' }, { value: 'toad2', label: 'ведунья v2' }], sandboxHero === 'toad' && params.witchV2 ? 'toad2' : sandboxHero ?? '', value => {
+      sandboxHero = value === 'toad2' ? 'toad' : isLoadoutHero(value) ? value : null;
+      const v2 = value === 'toad2';
+      if (!!params.witchV2 !== v2) { command({ t: 'param', key: 'witchV2', value: v2 }); saveParams(params); panel.refresh(); }
+    },
+      'Задача 49: герой с новой арены. Ведунья: «Печать» врождённая, щит цепи — только после кольца. Ведунья v2 (задача 62): круг колдовства, разряд на месте, фигуры.');
+    renderer.witch.showFigure = loadShowGlyph();
+    panel.addViewCheck('Показать фигуру', 'show-glyph', renderer.witch.showFigure, on => { renderer.witch.showFigure = on; saveShowGlyph(on); },
+      'Ведунья v2: подпись класса у центра контура из рун (Кольцо, Квадрат, Треугольник или причина отказа) — для настройки допусков.');
     // Task 29 (design 15.10.2026): the forms by their field, so that pairs of different fields are taken in one place; a hammer
     // is a form too — its field stands in the «Молот» list (one hammer slot: two lists could not both hold a hammer).
     const formOption = (field: FormField) => FORM_IDS.filter(id => FORM_FIELD[id] === field).map(option);
@@ -2031,7 +2043,7 @@ async function boot(): Promise<void> {
         /** Task 38: the sim's tethers and what the view drew of them in the last frame (lines, red ones). */
         tethers: { list: (w.tethers ?? []).map(t => ({ ...t })), ...renderer.tetherShown },
         /** Task 38: the hounds in frenzy drawn, the Castellan's lunge lanes, «Караул!» calls shown. */
-        garrison: { ...renderer.garrisonShown, ...renderer.garrison3Shown, sounds: { ...garrison3Sounds } },
+        garrison: { ...renderer.garrisonShown, ...renderer.garrison3Shown, sounds: { ...garrison3Sounds }, /** For the tests' failure reports: the world's own numbers the pool's slowdown reads, and the hero's live pitch factor (1 — no pool under him). */ worldParams: { pitch: w.params.pitch, pitchHeroSlow: w.params.pitchHeroSlow, pitchEnemySlow: w.params.pitchEnemySlow, crowdSlow: w.params.crowdSlow, heroThroughEnemies: w.params.heroThroughEnemies, pitchLife: w.params.pitchLife }, heroFactor: heroPitchFactor(w), crowdFactor: crowdFactor(w), inputX: w.input.x, near1: w.enemies.filter(e => Math.hypot(e.x - w.hero.x, e.y - w.hero.y) < 1).length },
         /** Task 43: the full Castellan's court and the bolts (render.ts `courtShown`). */
         court: { ...renderer.courtShown },
         /** Task 57а: the forest shooters — the slinger's lines, the hive's dots, the shots and the wisps' light drawn in the frame; the sparks shown (shooterView.ts). */
@@ -2100,6 +2112,8 @@ async function boot(): Promise<void> {
         /** The sound now (the gear's setting outside the sandbox, the panel's in it) and the tones asked for so far (`ChainAudio.requested`). */
         sound: { on: soundOn(), volume: soundVolume(), tones: audio.requested, asked: { ...soundGate.asked }, played: { ...soundGate.played } },
         /** Task 12: the marked view this frame — the horde ring and its members, the reticles, the leaders' crowns; the arena's horde (sim). */
+        /** Task 55 (design 21.10.2026): the bodies' ids in the order the enemy layer draws them, bottom to top (`artDrawnAbove`). */
+        drawnOrder: renderer.drawnOrder(),
         markedView: { ...renderer.markedShown, horde: w.arena.horde ? { ...w.arena.horde } : null },
         /** «Смена цвета»: N of the sim (`colorShiftOf`), links left now, the pointer's line, the link with the rainbow ring (0 — none). */
         colorShift: { every: colorShiftOf(w), left: shiftLeft, text: shiftHint.hidden ? null : shiftHint.textContent, rainbow: renderer.colorShiftShown, mark: renderer.colorShiftMarkShown, freedBy: renderer.colorShiftFreedBy, sounds: shiftSounds, dimmed: renderer.dimmedShown },
@@ -2115,6 +2129,8 @@ async function boot(): Promise<void> {
         /** Task 49: the hero's picture (the id and whether it is the image), the Jailer's cage, the mage's lesson and the law's signs of the frame. */
         heroView: { id: renderer.heroArtKind, art: hasCharacterArt(renderer.heroArtKind === 'toad' ? 'toad' : 'player') },
         cage: { ...renderer.cage.shown, line: cageLeft > 0 },
+        /** Task 62 «Ведунья v2»: the key and the law, the circle's radius, the last discharge's second, what the view drew (view/witchView.ts `WitchShown`). */
+        witch: { on: witchOn(w), radius: witchOn(w) ? castCircle(w).r : 0, castAt: w.castAt ?? null, runes: w.chain.flatMap(l => (l.kind === 'enemy' && l.rune ? [{ x: l.rune.x, y: l.rune.y }] : [])), shown: { ...renderer.witch.shown }, muted: [...renderer.mutedIds], visibleCentre: renderer.visibleCentre(), layers: renderer.layerOrder() },
         toad: { crack: renderer.crackShown, boost: renderer.shieldBoostShown, sign: { ...renderer.shieldSign }, hand: { ...toadHand.shown }, memory: { ring: hintStore.count('toad-ring'), bare: hintStore.count('toad-bare') } },
         onboarding: { on: hintsOn, labels: labelLayer.shown(), shown: hints.store.shownIds(), log: hints.log.map(h => ({ ...h })) },
         logsOpen: !!logsPanel?.open,
@@ -2185,6 +2201,10 @@ async function boot(): Promise<void> {
     /** Test setup: move the hero. */
     teleport: (x: number, y: number) => command({ t: 'teleport', x, y }),
     /** The press ring of an enemy (`pickRadius`: the sim's number; the tests aim the pointer by it), null — no such enemy. */
+    /** The press zone of a boss body's drawing (`bossArtEllipse`: the centre, half-axes, turn) with its press ring (`pickRadius`); null — no such body or no large drawing. */
+    bossArt: (id: number): { x: number; y: number; a: number; b: number; cos: number; sin: number; ring: number } | null => { const w = world(), e = w.enemies.find(x => x.id === id), z = e ? bossArtEllipse(w, e) : null; return e && z ? { ...z, ring: pickRadius(w, e) } : null; },
+    /** Why the chain (as drawn now, or none) cannot take the enemy: the sim's `enemyRefusal` (null — it can; reach included), undefined — no such enemy. */
+    refusalOf: (id: number): string | null | undefined => { const w = world(), e = w.enemies.find(x => x.id === id); return e ? enemyRefusal(w, e) : undefined; },
     pickRadius: (id: number): number | null => { const w = world(), e = w.enemies.find(x => x.id === id); return e ? pickRadius(w, e) : null; },
     /** Test setup: set the jump energy. */
     setEnergy: (value: number) => command({ t: 'energy', value }),

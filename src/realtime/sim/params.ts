@@ -960,10 +960,19 @@ export interface Params {
    * «Ядро в окне — первым» (design 21.10.2026, the pick's defect: a crowd body standing on the core is nearer to the pointer, a click
    * into the window took it). On: a boss core (the Troll's, the Chief's, the warlock's) in its open window that the pointer is inside
    * the press circle of (chain.ts `pickRadius`) and the chain may take now is picked before any nearer body or object (chain.ts
-   * `pick`: the press, the drag, the ring «что возьмётся», the hint, the loop's closing). Off by default and in journals without the
+   * `pick`: the press, the drag, the hint, the loop's closing). Off by default and in journals without the
    * key: the nearest, as before. The run turns it on by its flag (run/rtRun.ts `corePickFirst`), the bosses' arenas for themselves.
    */
   corePickFirst: boolean;
+  /**
+   * «Зона нажатия босса по рисунку» (design 21.10.2026, task-48 §24): a boss body's drawing (the Troll, the Chief, the warlock, the
+   * Jailer, the Castellan; the Troll's and the Chief's parts) is a press zone — the ellipse inscribed in its box (sim/bossArt.ts
+   * `bossArtEllipse`). The press circle (`pickRadius`) first, as before; nothing in it — the boss body whose drawing holds the
+   * pointer (chain.ts `pick`: the press, the drag, the hint and its refusal, the loop, «Развилка»'s dwell). Reach, sight and the strike
+   * stay the body's. Off by default and in journals without the key: the circles only. The run turns it on by its flag, the bosses'
+   * arenas for themselves (`ArenaTemplate.bossFrame`).
+   */
+  bossPickArt: boolean;
   /**
    * «Дыры ядра» Колдуна (task 55, stage Д, core's decision 21.10.2026: one key for his three holes): the fire trail asks his core's rules
    * (world.ts `coreTrailWards`: charmed — it rings; out of his window — it rings; in it — the window's one hit), the shaman's beam never
@@ -1752,6 +1761,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   trollShadowOnce: false,
   // «Ядро в окне — первым» (21.10.2026): off — the nearest, as before.
   corePickFirst: false,
+  // «Зона нажатия босса по рисунку» (21.10.2026): off — the circles only, as before.
+  bossPickArt: false,
   // «Дыры ядра» Колдуна (21.10.2026): off — the old paths.
   warlockHoles: false,
   // Task 62 «Ведунья v2» stage A: off; the numbers of the spec (section 5).
@@ -2387,6 +2398,8 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   // «Ядро в окне — первым» (21.10.2026).
   { kind: 'bool', key: 'corePickFirst', group: 'Босс', label: 'Ядро в окне — первым', stage: 5,
     hint: 'Указатель в круге ядра босса в его окне (ядро можно взять сейчас) берёт ядро, даже если центр другого тела ближе. Арены Тролля, Главаря и Колдуна и поход включают сами.' },
+  { kind: 'bool', key: 'bossPickArt', group: 'Босс', label: 'Зона нажатия по рисунку босса', stage: 5,
+    hint: 'Клик по рисунку босса или его части вне круга нажатия (грудь, голова, лапы) берёт его, если под курсором нет другого тела; закрытое — отказ у курсора. Арены боссов и поход включают сами.' },
   { kind: 'bool', key: 'warlockHoles', group: 'Босс', label: 'Дыры ядра Колдуна', stage: 5,
     hint: 'Огненный след уважает чары и окно Колдуна («звон»; в окне — одно попадание), шаман не берёт его ядро, тени конца бьют ядро один раз за окно. «Зал колдуна» и поход включают сами.' },
   // Task 62 «Ведунья v2», stage A (chain.ts, sim/glyphs.ts): only Ведунья (the build's «Герой») with the key on.

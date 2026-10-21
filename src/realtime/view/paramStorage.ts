@@ -51,6 +51,16 @@ export function saveRoleBadges(on: boolean): void {
  * panel's «Вид» and the gear of the run map switch it.
  */
 const LINK_DEPTH_KEY = 'ashen-oath-realtime-link-depth';
+/** Task 62: the sandbox's «Показать фигуру» (the class word at the centre of a drawn contour; off by default). */
+const SHOW_GLYPH_KEY = 'ashen-oath-realtime-show-glyph';
+
+export function loadShowGlyph(): boolean {
+  try { return localStorage.getItem(SHOW_GLYPH_KEY) === '1'; } catch { return false; }
+}
+
+export function saveShowGlyph(on: boolean): void {
+  try { localStorage.setItem(SHOW_GLYPH_KEY, on ? '1' : '0'); } catch { /* storage may be unavailable */ }
+}
 
 export function loadLinkDepth(): boolean {
   try { return localStorage.getItem(LINK_DEPTH_KEY) !== '0'; } catch { return true; }

@@ -1,6 +1,7 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
 import { gameWait, untilFrame } from './realtimeFrames';
+import { breakCharm, wardrobeRoute } from './warlockRoute';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
 
 /**
@@ -85,29 +86,6 @@ async function mouseTo(page: Page, at: () => Promise<{ x: number; y: number }>, 
 }
 const coreAt = (page: Page) => async (): Promise<{ x: number; y: number }> => { const s = (await snap(page)).warlock.state!; return { x: s.x, y: s.y }; };
 const thingAt = (page: Page, id: number) => async (): Promise<{ x: number; y: number }> => (await snap(page)).castle.things.find(t => t.id === id)!;
-
-/** One shove of his wardrobe north, from right below it: the mouse presses on it and lets go; waits for the run to end. */
-async function shoveNorth(page: Page, id: number): Promise<void> {
-  const w = await thingAt(page, id)();
-  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y + 1), [w.x, w.y] as const);
-  await cameraSettled(page);
-  await mouseTo(page, thingAt(page, id), 3);
-  await page.mouse.down();
-  await expect.poll(async () => (await snap(page)).chain).toEqual([id]);
-  await page.mouse.up();
-  const done = await untilFrame(page, (sn, _arg: null, late) => sn.castle.shoves.length === 0 && sn.moving === null ? { ok: true } : late ? { ok: false } : undefined, null, 10);
-  expect(done.ok, 'the shove is over').toBe(true);
-}
-
-/** Breaks his wardrobe at the north wall (two shoves) and waits for the charm to fall. */
-async function breakCharm(page: Page): Promise<void> {
-  const id = (await snap(page)).warlock.state!.wardrobe!;
-  await shoveNorth(page, id);
-  expect((await snap(page)).castle.things.find(t => t.id === id)?.durability, 'the wall wore the wardrobe').toBe(1);
-  await shoveNorth(page, id);
-  const fell = await untilFrame(page, (sn, _arg: null, late) => sn.warlock.state?.phase === 2 ? true : late ? false : undefined, null, 4);
-  expect(fell, 'the charm fell').toBe(true);
-}
 
 /**
  * Past the charm's end: waits for the sign of the shift, stands the hero a unit below the lit candle (the journal's teleport), puts the mouse on
@@ -330,5 +308,24 @@ test('task 55 Д (design rule): the ring in view with the head cut off by the HU
   const ring = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [s.warlock.state!.x, s.warlock.state!.y] as const);
   expect(Math.hypot(at.x - ring.x, at.y - ring.y), 'the count is off the ring').toBeGreaterThan(30);
   await shot(page, 'window-ring-in-view');
+  expect(errors).toEqual([]);
+});
+
+test('the shared route: a body put on the wardrobe lane — the plan says «body» with it as the target and kills it, the shove is made again and reaches the wall (the branch of warlockRoute.ts a crowd body takes)', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = collectErrors(page);
+  await openHall(page);
+  await quiet(page);
+  await cameraSettled(page);
+  const wardrobe = (await snap(page)).warlock.state!.wardrobe!, w = (await snap(page)).castle.things.find(t => t.id === wardrobe)!;
+  // A body with 1 HP between the wardrobe and the north wall, on its lane (the journal's `place`): a thing stops at a tough body and strikes it.
+  const body = await page.evaluate(([x, y]) => (window as any).__realtime.place(x, y - 1.8, 1, 1, 'basic'), [w.x, w.y] as const) as number;
+  const { result, plans } = await wardrobeRoute(page, wardrobe);
+  expect(plans[0], 'the first plan: a stop at the body I put').toMatchObject({ stop: 'body', target: body, impact: { killed: true } });
+  expect(result, 'the repeat reached the wall').toBe('wall');
+  expect(plans[plans.length - 1].stop).toBe('wall');
+  expect(plans.length, 'a stop at the body, then the wall (a crowd body of the lane may add a stop, three shoves at most)').toBeGreaterThanOrEqual(2);
+  expect((await snap(page)).enemies.some(e => e.id === body), 'the body is dead').toBe(false);
+  await sameHash(page);
   expect(errors).toEqual([]);
 });

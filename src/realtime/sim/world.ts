@@ -614,6 +614,12 @@ export type WorldEvent =
    */
   | { type: 'knightMove'; id: number; move: 'charge' | 'swing'; stage: 'start' | 'run' | 'end' | 'hit' }
   /**
+   * Task 62 «Ведунья v2» (chain.ts `castDischarge`): the discharge of a release — Ведунья's place and circle, the links in the order drawn
+   * (an enemy's rune, an object's place) and whether each was struck (`chainHit` events of the same command carry the hits). The view
+   * draws the thread through them; the rules never read it.
+   */
+  | { type: 'cast'; x: number; y: number; r: number; links: { kind: 'enemy' | 'object'; id: number; x: number; y: number; struck: boolean }[] }
+  /**
    * Task 59а (enemies/recruit.ts, «Новобранцы»): a hit reached a recruit out of order and went out (`refused`: its `source`), or a whole
    * formation fell by one pass (`drill`: `id` — the formation, `energy` given, `x`/`y` — the hero, `lx`/`ly` — where its last recruit fell), or a link of the drawn chain went out of order and left it
    * (`unlink`, spec 4.2 variant А), or a press or the pointer event met one out of order (`order`, task 59б telemetry: `links` — the drawn
@@ -961,6 +967,9 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   // «Ядро в окне — первым» (21.10.2026): the bosses' arenas pick the core in its window first when the values have it off; values
   // without the key (a journal before it, a run saved without the flag) — the nearest, as before. A journal keeps the copy.
   if ((arena.troll || arena.chief || arena.warlock) && params.corePickFirst === false) params = { ...copyParams(params), corePickFirst: true };
+  // «Зона нажатия босса по рисунку» (21.10.2026): a boss's arena (the frame) presses by its drawing when the values have it off; values
+  // without the key (a journal before it, a run saved without the flag) — the circles only. A journal keeps the copy.
+  if (arena.bossFrame && params.bossPickArt === false) params = { ...copyParams(params), bossPickArt: true };
   // Task 57а: an arena of the new shooters plays its own timer when the values have none (and the archer in it; a journal keeps the copy).
   if (arena.volleyGap && !params.volleyGap) params = { ...copyParams(params), volleyGap: arena.volleyGap };
   if (arena.volleyArcher && !params.volleyArcher) params = { ...copyParams(params), volleyArcher: true };
