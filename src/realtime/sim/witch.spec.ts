@@ -299,6 +299,36 @@ check('the closing target is the first rune, not its enemy: the enemy walked off
   }
 });
 
+check('on the first rune the closing beats a link of the chain (design 21.10.2026, (б)): the ring closes, the chain\'s length stays; a new enemy nearer the pointer joins the chain; the cat — the old path', () => {
+  for (const k of SEEDS) {
+    // A ring of 6: the 6th rune on the line from the 5th to the 1st, 0.66 from the 1st (no corner: the contour is the pentagon).
+    const f = fight(quiet(), k), w = f.w;
+    f.sim.command({ t: 'teleport', x: 7.5, y: 6 });
+    const p0 = PENTAGON[0], p4 = PENTAGON[4], l = Math.sqrt((p4.x - p0.x) ** 2 + (p4.y - p0.y) ** 2), ux = (p4.x - p0.x) / l, uy = (p4.y - p0.y) / l;
+    const sixth = { x: p0.x + 0.66 * ux, y: p0.y + 0.66 * uy }, pointer = { x: p0.x + 0.4 * ux, y: p0.y + 0.4 * uy };
+    const ring = [...PENTAGON.map(q => place(f, q)), place(f, sixth)];
+    draw(f, ring);
+    assert(w.chain.length === 6 && planChain(w).glyph && 'kind' in planChain(w).glyph!, `seed ${k}: six links, a figure if closed`);
+    f.sim.command({ t: 'drag', x: pointer.x, y: pointer.y, mode: 'full' });
+    assert(w.chainClosed === 'first' && w.chain.length === 6, `seed ${k}: the ring closed over the 6th link nearer the pointer (${w.chainClosed}, ${w.chain.length})`);
+    // A new enemy nearer the pointer than the rune joins the chain instead (a fresh fight, the same five and a newcomer by the rune).
+    const g = fight(quiet(), k), v = g.w;
+    g.sim.command({ t: 'teleport', x: 7.5, y: 6 });
+    const five = PENTAGON.map(q => place(g, q)), out = { x: p0.x - 0.66 * ux, y: p0.y - 0.66 * uy }, near = { x: p0.x - 0.4 * ux, y: p0.y - 0.4 * uy };
+    const fresh = place(g, out);
+    draw(g, five);
+    g.sim.command({ t: 'drag', x: near.x, y: near.y, mode: 'full' });
+    assert(!v.chainClosed && v.chain.length === 6 && v.chain[5].id === fresh.id, `seed ${k}: the newcomer joined (${v.chainClosed}, ${v.chain.length})`);
+    // Ведунья v1 (no key): the link of the chain nearer the pointer keeps the old path — no closing there.
+    const h = fight(quiet({ witchV2: false }), k), u = h.w;
+    h.sim.command({ t: 'teleport', x: 7.5, y: 6 });
+    draw(h, [...PENTAGON.map(q => place(h, q)), place(h, sixth)]);
+    const drawn = u.chain.length;
+    h.sim.command({ t: 'drag', x: pointer.x, y: pointer.y, mode: 'full' });
+    assert(!u.chainClosed && u.chain.length === drawn, `seed ${k}: v1 — no closing over the link (${u.chainClosed})`);
+  }
+});
+
 check('the event `cast` of a discharge: her place and circle, the links in the order drawn at their runes, `struck` — the skipped one out of the circle', () => {
   for (const k of SEEDS) {
     const f = fight(quiet({}, true), k), w = f.w;

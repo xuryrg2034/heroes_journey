@@ -1022,8 +1022,14 @@ export function loopKindAt(world: World, p: Vec): LoopKind | null {
     if (!target || world.chain.length - 2 === 0 || chainRunes(world.chain).length < GLYPH_MIN_RUNES) return null;
     const d = dist(p, target);
     if (d > target.r) return null;
+    // A new link nearer to the pointer than the rune joins the chain (the closing waits).
+    const fresh = pick(world, p, e => inChain(world, e) < 0 && canLink(world, e, plan), o => linkIndex(world, { kind: 'object', id: o.id }) < 0 && canLinkObject(world, o, plan), true);
+    const freshAt = fresh ? linkPoint(world, fresh) : null;
+    if (freshAt && dist(freshAt, p) < d) return null;
+    // Design 21.10.2026, (б): a link of the chain itself nearer than the rune does not stop the closing when it can be made (no refusal: no
+    // step back there); a closing that would be refused leaves the pointer to the drag.
     const near = under && !(under.kind === first.kind && under.id === first.id) ? linkPoint(world, under) : null;
-    return near && dist(near, p) < d ? null : 'first';
+    return near && dist(near, p) < d && loopRefusal(world, 'first') ? null : 'first';
   }
   if (under) return under.kind === first.kind && under.id === first.id && world.chain.length - 2 !== 0 && n >= loopMinOf(params, 'first') ? 'first' : null;
   if (!witch && params.loopHeroCloses && dist(p, world.hero) <= HERO_CANCEL_RADIUS && n >= loopMinOf(params, 'hero')) return 'hero';
