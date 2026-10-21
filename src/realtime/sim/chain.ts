@@ -59,7 +59,7 @@ import { cutTethers, dashPathPoints, dropShackleOf, planTetherCuts, settleTether
 import { behindGrate, gateLever, grateLinkDrop, jumpDownFree, onGallery } from './enemies/garrison';
 // Task 48: the Troll's window (the refusal, one hit per window, the drop from the drawn chain).
 import { TROLL, trollLinkDrop, trollReserve, trollShut, trollWards, trollWindowOn } from './enemies/troll';
-import { WARLOCK, warlockCharmOn, warlockLinkDrop, warlockReserve, warlockShut, warlockSpellbound, warlockWards } from './enemies/warlock';
+import { WARLOCK, warlockCharmOn, warlockClosed, warlockLinkDrop, warlockReserve, warlockShut, warlockSpellbound, warlockWards } from './enemies/warlock';
 // Task 57а «Лес: стрелки»: the dash puts out the light shots it touches (`Params.snuffShots`).
 import { snuffAlong, snuffing } from './shots';
 import { CHIEF, chiefGuarded, chiefHitOutcome, chiefLinkDrop, chiefQueue, chiefQueueShort, chiefRelease, chiefShut, chiefWards } from './enemies/chief';
@@ -542,7 +542,8 @@ function planHoned(world: World, out: readonly LinkPlan[], pierce: PiercePreview
   // «Иней на клинке»: a chain of 3+ enemy links reached, its last one alive after the end's shadows (a wave may finish it). Task 48:
   // the Troll's core struck in its window is out of the shadows' lists (one hit a window: they cannot strike it) — alive after them.
   // Task 54: so is the Chief's core (no shadow ever strikes it under the feast's rule).
-  const spared = ((last?.enemy.kind === TROLL && trollWindowOn(world)) || (!!last && chiefGuarded(world, last.enemy))) && !ended.enemies.some(e => e.id === last!.enemy.id);
+  // Task 55, stage Д: so is the warlock's core under his rule (one hit a window; charmed — no shadow lands).
+  const spared = ((last?.enemy.kind === TROLL && trollWindowOn(world)) || (last?.enemy.kind === WARLOCK && warlockCharmOn(world)) || (!!last && chiefGuarded(world, last.enemy))) && !ended.enemies.some(e => e.id === last!.enemy.id);
   if (frost && last && !last.outcome.killed && dash.links >= FROST_EDGE_LINKS && (spared || ended.enemies.some(e => e.id === last.enemy.id))) {
     const near = frostNeighbour(world, last.enemy, ended.enemies);
     if (near !== null) result.frost = { survivor: last.enemy.id, near };
@@ -765,6 +766,8 @@ function planDashEnd(world: World, out: readonly LinkPlan[], pierce: PiercePrevi
     if (trollShut(world, e) || (e.kind === TROLL && trollWindowOn(world) && (o || (seal && seal.damage > 0 && seal.inside.includes(e.id))))) continue;
     // Task 54: the Chief's core under the feast's rule — only the chain's hit lands on it: no shadow of the end strikes it.
     if (chiefGuarded(world, e)) continue;
+    // Task 55, stage Д: the warlock's core — closed now (charmed, out of his window), or struck by the first pass in his window: no hit.
+    if (warlockClosed(world, e) || (e.kind === WARLOCK && warlockCharmOn(world) && (o || (seal && seal.damage > 0 && seal.inside.includes(e.id))))) continue;
     let hp = o ? o.hpAfter : e.hp, plates = o?.plate ? o.platesAfter ?? 0 : platesOf(e);
     if (seal && seal.damage > 0 && seal.inside.includes(e.id)) {
       if (plates > 0) plates--;
@@ -787,8 +790,9 @@ function planReturn(world: World, out: readonly LinkPlan[], endPower: number, pi
   const ended = world.params.returnShadowEnd ? endShadowOf(world, { links: dash.links, at: end, start: { x: world.hero.x, y: world.hero.y } }, enemies) : null;
   const ends = ended && Object.keys(ended.struck).length ? ended.struck : null;
   // Task 48: the end of the dash struck the Troll's core in the shadow — its window's hit is spent before the run.
-  const endHit = ends && trollWindowOn(world) ? new Set(Object.values(ends).flat()) : null;
-  const after = (ended ? ended.enemies : enemies).filter(e => !(endHit && e.kind === TROLL && endHit.has(e.id)));
+  // Task 55, stage Д: the warlock's window likewise.
+  const endHit = ends && (trollWindowOn(world) || warlockCharmOn(world)) ? new Set(Object.values(ends).flat()) : null;
+  const after = (ended ? ended.enemies : enemies).filter(e => !(endHit && (e.kind === TROLL || e.kind === WARLOCK) && endHit.has(e.id)));
   const full = boomerangFull(world, lastKilled), path = [end, ...route], shadow: World = { ...world, enemies: after }, power = returnPowerFor(world, endPower, lastKilled);
   const hits: ReturnPreview['hits'] = [];
   let left = power;
@@ -817,7 +821,8 @@ function planPierce(world: World, links: readonly ChainLink[], out: readonly Lin
     const e = findEnemy(world, b.id);
     // Task 48: the Troll's core closed now — the pierce passes it by.
     // Task 54: the Chief's core under the feast's rule — the pierce passes it by.
-    if (!e || trollShut(world, e) || chiefGuarded(world, e)) return [];
+    // Task 55, stage Д: the warlock's core closed (charmed, out of his window) — the pierce passes it by.
+    if (!e || trollShut(world, e) || chiefGuarded(world, e) || warlockClosed(world, e)) return [];
     const outcome = strike(power, e.hp, chainFactor(world, e), 0, platesOf(e));
     return [{ id: b.id, t: b.t, outcome: outcome.plate && plates > 1 ? { ...outcome, platesAfter: Math.max(0, platesOf(e) - plates) } : outcome }];
   });
@@ -847,7 +852,7 @@ export function sealPreview(world: World, kind: LoopKind): SealPreview | null {
   const links = chainEnemyCount(world);
   if (links < loopMinOf(world.params, kind)) return null;
   // Task 48: the Troll's core closed now is no body inside (the seal does not strike it).
-  const ring = loopRing(world, kind), inside = enemiesInside(world, ring, world.chain).filter(e => !trollShut(world, e) && !chiefGuarded(world, e)), damage = sealDamage(links), hold = sealHoldOf(world.params, links);
+  const ring = loopRing(world, kind), inside = enemiesInside(world, ring, world.chain).filter(e => !trollShut(world, e) && !chiefGuarded(world, e) && !warlockClosed(world, e)), damage = sealDamage(links), hold = sealHoldOf(world.params, links);
   // Task 44 «Ледяная печать»: the survivors of the strike (a plated body loses a plate, not HP) freeze max(hold, 3 s), brittle.
   const cold = iceSealCold(world, hold);
   const ice = cold ? { ids: inside.filter(e => platesOf(e) > 0 || e.hp > damage).map(e => e.id), brittle: cold.brittle } : null;

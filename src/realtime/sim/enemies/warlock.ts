@@ -97,6 +97,11 @@ const charmed = (world: World, v: Record<string, number>): boolean => warlockCha
 export const warlockSpellbound = (world: World, e: Pick<Enemy, 'kind' | 'vars'>): boolean => e.kind === WARLOCK && charmed(world, e.vars);
 /** `e` is the warlock's core out of his window now, his charm gone (the refusal `outOfWindow`). */
 export const warlockShut = (world: World, e: Pick<Enemy, 'kind' | 'vars'>): boolean => e.kind === WARLOCK && warlockCharmOn(world) && !charmed(world, e.vars) && !windowOpen(e.vars);
+/**
+ * `e` is the warlock's core closed now to every source but a shove's strike — charmed, or out of his window (its hit spent): the
+ * highlight's pierce, seal, return run and end's shadows pass it by, as the dash does (review 21.10.2026).
+ */
+export const warlockClosed = (world: World, e: Pick<Enemy, 'kind' | 'vars'>): boolean => warlockSpellbound(world, e) || warlockShut(world, e);
 
 /**
  * A hit of `source` on `e` now (world.ts `damageEnemy`, the dash's strike, the pierce's): true — it does not land. Charmed — only a

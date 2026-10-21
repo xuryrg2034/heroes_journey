@@ -18,6 +18,8 @@ import { durabilityOf } from './shove';
 import { Simulation, SIM_DT, replay, type Journal } from './simulation';
 import { analyzeJournal } from '../telemetry/report';
 import type { Enemy, World, WorldEvent } from './world';
+import type { Loadout } from './kit';
+import { HAMMERS } from './buildIds';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 let checks = 0;
@@ -36,8 +38,8 @@ function quiet(extra: Partial<Params> = {}): Params {
 }
 interface Hall { sim: Simulation; w: World; core: Enemy; wardrobe: Enemy; barrels: Enemy[] }
 /** «Зал колдуна», the hero at `at` (default: far south), one tick (the core marks his wardrobe). */
-function hall(k: number, extra: Partial<Params> = {}, at: Vec = { x: 12, y: 14 }, arena = WARLOCK_ARENA.id): Hall {
-  const sim = new Simulation({ arena, params: quiet(extra), seed: seedOf(k), record: true }), w = sim.world;
+function hall(k: number, extra: Partial<Params> = {}, at: Vec = { x: 12, y: 14 }, arena = WARLOCK_ARENA.id, loadout?: Loadout): Hall {
+  const sim = new Simulation({ arena, params: quiet(extra), seed: seedOf(k), record: true, ...loadout ? { loadout } : {} }), w = sim.world;
   sim.command({ t: 'teleport', x: at.x, y: at.y });
   ticks(sim, 1);
   const core = w.enemies.find(e => e.kind === WARLOCK)!, wardrobe = w.enemies.find(e => e.kind === WARDROBE)!;
@@ -281,6 +283,80 @@ check('the fight\'s summary (`FightSummary.boss.warlock`): the barrel at him, hi
     const t = analyzeJournal(JSON.parse(JSON.stringify(h.sim.exportJournal()!)) as Journal).summary.boss?.warlock;
     assert(t && t.hits.shove === 1 && t.barrels === 1 && t.hits.chain === 1 && t.wardrobeBy === 'wall' && t.phase === 2, `seed ${k}: ${JSON.stringify(t)}`);
     assert(t.charmBrokenAt !== null && Math.abs(t.charmBrokenAt - brokeAt) < 0.2 && t.windows.opened === 1 && t.windows.hit === 1 && t.shifts === 1 && (t.blocks.bomb ?? 0) >= 1, `seed ${k}: ${JSON.stringify(t)}`);
+  }
+});
+
+// ---- The highlight of the build's strikes on him (review 21.10.2026): «Прямая», «Печать», «Возврат» — the plan = the run ----
+
+type Gate = 'charmed' | 'shut' | 'open';
+const GATES: readonly Gate[] = ['charmed', 'shut', 'open'];
+/** The hall in the state `gate`: charmed (the start); his charm gone and his window closed (its time out); his window open (just arrived). */
+function gated(k: number, gate: Gate, extra: Partial<Params> = {}, loadout?: Loadout): Hall {
+  const h = hall(k, { shoveDistance: 6, ...extra }, { x: 12, y: 14 }, WARLOCK_ARENA.id, loadout);
+  if (gate === 'charmed') return h;
+  breakAtWall(h);
+  ticks(h.sim, ticksOf(3), [], (_w, ev) => ev.some(e => e.type === 'warlockShift' && e.action === 'arrive'));
+  if (gate === 'shut') ticks(h.sim, ticksOf(2), [], w => !warlockState(w)!.window);
+  const s = warlockState(h.w)!;
+  assert(gate === 'open' ? s.window?.open : !s.window, `seed ${k}: the gate ${gate} (${JSON.stringify(s.window)})`);
+  return h;
+}
+/** Weak links placed at `points` (colour 0), the hero teleported to `at` first. */
+function links(h: Hall, at: Vec, points: readonly Vec[]): Enemy[] {
+  h.sim.command({ t: 'teleport', x: at.x, y: at.y });
+  return points.map(q => { const id = h.sim.command({ t: 'place', x: q.x, y: q.y, color: 0, hp: 0, kind: 'basic' }) as number; return h.w.enemies.find(e => e.id === id)!; });
+}
+
+check('«Прямая» (sandbox `pierceEnabled`): charmed or out of his window it passes him by — the highlight has no outcome on him, he is untouched; in the window — a plate, as the highlight said', () => {
+  for (const k of SEEDS) for (const gate of GATES) {
+    const h = gated(k, gate, { pierceEnabled: true, pierceLength: 4 }), c = { x: h.core.x, y: h.core.y };
+    // Three weak links on a line from the south towards him; the pierce's corridor beyond holds only him.
+    const ls = links(h, { x: c.x, y: c.y + 5.4 }, [{ x: c.x, y: c.y + 4.4 }, { x: c.x, y: c.y + 3.4 }, { x: c.x, y: c.y + 2.4 }]);
+    draw(h.sim, ls);
+    const plan = planChain(h.w), body = plan.pierce?.bodies.find(b => b.id === h.core.id);
+    assert(h.w.chain.length === 3 && plan.pierce, `seed ${k}, ${gate}: a pierce (${h.w.chain.length})`);
+    assert(gate === 'open' ? body?.outcome.plate === true : !body, `seed ${k}, ${gate}: the highlight on him (${JSON.stringify(body)})`);
+    const before = plates(h.core);
+    release(h.sim);
+    assert(plates(h.core) === before - (gate === 'open' ? 1 : 0), `seed ${k}, ${gate}: plates ${before} → ${plates(h.core)}`);
+    assert(replays(h.sim), `seed ${k}: replay`);
+  }
+});
+
+check('«Печать» (sandbox `loopEnabled`): a ring of four links round him — charmed or out of his window the highlight has him outside the strike and he is untouched; in the window — one hit, a plate', () => {
+  for (const k of SEEDS) for (const gate of GATES) {
+    const h = gated(k, gate, { loopEnabled: true }), c = { x: h.core.x, y: h.core.y };
+    const ls = links(h, { x: c.x - 1.2, y: c.y + 0.8 }, [{ x: c.x - 0.8, y: c.y + 0.8 }, { x: c.x - 0.8, y: c.y - 0.8 }, { x: c.x + 0.8, y: c.y - 0.8 }, { x: c.x + 0.8, y: c.y + 0.8 }]);
+    draw(h.sim, [...ls, ls[0]]);
+    const seal = planChain(h.w).seal;
+    assert(h.w.chain.length === 4 && h.w.chainClosed && seal, `seed ${k}, ${gate}: the ring closed (${h.w.chain.length})`);
+    assert(seal.inside.includes(h.core.id) === (gate === 'open'), `seed ${k}, ${gate}: the highlight's seal on him (${JSON.stringify(seal.inside)})`);
+    const before = plates(h.core);
+    release(h.sim);
+    ticks(h.sim, 1);
+    assert(plates(h.core) === before - (gate === 'open' ? 1 : 0) && h.core.hp === 2, `seed ${k}, ${gate}: plates ${before} → ${plates(h.core)}`);
+    assert(replays(h.sim), `seed ${k}: replay`);
+  }
+});
+
+check('«Возврат»: charmed or out of his window the return run passes him by (the highlight\'s run — no outcome on him); in his window the chain\'s hit spends it — the run passes him by too, one plate in all', () => {
+  // `returnFixed` (the sandbox's) — the release fixes the highlight's run; off (the run's) — the run finds its bodies as it goes.
+  for (const k of SEEDS) for (const gate of GATES) for (const fixed of [true, false]) {
+    const h = gated(k, gate, { returnFixed: fixed }, { hammer: HAMMERS.return }), c = { x: h.core.x, y: h.core.y }, events: WorldEvent[] = [];
+    // Open: the chain him → a link behind him; else two links by his side — the run comes back past him.
+    const side = links(h, { x: c.x + 0.75, y: c.y + 1.8 }, gate === 'open' ? [{ x: c.x, y: c.y - 1.3 }] : [{ x: c.x + 0.75, y: c.y }, { x: c.x + 0.75, y: c.y - 1.4 }]);
+    draw(h.sim, gate === 'open' ? [c, ...side] : side);
+    const plan = planChain(h.w);
+    assert(plan.back && h.w.chain.length === (gate === 'open' ? 2 : 2), `seed ${k}, ${gate}: a run back (${!!plan.back})`);
+    assert(!plan.back.hits.some(x => x.id === h.core.id), `seed ${k}, ${gate}: the run's highlight has no outcome on him (${JSON.stringify(plan.back.hits)})`);
+    if (gate === 'open') assert(plan.links[0].outcome?.plate, `seed ${k}: the chain's plate`);
+    const before = plates(h.core);
+    release(h.sim, events);
+    assert(plates(h.core) === before - (gate === 'open' ? 1 : 0), `seed ${k}, ${gate}: plates ${before} → ${plates(h.core)}`);
+    // The run never tries him (no «звон», no closed window's block of the return run): the run is what the highlight showed.
+    const tried = [...of(events, 'warlockCharm'), ...of(events, 'warlockWindow')].filter(e => e.action === 'block' && e.source === 'hammer-return');
+    assert(!tried.length, `seed ${k}, ${gate}, fixed ${fixed}: the run tried him (${tried.length})`);
+    assert(replays(h.sim), `seed ${k}: replay`);
   }
 });
 
