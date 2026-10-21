@@ -38,6 +38,9 @@ export const KIND_CAPTIONS: Readonly<Record<string, string>> = {
   keymaster: 'Ключник — в кандалах не берётся: сначала разруби',
   crossbow: 'Арбалетчик — болт бьёт первое тело на линии',
   knight: 'Рыцарь — цепь снимает латы; без лат нападает',
+  // Task 55а (design 17.10.2026, spec 11): the castle's kinds — the barrel is a thing, no kind of the bestiary.
+  wardrobe: 'Шкаф — кончи цепь на нём: толкнёшь',
+  rook: 'Ладья — бьёт по прямой первое тело',
 };
 /** The final captions of the elite affixes (a run fight has the elite armour on: «Толстый» is +1 plate, «Стремительный» −1). */
 export const AFFIX_CAPTIONS: Readonly<Record<AffixId, string>> = {

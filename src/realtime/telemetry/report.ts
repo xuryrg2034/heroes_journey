@@ -17,14 +17,16 @@ import type { World } from '../sim/world';
 import { createFightObserver, median, DEATH_SERIES_WINDOW, WOLF_RUSH_SOURCE } from './observe';
 import {
   checkRecord, emptyFightSummary, orderedParts, unpackJournal, withSummaryDefaults, OATH_STAKE_SOURCE, DIE_SOURCE, CASINO_SOURCE, RT_TELEMETRY_FORMAT, SANDBOX_RUN,
-  type DeathGuard, type FightDeath, type FightRecord, type FightSummary, type JournalPart, type NoteRecord, type PrologueFrom, type PrologueRecord, type RtRecord, type RunRecord, type ThreatTally,
+  type DeathGuard, type FightDeath, type FightRecord, type FightSummary, type JournalPart, type NoteRecord, type PrologueFrom, type PrologueRecord, type RtRecord, type WarmupRecord, type RunRecord, type ThreatTally,
   type RunNodeVisit, type TrollBossSummary,
 } from './schema';
 import { THREAT_KINDS, ThreatTracker, type ThreatWarning } from './threats';
 import { RT_DEATH_ABILITY, RT_KIND_TITLES } from '../run/rtRunEnd';
 import { HINT_IDS, HINT_TITLES } from '../view/hints';
 import { PROLOGUE_ROOMS } from '../run/prologue';
+import { isWarmupId, warmupLayout, WARMUP_LAYOUTS } from '../run/warmup';
 import { RT_HABITS, rtTalisman } from '../run/rtTalismans';
+import { RT_OMENS } from '../run/omens';
 
 // ---- Replay with the observers ----
 
@@ -263,6 +265,8 @@ const SOURCE_TITLES: Record<string, string> = {
   knight: 'касание рыцаря', 'knight-charge': 'рывок рыцаря', 'knight-swing': 'размах рыцаря',
   // Task 48: the Troll's moves.
   'troll-club': '«Удар дубиной»', 'troll-rock': '«Бросок камня»', 'troll-tail': '«Хвост метёт»',
+  // Task 55а: the castle's moves and the rook's touch; the shove's kills (the player's).
+  'wardrobe-topple': '«Падение шкафа»', 'rook-strike': '«Удар ладьи»', rook: 'касание ладьи', shove: 'толчок',
 };
 const THREAT_TITLES: Record<string, string> = {
   archer: 'метка лучника', boar: 'полоса кабана', wolf: 'бросок стаи волков', lynx: 'прыжок рыси', sapper: 'фитиль и взрыв сапёра', 'sapper-instant': 'взрыв сапёра без предупреждения',
@@ -744,6 +748,50 @@ function fxRows(runs: readonly RunRecord[]): (string | number)[][] {
   return s.runs ? [[s.runs, cell(s.end[100]), cell(s.end[50]), cell(s.end[0]), cell(s.changed), cell(s.startedLow)]] : [];
 }
 
+// ---- The camp's warmup (WarmupRecord, task 51ж, 17.10.2026) ----
+
+/** One warmup layout over the set's attempts. */
+export interface WarmupLayoutStat {
+  layout: string;
+  title: string;
+  /** Attempts; sessions with one; repeats — the attempts after a session's first of the layout. */
+  attempts: number; sessions: number; repeats: number;
+  /** Ends by kind. */
+  limit: number; clear: number; death: number; exit: number;
+  /** New bests; the best score seen (null — none); median real seconds of an attempt. */
+  records: number; best: number | null; realMedian: number;
+}
+/** The warmup over the set: sessions with a warmup among all sessions of the set, and each layout. */
+export interface WarmupStats { sessions: number; withWarmup: number; layouts: WarmupLayoutStat[] }
+
+/** The warmup records of the set (the latest copy of each id is already chosen by `collectRecords`). */
+export function warmupStats(records: readonly RtRecord[]): WarmupStats {
+  const all = records.filter((r): r is WarmupRecord => r.kind === 'warmup');
+  const ids = [...WARMUP_LAYOUTS.map(l => l.id as string), ...[...new Set(all.map(r => r.layout))].filter(id => !isWarmupId(id))];
+  const layouts = ids.flatMap((id): WarmupLayoutStat[] => {
+    const list = all.filter(r => r.layout === id);
+    if (!list.length) return [];
+    const sessions = new Set(list.map(r => r.session)).size, scores = list.flatMap(r => (r.score === null ? [] : [r.score]));
+    const lower = isWarmupId(id) && warmupLayout(id).metric === 'clearTime';
+    return [{
+      layout: id, title: isWarmupId(id) ? warmupLayout(id).title : id, attempts: list.length, sessions, repeats: list.length - sessions,
+      limit: list.filter(r => r.end === 'limit').length, clear: list.filter(r => r.end === 'clear').length, death: list.filter(r => r.end === 'death').length, exit: list.filter(r => r.end === 'exit').length,
+      records: list.filter(r => r.record).length, best: scores.length ? (lower ? Math.min(...scores) : Math.max(...scores)) : null, realMedian: median(list.map(r => r.realSeconds)),
+    }];
+  });
+  return { sessions: new Set(records.map(r => r.session)).size, withWarmup: new Set(all.map(r => r.session)).size, layouts };
+}
+const WARMUP_HEAD = ['Раскладка', 'Попыток', 'Сессий', 'Повторов', 'Лимит / чисто / смерть / выход', 'Новых рекордов', 'Лучший итог', 'Время мед., реально'];
+const WARMUP_LEGEND = 'Разминка у «Чурбаков» в лагере (`WarmupRecord`, задача 51ж, с 17.10.2026; run/warmup.ts): запись на каждую попытку, без журнала боя. Повторы — попытки раскладки после первой в той же сессии (риск спеки: «разминку повторяют 0 раз почти все — петля лишняя»). Лучший итог: «Строй» — звеньев одной цепью, «Пестрота» — секунд до чистого поля (меньше — лучше), «Через пропасть» — убийств. Выход — попытка брошена кнопкой, итога нет. Время — реальные секунды попытки (кадры без паузы). Доля сессий — от всех сессий набора. Записей до 17.10.2026 нет — «_нет данных_».';
+function warmupSection(records: readonly RtRecord[]): string {
+  const stats = warmupStats(records);
+  if (!stats.layouts.length) return `${WARMUP_LEGEND}\n\n_нет данных_`;
+  const share = `Сессий с разминкой: ${stats.withWarmup} из ${stats.sessions} (${pct(stats.withWarmup, stats.sessions)}).`;
+  return [WARMUP_LEGEND, '', share, '', table(WARMUP_HEAD, stats.layouts.map(l => [
+    l.title, l.attempts, l.sessions, `${l.repeats} (${pct(l.repeats, l.attempts)})`, `${l.limit} / ${l.clear} / ${l.death} / ${l.exit}`, l.records, l.best === null ? '—' : n1(l.best), `${n1(l.realMedian)} с`,
+  ]))].join('\n');
+}
+
 // ---- The prologue «Опушка» (PrologueRecord, from 13.10.2026) ----
 
 /** One room of the prologue over some playthroughs. Times — medians over the playthroughs that passed the room. */
@@ -1005,6 +1053,50 @@ export function habitsSection(runs: readonly RunRecord[]): string {
     table(['Повадка', 'Походов', 'Взято с тегом', 'Сплавов', 'Победы', 'Дальний ряд (медиана)'], rows)].join('\n');
 }
 
+// ---- Task 56 «Приметы» (RunRecord.omensOn, .levelOmens, .omenRoutes; FightRecord.omens; FightSummary.omenFired; from 17.10.2026) ----
+
+/**
+ * Task 56 «Приметы» (spec 10.1): by omen — the run fights that played it (of the node, of the level), victories, the medians of the
+ * damage, the time to the goals and the chain, its counters (`omenFired`; «Сорочье гнездо» — the crystals the chains took); the route —
+ * how often a node with the omen was taken where one was open, against its share among the nodes open; the level's omen — runs,
+ * victories and the farthest row by it.
+ */
+export function omensSection(runs: readonly RunRecord[], entries: readonly FightEntry[]): string {
+  const on = runs.filter(r => r.omensOn);
+  if (!on.length) return 'Походов с приметами нет (`RunRecord.omensOn`, с 17.10.2026).';
+  const fightRows = RT_OMENS.map(def => {
+    const list = entries.filter(e => e.record.omens?.some(o => o.id === def.id)), done = list.filter(e => e.record.outcome === 'victory' || e.record.outcome === 'defeat');
+    const nodeN = list.filter(e => e.record.omens!.some(o => o.id === def.id && o.scope === 'node')).length;
+    const sums: Record<string, number> = {};
+    for (const e of list) for (const [k, v] of Object.entries(e.record.summary.omenFired ?? {})) if (k.startsWith(`${def.id}:`) && k !== 'drowse:woke') sums[k] = (sums[k] ?? 0) + v;
+    if (def.id === 'magpie') sums['magpie:crystal'] = list.reduce((n, e) => n + e.record.summary.chain.crystals, 0);
+    const woke = list.flatMap(e => (e.record.summary.omenFired?.['drowse:woke'] !== undefined ? [e.record.summary.omenFired['drowse:woke']] : []));
+    if (woke.length) sums['drowse:woke (медиана, с)'] = Number(n1(median(woke)));
+    const goals = done.flatMap(e => (e.record.summary.tempo.toGoals !== null ? [e.record.summary.tempo.toGoals] : []));
+    return [def.title, `${list.length} (узла ${nodeN})`, `${done.filter(e => e.record.outcome === 'victory').length} из ${done.length}`,
+      done.length ? n1(median(done.map(e => e.record.summary.damage.total))) : '—', goals.length ? n1(median(goals)) : '—',
+      done.length ? n1(median(done.map(e => e.record.summary.chain.lengthMedian))) : '—', Object.entries(sums).map(([k, v]) => `${k} ${v}`).join(', ') || '—'];
+  });
+  const routes = on.flatMap(r => r.omenRoutes ?? []);
+  const routeRows = RT_OMENS.filter(def => def.where === 'fight').map(def => {
+    const with_ = routes.filter(route => route.offered.some(o => o.omen === def.id));
+    const chosen = with_.filter(route => route.offered.find(o => o.nodeId === route.chosen)?.omen === def.id).length;
+    const share = with_.reduce((n, route) => n + route.offered.filter(o => o.omen === def.id).length / route.offered.length, 0);
+    return [def.title, with_.length, with_.length ? `${chosen} (${pct(chosen, with_.length)})` : '—', with_.length ? `${Math.round(100 * share / with_.length)}%` : '—'];
+  }).filter(row => row[1] !== 0);
+  const levelRows = RT_OMENS.map(def => {
+    const list = on.filter(r => r.levelOmens?.some(l => l.id === def.id));
+    return [def.title, list.length, `${list.filter(r => r.outcome === 'victory').length} из ${list.length}`, list.length ? n1(median(list.map(r => r.farRow))) : '—'];
+  }).filter(row => row[1] !== 0);
+  const crossroads = on.reduce((n, r) => n + (r.crossroadsSteps ?? 0), 0), fair = on.reduce((n, r) => n + (r.fairRerolls ?? 0), 0);
+  return ['Бои походов с приметой (узла или уровня). «Счётчики» — `summary.omenFired`; «Сорочье гнездо» — кристаллы, взятые цепями. Эвристика, не оценка баланса.', '',
+    table(['Примета', 'Боёв', 'Победы', 'Урон (медиана)', 'До целей, с (медиана)', 'Цепь (медиана)', 'Счётчики'], fightRows), '',
+    'Маршрут: выборы пути, где среди открытых узлов была примета (`omenRoutes`); «взят» — узел с этой приметой; «доля среди открытых» — средняя доля таких узлов. Взят чаще доли — игрок идёт к примете, реже — обходит.', '',
+    routeRows.length ? table(['Примета', 'Выборов с ней', 'Взят узел с ней', 'Доля среди открытых'], routeRows) : '_выборов с приметой нет_', '',
+    levelRows.length ? table(['Примета уровня', 'Походов', 'Победы', 'Дальний ряд (медиана)'], levelRows) : '_приметы уровня нет_', '',
+    `Шагов вне связей «Перепутья»: ${crossroads}. Бесплатных перебросов «Ярмарочного дня»: ${fair}.`].join('\n');
+}
+
 // ---- Task 49 «Второй герой» (RunRecord.hero, .freed; FightSummary.damage.unshielded; from 16.10.2026) ----
 
 /**
@@ -1038,6 +1130,21 @@ export function choicesSection(runs: readonly RunRecord[]): string {
   const all = runs.map(r => r.choices.filter(c => BUILD_CHOICE_SOURCES.includes(c.source) && c.offered.length).length);
   const knack = runs.map(r => r.choices.filter(c => c.source === 'knack' && c.offered.length).length);
   return `Выборов сборки за поход: среднее ${n1(all.reduce((a, b) => a + b, 0) / runs.length)}, медиана ${n1(median(all))}; из них «Сноровка» — среднее ${n1(knack.reduce((a, b) => a + b, 0) / runs.length)} (походов: ${runs.length}).`;
+}
+
+// ---- Task 51з «Поход дня» (RunRecord.daily, from 17.10.2026) ----
+
+/** Task 51з: the runs of the day by date — attempts, the first attempt's farthest row against the best one's, the share verified. */
+export function dailySection(runs: readonly RunRecord[]): string {
+  const days = new Map<string, RunRecord[]>();
+  for (const r of runs) if (r.daily) days.set(r.daily.date, [...days.get(r.daily.date) ?? [], r]);
+  if (!days.size) return 'Походов дня нет (`RunRecord.daily`, с 17.10.2026).';
+  const rows = [...days.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([date, list]) => {
+    const first = list.find(r => r.daily!.first), best = Math.max(...list.map(r => r.farRow));
+    return [date, Math.max(...list.map(r => r.daily!.attempt)), first ? first.farRow : '—', best, `${list.filter(r => r.daily!.verified).length} из ${list.length}`];
+  });
+  return ['Попытки — наибольший номер попытки даты среди записей; ряд — дальний ряд похода (`farRow`); проверено — доказательство прошло повтор.', '',
+    table(['Дата', 'Попыток', 'Первая: ряд', 'Лучшая: ряд', 'Проверено'], rows)].join('\n');
 }
 
 // ---- Task 20 «Ресурсы похода» (RunRecord.resources, from 14.10.2026) ----
@@ -1202,7 +1309,10 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Герои', '', heroesSection(runs, runFights), '',
     '## Сноровка', '', knacksSection(runs), '',
     '## Повадка', '', habitsSection(runs), '',
+    // Task 56 «Приметы».
+    '## Приметы', '', omensSection(runs, runFights), '',
     '## Выборы', '', choicesSection(runs), '',
+    '## Поход дня', '', dailySection(runs), '',
     '## Элиты', '', ELITE_LEGEND, '', table(ELITE_HEAD, eliteRows(runFights, sandbox)), '',
     '## Однорукий гоблин', '', SLOT_LEGEND, '', table(SLOT_HEAD, [slotRow('походы', runFights), slotRow('песочница', sandbox)].filter((r): r is (string | number)[] => !!r)), '',
     // Task 20: how the hero left the lit idol's circle.
@@ -1226,6 +1336,7 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Новое на карте', '', MAP_SIGN_LEGEND, '', table(MAP_SIGN_HEAD, mapSignRows(runs)), '',
     '## Подсказки', '', HINT_LEGEND, '', table(HINT_HEAD, hintRows(runs)), '',
     '## Пролог', '', prologueSection(set.records), '',
+    '## Разминка', '', warmupSection(set.records), '',
     '## Угрозы', '',
     'Предупреждения с героем в зоне при появлении. «Попал» — удар этого врага этим источником; «защищён» — тело в зоне в такт удара, но неуязвимость, щит цепи, проход, прыжок или пощада фокуса; «увернулся» — в такт удара тело вне зоны («укрытие» — рывок кабана или волка остановила стена или дерево, «стена», или край обрыва, «обрыв»); «прервано» — враг умер, отброшен, сбросил атаку или бой кончился. Выход — от появления зоны (у стаи волков — от начала воя) до первого такта вне неё (только увороты).', '',
     table(THREAT_HEAD, threatRows(fights)), '',
