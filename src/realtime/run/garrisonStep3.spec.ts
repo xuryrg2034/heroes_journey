@@ -83,7 +83,7 @@ check('saves: a run of step 3 reads back byte for byte; `step3` without step 2, 
   assert(forge(v => { v.step3 = { drill: (v.step3 as { drill: string }).drill, x: 1 }; }) === null && forge(v => { v.step3 = true; }) === null, 'a stray shape');
 });
 
-check('a run without the flag plays the garrison of step 2 byte for byte: the garrison\'s fights (arena, knights, bolts, deep) and the final save of 300 walks — the digest of the base `8afcb20d`', () => {
+check('a run without the flag plays the garrison of step 2 byte for byte: the garrison\'s fights (arena, knights, bolts, deep) and the final save of 300 walks — the digest of the base (main `15d09001`, before 59б)', () => {
   const lines: string[] = [];
   for (let k = 1; k <= 300; k++) {
     const seen = new Set<string>(), out: string[] = [];
@@ -97,8 +97,8 @@ check('a run without the flag plays the garrison of step 2 byte for byte: the ga
     assert(walk.run.step3 === undefined, `seed ${k}: no flag`);
     lines.push(`${k} ${out.join(' ')} ${textHash(serializeRtRun(walk.run))}`);
   }
-  // The digest of the same 300 walks on the base 8afcb20d (task 59а, before 59б): scratch probe, 21.10.2026.
-  assert(textHash(lines.join('\n')) === 2747571745, `digest ${textHash(lines.join('\n'))}`);
+  // The digest of the same 300 walks on the base: main 15d09001 (with 59а, before 59б; 8afcb20d before the merge of main gave 2747571745): scratch probe, 21.10.2026.
+  assert(textHash(lines.join('\n')) === 3063001002, `digest ${textHash(lines.join('\n'))}`);
 });
 
 check('telemetry: the run record field `drill` passes checkRecord (another value refused); the report section «Гарнизон» counts the step 3 — fights and deaths on its arenas, formations by one pass, pairs cleared, pitch, drills', () => {
