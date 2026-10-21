@@ -70,6 +70,8 @@ import { CHAIN_BREAK_LIFE, drawFlailArc, drawFlailChain, drawSeverPip, drawWeigh
 import { TROLL, TROLL_ROCK, trollCore } from '../sim/enemies/troll';
 import { ShooterView, hiveMarks, slingerMarks, wispMarks } from './shooterView';
 import { CHIEF, chiefCore } from '../sim/enemies/chief';
+import { WARLOCK, warlockCore } from '../sim/enemies/warlock';
+import { WARLOCK_ART, WARLOCK_FEET, WarlockView, buildWarlock, warlockBadgeAt, type WarlockArt } from './warlockView';
 import { CHIEF_ART, CHIEF_FEET, ChiefView, buildChief, buildChiefPart, chiefBadgeAt, chiefPartBadgeAt, eaterSits, isChiefKind, type ChiefArt } from './chiefView';
 import { TROLL_ART, TROLL_ART_ASPECT, TROLL_FEET, TrollView, buildCore, buildPartArt, coreBadgeAt, corePips, isTrollKind, partBadgeAt, partOutward, posePartArt, type CoreArt, type SignTools } from './trollView';
 
@@ -376,6 +378,8 @@ interface EnemyView {
   weapon?: Container;
   /** Task 54a: the Chief's drawing and its glow copy (the core) - chiefView.ts. */
   chiefArt?: ChiefArt;
+  /** Task 55 Д: the warlock's drawing (the core), its dazed one and the glow copy - warlockView.ts. */
+  warlockArt?: WarlockArt;
 }
 
 /** A killed enemy: spins and shrinks for `deathDuration` (design answer 22); one that fell into a cliff also darkens. */
@@ -476,6 +480,9 @@ export class RealtimeRenderer {
   /** Task 54a: the Chief's view - his drawing, window, queue, cauldron, signs and effects (chiefView.ts). */
   private readonly chief = new ChiefView(UNIT, chainInk);
   get chiefShown(): ChiefView['shown'] { return this.chief.shown; }
+  /** Task 55 Д: the warlock's view - his drawing, window, charm's beam, candles and effects (warlockView.ts). */
+  private readonly warlock = new WarlockView(UNIT);
+  get warlockShown(): WarlockView['shown'] { return this.warlock.shown; }
   /** Task 48 (tests read it): the Troll's frame — the glow, the count, the sign and its fill, the tail, the severed parts, the sparks of «звон». */
   get trollShown(): TrollView['shown'] { return this.troll.shown; }
   /** The real seconds of the frame being drawn (the Troll's pieces fall by it). */
@@ -801,7 +808,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.cage.layer, this.objectLayer, this.markerLayer, this.trailLayer, this.chief.floor, this.laneLayer, this.rippleLayer, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.omenLayer, this.troll.layer, this.chief.layer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.shooters.layer, this.overlay, this.prologueLayer, this.fxLayer, this.omenFlash, this.snapLayer, this.shardLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.cage.layer, this.objectLayer, this.markerLayer, this.trailLayer, this.chief.floor, this.warlock.floor, this.laneLayer, this.rippleLayer, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.omenLayer, this.troll.layer, this.chief.layer, this.warlock.layer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.shooters.layer, this.overlay, this.prologueLayer, this.fxLayer, this.omenFlash, this.snapLayer, this.shardLayer, this.flash);
     this.heroRoot.addChild(this.reachLayer, this.reachMask, this.heroLayer);
     this.app.stage.addChild(this.root, this.viewBorder, this.heroRoot, this.edgeLayer);
     this.initShards();
@@ -954,11 +961,11 @@ export class RealtimeRenderer {
    */
   private bossKeep(world: World, follow = true): CameraKeep | null {
     if (!this.bossView) return null;
-    const core = world.enemies.find(e => (e.kind === JAILER || e.kind === CASTELLAN || e.kind === TROLL || e.kind === CHIEF) && e.partOf === undefined);
+    const core = world.enemies.find(e => (e.kind === JAILER || e.kind === CASTELLAN || e.kind === TROLL || e.kind === CHIEF || e.kind === WARLOCK) && e.partOf === undefined);
     if (!core) return null;
-    const troll = core.kind === TROLL, r = enemyDrawRadius(world.params), art = troll ? TROLL_ART : core.kind === JAILER ? JAILER_ART : core.kind === CHIEF ? CHIEF_ART : GARRISON_ART[CASTELLAN].size;
+    const troll = core.kind === TROLL, r = enemyDrawRadius(world.params), art = troll ? TROLL_ART : core.kind === JAILER ? JAILER_ART : core.kind === CHIEF ? CHIEF_ART : core.kind === WARLOCK ? WARLOCK_ART : GARRISON_ART[CASTELLAN].size;
     // The Troll: his drawing's top, and sideways as far as the paws' weapons (the club and the rock stand 1.5 units from him).
-    const up = troll ? r * (TROLL_ART * TROLL_ART_ASPECT - TROLL_FEET) : core.kind === JAILER ? r * (JAILER_ART - JAILER_FEET) : core.kind === CHIEF ? r * (CHIEF_ART - CHIEF_FEET) : r * (art - 1), half = troll ? Math.max((r * art) / 2, 2) : (r * art) / 2, pad = BOSS_KEEP_PAD;
+    const up = troll ? r * (TROLL_ART * TROLL_ART_ASPECT - TROLL_FEET) : core.kind === JAILER ? r * (JAILER_ART - JAILER_FEET) : core.kind === CHIEF ? r * (CHIEF_ART - CHIEF_FEET) : core.kind === WARLOCK ? r * (WARLOCK_ART - WARLOCK_FEET) : r * (art - 1), half = troll ? Math.max((r * art) / 2, 2) : (r * art) / 2, pad = BOSS_KEEP_PAD;
     // The hero's box reaches down over the action bar (`edgeInset.bottom`): the hero stays above it, not under it.
     const h = world.hero, below = this.edgeInset.bottom / (UNIT * this.scale);
     const box = { x0: core.x - half - pad, x1: core.x + half + pad, y0: core.y - up - pad, y1: core.y + r + pad };
@@ -1037,6 +1044,9 @@ export class RealtimeRenderer {
     // Task 54a: the Chief's window by the core's goal arrow while the core is off screen.
     const cc = chiefCore(world);
     this.chief.drawEdge(world, goal, !cc || this.camera.sees({ x: cc.x, y: cc.y }, b, 0.5), this.app.stage);
+    // Task 55 Д: the warlock's window by the core's goal arrow while the core is off screen.
+    const wc = warlockCore(world);
+    this.warlock.drawEdge(world, goal, !wc || this.camera.sees({ x: wc.x, y: wc.y }, b, 0.5), this.app.stage);
     this.courtShown.edgeCount = '';
     if (this.edgeCountLabel) this.edgeCountLabel.visible = false;
     if (grate?.open && goal && !this.camera.sees({ x: grate.x, y: grate.y }, b, 0.5)) {
@@ -1286,7 +1296,7 @@ export class RealtimeRenderer {
     for (const sx of [-1, 1]) ctx.poly([sx * r * 0.32, r * 0.55, sx * r * 0.72, r * 0.98, sx * r * 0.78, r * 0.42, sx * r * 0.52, r * 0.5]).fill(BONE).stroke({ color: NAVY, width: 2.5, join: 'round' });
   }
 
-  private buildEnemyBody(e: Enemy, look: EnemyLook, colorless: boolean): { body: Container; grey: Sprite | null; hpLabel: Text | null; exclaim: Text | null; quills: { up: Graphics; down: Graphics } | null; trollArt?: CoreArt; weapon?: Container; chiefArt?: ChiefArt } {
+  private buildEnemyBody(e: Enemy, look: EnemyLook, colorless: boolean): { body: Container; grey: Sprite | null; hpLabel: Text | null; exclaim: Text | null; quills: { up: Graphics; down: Graphics } | null; trollArt?: CoreArt; weapon?: Container; chiefArt?: ChiefArt; warlockArt?: WarlockArt } {
     const body = new Container();
     // Iteration 2.1: the porcupine's quills behind its disc (raised or lowered each frame).
     const quills = e.kind === 'porcupine' ? this.quillGraphics() : null;
@@ -1334,12 +1344,15 @@ export class RealtimeRenderer {
     let chiefArt: ChiefArt | undefined;
     if (e.kind === CHIEF) { chiefArt = buildChief(r); body.addChild(chiefArt.root); }
     else if (isChiefKind(e.kind)) { const part = buildChiefPart(e.kind, r); if (part) { part.position.set(0, -r * 0.35); body.addChildAt(part, 0); } }
+    // Task 55 Д: the warlock - his large drawing over the disc (floating; the dazed one in his window).
+    let warlockArt: WarlockArt | undefined;
+    if (e.kind === WARLOCK) { warlockArt = buildWarlock(r); body.addChild(warlockArt.root); }
     // Task 48: the Troll — his large drawing over the grey disc (the feet at its bottom); a part — its weapon behind its colour disc.
     let trollArt: CoreArt | undefined, weapon: Container | undefined;
     if (e.kind === TROLL) { trollArt = buildCore(r); body.addChild(trollArt.root); }
     else if (isTrollKind(e.kind)) { weapon = buildPartArt(e.kind, r) ?? undefined; if (weapon) body.addChildAt(weapon, 0); }
     let hpLabel: Text | null = null;
-    if (e.hp > 0 && (e.leader || e.kind === JAILER || e.kind === JAILER_WEIGHT || isTrollKind(e.kind) || isChiefKind(e.kind))) {
+    if (e.hp > 0 && (e.leader || e.kind === JAILER || e.kind === JAILER_WEIGHT || isTrollKind(e.kind) || isChiefKind(e.kind) || e.kind === WARLOCK)) {
       // Task 12: the leader's HP — the number a chain must beat: the HP badge's place (top right, clear of the face), half as large
       // again, a gold rim and a bright number. Task 27: the Jailer's core and weight wear the same plaque.
       // Task 27: the Jailer's plaque by its head, clear of the shield arc; the weight's stands outside the ball, away from the
@@ -1363,7 +1376,7 @@ export class RealtimeRenderer {
       body.addChild(exclaim);
     }
     if (e.kind === 'boar') body.scale.set(BOAR_SCALE);
-    return { body, grey, hpLabel, exclaim, quills, ...trollArt ? { trollArt } : {}, ...weapon ? { weapon } : {}, ...chiefArt ? { chiefArt } : {} };
+    return { body, grey, hpLabel, exclaim, quills, ...trollArt ? { trollArt } : {}, ...weapon ? { weapon } : {}, ...chiefArt ? { chiefArt } : {}, ...warlockArt ? { warlockArt } : {} };
   }
 
   private syncEnemies(world: World): void {
@@ -1386,9 +1399,9 @@ export class RealtimeRenderer {
         this.enemyViews.delete(e.id); view = undefined;
       }
       if (!view) {
-        const root = new Container(), { body, grey, hpLabel, exclaim, quills, trollArt, weapon, chiefArt } = this.buildEnemyBody(e, look, colorless);
+        const root = new Container(), { body, grey, hpLabel, exclaim, quills, trollArt, weapon, chiefArt, warlockArt } = this.buildEnemyBody(e, look, colorless);
         root.addChild(body); this.enemyLayer.addChild(root);
-        view = { root, body, grey, hpLabel, exclaim, hp: e.hp, look, color: e.color, colorless, quills, ...trollArt ? { trollArt } : {}, ...weapon ? { weapon } : {}, ...chiefArt ? { chiefArt } : {} };
+        view = { root, body, grey, hpLabel, exclaim, hp: e.hp, look, color: e.color, colorless, quills, ...trollArt ? { trollArt } : {}, ...weapon ? { weapon } : {}, ...chiefArt ? { chiefArt } : {}, ...warlockArt ? { warlockArt } : {} };
         this.enemyViews.set(e.id, view);
       }
       if (view.hpLabel && view.hp !== e.hp) { view.hpLabel.text = String(e.hp); view.hp = e.hp; }
@@ -1426,6 +1439,11 @@ export class RealtimeRenderer {
           if (view.hpLabel?.parent && core) { const at = chiefPartBadgeAt(core, e, R); view.hpLabel.parent.position.set(at.x, at.y); }
           this.chief.shown.parts++;
         }
+      }
+      // Task 55 Д: the warlock's plaque by his head; his drawing floats, turns dazed in the window, glows and counts (warlockView.ts).
+      if (e.kind === WARLOCK) {
+        if (view.hpLabel?.parent) { const at = warlockBadgeAt(BASE_ENEMY_RADIUS * UNIT); view.hpLabel.parent.position.set(at.x, at.y); }
+        this.warlock.syncCore(view.warlockArt ?? null, world, this.clock, enemyDrawRadius(world.params) * UNIT, view.root.visible);
       }
       if (eaterSits(e)) { view.body.scale.set(1, 0.82); view.body.position.set(0, BASE_ENEMY_RADIUS * UNIT * 0.16); }
       else if (e.kind === 'basic' && view.body.scale.y !== 1) { view.body.scale.set(1, 1); view.body.position.set(0, 0); }
@@ -1556,6 +1574,9 @@ export class RealtimeRenderer {
     this.chief.beginFrame();
     this.chief.drawFloor(world, this.clock);
     this.chief.drawSigns(g, world, this.signTools, p => this.sees(p, 6));
+    // Task 55 Д: the warlock's candles (the target blooms) and the charm's beam to his wardrobe - under the crowd.
+    this.warlock.beginFrame();
+    this.warlock.drawFloor(world, this.clock);
     this.garrisonShown.lunges = 0;
     for (const e of world.enemies) {
       if (e.kind !== CASTELLAN) continue;
@@ -1872,6 +1893,7 @@ export class RealtimeRenderer {
     this.drawBoss(world, g);
     this.drawTroll(world, g);
     this.chief.drawOver(g, world, this.clock, this.frameDt, enemyDrawRadius(world.params) * UNIT, 1 / Math.max(0.1, this.scale), e => this.sees(e, 1.5));
+    this.warlock.drawOver(g, world, this.clock, enemyDrawRadius(world.params) * UNIT, 1 / Math.max(0.1, this.scale), e => this.sees(e, 1.5));
     Object.assign(this.signals, counts);
     // Casino stage 1 («Однорукий гоблин»): the arrows of the rain and the volley — the archer's mark (a hatched threat circle
     // filling until the arrow falls); the fall flashes on its `land` event (`handleEvents`).
@@ -2958,6 +2980,8 @@ export class RealtimeRenderer {
       // Task 48: the Troll's events (his moves' hits flash the sign, «звон», the severed parts fall, a plate that grew back) — the rest are the Jailer's.
       // Task 54a: the Chief's events (his moves' hits flash the sign, «звон» sparks, the window's hit and the links dropped, the brew, the severed parts) - the rest go on.
       if ((ev.type === 'bossMove' || ev.type === 'chiefFeast' || ev.type === 'chiefBrew' || ev.type === 'partSevered' || ev.type === 'enemySignal') && this.chief.onEvent(ev, world, this.clock, enemyDrawRadius(world.params) * UNIT)) continue;
+      // Task 55 Д: the warlock's events (the charm's «звон» and end, the window's hit and the links dropped, the shift's arrival) - the rest go on.
+      if ((ev.type === 'warlockCharm' || ev.type === 'warlockWindow' || ev.type === 'warlockShift') && this.warlock.onEvent(ev, world, this.clock, enemyDrawRadius(world.params) * UNIT)) continue;
       if ((ev.type === 'bossMove' || ev.type === 'trollWindow' || ev.type === 'partSevered' || ev.type === 'bossPlate') && this.troll.onEvent(ev, world, this.clock, enemyDrawRadius(world.params) * UNIT)) continue;
       // Task 57а: the sparks of the shots (put out, taken by a shield, a hit, an end of flight), a wisp going out, a hive's ring leaving.
       if (this.shooters.onEvent(ev, UNIT)) continue;
@@ -4483,6 +4507,7 @@ export class RealtimeRenderer {
     this.troll.note(world, enemyDrawRadius(world.params) * UNIT);
     this.castle.note(world);
     this.chief.note(world, enemyDrawRadius(world.params) * UNIT);
+    this.warlock.note(world);
   }
 
   /** Water stays water: bodies wading in the pond get two widening rings (walking there is slower). */
@@ -4521,7 +4546,7 @@ export class RealtimeRenderer {
   resetEffects(): void {
     this.crackLeft = 0; this.crackShown = false; this.shieldBoost = false; this.shieldBoostShown = false;
     this.snaps = []; this.drops = []; this.snapLayer.clear(); this.houndAt.clear();
-    this.troll.reset(); this.chief.reset(); this.castle.reset();
+    this.troll.reset(); this.chief.reset(); this.warlock.reset(); this.castle.reset();
     this.intro = null; this.openedOnBoss = false;
     this.shakeLeft = 0;
     this.flashLeft = 0;

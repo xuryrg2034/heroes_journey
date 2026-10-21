@@ -20,6 +20,7 @@ import { JAILER, PHASE2_PLATES, jailerHpOf } from '../sim/enemies/jailer';
 import { CASTELLAN, CASTELLAN_HP } from '../sim/enemies/garrison';
 import { PHASE3_PLATES, TROLL, TROLL_HP } from '../sim/enemies/troll';
 import { CHIEF, CHIEF_HP, PHASE3_PLATES as CHIEF_PHASE3_PLATES } from '../sim/enemies/chief';
+import { WARLOCK, WARLOCK_HP } from '../sim/enemies/warlock';
 
 /** Real seconds the bar takes to fade after the core's death. */
 export const BOSS_BAR_FADE = 0.5;
@@ -46,10 +47,15 @@ export interface BossBarState {
  */
 export function bossBarState(w: World): BossBarState | null {
   if (!w.params.bossFrame) return null;
-  const core = w.enemies.find(e => (e.kind === JAILER || e.kind === CASTELLAN || e.kind === TROLL || e.kind === CHIEF) && e.partOf === undefined);
+  const core = w.enemies.find(e => (e.kind === JAILER || e.kind === CASTELLAN || e.kind === TROLL || e.kind === CHIEF || e.kind === WARLOCK) && e.partOf === undefined);
   if (!core) return null;
   const platesMax = core.armor?.max ?? 0, plates = Math.max(0, core.armor?.plates ?? 0);
   // An enemy keeps no max HP: the core's HP at its spawn (task 32: `Params.jailerHp`, the boss arenas 5; a core with more — its HP now).
+  // Task 55 Д: the warlock's bar is the same (`warlockHp` cells, `warlockPlates` cells) with no phase line: his phase comes from his wardrobe, not from the plates.
+  if (core.kind === WARLOCK) {
+    const hpMax = Math.max(1, Math.round(w.params.warlockHp ?? WARLOCK_HP), core.hp);
+    return { id: core.id, hpMax, hp: Math.max(0, core.hp), platesMax: Math.max(platesMax, 0), plates, phaseAt: 0, phase2: false };
+  }
   const castellan = core.kind === CASTELLAN, troll = core.kind === TROLL, chief = core.kind === CHIEF;
   const hpMax = Math.max(1, castellan ? CASTELLAN_HP : troll ? Math.round(w.params.trollHp ?? TROLL_HP) : chief ? Math.max(1, Math.round(w.params.chiefHp ?? CHIEF_HP)) : jailerHpOf(w.params), core.hp), hp = Math.max(0, core.hp);
   // The phase line: the Jailer's at `PHASE2_PLATES` plates left; the Castellan's phase 2 comes with its first part lost (a plate) —
@@ -128,6 +134,7 @@ export class BossBar {
         else if (!this.dead) { c.classList.remove('rt-boss-grown'); void c.offsetWidth; c.classList.add('rt-boss-grown'); this.grown++; }
       }
     }
+    this.phaseEl.hidden = st.phaseAt <= 0;
     this.phaseEl.style.left = `${(st.phaseAt / n) * 100}%`;
     this.el.classList.toggle('rt-boss-phase2', st.phase2);
     this.el.style.opacity = this.fade > 0 ? `${this.fade / BOSS_BAR_FADE}` : '';
@@ -145,7 +152,7 @@ export class BossBar {
 }
 
 /** Task 28: the bosses by their core's kind — the name the goal shows. */
-export const BOSS_NAMES: Readonly<Record<string, string>> = { [JAILER]: 'Тюремщик', [CASTELLAN]: 'Кастелян', [TROLL]: 'Тролль', [CHIEF]: 'Главарь' };
+export const BOSS_NAMES: Readonly<Record<string, string>> = { [JAILER]: 'Тюремщик', [CASTELLAN]: 'Кастелян', [TROLL]: 'Тролль', [CHIEF]: 'Главарь', [WARLOCK]: 'Колдун' };
 
 /**
  * Task 28 (design 15.10.2026, «одно имя — одно значение»): the goal of a boss fight is the boss itself — the HUD plate and the

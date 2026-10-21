@@ -119,7 +119,7 @@ export const WARLOCK_ARENA: ArenaTemplate = registerArena({
 });
 
 /**
- * The castle's arenas of step 1а (the sandbox's group «Замок»; the view orders the menu). Task 55, stage Д: «Зал колдуна»
- * (`WARLOCK_ARENA`) joins the menu with its view (ui, 55б) — not before: the view draws the warlock, his candles and his window.
+ * The castle's arenas (the sandbox's group «Замок»; the view orders the menu). Task 55, stage Д: «Зал колдуна» (`WARLOCK_ARENA`) joins
+ * the menu with its view (ui, view/warlockView.ts: the warlock, his candles and his window).
  */
-export const CASTLE_ARENAS: readonly ArenaTemplate[] = [HALL_ARENA, ENFILADE_ARENA, BALLROOM_ARENA];
+export const CASTLE_ARENAS: readonly ArenaTemplate[] = [HALL_ARENA, ENFILADE_ARENA, BALLROOM_ARENA, WARLOCK_ARENA];

@@ -1,0 +1,258 @@
+import { type Page } from '@playwright/test';
+import { test, expect } from './realtimeTest';
+import { gameWait, untilFrame } from './realtimeFrames';
+import { replay, type Journal } from '../src/realtime/sim/simulation';
+
+/**
+ * Task 55 stage Д «Колдун v0», the view (design 17.10.2026, docs/design-notes/task-55-castle-step1a.md, 6 and 11): «Зал колдуна» in the
+ * sandbox group «Замок» (the fourth button, opened by a real click) and what the player reads on it, by real input at 1280×720: the mouse
+ * draws the chains and shoves the wardrobe, the hero is stood by the journal's own `teleport`. The rules are checked in Node
+ * (`npm run test:realtime-warlock`, `npm run test:realtime-warlock-view`); here the signs: the charm's beam to his wardrobe and «под чарами»
+ * at the cursor, the candle that blooms before «Перенос» and its name, the beam that snaps when the wardrobe breaks at the wall, the window
+ * (the dazed drawing, the glow, the count), the hit that lands once and «вне окна» after it, the window that runs out with him in the drawn
+ * chain. Waits are in game time (tests/realtimeFrames.ts); a fight's journal replays in Node to the hash of the page. Screenshots go to
+ * $SHOT_DIR when it is set. Added 21.10.2026 by the ui session on branch ui/task-55d.
+ */
+interface WarlockState {
+  id: number; x: number; y: number; phase: number; rule: boolean; spellbound: boolean; wardrobe: number | null; candles: { x: number; y: number }[]; candle: number;
+  shift: { candle: number; progress: number } | null; window: { open: boolean; left: number; hit: boolean } | null;
+}
+interface WarlockShown {
+  core: number; dazed: number; glow: number; count: string; edgeCount: string; beam: number; beamTo: number; candles: number; target: number; flame: number; signProgress: number; haze: number; dropping: number;
+  sparks: number; hits: number; opens: number; unlinks: number; snaps: number; marks: number; arrivals: number; smokes: number;
+}
+interface Snap {
+  hint: string | null; chain: number[]; moving: string | null; loop: { hintText: string | null };
+  arena: string; status: string; time: number; menuOpen: boolean;
+  hero: { x: number; y: number; hp: number };
+  enemies: { id: number; kind: string; x: number; y: number; hp: number; marked?: boolean }[];
+  castle: { things: { id: number; kind: string; x: number; y: number; durability: number }[]; shoves: unknown[] };
+  bossBar: { visible: boolean; cells: number; filled: number; hp: number; plates: number; phaseAt: number };
+  bossNames: string[];
+  warlock: { state: WarlockState | null; shown: WarlockShown };
+}
+const snap = (page: Page): Promise<Snap> => page.evaluate(() => (window as any).__realtime.snapshot());
+const shot = async (page: Page, name: string): Promise<void> => { if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/warlock-${name}.png` }); };
+
+function collectErrors(page: Page): string[] {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
+  return errors;
+}
+
+/** The sandbox menu, fresh storage; then a real click on the hall's button (the fourth of the castle group). */
+async function openHall(page: Page): Promise<void> {
+  await page.goto('/?sandbox=1');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect(page.getByTestId('menu')).toBeVisible();
+  await page.getByTestId('castle-arena-4').click();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
+  await expect.poll(async () => (await snap(page)).arena).toBe('c-warlock');
+  await expect.poll(async () => (await snap(page)).menuOpen).toBe(false);
+}
+
+/** Nobody walks or hurts, no newcomers; the wardrobe of the hall does not topple; his wardrobe slides 6 (it reaches the wall in two shoves). */
+async function quiet(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const rt = (window as any).__realtime;
+    for (const [k, v] of [['enemySpeed', 0], ['speedSpread', 0], ['baseIntervalMin', 1000], ['baseIntervalMax', 1000], ['baseFloor', 0], ['contactDamage', 0], ['wardrobePeriod', 1000], ['shoveDistance', 6]] as const) rt.setParam(k, v);
+  });
+}
+
+async function sameHash(page: Page): Promise<void> {
+  const recorded = await page.evaluate(() => { const rt = (window as any).__realtime; return { journal: rt.journal(), hash: rt.hash() }; }) as { journal: Journal; hash: string };
+  expect(replay(recorded.journal).hash()).toBe(recorded.hash);
+}
+
+/** The camera has come to rest on the hero (the arena is larger than the screen). */
+async function cameraSettled(page: Page): Promise<void> {
+  const still = await untilFrame(page, (_snap, _arg: null, late, rt) => {
+    const h = rt.snapshot().hero, s = rt.toScreen(h.x, h.y), w = window as any, last = w.__warlockCam;
+    w.__warlockCam = { x: s.x, y: s.y, n: last && Math.abs(last.x - s.x) < 0.5 && Math.abs(last.y - s.y) < 0.5 ? last.n + 1 : 0 };
+    return w.__warlockCam.n >= 5 ? true : late ? false : undefined;
+  }, null, 4);
+  expect(still, 'the camera came to rest').toBe(true);
+}
+
+/** The mouse goes to an arena point (read when it moves). */
+async function mouseTo(page: Page, at: () => Promise<{ x: number; y: number }>, steps = 6): Promise<void> {
+  const p = await at(), t = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [p.x, p.y] as const);
+  await page.mouse.move(t.x, t.y, { steps });
+}
+const coreAt = (page: Page) => async (): Promise<{ x: number; y: number }> => { const s = (await snap(page)).warlock.state!; return { x: s.x, y: s.y }; };
+const thingAt = (page: Page, id: number) => async (): Promise<{ x: number; y: number }> => (await snap(page)).castle.things.find(t => t.id === id)!;
+
+/** One shove of his wardrobe north, from right below it: the mouse presses on it and lets go; waits for the run to end. */
+async function shoveNorth(page: Page, id: number): Promise<void> {
+  const w = await thingAt(page, id)();
+  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y + 1), [w.x, w.y] as const);
+  await cameraSettled(page);
+  await mouseTo(page, thingAt(page, id), 3);
+  await page.mouse.down();
+  await expect.poll(async () => (await snap(page)).chain).toEqual([id]);
+  await page.mouse.up();
+  const done = await untilFrame(page, (sn, _arg: null, late) => sn.castle.shoves.length === 0 && sn.moving === null ? { ok: true } : late ? { ok: false } : undefined, null, 10);
+  expect(done.ok, 'the shove is over').toBe(true);
+}
+
+/** Breaks his wardrobe at the north wall (two shoves) and waits for the charm to fall. */
+async function breakCharm(page: Page): Promise<void> {
+  const id = (await snap(page)).warlock.state!.wardrobe!;
+  await shoveNorth(page, id);
+  expect((await snap(page)).castle.things.find(t => t.id === id)?.durability, 'the wall wore the wardrobe').toBe(1);
+  await shoveNorth(page, id);
+  const fell = await untilFrame(page, (sn, _arg: null, late) => sn.warlock.state?.phase === 2 ? true : late ? false : undefined, null, 4);
+  expect(fell, 'the charm fell').toBe(true);
+}
+
+/**
+ * Past the charm's end: waits for the sign of the shift, stands the hero a unit below the lit candle (the journal's teleport), puts the mouse on
+ * the candle and waits for the arrival — the window is open. Returns the candle.
+ */
+async function toWindow(page: Page): Promise<{ x: number; y: number }> {
+  const marked = await untilFrame(page, (sn, _arg: null, late) => sn.warlock.state?.shift ? sn.warlock.state.candles[sn.warlock.state.shift.candle] : late ? null : undefined, null, 4);
+  expect(marked, 'the next shift is signed').not.toBeNull();
+  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y + 1.1), [marked!.x, marked!.y] as const);
+  await mouseTo(page, async () => marked!, 2);
+  const open = await untilFrame(page, (sn, _arg: null, late) => sn.warlock.state?.window?.open ? true : late ? false : undefined, null, 3);
+  expect(open, 'the window opened').toBe(true);
+  return marked!;
+}
+
+test('task 55 Д: the fourth button of the castle group opens «Зал колдуна»; the charm — the beam to his wardrobe, four candles, the bar of 2 + 4 cells with no phase line; «под чарами» at the cursor (screenshots)', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = collectErrors(page);
+  await page.goto('/?sandbox=1');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect(page.getByTestId('castle-arena-4')).toContainText('Зал колдуна');
+  await expect(page.getByTestId('castle-arena-5')).toHaveCount(0);
+  await shot(page, 'menu');
+  await openHall(page);
+  await quiet(page);
+  await cameraSettled(page);
+  const s = await snap(page), st = s.warlock.state!;
+  expect(st.spellbound && st.phase === 1).toBe(true);
+  expect(st.candles).toHaveLength(4);
+  expect(s.warlock.shown.core).toBe(1);
+  expect(s.warlock.shown.candles).toBe(4);
+  expect(s.warlock.shown.beam, 'the charm\'s beam is drawn').toBe(1);
+  expect(s.warlock.shown.beamTo, 'to the sim\'s wardrobe').toBe(st.wardrobe);
+  expect(s.castle.things.filter(t => t.kind === 'wardrobe').map(t => t.id)).toContain(st.wardrobe);
+  expect(s.bossBar).toMatchObject({ visible: true, cells: 6, hp: 2, plates: 4, phaseAt: 0 });
+  await shot(page, 'charm');
+  // The cursor on him: the sim's refusal, in its words.
+  await mouseTo(page, coreAt(page), 4);
+  await expect.poll(async () => (await snap(page)).hint).toBe('spellbound');
+  expect((await snap(page)).loop.hintText).toBe('под чарами');
+  await shot(page, 'charm-hint');
+  // A bomb at the mouse (key 2) rings off him: a spark, no text, no hurt.
+  const sparks0 = (await snap(page)).warlock.shown.sparks;
+  await page.evaluate(() => (window as any).__realtime.setItems('bomb', 1));
+  await page.keyboard.press('2');
+  const rang = await untilFrame(page, (sn, n: number, late) => sn.warlock.shown.sparks > n ? true : late ? false : undefined, sparks0, 5);
+  expect(rang, 'the bomb rang off him («звон»)').toBe(true);
+  expect((await snap(page)).warlock.shown.count).toBe('');
+  expect((await snap(page)).bossBar.plates).toBe(4);
+  await sameHash(page);
+  expect(errors).toEqual([]);
+});
+
+test('task 55 Д: «Перенос» — the sign blooms the target candle (the flame grows), «Перенос» is named over it once, he arrives there with smoke left at the old candle (screenshots)', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = collectErrors(page);
+  await openHall(page);
+  await quiet(page);
+  await page.evaluate(() => (window as any).__realtime.teleport(12, 13));
+  await cameraSettled(page);
+  const early = await untilFrame(page, (sn, _arg: null, late) => sn.warlock.shown.target >= 0 && sn.warlock.shown.signProgress >= 0.25 ? sn : late ? null : undefined, null, 7);
+  expect(early, 'the sign came').not.toBeNull();
+  expect(early!.bossNames, 'the move is named').toContain('Перенос');
+  const marked = early!.warlock.state!.shift!.candle;
+  await shot(page, 'shift-early');
+  const late = await untilFrame(page, (sn, _arg: null, late) => sn.warlock.shown.signProgress >= 0.85 ? sn : late ? null : undefined, null, 2);
+  expect(late, 'the sign fills').not.toBeNull();
+  expect(late!.warlock.shown.target).toBe(marked);
+  expect(late!.warlock.shown.flame, 'the flame grows with the sign').toBeGreaterThan(early!.warlock.shown.flame * 1.4);
+  expect(late!.warlock.shown.haze, 'the haze round him').toBe(1);
+  await shot(page, 'shift');
+  const arrived = await untilFrame(page, (sn, _arg: null, late) => sn.warlock.shown.arrivals >= 1 ? sn : late ? null : undefined, null, 3);
+  expect(arrived, 'he arrived').not.toBeNull();
+  expect(arrived!.warlock.state!.candle).toBe(marked);
+  expect(arrived!.warlock.shown.smokes).toBe(1);
+  expect(arrived!.warlock.shown.target).toBe(-1);
+  await shot(page, 'arrival');
+  await sameHash(page);
+  expect(errors).toEqual([]);
+});
+
+test('task 55 Д: the wardrobe shoved into the wall twice — the beam snaps, the window opens: the dazed drawing, the glow, the count; the chain takes him once (a plate), then «вне окна» (screenshots)', async ({ page }) => {
+  test.setTimeout(150_000);
+  const errors = collectErrors(page);
+  await openHall(page);
+  await quiet(page);
+  await cameraSettled(page);
+  await breakCharm(page);
+  const broken = await snap(page);
+  expect(broken.warlock.shown.snaps, 'the beam snapped once').toBe(1);
+  expect(broken.bossBar.plates, 'the plates stay').toBe(4);
+  await gameWait(page, 0.1);
+  expect((await snap(page)).warlock.shown.beam).toBe(0);
+  await toWindow(page);
+  const open = await untilFrame(page, (sn, _arg: null, late) => sn.warlock.shown.glow === 1 && sn.warlock.shown.count !== '' ? sn : late ? null : undefined, null, 2);
+  expect(open, 'the glow and the count').not.toBeNull();
+  expect(open!.warlock.shown.dazed).toBe(1);
+  expect(['1', '2']).toContain(open!.warlock.shown.count);
+  expect(open!.warlock.shown.opens).toBe(1);
+  await shot(page, 'window');
+  // The chain takes him: the mouse presses on him and lets go.
+  await page.mouse.down();
+  await expect.poll(async () => (await snap(page)).chain).toHaveLength(1);
+  await page.mouse.up();
+  const hit = await untilFrame(page, (sn, _arg: null, late) => sn.warlock.shown.hits >= 1 && sn.moving === null ? sn : late ? null : undefined, null, 6);
+  expect(hit, 'the hit landed').not.toBeNull();
+  expect(hit!.bossBar.plates, 'one plate').toBe(3);
+  expect(hit!.warlock.shown.hits).toBe(1);
+  await gameWait(page, 0.1);
+  const after = await snap(page);
+  expect(after.warlock.shown.glow).toBe(0);
+  expect(after.warlock.shown.count).toBe('');
+  // The second try in the same window: refused at the cursor.
+  await mouseTo(page, coreAt(page), 2);
+  await page.mouse.down();
+  await expect.poll(async () => (await snap(page)).hint).toBe('outOfWindow');
+  expect((await snap(page)).loop.hintText).toBe('вне окна');
+  await shot(page, 'out-of-window');
+  await page.mouse.up();
+  await sameHash(page);
+  expect(errors).toEqual([]);
+});
+
+test('task 55 Д: a window that runs out with him in the drawn chain — the links blink in its last second, then they drop out (white rings), the plates stay', async ({ page }) => {
+  test.setTimeout(150_000);
+  const errors = collectErrors(page);
+  await openHall(page);
+  await quiet(page);
+  await cameraSettled(page);
+  await breakCharm(page);
+  await toWindow(page);
+  // Pressed on him and held: the chain is [core]; the window's time runs out under the finger.
+  await page.mouse.down();
+  await expect.poll(async () => (await snap(page)).chain).toHaveLength(1);
+  await page.evaluate(() => { (window as any).__warlockBlink = 0; });
+  const dropped = await untilFrame(page, (sn, _arg: null, late) => {
+    const w = window as any;
+    if (sn.warlock.shown.dropping) w.__warlockBlink++;
+    return sn.warlock.shown.unlinks >= 1 ? { blinks: w.__warlockBlink, chain: sn.chain.length } : late ? null : undefined;
+  }, null, 3);
+  expect(dropped, 'the window ran out').not.toBeNull();
+  expect(dropped!.chain, 'the chain lost him').toBe(0);
+  expect(dropped!.blinks, 'the blink came before the drop').toBeGreaterThan(0);
+  await page.mouse.up();
+  expect((await snap(page)).bossBar.plates, 'no plate was lost').toBe(4);
+  await shot(page, 'unlink');
+  await sameHash(page);
+  expect(errors).toEqual([]);
+});

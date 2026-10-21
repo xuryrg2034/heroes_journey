@@ -89,8 +89,8 @@ function play(rg: Rig, sim: Simulation, n: number, until: (w: World) => boolean 
 }
 const ticksOf = (seconds: number): number => Math.round(seconds / SIM_DT);
 
-check('the three arenas open and play a whole fight in the view without a fall; their things wear their notches (barrel 1, wardrobe 2) and the floor and walls draw', () => {
-  const want: Record<string, number> = { 'c-hall': 3, 'c-enfilade': 5, 'c-ballroom': 8 };
+check('the four arenas (the hall of the warlock too: his wardrobe 2 + four barrels) open and play a whole fight in the view without a fall; their things wear their notches (barrel 1, wardrobe 2) and the floor and walls draw', () => {
+  const want: Record<string, number> = { 'c-hall': 3, 'c-enfilade': 5, 'c-ballroom': 8, 'c-warlock': 6 };
   for (const arena of CASTLE_ARENAS) {
     for (const k of [1, 2]) {
       const p = defaultParams(); p.heroHp = 999;

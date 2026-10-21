@@ -30,6 +30,7 @@ import { SHOOTERS_ARENAS } from '../sim/arenasShooters';
 // Task 38: the garrison's arenas at the end of the sandbox menu (`?arena=20…24`).
 import { GARRISON_ARENAS } from '../sim/arenasGarrison';
 import { CASTLE_ARENAS } from '../sim/arenasCastle';
+import { warlockState } from '../sim/enemies/warlock';
 import { rookLine, wardrobeLying, wardrobeTopple, WARDROBE, ROOK } from '../sim/enemies/castle';
 import { durabilityOf, isThing } from '../sim/shove';
 import { canSpin } from '../sim/abilities';
@@ -2023,6 +2024,14 @@ async function boot(): Promise<void> {
          * since the fight began — `hits` (signs flashed), `sparks` («звон»), `severed`, `unlinks`, `recolors`, `opens`, `feastHits`, `feastBig`, `supplies`, `brews`.
          */
         chief: { ...renderer.chiefShown },
+        /**
+         * Task 55 Д «Колдун v0» (render.ts `warlockShown`, the sim's `warlockState`): `state` — phase, `spellbound`, his wardrobe, the candles and the one he
+         * stands at, the shift's target with the sign's fill, the window (null — none); `shown`: `core` (his drawing this frame), `dazed` (the window's
+         * drawing), `glow` (the window takes the hit), `count`/`edgeCount` (whole seconds over him / by his goal arrow), `beam` (the charm's beam drawn,
+         * `beamTo` — the wardrobe's id), `candles` drawn, `target` (the lit candle) with its `flame` (units) and `signProgress`, `haze`, `dropping`;
+         * since the fight began — `sparks` («звон»), `hits`, `opens`, `unlinks`, `snaps` (the charm's end), `marks`, `arrivals`.
+         */
+        warlock: { state: warlockState(w), shown: { ...renderer.warlockShown } },
         /** Task 28: the boss bar of the HUD (`BossBar.shown`) and the names of the boss's moves on screen now. */
         bossBar: bossBar.shown(),
         bossNames: bossLabels.map(l => l.spec.text),

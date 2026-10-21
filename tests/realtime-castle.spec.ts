@@ -89,20 +89,21 @@ async function walkUntil(page: Page, key: string, done: (hero: { x: number; y: n
   expect(reached, `walked with ${key}`).toBe(true);
 }
 
-test('task 55а: the sandbox menu has the group «Замок» with three arenas; a click opens each — the things with their notches, the parquet and walls (screenshots)', async ({ page }) => {
+test('task 55а: the sandbox menu has the group «Замок» with four arenas (the fourth - «Зал колдуна», task 55 Д); a click opens each — the things with their notches, the parquet and walls (screenshots)', async ({ page }) => {
   const errors = collectErrors(page);
   await openMenu(page);
   await expect(page.locator('h3.rt-arenas-head', { hasText: 'Замок' })).toBeVisible();
   await expect(page.getByTestId('castle-arena-1')).toContainText('Прихожая');
   await expect(page.getByTestId('castle-arena-2')).toContainText('Анфилада');
   await expect(page.getByTestId('castle-arena-3')).toContainText('Бальный зал');
-  await expect(page.getByTestId('castle-arena-4')).toHaveCount(0);
+  await expect(page.getByTestId('castle-arena-4')).toContainText('Зал колдуна');
+  await expect(page.getByTestId('castle-arena-5')).toHaveCount(0);
   await shot(page, 'menu');
-  const total = await page.locator('.rt-arena').count();
-  const want: [string, number, number][] = [['c-hall', 3, 3], ['c-enfilade', 5, 3], ['c-ballroom', 8, 6]];
+  // `?arena=N` counts from 1 over the whole menu: the castle group's first button is at its place there.
+  const first = 1 + await page.locator('.rt-arena').evaluateAll(els => els.findIndex(e => e.getAttribute('data-testid') === 'castle-arena-1'));
+  const want: [string, number, number][] = [['c-hall', 3, 3], ['c-enfilade', 5, 3], ['c-ballroom', 8, 6], ['c-warlock', 6, 5]];
   for (const [i, [arena, notches, things]] of want.entries()) {
-    // `?arena=N` opens the same arena at once (N counts from 1 over the whole menu; the castle's three are the last).
-    await page.goto(`/?sandbox=1&arena=${total - 2 + i}`);
+    await page.goto(`/?sandbox=1&arena=${first + i}`);
     await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
     await expect.poll(async () => (await snap(page)).arena).toBe(arena);
     await cameraSettled(page);
