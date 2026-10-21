@@ -244,8 +244,9 @@ export function rtArenaParams(run: RtArenaRules | RtRunState, params: Params): P
   const rules: RtArenaRules = 'map' in run ? rtArenaRules(run) : run, out = { ...params, markedGoals: !!rules.markedGoals };
   // Task 19 «Короткий запал»: a run with the flag plays the short fuse; without it — the fuse of the params as they come.
   if (rules.shortFuse) out.slotBustFuse = RT_RUN_BUST_FUSE;
-  // «Метка у героя»: a run with the flag plays the marker that finds a place; without it — the key off, the path of before.
-  if (rules.markerSeek) out.markerSeek = true;
+  // «Метка у героя»: a run with the flag plays the marker that finds a place; without it — the values without the key, as before it
+  // (the world hashes them as a build before the task did; review 21.10.2026, the policy of `bossHoles`).
+  if (rules.markerSeek) out.markerSeek = true; else delete (out as Partial<Params>).markerSeek;
   // Task 30 «Формы в походе»: a run with the flag plays the counters' chain window («Острие», «Улов»), «Близнецы» with their price
   // (task 33) and «Возврат» fixed at the release as its highlight shows it (task 29: the shadow is the run); without it — the
   // values of `RUN_FORCED` (all off).

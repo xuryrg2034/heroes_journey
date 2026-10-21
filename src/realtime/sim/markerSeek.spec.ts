@@ -118,11 +118,13 @@ check('«Тесно»: no free point outside the hero\'s ring — with the key t
   }
 });
 
-check('the run: a new run keeps the flag `markerSeek` and its battles play the key; a run created without it (a save before it) — the key off; the save reads back, a malformed flag — no run; a real run fight with it replays', () => {
+check('the run: a new run keeps the flag `markerSeek` and its battles play the key; a run created without it (a save before it) — its battles\' values without the key (as before the task); the save reads back, a malformed flag — no run; a real run fight with it replays', () => {
   for (const k of SEEDS) {
     const run = createRtRun(seedOf(k)), old = createRtRun(seedOf(k), { markerSeek: false });
     assert(run.markerSeek === true && old.markerSeek === undefined, `seed ${k}: the flag (${run.markerSeek}, ${old.markerSeek})`);
-    assert(rtArenaParams(run, rtRunParams(defaultParams())).markerSeek === true && !rtArenaParams(old, rtRunParams(defaultParams())).markerSeek, `seed ${k}: the battles' key`);
+    const oldBack = parseRtRun(serializeRtRun(old));
+    assert(oldBack && !('markerSeek' in rtArenaParams(oldBack, rtRunParams(defaultParams()))), `seed ${k}: the old save read back — no key`);
+    assert(rtArenaParams(run, rtRunParams(defaultParams())).markerSeek === true && !('markerSeek' in rtArenaParams(old, rtRunParams(defaultParams()))), `seed ${k}: the battles' key (the old save's values without it)`);
     const back = parseRtRun(serializeRtRun(run));
     assert(back?.markerSeek === true && JSON.stringify(back) === JSON.stringify(run), `seed ${k}: the save reads back`);
     assert(parseRtRun(serializeRtRun({ ...run, markerSeek: 1 as unknown as true })) === null, `seed ${k}: a malformed flag — no run`);
