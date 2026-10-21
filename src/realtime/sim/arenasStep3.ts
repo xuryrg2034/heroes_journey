@@ -130,7 +130,8 @@ export const TARWORKS_ARENA: ArenaTemplate = registerArena({
 
 /**
  * «Казарма» (`g-barracks`; garrison rows 3–4, the trails — by the run's draw instead of «Ристалище»): kill 20 — the recruits' first
- * meeting. The feature — the numbered formation: one formation (colour 0) right before the hero, the second (colour 2) deep in the yard
+ * meeting. The feature — the numbered formation: one formation (colour 0) right before the hero (every number within a link from where he
+ * stands), the second (colour 2) deep in the yard
  * behind the bunks (two low walls at the sides; the middle open). The player's decision: read the numbers and draw the route 1 → 4 (not
  * the nearest body) — the whole formation in one pass gives +2 energy. Plain enemies of four colours around; the newcomers — basic
  * enemies and now and then a new formation (`RECRUIT_SHARE`; at most two stand, of different colours).
@@ -148,7 +149,8 @@ export const BARRACKS_ARENA: ArenaTemplate = registerArena({
   buttons: [],
   door: { x: 8, y: 0.7 },
   enemies: [
-    ...recruitLine(8, 5.8, 0, 1),
+    // Within a link of the hero with no step (the outer one 1.95 from him, the reach to its edge 2.2): the first press reads the numbers.
+    ...recruitLine(8, 7, 0, 1),
     ...recruitLine(8, 2.2, 2, 2),
     { x: 2.6, y: 2.4, color: 1 }, { x: 13.4, y: 2.6, color: 3 }, { x: 3, y: 6.6, color: 3 }, { x: 13, y: 6.4, color: 1 }, { x: 11.6, y: 3.2, color: 0 }, { x: 4.4, y: 3.2, color: 2 },
   ],
@@ -158,5 +160,43 @@ export const BARRACKS_ARENA: ArenaTemplate = registerArena({
   recruits: true,
 });
 
+/** Баланс (гипотеза 21.10.2026, до замера бота): this share of the newcomers of «Барбакан» take the colour A of the living pair (`pairShare`). */
+export const BARBICAN_PAIR_SHARE = 0.3;
+
+/**
+ * «Барбакан» (`g-barbican`; garrison rows 8–9, the branch `den`): kill 25 (spec В12: the pair is not the goal) — the wardens' first meeting.
+ * The feature — the pair at the gate: two wardens before the door between two gate towers (walls), a guards' line and two weak enemies
+ * of the pair's colour A just before them (`pairTint`: the colour A once the pair is drawn), three plain enemies of other colours lower in
+ * the yard. The player's decision: gather five links of A, then the warden A (the sixth frees the colour, «Смена цвета» 6), then B — both
+ * in one pass, no anger; a chain into one of them makes the other angry («Размах», touch 2). The newcomers: guards' lines, and
+ * `BARBICAN_PAIR_SHARE` of the colour draws take A of the living pair (spec 7.1: else six links of A at the pair do not gather).
+ */
+export const BARBICAN_ARENA: ArenaTemplate = registerArena({
+  id: 'g-barbican',
+  name: 'Барбакан',
+  summary: 'Убей цепью 25 врагов. Привратники у ворот — пара двух цветов: погиб один — второй в гневе. Обоих — одной цепью: пять звеньев цвета левого, он сам, затем правый. Дверь сверху.',
+  goal: 'kills',
+  killGoal: 25,
+  width: 16,
+  height: 10,
+  heroStart: { x: 8, y: 8.4 },
+  obstacles: [wall(4.2, 0.8, 1.4, 2), wall(10.4, 0.8, 1.4, 2)],
+  buttons: [],
+  door: { x: 8, y: 0.7 },
+  enemies: [
+    // The pair (the first by id draws A): A on the left, B on the right, 1.2 apart.
+    { x: 7.4, y: 2, color: 0, kind: WARDEN, formation: 1 }, { x: 8.6, y: 2, color: 1, kind: WARDEN, formation: 1 },
+    // Five links of A up to the warden A: the right weak one, the guards' line right to left, the left weak one.
+    ...guardLine(8, 3.3, 2, 2).map(e => ({ ...e, pairTint: true as const })),
+    { x: 10.3, y: 3.7, color: 3, pairTint: true }, { x: 6, y: 3, color: 1, pairTint: true },
+    { x: 3, y: 5.4, color: 2 }, { x: 13, y: 5.6, color: 0 }, { x: 11.4, y: 7.2, color: 3 },
+  ],
+  phaseOverride: NO_PACKS,
+  newcomers: [{ kind: GUARD, share: GUARD_SHARE, group: GUARD_FORMATION }],
+  pairShare: BARBICAN_PAIR_SHARE,
+  garrison: true,
+  wardens: true,
+});
+
 /** The sandbox menu's group «Гарнизон, шаг 3 — арены» (view/main.ts, after the probes): the arenas of the run's pools. */
-export const STEP3_RUN_ARENAS: readonly ArenaTemplate[] = [TARWORKS_ARENA, BARRACKS_ARENA];
+export const STEP3_RUN_ARENAS: readonly ArenaTemplate[] = [TARWORKS_ARENA, BARRACKS_ARENA, BARBICAN_ARENA];

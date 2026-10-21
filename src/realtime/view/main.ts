@@ -120,7 +120,7 @@ const NOTE_FLASH_MS = 1000;
  * «Берлога тролля» (task 48, no key, `?arena=30`), «Стан Главаря» (`?arena=31`), the castle's three (task 55а, `?arena=32…34`), «Стрелки
  * леса (проба)» (task 57а, `?arena=35`); at the end the probes of the garrison's step 3 (task 59а, no key): «Смолокур (проба)» `?arena=36`,
  * «Новобранцы (проба)» `?arena=37`, «Привратники (проба)» `?arena=38`; after them the full arenas of step 3 (task 59б, no key, the next
- * numbers): «Смолокурня», «Казарма». `?arena=N` opens one at once.
+ * numbers): «Смолокурня», «Казарма», «Барбакан». `?arena=N` opens one at once.
  */
 const SANDBOX_ARENAS: readonly ArenaTemplate[] = [...ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS, ...BEHAVIOR_ARENAS, ...CAMERA_ARENAS, ...BOSS_ARENAS, ...GARRISON_ARENAS, ...FOREST_BOSS_ARENAS, ...CASTLE_ARENAS, ...SHOOTERS_ARENAS, ...STEP3_ARENAS, ...STEP3_RUN_ARENAS];
 /** Arenas on the plain digit keys (1–9, 0); the rest are on Shift + digit (stage 3a). */
