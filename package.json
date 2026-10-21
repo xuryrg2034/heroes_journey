@@ -133,6 +133,7 @@
     "test:realtime-knight": "tsx src/realtime/sim/knight.spec.ts",
     "test:realtime-garrison-moat": "tsx src/realtime/run/garrisonMoat.spec.ts",
     "test:realtime-garrison-step2": "tsx src/realtime/run/garrisonStep2.spec.ts",
+    "test:realtime-garrison-step3": "tsx src/realtime/run/garrisonStep3.spec.ts",
     "test:realtime-potion-cap": "tsx src/realtime/run/potionCap.spec.ts",
     "test:realtime-boss-clears": "tsx src/realtime/sim/bossClears.spec.ts",
     "test:realtime-jailer-run": "tsx src/realtime/run/jailerRun.spec.ts",

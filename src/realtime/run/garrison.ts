@@ -51,11 +51,27 @@ export const RT_GARRISON_MOAT_ON = true;
  * before it (no flag) plays the garrison of step 1б to its end, its pools byte for byte.
  */
 export const RT_GARRISON_STEP2_ON = true;
+/**
+ * Task 59б «Гарнизон, шаг 3» (docs/design-notes/task-59-garrison-step3.md, 7.2): a new run of step 2 takes the arenas of step 3
+ * (`RtRunState.step3`): the trails' drill («Ристалище» and the knight, or «Казарма» and the recruits), «Барбакан» and the wardens on `den`,
+ * «Смолокурня» and the pitcher on `camp`. Off until the three arenas and the view (the design's decision turns it on). A run saved before
+ * it (no flag) plays the garrison of step 2 to its end, its pools byte for byte.
+ */
+export const RT_GARRISON_STEP3_ON = false;
 const textHash = (text: string): number => [...text].reduce((hash, ch) => Math.imul(hash ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5);
 /** The salt of the garrison's seed (its map, its streams, its arena seeds). */
 export const GARRISON_SALT = textHash('garrison-map');
 /** The garrison's seed of a run seed. */
 export const garrisonSeed = (seed: number): number => mixSeed(seed >>> 0, GARRISON_SALT);
+/**
+ * Task 59б (user's decision 17.10.2026, question В1 (а)): the trails' drill of a run of step 3 — `armory` («Ристалище», the knight) or
+ * `barracks` («Казарма», the recruits; no knight in this run). The spec draws it when the run enters the garrison by the garrison's
+ * stream with the salt `garrison-drill`; it depends on the run's seed alone (no stream of the forest or of the pools is spent), so the
+ * run draws it at its creation — the same value the entry would draw — and keeps it (`RtRunState.step3.drill`).
+ */
+export type GarrisonDrill = 'armory' | 'barracks';
+export const GARRISON_DRILL_SALT = textHash('garrison-drill');
+export const garrisonDrill = (seed: number): GarrisonDrill => ((mixSeed(garrisonSeed(seed), GARRISON_DRILL_SALT) & 1) === 0 ? 'armory' : 'barracks');
 /** The prefix of the garrison's node ids on the run's map. */
 export const GARRISON_PREFIX = 'g:';
 export const rtGarrisonNodeId = (id: string): boolean => id.startsWith(GARRISON_PREFIX);

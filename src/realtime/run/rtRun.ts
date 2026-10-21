@@ -70,7 +70,7 @@ import { HAMMER_IDS, RT_HAMMER_OFFER_SIZE } from './rtTalismans';
 // Task 56 «Приметы»: the catalogue, the rolls and the fight's values of the omens (a leaf of the run).
 import { isRtOmenPool, rtFairItem, rtLevelOmenRoll, rtNodeOmenPick, rtOmen, rtOmenColors, rtOmenParams, RT_OMEN_FAIR_HEAL, RT_OMEN_IDS, RT_OMEN_NODE_ROW, type RtFightOmens, type RtOmenId, type RtOmenLevel, type RtOmens } from './omens';
 // Task 38 «Гарнизон, шаг 1»: the garrison level after the forest (run/garrison.ts; the flow — section «Task 38» below).
-import { garrisonArena, garrisonBolts, garrisonCombinedMap, garrisonDeep, garrisonKit, garrisonKnights, garrisonRelicOffer, garrisonSeed, GARRISON_RELIC_SLOTS, generateGarrisonMap, GARRISON_RUN_ARENAS, RT_GARRISON_MOAT_ON, RT_GARRISON_ON, RT_GARRISON_STEP2_ON, rtGarrisonNodeId } from './garrison';
+import { garrisonArena, garrisonBolts, garrisonCombinedMap, garrisonDeep, garrisonKit, garrisonKnights, garrisonRelicOffer, garrisonSeed, GARRISON_RELIC_SLOTS, garrisonDrill, generateGarrisonMap, GARRISON_RUN_ARENAS, RT_GARRISON_MOAT_ON, RT_GARRISON_ON, RT_GARRISON_STEP2_ON, RT_GARRISON_STEP3_ON, rtGarrisonNodeId, type GarrisonDrill } from './garrison';
 
 /**
  * Version 2 (step 3, 08.10.2026): consumables, open consumables, banked energy, the find's choice, crafting, the merchant's
@@ -793,6 +793,13 @@ export interface RtRunState {
    */
   step2?: true;
   /**
+   * Task 59б «Гарнизон, шаг 3» (docs/design-notes/task-59-garrison-step3.md, 7.2): the garrison plays the arenas of step 3 — the trails'
+   * drill (`drill`: «Ристалище» and the knight, or «Казарма» and the recruits; run/garrison.ts `garrisonDrill`, by the seed), «Барбакан»
+   * on `den`, «Смолокурня» on `camp`. Set when a run of step 2 is created (`RT_GARRISON_STEP3_ON`); only with `step2`. Absent — a run saved
+   * before it: the garrison of step 2, its pools byte for byte, to its end.
+   */
+  step3?: { drill: GarrisonDrill };
+  /**
    * Task 51 (design 17.10.2026, task-51 spec section 17, one rule for every relic screen): the relic screens fill their empty places — the
    * forest final's relic (1 of 3, the Troll's 1 of 4) and «Караульня»'s oath and relic screen, whose relics and oaths the Jailer's screen and
    * the screens before spend (since task 38 the final showed 1–2 of 3, «Караульня» 0–1) — with a rare talisman each by the same draw
@@ -1105,7 +1112,7 @@ export const rtDailySeed = (date: string): number => mixSeed(metaSalt('daily'), 
  * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
  * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
  */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; troll?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; relicFill?: boolean; chronicle?: boolean; potionCap?: number; knacks?: boolean; habits?: boolean; hero?: RtHeroId; omens?: readonly string[]; daily?: string; forestShooters?: boolean; bossHoles?: boolean } = {}): RtRunState {
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; troll?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; relicFill?: boolean; chronicle?: boolean; potionCap?: number; knacks?: boolean; habits?: boolean; hero?: RtHeroId; omens?: readonly string[]; daily?: string; forestShooters?: boolean; bossHoles?: boolean; step3?: boolean } = {}): RtRunState {
   const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
   // Task 12 (13.10.2026): the goal layouts of the `marked` arenas, as the mix — on as `RT_RUN_FORCED` says unless the option says.
   const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
@@ -1144,6 +1151,9 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   // Task 43 «Гарнизон, шаг 2» (16.10.2026): «Ристалище», «Бойницы», knights and crossbowmen — only with «Ров», by `RT_GARRISON_STEP2_ON`
   // unless the option says.
   const step2 = moat && (options.step2 ?? RT_GARRISON_STEP2_ON);
+  // Task 59б «Гарнизон, шаг 3»: the drill, «Казарма», «Барбакан», «Смолокурня» — only with step 2, by `RT_GARRISON_STEP3_ON` unless the
+  // option says; the drill by the seed alone (the value the garrison's entry would draw).
+  const step3 = step2 && (options.step3 ?? RT_GARRISON_STEP3_ON);
   // Task 51 (design 17.10.2026): the relic screens filled — its own flag, only with the garrison (the relic screens are its).
   const relicFill = garrison && (options.relicFill ?? RT_RELIC_FILL_ON), chronicle = options.chronicle ?? RT_CHRONICLE_ON;
   // Task 57а «Лес: стрелки» (17.10.2026): the new shooters of the forest, by `RT_FOREST_SHOOTERS_ON` unless the option says.
@@ -1159,7 +1169,7 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   const run: RtRunState = {
     version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {},
     // Task 51з: the run of the day (only seeded, its seed the date's; run/rtDaily.ts `createRtDailyRun`).
-    ...options.seeded && isRtDailyDate(options.daily) && (seed >>> 0) === rtDailySeed(options.daily) ? { daily: options.daily } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked } : {}, ...heroId ? { heroId } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...relicFill ? { relicFill: true as const } : {}, ...chronicle ? { chronicle: true as const } : {}, ...potionCap ? { potionCap } : {}, ...pool.length ? { omens: { pool } } : {}, ...forestShooters ? { forestShooters: true as const } : {}, ...bossHoles ? { bossHoles: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    ...options.seeded && isRtDailyDate(options.daily) && (seed >>> 0) === rtDailySeed(options.daily) ? { daily: options.daily } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked } : {}, ...heroId ? { heroId } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...step3 ? { step3: { drill: garrisonDrill(seed) } } : {}, ...relicFill ? { relicFill: true as const } : {}, ...chronicle ? { chronicle: true as const } : {}, ...potionCap ? { potionCap } : {}, ...pool.length ? { omens: { pool } } : {}, ...forestShooters ? { forestShooters: true as const } : {}, ...bossHoles ? { bossHoles: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
@@ -4080,6 +4090,8 @@ function checkRun(value: unknown): RtRunState | null {
       || (Array.isArray(value.locked) && (value.locked as unknown[]).includes(id)) || rtInnate(value as Pick<RtRunState, 'heroId'>).includes(id)))) return null;
   // Task 43: a flag, only with «Ров».
   if (value.step2 !== undefined && !(value.step2 === true && value.moat === true)) return null;
+  // Task 59б: a flag, only with step 2; its drill is the seed's (a forged drill is no run).
+  if (value.step3 !== undefined && !(value.step2 === true && isRecord(value.step3) && Object.keys(value.step3).length === 1 && value.step3.drill === garrisonDrill(value.seed as number))) return null;
   // Task 57а: a flag; absent — a save before it (or a run without the new shooters).
   if (value.forestShooters !== undefined && value.forestShooters !== true) return null;
   // «Дыры ядра боссов» (21.10.2026): a flag; absent — a save before it (the old paths).
