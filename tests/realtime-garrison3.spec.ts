@@ -1,7 +1,6 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
 import { gameWait, untilFrame } from './realtimeFrames';
-import '../src/realtime/sim/arenasStep3'; // the probes register themselves: the Node replay of the page's journal needs them
 import { replay, type Journal } from '../src/realtime/sim/simulation';
 
 /**
