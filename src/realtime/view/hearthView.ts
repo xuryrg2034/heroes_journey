@@ -302,7 +302,7 @@ export class HearthView {
     const book = npc === 'owl' && this.host.chronicle ? `<button class="rt-other rt-hearth-book" data-action="chron-open" data-testid="hearth-chronicle">Летопись${unread ? ` <span class="rt-hearth-book-new" data-testid="hearth-chronicle-new">✦ ${unread}</span>` : ''}</button>` : '';
     // UI-01б: the bubble stands in the free middle above the fire (between the back figures and over none of the places), at the top of the scene.
     void i; void at; void right;
-    return `<div class="rt-hearth-bubble" style="left:50%;top:56px;transform:translateX(-50%)" data-testid="hearth-bubble" data-npc="${npc}">`
+    return `<div class="rt-hearth-bubble" style="left:50%;top:36px;transform:translateX(-50%)" data-testid="hearth-bubble" data-npc="${npc}">`
       + `<p class="rt-hearth-who"><b>${esc(NPCS[npc].name)}</b> · ${esc(NPCS[npc].who)}</p><p class="rt-hearth-line" data-testid="hearth-line">${esc(this.lastLine)}</p>${quest}<ul class="rt-hearth-ups">${rows}</ul>${book}</div>`;
   }
 

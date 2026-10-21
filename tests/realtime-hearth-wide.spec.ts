@@ -19,10 +19,12 @@ function collectErrors(page: Page): string[] {
 const META = {
   heroes: { cat: { xp: 40, packs: [], record: { row: 9, won: true, xp: 40 } }, toad: { xp: 5, packs: [] } },
   freed: { toad: { row: 5 } },
+  // The worst case of the owl's panel: the retro line (Ведунья freed, no run counted: `retro`), her quest, the new in the chronicle («Летопись ✦ N»).
+  chronicle: { kinds: ['wolf'], unread: ['kind:wolf'] },
   hearth: {
-  // The retro line of the owl (task 58) is said already: the panel check reads the ordinary lines.
+    quest: { npc: 'owl', id: 'owl-forest' },
     stock: 10, levels: { owl: 1, herb: 1, smith: 1, gambler: 1, monk: 1 }, met: { herb: true, smith: true, gambler: true, monk: true },
-    lines: { 'owl:first': 2, 'herb:first': 2, 'smith:first': 2, 'gambler:first': 2, 'monk:first': 2, 'toad:first_camp': 1, 'owl:chronicle_retro': 1 }, quiet: 0,
+    lines: { 'owl:first': 2, 'herb:first': 2, 'smith:first': 2, 'gambler:first': 2, 'monk:first': 2, 'toad:first_camp': 1 }, quiet: 0,
   },
 };
 
@@ -91,6 +93,7 @@ for (const [width, height] of [[1280, 720], [1600, 900], [1920, 1080], [2560, 14
         const cross = box.x < b.x + b.width && box.x + box.width > b.x && box.y < b.y + b.height && box.y + box.height > b.y;
         expect(cross, `${npc}: the panel does not cross place ${i} (${await places.nth(i).getAttribute('data-testid')})`).toBe(false);
       }
+      if (npc === 'owl' && width <= 1920 && (width === 1280 || width === 1920)) await page.screenshot({ path: shot(`hearth-owl-retro-${width}x${height}`) });
       if (npc === 'monk') await page.screenshot({ path: shot(`hearth-scale-${width}x${height}`) });
     }
     // «В поход» leaves the camp.
