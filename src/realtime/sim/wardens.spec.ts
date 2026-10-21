@@ -209,6 +209,33 @@ check('a partner killed in a jump (a burn): the anger at once, in the jump — o
   }
 });
 
+registerArena({
+  id: 'warden-gate-flag', name: 'Ворота привратников (флаг)', summary: 'Тест флага шаблона', goal: 'kills', killGoal: 999, width: 20, height: 12,
+  heroStart: { x: 10, y: 7 }, obstacles: [], buttons: [], door: { x: 19.3, y: 6 }, garrison: true, wardens: true,
+  enemies: [{ x: 9.4, y: 4, color: 0, kind: WARDEN, formation: 1 }, { x: 10.6, y: 4, color: 0, kind: WARDEN, formation: 1 }],
+});
+
+check('the template flag `wardens` (sandbox arenas of step 3): the arena plays the pair with the key off; without the flag — no pair; a journal without the key replays the flagged world (3 seeds)', () => {
+  for (const k of [1, 2, 3]) {
+    const flagged = new Simulation({ arena: 'warden-gate-flag', params: quiet({ wardens: false }), seed: seedOf(k), record: true });
+    flagged.tick();
+    const w = flagged.world, [a, b] = pair(w);
+    assert(w.params.wardens === true && wardenPartner(w, a) === b, `seed ${k}: the flag turns the pair on`);
+    const plain = gate(k, { wardens: false }), [pa] = pair(plain.world);
+    assert(plain.world.params.wardens === false && !wardenPartner(plain.world, pa), `seed ${k}: no flag, no pair`);
+    flagged.command({ t: 'items', kind: 'bomb', count: 1 });
+    flagged.command({ t: 'teleport', x: 9.4, y: 6 });
+    flagged.command({ t: 'item', kind: 'bomb', x: a.x, y: a.y });
+    ticks(flagged, ticksOf(1));
+    assert(wardenAngry(b), `seed ${k}: angry`);
+    assert(replays(flagged), `seed ${k}: replay`);
+    const journal = flagged.exportJournal()! as Journal;
+    delete (journal.params as unknown as Record<string, unknown>).wardens;
+    const strip = (x: World): string => JSON.stringify({ ...(worldState(x) as Record<string, unknown>), params: null });
+    assert(strip(replay(JSON.parse(JSON.stringify(journal))).world) === strip(flagged.world), `seed ${k}: a journal without the key replays the flagged world (worldState minus params)`);
+  }
+});
+
 check('the law off: no pair, no anger; a journal without the keys plays the same world (2 seeds)', () => {
   for (const k of [1, 2]) {
     const off = gate(k, { wardens: false }), w = off.world, [a, b] = pair(w);

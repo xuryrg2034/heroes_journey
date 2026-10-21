@@ -122,6 +122,7 @@
     "test:realtime-recruits": "tsx src/realtime/sim/recruits.spec.ts",
     "test:realtime-wardens": "tsx src/realtime/sim/wardens.spec.ts",
     "test:realtime-pitcher": "tsx src/realtime/sim/pitcher.spec.ts",
+    "test:realtime-step3-probes": "tsx src/realtime/sim/step3Probes.spec.ts",
     "test:realtime-forest-shooters": "tsx src/realtime/sim/forestShooters.spec.ts",
     "test:realtime-forest-shooters-run": "tsx src/realtime/run/forestShootersRun.spec.ts",
     "test:realtime-castle": "tsx src/realtime/sim/castle.spec.ts",

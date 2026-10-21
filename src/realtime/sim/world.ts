@@ -911,6 +911,9 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   if (arena.shackles && !params.shackles) params = { ...copyParams(params), shackles: true };
   // Task 59а: «Смолокурня» plays the law of pitch (the given object stays as it is; a journal keeps the copy).
   if (arena.pitch && !params.pitch) params = { ...copyParams(params), pitch: true };
+  // Task 59а: «Казарма» plays the recruits' law of order, «Барбакан» the wardens' pair (sandbox arenas; a journal keeps the copy).
+  if (arena.recruits && !params.recruits) params = { ...copyParams(params), recruits: true };
+  if (arena.wardens && !params.wardens) params = { ...copyParams(params), wardens: true };
   // Task 43: the full Castellan's arena plays its key on (the sandbox «Двор кастеляна (полный)»; a journal keeps the copy).
   if (arena.castellanFull && !params.castellanFull) params = { ...copyParams(params), castellanFull: true };
   // Task 48: the Troll's arena plays his solid bodies (when the values have it off; a journal keeps the copy).
