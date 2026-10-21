@@ -266,7 +266,6 @@ export function mergeChoice(list: RunChoice[], c: RunChoice): void {
   if (c.realSeconds !== undefined) old.realSeconds = (old.realSeconds ?? 0) + c.realSeconds;
 }
 
-/** The build at the end of the run (or now). */
 /**
  * Task 40 (from 16.10.2026): the run's levels for its record — the level it is on (2 — the garrison), the highest level it passed
  * (1 — the forest's final won, 2 — the Castellan), the cart of «Предместье» (absent — none of them: the record as before).
@@ -311,6 +310,11 @@ interface RunMeta {
   dice?: RunDie[];
   /** П6: when the run ended (ISO; absent — not ended). */
   endedAt?: string;
+  /**
+   * The build the run ended on (absent — not ended, or ended before 21.10.2026): a record written again after the end (a click on an
+   * NPC in the camp, a buy) keeps it in its header, not the build of that later session.
+   */
+  build?: string;
   /** П8: the map choices made with the sign «✦ новое» shown (absent — none yet). */
   mapSigns?: RunMapSign[];
   /** «Обучение v1»: the fight hints shown in this run (absent — none yet). */
@@ -727,7 +731,7 @@ export class RtRecorder {
   private writeRun(run: RtRunState): void {
     const meta = this.metaFor(run), runParams = JSON.parse(JSON.stringify(this.options.params)) as Params;
     const record: RunRecord = {
-      ...this.header(runRecordId(this.session, meta.key), 'run', meta.key, paramsHash(runParams)),
+      ...this.header(runRecordId(this.session, meta.key), 'run', meta.key, paramsHash(runParams)), ...meta.build ? { build: meta.build } : {},
       seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, ...meta.hints?.length ? { hints: meta.hints } : {}, ...meta.items ? { items: meta.items } : {}, ...meta.gentle ? { gentle: true as const } : {}, ...meta.startPotion ? { startPotion: true as const } : {}, ...meta.secondWindOn ? { secondWindOn: true as const } : {}, ...meta.startItems ? { startItems: meta.startItems } : {}, ...meta.secondWind ? { secondWind: meta.secondWind } : {}, ...meta.mapHeals?.length ? { mapHeals: meta.mapHeals } : {}, /* task 18: the run's own level */ ...run.ash ? { ash: run.ash } : {}, /* task 41: the cap of healing potions */ ...run.potionCap ? { potionCap: run.potionCap } : {}, /* task 26: living elements of the snapshot (affix types apart) */ ...run.schedule ? { schedule: { start: run.schedule.seen.filter(id => !id.startsWith('affix:')).length } } : {},
       ...run.fusions ? { fusions: meta.fusions ?? { halves: [], paired: [], made: [], declined: [] } } : {},
       // Task 50: the knack screens and rank II; the archetype (absent — «Без повадки», or not chosen yet).
@@ -1039,6 +1043,7 @@ export class RtRecorder {
           meta.outcome = ev.type === 'run-won' ? 'victory' : 'defeat';
           // П6: the end of the run (the step that ended it; the first one, should a step repeat).
           meta.endedAt ??= new Date().toISOString();
+          meta.build ??= this.build;
         }
       }
       const seconds = typeof info.realSeconds === 'number' && Number.isFinite(info.realSeconds) && info.realSeconds >= 0 ? info.realSeconds : undefined;
