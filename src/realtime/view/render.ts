@@ -13,18 +13,18 @@ import { Application, Container, Graphics, GraphicsContext, Particle, ParticleCo
 import { COLORS, PALE, drawTerrain, makePlayer, type HeroArtId } from '../art/art';
 import { characterSprite, hasCharacterArt, type CharacterArtId } from '../art/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
-import { OBJECT_RADIUS, armedDamage, canJump, chainAnchor, chainAnchors, chainColor, colorGroups, colorJoin, colorShiftIds, colorShiftLeft, colorlessLink, enemyAnchors, forkAnchorOf, heroAnchorOn, jumpLanding, linkPoint, loopCandidates, loopOn, nextCandidates, nextObjectCandidates, planChain, sameColor, twinsNextColor, type ChainPlan } from '../sim/chain';
+import { OBJECT_RADIUS, armedDamage, canJump, castCircle, castRefusal, chainAnchor, chainAnchors, chainColor, colorGroups, colorJoin, colorShiftIds, colorShiftLeft, colorlessLink, enemyAnchors, forkAnchorOf, heroAnchorOn, jumpLanding, linkPoint, loopCandidates, loopOn, nextCandidates, nextObjectCandidates, planChain, sameColor, twinsNextColor, type ChainPlan } from '../sim/chain';
 import { forkAnchorNow } from '../sim/forms';
 import { FROST_PASS_LIFE, FROST_PASS_RADIUS, frostPassPoints, frostPassPreview } from '../sim/frostPass';
 import { drawAlienRing, drawForkMark, drawFrostPoint, drawFrostPreview, drawIceMark, drawReturnPower, drawReturnRoute, drawTwinLine } from './formsView';
-import { enemyArtScale } from '../sim/enemies/kinds';
+import { enemyArtRadius, enemyArtScale } from '../sim/enemies/kinds';
 import { BOAR_ART_SCALE, archerLine, archerMark, lynxLine, lynxStunned, quillsUp, quillsWarning, sapperFuse, shamanBeam, shieldUp, wolfHowl, wolfRushLine } from '../sim/enemies/index';
 import { brittleNow } from '../sim/items';
 import { chameleonWarn, eliteAffixes, eliteArmorView, type AffixId } from '../sim/elites';
 import { activeEliteBehavior, boarLane, formationOf } from '../sim/eliteBehaviors';
 import { NewSeenStore, KIND_CAPTIONS, AFFIX_CAPTIONS } from './newSeen';
 import { ELITE_LEMON, PLAQUE_FADE, PLAQUE_LIFE, drawPlatePips, drawWindowPulse, plaqueText, platesWord } from './eliteView';
-import type { ItemKind } from '../sim/kit';
+import { witchOn, type ItemKind } from '../sim/kit';
 import { areaContains, inWater, type Area, type TerrainZone, type Vec } from '../sim/geometry';
 import { Camera, CAMERA, placeEdgeArrows, type CameraBounds, type CameraKeep, type PlacedArrow } from './camera';
 import { collectEdgeMarkers, coreCentreHidden, seesUnderHud, type VisibleArea } from './edgeMarkers';
@@ -42,6 +42,7 @@ import { fireTextOf } from './buildColumn';
 import { findLoopHint, type LoopHintFigure } from './loopHint';
 import { JailerCageView } from './cageView';
 import { isToad } from './toadLesson';
+import { WitchView } from './witchView';
 // Casino stage 1: «Однорукий гоблин» (the idol, the reels, the odds line; the arrow marks are drawn in `drawSignals`).
 import { SlotView } from './slotView';
 import { slotPlanOdds } from '../sim/slotPlan';
@@ -770,6 +771,8 @@ export class RealtimeRenderer {
    * and the sandbox «+N» follow them.
    */
   readonly dashLinks = new DashLinks();
+  /** Task 62 «Ведунья v2»: the runes, the first rune's ring, the contour, the words and the discharge (view/witchView.ts). */
+  readonly witch = new WitchView(UNIT, this.root, this.fxLayer);
   /**
    * П2 (tests read it): pop-ups over the hero at the end of a dash (the cheque or the sandbox «+N»), dashes that ended quietly
    * (1–2 links: no pop-up), flashes of the hero's outline (6–9 links). П3: final flashes of a chain into the door.
@@ -964,7 +967,9 @@ export class RealtimeRenderer {
       const p = this.toArena(ui.pointerScreen.x, ui.pointerScreen.y);
       lead = { x: p.x - hero.x, y: p.y - hero.y };
     }
-    this.camera.update(ui.cameraStill ? 0 : dt, hero, lead, !!ui.cameraFrozen && !world.move, this.bounds(), this.bossKeep(world));
+    // Task 62 (design 21.10.2026): while Ведунья v2 draws, the camera keeps her in the centre (a glide of CAMERA.hold s, no lead, no dead zone, no zoom out).
+    if (ui.cameraFrozen && !world.move && witchOn(world)) this.camera.hold(ui.cameraStill ? 0 : dt, hero, this.bounds(), this.bossKeep(world));
+    else this.camera.update(ui.cameraStill ? 0 : dt, hero, lead, !!ui.cameraFrozen && !world.move, this.bounds(), this.bossKeep(world));
     this.placeRoot();
     if (ui.pointerScreen) ui.pointer = this.toArena(ui.pointerScreen.x, ui.pointerScreen.y);
   }
@@ -1109,6 +1114,7 @@ export class RealtimeRenderer {
 
   buildArena(arena: ArenaLayout): void {
     this.blockSeen.clear();
+    this.witch.reset();
     this.arena = arena;
     this.fitScale();
     const f = this.floor.clear(), w = arena.width * UNIT, h = arena.height * UNIT;
@@ -1426,6 +1432,7 @@ export class RealtimeRenderer {
     // Crowd readability (design answer 10): while a chain is drawn, other colors are muted.
     const color = world.chain.length ? chainColor(world) : null;
     const mode = world.params.dimMode, strength = world.params.dimStrength;
+    const witch = witchOn(world) && world.chain.length > 0;
     let dimmed = 0, colorlessShown = 0;
     const air = this.troll.rockInAir(world);
     for (const e of world.enemies) {
@@ -1503,7 +1510,10 @@ export class RealtimeRenderer {
       view.root.visible = this.sees(e, 1.5);
       // Task 29 «Близнецы»: the pair of the chain's colour is the chain's colour — not muted (`sameColor`, the chain's own rule).
       // Task 32: a colourless link joins a chain of any colour — never muted.
-      const dim = color !== null && !colorless && !sameColor(world, e.color, color) ? strength : 0;
+      // Task 62: with Ведунья v2 a body out of her circle (or behind a wall from her) is muted too, once — the sim's own reach (`castRefusal`).
+      const foreign = color !== null && !colorless && !sameColor(world, e.color, color);
+      const away = witch && view.root.visible && castRefusal(world, e, enemyArtRadius(world.params, e)) !== null;
+      const dim = foreign || away ? strength : 0;
       if (dim > 0 && view.root.visible) dimmed++;
       if (colorless && view.root.visible) colorlessShown++;
       const paintedAt = this.paintAt.get(e.id), fade = paintedAt === undefined ? 1 : Math.min(1, Math.max(0, (this.clock - paintedAt) / PAINT_FADE));
@@ -3537,7 +3547,9 @@ export class RealtimeRenderer {
     const rg = this.reachLayer.clear();
     this.heroReachShown = world.status === 'playing';
     // Phase B (Д5): the radius drawn (units) — «Длинная рука» and «Широкий круг» widen it (tests read it).
-    this.heroReachRadius = linkRadiusOf(world);
+    // Task 62: Ведунья v2 — the circle is the circle of casting (`castCircle`); drawn in the chain's colour, brighter and thicker, while a chain is in hand.
+    const witch = witchOn(world);
+    this.heroReachRadius = witch ? castCircle(world).r : linkRadiusOf(world);
     // Task 47, С4 «Длинная рука»: the reach grew while a chain is drawn (the counters' window gave R ×1.5) — the rings burn brighter
     // for `LONG_ARM_FLASH` s.
     if (world.chain.length && this.lastReach > 0 && this.heroReachRadius > this.lastReach + 1e-9 && world.kit?.talismans.includes(COUNTER_TALISMANS.longArm)) {
@@ -3547,8 +3559,16 @@ export class RealtimeRenderer {
     this.lastReach = this.heroReachRadius;
     const arm = Math.max(0, Math.min(1, (this.armUntil - this.clock) / LONG_ARM_FLASH));
     this.juiceShown.armBright = arm > 0 ? 1 : 0;
+    const castInk = witch && world.chain.length ? chainColor(world) : null;
+    this.witch.shown.circle = 0;
     if (this.heroReachShown) {
-      rg.circle(hero.x * UNIT, hero.y * UNIT, this.heroReachRadius * UNIT).stroke({ color: 0xffffff, width: 1.25 + 2 * arm, alpha: 0.22 + 0.6 * arm });
+      if (witch && world.chain.length) {
+        rg.circle(hero.x * UNIT, hero.y * UNIT, this.heroReachRadius * UNIT).stroke({ color: castInk === null ? 0xffffff : chainInk(castInk), width: 2.25, alpha: 0.9 });
+        this.witch.shown.circle = 2;
+      } else {
+        rg.circle(hero.x * UNIT, hero.y * UNIT, this.heroReachRadius * UNIT).stroke({ color: 0xffffff, width: 1.25 + 2 * arm, alpha: 0.22 + 0.6 * arm });
+        if (witch) this.witch.shown.circle = 1;
+      }
       reach++;
     }
     this.visibleReachCircles = reach;
@@ -3569,6 +3589,7 @@ export class RealtimeRenderer {
     }
     if (!world.chain.length) {
       this.depthChain = '';
+      this.witch.clear();
       this.drawLoopHint(g, world);
       // Task 29 «Возврат»: the run back after the release goes along its fixed way — the way in the chain's colour, dimmer.
       const run = returnRunOf(world);
@@ -3586,8 +3607,9 @@ export class RealtimeRenderer {
     this.garrison3.drawPlan(g, world, plan, this.clock, enemyDrawRadius(p) * UNIT, e => this.sees(e, 1.5));
     this.loopShown.hint = 0;
     // Line hero → links, navy under the chain color.
-    const pts: Vec[] = [{ x: hero.x, y: hero.y }];
-    for (const l of world.chain) { const pt = linkPoint(world, l); if (pt) pts.push(pt); }
+    // Task 62 (design 21.10.2026): Ведунья v2's thread runs through the runes, not the bodies.
+    const pts: Vec[] = witch ? this.witch.threadOf(world) : [{ x: hero.x, y: hero.y }];
+    if (!witch) for (const l of world.chain) { const pt = linkPoint(world, l); if (pt) pts.push(pt); }
     // Task 29 «Близнецы»: the pair of the chain's colour counts as one — the line in dashes of both colours.
     const twins = color === null ? null : colorGroups(world)?.find(group => group.includes(color) && group.length > 1) ?? null;
     // Task 31 «Огненный проход» (`fireMinLinks`): the dash will reach the threshold — the fire's edge under the chain line (embers
@@ -3733,8 +3755,10 @@ export class RealtimeRenderer {
         this.fusionShown.backPower = plan.back.power; this.fusionShown.backFull = full ? 1 : 0;
       }
     }
-    const anchor = chainAnchor(world);
+    // Task 62: Ведунья v2 draws from her circle: the tail to the pointer starts at the last rune, and the next link has no ring of its own.
+    const anchor = witch ? pts[pts.length - 1] : chainAnchor(world);
     this.drawLoop(g, world, plan.seal, ink);
+    if (witch) this.witch.draw(g, world, plan, ink, ui.pointer);
     this.drawPierce(g, world, plan.pierce, ink);
     // Task 55а: the chain ends on a thing — its shove as the plan has it (the path, the crushed, the strike, the wear), nothing recounted.
     if (plan.shove) {
@@ -3749,21 +3773,21 @@ export class RealtimeRenderer {
         // Task 33 «Близнецы»: the next colour — the tail to the pointer, the reach ring and a bead at the last link.
         const next = chainInk(twinNext), ax = anchor.x * UNIT, ay = anchor.y * UNIT;
         if (ui.pointer) for (const [w, c, a] of [[6, NAVY, 0.6], [3.5, next, 0.9]] as const) g.moveTo(ax, ay).lineTo(ui.pointer.x * UNIT, ui.pointer.y * UNIT).stroke({ color: c, width: w, alpha: a, cap: 'round' });
-        g.circle(ax, ay, linkRadiusOf(world) * UNIT).stroke({ color: next, width: 2 + 2 * arm, alpha: 0.6 + 0.4 * arm });
+        if (!witch) g.circle(ax, ay, linkRadiusOf(world) * UNIT).stroke({ color: next, width: 2 + 2 * arm, alpha: 0.6 + 0.4 * arm });
         g.circle(ax, ay, 8).fill(next).stroke({ color: NAVY, width: 2.5 });
       } else {
         if (ui.pointer) g.moveTo(anchor.x * UNIT, anchor.y * UNIT).lineTo(ui.pointer.x * UNIT, ui.pointer.y * UNIT).stroke({ color: ink, width: 2, alpha: 0.45 });
         // Reach of the next link and the valid next links (outlined; `nextCandidates` already counts both anchors).
-        g.circle(anchor.x * UNIT, anchor.y * UNIT, linkRadiusOf(world) * UNIT).stroke({ color: ink, width: 1.5 + 2.5 * arm, alpha: 0.35 + 0.6 * arm });
+        if (!witch) g.circle(anchor.x * UNIT, anchor.y * UNIT, linkRadiusOf(world) * UNIT).stroke({ color: ink, width: 1.5 + 2.5 * arm, alpha: 0.35 + 0.6 * arm });
       }
-      this.visibleReachCircles = ++reach;
+      if (!witch) this.visibleReachCircles = ++reach;
       // Stage G: the hero is a second anchor — his circle (always drawn faint) gets the chain color too.
-      if (heroAnchorOn(world)) {
+      if (!witch && heroAnchorOn(world)) {
         g.circle(hero.x * UNIT, hero.y * UNIT, linkRadiusOf(world) * UNIT).stroke({ color: ink, width: 1.5, alpha: 0.35 });
         this.heroAnchorShown = true;
       }
       // Task 29 «Развилка»: every link is an anchor — a fainter reach ring at each link but the last.
-      const forks = chainAnchors(world).filter(a => a.link && Math.hypot(a.x - anchor.x, a.y - anchor.y) > 1e-6);
+      const forks = witch ? [] : chainAnchors(world).filter(a => a.link && Math.hypot(a.x - anchor.x, a.y - anchor.y) > 1e-6);
       for (const a of forks) { g.circle(a.x * UNIT, a.y * UNIT, linkRadiusOf(world) * UNIT).stroke({ color: ink, width: 1.25, alpha: 0.2 }); fs.forkRings++; }
       // Task 52, Р2 (`forkDwell`, the sandbox's gesture): the older link the pointer rested on became the anchor — its reach ring glows
       // (the sim's `forkAnchorNow`: the next link is taken from it alone).
@@ -3921,6 +3945,11 @@ export class RealtimeRenderer {
     return this.honedLabels[i];
   }
 
+  /** Task 62: the chain about to be released — Ведунья v2's discharge draws its thread along the runes as the player saw them. */
+  noteCast(world: World): void {
+    const color = world.chain.length ? chainColor(world) : null;
+    this.witch.capture(world, color === null ? 0xffffff : chainInk(color));
+  }
   /** Task 49: the cage with Ведунья in the Jailer's yard on or off (decoration; the host decides by the run's profile). */
   setJailerCage(on: boolean): void { this.cage.setOn(on); }
   /** Task 49 (spec 8): the crack on the hero — the price of her law shown at the first hit after an open chain. */
@@ -4264,6 +4293,8 @@ export class RealtimeRenderer {
       }
       return;
     }
+    // Task 62: Ведунья v2 has no pulsing «замкни» ring: the first rune's ring and the contour at the pointer say it (view/witchView.ts).
+    if (witchOn(world)) return;
     const last = world.chain.length ? linkPoint(world, world.chain[world.chain.length - 1]) : null;
     if (!last) return;
     const pulse = 0.5 + 0.5 * Math.sin(this.clock * 7);
@@ -4524,6 +4555,8 @@ export class RealtimeRenderer {
     this.updateCamera(world, realDt, ui);
     this.applyShake(realDt);
     this.handleEvents(world);
+    this.witch.onEvents(world);
+    this.witch.update(realDt);
     this.updateFloating(realDt);
     this.updateBursts(realDt);
     this.updateShards(realDt);

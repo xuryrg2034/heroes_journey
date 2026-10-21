@@ -160,6 +160,7 @@
     "test:realtime-feats": "tsx src/realtime/run/feats.spec.ts",
     "test:realtime-bag": "tsx src/realtime/sim/bag.spec.ts",
     "test:realtime-witch": "tsx src/realtime/sim/witch.spec.ts",
+    "test:realtime-witch-view": "tsx src/realtime/view/witchView.spec.ts",
     "test:realtime-omens": "tsx src/realtime/sim/omens.spec.ts",
     "test:realtime-omens-run": "tsx src/realtime/run/omens.spec.ts",
     "test:realtime-omens-view": "tsx src/realtime/view/omenMark.spec.ts",

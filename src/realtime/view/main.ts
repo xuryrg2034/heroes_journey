@@ -37,7 +37,7 @@ import { rookLine, wardrobeLying, wardrobeTopple, WARDROBE, ROOK } from '../sim/
 import { durabilityOf, isThing } from '../sim/shove';
 import { canSpin } from '../sim/abilities';
 import { ITEM_REFUSAL_TEXT, itemRefusal } from '../sim/items';
-import { SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
+import { SLOT_ITEMS, witchOn, type ItemKind, type Loadout } from '../sim/kit';
 import { ENERGY_MAX, JUMP_REFUSAL_TEXT, REFUSAL_TEXT, canJump, colorShiftIds, colorShiftLeft, colorShiftOf, hoverRefusal, jumpCostOf, jumpDownOpen, jumpRefusal, planChain, type JumpRefusal, type Refusal } from '../sim/chain';
 import type { Command } from '../sim/commands';
 import { inThorns, inWater, overCliff, setFlowClock, type Vec } from '../sim/geometry';
@@ -46,14 +46,14 @@ import { isRtDailyDate, rtArenaParams, rtPageParams } from '../run/rtRun';
 import { replay, Simulation, type Journal } from '../sim/simulation';
 import { focusGuarded, goalLamps, goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World, type WorldEvent } from '../sim/world';
 import { liveShots } from '../sim/shots';
-import { linkPoint, pickRadius } from '../sim/chain';
+import { castCircle, linkPoint, pickRadius } from '../sim/chain';
 import { ChainAudio } from './audio';
 import { chainFeel, QUIET_GAIN } from './chainFeel';
 import { FX_LEVELS, HEAVY_SEMIS, fxLevelOf, waveStrength, type FxLevel } from './juice';
 import type { MetaSound } from './metaEnd';
 type MetaSoundKind = MetaSound | 'buy' | 'open' | 'heal' | 'fuse' | 'reward0' | 'reward1' | 'reward2';
 import { DebugPanel, formatTime } from './debugPanel';
-import { loadFx, loadHintsOn, loadLinkDepth, loadParams, loadRoleBadges, loadSandboxBuild, loadNewOnMap, loadSessionClock, loadSound, PARAMS_STORAGE_KEY, saveFx, saveHintsOn, saveLinkDepth, saveNewOnMap, saveParams, saveRoleBadges, saveSandboxBuild, saveSessionClock, saveSound, type SoundSetting } from './paramStorage';
+import { loadFx, loadHintsOn, loadLinkDepth, loadParams, loadRoleBadges, loadSandboxBuild, loadNewOnMap, loadSessionClock, loadShowGlyph, loadSound, PARAMS_STORAGE_KEY, saveFx, saveHintsOn, saveLinkDepth, saveNewOnMap, saveParams, saveRoleBadges, saveSandboxBuild, saveSessionClock, saveShowGlyph, saveSound, type SoundSetting } from './paramStorage';
 import { SessionClock } from './session';
 import { CHAIN_COLORS, FINAL_FLASH, PLAYER_FX, TARGET, RealtimeRenderer, type RenderUi } from './render';
 import { focusMaxOf } from '../sim/build';
@@ -594,10 +594,12 @@ async function boot(): Promise<void> {
   /** Every command goes through here: the telemetry sees the world before it changes and the command after it. */
   const command = (cmd: Command) => {
     recorder?.beforeCommand(sim.world);
+    // Task 62: Ведунья v2 — the thread of the chain as drawn, before the discharge empties it.
+    if (cmd.t === 'release') renderer.noteCast(sim.world);
     const done = sim.command(cmd);
     recorder?.afterCommand(cmd, sim.world);
     // П2: the released chain's enemy links (the plan at the release) decide the dash's sound and shake.
-    if (cmd.t === 'release') renderer.dashLinks.release(sim.world);
+    if (cmd.t === 'release') { renderer.dashLinks.release(sim.world); if (!done) renderer.witch.drop(); }
     return done;
   };
   renderer.buildArena(world().arena);
@@ -772,8 +774,16 @@ async function boot(): Promise<void> {
     const option = (id: string) => ({ value: id, label: labelOf(id).title });
     const choose = (key: 'talisman' | 'relic' | 'hammer' | 'end' | 'link' | 'path') => (value: string): void => { sandboxBuild[key] = value; saveSandboxBuild(sandboxBuild); };
     // Task 49: the hero of the next arena — the cat or Ведунья (her law in the kit: «Печать» innate, the shield only after a ring).
-    panel.addBuildChoice('Герой', 'build-hero', [{ value: '', label: 'кот' }, { value: 'toad', label: 'ведунья' }], sandboxHero ?? '', value => { sandboxHero = isLoadoutHero(value) ? value : null; },
-      'Задача 49: герой с новой арены. Ведунья: «Печать» врождённая, щит цепи — только после кольца.');
+    // Task 62: «ведунья v2» is Ведунья with the key `witchV2` (the panel's group «Ведунья v2»): the circle, the discharge and the figures.
+    panel.addBuildChoice('Герой', 'build-hero', [{ value: '', label: 'кот' }, { value: 'toad', label: 'ведунья' }, { value: 'toad2', label: 'ведунья v2' }], sandboxHero === 'toad' && params.witchV2 ? 'toad2' : sandboxHero ?? '', value => {
+      sandboxHero = value === 'toad2' ? 'toad' : isLoadoutHero(value) ? value : null;
+      const v2 = value === 'toad2';
+      if (!!params.witchV2 !== v2) { command({ t: 'param', key: 'witchV2', value: v2 }); saveParams(params); panel.refresh(); }
+    },
+      'Задача 49: герой с новой арены. Ведунья: «Печать» врождённая, щит цепи — только после кольца. Ведунья v2 (задача 62): круг колдовства, разряд на месте, фигуры.');
+    renderer.witch.showFigure = loadShowGlyph();
+    panel.addViewCheck('Показать фигуру', 'show-glyph', renderer.witch.showFigure, on => { renderer.witch.showFigure = on; saveShowGlyph(on); },
+      'Ведунья v2: подпись класса у центра контура из рун (Кольцо, Квадрат, Треугольник или причина отказа) — для настройки допусков.');
     // Task 29 (design 15.10.2026): the forms by their field, so that pairs of different fields are taken in one place; a hammer
     // is a form too — its field stands in the «Молот» list (one hammer slot: two lists could not both hold a hammer).
     const formOption = (field: FormField) => FORM_IDS.filter(id => FORM_FIELD[id] === field).map(option);
@@ -2112,6 +2122,8 @@ async function boot(): Promise<void> {
         /** Task 49: the hero's picture (the id and whether it is the image), the Jailer's cage, the mage's lesson and the law's signs of the frame. */
         heroView: { id: renderer.heroArtKind, art: hasCharacterArt(renderer.heroArtKind === 'toad' ? 'toad' : 'player') },
         cage: { ...renderer.cage.shown, line: cageLeft > 0 },
+        /** Task 62 «Ведунья v2»: the key and the law, the circle's radius, the last discharge's second, what the view drew (view/witchView.ts `WitchShown`). */
+        witch: { on: witchOn(w), radius: witchOn(w) ? castCircle(w).r : 0, castAt: w.castAt ?? null, runes: w.chain.flatMap(l => (l.kind === 'enemy' && l.rune ? [{ x: l.rune.x, y: l.rune.y }] : [])), shown: { ...renderer.witch.shown } },
         toad: { crack: renderer.crackShown, boost: renderer.shieldBoostShown, sign: { ...renderer.shieldSign }, hand: { ...toadHand.shown }, memory: { ring: hintStore.count('toad-ring'), bare: hintStore.count('toad-bare') } },
         onboarding: { on: hintsOn, labels: labelLayer.shown(), shown: hints.store.shownIds(), log: hints.log.map(h => ({ ...h })) },
         logsOpen: !!logsPanel?.open,
