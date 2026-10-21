@@ -53,8 +53,11 @@ export const WARLOCK_PLATES = 4;
 export const WARLOCK_SHIFT = 10;
 export const WARLOCK_SHIFT_FAST = 5;
 export const WARLOCK_WINDOW = 1.5;
-/** His arena's crowd (spec 6.5: the Troll's number after his grid, a hypothesis). */
-export const WARLOCK_CROWD = 0.45;
+/**
+ * His arena's crowd (design 21.10.2026 by the bot's grid 0.45 / 0.6 / 0.75 / 0.9: the least in the band of 76–85 % deaths with a win
+ * ≤ 60 s; provisional until the user's sandbox playtest; until then 0.45 — spec 6.5, the Troll's number).
+ */
+export const WARLOCK_CROWD = 0.9;
 /** The first arrival (game s into the fight) and the signs (the first, the others). */
 export const FIRST_SHIFT = 6;
 export const FIRST_SHIFT_SIGN = 1.5;

@@ -10,7 +10,7 @@
 import { registerArena } from './arenas';
 import { WARLOCK_ARENA } from './arenasCastle';
 import { BARREL, WARDROBE } from './enemies/castle';
-import { CANDLE_NEAR, WARLOCK, warlockState } from './enemies/warlock';
+import { CANDLE_NEAR, WARLOCK, WARLOCK_CROWD, warlockState } from './enemies/warlock';
 import { type Vec } from './geometry';
 import { enemyRefusal, planChain, REFUSAL_TEXT } from './chain';
 import { defaultParams, type Params } from './params';
@@ -100,10 +100,10 @@ function breakAtWall(h: Hall, out: WorldEvent[] = []): void {
   assert(!h.w.enemies.includes(h.wardrobe), 'the second wall broke it');
 }
 
-check('the hall: the warlock at candle C1, colourless, HP 2 and 4 boss plates; his wardrobe marked; the arena plays his charm, the solid bodies, his crowd ×0.45', () => {
+check('the hall: the warlock at candle C1, colourless, HP 2 and 4 boss plates; his wardrobe marked; the arena plays his charm, the solid bodies, his crowd (`WARLOCK_CROWD`)', () => {
   for (const k of SEEDS) {
     const h = hall(k), s = warlockState(h.w)!;
-    assert(h.w.params.warlockCharm && h.w.params.trollSolid && h.w.params.warlockCrowd === 0.45 && h.w.params.shove && h.w.params.bossFrame, `seed ${k}: the arena's keys`);
+    assert(h.w.params.warlockCharm && h.w.params.trollSolid && h.w.params.warlockCrowd === WARLOCK_CROWD && h.w.params.shove && h.w.params.bossFrame, `seed ${k}: the arena's keys`);
     assert(h.core.hp === 2 && plates(h.core) === 4 && s.candle === 0 && dist(h.core, s.candles[0]) < 1e-9, `seed ${k}: the core`);
     assert(h.wardrobe.vars.wl === h.core.id && s.wardrobe === h.wardrobe.id && s.phase === 1 && s.spellbound, `seed ${k}: his wardrobe, charmed`);
     assert(h.barrels.length === 4 && replays(h.sim), `seed ${k}: four barrels; replay`);
