@@ -132,6 +132,8 @@ export class WarlockView {
   private fx: Fx[] = [];
   private countLabel: Text | null = null;
   private edgeLabel: Text | null = null;
+  /** The dark plate under the count by the goal pointer (as under «далеко»): the count never lies on a body's disc. */
+  private edgeBack: Graphics | null = null;
   /** The last places seen at the end of a frame: his wardrobe (the beam's far end when it breaks), the candle he stood at (the smoke rises there). */
   private lastWardrobe: Vec | null = null;
   private lastCandle: Vec | null = null;
@@ -150,6 +152,7 @@ export class WarlockView {
     this.fxG.clear(); this.floorG.clear();
     if (this.countLabel) this.countLabel.visible = false;
     if (this.edgeLabel) this.edgeLabel.visible = false;
+    if (this.edgeBack) this.edgeBack.visible = false;
     Object.assign(this.shown, { sparks: 0, hits: 0, opens: 0, unlinks: 0, snaps: 0, marks: 0, arrivals: 0, smokes: 0 });
   }
 
@@ -292,6 +295,7 @@ export class WarlockView {
     const st = warlockState(world), s = this.shown, win = st?.window;
     s.edgeCount = '';
     if (this.edgeLabel) this.edgeLabel.visible = false;
+    if (this.edgeBack) this.edgeBack.visible = false;
     if (!win || !win.open || win.hit || !goal || coreSeen) return;
     const label = this.edgeLabel ??= (() => {
       const text = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 24, fontWeight: 'bold', fill: 0xfff2c4, stroke: { color: NAVY, width: 5 } } });
@@ -303,6 +307,9 @@ export class WarlockView {
     label.text = s.edgeCount;
     label.style.fill = win.left <= 1 ? 0xff8a6a : 0xfff2c4;
     label.position.set(goal.x - Math.cos(goal.angle) * 30, goal.y - Math.sin(goal.angle) * 30);
+    const back = this.edgeBack ??= (() => { const g = new Graphics(); parent.addChildAt(g, Math.max(0, parent.getChildIndex(label))); return g; })();
+    back.clear().roundRect(label.position.x - 17, label.position.y - 17, 34, 34, 8).fill({ color: 0x0f1720, alpha: 0.88 }).stroke({ color: 0x55616e, width: 2 });
+    back.visible = true;
     label.visible = true;
   }
 

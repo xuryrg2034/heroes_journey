@@ -157,6 +157,8 @@ export class ChiefView {
   private seenParts = new Map<number, { kind: string; x: number; y: number; r: number }>();
   private countLabel: Text | null = null;
   private edgeLabel: Text | null = null;
+  /** The dark plate under the count by the goal pointer (as under «далеко»): the count never lies on a body's disc. */
+  private edgeBack: Graphics | null = null;
 
   /** `unit` — arena pixels per unit (render.ts `UNIT`); `ink` — a sim colour index as the view's colour (render.ts `chainInk`). */
   constructor(private readonly unit: number, private readonly ink: (color: number) => number) { this.floor.addChild(this.floorG); this.layer.addChild(this.fxG); }
@@ -175,6 +177,7 @@ export class ChiefView {
     if (this.cauldron) { this.cauldron.destroy({ children: true }); this.cauldron = null; }
     if (this.countLabel) this.countLabel.visible = false;
     if (this.edgeLabel) this.edgeLabel.visible = false;
+    if (this.edgeBack) this.edgeBack.visible = false;
     Object.assign(this.shown, { hits: 0, sparks: 0, severed: 0, unlinks: 0, recolors: 0, opens: 0, feastHits: 0, feastBig: 0, supplies: 0, brews: 0 });
   }
 
@@ -393,6 +396,7 @@ export class ChiefView {
     const st = chiefState(world), s = this.shown, win = st?.window;
     s.edgeCount = '';
     if (this.edgeLabel) this.edgeLabel.visible = false;
+    if (this.edgeBack) this.edgeBack.visible = false;
     if (!win || !win.open || win.hit || !goal || coreSeen) return;
     const label = this.edgeLabel ??= (() => {
       const text = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 24, fontWeight: 'bold', fill: 0xfff2c4, stroke: { color: NAVY, width: 5 } } });
@@ -404,6 +408,9 @@ export class ChiefView {
     label.text = s.edgeCount;
     label.style.fill = win.left <= 1 ? 0xff8a6a : 0xfff2c4;
     label.position.set(goal.x - Math.cos(goal.angle) * 30, goal.y - Math.sin(goal.angle) * 30);
+    const back = this.edgeBack ??= (() => { const g = new Graphics(); parent.addChildAt(g, Math.max(0, parent.getChildIndex(label))); return g; })();
+    back.clear().roundRect(label.position.x - 17, label.position.y - 17, 34, 34, 8).fill({ color: 0x0f1720, alpha: 0.88 }).stroke({ color: 0x55616e, width: 2 });
+    back.visible = true;
     label.visible = true;
   }
 
