@@ -100,7 +100,15 @@ const ink = '#0d141b';
 const svg = (body: string): string => `<svg viewBox="0 0 60 60" aria-hidden="true" stroke="${ink}" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">${body}</svg>`;
 const BODY = (fill: string): string => `<ellipse cx="30" cy="38" rx="17" ry="15" fill="${fill}"/>`;
 const EYES = '<circle cx="24" cy="34" r="2.4" fill="#0d141b" stroke="none"/><circle cx="36" cy="34" r="2.4" fill="#0d141b" stroke="none"/>';
-/** The drawn stand-ins of the forest's kinds (no illustration of their own: the fight draws them in code) and of the affixes. */
+/**
+ * The pictures of the forest's kinds (public/art/characters: `forest-*`; the archer is the goblin archer `ranged`). The drawn SVG below
+ * stays as the stand-in (a picture that does not load, a kind with no picture yet) and is the picture of the affixes.
+ */
+const FOREST_ART: Readonly<Record<string, string>> = {
+  wolf: 'forest-wolf', boar: 'forest-boar', lynx: 'forest-lynx', porcupine: 'forest-porcupine', sapper: 'forest-sapper', shaman: 'forest-shaman',
+  shield: 'forest-shield', archer: 'ranged', hive: 'forest-hive', slinger: 'forest-slinger', wisp: 'forest-wisp',
+};
+/** The drawn stand-ins of the forest's kinds and of the affixes. */
 const KIND_SVG: Readonly<Record<string, string>> = {
   wolf: svg(`${BODY('#7d8a96')}<path d="M16 28 L18 12 L27 24 Z M44 28 L42 12 L33 24 Z" fill="#7d8a96"/>${EYES}<path d="M26 44 L30 48 L34 44" fill="none"/>`),
   boar: svg(`${BODY('#8a5a3a')}<path d="M14 38 L8 30 M46 38 L52 30" fill="none" stroke-width="4"/>${EYES}<ellipse cx="30" cy="42" rx="6" ry="4" fill="#d9a58a"/>`),
@@ -126,7 +134,8 @@ function artOf(page: ChroniclePageId, chapter: string, entry: ChronicleEntry): s
   const id = entry.id;
   if (page === 'bestiary') {
     if (chapter === 'affixes') return AFFIX_SVG[id] ?? GENERIC;
-    return GARRISON_ART[id] ? img(GARRISON_ART[id], KIND_SVG[id] ?? GENERIC) : KIND_SVG[id] ?? GENERIC;
+    const file = GARRISON_ART[id] ?? FOREST_ART[id];
+    return file ? img(file, KIND_SVG[id] ?? GENERIC) : KIND_SVG[id] ?? GENERIC;
   }
   if (page === 'bosses') return BOSS_ART[id] ? img(BOSS_ART[id], GENERIC) : GENERIC;
   if (page === 'events') return SCROLL;
@@ -163,7 +172,8 @@ function cardHtml(page: ChroniclePageId, chapter: ChronicleChapter, entry: Chron
     } else art = '<span class="rt-chron-q">?</span>';
   } else {
     art = artOf(page, chapter.id, entry);
-    name = text.name;
+    // The Испытание's step: the big numeral is the picture, the caption is only «ступень» (no second numeral).
+    name = page === 'heroes' && /^ash:/.test(entry.id) ? '' : text.name;
     if (page === 'bosses') sub = state === 'won' ? (entry.run ? `побеждён, поход ${entry.run}` : 'побеждён') : 'встречен';
     else if (page === 'events') sub = BRANCH_TEXT[FOREST_EVENTS[entry.id]?.branch ?? ''] ?? '';
     else if (page === 'heroes' && entry.run) sub = `поход ${entry.run}`;
