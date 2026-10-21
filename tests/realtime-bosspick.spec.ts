@@ -315,3 +315,64 @@ test('«Зона по рисунку»: the Chief — at the overlap of his and 
   await sameHash(page);
   expect(errors).toEqual([]);
 });
+
+test('«Зона по рисунку» (design 21.10.2026, variant b): the drawing tier works only where the pointer stands — a sweep by one pointer event through the Jailer drawing leaves the core out of the chain; the same path with a stop in the drawing takes the core (screenshots)', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = collectErrors(page);
+  await page.goto('/?sandbox=1');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect(page.getByTestId('boss-arena-1')).toContainText('Тюремщик');
+  await page.getByTestId('boss-arena-1').click();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
+  await expect.poll(async () => (await snap(page)).arena).toBe('jailer');
+  await page.evaluate(() => {
+    const rt = (window as any).__realtime;
+    for (const [k, v] of [['enemySpeed', 0], ['speedSpread', 0], ['baseIntervalMin', 1000], ['baseIntervalMax', 1000], ['baseFloor', 0], ['contactDamage', 0]] as const) rt.setParam(k, v);
+  });
+  // The route of tests/realtime-boss.spec.ts (the chain through the weight): the core faces the hero, then is frozen; the link west of the weight, the hero west of it.
+  const ids = await page.evaluate(() => {
+    const rt = (window as any).__realtime;
+    rt.clear(false);
+    rt.teleport(6, 6);
+    return { core: rt.place(10, 6, 1, 2, 'jailer'), weight: rt.place(10, 6, 0, 3, 'jailer-weight') };
+  });
+  await expect.poll(async () => (await snap(page)).enemies.find(e => e.id === ids.weight)?.partOf).toBe(ids.core);
+  await gameWait(page, 0.35);
+  await page.evaluate(([core]) => (window as any).__realtime.chill(core, 60), [ids.core] as const);
+  const w = (await snap(page)).enemies.find(e => e.id === ids.weight)!;
+  const a1 = await page.evaluate(([x, y]) => { const rt = (window as any).__realtime; rt.teleport(x - 2.8, y); return rt.place(x - 1.4, y, 0, 0, 'basic'); }, [w.x, w.y] as const) as number;
+  await cameraSettled(page);
+  const s1 = await snap(page), link = s1.enemies.find(e => e.id === a1)!, weight = s1.enemies.find(e => e.id === ids.weight)!;
+  // Before the click: the straight path from the link to the weight crosses the core's drawing (the ellipse) at points out of every press circle; one such point is the stop.
+  const zone = await zoneOf(page, ids.core);
+  const rings = await page.evaluate(() => { const rt = (window as any).__realtime; return rt.snapshot().enemies.map((e: any) => ({ x: e.x, y: e.y, r: rt.pickRadius(e.id) })); }) as { x: number; y: number; r: number }[];
+  let stop: { x: number; y: number } | null = null;
+  for (let i = 1; i < 60; i++) {
+    const t = i / 60, p = { x: link.x + (weight.x - link.x) * t, y: link.y + (weight.y - link.y) * t };
+    if (artEllipseDepth(zone, p) <= 1 && !rings.some(e => Math.hypot(e.x - p.x, e.y - p.y) <= e.r + 0.02)) { stop = p; break; }
+  }
+  expect(stop, 'the path from the link to the weight crosses the core drawing out of every press circle').not.toBeNull();
+  expect(artEllipseDepth(zone, stop!), 'the stop is in the core ellipse').toBeLessThanOrEqual(1);
+  const at = (p: { x: number; y: number }) => page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [p.x, p.y] as const);
+  const press = async (): Promise<void> => { const t = await at(link); await page.mouse.move(t.x, t.y, { steps: 2 }); await page.mouse.down(); await expect.poll(async () => (await snap(page)).chain).toEqual([link.id]); };
+  // One pointer event from the link to the weight: the path is a sweep, only the press circles count — the chain is [link, weight], no core.
+  await press();
+  const tw = await at(weight);
+  await page.mouse.move(tw.x, tw.y, { steps: 1 });
+  await expect.poll(async () => (await snap(page)).chain, { message: 'the sweep through the drawing: the chain is the link and the weight' }).toEqual([link.id, ids.weight]);
+  expect((await snap(page)).chain).not.toContain(ids.core);
+  await shot(page, 'jailer-sweep');
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  // The same path with a stop (an event) in the drawing: the core is taken there.
+  await press();
+  const ts = await at(stop!);
+  await page.mouse.move(ts.x, ts.y, { steps: 1 });
+  await expect.poll(async () => (await snap(page)).chain, { message: 'a stop in the drawing takes the core' }).toEqual([link.id, ids.core]);
+  await shot(page, 'jailer-stop');
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  await sameHash(page);
+  expect(errors).toEqual([]);
+});
