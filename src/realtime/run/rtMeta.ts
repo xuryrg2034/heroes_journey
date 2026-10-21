@@ -14,7 +14,7 @@ import { runRow } from './arenaPools';
 import { rtForestCleared, rtLevel, rtNode, type RtHearthFlags, type RtRunState } from './rtRun';
 import { rtGarrisonNodeId } from './garrison';
 import { TROLL_RUN_ARENAS } from '../sim/arenasBoss';
-import { SCHEDULE_KINDS } from './schedule';
+import { SCHEDULE_KINDS, SCHEDULE_SHOOTER_KINDS } from './schedule';
 import {
   HEARTH_HERB_SALT, HEARTH_MAPS_SALT, HEARTH_QUEST_SALT, isRtHearthNpc, isRtHeroId, isRtQuest, RT_HEARTH_MAX_LEVEL, RT_HEARTH_NPCS, RT_HEARTH_PRICES, RT_HERO_ID, RT_HERO_IDS,
   RT_META_THRESHOLDS, RT_TOAD_ID, rtHeroPacks, rtLockedAfter, type RtHearthLevel, type RtHearthNpc, type RtHeroId, type RtMetaItem, type RtQuest, type RtQuestId,
@@ -370,7 +370,8 @@ export function rtHearthView(meta: RtMeta | undefined, seen: readonly string[] |
   // Task 49: the quest as the hero `hero` (default — the chosen one) would carry it (`rtQuestFor`).
   return {
     stock: hearth.stock, levels: { ...hearth.levels }, met: { herb: !!hearth.met.herb, smith: !!hearth.met.smith }, self: { ...hearth.self },
-    seen: SCHEDULE_KINDS.filter(kind => seen?.includes(kind)), ...hearth.quest ? { quest: rtQuestFor(hearth.quest, meta?.heroes[hero]?.record) } : {}, ...hearth.last ? { last: { ...hearth.last } } : {}, lines: { ...hearth.lines },
+    // Task 57а: the new shooters too, when the viewer met them (a run with the flag `forestShooters`).
+    seen: [...SCHEDULE_KINDS, ...SCHEDULE_SHOOTER_KINDS].filter(kind => seen?.includes(kind)), ...hearth.quest ? { quest: rtQuestFor(hearth.quest, meta?.heroes[hero]?.record) } : {}, ...hearth.last ? { last: { ...hearth.last } } : {}, lines: { ...hearth.lines },
   };
 }
 /** Why a purchase is refused: too little stock (`need`, `have`), the NPC not in the camp, or the level not the next one (or locked). */

@@ -112,7 +112,9 @@ export const ARENA_TITLES: Readonly<Record<string, string>> = {
 };
 export const arenaTitle = (arena: string): string => ARENA_TITLES[arena] ?? arena;
 /** Every arena a run may play (a save naming another one is malformed). */
-export const RUN_ARENAS: readonly string[] = [...ARENA_POOLS.map(entry => entry.arena), ...SHOOTER_POOLS.map(entry => entry.arena), HARD_ARENA, FINAL_ARENA];
+export const RUN_ARENAS: readonly string[] = [...ARENA_POOLS.map(entry => entry.arena), HARD_ARENA, FINAL_ARENA];
+/** Task 57а: the arenas a run with the flag `forestShooters` may play besides `RUN_ARENAS` (its saves name them). */
+export const SHOOTER_RUN_ARENAS: readonly string[] = SHOOTER_POOLS.map(entry => entry.arena);
 
 /** Row of the run of a map row: the real-time run starts past the trunk, at map row 5 (run row 1). */
 export const runRow = (mapRow: number): number => mapRow - FOREST_TRUNK_LAST_ROW;

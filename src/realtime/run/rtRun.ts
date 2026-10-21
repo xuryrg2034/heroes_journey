@@ -34,7 +34,7 @@ import type { TalismanId } from '../forest/talismans';
 import { isRtOath, isRtTalisman, RELICS, RT_DEW_FLASK_HEAL, RT_TOUGH_HIDE_HP, rtShopTalisman, rtTalisman, rtTalismanOffer, turnPool,
   type RtTalismanId, type RtTalismanOption } from './rtTalismans';
 import { emptyStreams, parseStreams, streamValue, type RunStream, type RunStreams } from '../forest/runStreams';
-import { arenaTitle, FINAL_ARENA, GENTLE_FIRST_MEETING_LAST_ROW, HARD_ARENA, ordinaryArenaChoices, pickArena, pickRoster, poolNewKinds, ROSTER_SALT, RUN_ARENAS, runArenaPools, runRow } from './arenaPools';
+import { arenaTitle, FINAL_ARENA, GENTLE_FIRST_MEETING_LAST_ROW, HARD_ARENA, ordinaryArenaChoices, pickArena, pickRoster, poolNewKinds, ROSTER_SALT, RUN_ARENAS, runArenaPools, runRow, SHOOTER_RUN_ARENAS } from './arenaPools';
 import { isRoster } from '../sim/rosters';
 import { allowedAffixes, fightElements, isScheduleElement, jailerWithout, PART_ARC, SCHEDULE_RUN_ARENAS, SCHEDULE_HARD_FLOOR, SCHEDULE_KINDS, SCHEDULE_NUMBERS_ROWS, schedulePlan, unmetKinds, type ScheduleNode } from './schedule';
 import { JAILER_ARENA, JAILER_RUN_ARENAS, TROLL_ARENA, TROLL_RUN_ARENAS } from '../sim/arenasBoss';
@@ -3621,7 +3621,7 @@ function checkRun(value: unknown): RtRunState | null {
   if (!Array.isArray(run.picks) || !Array.isArray(run.eventChoices) || !Array.isArray(run.battles)) return null;
   for (const pick of run.picks) {
     if (!isRecord(pick) || !known(pick.nodeId) || run.picks.filter(other => other.nodeId === pick.nodeId).length > 1) return null;
-    if (pick.arena !== undefined && !RUN_ARENAS.includes(pick.arena) && !(run.schedule && SCHEDULE_RUN_ARENAS.includes(pick.arena)) && !(run.jailer && JAILER_RUN_ARENAS.includes(pick.arena))
+    if (pick.arena !== undefined && !RUN_ARENAS.includes(pick.arena) && !(run.forestShooters && SHOOTER_RUN_ARENAS.includes(pick.arena)) && !(run.schedule && SCHEDULE_RUN_ARENAS.includes(pick.arena)) && !(run.jailer && JAILER_RUN_ARENAS.includes(pick.arena))
       && !(run.troll && TROLL_RUN_ARENAS.includes(pick.arena)) && !(rtGarrisonNodeId(pick.nodeId) && GARRISON_RUN_ARENAS.includes(pick.arena))) return null;
     if (pick.arc !== undefined && !(run.schedule && pick.arena !== undefined && typeof pick.arc === 'string')) return null;
     if (pick.roster !== undefined && (!isRoster(pick.roster) || pick.arena === undefined)) return null;
@@ -3720,7 +3720,7 @@ function checkRun(value: unknown): RtRunState | null {
   const node = map.node(pending.nodeId)!, pick = run.picks.find(entry => entry.nodeId === pending.nodeId);
   switch (pending.kind) {
     case 'battle': {
-      if (typeof pending.arena !== 'string' || !(RUN_ARENAS.includes(pending.arena) || (run.schedule && SCHEDULE_RUN_ARENAS.includes(pending.arena)) || (run.jailer && JAILER_RUN_ARENAS.includes(pending.arena))
+      if (typeof pending.arena !== 'string' || !(RUN_ARENAS.includes(pending.arena) || (run.forestShooters && SHOOTER_RUN_ARENAS.includes(pending.arena)) || (run.schedule && SCHEDULE_RUN_ARENAS.includes(pending.arena)) || (run.jailer && JAILER_RUN_ARENAS.includes(pending.arena))
         || (run.troll && TROLL_RUN_ARENAS.includes(pending.arena)) || (rtGarrisonNodeId(node.id) && GARRISON_RUN_ARENAS.includes(pending.arena))) || pick?.arena !== pending.arena) return null;
       // Phase A (Т2): the roster of the open arena is its pick's, chosen again above.
       if (pending.roster !== pick.roster) return null;

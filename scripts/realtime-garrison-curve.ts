@@ -36,6 +36,7 @@ import { walkRun } from '../src/realtime/run/metaWalk.testkit';
 import { outcomeOf } from '../src/realtime/run/runFight.testkit';
 import { rtArenaLoadout, rtArenaParams, rtNode, rtRunParams, type RtArenaOutcome, type RtRunState } from '../src/realtime/run/rtRun';
 import { botFight } from './garrisonBot';
+import { arenaKinds } from '../src/realtime/run/arenaKinds';
 import { JAILER_RUN_ARENAS } from '../src/realtime/sim/arenasBoss';
 
 const args = process.argv.slice(2);
@@ -45,6 +46,15 @@ const SEEDS = Number(option('--seeds', '300')), LIMIT = Number(option('--limit',
 const MOAT = args.includes('--moat');
 /** Task 43: `--step2 off` — the garrison of step 1б; `--garrison-only` — the pass «гарнизон» alone. */
 const STEP2_OFF = option('--step2', 'on') === 'off', GARRISON_ONLY = args.includes('--garrison-only'), FOREST_ONLY = args.includes('--forest-only');
+/**
+ * Task 57а (level design 20.10.2026): `--shooters` — the runs take the flag `forestShooters` (the new shooters' arenas, arcs and pools);
+ * `--history none|first|all` — the schedule's snapshot of the viewer: none — no schedule (the pools, as before; the default), `first` — a
+ * new viewer (empty history), `all` — a viewer who met every arc of the first runs (the new shooters' arcs come first). Each fight's
+ * kinds feed the run as the arena and roster bring them (no unmet kind: the loadout's `withoutKinds` out).
+ */
+const SHOOTERS = args.includes('--shooters'), HISTORY = option('--history', 'none');
+const ALL_ARCS = ['bust', 'wolf', 'elite', 'brazier', 'cliff', 'boar', 'water', 'shield', 'buttons', 'archer', 'sapper', 'leader', 'lynx', 'affix', 'thorns', 'porcupine', 'shaman', 'horde', 'part', 'chest'];
+const SCHEDULE = HISTORY === 'first' ? { schedule: [] as string[] } : HISTORY === 'all' ? { schedule: ALL_ARCS } : {};
 
 /**
  * Task 40, pass 3: the Castellan's sets of the sweep — the knobs that matter most, put on by the script only. `plates` — the core's
@@ -173,14 +183,19 @@ function fight(run: RtRunState, t: Tally): RtArenaOutcome {
   if (castellan) castellanFights.push({ won: w.status === 'victory', time: w.time, source: w.status === 'defeat' ? lastSource ?? 'timeout' : null, hpIn: run.hp });
   const key = keyOf(run, pending.nodeId);
   t.damage.set(key, [...t.damage.get(key) ?? [], w.stats.damageTaken]);
-  if (rtGarrisonNodeId(pending.nodeId)) {
-    const tag = `${pending.arena}${loadout.knights ? ` +р${loadout.knights}` : ''}${loadout.bolts ? ' +арб' : ''}${loadout.deep ? ' +глуб' : ''}`;
+  {
+    // Task 57а: the forest's fights too — the arena, its roster and arc.
+    const arc = run.picks.find(pick => pick.nodeId === pending.nodeId)?.arc;
+    const tag = rtGarrisonNodeId(pending.nodeId) ? `${pending.arena}${loadout.knights ? ` +р${loadout.knights}` : ''}${loadout.bolts ? ' +арб' : ''}${loadout.deep ? ' +глуб' : ''}`
+      : `л: ${pending.arena}${pending.roster ? `/${pending.roster}` : ''}${arc ? ` #${arc}` : ''}`;
     const entry = t.arenas.get(tag) ?? { deaths: 0, damage: [] };
     entry.damage.push(w.stats.damageTaken); if (w.status !== 'victory') entry.deaths++;
     t.arenas.set(tag, entry);
   }
   if (VERBOSE) console.log(`  ${pending.nodeId} ${pending.arena}${pending.roster ? `/${pending.roster}` : ''}: ${w.status}, HP ${run.hp} → ${w.hero.hp}, урон ${w.stats.damageTaken}, ${w.time.toFixed(1)} с, цели ${w.greedStart?.toFixed(1) ?? '—'}`);
-  return outcomeOf(run, w);
+  // Task 57а: the kinds the fight brought (its arena and roster, without the loadout's `withoutKinds`) — the schedule's history reads them.
+  const gone = loadout.withoutKinds ?? [], brought = [...arenaKinds(pending.arena, pending.roster)].filter(kind => !gone.includes(kind));
+  return outcomeOf(run, w, {}, null, brought);
 }
 
 /**
@@ -213,7 +228,7 @@ function tuneCastellan(w: World, set: CastellanSet, first: boolean): void {
 function pass(real: (run: RtRunState) => boolean): Tally {
   const t = tally();
   for (let k = 1; k <= SEEDS; k++) {
-    const run = walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, ...MOAT ? { moat: true } : {}, ...STEP2_OFF ? { step2: false } : {} }, fight: state => (real(state) ? fight(state, t) : null) }).run;
+    const run = walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, ...MOAT ? { moat: true } : {}, ...STEP2_OFF ? { step2: false } : {}, ...SHOOTERS ? { forestShooters: true } : {}, ...SCHEDULE }, fight: state => (real(state) ? fight(state, t) : null) }).run;
     t.runs++;
     const keys = new Set([...run.visited, ...run.result ? [run.result.nodeId] : []].map(id => keyOf(run, id)));
     // A run in the garrison passed every row of the forest.
@@ -243,7 +258,7 @@ function print(title: string, t: Tally, levels: readonly string[]): void {
   console.log(`Доля смертей среди дошедших: ${levels.includes('л') ? `${wall('л 5', 'Тюремщик (л5)')}, ${wall('л 10', 'финал леса (л10)')}, ` : ''}${wall('г 10', 'Кастелян (г10)')}.`);
   console.log('');
   // Task 43: the garrison's fights by arena (and the loadout's knights, crossbowmen, deep enemies).
-  console.log('| Арена гарнизона | Боёв | Смертей | Доля | Урон за бой, мед. |');
+  console.log('| Арена (л: — лес; /состав, #дуга) | Боёв | Смертей | Доля | Урон за бой, мед. |');
   console.log('| --- | --- | --- | --- | --- |');
   for (const [tag, entry] of [...t.arenas].sort((a, b) => a[0].localeCompare(b[0]))) {
     console.log(`| ${tag} | ${entry.damage.length} | ${entry.deaths} | ${Math.round(100 * entry.deaths / entry.damage.length)}% | ${f1(median(entry.damage))} |`);
