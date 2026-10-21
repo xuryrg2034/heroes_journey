@@ -61,7 +61,7 @@ export interface Garrison3Shown {
   recruits: {
     /** Frame: plaques drawn, of them the current ones (bright), dim ones, the bans on bodies the law refuses in the plan. */
     numbers: number; current: number; dim: number; bans: number;
-    /** The number of the current recruit of the nearest group drawn (0 — none). */
+    /** The smallest current number among the groups drawn (0 — none). */
     currentNumber: number;
     /** Events seen: hits out of order, whole lines by one pass, links dropped from the drawn chain. */
     refused: number; drills: number; unlinks: number;
