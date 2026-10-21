@@ -118,6 +118,7 @@ async function toWindow(page: Page): Promise<{ x: number; y: number }> {
   await mouseTo(page, async () => marked!, 2);
   const open = await untilFrame(page, (sn, _arg: null, late) => sn.warlock.state?.window?.open ? true : late ? false : undefined, null, 3);
   expect(open, 'the window opened').toBe(true);
+  await mouseTo(page, coreAt(page), 1);
   return marked!;
 }
 
@@ -132,6 +133,8 @@ test('task 55 Д: the fourth button of the castle group opens «Зал колд�
   await shot(page, 'menu');
   await openHall(page);
   await quiet(page);
+  // The hero stands in the middle of the hall: the warlock, his wardrobe and the beam are in the frame.
+  await page.evaluate(() => (window as any).__realtime.teleport(12, 7.2));
   await cameraSettled(page);
   const s = await snap(page), st = s.warlock.state!;
   expect(st.spellbound && st.phase === 1).toBe(true);
@@ -165,7 +168,7 @@ test('task 55 Д: «Перенос» — the sign blooms the target candle (the 
   const errors = collectErrors(page);
   await openHall(page);
   await quiet(page);
-  await page.evaluate(() => (window as any).__realtime.teleport(12, 13));
+  await page.evaluate(() => (window as any).__realtime.teleport(12, 8));
   await cameraSettled(page);
   const early = await untilFrame(page, (sn, _arg: null, late) => sn.warlock.shown.target >= 0 && sn.warlock.shown.signProgress >= 0.25 ? sn : late ? null : undefined, null, 7);
   expect(early, 'the sign came').not.toBeNull();
@@ -206,7 +209,7 @@ test('task 55 Д: the wardrobe shoved into the wall twice — the beam snaps, th
   expect(open!.warlock.shown.dazed).toBe(1);
   expect(['1', '2']).toContain(open!.warlock.shown.count);
   expect(open!.warlock.shown.opens).toBe(1);
-  await shot(page, 'window');
+  // (the screenshot of a window is taken in the next one, below: a screenshot here would eat the window)
   // The chain takes him: the mouse presses on him and lets go.
   await page.mouse.down();
   await expect.poll(async () => (await snap(page)).chain).toHaveLength(1);
@@ -226,6 +229,11 @@ test('task 55 Д: the wardrobe shoved into the wall twice — the beam snaps, th
   expect((await snap(page)).loop.hintText).toBe('вне окна');
   await shot(page, 'out-of-window');
   await page.mouse.up();
+  // The next «Перенос» brings the next window (5 s after the arrival): the picture of the window.
+  await mouseTo(page, coreAt(page), 1);
+  const again = await untilFrame(page, (sn, _arg: null, late) => sn.warlock.state?.window?.open && sn.warlock.shown.glow === 1 ? true : late ? false : undefined, null, 8);
+  expect(again, 'the next window opened').toBe(true);
+  await shot(page, 'window');
   await sameHash(page);
   expect(errors).toEqual([]);
 });

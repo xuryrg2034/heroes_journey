@@ -272,7 +272,7 @@ export class WarlockView {
     s.count = windowCount(win.left);
     label.text = s.count;
     label.style.fill = win.left <= 1 ? 0xff8a6a : 0xfff2c4;
-    label.position.set(st.x * U + r * WARLOCK_ART * 0.42, st.y * U - r * WARLOCK_ART * 0.5);
+    label.position.set(st.x * U - r * WARLOCK_ART * 0.4, st.y * U - r * WARLOCK_ART * 0.5);
     label.visible = true;
   }
 
