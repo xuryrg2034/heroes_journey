@@ -66,6 +66,8 @@ import { cutTethers, dashPathPoints, dropShackleOf, planTetherCuts, settleTether
 import { behindGrate, gateLever, grateLinkDrop, jumpDownFree, onGallery } from './enemies/garrison';
 // Task 48: the Troll's window (the refusal, one hit per window, the drop from the drawn chain).
 import { TROLL, trollLinkDrop, trollReserve, trollShut, trollWards, trollWindowOn } from './enemies/troll';
+// Task 57а «Лес: стрелки»: the dash puts out the light shots it touches (`Params.snuffShots`).
+import { snuffAlong, snuffing } from './shots';
 import { CHIEF, chiefGuarded, chiefHitOutcome, chiefLinkDrop, chiefQueue, chiefQueueShort, chiefRelease, chiefShut, chiefWards } from './enemies/chief';
 import { NO_COLOR, OBJECT_RADIUS, checkGoals, damageEnemy, doorOf, doorOpen, pushOutOfSolids, enemyFrozen, findObject, nextFiring, startShieldWindow, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
 // Task 56 «Приметы» (omens.ts): the marks of a link taken in water or of the colour on the roll call.
@@ -2298,9 +2300,12 @@ function finishMove(world: World): void {
 function stepMove(world: World, realDt: number): void {
   const move = world.move;
   if (!move) return;
-  const path = move.kind !== 'jump' && hasHook(world, 'onDashStep') ? [{ x: world.hero.x, y: world.hero.y }] : null;
+  // Task 57а (`Params.snuffShots`, shots.ts): the dash's path puts out the light shots it touches (no path without a shot on the arena).
+  const snuff = move.kind !== 'jump' && snuffing(world), hooked = move.kind !== 'jump' && hasHook(world, 'onDashStep');
+  const path = hooked || snuff ? [{ x: world.hero.x, y: world.hero.y }] : null;
   const done = advanceMove(world, move, move.speed * realDt, path);
-  if (path && path.length > 1) runHook(world, 'onDashStep', m => m.onDashStep!(world, { kind: move.kind, path, move }));
+  if (snuff && path && path.length > 1) snuffAlong(world, path);
+  if (hooked && path && path.length > 1) runHook(world, 'onDashStep', m => m.onDashStep!(world, { kind: move.kind, path, move }));
   if (done && world.move === move) finishMove(world);
 }
 

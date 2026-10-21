@@ -1214,6 +1214,42 @@ export interface Params {
   omenRollcallTouch: number;
   /** «Урожай» (bag.ts `bagHurt`): a real HP loss takes every step of the bag, the filled ones too (event `bag` `reset` with step 0). */
   bagResetAll: boolean;
+  // ---- Task 57а «Лес: стрелки» (sim/shots.ts, enemies/slinger.ts, hive.ts, wisp.ts; docs/realtime-elite-behaviors.md, «Лес: стрелки»). ----
+  // The slinger, the hive and the wisp come only by an arena's template or roster; the layer's keys act only while one stands or a
+  // shot flies (no world field before). Journals without a key play the default below (the kinds' numbers: `params.x ?? CONST`).
+  /**
+   * Task 57а: the arena's shooters' timer (game s) — a slinger or a hive starts its windup only while it is empty, and the start
+   * fills it (the first who waits longest, then the smaller id). 0 — no timer (default; journals without the key).
+   */
+  volleyGap: number;
+  /** Task 57а: the archer obeys the shooters' timer too (with `volleyGap` > 0). Off — the archer plays the old path everywhere. */
+  volleyArcher: boolean;
+  /** Task 57а: shots on the arena at most — a volley that would pass it waits (the timer is not spent). Journals without the key: 24. */
+  shotCap: number;
+  /** Task 57а: the hero's dash (its path) and a bomb (a circle round its target) put out the light shots (wasps, stones). Off by default. */
+  snuffShots: boolean;
+  /** Task 57а «Пращник»: the windup — three lines fixed at its start (game s; journals without the key: 0.7). */
+  slingWindup: number;
+  /** Task 57а: the slinger's period, windup included (game s; 3.5). */
+  slingPeriod: number;
+  /** Task 57а: the angle between the slinger's stones (degrees; 20). */
+  slingSpread: number;
+  /** Task 57а: the stone's speed (units / game s; 6). */
+  slingSpeed: number;
+  /** Task 57а «Улей»: wasps in the ring (8). */
+  hiveRing: number;
+  /** Task 57а: the wasp's speed (units / game s; 2.5). */
+  hiveSpeed: number;
+  /** Task 57а: the hive's swell before its ring (game s; 0.8). */
+  hiveSwell: number;
+  /** Task 57а: the hive's period, swell included (game s; 4.5). */
+  hivePeriod: number;
+  /** Task 57а «Светляк»: its flight speed (units / game s; 2). */
+  wispSpeed: number;
+  /** Task 57а: its turn at most (degrees / game s; 90). */
+  wispTurn: number;
+  /** Task 57а: its flight before it fades (game s; 6). */
+  wispLife: number;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -1745,6 +1781,22 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   omenRollcallEnergy: 0.5,
   omenRollcallTouch: 1,
   bagResetAll: false,
+  // Task 57а «Лес: стрелки»: no timer, no snuffing by default (the run with `forestShooters` turns both on, run/rtRun.ts).
+  volleyGap: 0,
+  volleyArcher: false,
+  shotCap: 24,
+  snuffShots: false,
+  slingWindup: 0.7,
+  slingPeriod: 3.5,
+  slingSpread: 20,
+  slingSpeed: 6,
+  hiveRing: 8,
+  hiveSpeed: 2.5,
+  hiveSwell: 0.8,
+  hivePeriod: 4.5,
+  wispSpeed: 2,
+  wispTurn: 90,
+  wispLife: 6,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -2330,6 +2382,22 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('omenRollcallTouch', 'Приметы', '«Перекличка»: касание', 0, 3, 1, 5, '+'),
   { kind: 'bool', key: 'bagResetAll', group: 'Приметы', label: '«Урожай»: удар сбрасывает всю котомку', stage: 5,
     hint: 'Потеря HP сбрасывает все ступени котомки у двери, и заполненные. Цены ступеней «Урожая» (2 / 4 / 6) — в группе «Котомка у двери».' },
+  // Task 57а «Лес: стрелки» (sim/shots.ts, enemies/slinger.ts, hive.ts, wisp.ts).
+  n('volleyGap', 'Стрелки леса', 'Общий таймер стрелков', 0, 8, 0.25, 5, 'с', 'Пращник и улей начинают замах, только когда таймер арены пуст; начало замаха заводит его. 0 — таймера нет. В походе — 2,5.'),
+  { kind: 'bool', key: 'volleyArcher', group: 'Стрелки леса', label: 'Лучник в общем таймере', stage: 5, hint: 'Лучник тоже ждёт общий таймер (при таймере > 0).' },
+  n('shotCap', 'Стрелки леса', 'Снарядов на арене не больше', 4, 60, 1, 5, '', 'Залп, который превысил бы потолок, ждёт; таймер не тратится.'),
+  { kind: 'bool', key: 'snuffShots', group: 'Стрелки леса', label: 'Проход гасит осы и камни', stage: 5, hint: 'Путь прохода и круг бомбы гасят лёгкие снаряды. В походе включено.' },
+  n('slingWindup', 'Стрелки леса', 'Пращник: замах', 0.2, 2, 0.05, 5, 'с', 'Три линии фиксируются в начале замаха: средняя — через героя, две — под углом.'),
+  n('slingPeriod', 'Стрелки леса', 'Пращник: период', 1, 10, 0.25, 5, 'с'),
+  n('slingSpread', 'Стрелки леса', 'Пращник: угол между камнями', 5, 45, 1, 5, '°'),
+  n('slingSpeed', 'Стрелки леса', 'Пращник: скорость камня', 1, 12, 0.5, 5, 'ед/с'),
+  n('hiveRing', 'Стрелки леса', 'Улей: ос в кольце', 3, 16, 1, 5),
+  n('hiveSpeed', 'Стрелки леса', 'Улей: скорость осы', 0.5, 8, 0.25, 5, 'ед/с'),
+  n('hiveSwell', 'Стрелки леса', 'Улей: набухание', 0.2, 2, 0.05, 5, 'с'),
+  n('hivePeriod', 'Стрелки леса', 'Улей: период', 1, 12, 0.25, 5, 'с'),
+  n('wispSpeed', 'Стрелки леса', 'Светляк: скорость', 0.5, 5, 0.25, 5, 'ед/с'),
+  n('wispTurn', 'Стрелки леса', 'Светляк: поворот', 15, 360, 5, 5, '°/с'),
+  n('wispLife', 'Стрелки леса', 'Светляк: жизнь', 1, 15, 0.5, 5, 'с'),
 ];
 
 const MAX_PHASES = 8;

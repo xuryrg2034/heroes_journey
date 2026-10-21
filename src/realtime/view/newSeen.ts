@@ -38,6 +38,10 @@ export const KIND_CAPTIONS: Readonly<Record<string, string>> = {
   keymaster: 'Ключник — в кандалах не берётся: сначала разруби',
   crossbow: 'Арбалетчик — болт бьёт первое тело на линии',
   knight: 'Рыцарь — цепь снимает латы; без лат нападает',
+  // Task 57а (design 17.10.2026, spec 5): the forest shooters.
+  slinger: 'Пращник — три камня веером: шагни между линиями',
+  hive: 'Улей — кольцо ос: встань в просвет или подойди вплотную',
+  wisp: 'Светляк — летит за тобой: возьми в цепь его цвета',
   // Task 55а (design 17.10.2026, spec 11): the castle's kinds — the barrel is a thing, no kind of the bestiary.
   wardrobe: 'Шкаф — кончи цепь на нём: толкнёшь',
   rook: 'Ладья — бьёт по прямой первое тело',

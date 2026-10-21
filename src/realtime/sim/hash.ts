@@ -96,6 +96,9 @@ export function worldState(world: World): unknown {
     ...world.drowse ? { drowse: world.drowse } : {},
     ...world.flood ? { flood: world.flood } : {},
     ...world.rollcall ? { rollcall: world.rollcall } : {},
+    // Task 57а «Лес: стрелки» (shots.ts): the shots and the shooters' timer (absent until used — worlds without shooters hash as before).
+    ...world.shots ? { shots: world.shots } : {},
+    ...world.volley !== undefined ? { volley: world.volley } : {},
   };
 }
 

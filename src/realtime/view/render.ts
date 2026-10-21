@@ -68,6 +68,7 @@ import { CHEST_CURSE_KILLS, cursed } from '../sim/chest';
 import { FLAIL_RADIUS, JAILER, JAILER_WEIGHT, jailerCore, jailerMove, jailerShieldUp, type JailerMoveId } from '../sim/enemies/jailer';
 import { CHAIN_BREAK_LIFE, drawFlailArc, drawFlailChain, drawSeverPip, drawWeight, drawWhistleMark } from './jailerView';
 import { TROLL, TROLL_ROCK, trollCore } from '../sim/enemies/troll';
+import { ShooterView, hiveMarks, slingerMarks, wispMarks } from './shooterView';
 import { CHIEF, chiefCore } from '../sim/enemies/chief';
 import { CHIEF_ART, CHIEF_FEET, ChiefView, buildChief, buildChiefPart, chiefBadgeAt, chiefPartBadgeAt, eaterSits, isChiefKind, type ChiefArt } from './chiefView';
 import { TROLL_ART, TROLL_ART_ASPECT, TROLL_FEET, TrollView, buildCore, buildPartArt, coreBadgeAt, corePips, isTrollKind, partBadgeAt, partOutward, posePartArt, type CoreArt, type SignTools } from './trollView';
@@ -171,6 +172,8 @@ const GARRISON_ART: Readonly<Record<string, { id: CharacterArtId; size: number }
   [CROSSBOW]: { id: 'garrison-crossbowman', size: 3.4 }, [STAND]: { id: 'garrison-crossbow', size: 3.6 },
   // Task 43: the knight (heavier: a taller box).
   [KNIGHT]: { id: 'garrison-knight', size: 3.7 },
+  // Task 57а: the forest shooters (the box is in body radii of the kind's own drawing scale; the colour reads on the disc and the plaque).
+  slinger: { id: 'forest-slinger', size: 3.4 }, hive: { id: 'forest-hive', size: 3.1 }, wisp: { id: 'forest-wisp', size: 3.0 },
   // Task 55а: the castle's art (a thing has no colour plaque; the rook keeps its colour's plaque and disc).
   [WARDROBE]: { id: 'castle-wardrobe', size: 3.1 }, [ROOK]: { id: 'castle-rook', size: 3.9 }, [BARREL]: { id: 'castle-barrel', size: 2 },
 };
@@ -468,6 +471,8 @@ export class RealtimeRenderer {
   readonly tetherShown = { lines: 0, cut: 0, marks: 0, snaps: 0, shackles: 0, locks: 0, drops: 0 };
   /** Task 48: the Troll's view — his drawing, window, signs, tail and effects (`trollView.ts`). */
   private readonly troll = new TrollView(UNIT, chainInk);
+  /** Task 57а: the forest shooters' signs, shots and light (shooterView.ts); `shown` is what the tests read. */
+  readonly shooters = new ShooterView();
   /** Task 54a: the Chief's view - his drawing, window, queue, cauldron, signs and effects (chiefView.ts). */
   private readonly chief = new ChiefView(UNIT, chainInk);
   get chiefShown(): ChiefView['shown'] { return this.chief.shown; }
@@ -561,6 +566,13 @@ export class RealtimeRenderer {
    * the memory); `live` — a run fight is on screen; `on` — the toggle «Новое на карте» (off: memory is still written, nothing drawn).
    */
   newSeen: { store: NewSeenStore; live(): boolean; on(): boolean; meet?(id: string): void } | null = null;
+  /**
+   * Task 58 «Летопись»: a captioned kind (and each affix of an elite) that comes into view in a fight of a META run goes to the chronicle
+   * (`meet`), whether or not the П8 memory knew it already (the chronicle is its own record). `on` is false in `?seed=`, the prologue and
+   * the sandbox. Each kind and affix is reported once per page load (the chronicle ignores repeats anyway). View only: no caption, no sim.
+   */
+  chronicle: { on(): boolean; meet(met: { kinds: string[]; affixes: string[]; elite?: true }): void } | null = null;
+  private readonly chronicleSent = new Set<string>();
   private readonly captionLayer = new Container();
   private readonly captions: { id: number; box: Container; until: number; slot: number }[] = [];
   /** What the captions drew (tests read it): the texts shown since the last reset, and the plates on screen now. */
@@ -796,7 +808,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.cage.layer, this.objectLayer, this.markerLayer, this.trailLayer, this.chief.floor, this.laneLayer, this.rippleLayer, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.omenLayer, this.troll.layer, this.chief.layer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.overlay, this.prologueLayer, this.fxLayer, this.omenFlash, this.snapLayer, this.shardLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.cage.layer, this.objectLayer, this.markerLayer, this.trailLayer, this.chief.floor, this.laneLayer, this.rippleLayer, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.omenLayer, this.troll.layer, this.chief.layer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.shooters.layer, this.overlay, this.prologueLayer, this.fxLayer, this.omenFlash, this.snapLayer, this.shardLayer, this.flash);
     this.heroRoot.addChild(this.reachLayer, this.reachMask, this.heroLayer);
     this.app.stage.addChild(this.root, this.viewBorder, this.heroRoot, this.edgeLayer);
     this.initShards();
@@ -1215,6 +1227,13 @@ export class RealtimeRenderer {
       ctx.circle(r * 1.22, -r * 1.35, r * 0.24).fill(MAGIC).stroke({ color: NAVY, width: 2.5 });
       for (const a of [-0.5, 0, 0.5]) ctx.poly([Math.sin(a) * r * 0.55, -r * 0.8, Math.sin(a) * r * 1.0 - r * 0.12, -r * 1.55, Math.sin(a) * r * 1.0 + r * 0.12, -r * 1.55]).fill(PALE).stroke({ color: NAVY, width: 2, join: 'round' });
     }
+    // Task 57а: the forest shooters' stand-in silhouettes (the design's art comes later).
+    const shooterArt = GARRISON_ART[kind];
+    if (!shooterArt || !hasCharacterArt(shooterArt.id)) {
+      if (kind === 'slinger') slingerMarks(ctx, r);
+      if (kind === 'hive') hiveMarks(ctx, r);
+      if (kind === 'wisp') wispMarks(ctx, r);
+    }
     // Porcupine (iteration 2.1): its quills go up and down — drawn per frame over the texture (`quillGraphics`).
     if (kind === 'sapper') {
       // Sapper: a black powder keg on its back with a short fuse (silhouette, not a color).
@@ -1438,7 +1457,9 @@ export class RealtimeRenderer {
       if (colorless && view.root.visible) colorlessShown++;
       const paintedAt = this.paintAt.get(e.id), fade = paintedAt === undefined ? 1 : Math.min(1, Math.max(0, (this.clock - paintedAt) / PAINT_FADE));
       if (paintedAt !== undefined && fade >= 1) this.paintAt.delete(e.id);
-      view.root.alpha = (mode === 'alpha' ? 1 - dim : 1) * fade;
+      const wl = this.shooters.wispLook(world, e, this.clock);
+      if (wl) view.root.scale.set(scale * pop * enemyArtScale(world.params, e) * wl.scale);
+      view.root.alpha = (mode === 'alpha' ? 1 - dim : 1) * fade * (wl?.alpha ?? 1);
       const shade = Math.round(255 * (mode === 'darken' ? 1 - dim : 1));
       view.root.tint = (shade << 16) | (shade << 8) | shade;
       if (view.grey) view.grey.alpha = mode === 'desaturate' ? dim : 0;
@@ -1853,6 +1874,8 @@ export class RealtimeRenderer {
       this.arrowFlashes++;
     }
     this.archerMarksSeen = marks;
+    // Task 57а: the slinger's lines, the hive's swell, the shots in the air and the wisps' light.
+    this.shooters.draw(g, world, this.clock, UNIT, r, (pt, margin) => this.sees(pt, margin));
     this.drawBoss(world, g);
     this.drawTroll(world, g);
     this.chief.drawOver(g, world, this.clock, this.frameDt, enemyDrawRadius(world.params) * UNIT, 1 / Math.max(0.1, this.scale), e => this.sees(e, 1.5));
@@ -2128,7 +2151,20 @@ export class RealtimeRenderer {
     const px = 1 / Math.max(0.1, this.scale), host = this.newSeen, shown = this.captionShown;
     if (host && host.live()) {
       const on = host.on();
+      const chronicle = this.chronicle?.on() ? this.chronicle : null;
       for (const e of world.enemies) {
+        if (chronicle) {
+          const kind = KIND_CAPTIONS[e.kind] !== undefined && !this.chronicleSent.has(e.kind) ? e.kind : null;
+          const affixes = (e.affixes ?? []).filter(a => !this.chronicleSent.has(`affix:${a}`));
+          // An elite in view (an affix or the elite flag) opens the chapter of the elites' properties - the observation only; the rule is core's.
+          const elite = !!e.elite && !this.chronicleSent.has('elite');
+          if ((kind || affixes.length || elite) && this.sees(e, 1.5)) {
+            if (kind) this.chronicleSent.add(kind);
+            if (elite) this.chronicleSent.add('elite');
+            for (const a of affixes) this.chronicleSent.add(`affix:${a}`);
+            chronicle.meet({ kinds: kind ? [kind] : [], affixes, ...elite ? { elite: true as const } : {} });
+          }
+        }
         const kindDue = KIND_CAPTIONS[e.kind] !== undefined && !host.store.hasKind(e.kind);
         const affixDue = e.affixes?.some(a => !host.store.hasAffix(a));
         if (!kindDue && !affixDue) continue;
@@ -2943,6 +2979,8 @@ export class RealtimeRenderer {
       // Task 54a: the Chief's events (his moves' hits flash the sign, «звон» sparks, the window's hit and the links dropped, the brew, the severed parts) - the rest go on.
       if ((ev.type === 'bossMove' || ev.type === 'chiefFeast' || ev.type === 'chiefBrew' || ev.type === 'partSevered' || ev.type === 'enemySignal') && this.chief.onEvent(ev, world, this.clock, enemyDrawRadius(world.params) * UNIT)) continue;
       if ((ev.type === 'bossMove' || ev.type === 'trollWindow' || ev.type === 'partSevered' || ev.type === 'bossPlate') && this.troll.onEvent(ev, world, this.clock, enemyDrawRadius(world.params) * UNIT)) continue;
+      // Task 57а: the sparks of the shots (put out, taken by a shield, a hit, an end of flight), a wisp going out, a hive's ring leaving.
+      if (this.shooters.onEvent(ev, UNIT)) continue;
       if (ev.type === 'bossMove') {
         const m = ev.stage === 'hit' ? this.bossMovesSeen.get(ev.id) : undefined;
         if (m) { this.bossFlashes.push({ ...m, until: this.clock + 0.3 }); this.bossShown.hits++; }
@@ -4425,6 +4463,7 @@ export class RealtimeRenderer {
     this.updateDying(realDt);
     this.updateClearWaves(realDt);
     this.updateFireFlares(realDt);
+    this.shooters.update(realDt);
     this.cage.update(world, realDt);
     this.drawObjects(world);
     this.drawMarkers(world);
@@ -4521,6 +4560,7 @@ export class RealtimeRenderer {
     this.powerValue = -1;
     for (const sp of this.sparks) sp.g.destroy();
     this.sparks.length = 0;
+    this.shooters.reset();
     for (const f of this.floating) f.text.destroy();
     this.floating.length = 0;
     for (const b of this.bursts) b.g.destroy();

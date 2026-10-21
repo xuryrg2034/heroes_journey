@@ -344,7 +344,9 @@ check('saves: a run with forms reads back; a run without the flag saves no field
     assert(parseRtRun(JSON.stringify({ ...fresh, talismans: ['hero-anchor'] })), 'control: another talisman reads');
     const hammer = rtHammerOptions(taken, offer.nodeId)[0];
     bad({ ...taken, hammer }, 'a hammer of the hammer screen with the flag');
-    assert(parseRtRun(JSON.stringify({ ...noFlag, talismans: noFlag.talismans!.filter(id => !isRtForm(id)), hammer })), 'control: that hammer reads without the flag');
+    // Task 58в: a held item never stays in `shown` (taking it leaves the note) — the control holds the hammer as a real run would.
+    const shown = (noFlag.shown ?? []).filter(id => id !== hammer);
+    assert(parseRtRun(JSON.stringify({ ...noFlag, talismans: noFlag.talismans!.filter(id => !isRtForm(id)), hammer, ...shown.length ? { shown } : { shown: undefined } })), 'control: that hammer reads without the flag');
     bad({ ...at, pending: { ...offer, options: [...offer.options].reverse() } }, 'a forged form screen');
     bad({ ...at, pending: { kind: 'hammer', nodeId: offer.nodeId, options: rtHammerOptions(at, offer.nodeId) } }, 'the hammer screen with the flag');
     const atOld = structuredClone(at) as Partial<RtRunState>;

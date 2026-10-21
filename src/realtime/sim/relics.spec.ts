@@ -104,7 +104,7 @@ check('without a relic the getters give the old numbers; the relics act only whi
   assert(BLOOD_OATH_KILLS === 6 && BLOOD_OATH_ENERGY === 1 && HUNGER_KILLS === 15 && HUNGER_HEAL === 1, 'counter numbers');
   // The run's card of the oath says its numbers as they are (design answer 20) — and no energy any more.
   const card = rtTalisman(OATH_HUNGER)!.effect;
-  assert(card.includes(`+${HUNGER_HEAL} HP за ${HUNGER_KILLS} убийств цепью`) && card.includes('привал не лечит') && !card.includes('энерги'), `the oath card: ${card}`);
+  assert(card.includes(`+${HUNGER_HEAL} HP за ${HUNGER_KILLS} убийств, засчитанных цепи`) && card.includes('привал не лечит') && !card.includes('энерги'), `the oath card: ${card}`);
 });
 
 // ---- «Жернов» ----

@@ -37,6 +37,13 @@
  * - `bolt` (task 43, the law of the crossbow) — a crossbow's windup (`bolt` `aim`) with the hero's body on its fixed line. Strike —
  *   `bolt` `shot`: the hero hit — hit; the bolt went to the hero but did not hurt (invulnerability, a shield) — shielded; it struck
  *   another body first or the hero was off the line — dodged; the crossbow died before its shot or the fight ended — interrupted.
+ * - `sling`, `hive`, `wisp` (task 57а «Лес: стрелки») — a slinger's windup (`shooter` `aim`) with the hero's body on one of its three
+ *   fixed lines (a stone's radius + the hero's body), a hive's swell with the hero's body on a ray of its ring within the wasps' flight.
+ *   The volley's shots are known at its `loose`: a shot of it hits the hero (`stone` / `wasp` of the shooter) — hit; a shield takes one
+ *   (`shot` `block`) — shielded; all of them ended otherwise — dodged (`reason: 'snuff'` when the dash or a bomb put one out); the
+ *   shooter died before its volley or while its shots hung (they go out with it), or the fight ended — interrupted. The wisp («Светляк») from its lighting (`wisp` `lit`), always: its
+ *   touch hurt — hit, a shield took it — shielded, its flight ran out — dodged (the exit time is the flight it survived), the chain or
+ *   anything else killed it — interrupted.
  *
  * Outcomes: `hit` — a strike of this enemy by this source; `shielded` — the body in the zone on the strike tick but not
  * hurt (invulnerability, the chain's shield, a dash, a jump, the focus spare: decision 12); `dodged` — the body out of the
@@ -50,6 +57,8 @@ import { WOLF_HOWL, WOLF_RUSH, wolfRushLength } from '../sim/enemies/wolf';
 import { LYNX_LEAP, LYNX_STUN, LYNX_WINDUP } from '../sim/enemies/lynx';
 import { inFlail, jailerMove, JAILER } from '../sim/enemies/jailer';
 import { BOLT_HALF } from '../sim/enemies/crossbow';
+import { STONE_RADIUS } from '../sim/enemies/slinger';
+import { HIVE_SPEED, WASP_LIFE, WASP_RADIUS } from '../sim/enemies/hive';
 import { KNIGHT_CHARGE_SOURCE, KNIGHT_LANE_WIDTH, KNIGHT_SWING_SOURCE, knightLane, knightSwing } from '../sim/enemies/garrison';
 import { blockedAt, cliffAt, dist, type Vec } from '../sim/geometry';
 import { bodyRadiusOf } from '../sim/enemies/kinds';
@@ -59,8 +68,8 @@ import { enemyFrozen, touchReachOf, type Enemy, type World, type WorldEvent } fr
 import { EventCursor } from './observe';
 import type { ThreatTally } from './schema';
 
-export type ThreatKind = 'archer' | 'boar' | 'wolf' | 'lynx' | 'sapper' | 'sapper-instant' | 'flail' | 'throw' | 'bolt' | 'knight-charge' | 'knight-swing';
-export const THREAT_KINDS: readonly ThreatKind[] = ['archer', 'boar', 'wolf', 'lynx', 'sapper', 'sapper-instant', 'flail', 'throw', 'bolt', 'knight-charge', 'knight-swing'];
+export type ThreatKind = 'archer' | 'boar' | 'wolf' | 'lynx' | 'sapper' | 'sapper-instant' | 'flail' | 'throw' | 'bolt' | 'knight-charge' | 'knight-swing' | 'sling' | 'hive' | 'wisp';
+export const THREAT_KINDS: readonly ThreatKind[] = ['archer', 'boar', 'wolf', 'lynx', 'sapper', 'sapper-instant', 'flail', 'throw', 'bolt', 'knight-charge', 'knight-swing', 'sling', 'hive', 'wisp'];
 export type ThreatOutcome = 'hit' | 'shielded' | 'dodged' | 'interrupted';
 export type CoverKind = 'wall' | 'cliff';
 
@@ -137,6 +146,13 @@ export class ThreatTracker {
   private knightEnds: { id: number; move: string }[] = [];
   /** Task 43: the charges whose run met the hero's body without a hit (shielded). */
   private readonly knightPassed = new Set<Open>();
+  /** Task 57а: the shooters' windups and volleys, the shots' ends and the wisps' events of this tick. */
+  private shooterEvents: Extract<WorldEvent, { type: 'shooter' }>[] = [];
+  private shotEnds: Extract<WorldEvent, { type: 'shot' }>[] = [];
+  private wispEvents: Extract<WorldEvent, { type: 'wisp' }>[] = [];
+  /** Task 57а: the open volley warnings by the shooter's id — the hit source, and its shots once loosed. */
+  private readonly volleyOpen = new Map<number, { o: Open; source: string; shots: Set<number> | null; snuffed: boolean }>();
+  private readonly wispOpen = new Map<number, Open>();
   /** Hits already explained by a warning of this tick. */
   private used = new Set<Hit>();
 
@@ -149,6 +165,7 @@ export class ThreatTracker {
   tick(world: World, realDt: number = SIM_DT): void {
     this.real += realDt;
     this.hits = []; this.kills.clear(); this.blasts = []; this.used.clear(); this.bossStarts = []; this.bossHits = []; this.boltAims = []; this.boltShots = []; this.knightStarts = []; this.knightEnds = [];
+    this.shooterEvents = []; this.shotEnds = []; this.wispEvents = [];
     this.cursor.read(world, ev => {
       if (ev.type === 'hit') this.hits.push({ enemyId: ev.enemyId, source: ev.source });
       else if (ev.type === 'knightMove') { if (ev.stage === 'start') this.knightStarts.push({ id: ev.id, move: ev.move }); else if (ev.stage === 'end' || ev.stage === 'hit') this.knightEnds.push({ id: ev.id, move: ev.move }); }
@@ -156,6 +173,9 @@ export class ThreatTracker {
       else if (ev.type === 'kill') this.kills.set(ev.enemyId, ev.source ?? '');
       else if (ev.type === 'blast' && ev.source === 'blast') this.blasts.push({ x: ev.x, y: ev.y });
       else if (ev.type === 'bolt') (ev.action === 'aim' ? this.boltAims : this.boltShots).push(ev);
+      else if (ev.type === 'shooter') this.shooterEvents.push(ev);
+      else if (ev.type === 'shot') this.shotEnds.push(ev);
+      else if (ev.type === 'wisp') this.wispEvents.push(ev);
     });
     this.enemies = new Map(world.enemies.map(e => [e.id, e]));
     // Exit times first: the strike tick counts too.
@@ -172,6 +192,7 @@ export class ThreatTracker {
     this.resolveBoss(world);
     this.resolveBolts(world);
     this.resolveKnights(world);
+    this.resolveForest(world);
     if (world.status !== 'playing') for (const o of [...this.open]) this.close(o, world, 'interrupted', 'end');
     else this.openNew(world);
     this.wolfState = new Map(world.enemies.filter(e => e.kind === 'wolf').map(e => [e.id, e.vars.st ?? 0]));
@@ -554,6 +575,55 @@ export class ThreatTracker {
       const zone = this.knightZone(world, e, start.move);
       if (zone?.(world)) this.add(start.move === 'charge' ? 'knight-charge' : 'knight-swing', [e.id], world, zone);
     }
+  }
+
+  // ---- Task 57а: the forest shooters ----
+
+  private resolveForest(world: World): void {
+    for (const [id, v] of this.volleyOpen) {
+      const done = (outcome: ThreatOutcome, reason?: string): void => { this.volleyOpen.delete(id); this.close(v.o, world, outcome, reason); };
+      if (this.hitBy([id], v.source)) { done('hit'); continue; }
+      if (!v.shots) {
+        if (this.shooterEvents.some(e => e.action === 'loose' && e.id === id)) {
+          const taken = new Set([...this.volleyOpen.values()].flatMap(x => (x.shots ? [...x.shots] : [])));
+          v.shots = new Set((world.shots ?? []).filter(s => s.owner === id && !taken.has(s.id)).map(s => s.id));
+        } else if (!this.enemies.has(id)) { done('interrupted', 'dead'); continue; }
+        else if (world.status !== 'playing') { done('interrupted', 'end'); continue; }
+        else continue;
+      }
+      const shots = v.shots;
+      if (this.shotEnds.some(e => e.action === 'block' && shots.has(e.id))) { done('shielded'); continue; }
+      if (this.shotEnds.some(e => e.action === 'snuff' && shots.has(e.id))) v.snuffed = true;
+      // Design 17.10.2026: the hanging ring went out with its dead hive (`by: 'owner'`) — interrupted, as a shooter dead before its volley.
+      if (this.shotEnds.some(e => e.by === 'owner' && shots.has(e.id))) { done('interrupted', 'dead'); continue; }
+      if (world.status !== 'playing') { done('interrupted', 'end'); continue; }
+      if (!(world.shots ?? []).some(s => shots.has(s.id))) done('dodged', v.snuffed ? 'snuff' : undefined);
+    }
+    for (const [id, o] of this.wispOpen) {
+      const out = this.wispEvents.find(e => e.action === 'out' && e.id === id);
+      const done = (outcome: ThreatOutcome, reason?: string): void => { this.wispOpen.delete(id); this.close(o, world, outcome, reason); };
+      if (out?.why === 'touch') { this.hitBy([id], 'wisp'); done('hit'); }
+      else if (out?.why === 'block') done('shielded');
+      else if (out) done('dodged');
+      else if (!this.enemies.has(id)) done('interrupted', 'dead');
+      else if (world.status !== 'playing') done('interrupted', 'end');
+    }
+    if (world.status !== 'playing') return;
+    const hr = heroRadius(world.params);
+    for (const ev of this.shooterEvents) {
+      if (ev.action !== 'aim') continue;
+      let zone: Open['inZone'] | null = null;
+      if (ev.lines) {
+        const lines = ev.lines.map(l => { const len = Math.hypot(l.x1 - l.x0, l.y1 - l.y0) || 1; return { from: { x: l.x0, y: l.y0 }, dx: (l.x1 - l.x0) / len, dy: (l.y1 - l.y0) / len, len }; });
+        zone = w => lines.some(l => rayDistance(l.from, l.dx, l.dy, l.len, w.hero) <= STONE_RADIUS + hr);
+      } else if (ev.points) {
+        const reach = WASP_LIFE * (world.params.hiveSpeed ?? HIVE_SPEED), at = { x: ev.x, y: ev.y };
+        const rays = ev.points.map(p => { const len = Math.hypot(p.x - at.x, p.y - at.y) || 1; return { from: { x: p.x, y: p.y }, dx: (p.x - at.x) / len, dy: (p.y - at.y) / len }; });
+        zone = w => rays.some(r => rayDistance(r.from, r.dx, r.dy, reach, w.hero) <= WASP_RADIUS + hr);
+      }
+      if (zone?.(world)) this.volleyOpen.set(ev.id, { o: this.add(ev.lines ? 'sling' : 'hive', [ev.id], world, zone), source: ev.lines ? 'stone' : 'wasp', shots: null, snuffed: false });
+    }
+    for (const ev of this.wispEvents) if (ev.action === 'lit') this.wispOpen.set(ev.id, this.add('wisp', [ev.id], world, () => true));
   }
 
   // ---- New warnings ----

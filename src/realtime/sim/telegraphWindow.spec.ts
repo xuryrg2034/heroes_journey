@@ -30,6 +30,9 @@ import {
 import { WARDEN } from './enemies/warden';
 import { PITCHER } from './enemies/pitcher';
 import { BARREL, ROOK, ROOK_HALF, ROOK_WINDUP, TOPPLE_WIDTH, WARDROBE, WARDROBE_WINDUP } from './enemies/castle';
+import { SLINGER, SLING_MIN, SLING_WINDUP, STONE_RADIUS } from './enemies/slinger';
+import { HIVE, HIVE_NEAR, HIVE_RING, HIVE_SPEED, RING_RADIUS, WASP_HANG, WASP_RADIUS } from './enemies/hive';
+import { WISP, WISP_LIGHT, WISP_SPEED } from './enemies/wisp';
 import { registerArena, registeredArenas, type ArenaTemplate } from './arenas';
 import { defaultParams, heroRadius, type Params } from './params';
 import { Simulation, SIM_DT } from './simulation';
@@ -101,6 +104,11 @@ const THREATS: readonly Threat[] = [
   // of a fight ×1.5 is extra); «Удар ладьи» — the axis 0.5 wide, the way out sideways (the first windup 1.5 is extra).
   { id: 'wardrobe-topple', source: WARDROBE, title: 'шкаф: падение', window: p => p.wardrobeWindup ?? WARDROBE_WINDUP, exit: p => TOPPLE_WIDTH / 2 + heroRadius(p) },
   { id: 'rook-strike', source: ROOK, title: 'ладья: удар', window: p => p.rookWindup ?? ROOK_WINDUP, exit: p => ROOK_HALF + heroRadius(p) },
+  // Task 57а (design 7): the slinger's stone — its windup alone (the flight is extra), the way out sideways from the middle line at its
+  // nearest aim (`SLING_MIN`); the hive's wasp — from the hanging wasps to the hero at `HIVE_NEAR` (nearer the hive is silent), the
+  // swell before them is extra.
+  { id: 'slinger-stone', source: SLINGER, title: 'пращник: камень', window: p => p.slingWindup ?? SLING_WINDUP, exit: p => STONE_RADIUS + heroRadius(p) },
+  { id: 'hive-wasp', source: HIVE, title: 'улей: оса', window: p => WASP_HANG + (HIVE_NEAR - RING_RADIUS) / (p.hiveSpeed ?? HIVE_SPEED), exit: p => WASP_RADIUS + heroRadius(p) },
   { id: 'troll-tail', source: TROLL_TAIL, move: 'tail', title: 'Тролль: хвост метёт', window: () => TAIL_WINDUP, exit: p => TAIL_OUTER + heroRadius(p) - TAIL_INNER },
   // Task 54 (spec 8): «Взмах половником» — the worst point pressed to the core's front (a solid body: the touch's distance), the way
   // out along the radius; «Горсть перца» — a circle's centre, out across the line; phase 3's windup ×0.8.
@@ -143,6 +151,8 @@ const OUTSIDE: Readonly<Record<string, string>> = {
   [CHIEF]: 'касание, без телеграфа (обед, приправа и свисток героя не бьют; удары — у половника и мешка)',
   // Task 55а: the barrel is a thing — it never strikes (the player shoves it).
   [BARREL]: 'вещь: не бьёт и не касается; толкает её игрок',
+  // Task 57а: the wisp is a living shot — no zone and moment; it lights 1.6 s from its marker and is slower than the hero (checked below).
+  [WISP]: 'живой снаряд: метка и зажигание 1,6 с до полёта, летит медленнее героя — догнать не может (проверка ниже)',
 };
 
 /** A run battle's params (the run's numbers, the short fuse of task 19). */
@@ -249,6 +259,17 @@ check('task 59а (spec 3.6): «Размах» with the hero in pitch and the cro
   assert(!broken.length, `arenas with a pitcher and «Размах»: ${broken.join('; ')}`);
   const probe = { id: 'probe', enemies: [{ x: 1, y: 1, color: 0, kind: PITCHER }], newcomers: [{ kind: KNIGHT, share: 1 }] } as unknown as ArenaTemplate;
   assert(pitchSwingClash(probe) === `probe: ${PITCHER} + ${KNIGHT}`, 'the check catches a composition with both');
+});
+
+check("task 57а: the patterns leave a gap — between the slinger's lines at its nearest aim and between the hive's wasps at its nearest swell the hero's body passes; the wisp is slower than the hero; the wisp lights 1.6 s from its marker", () => {
+  const r = heroRadius(RUN), a = (RUN.slingSpread ?? 20) * Math.PI / 180;
+  // Rays from the slinger's centre: a point on the middle line at d, h aside, is (d sin a − h cos a) from the side line.
+  const slingFree = (SLING_MIN * Math.sin(a) - (STONE_RADIUS + r)) / Math.cos(a) - (STONE_RADIUS + r);
+  const n = RUN.hiveRing ?? HIVE_RING, hiveFree = 2 * (HIVE_NEAR * Math.sin(Math.PI / n) - (WASP_RADIUS + r));
+  console.log(`   пращник: свободно между линиями на ${SLING_MIN} ед. — ${round2(slingFree)}; улей: просвет на ${HIVE_NEAR} ед. — ${round2(hiveFree)}`);
+  assert(slingFree >= 0 && hiveFree >= 0, `a gap closed (slinger ${slingFree}, hive ${hiveFree})`);
+  assert((RUN.wispSpeed ?? WISP_SPEED) < RUN.heroSpeed, `the wisp is slower than the hero (${RUN.wispSpeed} < ${RUN.heroSpeed})`);
+  assert(round2(RUN.markerDelay + WISP_LIGHT) === 1.6, `marker + lighting ${RUN.markerDelay + WISP_LIGHT}`);
 });
 
 check('coverage: every registered enemy kind is a source of the table or listed outside it with a reason; no entry for a kind that does not exist', () => {

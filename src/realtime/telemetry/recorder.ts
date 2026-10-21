@@ -266,7 +266,6 @@ export function mergeChoice(list: RunChoice[], c: RunChoice): void {
   if (c.realSeconds !== undefined) old.realSeconds = (old.realSeconds ?? 0) + c.realSeconds;
 }
 
-/** The build at the end of the run (or now). */
 /**
  * Task 40 (from 16.10.2026): the run's levels for its record — the level it is on (2 — the garrison), the highest level it passed
  * (1 — the forest's final won, 2 — the Castellan), the cart of «Предместье» (absent — none of them: the record as before).
@@ -311,6 +310,11 @@ interface RunMeta {
   dice?: RunDie[];
   /** П6: when the run ended (ISO; absent — not ended). */
   endedAt?: string;
+  /**
+   * The build the run ended on (absent — not ended, or ended before 21.10.2026): a record written again after the end (a click on an
+   * NPC in the camp, a buy) keeps it in its header, not the build of that later session.
+   */
+  build?: string;
   /** П8: the map choices made with the sign «✦ новое» shown (absent — none yet). */
   mapSigns?: RunMapSign[];
   /** «Обучение v1»: the fight hints shown in this run (absent — none yet). */
@@ -345,7 +349,7 @@ interface RunMeta {
   /** Task 51з: the run of the day's attempt (`dailyAttempt`; absent — not reported, or an ordinary run). */
   daily?: { date: string; attempt: number; first: boolean; verified?: true };
   /** Tasks 36–37: the run's meta fields (`RunRecord.xp` … `quest`; absent — none yet). */
-  metaTlm?: Partial<Pick<RunRecord, 'xp' | 'pack' | 'record' | 'locked' | 'carry' | 'stock' | 'hearthBuys' | 'npcClicks' | 'hearth' | 'quest' | 'arrive' | 'vows'>>;
+  metaTlm?: Partial<Pick<RunRecord, 'xp' | 'pack' | 'record' | 'locked' | 'carry' | 'stock' | 'hearthBuys' | 'npcClicks' | 'hearth' | 'quest' | 'arrive' | 'vows' | 'chronicle' | 'chronicleOpen' | 'hint' | 'trophies'>>;
   /** Task 49: the hero this run freed (`heroFreed`). */
   freed?: { hero: 'toad'; row: number };
 }
@@ -727,7 +731,7 @@ export class RtRecorder {
   private writeRun(run: RtRunState): void {
     const meta = this.metaFor(run), runParams = JSON.parse(JSON.stringify(this.options.params)) as Params;
     const record: RunRecord = {
-      ...this.header(runRecordId(this.session, meta.key), 'run', meta.key, paramsHash(runParams)),
+      ...this.header(runRecordId(this.session, meta.key), 'run', meta.key, paramsHash(runParams)), ...meta.build ? { build: meta.build } : {},
       seed: run.seed, outcome: meta.outcome, farRow: meta.farRow, death: meta.death, nodes: meta.nodes, choices: meta.choices, kit: runKit(run), fights: meta.fights, ...meta.dice?.length ? { dice: meta.dice } : {}, ...meta.endedAt ? { endedAt: meta.endedAt } : {}, ...meta.mapSigns?.length ? { mapSigns: meta.mapSigns } : {}, ...meta.hints?.length ? { hints: meta.hints } : {}, ...meta.items ? { items: meta.items } : {}, ...meta.gentle ? { gentle: true as const } : {}, ...meta.startPotion ? { startPotion: true as const } : {}, ...meta.secondWindOn ? { secondWindOn: true as const } : {}, ...meta.startItems ? { startItems: meta.startItems } : {}, ...meta.secondWind ? { secondWind: meta.secondWind } : {}, ...meta.mapHeals?.length ? { mapHeals: meta.mapHeals } : {}, /* task 18: the run's own level */ ...run.ash ? { ash: run.ash } : {}, /* task 41: the cap of healing potions */ ...run.potionCap ? { potionCap: run.potionCap } : {}, /* task 26: living elements of the snapshot (affix types apart) */ ...run.schedule ? { schedule: { start: run.schedule.seen.filter(id => !id.startsWith('affix:')).length } } : {},
       ...run.fusions ? { fusions: meta.fusions ?? { halves: [], paired: [], made: [], declined: [] } } : {},
       // Task 50: the knack screens and rank II; the archetype (absent — «Без повадки», or not chosen yet).
@@ -860,6 +864,10 @@ export class RtRecorder {
       if (end.quest) tlm.quest = { npc: end.quest.npc, id: end.quest.id, done: end.quest.done };
       // Task 51в: the NPCs who came after this run.
       if (end.vows) tlm.vows = end.vows.map(v => ({ ...v }));
+      // Task 58: the entries the run added, the pages after it.
+      if (end.chronicle?.pages) tlm.chronicle = { added: [...end.chronicle.added], pages: Object.fromEntries(Object.entries(end.chronicle.pages).map(([id, p]) => [id, [p[0], p[1]] as [number, number]])), ...end.chronicle.seenItems !== undefined ? { seenItems: end.chronicle.seenItems } : {} };
+      // Task 51е: the trophies earned (a new mark of «Доска Испытания» as `ash:<step>`).
+      if (end.trophies?.length) tlm.trophies = end.trophies.map(t => (t.mark && t.id === 'ash' ? `ash:${t.mark}` : t.id));
       if (end.arrived) tlm.arrive = end.arrived.map(a => ({ npc: a.npc, path: a.self ? 'self' as const : 'deed' as const, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun } : {} }));
       this.saveMeta(); this.writeRun(run);
     });
@@ -879,6 +887,24 @@ export class RtRecorder {
     safe(undefined, () => {
       const meta = this.metaFor(run), tlm = meta.metaTlm ??= {};
       (tlm.hearthBuys ??= []).push({ npc, level, price });
+      this.saveMeta(); this.writeRun(run);
+    });
+  }
+  /** Task 58: the window «Летопись» was closed in the camp after `run` — the pages looked at, the seconds open, «✦» on when opened. */
+  chronicleOpened(run: RtRunState, opened: { pages: readonly string[]; seconds: number; unread: boolean }): void {
+    if (!(opened.seconds >= 0)) return;
+    safe(undefined, () => {
+      const meta = this.metaFor(run), tlm = meta.metaTlm ??= {};
+      (tlm.chronicleOpen ??= []).push({ pages: [...opened.pages], seconds: Math.round(opened.seconds * 10) / 10, unread: opened.unread === true });
+      this.saveMeta(); this.writeRun(run);
+    });
+  }
+  /** Task 58: the owl said her hint in the camp after `run` (once a visit; the first one stays). */
+  chronicleHint(run: RtRunState, hint: { key: string; target: string }): void {
+    safe(undefined, () => {
+      const meta = this.metaFor(run), tlm = meta.metaTlm ??= {};
+      if (tlm.hint) return;
+      tlm.hint = { key: hint.key, target: hint.target };
       this.saveMeta(); this.writeRun(run);
     });
   }
@@ -1019,6 +1045,7 @@ export class RtRecorder {
           meta.outcome = ev.type === 'run-won' ? 'victory' : 'defeat';
           // П6: the end of the run (the step that ended it; the first one, should a step repeat).
           meta.endedAt ??= new Date().toISOString();
+          meta.build ??= this.build;
         }
       }
       const seconds = typeof info.realSeconds === 'number' && Number.isFinite(info.realSeconds) && info.realSeconds >= 0 ? info.realSeconds : undefined;

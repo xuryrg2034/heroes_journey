@@ -86,7 +86,8 @@ const RT_SLICE_TALISMANS: readonly RtTalismanDef[] = [
   turn('ash-ward', 'Один раз за поход: удар, который убил бы героя, оставляет его с 1 HP; оберег рассыпается', ['cold']),
   { id: 'hero-anchor', name: 'Якорь у героя', rarity: 'rare', effect: 'Следующее звено берётся и в радиусе R от героя (обойти щит им нельзя)', tags: ['shift'] },
   // Phase B, 5а (decision 10.10.2026): the new «Клятва голода» (sim/relics.ts `HUNGER_KILLS`, `HUNGER_HEAL`; relics.spec.ts checks the numbers).
-  turn('oath-hunger', '+1 HP за 15 убийств цепью; привал не лечит (крафт остаётся)'),
+  // Codex review 20.10.2026: «засчитанных цепи» — the counter is `onChainKill` (struck dead by the dash or a fallen credited link).
+  turn('oath-hunger', '+1 HP за 15 убийств, засчитанных цепи; привал не лечит (крафт остаётся)'),
 ];
 /**
  * Turn-based talismans without an analogue in real time (not offered; questions to design): «Кисет старьёвщика» and the
@@ -118,7 +119,7 @@ export const RT_RELICS: readonly RtTalismanDef[] = [
   { id: RL.heavyBlade, name: 'Тяжёлый клинок', rarity: 'relic', effect: 'Каждое звено даёт +2 силы вместо +1', price: 'запас фокуса вдвое меньше', tags: ['daring'] },
   { id: RL.swiftFeet, name: 'Быстрые ноги', rarity: 'relic', effect: 'Скорость героя +25%', price: 'нет неуязвимости после цепи', excludes: [CT.finisher] },
   { id: RL.wideCircle, name: 'Широкий круг', rarity: 'relic', effect: 'Радиус звена R +25%', price: 'враги ходят на 10% быстрее', tags: ['shift'] },
-  { id: RL.bloodOath, name: 'Кровавая клятва', rarity: 'relic', effect: '+1 энергия за каждые 6 убийств цепью на арене', price: 'лечение расходником вдвое слабее (9 → 5)', tags: ['flame'] },
+  { id: RL.bloodOath, name: 'Кровавая клятва', rarity: 'relic', effect: '+1 энергия за каждые 6 убийств, засчитанных цепи, на арене', price: 'лечение расходником вдвое слабее (9 → 5)', tags: ['flame'] },
 ];
 /** Every talisman of the real-time run: the slice's, the counter talismans (Т1), the relics (Т3). */
 export const RT_TALISMANS: readonly RtTalismanDef[] = [...RT_SLICE_TALISMANS, ...RT_COUNTER_TALISMANS, ...RT_RELICS];
@@ -137,7 +138,7 @@ export const RT_FORMS: readonly RtTalismanDef[] = [
   form(HM.fire, 'Огненный проход', 'Цепь из 3+ звеньев: путь прохода горит 2 с, огонь бьёт врагов на 1 при входе', { tags: ['flame'] }),
   form(HM.cut, 'Режущий проход', 'Проход бьёт на 1 врагов любого цвета в 0,5 от пути (кроме звеньев)', { tags: ['flame'] }),
   form(HM.return, 'Возврат', 'После прохода герой бежит к началу цепи вторым проходом с половиной силы; неуязвим на бегу', { excludes: [HM.blast], tags: ['daring'] }),
-  form(FROST_PASS, 'Наледь', 'Путь прохода 2 с морозит врагов, которые в него входят', { simple: true, tags: ['cold'] }),
+  form(FROST_PASS, 'Наледь', 'Путь прохода 2 с морозит врагов, которые в него входят; замёрзшие хрупки (следующий удар цепи ×2)', { simple: true, tags: ['cold'] }),
   form(HM.blast, 'Взрыв на конце', 'Цепь из 3+ звеньев: в конце прохода — взрыв радиусом 1,5 вокруг последнего звена, удар 1 по всем врагам', { simple: true, excludes: [HM.return], tags: ['flame'] }),
   form(FM.pierce, 'Прямая', 'Прямой хвост цепи: проход идёт дальше по прямой и бьёт всех на пути', { simple: true, tags: ['daring'] }),
   form(FM.seal, 'Печать', 'Замкни цепь в кольцо — удар по всем врагам внутри', { tags: ['cold', 'shift'] }),
@@ -193,7 +194,7 @@ export const RT_FUSIONS: readonly RtTalismanDef[] = [
   { id: FU.hunterBlast, name: 'Подрыв', rarity: 'fusion', field: FORM_FIELD[FU.hunterBlast], excludes: [HM.return, FU.boomerang],
     effect: 'Цепь из 3+ звеньев: взрыв радиусом 1,5 вокруг последнего звена, удар 1. Последнее звено — элита или крепкий: взрыв 2,25, удар 4, с элиты 2 пластины. После элиты или крепкого звенья получают +3 силы' },
   { id: FU.frostWave, name: 'Ледяная волна', rarity: 'fusion', field: FORM_FIELD[FU.frostWave],
-    effect: 'Путь прохода 2 с морозит врагов. Цепь из 4+ звеньев: волна радиусом 2 бьёт на 1; выжившие замерзают на 3 с и хрупки (следующий удар цепи ×2)' },
+    effect: 'Путь прохода 2 с морозит врагов; замёрзшие хрупки (следующий удар цепи ×2). Цепь из 4+ звеньев: волна радиусом 2 бьёт на 1; выжившие замерзают на 3 с и хрупки' },
 ];
 /** A fusion of the run (`RT_FUSIONS`). */
 export const isRtFusion = (id: RtTalismanId): boolean => RT_FUSIONS.some(entry => entry.id === id);
