@@ -3,7 +3,8 @@
  * (docs/design-notes/task-59-garrison-step3.md, 7.1; acceptance 14). For playing by hand and Playwright; not in the run's pools (the full
  * arenas «Смолокурня», «Казарма», «Барбакан» are level design's). Their own group at the end of the sandbox menu (view/main.ts).
  *
- * - «Смолокур (проба)» (`g-pitch-test`): one pitcher 6 from the hero, four weak links between them (a chain over a pool).
+ * - «Смолокур (проба)» (`g-pitch-test`): one pitcher 4.5 from the hero (its fighting distance, in the frame), four weak links between
+ *   them (a chain over a pool).
  * - «Новобранцы (проба)» (`g-recruit-test`): a formation of 4 at y = 4 (0.9 apart) — every number in the hero's reach from the start.
  * - «Привратники (проба)» (`g-warden-test`): the pair above four columns of five weak enemies, one column a colour — whatever A the pair
  *   draws (A is the first of the pair, at x 9.4), five links of A lead up to it: with «Смена цвета» 6 (`colorShiftLinks`, the run's 6) the
@@ -28,8 +29,9 @@ export const PITCH_TEST_ARENA: ArenaTemplate = registerArena({
   height: 12,
   heroStart: { x: 9, y: 9 },
   door: { x: 17.3, y: 0.7 },
+  // The pitcher 4.5 below the top's HUD band, at its fighting distance (design 21.10.2026: its windup stays in the 1280×720 frame).
   enemies: [
-    { x: 9, y: 3, color: 1, kind: PITCHER },
+    { x: 9, y: 4.5, color: 1, kind: PITCHER },
     { x: 6.5, y: 7.2, color: 0, hp: 0 }, { x: 7.8, y: 6.4, color: 0, hp: 0 }, { x: 10.2, y: 6.4, color: 0, hp: 0 }, { x: 11.5, y: 7.2, color: 0, hp: 0 },
   ],
   pitch: true,

@@ -29,6 +29,11 @@ import './arenasGarrison';
 import './arenasShooters';
 // Task 55а: the castle's arenas of step 1а register on import too.
 import './arenasCastle';
+// Task 59а: the probes of the garrison's step 3 (sandbox) register on import too.
+import './arenasStep3';
+// The warm-up's arenas («Разминка») register on import too — not only through run/warmup.ts (task 59а: every arena a journal names is
+// known to a bare `replay`; sim/arenaRegistry.spec.ts checks the list).
+import './arenasWarmup';
 import { withRoster, withoutKinds, type RosterArena } from './rosters';
 import { stepHero, tickScale } from './chain';
 import { applyCommand, type Command, type CommandResult } from './commands';
