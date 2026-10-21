@@ -191,6 +191,17 @@ registerBehavior({
   },
   step: lineStep,
   onDeath(world, e, cause) {
+    // The place of the event `drill` (`lx`, `ly`): where the group's latest recruit fell — world state (`World.recruitFell`, hashed), only
+    // under the law; the entries of groups wholly gone earlier (no drill took them) leave at the next death.
+    if (recruitsOn(world)) {
+      const group = recruitGroup(e), fell = world.recruitFell ?? {};
+      for (const key of Object.keys(fell)) {
+        const g = Number(key);
+        if (g !== group && !world.enemies.some(o => o.kind === RECRUIT && recruitGroup(o) === g)) delete fell[g];
+      }
+      fell[group] = [e.x, e.y];
+      world.recruitFell = fell;
+    }
     // Design 21.10.2026: a member finished by a source that is not the pass's own spoils its formation's bonus for this move.
     const move = world.move;
     if (move?.drill && !PASS_SOURCES.has(cause.source)) {
@@ -233,7 +244,9 @@ export function drillEnd(world: World, groups: readonly number[], energyMax: num
     if (world.enemies.some(e => e.kind === RECRUIT && recruitGroup(e) === g)) { left.push(g); continue; }
     const bonus = Math.max(0, world.params.recruitBonus ?? RECRUIT_BONUS);
     world.energy = Math.min(energyMax, world.energy + bonus);
-    world.events.push({ type: 'recruit', action: 'drill', id: g, x: world.hero.x, y: world.hero.y, energy: bonus });
+    const last = world.recruitFell?.[g];
+    world.events.push({ type: 'recruit', action: 'drill', id: g, x: world.hero.x, y: world.hero.y, energy: bonus, ...last ? { lx: last[0], ly: last[1] } : {} });
+    if (world.recruitFell) { delete world.recruitFell[g]; if (!Object.keys(world.recruitFell).length) delete world.recruitFell; }
   }
   return left;
 }

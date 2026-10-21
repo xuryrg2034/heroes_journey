@@ -100,7 +100,44 @@ check('the chain takes only the current number: a press on another starts nothin
     assert(byNumber(w).length === 0 && w.stats.kills === kills + 4, `seed ${k}: all fell`);
     const drill = of(events, 'recruit').find(e => e.action === 'drill');
     assert(drill?.energy === 2 && w.energy === Math.min(7, energy + 2 + 4 * w.params.energyPerKill), `seed ${k}: +2 energy (${energy} → ${w.energy})`);
+    // The view's place of the «+2»: where the formation's last recruit fell (its kill event, the tick it died); the hero's x, y stay.
+    const lastKill = of(events, 'kill').filter(e => line.some(r => r.id === e.enemyId)).pop()!;
+    assert(drill.lx === lastKill.x && drill.ly === lastKill.y && drill.x === w.hero.x && drill.y === w.hero.y, `seed ${k}: drill at the last recruit (${drill.lx}, ${drill.ly}) / (${lastKill.x}, ${lastKill.y})`);
     assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
+/** A deep copy of a world keeping every prototype (a snapshot to restore: no object is shared with the original). */
+function snapshot<T>(value: T, seen = new Map<unknown, unknown>()): T {
+  if (value === null || typeof value !== 'object') return value;
+  if (seen.has(value)) return seen.get(value) as T;
+  if (ArrayBuffer.isView(value)) { const copy = (value as unknown as { slice(): T }).slice(); seen.set(value, copy); return copy; }
+  if (value instanceof Map) { const copy = new Map(); seen.set(value, copy); for (const [k, v] of value) copy.set(snapshot(k, seen), snapshot(v, seen)); return copy as T; }
+  if (value instanceof Set) { const copy = new Set(); seen.set(value, copy); for (const v of value) copy.add(snapshot(v, seen)); return copy as T; }
+  const copy = Array.isArray(value) ? [] as unknown[] : Object.create(Object.getPrototypeOf(value)) as Record<string, unknown>;
+  seen.set(value, copy);
+  for (const key of Object.keys(value as object)) (copy as Record<string, unknown>)[key] = snapshot((value as Record<string, unknown>)[key], seen);
+  return copy as T;
+}
+
+check('the drill\u2019s place lives in the world: a world restored from a snapshot in the middle of the pass gives the same drill (lx, ly) and the same hash (3 seeds)', () => {
+  for (const k of [1, 2, 3]) {
+    const sim = yard(k), w0 = sim.world, line = byNumber(w0);
+    draw(sim, line);
+    sim.command({ t: 'release' });
+    // Into the pass until #3 has fallen (the place of the latest is in the world now).
+    ticks(sim, ticksOf(2), [], ww => !ww.enemies.includes(line[2]));
+    assert(w0.move && !w0.enemies.includes(line[2]) && w0.recruitFell, `seed ${k}: mid-pass, #3 fallen, the place kept`);
+    const saved = snapshot(w0);
+    const run = (): { drill: Extract<WorldEvent, { type: 'recruit' }> | undefined; hash: string } => {
+      const events = ticks(sim, ticksOf(3), [], ww => !ww.move);
+      return { drill: of(events, 'recruit').find(e => e.action === 'drill'), hash: sim.hash() };
+    };
+    const first = run();
+    (sim as unknown as { world: World }).world = saved;
+    const again = run();
+    assert(first.drill?.lx !== undefined && JSON.stringify(again.drill) === JSON.stringify(first.drill) && again.hash === first.hash, `seed ${k}: the restored world's drill ${JSON.stringify(again.drill)} = ${JSON.stringify(first.drill)}`);
+    assert(!sim.world.recruitFell, `seed ${k}: the place leaves with its drill`);
   }
 });
 
