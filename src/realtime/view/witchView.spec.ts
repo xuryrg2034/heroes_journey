@@ -25,10 +25,6 @@ import type { Enemy, World, WorldEvent } from '../sim/world';
 import { Camera, CAMERA } from './camera';
 import { CAST_STEP, GLYPH_WORD, WitchView, glyphCaption, polylinePrefix, type WitchShown } from './witchView';
 
-// Node's file system, loaded by name: the project's typecheck has no Node types under src/ (the spec runs in Node only).
-const nodeModule = (name: string): Promise<unknown> => import(/* @vite-ignore */ name);
-const { readFileSync } = await nodeModule('node:fs') as { readFileSync(path: URL, encoding: 'utf8'): string };
-
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 function check(name: string, run: () => void): void { run(); console.log(`ok - ${name}`); }
 const seedOf = (k: number): number => Math.imul(k, 2654435761) >>> 0;
@@ -126,23 +122,13 @@ check('runes: a dot per enemy link at the point it was taken; the line to the bo
   assert(sh(view).runes === 5 && sh(view).ties === moved, `${sh(view).ties} lines for ${moved} bodies that left their points`);
 });
 
-check('muting: a body out of the circle and one behind a wall are out of the cast, one in the circle is in (the renderer mutes by inCast)', () => {
+check('muting: a body out of the circle and one behind a wall are out of the cast, one in the circle is in (what the renderer mutes by)', () => {
   const f = fight();
   f.sim.command({ t: 'teleport', x: 12.4, y: 6 });
   const inside = place(f.sim, { x: 11, y: 6 }), outside = place(f.sim, { x: 12.4, y: 10.5 }), behind = place(f.sim, { x: 15.2, y: 6 });
   assert(inCast(f.w, inside), 'in the circle: not muted');
   assert(!inCast(f.w, outside), 'out of the circle: muted');
   assert(!inCast(f.w, behind), 'inside the circle but behind the wall: muted');
-  const source = readFileSync(new URL('./render.ts', import.meta.url), 'utf8');
-  assert(source.includes('view.root.visible && !inCast(world, e)'), 'the renderer asks inCast');
-});
-
-check('layers: the circle of casting is floor marking — under the bodies, the runes and the thread (the order of the layers of the root in render.ts)', () => {
-  const source = readFileSync(new URL('./render.ts', import.meta.url), 'utf8');
-  const line = source.split(String.fromCharCode(10)).find(l => l.includes("this.root.addChild(this.staticLayer"))!;
-  const at = (name: string): number => line.indexOf(`this.${name},`);
-  assert(at('castLayer') > 0 && at('castLayer') < at('enemyLayer') && at('enemyLayer') < at('chainLayer'), 'castLayer < enemyLayer < chainLayer');
-  assert(at('castLayer') < at('eliteLayer') && at('castLayer') < at('fxLayer'), 'under the elites and the effects');
 });
 
 check('the first rune: dim ring from 3 runes; the pointer on it with a ring that can close — bright, the dashed contour and «Кольцо»; elsewhere — dim, no contour', () => {

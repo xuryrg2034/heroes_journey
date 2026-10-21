@@ -1439,6 +1439,7 @@ export class RealtimeRenderer {
     const mode = world.params.dimMode, strength = world.params.dimStrength;
     const witch = witchOn(world) && world.chain.length > 0;
     let dimmed = 0, colorlessShown = 0;
+    this.mutedIds = [];
     const air = this.troll.rockInAir(world);
     for (const e of world.enemies) {
       seen.add(e.id);
@@ -1519,7 +1520,7 @@ export class RealtimeRenderer {
       const foreign = color !== null && !colorless && !sameColor(world, e.color, color);
       const away = witch && view.root.visible && !inCast(world, e);
       const dim = foreign || away ? strength : 0;
-      if (dim > 0 && view.root.visible) dimmed++;
+      if (dim > 0 && view.root.visible) { dimmed++; this.mutedIds.push(e.id); }
       if (colorless && view.root.visible) colorlessShown++;
       const paintedAt = this.paintAt.get(e.id), fade = paintedAt === undefined ? 1 : Math.min(1, Math.max(0, (this.clock - paintedAt) / PAINT_FADE));
       if (paintedAt !== undefined && fade >= 1) this.paintAt.delete(e.id);
@@ -2757,6 +2758,13 @@ export class RealtimeRenderer {
   colorShiftMarkShown = 0;
   /** Bodies on screen dimmed as «another colour» of the drawn chain in the last frame (tests read it: a free colour dims none). */
   dimmedShown = 0;
+  /** Task 62 (tests): the ids of the bodies muted in the last frame (another colour, or out of Ведунья v2's circle). */
+  mutedIds: number[] = [];
+  /** Task 62 (tests): the places of the circle's, the bodies' and the chain's layers among the root's children (the circle is floor marking: below the bodies). */
+  layerOrder(): { cast: number; enemy: number; chain: number } {
+    const at = (layer: Container | Graphics): number => this.root.children.indexOf(layer);
+    return { cast: at(this.castLayer), enemy: at(this.enemyLayer), chain: at(this.chainLayer) };
+  }
 
   /** «проклятие 7/12» under the hero's HP bar while the curse lasts: the dash's kills toward lifting it. */
   private drawCurseCounter(world: World): void {

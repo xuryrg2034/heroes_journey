@@ -268,3 +268,30 @@ test('the camera keeps Ведунья in the centre while she draws (a glide, no
   }
   expect(errors).toEqual([]);
 });
+
+test('on the real render: the circle is floor marking below the bodies; the bodies out of the circle and behind a wall are muted, the one in the circle is not', async ({ page }) => {
+  const errors = collectErrors(page);
+  // «Большая поляна» has a free-standing wall at x 8–9, y 5–8.
+  await openWitch(page, 'toad', { testId: 'camera-arena-1', name: 'Большая поляна' });
+  await page.evaluate(() => (window as any).__realtime.teleport(7, 6.5));
+  await gameWait(page, 0.3);
+  const inside = await place(page, 5.5, 6.5, 0, 3);
+  const outside = await place(page, 7, 11.5, 0, 3);
+  const behind = await place(page, 9.9, 6.5, 0, 3);
+  // The circle's layer is below the bodies' and the chain's in the scene (the order Pixi draws).
+  const layers = (await snap(page)).witch.layers;
+  expect(layers.cast).toBeGreaterThanOrEqual(0);
+  expect(layers.cast).toBeLessThan(layers.enemy);
+  expect(layers.enemy).toBeLessThan(layers.chain);
+  // No chain in the hand: nobody is muted.
+  expect((await snap(page)).witch.muted).toEqual([]);
+  const at = await screen(page, 5.5, 6.5);
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await expect.poll(async () => (await snap(page)).chain).toEqual([inside]);
+  await expect.poll(async () => (await snap(page)).witch.muted.slice().sort()).toEqual([outside, behind].sort());
+  expect((await snap(page)).witch.muted).not.toContain(inside);
+  await page.mouse.up();
+  await sameHash(page);
+  expect(errors).toEqual([]);
+});
