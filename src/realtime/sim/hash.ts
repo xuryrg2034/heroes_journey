@@ -86,6 +86,11 @@ export function worldState(world: World): unknown {
     ...world.bossCleared ? { bossCleared: true } : {},
     // Task 38 «Гарнизон» (`Params.tethers`, tethers.ts): the tethers on the arena (absent while none — worlds hash as before).
     ...world.tethers?.length ? { tethers: world.tethers } : {},
+    // Task 59а (`Params.pitch`, pitch.ts): the pots in flight and the pools of pitch (absent until the first throw — worlds hash as before).
+    ...world.pots ? { pots: world.pots } : {},
+    ...world.pitch ? { pitch: world.pitch } : {},
+    // Task 59а: where the formations' latest recruits fell (absent until a recruit dies under the law).
+    ...world.recruitFell ? { recruitFell: world.recruitFell } : {},
     // Task 55а «Замок: толчок» (shove.ts): the things sliding now (absent while none — worlds without a shove hash as before).
     ...world.shoves ? { shoves: world.shoves } : {},
     // Task 56 «Приметы» (omens.ts): the storm, the sleep, the pools, the roll call (each absent until its rule acts — worlds hash as before).
