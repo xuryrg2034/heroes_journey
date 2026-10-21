@@ -62,6 +62,24 @@ check('the club\'s pose: the grip and the paw\'s angle are the view\'s', () => {
   }
 });
 
+check('the placing: troll, chief, warlock stand on the picture\'s own bottom (the sprite at −height / 2 over the feet); the Jailer and the garrison\'s art in a square box on its feet (the picture centred in it); the table says the same', () => {
+  const troll = source('trollView.ts'), chief = source('chiefView.ts'), warlock = source('warlockView.ts'), render = source('render.ts');
+  const ownBottom = (text: string, feet: RegExp): boolean => /sprite\.position\.set\(0, -sprite\.height \/ 2\)/.test(text) && feet.test(text);
+  assert(ownBottom(troll, /root\.position\.set\(0, r \* TROLL_FEET\)/), 'trollView: the picture on its feet');
+  assert(ownBottom(chief, /root\.position\.set\(0, r \* CHIEF_FEET\)/), 'chiefView: the picture on its feet');
+  assert(ownBottom(warlock, /const base = r \* WARLOCK_FEET;[\s\S]*root\.position\.set\(0, base\)/), 'warlockView: the picture on its feet');
+  assert(/sprite\.position\.set\(0, r \* \(JAILER_FEET - JAILER_ART \/ 2\)\)/.test(render), 'render.ts: the Jailer in its box on the feet');
+  assert(/sprite\.position\.set\(0, r \* \(1 - gart\.size \/ 2\)\)/.test(render), 'render.ts: the garrison\'s art in its box on the feet');
+  for (const kind of ['troll', 'chief', 'warlock']) assert(BOSS_ART[kind].feet !== undefined && !BOSS_ART[kind].box, `${kind}: on the picture's bottom`);
+  for (const kind of ['jailer', 'castellan', 'castellan-crossbow']) assert(BOSS_ART[kind].feet !== undefined && BOSS_ART[kind].box, `${kind}: in its box`);
+});
+
+check('the scale: the view draws a body\'s picture with `enemyDrawRadius` × `enemyArtScale` (no kind\'s `artScale`), as `bossArtRadius`', () => {
+  const render = source('render.ts'), sim = readFileSync(new URL('./bossArt.ts', import.meta.url), 'utf8');
+  assert(/const scale = enemyDrawRadius\(world\.params\) \/ BASE_ENEMY_RADIUS;/.test(render) && /view\.root\.scale\.set\(scale \* pop \* enemyArtScale\(world\.params, e\)\);/.test(render), 'render.ts: the body scaled by the draw radius and the elite\'s scale');
+  assert(/return enemyDrawRadius\(params\) \* enemyArtScale\(params, e\);/.test(sim), 'bossArt.ts: the same radius');
+});
+
 check('the drawing order: the view draws the bodies by their y (`zIndex = e.y`, sorted), as `artDrawnAbove`', () => {
   const render = source('render.ts');
   assert(/view\.root\.zIndex = e\.y;/.test(render) && /this\.enemyLayer\.sortableChildren = true;/.test(render), 'render.ts: the bodies sorted by their y');
