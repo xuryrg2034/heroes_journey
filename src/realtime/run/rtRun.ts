@@ -63,7 +63,7 @@ import { validDeath, type RtDeath } from './rtRunEnd';
 // Task 16 «Подвиги»: the feat kinds of the simulation (sim/feat.ts).
 import { FEAT_KINDS, isFeatKind, type FeatKind } from '../sim/feat';
 // Tasks 36–37 «Мета» and «Очаг»: the meta catalogue (a leaf module: the packs' ids, the camp's quests).
-import { HEARTH_GMAPS_SALT, HEARTH_SHOP_SALT, isRtHearthLeaver, isRtLockable, isRtVow, NPC_MEET_SALT, RT_MEET_ZONES, type RtHearthLeaver, type RtVowId, isRtQuest, metaSalt, RT_HERO_ID, RT_TOAD_ID, type RtHeroId, type RtQuest } from './metaCatalog';
+import { HEARTH_GMAPS_SALT, HEARTH_SHOP_SALT, isRtHearthLeaver, RT_CHRONICLE_ON, isRtLockable, isRtVow, NPC_MEET_SALT, RT_MEET_ZONES, type RtHearthLeaver, type RtVowId, isRtQuest, metaSalt, RT_HERO_ID, RT_TOAD_ID, type RtHeroId, type RtQuest } from './metaCatalog';
 // Task 49 «Второй герой»: the hero's innate items (sim/buildIds.ts; the fight's `Loadout.hero` gives them to the kit).
 import { HERO_INNATE } from '../sim/buildIds';
 import { HAMMER_IDS, RT_HAMMER_OFFER_SIZE } from './rtTalismans';
@@ -796,6 +796,17 @@ export interface RtRunState {
    */
   forestShooters?: true;
   /**
+   * Task 58в «Летопись: видел» (design 21.10.2026): the run notes what its screens showed and it did not take (`shown`). Set when the run
+   * is created while the chronicle is on (`RT_CHRONICLE_ON`); absent — no note, the save as before.
+   */
+  chronicle?: true;
+  /**
+   * Task 58в: the items shown and not taken that `talismansGone` does not hold or does not tell apart — the forms and the items of a
+   * field left on a screen or at the merchant, the hammers left, the rerolled away, the knack's cards refused (`noteShown`). An item
+   * taken later leaves it. Only with `chronicle`; absent until the first. No draw reads it: the pool and the streams are as before.
+   */
+  shown?: RtTalismanId[];
+  /**
    * Task 41 «Три зелья» (design 16.10.2026, docs/design-notes/task-41-prisoner-potions.md): at most this many healing potions in hand
    * (`RT_POTION_CAP`) — a healing choice of a find, the merchant, the gift or a rest's craft is refused with a full hand
    * (`rtItemRefusal`), a reward's healing beyond it does not join (`items-capped`), the fights play it (`Params.potionCap`). A hand
@@ -1075,7 +1086,7 @@ export const rtDailySeed = (date: string): number => mixSeed(metaSalt('daily'), 
  * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
  * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
  */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; troll?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; relicFill?: boolean; potionCap?: number; knacks?: boolean; habits?: boolean; hero?: RtHeroId; omens?: readonly string[]; daily?: string; forestShooters?: boolean } = {}): RtRunState {
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; troll?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; relicFill?: boolean; chronicle?: boolean; potionCap?: number; knacks?: boolean; habits?: boolean; hero?: RtHeroId; omens?: readonly string[]; daily?: string; forestShooters?: boolean } = {}): RtRunState {
   const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
   // Task 12 (13.10.2026): the goal layouts of the `marked` arenas, as the mix — on as `RT_RUN_FORCED` says unless the option says.
   const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
@@ -1115,7 +1126,7 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   // unless the option says.
   const step2 = moat && (options.step2 ?? RT_GARRISON_STEP2_ON);
   // Task 51 (design 17.10.2026): the relic screens filled — its own flag, only with the garrison (the relic screens are its).
-  const relicFill = garrison && (options.relicFill ?? RT_RELIC_FILL_ON);
+  const relicFill = garrison && (options.relicFill ?? RT_RELIC_FILL_ON), chronicle = options.chronicle ?? RT_CHRONICLE_ON;
   // Task 57а «Лес: стрелки» (17.10.2026): the new shooters of the forest, by `RT_FOREST_SHOOTERS_ON` unless the option says.
   const forestShooters = options.forestShooters ?? RT_FOREST_SHOOTERS_ON;
   // Task 41 «Три зелья» (16.10.2026): the cap of healing potions, `RT_POTION_CAP` unless the option says (0 — none, as a save before it).
@@ -1127,7 +1138,7 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   const run: RtRunState = {
     version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {},
     // Task 51з: the run of the day (only seeded, its seed the date's; run/rtDaily.ts `createRtDailyRun`).
-    ...options.seeded && isRtDailyDate(options.daily) && (seed >>> 0) === rtDailySeed(options.daily) ? { daily: options.daily } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked } : {}, ...heroId ? { heroId } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...relicFill ? { relicFill: true as const } : {}, ...potionCap ? { potionCap } : {}, ...pool.length ? { omens: { pool } } : {}, ...forestShooters ? { forestShooters: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    ...options.seeded && isRtDailyDate(options.daily) && (seed >>> 0) === rtDailySeed(options.daily) ? { daily: options.daily } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked } : {}, ...heroId ? { heroId } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...relicFill ? { relicFill: true as const } : {}, ...chronicle ? { chronicle: true as const } : {}, ...potionCap ? { potionCap } : {}, ...pool.length ? { omens: { pool } } : {}, ...forestShooters ? { forestShooters: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
@@ -1774,10 +1785,28 @@ function spendFusionShown(run: RtRunState, shown: readonly RtTalismanId[]): void
  */
 export const RT_MILLSTONE_MAX_HP_PRICE = 3;
 /**
+ * Task 58в: the items a screen showed and the run did not take join `shown` (a run with `chronicle`; the ones held or noted already are
+ * left out). Nothing else changes: no draw, no stream, the pool and `talismansGone` as before.
+ */
+function noteShown(run: RtRunState, ids: readonly string[]): void {
+  if (!run.chronicle) return;
+  const fresh = [...new Set(ids)].filter((id): id is RtTalismanId => isRtTalisman(id) && !run.talismans.includes(id) && run.hammer !== id && !run.shown?.includes(id));
+  if (fresh.length) run.shown = [...run.shown ?? [], ...fresh];
+}
+/** Task 58в: an item taken leaves `shown` (taken and replaced later, it reads as taken). */
+function unnoteShown(run: RtRunState, id: string): void {
+  if (!run.shown?.includes(id)) return;
+  run.shown = run.shown.filter(other => other !== id);
+  if (!run.shown.length) delete run.shown;
+}
+/** Task 58в: what a screen leaves in `shown` besides `talismansGone`: the forms (they stay in the pool) and the items of a field. */
+const shownApart = (id: string): boolean => isRtForm(id) || rtFormField(id) !== null;
+/**
  * A talisman joins the run: «Крепкая шкура» raises the maximum HP and heals as much at once; the relic «Жернов» lowers the
  * maximum HP (its price).
  */
 function takeTalisman(run: RtRunState, id: RtTalismanId, events: RtRunEvent[]): void {
+  unnoteShown(run, id);
   // Task 30 «одна форма на поле»: the form of the same field leaves the run (and the pool).
   const replaced = rtFormReplaces(run, id);
   if (replaced) {
@@ -1939,6 +1968,8 @@ export function rtChooseTalisman(current: RtRunState, chosen: RtTalismanOption |
   if (chosen) takeTalisman(run, chosen, events);
   // Task 30: a form not taken stays in the form pool (the Jailer's three and the «Застава» form; only a replaced form is gone).
   run.talismansGone.push(...pending.options.filter(option => option !== chosen && !isRtForm(option)));
+  // Task 58в: the forms and the field's items left, the rerolled away.
+  noteShown(run, [...pending.rerolled ?? [], ...pending.options.filter(option => option !== chosen && shownApart(option))]);
   // Task 38: the forest final's relic chosen (its node is completed already) — «Предместье».
   if (pending.source === 'level') { openOutskirts(run, events); return { ok: true, run, events }; }
   const node = rtNode(run, pending.nodeId)!;
@@ -2029,6 +2060,8 @@ export function rtChooseKnack(current: RtRunState, chosen: RtKnackOption | null)
   const run = structuredClone(current), events: RtRunEvent[] = [{ type: 'knack-chosen', nodeId: pending.nodeId, option: option ? structuredClone(option) : null }];
   if (option?.hone) { run.honed = [...run.honed ?? [], option.id]; events.push({ type: 'talisman-honed', id: option.id }); }
   else if (option) takeTalisman(run, option.id, events);
+  // Task 58в: the new counters refused (a rank II card is of a counter held).
+  noteShown(run, pending.options.filter(o => o !== option).map(o => o.id));
   run.pending = null;
   return finishBattleNode(run, rtNode(run, pending.nodeId)!, events, false);
 }
@@ -2086,7 +2119,9 @@ export function rtChooseHammer(current: RtRunState, chosen: HammerId | null): Rt
   if (pending?.kind !== 'hammer') return fail('Сейчас нечего выбирать.');
   if (chosen !== null && !pending.options.includes(chosen)) return fail('Этого молота нет среди предложенных.');
   const run = structuredClone(current), events: RtRunEvent[] = [];
-  if (chosen) { run.hammer = chosen; events.push({ type: 'hammer-taken', id: chosen }); }
+  if (chosen) { run.hammer = chosen; unnoteShown(run, chosen); events.push({ type: 'hammer-taken', id: chosen }); }
+  // Task 58в: the hammers left and rerolled away.
+  noteShown(run, [...pending.rerolled ?? [], ...pending.options].filter(id => id !== chosen));
   offerOaths(run, pending.nodeId, events);
   return { ok: true, run, events };
 }
@@ -3076,6 +3111,8 @@ export function rtShopReroll(current: RtRunState): RtRunStep {
   const run = structuredClone(current), pending = run.pending as Extract<RtRunPending, { kind: 'shop' }>;
   // Task 56: the visit's second reroll (the omen's and Шиш's together) draws the stream's next value.
   const index = pending.rerolled ? 1 : 0;
+  // Task 58в: the talisman rerolled away (back in the pool) was shown.
+  if (pending.stock.talisman && !pending.bought.some(entry => entry.good === 'talisman')) noteShown(run, [pending.stock.talisman]);
   pending.stock = shopStockOf(run, pending.nodeId, shopRerollBase(run, pending.nodeId, index));
   if (index) pending.rerolls = 2;
   pending.rerolled = true;
@@ -3171,6 +3208,8 @@ export function rtShopLeave(current: RtRunState): RtRunStep {
   // Task 44: the visit showed the pair — its guarantee is spent; a form not bought stays in the form pool (as on the choice screens).
   if (talisman) spendFusionShown(run, [talisman]);
   if (talisman && !pending.bought.some(entry => entry.good === 'talisman') && !isRtForm(talisman)) run.talismansGone.push(talisman);
+  // Task 58в: a form or a field's item not bought.
+  if (talisman && !pending.bought.some(entry => entry.good === 'talisman') && shownApart(talisman)) noteShown(run, [talisman]);
   completeNode(run, rtNode(run, pending.nodeId)!, events); return { ok: true, run, events };
 }
 
@@ -3550,6 +3589,8 @@ function applyGift(run: RtRunState, option: GiftOption, pick: string | undefined
       takeTalisman(run, pick!, events);
       // The other one was shown and not taken: it leaves the pool.
       run.talismansGone.push(...option.reward.talismans.filter(id => id !== pick));
+      // Task 58в: a field's item left (`talismansGone` does not tell it from a replaced one).
+      noteShown(run, option.reward.talismans.filter(id => id !== pick && shownApart(id)));
     } else if (option.reward.talisman) takeTalisman(run, option.reward.talisman, events);
   }
   closeGift(run);
@@ -4009,6 +4050,13 @@ function checkRun(value: unknown): RtRunState | null {
   if (value.moat !== undefined && !(value.moat === true && value.garrison === true)) return null;
   // Task 51: the relic screens filled — a flag, only with the garrison.
   if (value.relicFill !== undefined && !(value.relicFill === true && value.garrison === true)) return null;
+  // Task 58в: the chronicle's flag; `shown` only with it — known items, each once, none held (nor the hammer held), none locked by the
+  // packs or innate to the hero, not empty.
+  if (value.chronicle !== undefined && value.chronicle !== true) return null;
+  if (value.shown !== undefined && !(value.chronicle === true && isTalismanList(value.shown) && value.shown.length
+    && Array.isArray(value.talismans) && !value.shown.some(id => (value.talismans as unknown[]).includes(id) || id === value.hammer
+      // Review 21.10.2026: nothing a pack locks (never offered) nor the hero's innate item (never offered to the hero).
+      || (Array.isArray(value.locked) && (value.locked as unknown[]).includes(id)) || rtInnate(value as Pick<RtRunState, 'heroId'>).includes(id)))) return null;
   // Task 43: a flag, only with «Ров».
   if (value.step2 !== undefined && !(value.step2 === true && value.moat === true)) return null;
   // Task 57а: a flag; absent — a save before it (or a run without the new shooters).
