@@ -14,6 +14,7 @@
     "realtime:style-change": "tsx scripts/realtime-style-change.ts",
     "realtime:forms-price": "tsx scripts/realtime-forms-price.ts",
     "realtime:spawn-hold": "tsx scripts/realtime-spawn-hold.ts",
+    "realtime:markers": "tsx scripts/realtime-markers.ts",
     "realtime:economy": "tsx scripts/realtime-economy.ts",
     "realtime:marked-goals": "tsx scripts/realtime-marked-goals.ts",
     "realtime:complexity": "tsx scripts/realtime-complexity.ts",
