@@ -234,6 +234,9 @@ check('the recruits: four plaques, the current (1) bright, three dim; the number
     sim.command({ t: 'release' });
     rig.settle();
     rig.run(0.2);
+    const lastFell = line[3];
+    const fl = s.recruits.drillAt;
+    assert(fl && Math.hypot(fl.x - lastFell.x, fl.y - lastFell.y) < 0.8 && Math.hypot(fl.x - 10, fl.y - 5.6) > 1, `seed ${k}: the flash stands where the last recruit fell, not where the hero stood (${JSON.stringify(fl)})`);
     assert(byNumber(w).length === 0 && s.recruits.drills === 1 && rig.floats.some(f => f.text === '+2 ⚡'), `seed ${k}: the line fell by one pass — «+2 ⚡» (${JSON.stringify(rig.floats.map(f => f.text))})`);
     assert(s.recruits.numbers === 0 && s.recruits.current === 0, `seed ${k}: no plaques for the fallen`);
   }

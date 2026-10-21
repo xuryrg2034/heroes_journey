@@ -65,6 +65,8 @@ export interface Garrison3Shown {
     currentNumber: number;
     /** Events seen: hits out of order, whole lines by one pass, links dropped from the drawn chain. */
     refused: number; drills: number; unlinks: number;
+    /** Where the last whole line's final recruit fell (arena units; the flash stands there); null — none yet. */
+    drillAt: { x: number; y: number } | null;
   };
   wardens: {
     /** Frame: belt keys drawn, keys burning gold (both in the chain), warn rings (anger will be), anger rings, «Размах» circles. */
@@ -80,7 +82,7 @@ interface Fx { kind: FxKind; x: number; y: number; r: number; born: number; life
 const emptyShown = (): Garrison3Shown => ({
   windups: 0, pots: 0, marks: 0, marksLit: 0, pools: 0, burning: 0, poolFire: 0, heroInPitch: 0, drops: 0, trail: 0,
   throws: 0, lands: 0, heroHits: 0, pooled: 0, ignites: 0, poolAt: [], markAt: [],
-  recruits: { numbers: 0, current: 0, dim: 0, bans: 0, currentNumber: 0, refused: 0, drills: 0, unlinks: 0 },
+  recruits: { numbers: 0, current: 0, dim: 0, bans: 0, currentNumber: 0, refused: 0, drills: 0, unlinks: 0, drillAt: null },
   wardens: { keys: 0, gold: 0, warn: 0, anger: 0, swings: 0, starts: 0, ends: 0, hits: 0 },
 });
 
@@ -126,8 +128,6 @@ export class Garrison3View {
   private fx: Fx[] = [];
   /** Recruit id → when its plaque began to shiver (out of order). */
   private shivers = new Map<number, number>();
-  /** The recruits' last drawn points by id (an end-of-line flash stands where the last one fell). */
-  private recruitAt = new Map<number, { x: number; y: number; group: number; n: number }>();
   /** The hero's sticky trail in pitch (arena units; `born` — real seconds). */
   private trail: { x: number; y: number; born: number }[] = [];
   /** Wardens' «Размах» radius as last drawn (a hit flashes the circle where it stood). */
@@ -146,7 +146,7 @@ export class Garrison3View {
 
   /** A new fight: forget what was seen. */
   reset(): void {
-    this.fx = []; this.shivers.clear(); this.recruitAt.clear(); this.trail = []; this.swingR.clear();
+    this.fx = []; this.shivers.clear(); this.trail = []; this.swingR.clear();
     Object.assign(this.shown, emptyShown());
   }
 
@@ -177,11 +177,10 @@ export class Garrison3View {
       } else {
         // The whole line fell by one pass (`id` — the group): a flash over the last one that fell, «+N ⚡» over the hero (as the Призма's).
         s.recruits.drills++;
-        let last: { x: number; y: number; n: number } | null = null;
-        for (const m of this.recruitAt.values()) if (m.group === ev.id && (!last || m.n > last.n)) last = m;
-        if (last) this.fx.push({ kind: 'flash', x: last.x, y: last.y, r: r * 1.5, born: clock, life: FLASH_LIFE, color: GOLD });
+        const at = { x: (ev.lx ?? ev.x) * u, y: (ev.ly ?? ev.y) * u };
+        this.fx.push({ kind: 'flash', x: at.x, y: at.y, r: r * 1.5, born: clock, life: FLASH_LIFE, color: GOLD });
+        s.recruits.drillAt = { x: at.x / u, y: at.y / u };
         this.float(`+${ev.energy ?? 0} ⚡`, ev.x * u, ev.y * u - 150, GOLD);
-        for (const [id, m] of this.recruitAt) if (m.group === ev.id) this.recruitAt.delete(id);
       }
       return true;
     }
@@ -374,7 +373,6 @@ export class Garrison3View {
     for (const e of world.enemies) {
       if (e.kind !== RECRUIT) continue;
       const n = recruitNumber(e), group = recruitGroup(e);
-      this.recruitAt.set(e.id, { x: e.x * u, y: e.y * u, group, n });
       if (n <= 0 || !sees(e)) continue;
       let cur = currents.get(group);
       if (cur === undefined) { cur = recruitCurrent(world.enemies, group, gone); currents.set(group, cur); }
@@ -389,7 +387,6 @@ export class Garrison3View {
       s.numbers++;
       if (isCur) { s.current++; if (!s.currentNumber || n < s.currentNumber) s.currentNumber = n; } else s.dim++;
     }
-    if (this.recruitAt.size > 64) for (const id of this.recruitAt.keys()) { if (this.recruitAt.size <= 32) break; if (!world.enemies.some(e => e.id === id)) this.recruitAt.delete(id); }
     for (const [id, t] of this.shivers) if (clock - t > SHIVER_LIFE) this.shivers.delete(id);
   }
 
