@@ -16,6 +16,8 @@ import { planChain } from './chain';
 import { kindOf } from './enemies/kinds';
 import { WARDEN, wardenAngry, wardenPartner } from './enemies/warden';
 import { brandPaintable } from './fusions';
+import { COUNTER_TALISMANS, FUSIONS, HAMMERS } from './buildIds';
+import type { Loadout } from './kit';
 import type { Vec } from './geometry';
 import { worldState } from './hash';
 import { defaultParams, type Params } from './params';
@@ -40,8 +42,8 @@ function quiet(extra: Partial<Params> = {}): Params {
   p.wardens = true; p.colorShiftLinks = 0; p.invulnerability = 0; p.chainShield = 0;
   return Object.assign(p, extra);
 }
-function gate(k: number, extra: Partial<Params> = {}): Simulation {
-  const sim = new Simulation({ arena: 'warden-gate', params: quiet(extra), seed: seedOf(k), record: true });
+function gate(k: number, extra: Partial<Params> = {}, loadout?: Loadout): Simulation {
+  const sim = new Simulation({ arena: 'warden-gate', params: quiet(extra), seed: seedOf(k), record: true, ...loadout ? { loadout } : {} });
   sim.tick();
   return sim;
 }
@@ -136,6 +138,71 @@ check('one killed outside a pass (the bomb): the other angry at once; «Клей
     const events = ticks(sim, 2);
     assert(wardenAngry(b) && of(events, 'warden').some(e => e.action === 'anger'), `seed ${k}: angry at once`);
     assert(!brandPaintable(b, false, []), 'never repainted');
+  }
+});
+
+/**
+ * Design 21.10.2026 (review of 59а): the highlight's `anger` is what the pass does with every hit of its end — a source kills one of the
+ * pair (anger the plan promises), or the second too (no anger, though the chain killed the first). The pair at A (9.4, 4), B (10.6, 4),
+ * HP 1; three weak links before. `other` — a colour of neither of the pair.
+ */
+interface AngerCase { title: string; loadout: Loadout; extra?: Partial<Params>; links: (a: Enemy, b: Enemy) => { at: Vec; color: 'a' | 'other' }[]; toA: boolean; angry: boolean }
+const ANGER_CASES: readonly AngerCase[] = [
+  // «Взрыв на конце» (radius 1.5 round the last link): the chain kills A, the blast B — no anger; the blast round a link by A — anger.
+  { title: 'end blast kills the second', loadout: { talismans: [], hammer: HAMMERS.blast }, toA: true, angry: false,
+    links: () => [{ at: { x: 9.2, y: 6.2 }, color: 'a' }, { at: { x: 8.4, y: 5.4 }, color: 'a' }, { at: { x: 8.2, y: 4.3 }, color: 'a' }] },
+  { title: 'end blast kills one', loadout: { talismans: [], hammer: HAMMERS.blast }, toA: false, angry: true,
+    links: () => [{ at: { x: 9.2, y: 6.2 }, color: 'other' }, { at: { x: 8.6, y: 5.3 }, color: 'other' }, { at: { x: 8.3, y: 4.3 }, color: 'other' }] },
+  // «Ударная волна» (radius 2 round the dash's end; 3 links with the counter window).
+  { title: 'shockwave kills the second', loadout: { talismans: [COUNTER_TALISMANS.shockwave] }, extra: { counterWindow: true, shockwaveLinks: 3 }, toA: true, angry: false,
+    links: () => [{ at: { x: 9.2, y: 6.2 }, color: 'a' }, { at: { x: 8.4, y: 5.4 }, color: 'a' }, { at: { x: 8.2, y: 4.3 }, color: 'a' }] },
+  { title: 'shockwave kills one', loadout: { talismans: [COUNTER_TALISMANS.shockwave] }, extra: { counterWindow: true, shockwaveLinks: 3 }, toA: false, angry: true,
+    links: () => [{ at: { x: 8.9, y: 6.3 }, color: 'other' }, { at: { x: 8.1, y: 5.5 }, color: 'other' }, { at: { x: 7.6, y: 4.6 }, color: 'other' }] },
+  // «Ледяная волна»: the same wave, the survivors frozen (the cold does not stop the anger).
+  { title: 'frost wave kills the second', loadout: { talismans: [COUNTER_TALISMANS.shockwave, FUSIONS.frostWave] }, extra: { counterWindow: true, shockwaveLinks: 3 }, toA: true, angry: false,
+    links: () => [{ at: { x: 9.2, y: 6.2 }, color: 'a' }, { at: { x: 8.4, y: 5.4 }, color: 'a' }, { at: { x: 8.2, y: 4.3 }, color: 'a' }] },
+  { title: 'frost wave kills one', loadout: { talismans: [COUNTER_TALISMANS.shockwave, FUSIONS.frostWave] }, extra: { counterWindow: true, shockwaveLinks: 3 }, toA: false, angry: true,
+    links: () => [{ at: { x: 8.9, y: 6.3 }, color: 'other' }, { at: { x: 8.1, y: 5.5 }, color: 'other' }, { at: { x: 7.6, y: 4.6 }, color: 'other' }] },
+  // «Режущий проход» (0.5 + body from the path, not the links): the way to A passes by B — no anger; a way by A only — anger.
+  { title: 'cut kills the second', loadout: { talismans: [], hammer: HAMMERS.cut }, toA: true, angry: false,
+    links: () => [{ at: { x: 11.6, y: 5.8 }, color: 'a' }, { at: { x: 11.3, y: 4.4 }, color: 'a' }] },
+  { title: 'cut kills one', loadout: { talismans: [], hammer: HAMMERS.cut }, toA: false, angry: true,
+    links: () => [{ at: { x: 9.0, y: 6.0 }, color: 'other' }, { at: { x: 8.8, y: 4.5 }, color: 'other' }, { at: { x: 7.9, y: 3.4 }, color: 'other' }] },
+];
+
+check('the highlight\'s anger = the pass for every hit of its end: end blast, «Ударная волна», «Ледяная волна», «Режущий проход» — killing one (anger promised) and the second (none) (4 seeds each)', () => {
+  for (const c of ANGER_CASES) {
+    for (const k of [1, 2, 3, 4]) {
+      const sim = gate(k, { wardenHp: 1, ...c.extra }, c.loadout), w = sim.world, [a, b] = pair(w);
+      const other = [0, 1, 2, 3].find(x => x !== a.color && x !== b.color)!;
+      const weak = c.links(a, b).map(l => place(sim, l.at, 0, 'basic', l.color === 'a' ? a.color : other));
+      draw(sim, c.toA ? [...weak, a] : weak);
+      assert(w.chain.length === weak.length + (c.toA ? 1 : 0), `${c.title}, seed ${k}: the chain drawn (${w.chain.length})`);
+      const plan = planChain(w).anger ?? [];
+      assert(JSON.stringify(plan) === JSON.stringify(c.angry ? [b.id] : []), `${c.title}, seed ${k}: the highlight's anger ${JSON.stringify(plan)}`);
+      release(sim);
+      ticks(sim, 2);
+      const angry = pair(w).filter(e => wardenAngry(e)).map(e => e.id);
+      assert(!w.enemies.includes(a), `${c.title}, seed ${k}: A fell`);
+      assert(JSON.stringify(angry) === JSON.stringify(plan), `${c.title}, seed ${k}: the pass's anger ${JSON.stringify(angry)} = the highlight ${JSON.stringify(plan)} (B alive: ${w.enemies.includes(b)})`);
+      assert(replays(sim), `${c.title}, seed ${k}: replay`);
+    }
+  }
+});
+
+check('a partner killed in a jump (a burn): the anger at once, in the jump — only the pass and its return run wait (design 21.10.2026; 2 seeds)', () => {
+  for (const k of [1, 2]) {
+    const sim = gate(k, { wardenHp: 1, fireRadius: 0.3 }), w = sim.world, [a, b] = pair(w);
+    sim.command({ t: 'items', kind: 'fire', count: 1 });
+    sim.command({ t: 'energy', value: 7 });
+    assert(sim.command({ t: 'item', kind: 'fire', x: a.x, y: a.y }) && a.burn && !b.burn, `seed ${k}: A burns, B does not`);
+    ticks(sim, ticksOf(3), [], ww => (ww.enemies.find(e => e.id === a.id)?.burn?.timer ?? 0) <= 3 * SIM_DT);
+    assert(sim.command({ t: 'jump', x: 14, y: 8 }) && w.move?.kind === 'jump', `seed ${k}: the jump began`);
+    ticks(sim, 12, [], ww => !ww.enemies.includes(a));
+    // The group step of the next tick sees the partner gone (the jump still runs).
+    ticks(sim, 1);
+    assert(!w.enemies.includes(a) && w.move?.kind === 'jump' && wardenAngry(b), `seed ${k}: A burnt in the jump, B angry at once (in the jump: ${w.move?.kind})`);
+    assert(replays(sim), `seed ${k}: replay`);
   }
 });
 

@@ -18,7 +18,8 @@
  *   a bite, «Размах», a blast. A hit on many at once takes a group's members by their numbers (`orderRecruits`: the targets' order, then
  *   `damageEnemy` one by one — the queue moves after each kill); the previews read the same (`recruitGate`);
  * - the whole formation by one pass (the dash, its pierce, wave and end blast; its return run) — `recruitBonus` energy after the pass
- *   (event `recruit` `drill`). A formation begun earlier gives none.
+ *   (event `recruit` `drill`). A formation begun earlier gives none; one whose member another source finished during the move
+ *   (a bolt, a burn, a bomb; `PASS_SOURCES`) gives none (design 21.10.2026).
  *
  * State in `enemy.vars`: `fm` the formation (enemies/garrison.ts), `rn` the number, `rs` the group's size, `rd` 1 — the numbers were drawn.
  */
@@ -36,6 +37,11 @@ export const NEIGHBOUR_PLACES = 2;
 export const NUMBER_WAIT = 1;
 export const RECRUIT_BONUS = 2;
 const STREAM = 'behavior:recruit';
+/**
+ * The pass's own hits (design 21.10.2026, spec 4.2): the chain, «Прямая», «Возврат», the wave and the end blast of the pass. A recruit
+ * finished by another source (a bolt, a burn, a bomb …) during the move — its formation gives no bonus for this pass.
+ */
+const PASS_SOURCES: ReadonlySet<string> = new Set(['chain', 'pierce', 'hammer-return', 'wave', 'hammer-blast']);
 
 /** The law of order is on (`Params.recruits`). */
 export const recruitsOn = (world: World): boolean => !!world.params.recruits;
@@ -157,6 +163,14 @@ registerBehavior({
     }
   },
   step: lineStep,
+  onDeath(world, e, cause) {
+    // Design 21.10.2026: a member finished by a source that is not the pass's own spoils its formation's bonus for this move.
+    const move = world.move;
+    if (move?.drill && !PASS_SOURCES.has(cause.source)) {
+      const group = recruitGroup(e), left = move.drill.filter(g => g !== group);
+      if (left.length !== move.drill.length) { if (left.length) move.drill = left; else delete move.drill; }
+    }
+  },
 });
 
 registerEnemyKind({

@@ -115,6 +115,23 @@ check('a formation begun by an earlier chain gives no bonus: #1 alone, then 2 �
   }
 });
 
+check('the bonus is the pass hits only (design 21.10.2026): #1 burnt by the fire consumable during the pass 1 → 4 — all fall, no bonus (3 seeds)', () => {
+  for (const k of [1, 2, 3]) {
+    const sim = yard(k, { fireRadius: 0.1 }), w = sim.world, line = byNumber(w);
+    sim.command({ t: 'items', kind: 'fire', count: 1 });
+    assert(sim.command({ t: 'item', kind: 'fire', x: line[0].x, y: line[0].y }) && line[0].burn && !line[1].burn, `seed ${k}: #1 burns alone`);
+    // Released just before its burn: it dies in the pass, before the hero reaches it.
+    ticks(sim, ticksOf(3), [], () => (line[0].burn?.timer ?? 0) <= 2 * SIM_DT);
+    draw(sim, line);
+    assert(w.chain.length === 4, `seed ${k}: 1 → 4 drawn`);
+    const events = release(sim);
+    const fire = of(events, 'kill').find(e => e.enemyId === line[0].id);
+    assert(byNumber(w).length === 0 && fire?.source === 'fire', `seed ${k}: all fell, #1 by the fire (${fire?.source})`);
+    assert(!of(events, 'recruit').some(e => e.action === 'drill'), `seed ${k}: no bonus`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
 check('out of order nothing hurts a recruit: the bomb on #3 with #1 alive — no damage, event `recruit` `refused`; the bomb on #1 — it dies (3 seeds)', () => {
   for (const k of [1, 2, 3]) {
     const sim = yard(k), w = sim.world, line = byNumber(w);

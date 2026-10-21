@@ -28,17 +28,17 @@
  */
 import { dcos, dhypot, dsin } from './detMath';
 import { behaviorOf, enemyArtRadius, kindOf } from './enemies/kinds';
-import { adoptChainColor, chameleonOpen, eliteDeath, pickLoot, platesOf, potionHandFull, stripPlates, trailAt } from './elites';
+import { adoptChainColor, chameleonOpen, eliteAffixes, eliteDeath, pickLoot, platesOf, potionHandFull, stripPlates, trailAt } from './elites';
 import { curseKill, takeChest } from './chest';
 import { hasTalisman, sealOnlyShield } from './kit';
 import { afterLinkPowerOf, anchorsOf, buildActive, chainShieldMinKillsOf, chainShieldOf, colorRuleOf, colorShiftOf, crystalEveryOf, endShadowOf, focusMaxOf, hasHook, honedFired, jumpCostOf, linkGainOf, linkPowerOf, linkRadiusOf, nextChainNo, platesBeforeOf, rank2LinksOf, runHook, secondKey, talismanFired, type ChainAnchor, type ChainEnd, type HonedRelease, type LinkContext } from './build';
-import { COUNTER_TALISMANS, FORMS, FUSIONS, HAMMERS } from './buildIds';
+import { BUILD_SOURCES, COUNTER_TALISMANS, FORMS, FUSIONS, HAMMERS } from './buildIds';
 // Task 52, Р2: the dwell gesture of «Развилка» (its anchor; the anchors hook reads the same).
 import { forkAnchorNow, forkDwellOn, forkSpent } from './forms';
 // Task 44 «Сплавы»: the fusions' pure rules (the highlight and the dash read the same ones).
 import { blastPlatesOn, boomerangFull, brandOn, brandPaintable, brandReach, endBlastOf, frostWaveCold, fusionEndOn, hunterBlastOn, hunterEnd, iceSealCold, piercePlates } from './fusions';
 // Task 46: the end of the dash in the highlight (the bodies of the wave, the end blast and the paint).
-import { enemiesInCircle, enemiesNearPath } from './buildHits';
+import { enemiesInCircle, enemiesNearPath, shadowHitAll } from './buildHits';
 import { finisherHonedKills, finisherTopIds, frostNeighbour, FROST_EDGE_LINKS, honedOn, honeWaveStartOf, SHOCKWAVE_RADIUS } from './talismansRt';
 import { returnPowerFor, returnRoute, returnTargets, traceTo } from './returnRun';
 import { BOSS_CORES, colorlessCore, endsFight } from './enemies/jailer';
@@ -47,7 +47,7 @@ import { wardenPartner, wardensOn } from './enemies/warden';
 // Task 59а «Новобранцы»: the law of order (enemies/recruit.ts).
 import { RECRUIT, drillEnd, noteRefused, recruitCurrent, recruitGate, recruitGroup, recruitInOrder, recruitsOn, wholeFormations } from './enemies/recruit';
 // Task 59а: the pools of pitch the lit path touches (pitch.ts; the fire points — firePath.ts, as the dash lays them).
-import { firePathPoints } from './firePath';
+import { FIRE_DAMAGE, FIRE_RADIUS, firePathPoints } from './firePath';
 import { pitchMoveEnd, pitchOnFire } from './pitch';
 // Task 55а «Замок: толчок» (shove.ts): a thing is the chain's last link; the dash's end shoves it.
 import { isThing, shoveOn, shovePath, sliding, startShove, type ShovePlan } from './shove';
@@ -126,13 +126,39 @@ export function strike(power: number, hp: number, factor = 1, gain = 1, plates =
   return { available, damage, hpBefore: hp, hpAfter: killed ? 0 : hp - damage, killed, powerAfter: available - spent };
 }
 
-/** Task 59а: the wardens whose partner the pass kills and who live (the pass's kills: links, pierce, seal, return run). */
-function planAnger(world: World, out: readonly LinkPlan[], pierce: PiercePreview | null, seal: SealPreview | null, back: ReturnPreview | null): number[] {
+/**
+ * Task 59а: the wardens whose partner the pass kills and who live. The pass's kills come from the same shadows the highlight plays
+ * for the dash's end: the first pass (`planDashEnd`: links, pierce, seal), the hammer's hits on the way («Режущий проход»; the lit
+ * «Огненный проход» — its first burn), the build modules' end (`endShadowOf`: «Ударная волна», «Ледяная волна»), the end blast
+ * (`planEndBlast`, as «Подрыв»'s), then the return run (`planReturn`'s hits). Pure.
+ */
+function planAnger(world: World, out: readonly LinkPlan[], pierce: PiercePreview | null, seal: SealPreview | null, back: ReturnPreview | null, fireLit: boolean): number[] {
+  const pairs = world.enemies.filter(e => wardenPartner(world, e));
+  if (!pairs.length) return [];
   const killed = new Set<number>();
-  for (const l of out) if (l.link.kind === 'enemy' && l.outcome?.killed) killed.add(l.link.id);
-  for (const b of pierce?.bodies ?? []) if (b.outcome.killed) killed.add(b.id);
   for (const h of back?.hits ?? []) if (h.outcome.killed) killed.add(h.id);
-  if (seal) for (const id of seal.inside) { const e = findEnemy(world, id); if (e && !seal.order?.includes(id) && platesOf(e) === 0 && e.hp <= seal.damage) killed.add(id); }
+  const dash = planDashEnd(world, out, pierce, seal);
+  if (dash) {
+    let shadow = dash.enemies;
+    const hammer = world.kit?.hammer, path = hammer === HAMMERS.cut || (hammer === HAMMERS.fire && fireLit) ? planDashPath(world, { links: out, pierce }) : null;
+    if (path && hammer === HAMMERS.cut) {
+      // The cut spares the chain's links (hammers.ts: the release's enemy links).
+      const own = new Set(out.flatMap(l => (l.link.kind === 'enemy' ? [l.link.id] : [])));
+      shadow = shadowHitAll(shadow, enemiesNearPath({ ...world, enemies: shadow }, path, CUT_RADIUS).filter(e => !own.has(e.id)), CUT_DAMAGE, BUILD_SOURCES.hammerCut);
+    }
+    if (path && hammer === HAMMERS.fire) {
+      const points = firePathPoints(world, path);
+      shadow = shadowHitAll(shadow, shadow.filter(e => !eliteAffixes(e).includes('fiery') && points.some(p => dist(e, p) <= FIRE_RADIUS)), FIRE_DAMAGE, BUILD_SOURCES.hammerFire);
+    }
+    shadow = endShadowOf(world, { links: dash.links, at: dash.end, start: { x: world.hero.x, y: world.hero.y } }, shadow).enemies;
+    shadow = planEndBlast(world, out, pierce, seal, dash.links, shadow)?.after ?? shadow;
+    const alive = new Set(shadow.map(e => e.id));
+    for (const e of pairs) if (!alive.has(e.id)) killed.add(e.id);
+  } else {
+    // The dash ends the fight (the door): its own kills only.
+    for (const l of out) if (l.link.kind === 'enemy' && l.outcome?.killed) killed.add(l.link.id);
+    for (const b of pierce?.bodies ?? []) if (b.outcome.killed) killed.add(b.id);
+  }
   const angry: number[] = [];
   for (const id of killed) {
     const e = findEnemy(world, id), partner = e ? wardenPartner(world, e) : undefined;
@@ -515,7 +541,7 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   // Task 50: the counters' rank II at the end of the dash (the drawn chain only, not after a chain that ends the fight).
   const honed = honedKit ? planHoned(world, out, pierce, seal, far, options.back !== false && links === world.chain && !over) : null;
   // Task 59а: the wardens angry after this pass — a partner dies by it, they do not.
-  const anger = wardensOn(world) ? planAnger(world, out, pierce, seal, back) : [];
+  const anger = wardensOn(world) ? planAnger(world, out, pierce, seal, back, !!fire?.lit) : [];
   // Task 49: the law of Ведунья — the drawn open chain gives no after-chain shield (the dash: heroLaw.ts, `ChainEnd.endForm`).
   const noShield = links === world.chain && !seal && sealOnlyShield(world);
   return { ...grate ? { grate } : {}, ...trollDrop ? { trollDrop } : {}, ...chiefDrop ? { chiefDrop } : {}, links: out, endsOnSurvivor, endsOnObject, ...endsOnThing ? { endsOnThing: true as const } : {}, ...shove ? { shove } : {}, power, kills, ...anger.length ? { anger } : {}, ...seal ? { seal } : {}, ...noShield ? { noShield: true as const } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {}, ...cuts.length ? { cuts } : {}, ...fused?.blast ? { blast: fused.blast } : {}, ...fused?.wave ? { wave: fused.wave } : {}, ...honed && Object.keys(honed).length ? { honed } : {} };
@@ -627,20 +653,11 @@ function planFusionEnd(world: World, links: readonly ChainLink[], out: readonly 
     result.wave = { at: { ...dash.end }, radius: SHOCKWAVE_RADIUS, bodies, ice: { ids: ice, brittle: cold.brittle },
       ...second ? { second: { at: { x: world.hero.x, y: world.hero.y }, radius: honeWaveStartOf(world), bodies: more } } : {} };
   }
-  // The end blast (hammers.ts): a last enemy link reached, the threshold, no seal or pierce of a higher rank.
-  const last = lastReached(world, out), blastOn = world.kit?.hammer === HAMMERS.blast || hasTalisman(world, HAMMERS.blast);
-  if (blastOn && last && dash.links >= endBlastMinLinks(world.params) && !(endRankOn(world) && (seal || pierce))) {
-    const blast = endBlastOf(world, hunterEnd(world, !!last.enemy.elite, last.outcome.hpBefore), BLAST_RADIUS, BLAST_DAMAGE);
-    const at = { x: last.enemy.x, y: last.enemy.y }, ordered = enemiesInCircle({ ...world, enemies: shadow }, at, blast.radius), targets = new Set(ordered.map(e => e.id));
-    // Task 59а: the recruits the blast refuses (out of order in the order it strikes) stay as they are.
-    const refused = recruitGate(world, shadow, ordered);
-    const after = shadow.flatMap(e => {
-      if (!targets.has(e.id) || refused.has(e.id)) return [e];
-      const plates = platesOf(e);
-      if (plates > 0) return [{ ...e, armor: { ...e.armor!, plates: plates - Math.min(plates, blastPlatesOn(blast, e)) } }];
-      return blast.damage >= e.hp ? [] : [{ ...e, hp: e.hp - blast.damage }];
-    });
-    if (hunterBlastOn(world)) result.blast = { at, radius: blast.radius, damage: blast.damage, plates: blast.plates, detonate: blast.detonate, bodies: endHits(shadow, after, [...targets]) };
+  // The end blast (hammers.ts, `planEndBlast`): a plain blast only changes the shadow.
+  const endBlast = planEndBlast(world, out, pierce, seal, dash.links, shadow);
+  if (endBlast) {
+    const { at, blast, targets, after } = endBlast;
+    if (hunterBlastOn(world)) result.blast = { at, radius: blast.radius, damage: blast.damage, plates: blast.plates, detonate: blast.detonate, bodies: endHits(shadow, after, targets) };
     shadow = after;
   }
   // «Клеймо»: the colour of the last coloured enemy link reached (a colourless core does not count); no colour — no paint.
@@ -661,6 +678,28 @@ function planFusionEnd(world: World, links: readonly ChainLink[], out: readonly 
     }
   }
   return result;
+}
+
+/**
+ * The end blast (hammers.ts) of the planned dash on the shadow list `shadow` (the bodies after the first pass and the end's waves): a last
+ * enemy link reached, `links` at the threshold, no seal or pierce of a higher rank — its centre (the last link where it stands now), its
+ * numbers (`endBlastOf`: «Подрыв»'s detonation), the bodies in its circle and the list after it. Null — no blast at this end. Pure.
+ */
+function planEndBlast(world: World, out: readonly LinkPlan[], pierce: PiercePreview | null, seal: SealPreview | null, links: number, shadow: Enemy[]):
+  { at: Vec; blast: ReturnType<typeof endBlastOf>; targets: number[]; after: Enemy[] } | null {
+  const last = lastReached(world, out), blastOn = world.kit?.hammer === HAMMERS.blast || hasTalisman(world, HAMMERS.blast);
+  if (!blastOn || !last || links < endBlastMinLinks(world.params) || (endRankOn(world) && (seal || pierce))) return null;
+  const blast = endBlastOf(world, hunterEnd(world, !!last.enemy.elite, last.outcome.hpBefore), BLAST_RADIUS, BLAST_DAMAGE);
+  const at = { x: last.enemy.x, y: last.enemy.y }, ordered = enemiesInCircle({ ...world, enemies: shadow }, at, blast.radius), targets = new Set(ordered.map(e => e.id));
+  // Task 59а: the recruits the blast refuses (out of order in the order it strikes) stay as they are.
+  const refused = recruitGate(world, shadow, ordered);
+  const after = shadow.flatMap(e => {
+    if (!targets.has(e.id) || refused.has(e.id)) return [e];
+    const plates = platesOf(e);
+    if (plates > 0) return [{ ...e, armor: { ...e.armor!, plates: plates - Math.min(plates, blastPlatesOn(blast, e)) } }];
+    return blast.damage >= e.hp ? [] : [{ ...e, hp: e.hp - blast.damage }];
+  });
+  return { at, blast, targets: [...targets], after };
 }
 
 /**
@@ -711,6 +750,9 @@ export function fireMinLinks(params: Params): number { return params.fireMinLink
 /** «Взрыв на конце» (hammers.ts; task 46: here, the highlight reads them too): radius and damage. */
 export const BLAST_RADIUS = 1.5;
 export const BLAST_DAMAGE = 1;
+/** «Режущий проход» (hammers.ts; task 59а: here, the highlight of the wardens' anger reads them too): reach from the path line (plus the body radius) and damage. */
+export const CUT_RADIUS = 0.5;
+export const CUT_DAMAGE = 1;
 /**
  * Баланс (decision of the user 11.10.2026, playtest v17: the blast went off on chains of one link — 79 hammer kills to 89
  * chain kills in 4 fights): the end blast needs a chain of at least this many enemy links — reached by the dash: struck,

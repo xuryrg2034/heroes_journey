@@ -42,7 +42,7 @@ import { noteRefused, recruitInOrder } from './enemies/recruit';
 import { buildStateOf, chainEnemyLinks, registerBuildModule, setBuildState, talismanFired } from './build';
 import { BUILD_SOURCES, FUSIONS, HAMMERS } from './buildIds';
 import { buildHit, buildHitAll, enemiesInCircle, enemiesNearPath } from './buildHits';
-import { BLAST_DAMAGE, BLAST_RADIUS, endBlastMinLinks, fireMinLinks, fireOn, planChain, returnFixedOn, returnStrike, startReturnRun } from './chain';
+import { BLAST_DAMAGE, BLAST_RADIUS, CUT_DAMAGE, CUT_RADIUS, endBlastMinLinks, fireMinLinks, fireOn, planChain, returnFixedOn, returnStrike, startReturnRun } from './chain';
 import { eliteAffixes } from './elites';
 import { kindOf } from './enemies/kinds';
 import { dist, type Vec } from './geometry';
@@ -64,9 +64,8 @@ export const FIRE_LIFE = 2;
 export { FIRE_DAMAGE, FIRE_PAUSE, FIRE_RADIUS, FIRE_STEP, fireLaysAt };
 /** «Взрыв на конце»: radius and damage (task 46: in chain.ts — the highlight of «Подрыв» reads them). */
 export { BLAST_DAMAGE, BLAST_RADIUS } from './chain';
-/** «Режущий проход»: reach from the path line (plus the body radius) and damage. */
-export const CUT_RADIUS = 0.5;
-export const CUT_DAMAGE = 1;
+/** «Режущий проход»: reach from the path line (plus the body radius) and damage (task 59а: in chain.ts — the highlight of the anger reads them). */
+export { CUT_DAMAGE, CUT_RADIUS };
 const EPS = 1e-9;
 
 // ---- State on the arena (`World.build[hammer id]`, hashed; absent while empty) ----

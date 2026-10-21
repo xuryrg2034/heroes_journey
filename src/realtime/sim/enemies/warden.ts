@@ -11,7 +11,8 @@
  * another colour that is not A's twin (0 + 2, 1 + 3: «Близнецы» do not answer the pair) — `vars.wp` names the partner. The pair keeps
  * together: the second walks beside the first (`PAIR_GAP` across the way to the hero), the first walks to the hero.
  *
- * **The anger**: one of the pair dead and the other alive after the hero's move (a dash and its run) — the survivor is angry
+ * **The anger**: one of the pair dead and the other alive after the hero's pass (a dash and its return run; a death in a jump or
+ * outside a move — at once, design 21.10.2026) — the survivor is angry
  * `wardenAnger` s (a death outside a move — at once; the cold does not stop its clock): the fast class, the touch `wardenAngerTouch`, «Размах» by the knight's law and
  * keys (enemies/garrison.ts `swingStrike`; the first `ANGER_FIRST_SWING` s after the anger began, then a pause `knightPause`; its strike
  * waits for the hero's move). Then it calms down (no pair any more). Both by one pass — no anger. The highlight shows who will be angry
@@ -124,8 +125,9 @@ registerBehavior({
     drawPairs(world, members, palette(world));
     for (const e of members) {
       const v = e.vars;
-      // A partner gone: the anger after the hero's move (the highlight's promise), at once otherwise.
-      if (v.wp !== undefined && !world.enemies.some(o => o.id === v.wp) && !world.move) startAnger(world, e);
+      // A partner gone: the anger after the hero's pass and its return run (the highlight's promise: both may fall in it), at once
+      // otherwise — a jump too (design 21.10.2026).
+      if (v.wp !== undefined && !world.enemies.some(o => o.id === v.wp) && !(world.move && world.move.kind !== 'jump')) startAnger(world, e);
       // The anger's clock runs here, for a frozen warden too (spec В11: the cold does not stop it; its «Размах» waits).
       if ((v.wa ?? 0) > 0) {
         v.wa = Math.max(0, v.wa - dt);
