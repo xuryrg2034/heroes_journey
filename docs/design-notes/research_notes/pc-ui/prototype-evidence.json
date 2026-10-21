@@ -1,0 +1,655 @@
+{
+  "date": "2026-10-19",
+  "scope": "Standalone UI concept only; no game tests or human playtest.",
+  "layouts": [
+    {
+      "scene": "combat",
+      "width": 1280,
+      "height": 720,
+      "font": 100,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "combat",
+      "width": 1280,
+      "height": 720,
+      "font": 120,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "combat",
+      "width": 1280,
+      "height": 720,
+      "font": 100,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "combat",
+      "width": 1280,
+      "height": 720,
+      "font": 120,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "map",
+      "width": 1280,
+      "height": 720,
+      "font": 100,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "map",
+      "width": 1280,
+      "height": 720,
+      "font": 120,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "map",
+      "width": 1280,
+      "height": 720,
+      "font": 100,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "map",
+      "width": 1280,
+      "height": 720,
+      "font": 120,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "reward",
+      "width": 1280,
+      "height": 720,
+      "font": 100,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "reward",
+      "width": 1280,
+      "height": 720,
+      "font": 120,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "reward",
+      "width": 1280,
+      "height": 720,
+      "font": 100,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "reward",
+      "width": 1280,
+      "height": 720,
+      "font": 120,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "inventory",
+      "width": 1280,
+      "height": 720,
+      "font": 100,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "inventory",
+      "width": 1280,
+      "height": 720,
+      "font": 120,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "inventory",
+      "width": 1280,
+      "height": 720,
+      "font": 100,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "inventory",
+      "width": 1280,
+      "height": 720,
+      "font": 120,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "result",
+      "width": 1280,
+      "height": 720,
+      "font": 100,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "result",
+      "width": 1280,
+      "height": 720,
+      "font": 120,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "result",
+      "width": 1280,
+      "height": 720,
+      "font": 100,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "result",
+      "width": 1280,
+      "height": 720,
+      "font": 120,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "shop",
+      "width": 1280,
+      "height": 720,
+      "font": 100,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "shop",
+      "width": 1280,
+      "height": 720,
+      "font": 120,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "shop",
+      "width": 1280,
+      "height": 720,
+      "font": 100,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "shop",
+      "width": 1280,
+      "height": 720,
+      "font": 120,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "camp",
+      "width": 1280,
+      "height": 720,
+      "font": 100,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "camp",
+      "width": 1280,
+      "height": 720,
+      "font": 120,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "camp",
+      "width": 1280,
+      "height": 720,
+      "font": 100,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "camp",
+      "width": 1280,
+      "height": 720,
+      "font": 120,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "settings",
+      "width": 1280,
+      "height": 720,
+      "font": 100,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "settings",
+      "width": 1280,
+      "height": 720,
+      "font": 120,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "settings",
+      "width": 1280,
+      "height": 720,
+      "font": 100,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "settings",
+      "width": 1280,
+      "height": 720,
+      "font": 120,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "combat",
+      "width": 1920,
+      "height": 1080,
+      "font": 100,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "combat",
+      "width": 1920,
+      "height": 1080,
+      "font": 120,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "combat",
+      "width": 1920,
+      "height": 1080,
+      "font": 100,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "combat",
+      "width": 1920,
+      "height": 1080,
+      "font": 120,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "map",
+      "width": 1920,
+      "height": 1080,
+      "font": 100,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "map",
+      "width": 1920,
+      "height": 1080,
+      "font": 120,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "map",
+      "width": 1920,
+      "height": 1080,
+      "font": 100,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "map",
+      "width": 1920,
+      "height": 1080,
+      "font": 120,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "reward",
+      "width": 1920,
+      "height": 1080,
+      "font": 100,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "reward",
+      "width": 1920,
+      "height": 1080,
+      "font": 120,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "reward",
+      "width": 1920,
+      "height": 1080,
+      "font": 100,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "reward",
+      "width": 1920,
+      "height": 1080,
+      "font": 120,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "inventory",
+      "width": 1920,
+      "height": 1080,
+      "font": 100,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "inventory",
+      "width": 1920,
+      "height": 1080,
+      "font": 120,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "inventory",
+      "width": 1920,
+      "height": 1080,
+      "font": 100,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "inventory",
+      "width": 1920,
+      "height": 1080,
+      "font": 120,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "result",
+      "width": 1920,
+      "height": 1080,
+      "font": 100,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "result",
+      "width": 1920,
+      "height": 1080,
+      "font": 120,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "result",
+      "width": 1920,
+      "height": 1080,
+      "font": 100,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "result",
+      "width": 1920,
+      "height": 1080,
+      "font": 120,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "shop",
+      "width": 1920,
+      "height": 1080,
+      "font": 100,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "shop",
+      "width": 1920,
+      "height": 1080,
+      "font": 120,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "shop",
+      "width": 1920,
+      "height": 1080,
+      "font": 100,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "shop",
+      "width": 1920,
+      "height": 1080,
+      "font": 120,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "camp",
+      "width": 1920,
+      "height": 1080,
+      "font": 100,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "camp",
+      "width": 1920,
+      "height": 1080,
+      "font": 120,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "camp",
+      "width": 1920,
+      "height": 1080,
+      "font": 100,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "camp",
+      "width": 1920,
+      "height": 1080,
+      "font": 120,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "settings",
+      "width": 1920,
+      "height": 1080,
+      "font": 100,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "settings",
+      "width": 1920,
+      "height": 1080,
+      "font": 120,
+      "presentation": false,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "settings",
+      "width": 1920,
+      "height": 1080,
+      "font": 100,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    },
+    {
+      "scene": "settings",
+      "width": 1920,
+      "height": 1080,
+      "font": 120,
+      "presentation": true,
+      "horizontalOverflow": false,
+      "brokenImages": [],
+      "outside": []
+    }
+  ],
+  "interactions": [
+    "Space aim → Escape cancels only → Escape pauses; modal focus wraps; I opens collection; search; Escape restores previous pause.",
+    "Reward selection previews without replacing; explicit confirmation replaces.",
+    "Map heal increases next price; shop purchase changes resources and potion count; duplicate purchase disabled.",
+    "Hero selection, NPC details, current/proposed comparison, Escape back.",
+    "Text scale, contrast and reduced motion controls change presentation."
+  ],
+  "errors": [],
+  "result": "PASS"
+}

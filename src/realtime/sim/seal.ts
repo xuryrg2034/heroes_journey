@@ -13,6 +13,7 @@
  * - Deterministic: comparisons and `+ − × ÷` only (the crossing test is the sign of cross products).
  */
 import { kindOf } from './enemies/kinds';
+import { chiefGuarded, chiefWards } from './enemies/chief';
 import { talismanFired } from './build';
 import { FUSIONS } from './buildIds';
 import { insidePolygon, type Vec } from './geometry';
@@ -79,6 +80,8 @@ export function strikeSeal(world: World, seal: SealMove): void {
     } else if (seal.hold > 0 && world.enemies.includes(e) && seal.hold > (e.chill ?? 0)) { e.chill = seal.hold; delete e.brittle; froze = true; }
   }
   if (seal.ice && froze) talismanFired(world, FUSIONS.iceSeal);
+  // Task 54: the Chief's core in the ring is left out of `inside` (the seal never lands on it, the highlight shows no outcome) — its «звон».
+  for (const e of world.enemies) if (chiefGuarded(world, e) && insidePolygon(seal.ring, e)) chiefWards(world, e, SEAL_SOURCE);
   world.events.push({ type: 'seal', phase: 'strike', kind: seal.kind, points: seal.ring.map(p => ({ x: p.x, y: p.y })), inside: struck, links: seal.links });
   if (struck.length && world.params.hitstop) world.hitstop = Math.max(world.hitstop, SEAL_HITSTOP);
 }

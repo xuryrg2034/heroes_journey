@@ -227,6 +227,8 @@ export function createFightObserver(start: World): FightObserver {
   if (start.bag) s.bag.appeared = true;
   /** «Перебор»: the source of the last hit on the hero (a lost fight names its killing blow). */
   let lastHitSource: string | null = null;
+  /** Task 56 «Приметы»: what the omens' rules did in the fight (`FightSummary.omenFired`; empty — none acted). */
+  const omenFired: Record<string, number> = {};
   // Task 41: the healing loot the hero touched with a full hand (`lootRefused`), once each.
   const capRefused = new Set<number>();
   /** Task 20: the lit busts in order (one per `slot.bustExits` entry), the move before this look, the entry the blast's hit counts for. */
@@ -319,9 +321,14 @@ export function createFightObserver(start: World): FightObserver {
           if (ev.source === 'hound' && striker && houndFrenzied(striker)) { s.garrison.frenzyHits++; s.garrison.frenzyDamage += ev.damage; }
           // Task 41: a rioting prisoner's touch on the hero (any kind but the hound: its touch is the hound's field above).
           if (striker && prisonerRioting(striker)) s.garrison.riotDamage += ev.damage;
+          // Task 56: «Гроза» hit the hero; a touch of the colour on «Перекличка» (raised by it).
+          if (ev.source === 'storm') bump(omenFired, 'storm:hero');
+          if (striker && world.rollcall?.color === striker.color && ev.source === kindOf(striker).hitSource) bump(omenFired, 'rollcall:touch');
           return;
         }
         case 'kill': {
+          // Task 56: a kill of «Гроза».
+          if (ev.source === 'storm') bump(omenFired, 'storm:kill');
           const elite = elites.get(ev.enemyId);
           if (elite) {
             elites.delete(ev.enemyId);
@@ -556,7 +563,16 @@ export function createFightObserver(start: World): FightObserver {
         case 'purseKill': bump(s.purse.killEmbers, ev.source); return;
         case 'purseDoor': s.purse.resources = ev.resources; s.purse.exitBy = ev.by; if (ev.step !== undefined) s.purse.exitStep = ev.step; return;
         // Task 14 «Котомка у двери» (sim/bag.ts): the bag appeared, a hit sent its unfilled step back; the fight's end stops the count.
-        case 'bag': if (ev.action === 'appear') { s.bag.appeared = true; bagOpen = true; } else if (ev.action === 'reset') s.bag.resets++; return;
+        case 'bag':
+          if (ev.action === 'appear') { s.bag.appeared = true; bagOpen = true; } else if (ev.action === 'reset') s.bag.resets++;
+          // Task 56 «Урожай»: a hit took every step (`bagResetAll`).
+          if (ev.action === 'reset' && world.params.bagResetAll) bump(omenFired, 'harvest:resetAll');
+          return;
+        // Task 56 «Приметы»: the storm's strikes; the game second the sleepers woke.
+        case 'omen':
+          if (ev.omen === 'storm' && ev.action === 'strike') bump(omenFired, 'storm:strike');
+          else if (ev.omen === 'drowse') omenFired['drowse:woke'] = round2(world.time);
+          return;
         case 'victory': bagOpen = false; return;
         // Task 25: `hurtHero` pushes the lethal hit, then `defeat` — the last hit read is the killing blow.
         case 'defeat': {
@@ -580,6 +596,9 @@ export function createFightObserver(start: World): FightObserver {
     move = m;
     if (!m || m.kind !== 'dash') return;
     s.chain.count++;
+    // Task 56: the released links taken in water («Половодье») and of the colour on the roll call («Перекличка»).
+    if (m.wet) bump(omenFired, 'flood:wet', m.wet.length);
+    if (m.call) bump(omenFired, 'rollcall:link', m.call.length);
     let enemies = 0, color: number | null = null, toughLater = false;
     for (const link of m.links) {
       if (link.kind !== 'enemy') continue;
@@ -774,6 +793,8 @@ export function createFightObserver(start: World): FightObserver {
       if (feat) out.feat = { kind: feat.kind, n: feat.n, done: feat.done, at: feat.at ?? null, value: feat.value, missing: feat.done ? 0 : Math.max(0, feat.n - feat.value), won: w.status === 'victory' };
       // Casino «Ставка клятвы»: the oath of the fight (the rule on), its met and broken ticks.
       if (w.oath && w.params.oathStake) Object.assign(out.oath, { id: w.oath.id, brokenTick: w.oath.broken ?? null, metTick: w.oath.met ?? null });
+      // Task 56 «Приметы»: the omens' counters (absent — no omen rule acted: summaries as before).
+      if (Object.keys(omenFired).length) out.omenFired = { ...omenFired };
       return out;
     },
   };

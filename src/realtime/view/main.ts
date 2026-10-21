@@ -17,7 +17,7 @@ import { ARENAS, SLICE_ARENAS, TERRAIN_ARENAS, arenaTemplate, markedGoalArena, t
 import { withRoster } from '../sim/rosters';
 import { bagPayout, bagProgress, bagTotal } from '../sim/bag';
 import { bagResultLine } from './bagView';
-import { featOf, featOutcome, featProgress, featResult } from '../sim/feat';
+import { featOf, featProgress, featResult } from '../sim/feat';
 import { featHudText, featHudTitle, featResultRow } from './featView';
 import { FIRST_MEET_IDS, FirstMeetStore, type FirstMeetId } from './firstMeet';
 import { SCHEDULE_KINDS, scheduleSeedHistory } from '../run/schedule';
@@ -29,6 +29,9 @@ import { BOSS_ARENAS, FOREST_BOSS_ARENAS, JAILER_RUN_ARENAS } from '../sim/arena
 import { SHOOTERS_ARENAS } from '../sim/arenasShooters';
 // Task 38: the garrison's arenas at the end of the sandbox menu (`?arena=20…24`).
 import { GARRISON_ARENAS } from '../sim/arenasGarrison';
+import { CASTLE_ARENAS } from '../sim/arenasCastle';
+import { rookLine, wardrobeLying, wardrobeTopple, WARDROBE, ROOK } from '../sim/enemies/castle';
+import { durabilityOf, isThing } from '../sim/shove';
 import { canSpin } from '../sim/abilities';
 import { ITEM_REFUSAL_TEXT, itemRefusal } from '../sim/items';
 import { SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
@@ -36,7 +39,7 @@ import { ENERGY_MAX, JUMP_REFUSAL_TEXT, REFUSAL_TEXT, canJump, colorShiftIds, co
 import type { Command } from '../sim/commands';
 import { inThorns, inWater, overCliff, setFlowClock, type Vec } from '../sim/geometry';
 import { crowdLifetime, defaultParams, type ParamKey, type Params } from '../sim/params';
-import { rtArenaParams, rtPageParams } from '../run/rtRun';
+import { isRtDailyDate, rtArenaParams, rtPageParams } from '../run/rtRun';
 import { replay, Simulation, type Journal } from '../sim/simulation';
 import { focusGuarded, goalLamps, goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World, type WorldEvent } from '../sim/world';
 import { linkPoint } from '../sim/chain';
@@ -65,21 +68,27 @@ import { TOAD_LINES } from './heroLines';
 import { ToadLesson, isToad } from './toadLesson';
 import { findLoopHint, type LoopHintFigure } from './loopHint';
 import { ITEM_PULSE_ID, setPulse } from './pulse';
-import { bossMoveLabels, BOSS_LABEL_LIFE, detectLabels, labelActions, LEVER_OVER_LINE, RIOT_LABEL_LIFE, riotLabel, riotStarted, shackleCut, shackleLabel, shackleMet, WorldLabelLayer, type LabelSpec } from './worldLabels';
+import { barrelLabel, bossMoveLabels, BOSS_LABEL_LIFE, detectLabels, harvestLabel, labelActions, LEVER_OVER_LINE, omenLabels, RIOT_LABEL_LIFE, riotLabel, riotStarted, shackleCut, shackleLabel, shackleMet, WorldLabelLayer, type LabelSpec } from './worldLabels';
 import { prologueHandSpot, prologueJumpAim, prologueLoadout, prologueParams, prologueRoom, prologueRoute, prologueShieldLinks, prologueSpinReady } from '../run/prologue';
 import { RT_RUN_HP } from '../run/hpScale';
 import { HAND_IDLE, HandGuide, PROLOGUE_ROOM_COUNT, SHIELD_HAND_IDLE, PrologueStore, TITLE_SECONDS, prologueCarry, prologueEntryRoom, prologueGoalLine, prologueLabel, prologueSeed, roomTitle, type PrologueHooks, type PrologueLabelMemo, type RoomOutcome } from './prologueFlow';
 import { PrologueDom, PrologueLayer } from './prologueView';
 import { ChainRecordStore, chainLine, type ChainLine } from './chainRecord';
-import { observeFightLuck, type RtLuckTally } from '../run/rtLuck';
+// Task 51з: the run fight's outcome — read while it plays and built from the world (run/fightOutcome.ts; the proof's check reads the same).
+import { RtFightWatch, rtFightOutcome } from '../run/fightOutcome';
 import { RtDeathWatch, rtDeathLine } from '../run/rtRunEnd';
 import { DeathSeries } from './deathSeries';
 import { bustBlasts, goblinOf } from '../sim/slot';
 import { SoundGate, ThreatWatch } from './soundGate';
 import type { FightObserverFactory, ReplayTo, RtRecord } from '../telemetry/schema';
 import { fightObserver, skipKey } from '../telemetry/observe';
-import { RtRecorder, type FightContext } from '../telemetry/recorder';
+import { RtRecorder, buildId, type FightContext } from '../telemetry/recorder';
+import { rtDailyDate } from '../run/rtDaily';
 import type { PrologueTally } from '../telemetry/prologue';
+import { WARMUP_SEED, warmupEnd, warmupLayout, warmupLoadout, warmupParams, warmupScore, type WarmupEnd, type WarmupId } from '../run/warmup';
+import { warmupBody } from '../telemetry/warmup';
+import { warmupLabel, warmupLabelText, warmupResultText, warmupSpeaker } from './warmupFlow';
+import { WarmupDom } from './warmupView';
 import { devSource } from '../telemetry/sinks';
 import { LogsPanel } from './logsPanel';
 import { BossBar, bossBarState, BOSS_BAR_H, goalLabelOf } from './bossBar';
@@ -107,7 +116,7 @@ const NOTE_FLASH_MS = 1000;
  * docs/realtime-stage3.md, section 11); then the boss arena «Тюремщик» (task 27, key ⇧9, `?arena=19`); the garrison's after it; at the end
  * «Берлога тролля» (task 48, no key, `?arena=30`); after it «Стрелки леса (проба)» (task 57а, no key, `?arena=31`). `?arena=N` opens one at once.
  */
-const SANDBOX_ARENAS: readonly ArenaTemplate[] = [...ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS, ...BEHAVIOR_ARENAS, ...CAMERA_ARENAS, ...BOSS_ARENAS, ...GARRISON_ARENAS, ...FOREST_BOSS_ARENAS, ...SHOOTERS_ARENAS];
+const SANDBOX_ARENAS: readonly ArenaTemplate[] = [...ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS, ...BEHAVIOR_ARENAS, ...CAMERA_ARENAS, ...BOSS_ARENAS, ...GARRISON_ARENAS, ...FOREST_BOSS_ARENAS, ...CASTLE_ARENAS, ...SHOOTERS_ARENAS];
 /** Arenas on the plain digit keys (1–9, 0); the rest are on Shift + digit (stage 3a). */
 const DIGIT_ARENAS = ARENAS.length + SLICE_ARENAS.length;
 /** What an arena forces over the panel's phase table (stage 2): «стай волков и кабанов нет (доли 0)» and the like. */
@@ -218,6 +227,7 @@ async function boot(): Promise<void> {
   /** The prototype's sandbox (arena menu, debug panel); otherwise the page plays a run. `#sandbox` too: a published
    * build passes a plain anchor to the page but not the query (design 08.10.2026). */
   const sandbox = urlParams.get('sandbox') === '1' || location.hash === '#sandbox';
+  const dailyParam = urlParams.get('daily');
   // Task 17 hygiene (design answer 1, 13.10.2026): the run plays the defaults with its own numbers (`rtRunParams`), never the
   // saved sandbox panel — the panel changes only the sandbox; the run is tuned only by `RT_RUN_FORCED` (`rtPageParams`).
   const params = rtPageParams(sandbox, loadParams);
@@ -318,7 +328,7 @@ async function boot(): Promise<void> {
   menuCard.append(...menuRunButton ? [menuRunButton] : [], el('h2', '', 'Выбери арену'));
   const arenaList = el('div', 'rt-arenas');
   // The camera sample's button has its own test id: the menu counts of the older tests (`arena-*`) stay as they were.
-  const camera0 = DIGIT_ARENAS + TERRAIN_ARENAS.length + BEHAVIOR_ARENAS.length, boss0 = camera0 + CAMERA_ARENAS.length, garrison0 = boss0 + BOSS_ARENAS.length, forest0 = garrison0 + GARRISON_ARENAS.length, shooters0 = forest0 + FOREST_BOSS_ARENAS.length;
+  const camera0 = DIGIT_ARENAS + TERRAIN_ARENAS.length + BEHAVIOR_ARENAS.length, boss0 = camera0 + CAMERA_ARENAS.length, garrison0 = boss0 + BOSS_ARENAS.length, forest0 = garrison0 + GARRISON_ARENAS.length, castle0 = forest0 + FOREST_BOSS_ARENAS.length, shooters0 = castle0 + CASTLE_ARENAS.length;
   // The menu shows before the art has loaded (`loadCharacterArt`): a pick made meanwhile is kept and played once the game is ready
   // (before, the click reached `start` before it existed and was lost — more art, task 43, made the wait longer).
   let earlyPick: number | null = null;
@@ -334,9 +344,13 @@ async function boot(): Promise<void> {
     if (i === garrison0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Гарнизон — строй, поводки, Кастелян, кандалы'));
     // Task 48: the Troll at the end of the menu (the numbers before stay), test id `boss-arena-2` (after the Jailer's).
     if (i === forest0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Босс — Тролль (только песочница)'));
-    // Task 57а: the forest shooters at the very end (`?arena=31`; the numbers before stay), test id `shooters-arena-1`.
+    // Task 54a: the Chief's yard under its own heading (the Troll's arena is the first of this group, the numbers before stay).
+    if (i === forest0 + 1) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Босс — Главарь (только песочница)'));
+    // Task 55а: the castle's arenas of step 1а at the very end, test ids `castle-arena-N`.
+    if (i === castle0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Замок — толчок, шкафы, ладьи (только песочница)'));
+    // Task 57а: the forest shooters after the castle (the numbers before stay), test id `shooters-arena-N`.
     if (i === shooters0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Лес: стрелки (только песочница)'));
-    const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span data-summary="${i}">${markedGoalArena(arena, params.markedGoals).summary}</span>`, i >= shooters0 ? `shooters-arena-${i - shooters0 + 1}` : i >= forest0 ? `boss-arena-${BOSS_ARENAS.length + i - forest0 + 1}` : i >= garrison0 ? `garrison-arena-${i - garrison0 + 1}` : i >= boss0 ? `boss-arena-${i - boss0 + 1}` : i >= camera0 ? `camera-arena-${i - camera0 + 1}` : `arena-${i + 1}`);
+    const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span data-summary="${i}">${markedGoalArena(arena, params.markedGoals).summary}</span>`, i >= shooters0 ? `shooters-arena-${i - shooters0 + 1}` : i >= castle0 ? `castle-arena-${i - castle0 + 1}` : i >= forest0 ? `boss-arena-${BOSS_ARENAS.length + i - forest0 + 1}` : i >= garrison0 ? `garrison-arena-${i - garrison0 + 1}` : i >= boss0 ? `boss-arena-${i - boss0 + 1}` : i >= camera0 ? `camera-arena-${i - camera0 + 1}` : `arena-${i + 1}`);
     b.addEventListener('click', () => pick(i));
     arenaList.appendChild(b);
   });
@@ -465,10 +479,11 @@ async function boot(): Promise<void> {
   const deathWatch = new RtDeathWatch();
   /** Task 21 «Почему погиб»: the fight's hits on the hero for the series line of «Поражение» (view/deathSeries.ts). */
   const deathSeries = new DeathSeries();
-  /** Task 28: the Jailer's weight was severed in this fight (a `partSevered` event; read with the death watch) — `RtArenaOutcome.severed`. */
-  let fightSevered = false;
-  /** Task 48: the boss's parts severed in this fight (`partSevered` events) — `RtArenaOutcome.parts` (the run keeps it for the Troll). */
-  let fightParts = 0;
+  /**
+   * Task 51з: what the run fight is read for while it plays (run/fightOutcome.ts): П5 the luck, П6 the killing blow (`deathWatch`), task 28
+   * the weight severed, task 48 the parts severed, the consumables used — the outcome is built from it (`rtFightOutcome`).
+   */
+  const fightWatch = new RtFightWatch(deathWatch);
   /** Task 22 «Удар слышен»: one sound of a kind per 0.3 real seconds; the threats' starts read frame by frame (view/soundGate.ts). */
   const soundGate = new SoundGate(), threatWatch = new ThreatWatch();
   /** Task 12: the values of the run's arena (`rtArenaParams`: the run's flag `markedGoals`); null — the sandbox's `params`. */
@@ -479,11 +494,9 @@ async function boot(): Promise<void> {
    */
   const newSimulation = (arena: ArenaTemplate, seed: number, hero?: HeroStart, loadout?: Loadout, simParams?: Params): Simulation => {
     motion.clear();
-    deathWatch.reset();
+    fightWatch.reset();
     deathSeries.reset();
-    fightSevered = false;
-    fightParts = 0;
-    if (simParams) return new Simulation({ arena, params: simParams, seed, record: true, beforeTick: world => { motion.save(world); }, ...hero ? { hero } : {}, ...loadout ? { loadout } : {} });
+    if (simParams) return new Simulation({ arena, params: simParams, seed, record: true, beforeTick: world => { motion.save(world); warmupWatch(world); }, ...hero ? { hero } : {}, ...loadout ? { loadout } : {} });
     return new Simulation({ arena, params: runArenaParams ?? params, seed, record: true, beforeTick: world => { motion.save(world); recorder?.beforeTick(world); deathWatch.seen(world); deathSeries.seen(world); }, ...hero ? { hero } : {}, loadout: loadout ?? sandboxLoadout() });
   };
 
@@ -519,6 +532,8 @@ async function boot(): Promise<void> {
   let fightNo = 0, shackleSeen: string | null = null, shackleDone: string | null = null;
   /** Task 41: «На волю!» — `riotShown` the key whose flash came (once a run, the sandbox: a fight); `riot` — the flash on now. */
   let riotShown: string | null = null, riot: { id: number; life: number } | null = null;
+  /** Task 55а: «Кончи цепь на бочке — покатится» — `barrelShown` the key whose first barrel came into view (once a run, the sandbox: a fight), `barrelLife` real seconds left. */
+  let barrelShown: string | null = null, barrelLife = 0;
   const shackleKey = (): string => (sandbox ? `fight:${fightNo}` : `run:${runView?.state?.seed ?? ''}`);
   /** Task 28: the fight has a boss — the arena's band under the HUD keeps room for the boss bar (`relayout`). */
   let bossBand = false;
@@ -533,6 +548,17 @@ async function boot(): Promise<void> {
   const prologueEntry = prologueDue ? prologueEntryRoom(location.search, import.meta.env.DEV) : null;
   /** The room being played (null — not in the prologue). */
   let prologue: { n: number; attempt: number; guide: HandGuide | null; label: PrologueLabelMemo; titleLeft: number; lastTime: number; seconds: number; real: number } | null = null;
+  /**
+   * Task 51ж «Разминка» (view/warmupFlow.ts, view/warmupView.ts, run/warmup.ts): the attempt being played (null — none). `final` — how it ended and its
+   * score, read by `warmupWatch` from the world before the next tick (so the score is the one of the attempt's last tick, not of the frame's);
+   * `real` — real seconds played; `done` — its result is shown (the record is merged and sent once).
+   */
+  let warmup: { id: WarmupId; final: { end: WarmupEnd; score: number | null; time: number } | null; real: number; done: boolean } | null = null;
+  const warmupWatch = (world: World): void => {
+    if (!warmup || warmup.final) return;
+    const end = warmupEnd(world, warmup.id);
+    if (end) warmup.final = { end, score: warmupScore(world, warmup.id, end), time: world.time };
+  };
   /** The telemetry of this playthrough (telemetry/prologue.ts; null — no recorder). */
   let prologueTally: PrologueTally | null = null;
   /** Between rooms: the fade out (`t` below 0 is a beat to look at the room), the switch at its end, then the fade in. */
@@ -610,6 +636,8 @@ async function boot(): Promise<void> {
   let pendingArrivals: string[] = [];
   /** Task 50: counters that went to rank II and wait for the next fight's column (`BuildColumn.hone`). */
   const pendingHoned: string[] = [];
+  /** Task 56: the omens the open fight plays (the run's loadout names them; the test hook reads them). */
+  let loadoutOmens: string[] = [];
   const startArena = (arena: ArenaTemplate, seed: number, hero?: HeroStart, loadout?: Loadout, notice?: ArenaItemNotice, simParams?: Params): void => {
     renderer.resetEffects();
     sim = newSimulation(arena, seed, hero, loadout, simParams);
@@ -619,7 +647,7 @@ async function boot(): Promise<void> {
     const kit = world().kit;
     pendingArrivals = sandbox && kit ? [...kit.talismans.filter(id => !!FORM_FIELD[id]), ...kit.hammer ? [kit.hammer] : []] : [];
     labelLayer.hideAll();
-    bossNamed.clear(); bossLabels = []; riot = null;
+    bossNamed.clear(); bossLabels = []; riot = null; barrelLife = 0;
     fightNo++;
     bossBar.reset();
     bossBand = !!bossBarState(world());
@@ -645,6 +673,9 @@ async function boot(): Promise<void> {
     // tick runs first (an ordinary tick, no command): the arena's own setup is in it — the Castellan takes his plates and leashes.
     if (bossBand) sim.tick();
     renderer.startBossIntro(world());
+    // Task 56 «Приметы»: the fight's omens come up over the hero for a moment (the run's loadout names them; the sandbox has none).
+    loadoutOmens = loadout?.omens ?? [];
+    renderer.beginOmens(loadout?.omens ?? []);
   };
   const start = (index: number, seed = nextSeed(fixedSeed)): void => {
     arenaIndex = Math.max(0, Math.min(SANDBOX_ARENAS.length - 1, index));
@@ -759,7 +790,7 @@ async function boot(): Promise<void> {
   other.addEventListener('click', showMenu);
 
   // Design smoke v65 (D2): the boss's glide holds the fight (no input) as the pause does.
-  const running = (): boolean => !paused && !menuOpen && !runScreenOpen && !transitionKind() && !renderer.bossIntroOn() && world().status === 'playing';
+  const running = (): boolean => !paused && !menuOpen && !runScreenOpen && !transitionKind() && !renderer.bossIntroOn() && world().status === 'playing' && !warmup?.final;
 
   // The run (stage 2): the map screen over the arena; a battle node starts its arena here with the run's HP.
   // П7 «Часы сессии»: the viewer's session clock (the view only); heartbeat while the tab is visible, so only a hidden or
@@ -784,7 +815,6 @@ async function boot(): Promise<void> {
       runArenaParams = rtArenaParams(rules ?? {}, params);
       runArenaRecorded = false;
       fightChainLine = null;
-      fightLuck = {};
       // Phase A (Т2): the node's roster over the template (the journal keeps it, sim/simulation.ts).
       startArena(roster !== undefined ? withRoster(arenaTemplate(arenaId), roster) : arenaTemplate(arenaId), seed, hero, loadout, notice);
     },
@@ -811,6 +841,16 @@ async function boot(): Promise<void> {
     openSandbox: () => { location.hash = '#sandbox'; },
     firstMeet: meetFirst,
     ...fixedHero ? { fixedHero } : {},
+    // Task 51ж: «Чурбаки» of the camp start an attempt here (the records and the line come through the run view).
+    ...sandbox ? {} : { warmup: { start: (id: WarmupId) => startWarmup(id) } },
+    // Task 51з «Поход дня»: today's date (the address `?daily=ГГГГ-ММ-ДД` sets it, for tests), this build's id, the fight's journal for the proof.
+    daily: {
+      date: () => (isRtDailyDate(dailyParam) ? dailyParam : rtDailyDate(new Date())),
+      build: buildId,
+      fight: () => sim.exportJournal(),
+      attempt: (run, attempt) => recorder?.dailyAttempt(run, attempt),
+      verified: run => recorder?.dailyVerified(run),
+    },
     // Tasks 36–37: the meta outside the sandbox; its sounds follow the run's sound setting.
     ...sandbox ? {} : { meta: {
       sound: (kind: MetaSoundKind) => {
@@ -857,8 +897,6 @@ async function boot(): Promise<void> {
   /** П10: the viewer's all-time chain record and the line of the run fight just recorded (null — none: the sandbox). */
   const chainRecord = new ChainRecordStore();
   let fightChainLine: ChainLine | null = null;
-  /** П5 «Журнал удачи»: the run fight's chance, read from the sim's events every frame (rtLuck.ts); it goes with the outcome. */
-  let fightLuck: RtLuckTally = {};
   const recordRunArena = (): void => {
     const w = world();
     if (!runView || !runView.arenaOpen || runArenaRecorded || w.status === 'playing') return;
@@ -866,16 +904,8 @@ async function boot(): Promise<void> {
     const runBefore = rtRunBestChain(runView.state), recordBefore = chainRecord.best();
     fightChainLine = chainLine(w.stats.bestChain, runBefore, recordBefore);
     chainRecord.submit(w.stats.bestChain);
-    runView.recordArena({ won: w.status === 'victory', hp: w.hero.hp, kills: w.stats.kills, bestChain: w.stats.bestChain, ...Object.keys(fightLuck).length ? { luck: fightLuck } : {}, damage: w.stats.damageTaken, time: w.endTime ?? w.time, ...w.kit ? { items: { ...w.kit.items }, materials: { ...w.kit.materials }, wardUsed: w.kit.wardUsed, openItems: [...w.kit.openItems] } : {}, ...w.secondWind ? { secondWind: true } : {}, kinds: deathWatch.kinds(w), ...deathWatch.elite(w) ? { elite: true } : {}, ...deathWatch.affixes(w).length ? { affixes: deathWatch.affixes(w) } : {}, itemsUsed: arenaItemsUsed, itemHint: arenaHintShown, ...w.purse?.door ? { purse: JSON.parse(JSON.stringify(w.purse.door)) } : {}, ...w.params.doorDie ? { doorDie: true } : {}, ...w.curse ? { chest: true } : {},
-      // Task 14 «Котомка у двери»: what the door paid for the bag's filled steps (the run adds it to its materials).
-      ...bagPayout(w) ? { bag: bagPayout(w)! } : {},
-      // Task 16 «Подвиги»: whether the fight did its feat (the run pays it on a victory; the record keeps it).
-      ...featOutcome(w),
-      // Task 28: the weight severed (the run keeps it only on a Jailer arena; a won fight offers 1 of 4).
-      ...fightSevered ? { severed: true } : {},
-      // Task 48: the Troll's parts severed (all three — the relic 1 of 4).
-      ...fightParts ? { parts: fightParts } : {},
-      ...w.status === 'defeat' && deathWatch.death ? { death: deathWatch.death } : {} });
+    // Task 51з: the outcome from the world and the fight's watch (run/fightOutcome.ts) — the proof of «Поход дня» rebuilds the same.
+    runView.recordArena(rtFightOutcome(w, fightWatch, arenaHintShown));
   };
   /** The result's button only switches the screen: to the map, or to the end of the run. */
   const finishRunArena = (): void => {
@@ -991,6 +1021,22 @@ async function boot(): Promise<void> {
     stopAim();
   };
 
+  /**
+   * UI-02 (20.10.2026): whether a run screen was open when this key went down (a capture listener runs before the screens' own, which may
+   * close one — the same key must not then land in the fight), and the held key of a focused button does not press it again.
+   */
+  let screenAtKey = false;
+  const pressesButton = (event: KeyboardEvent): boolean => (event.code === 'Space' || event.key === 'Enter') && !!(event.target as HTMLElement | null)?.closest?.('button, a[href], summary, [role="button"]');
+  window.addEventListener('keydown', event => {
+    screenAtKey = runScreenOpen;
+    if (event.repeat && pressesButton(event)) event.preventDefault();
+  }, { capture: true });
+  // A button pressed with the mouse does not keep the keys (Space is the jump, Enter goes on): the focus goes back to the page.
+  window.addEventListener('click', event => {
+    const button = (event.target as HTMLElement | null)?.closest?.('button');
+    if (button && event.detail > 0 && !runScreenOpen) button.blur();
+  });
+
   window.addEventListener('keydown', event => {
     const target = event.target as HTMLElement | null;
     const typing = !!target && (target.tagName === 'INPUT' || target.tagName === 'SELECT') && (target as HTMLInputElement).type !== 'range' && (target as HTMLInputElement).type !== 'checkbox';
@@ -1004,13 +1050,22 @@ async function boot(): Promise<void> {
       if (!control) { event.preventDefault(); held.add(event.code); }
       return;
     }
+    // UI-02: a held key does not repeat (the jump aim, the pause and the item keys flicker), and a focused button keeps its Space and Enter.
+    if (event.repeat || pressesButton(event)) return;
     // Design smoke v65 (D2): the boss's glide ignores the keys (as the fight's start it is not yet).
     if (renderer.bossIntroOn()) return;
     const ended = world().status !== 'playing';
+    /** UI-02: Esc cancels what is drawn or aimed; with nothing to cancel it is the pause (like P) — and it goes on from the pause. */
+    const escape = (): void => {
+      if (paused) { paused = false; return; }
+      const w = world();
+      if (dragging || w.chain.length > 0 || ui.jumpMode || itemAim !== null) { command({ t: 'cancel' }); dragging = false; stopAim(); }
+      else if (running()) paused = true;
+    };
     if (!sandbox) {
       // The run: no arena menu, no restart (a lost arena ends the run); Enter on a finished arena goes on.
-      if (runScreenOpen) return;
-      if (event.key === 'Escape') { command({ t: 'cancel' }); dragging = false; stopAim(); }
+      if (runScreenOpen || screenAtKey) return;
+      if (event.key === 'Escape') escape();
       // The prologue shows only the room's tiles (task 9, `PrologueRoom.tiles`): a key of a hidden tile does nothing (no jump aiming, no
       // command, no press for the hand) — design 13.10.2026. The last room has them all.
       else if (event.code === 'Space') { event.preventDefault(); if (!actionBar.allows('jump')) return; if (!dragging) toggleJump(); }
@@ -1025,7 +1080,7 @@ async function boot(): Promise<void> {
     if (digit >= 0 && (menuOpen || ended)) { start(digit); return; }
     if (event.code === 'KeyM') { if (menuOpen && !ended) { menuOpen = false; menu.hidden = true; } else showMenu(); return; }
     if (menuOpen) return;
-    if (event.key === 'Escape') { command({ t: 'cancel' }); dragging = false; stopAim(); }
+    if (event.key === 'Escape') escape();
     else if (event.code === 'Space') { event.preventDefault(); if (!dragging) toggleJump(); }
     else if (event.code === 'KeyQ') { if (running()) { command({ t: 'spin' }); stopAim(); } }
     else if (itemKey(event.code) >= 0) useItemKey(itemKey(event.code));
@@ -1168,6 +1223,83 @@ async function boot(): Promise<void> {
       }
     }
   };
+  // ---- The warmup «Чурбаки»: an attempt on a fixed layout, the result panel, «Выход» (docs/realtime-slice.md, «Разминка») ----
+  const warmupDom = new WarmupDom();
+  host.append(...warmupDom.elements);
+  /** The tiles of an attempt: «Через пропасть» — the jump and the whirl; the others — the chain alone (no consumables). */
+  const warmupTiles = (id: WarmupId): readonly TileId[] => (id === 'warmup-gap' ? ['jump', 'spin'] : []);
+  const startWarmupAttempt = (id: WarmupId): void => {
+    runScreenOpen = false;
+    if (runView) runView.el.hidden = true;
+    runLabel = null;
+    warmup = { id, final: null, real: 0, done: false };
+    warmupDom.hideResult();
+    warmupDom.exit.hidden = false;
+    startArena(warmupLayout(id).arena, WARMUP_SEED, undefined, warmupLoadout(), undefined, warmupParams(id));
+    actionBar.setAllowed(warmupTiles(id));
+  };
+  /** The camp's «Чурбаки» pick: the first attempt of layout `id`. */
+  function startWarmup(id: WarmupId): void {
+    if (sandbox) return;
+    transition = null;
+    startWarmupAttempt(id);
+  }
+  /** Back to the camp (from the result or «Выход»). */
+  const leaveWarmup = (): void => {
+    warmup = null;
+    warmupDom.hideResult();
+    warmupDom.exit.hidden = true;
+    actionBar.setAllowed('all');
+    labelLayer.hideAll();
+    command({ t: 'cancel' });
+    dragging = false; stopAim();
+    runScreenOpen = true;
+    runView?.openHearth();
+  };
+  /** The attempt ended (`final`): merge the score into the profile's records, the result panel, the NPC's line of a record, the telemetry. */
+  const finishWarmup = (): void => {
+    const wm = warmup;
+    if (!wm?.final || wm.done || !runView) return;
+    wm.done = true;
+    command({ t: 'cancel' });
+    dragging = false; stopAim();
+    const { end, score, time } = wm.final;
+    const merge = runView.warmupResult(wm.id, score);
+    const say = merge.record && score !== null ? runView.hearth?.warmupLine(warmupSpeaker) ?? null : null;
+    warmupDom.showResult(warmupResultText(wm.id, end, score, merge), say);
+    recorder?.warmupAttempt(warmupBody(wm.id, end, score, merge, time, wm.real), warmupParams(wm.id));
+  };
+  /** «Выход»: the attempt is left without a result (telemetry: `exit`); a finished attempt's panel has «В лагерь». */
+  const exitWarmup = (): void => {
+    const wm = warmup;
+    if (!wm) return;
+    if (!wm.done && runView) {
+      const merge = runView.warmupResult(wm.id, null);
+      recorder?.warmupAttempt(warmupBody(wm.id, 'exit', null, merge, world().time, wm.real), warmupParams(wm.id));
+    }
+    leaveWarmup();
+  };
+  warmupDom.exit.addEventListener('click', exitWarmup);
+  warmupDom.back.addEventListener('click', leaveWarmup);
+  warmupDom.again.addEventListener('click', () => { if (warmup) startWarmupAttempt(warmup.id); });
+  /** One frame of an attempt: the real time played, the end when the world reached it, the result panel. */
+  const stepWarmup = (w: World, realDt: number, live: boolean): void => {
+    const wm = warmup;
+    if (!wm) return;
+    if (live) wm.real += realDt;
+    // The end of the last tick of the frame (no tick follows it in this frame for `warmupWatch` to read).
+    warmupWatch(w);
+    if (wm.final) finishWarmup();
+  };
+  /** The warmup's part of `snapshot()` (the tests read it). */
+  const warmupSnapshot = () => {
+    const wm = warmup;
+    return {
+      active: !!wm, id: wm?.id ?? null, final: wm?.final ? { ...wm.final } : null, real: wm?.real ?? 0,
+      exitVisible: !warmupDom.exit.hidden, panel: { ...warmupDom.shown }, label: wm && !wm.final ? warmupLabelText(wm.id, world()) : null,
+      tiles: { jump: !jumpAbility.hidden, spin: !spinAbility.hidden, items: SLOT_ITEMS.filter((_, i) => !itemSlots[i].hidden) },
+    };
+  };
   /** The prologue's part of `snapshot()` (the tests read it). */
   const prologueSnapshot = () => {
     const pl = prologue, g = pl?.guide;
@@ -1247,7 +1379,7 @@ async function boot(): Promise<void> {
     fpsFrames++; fpsTime += realDt;
     if (fpsTime >= 0.5) { fps = fpsFrames / fpsTime; fpsFrames = 0; fpsTime = 0; }
     const workStart = performance.now();
-    const live = !paused && !menuOpen && !runScreenOpen;
+    const live = !paused && !menuOpen && !runScreenOpen && !warmup?.final;
     const axis = (minus: string[], plus: string[]): number => (plus.some(k => held.has(k)) ? 1 : 0) - (minus.some(k => held.has(k)) ? 1 : 0);
     const walkX = axis(['KeyA', 'ArrowLeft'], ['KeyD', 'ArrowRight']), walkY = axis(['KeyW', 'ArrowUp'], ['KeyS', 'ArrowDown']);
     // Design smoke v65 (D2): the boss's glide holds the fight's first tick — no ticks, no walk (keys held through it walk after it).
@@ -1405,7 +1537,7 @@ async function boot(): Promise<void> {
     }
     // П5: the run fight's chance (the goblin's pulls, the elites' loot) before the frame's events go.
     // П6: the run fight's killing blow, read the same way.
-    if (runView?.arenaOpen && !runArenaRecorded) { observeFightLuck(fightLuck, w.events); deathWatch.read(w, w.events); deathSeries.read(w, w.events); if (w.events.some(e => e.type === 'partSevered')) fightSevered = true; fightParts += w.events.filter(e => e.type === 'partSevered').length; }
+    if (runView?.arenaOpen && !runArenaRecorded) { fightWatch.read(w, w.events); deathSeries.read(w, w.events); }
     // Task 16 telemetry «Новизна»: the first meetings of a run fight (the kinds and affixes come from the captions, render.ts).
     if (firstMeets && runView?.arenaOpen && !prologue) {
       if (!firstMeets.has('elite') && w.enemies.some(e => e.elite && renderer.sees(e))) meetFirst('elite');
@@ -1418,14 +1550,16 @@ async function boot(): Promise<void> {
     }
     // The prologue: the room's own step, the HUD that shows only what the room teaches, the fade back in after a switch.
     if (prologue && !runScreenOpen) stepPrologue(w, realDt, live);
+    if (warmup && !runScreenOpen) stepWarmup(w, realDt, live);
     if (fadeIn > 0 && !transition) { fadeIn = Math.max(0, fadeIn - realDt); prologueDom.setFade(fadeIn / FADE_IN); }
     {
-      const early = !!prologue && prologue.n < PROLOGUE_ROOM_COUNT;
-      host.classList.toggle('rt-pl', !!prologue);
+      // Task 51ж: the layouts with no jump or whirl (every one but «Через пропасть») show no energy and no focus bar, as the prologue's early rooms.
+      const early = (!!prologue && prologue.n < PROLOGUE_ROOM_COUNT) || (!!warmup && warmup.id !== 'warmup-gap');
+      host.classList.toggle('rt-pl', !!prologue || !!warmup);
       host.classList.toggle('rt-pl-early', early);
       // Task 9: the bar shows the room's tiles; a room without any hides it (rooms 1–4 and «Гоблин»).
-      const tiles = prologue ? prologueRoom(prologue.n).tiles : 'all';
-      actionBar.el.hidden = tiles !== 'all' && tiles.length === 0; help.hidden = !!prologue;
+      const tiles = prologue ? prologueRoom(prologue.n).tiles : warmup ? warmupTiles(warmup.id) : 'all';
+      actionBar.el.hidden = tiles !== 'all' && tiles.length === 0; help.hidden = !!prologue || !!warmup;
       prologueDom.skip.hidden = !prologue;
     }
     // World labels (view/worldLabels.ts): the run only. With the toggle on, an action done in this frame marks its label for this
@@ -1438,8 +1572,9 @@ async function boot(): Promise<void> {
       // The action of the frame marks its label whatever the fight's status now (a chain that took the chest or a plate and entered the door).
       const runLabelling = !sandbox && hintsOn && !!runView?.arenaOpen && !runScreenOpen && !runArenaRecorded;
       if (runLabelling) for (const id of labelActions(w)) if (hints.store.count(id) === 0) hints.store.bump(id);
+      const harvestSpec = (world: World): LabelSpec[] => { const spec = harvestLabel(world, renderer.bagView.shown, p => renderer.sees(p)); return spec ? [spec] : []; };
       let specs: LabelSpec[] = [];
-      if (runLabelling && w.status === 'playing') specs = detectLabels(w, p => renderer.sees(p)).filter(spec => hints.store.count(spec.id) === 0);
+      if (runLabelling && w.status === 'playing') specs = [...detectLabels(w, p => renderer.sees(p)), ...omenLabels(w, p => renderer.sees(p)), ...harvestSpec(w)].filter(spec => hints.store.count(spec.id) === 0);
       // Task 11 (design 13.10.2026): the odds line beside the idol (off the hero's texts) and the lever's label stand in one column on
       // the same side — the label over, the line under it (the label goes with the first pull, the line stays).
       const oddsSide = renderer.slotView.shown.oddsSide;
@@ -1451,6 +1586,8 @@ async function boot(): Promise<void> {
         if (spec && renderer.sees(spec.at)) specs = [spec];
       }
       if (!runScreenOpen && !menuOpen) for (const l of bossLabels) if (renderer.sees(l.spec.at)) specs.push(l.spec);
+      // Task 51ж: the attempt's label at the hero — the timer and the number the record is made of (view/warmupFlow.ts).
+      if (warmup && !warmup.final && !runScreenOpen && !menuOpen && w.status === 'playing') specs.push(warmupLabel(warmup.id, w));
       // Task 49: the mage's lesson (labels at the hero, the hand, the crack, the brighter shield) — the run follows «Подсказки», the sandbox has its own page memory.
       {
         const lessonOn = isToad(w) && (sandbox || (hintsOn && !!runView?.arenaOpen)) && !prologue && !runScreenOpen && !menuOpen && !runArenaRecorded;
@@ -1490,6 +1627,14 @@ async function boot(): Promise<void> {
         const spec = (riot.life -= live ? realDt : 0) > 0 && w.status === 'playing' ? riotLabel(w, riot.id) : null;
         if (!spec) riot = null;
         else if (!runScreenOpen && !menuOpen && renderer.sees(spec.at)) specs.push(spec);
+      }
+      // Task 55а: «Кончи цепь на бочке — покатится» — the first barrel in view, once a run (the sandbox: a fight), the shackle's rule for the run.
+      if (barrelShown !== key && w.status === 'playing' && !runScreenOpen && !menuOpen && (sandbox || (hintsOn && !!runView?.arenaOpen)) && barrelLabel(w, p => renderer.sees(p))) { barrelShown = key; barrelLife = BOSS_LABEL_LIFE; }
+      if (barrelLife > 0) {
+        barrelLife -= live ? realDt : 0;
+        const spec = barrelLife > 0 && w.status === 'playing' ? barrelLabel(w, p => renderer.sees(p)) : null;
+        if (!spec) barrelLife = 0;
+        else if (!runScreenOpen && !menuOpen) specs.push(spec);
       }
       if (specs.length) {
         const stageBox = stage.getBoundingClientRect();
@@ -1561,6 +1706,7 @@ async function boot(): Promise<void> {
     // П4 «Раздув за дела» (purse.ts `greedLine`): after the goals the line shows the cauldron, its greed step and the next one.
     goalText.textContent = w.stage === 'greed' ? greedLine(w) ?? `дверь открыта · убито ${w.stats.kills}` : `${goalLabelOf(w, goal.label)} ${goal.done} / ${goal.total}`;
     if (prologue) goalText.textContent = prologueGoalLine(w);
+    if (warmup) goalText.textContent = `Разминка: ${warmupLayout(warmup.id).title}`;
     goalText.classList.toggle('rt-door-open', w.stage === 'greed');
     // Casino «Ставка клятвы»: the oath's line under the goal (none without an oath).
     const oathNow = oathHudLine(w);
@@ -1617,14 +1763,14 @@ async function boot(): Promise<void> {
     pausedBadge.hidden = !paused || w.status !== 'playing' || menuOpen || runScreenOpen;
     if (w.status !== 'playing' && !runScreenOpen) {
       // Telemetry: the fight record in the frame the fight ended — the journal and the hash of the same tick.
-      if (recorder?.recording && !prologue) { const cam = renderer.cameraState(); recorder.endFight(w.status, { w: cam.viewW, h: cam.viewH }); }
+      if (recorder?.recording && !prologue && !warmup) { const cam = renderer.cameraState(); recorder.endFight(w.status, { w: cam.viewW, h: cam.viewH }); }
       recordRunArena();
     }
     // П3 «Финальная цепь»: a victory opens the result screen FINAL_FLASH real seconds later (the final flash is seen); a defeat at once.
     if (w.status === 'victory' && resultWait?.world !== w) resultWait = { world: w, left: FINAL_FLASH };
     if (resultWait && resultWait.world === w) resultWait.left -= realDt;
     const resultDue = w.status !== 'victory' || (resultWait?.world === w && resultWait.left <= 0);
-    if (w.status !== 'playing' && result.hidden && !menuOpen && !runScreenOpen && resultDue && !prologue) showResult();
+    if (w.status !== 'playing' && result.hidden && !menuOpen && !runScreenOpen && resultDue && !prologue && !warmup) showResult();
     statsTimer -= realDt;
     if (statsTimer <= 0) {
       statsTimer = 0.25;
@@ -1672,7 +1818,7 @@ async function boot(): Promise<void> {
     motion.clear();
     renderer.resetEffects();
     sim = replayed;
-    bossNamed.clear(); bossLabels = []; riot = null; bossBar.reset(); bossBand = !!bossBarState(world());
+    bossNamed.clear(); bossLabels = []; riot = null; barrelLife = 0; bossBar.reset(); bossBand = !!bossBarState(world());
     renderer.buildArena(world().arena);
     paused = true;
     menuOpen = false; menu.hidden = true;
@@ -1843,6 +1989,20 @@ async function boot(): Promise<void> {
         /** Task 43: the knight — plate pips, «Рывок» lanes and «Размах» circles drawn in the frame; the sheds and swing hits seen. */
         knight: { ...renderer.knightShown },
         /**
+         * Task 55а «Замок» (the castle's view): the shoves running (`world.shoves`), the things with their durability, the wardrobes
+         * (the topple's lane as the sim gives it, lying seconds, the lane the view drew), the rooks (the line), and what the view drew.
+         */
+        castle: {
+          shoves: (w.shoves ?? []).map(s => ({ thing: s.thing, kind: s.kind, from: { ...s.from }, to: { ...s.to }, stop: s.stop, target: s.target ?? null, run: s.run, length: s.length, crushed: s.crushed.length, met: s.met })),
+          things: w.enemies.filter(e => isThing(e)).map(e => ({ id: e.id, kind: e.kind, x: e.x, y: e.y, durability: durabilityOf(e) })),
+          wardrobe: w.enemies.filter(e => e.kind === WARDROBE).map(e => { const t = wardrobeTopple(w, e); return { id: e.id, x: e.x, y: e.y, topple: t ? { from: { ...t.from }, to: { ...t.to }, half: t.half, progress: t.progress } : null, lying: wardrobeLying(e), drawn: renderer.castleLane(e.id), pose: renderer.castlePose(e.id) }; }),
+          rook: w.enemies.filter(e => e.kind === ROOK).map(e => { const l = rookLine(w, e); return { id: e.id, x: e.x, y: e.y, hp: e.hp, line: l ? { x0: l.x0, y0: l.y0, x1: l.x1, y1: l.y1, axis: l.axis, progress: l.progress } : null }; }),
+          /** The shove's preview of the drawn chain (`ChainPlan.shove`; null — the chain does not end on a thing) and the first-barrel label now. */
+          preview: renderer.drawnShove ? { thing: renderer.drawnShove.thing, kind: renderer.drawnShove.kind, from: { ...renderer.drawnShove.from }, to: { ...renderer.drawnShove.to }, dir: { ...renderer.drawnShove.dir }, stop: renderer.drawnShove.stop, target: renderer.drawnShove.target ?? null, crushed: renderer.drawnShove.crushed.map(c => ({ ...c })), impact: renderer.drawnShove.impact ? { ...renderer.drawnShove.impact } : null, wear: renderer.drawnShove.wear.map(x => ({ ...x })), breaks: [...renderer.drawnShove.breaks] } : null,
+          label: barrelLife > 0 ? 'barrel' : '',
+          shown: { ...renderer.castleShown },
+        },
+        /**
          * Task 48 «Тролль» (render.ts `trollShown`): `core` — his drawing this frame, `asleep` («Храп»), `glow` (a window is open), `count` (the whole
          * seconds over him, '' — none) and `edgeCount` (by his goal arrow, off screen); `sign` (the move's sign now: club, rock, tail, roar) and its fill
          * `signProgress`, the signs by shape (`strips`, `circles`, `rings`, `gateMarks`), `snoreArc` (its fill, 0 — none); `tail` (his tail's line),
@@ -1850,11 +2010,28 @@ async function boot(): Promise<void> {
          * `tailFalls`, `unlinks` (white rings of links dropped with the window), `crumbles` (a struck snore's arc), `regrows`, `opens`.
          */
         troll: { ...renderer.trollShown },
+        /**
+         * Task 54a «Главарь» (render.ts `chiefShown`): `core` (his drawing this frame), `glow` (the window is open; `brew` — the brew's colour, −1 none),
+         * `count` (whole seconds over him) and `edgeCount` (by his goal arrow, off screen); `cauldron` (drawn), `steam` (puffs); `sign` (the move's
+         * sign now) and its fill `signProgress`, the signs by shape (`halfDiscs`, `circles`, `rings`, `gateMarks`, `seatMarks`); the queue — `dots`
+         * drawn, `litDots`, `dotColor`, `dropping` (the drawn chain's core blinks); `bowls` (seated eaters), `parts` (the parts' drawings);
+         * since the fight began — `hits` (signs flashed), `sparks` («звон»), `severed`, `unlinks`, `recolors`, `opens`, `feastHits`, `feastBig`, `supplies`, `brews`.
+         */
+        chief: { ...renderer.chiefShown },
         /** Task 28: the boss bar of the HUD (`BossBar.shown`) and the names of the boss's moves on screen now. */
         bossBar: bossBar.shown(),
         bossNames: bossLabels.map(l => l.spec.text),
         /** Task 29 «Формы»: the forms' highlight of the frame (`formsShown`) and the icons' flights to the column (started; flying now). */
         forms: { ...renderer.formsShown, arrivals: buildColumn.arrivals, flying: [...buildColumn.flying], forks: w.chain.filter(l => l.fork).length },
+        /**
+         * Task 56 «Приметы»: the sim's state (the storm's mark, the sleepers, the pools, the called colour, the links marked in the chain) beside what the
+         * view drew in the frame (render.ts `omenShown`: the mark and its blink, horns, rage rings, drops and horns on the chain, the strikes and wakes seen).
+         */
+        omens: {
+          ids: [...(loadoutOmens ?? [])], storm: w.storm ? { next: w.storm.next, mark: w.storm.mark ? { ...w.storm.mark } : null } : null, sleepers: w.enemies.filter(e => e.sleep).length, raging: w.enemies.filter(e => e.rage !== undefined).length,
+          woke: w.drowse?.woke ?? null, pools: w.flood ? w.flood.pools.map(pool => ({ ...pool })) : [], rollcall: w.rollcall ? { ...w.rollcall } : null, time: w.time,
+          chain: w.chain.map(l => ({ kind: l.kind, id: l.id, wet: l.kind === 'enemy' && !!l.wet, call: l.kind === 'enemy' && !!l.call })), plan: (() => { if (!w.chain.length) return null; const pl = planChain(w); return { kills: pl.kills, power: pl.power, links: pl.links.map(l => ({ kind: l.link.kind, id: l.link.id, wet: l.link.kind === 'enemy' && !!l.link.wet, damage: l.outcome?.damage ?? 0, killed: !!l.outcome?.killed, hpAfter: l.outcome?.hpAfter ?? null })) }; })(), shown: { ...renderer.omenShown, flash: [...renderer.omenShown.flash] },
+        },
         /** The prologue's sleep: «z» marks drawn this frame (the sim's rule: a calm arena or `asleep`). */
         sleepMarks: renderer.sleepShown,
         /** Task 14 «Котомка у двери»: the bag of the sim (null — none: before the goals, or the rule off) and what the view drew of it. */
@@ -1885,6 +2062,8 @@ async function boot(): Promise<void> {
         logsOpen: !!logsPanel?.open,
         /** The prologue «Опушка»: room, lamps, the hand and the arrow, the title, the fade, the pulse, the log of its hooks. */
         prologue: prologueSnapshot(),
+        /** Task 51ж «Разминка»: the attempt (id, how it ended), the exit button, the result panel, the label now, the tiles. */
+        warmup: warmupSnapshot(),
       };
     },
     /**
@@ -1991,6 +2170,12 @@ async function boot(): Promise<void> {
       screens: () => runView.screensInfo(),
       /** Task 50: the run's archetype, the gift's row and the marked cards on the screen (see `RunView.habitInfo`). */
       habitShown: () => runView.habitInfo(),
+      /** Task 51б: «Предместье»'s offers of the camp's level 3 and the choice they hold (null - none). */
+      gateShown: () => runView.gateInfo(),
+      /** Task 51в: the merchant's reroll and «Размен» as shown (null — no merchant open). */
+      shopShown: () => runView.shopInfo(),
+      /** Task 51д: the meeting at the open rest (the NPC, its deals, the deal made, the window open). */
+      meetShown: () => runView.meetInfo(),
       /** Task 49: the hero cards of the screen (ids, the chosen one, the best «Испытание» marks, the laws) and the cage scene (null - none). */
       heroesShown: () => runView.heroesShown(),
       /** Task 47, tests only: multiplies the times of the staged screens (С6, С8) by `k` — a slow reveal to act in the middle of it. */

@@ -11,6 +11,7 @@
  * - Task 48 «Тролль»: the same bar — `trollHp` HP cells and `trollPlates` plate cells; the line at `PHASE3_PLATES` plates (his phase 3,
  *   the «Храп»: it lights when phase 3 comes — his phase 2 comes with a part or by time, so it has no line); a plate that grows back in
  *   the snore fills its cell again with a lemon flash (the class `rt-boss-grown`, counted in `grown`).
+ * - Task 54a «Главарь»: the same bar - `chiefHp` HP cells and `chiefPlates` plate cells; the line at `PHASE3_PLATES` plates, lit in his phase 3.
  * - The core's death (it leaves the arena): the bar empties and fades with it (`FADE` s); no text.
  * The pure part (`bossBarState`) is testable in Node; the DOM part (`BossBar`) follows it each frame.
  */
@@ -18,6 +19,7 @@ import type { World } from '../sim/world';
 import { JAILER, PHASE2_PLATES, jailerHpOf } from '../sim/enemies/jailer';
 import { CASTELLAN, CASTELLAN_HP } from '../sim/enemies/garrison';
 import { PHASE3_PLATES, TROLL, TROLL_HP } from '../sim/enemies/troll';
+import { CHIEF, CHIEF_HP, PHASE3_PLATES as CHIEF_PHASE3_PLATES } from '../sim/enemies/chief';
 
 /** Real seconds the bar takes to fade after the core's death. */
 export const BOSS_BAR_FADE = 0.5;
@@ -44,16 +46,16 @@ export interface BossBarState {
  */
 export function bossBarState(w: World): BossBarState | null {
   if (!w.params.bossFrame) return null;
-  const core = w.enemies.find(e => (e.kind === JAILER || e.kind === CASTELLAN || e.kind === TROLL) && e.partOf === undefined);
+  const core = w.enemies.find(e => (e.kind === JAILER || e.kind === CASTELLAN || e.kind === TROLL || e.kind === CHIEF) && e.partOf === undefined);
   if (!core) return null;
   const platesMax = core.armor?.max ?? 0, plates = Math.max(0, core.armor?.plates ?? 0);
   // An enemy keeps no max HP: the core's HP at its spawn (task 32: `Params.jailerHp`, the boss arenas 5; a core with more — its HP now).
-  const castellan = core.kind === CASTELLAN, troll = core.kind === TROLL;
-  const hpMax = Math.max(1, castellan ? CASTELLAN_HP : troll ? Math.round(w.params.trollHp ?? TROLL_HP) : jailerHpOf(w.params), core.hp), hp = Math.max(0, core.hp);
+  const castellan = core.kind === CASTELLAN, troll = core.kind === TROLL, chief = core.kind === CHIEF;
+  const hpMax = Math.max(1, castellan ? CASTELLAN_HP : troll ? Math.round(w.params.trollHp ?? TROLL_HP) : chief ? Math.max(1, Math.round(w.params.chiefHp ?? CHIEF_HP)) : jailerHpOf(w.params), core.hp), hp = Math.max(0, core.hp);
   // The phase line: the Jailer's at `PHASE2_PLATES` plates left; the Castellan's phase 2 comes with its first part lost (a plate) —
   // the border of its last plate cell (or with 35 s: the line lights all the same).
-  const phaseAt = hpMax + (castellan ? Math.max(0, platesMax - 1) : Math.min(platesMax, troll ? PHASE3_PLATES : PHASE2_PLATES));
-  return { id: core.id, hpMax, hp, platesMax, plates, phaseAt, phase2: troll ? (core.vars.phase ?? 1) >= 3 : core.vars.phase === 2 };
+  const phaseAt = hpMax + (castellan ? Math.max(0, platesMax - 1) : Math.min(platesMax, chief ? CHIEF_PHASE3_PLATES : troll ? PHASE3_PLATES : PHASE2_PLATES));
+  return { id: core.id, hpMax, hp, platesMax, plates, phaseAt, phase2: troll || chief ? (core.vars.phase ?? 1) >= 3 : core.vars.phase === 2 };
 }
 
 /** What the bar shows now (the tests read it through `snapshot().bossBar`). */
@@ -143,7 +145,7 @@ export class BossBar {
 }
 
 /** Task 28: the bosses by their core's kind — the name the goal shows. */
-export const BOSS_NAMES: Readonly<Record<string, string>> = { [JAILER]: 'Тюремщик', [CASTELLAN]: 'Кастелян', [TROLL]: 'Тролль' };
+export const BOSS_NAMES: Readonly<Record<string, string>> = { [JAILER]: 'Тюремщик', [CASTELLAN]: 'Кастелян', [TROLL]: 'Тролль', [CHIEF]: 'Главарь' };
 
 /**
  * Task 28 (design 15.10.2026, «одно имя — одно значение»): the goal of a boss fight is the boss itself — the HUD plate and the

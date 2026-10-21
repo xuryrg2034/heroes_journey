@@ -229,6 +229,8 @@ export interface ArenaTemplate extends ArenaShape {
    * sandbox shows them as the run does. Omitted — the values as given.
    */
   garrison?: boolean;
+  /** Task 55а «Замок: толчок»: an arena of the castle — it plays the law of the shove (`Params.shove`) whatever the values say. */
+  castle?: boolean;
   /**
    * Task 40 «Гарнизон, шаг 1б»: the arena plays the keymaster's shackles whatever the given values hold — the world gets a copy with
    * `Params.shackles` on (world.ts `createWorld`; the journal keeps that copy). «Ров». Omitted — the values as given.
@@ -270,6 +272,13 @@ export interface ArenaTemplate extends ArenaShape {
    * its crowd's floor and pace go by `trollCrowd` (spawn.ts). Omitted — the values as given.
    */
   troll?: boolean;
+  /**
+   * Task 54 «Главарь с котелком» (sim/arenasBoss.ts «Стан Главаря»; enemies/chief.ts): the Chief's arena — the cauldron's centre
+   * (the source of «Обед!»'s circle; the obstacle itself stands in `obstacles`) and the eaters' seats. The world plays
+   * `Params.chiefFeast` and `Params.trollSolid` on when the given values have them off (world.ts `createWorld`; the journal keeps that
+   * copy); its crowd's floor and pace go by `chiefCrowd` (spawn.ts). Omitted — the values as given.
+   */
+  chief?: { cauldron: Vec; seats: readonly Vec[] };
 }
 
 /**

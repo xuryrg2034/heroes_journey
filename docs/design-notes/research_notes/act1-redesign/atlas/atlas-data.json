@@ -1,0 +1,7976 @@
+{
+  "current": [
+    {
+      "id": "glade",
+      "name": "Поляна",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 8,
+        "y": 5
+      },
+      "door": {
+        "x": 8,
+        "y": 0.7
+      },
+      "obstacles": [
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 3,
+          "y": 2,
+          "w": 1,
+          "h": 3
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 10,
+          "y": 7,
+          "w": 3,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 12,
+          "y": 1,
+          "w": 1,
+          "h": 2
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 5.5,
+          "y": 7.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 2.5,
+          "y": 7.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 9.5,
+          "y": 2.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 14.5,
+          "y": 5.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 6.5,
+          "y": 1.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "pond",
+          "x": 12.6,
+          "y": 4.6,
+          "r": 0.95
+        }
+      ],
+      "terrain": [],
+      "enemies": [],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 20
+    },
+    {
+      "id": "p-yard",
+      "name": "Прогалина",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 8,
+        "y": 5
+      },
+      "door": {
+        "x": 8,
+        "y": 0.7
+      },
+      "obstacles": [
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 3,
+          "y": 2,
+          "w": 1,
+          "h": 3
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 10,
+          "y": 7,
+          "w": 3,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 12,
+          "y": 1,
+          "w": 1,
+          "h": 2
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 5.5,
+          "y": 7.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 2.5,
+          "y": 7.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 9.5,
+          "y": 2.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 14.5,
+          "y": 5.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 6.5,
+          "y": 1.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "pond",
+          "x": 12.6,
+          "y": 4.6,
+          "r": 0.95
+        }
+      ],
+      "terrain": [],
+      "enemies": [],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 25
+    },
+    {
+      "id": "p-gorge",
+      "name": "Засека",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 8,
+        "y": 5
+      },
+      "door": {
+        "x": 15.3,
+        "y": 5
+      },
+      "obstacles": [
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 5,
+          "y": 0,
+          "w": 1,
+          "h": 4
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 5,
+          "y": 5.75,
+          "w": 1,
+          "h": 4.25
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 10,
+          "y": 0,
+          "w": 1,
+          "h": 2
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 10,
+          "y": 3.5,
+          "w": 1,
+          "h": 3
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 10,
+          "y": 8.25,
+          "w": 1,
+          "h": 1.75
+        }
+      ],
+      "terrain": [],
+      "enemies": [],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 25
+    },
+    {
+      "id": "p-braziers",
+      "name": "Жаровни",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 8,
+        "y": 7.5
+      },
+      "door": {
+        "x": 8,
+        "y": 0.7
+      },
+      "obstacles": [
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 3,
+          "y": 2,
+          "w": 1,
+          "h": 2
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 12,
+          "y": 2,
+          "w": 1,
+          "h": 2
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 6.5,
+          "y": 8.6,
+          "w": 3,
+          "h": 1
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 1.5,
+          "y": 8,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 14.5,
+          "y": 8,
+          "r": 0.42
+        }
+      ],
+      "terrain": [],
+      "enemies": [],
+      "buttons": [],
+      "braziers": [
+        {
+          "x": 5,
+          "y": 3.5
+        },
+        {
+          "x": 11,
+          "y": 3.5
+        },
+        {
+          "x": 8,
+          "y": 4.6
+        }
+      ],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 25
+    },
+    {
+      "id": "p-cliff",
+      "name": "Овраг",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 4,
+        "y": 4.4
+      },
+      "door": {
+        "x": 15.3,
+        "y": 3
+      },
+      "obstacles": [
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 1.6,
+          "y": 8.4,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 14.4,
+          "y": 8.4,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 12.8,
+          "y": 1.4,
+          "r": 0.42
+        }
+      ],
+      "terrain": [
+        {
+          "shape": "poly",
+          "points": [
+            {
+              "x": 6.8,
+              "y": 0
+            },
+            {
+              "x": 9.2,
+              "y": 0
+            },
+            {
+              "x": 8.9,
+              "y": 2.4
+            },
+            {
+              "x": 8.7,
+              "y": 4.4
+            },
+            {
+              "x": 9.1,
+              "y": 6.4
+            },
+            {
+              "x": 8,
+              "y": 7.2
+            },
+            {
+              "x": 7,
+              "y": 6.4
+            },
+            {
+              "x": 7.3,
+              "y": 4.4
+            },
+            {
+              "x": 7.1,
+              "y": 2.4
+            }
+          ],
+          "kind": "cliff"
+        }
+      ],
+      "enemies": [],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 25
+    },
+    {
+      "id": "shields",
+      "name": "Стена щитов",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 8,
+        "y": 5
+      },
+      "door": {
+        "x": 8,
+        "y": 0.7
+      },
+      "obstacles": [
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 2.5,
+          "y": 2,
+          "w": 2,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 11.5,
+          "y": 2,
+          "w": 2,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 2.5,
+          "y": 7,
+          "w": 2,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 11.5,
+          "y": 7,
+          "w": 2,
+          "h": 1
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 8,
+          "y": 7.5,
+          "r": 0.42
+        }
+      ],
+      "terrain": [],
+      "enemies": [],
+      "buttons": [],
+      "braziers": [
+        {
+          "x": 5,
+          "y": 5
+        },
+        {
+          "x": 11,
+          "y": 5
+        }
+      ],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 25
+    },
+    {
+      "id": "buttons",
+      "name": "Нажать 3 кнопки",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 8,
+        "y": 5
+      },
+      "door": {
+        "x": 8,
+        "y": 9.3
+      },
+      "obstacles": [
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 4,
+          "y": 3,
+          "w": 1,
+          "h": 4
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 11,
+          "y": 3,
+          "w": 1,
+          "h": 4
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 6,
+          "y": 8,
+          "w": 1,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 9,
+          "y": 8,
+          "w": 1,
+          "h": 1
+        },
+        {
+          "shape": "circle",
+          "kind": "pond",
+          "x": 8,
+          "y": 2.3,
+          "r": 0.9
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 2,
+          "y": 8.2,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 14,
+          "y": 8.2,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 2.4,
+          "y": 1.6,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 13.6,
+          "y": 1.6,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 6.2,
+          "y": 1.2,
+          "r": 0.42
+        }
+      ],
+      "terrain": [],
+      "enemies": [],
+      "buttons": [
+        {
+          "x": 1.6,
+          "y": 5
+        },
+        {
+          "x": 14.4,
+          "y": 5
+        },
+        {
+          "x": 8,
+          "y": 0.8
+        }
+      ],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "buttons",
+      "killGoal": null
+    },
+    {
+      "id": "p-archer-yard",
+      "name": "Стрельбище",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 8,
+        "y": 5
+      },
+      "door": {
+        "x": 8,
+        "y": 0.7
+      },
+      "obstacles": [
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 3,
+          "y": 2,
+          "w": 1,
+          "h": 3
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 10,
+          "y": 7,
+          "w": 3,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 12,
+          "y": 1,
+          "w": 1,
+          "h": 2
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 5.5,
+          "y": 7.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 2.5,
+          "y": 7.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 9.5,
+          "y": 2.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 14.5,
+          "y": 5.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 6.5,
+          "y": 1.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "pond",
+          "x": 12.6,
+          "y": 4.6,
+          "r": 0.95
+        }
+      ],
+      "terrain": [],
+      "enemies": [],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 25
+    },
+    {
+      "id": "powder",
+      "name": "Пороховой склад",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 8,
+        "y": 5
+      },
+      "door": {
+        "x": 0.7,
+        "y": 5
+      },
+      "obstacles": [],
+      "terrain": [
+        {
+          "shape": "poly",
+          "points": [
+            {
+              "x": 9.8,
+              "y": 0
+            },
+            {
+              "x": 12.6,
+              "y": 0
+            },
+            {
+              "x": 12.2,
+              "y": 2.4
+            },
+            {
+              "x": 11.65,
+              "y": 4.2
+            },
+            {
+              "x": 12,
+              "y": 6.2
+            },
+            {
+              "x": 11,
+              "y": 7.2
+            },
+            {
+              "x": 10,
+              "y": 6.2
+            },
+            {
+              "x": 10.35,
+              "y": 4.2
+            },
+            {
+              "x": 10.2,
+              "y": 2.4
+            }
+          ],
+          "kind": "cliff"
+        },
+        {
+          "shape": "poly",
+          "points": [
+            {
+              "x": 3.4,
+              "y": 10
+            },
+            {
+              "x": 6.2,
+              "y": 10
+            },
+            {
+              "x": 5.8,
+              "y": 7.6
+            },
+            {
+              "x": 5.65,
+              "y": 5.8
+            },
+            {
+              "x": 6,
+              "y": 3.8
+            },
+            {
+              "x": 5,
+              "y": 2.8
+            },
+            {
+              "x": 4,
+              "y": 3.8
+            },
+            {
+              "x": 4.35,
+              "y": 5.8
+            },
+            {
+              "x": 4.2,
+              "y": 7.6
+            }
+          ],
+          "kind": "cliff"
+        }
+      ],
+      "enemies": [],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 25
+    },
+    {
+      "id": "archers",
+      "name": "Стрелковая гряда",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 2.5,
+        "y": 5
+      },
+      "door": {
+        "x": 15.3,
+        "y": 5
+      },
+      "obstacles": [
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 5,
+          "y": 0,
+          "w": 1,
+          "h": 2
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 5,
+          "y": 4,
+          "w": 1,
+          "h": 2
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 5,
+          "y": 8,
+          "w": 1,
+          "h": 2
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 10,
+          "y": 0,
+          "w": 1,
+          "h": 3
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 10,
+          "y": 5,
+          "w": 1,
+          "h": 3
+        }
+      ],
+      "terrain": [],
+      "enemies": [
+        {
+          "x": 7.8,
+          "y": 1.2,
+          "color": 0,
+          "kind": "archer"
+        },
+        {
+          "x": 13,
+          "y": 2.4,
+          "color": 2,
+          "kind": "archer",
+          "hp": 5,
+          "marked": true,
+          "leader": true
+        },
+        {
+          "x": 13.6,
+          "y": 7.4,
+          "color": 3,
+          "kind": "archer"
+        }
+      ],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "marked",
+      "killGoal": null
+    },
+    {
+      "id": "p-river",
+      "name": "Излучина",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 3,
+        "y": 5
+      },
+      "door": {
+        "x": 15.3,
+        "y": 5
+      },
+      "obstacles": [
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 2,
+          "y": 2,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 4.5,
+          "y": 8.4,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 13,
+          "y": 2.2,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 13.4,
+          "y": 7.6,
+          "r": 0.42
+        }
+      ],
+      "terrain": [
+        {
+          "kind": "river",
+          "shape": "band",
+          "points": [
+            {
+              "x": 7.4,
+              "y": 0
+            },
+            {
+              "x": 7.4,
+              "y": 0.6
+            },
+            {
+              "x": 8.6,
+              "y": 3.4
+            },
+            {
+              "x": 7.4,
+              "y": 6.6
+            },
+            {
+              "x": 8.6,
+              "y": 9.4
+            },
+            {
+              "x": 8.6,
+              "y": 10
+            }
+          ],
+          "width": 2.6
+        }
+      ],
+      "enemies": [],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 25
+    },
+    {
+      "id": "lynx-den",
+      "name": "Рысье логово",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 7.8,
+        "y": 5
+      },
+      "door": {
+        "x": 15.3,
+        "y": 5
+      },
+      "obstacles": [
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 5,
+          "y": 0,
+          "w": 1,
+          "h": 4
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 5,
+          "y": 6,
+          "w": 1,
+          "h": 4
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 10,
+          "y": 0,
+          "w": 1,
+          "h": 1.75
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 10,
+          "y": 3.75,
+          "w": 1,
+          "h": 2.5
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 10,
+          "y": 8.25,
+          "w": 1,
+          "h": 1.75
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 2.5,
+          "y": 2.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 2.5,
+          "y": 7.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 13.5,
+          "y": 5,
+          "r": 0.42
+        }
+      ],
+      "terrain": [],
+      "enemies": [
+        {
+          "x": 2.4,
+          "y": 5,
+          "color": 1,
+          "kind": "lynx"
+        },
+        {
+          "x": 13.2,
+          "y": 2.6,
+          "color": 3,
+          "kind": "lynx"
+        }
+      ],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 25
+    },
+    {
+      "id": "p-thicket",
+      "name": "Тёрн",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 2.5,
+        "y": 5
+      },
+      "door": {
+        "x": 15.3,
+        "y": 5
+      },
+      "obstacles": [
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 1.5,
+          "y": 1.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 14.5,
+          "y": 8.5,
+          "r": 0.42
+        }
+      ],
+      "terrain": [
+        {
+          "shape": "poly",
+          "points": [
+            {
+              "x": 6,
+              "y": 3
+            },
+            {
+              "x": 9.8,
+              "y": 2.6
+            },
+            {
+              "x": 10.6,
+              "y": 5.2
+            },
+            {
+              "x": 9.6,
+              "y": 7.4
+            },
+            {
+              "x": 6.4,
+              "y": 7.2
+            },
+            {
+              "x": 5.4,
+              "y": 5
+            }
+          ],
+          "kind": "thorns"
+        },
+        {
+          "shape": "circle",
+          "x": 3.6,
+          "y": 1.8,
+          "r": 1.1,
+          "kind": "thorns"
+        },
+        {
+          "shape": "circle",
+          "x": 12.8,
+          "y": 8,
+          "r": 1.2,
+          "kind": "thorns"
+        }
+      ],
+      "enemies": [],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 20
+    },
+    {
+      "id": "thorns",
+      "name": "Колючие заросли",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 8,
+        "y": 5
+      },
+      "door": {
+        "x": 8,
+        "y": 0.7
+      },
+      "obstacles": [],
+      "terrain": [
+        {
+          "shape": "poly",
+          "points": [
+            {
+              "x": 3,
+              "y": 0
+            },
+            {
+              "x": 4.3,
+              "y": 0
+            },
+            {
+              "x": 4.4,
+              "y": 2.5
+            },
+            {
+              "x": 4.1,
+              "y": 5
+            },
+            {
+              "x": 4.3,
+              "y": 7
+            },
+            {
+              "x": 3.6,
+              "y": 7.8
+            },
+            {
+              "x": 2.9,
+              "y": 7
+            },
+            {
+              "x": 3.1,
+              "y": 5
+            },
+            {
+              "x": 2.8,
+              "y": 2.5
+            }
+          ],
+          "kind": "thorns"
+        },
+        {
+          "shape": "poly",
+          "points": [
+            {
+              "x": 11.7,
+              "y": 0
+            },
+            {
+              "x": 13,
+              "y": 0
+            },
+            {
+              "x": 13.2,
+              "y": 2.5
+            },
+            {
+              "x": 12.9,
+              "y": 5
+            },
+            {
+              "x": 13.1,
+              "y": 7
+            },
+            {
+              "x": 12.4,
+              "y": 7.8
+            },
+            {
+              "x": 11.7,
+              "y": 7
+            },
+            {
+              "x": 11.9,
+              "y": 5
+            },
+            {
+              "x": 11.6,
+              "y": 2.5
+            }
+          ],
+          "kind": "thorns"
+        },
+        {
+          "shape": "poly",
+          "points": [
+            {
+              "x": 7,
+              "y": 6.5
+            },
+            {
+              "x": 9,
+              "y": 6.5
+            },
+            {
+              "x": 9.4,
+              "y": 7.1
+            },
+            {
+              "x": 9,
+              "y": 7.6
+            },
+            {
+              "x": 7,
+              "y": 7.6
+            },
+            {
+              "x": 6.6,
+              "y": 7.1
+            }
+          ],
+          "kind": "thorns"
+        }
+      ],
+      "enemies": [],
+      "buttons": [
+        {
+          "x": 1.5,
+          "y": 1.5
+        },
+        {
+          "x": 14.5,
+          "y": 1.5
+        },
+        {
+          "x": 8,
+          "y": 8.2
+        }
+      ],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "buttons",
+      "killGoal": null
+    },
+    {
+      "id": "shaman-circle",
+      "name": "Круг шамана",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 8,
+        "y": 8.3
+      },
+      "door": {
+        "x": 0.7,
+        "y": 4
+      },
+      "obstacles": [
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 2.6,
+          "y": 6.2,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 13.4,
+          "y": 6.2,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 8,
+          "y": 6,
+          "r": 0.42
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 0,
+          "y": 8.6,
+          "w": 2,
+          "h": 1.4
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 14,
+          "y": 8.6,
+          "w": 2,
+          "h": 1.4
+        }
+      ],
+      "terrain": [],
+      "enemies": [
+        {
+          "x": 8,
+          "y": 1.2,
+          "color": 2,
+          "kind": "shaman",
+          "hp": 6,
+          "marked": true,
+          "leader": true
+        }
+      ],
+      "buttons": [],
+      "braziers": [
+        {
+          "x": 4.6,
+          "y": 4.4
+        },
+        {
+          "x": 11.4,
+          "y": 4.4
+        },
+        {
+          "x": 8,
+          "y": 3.4
+        }
+      ],
+      "gates": [],
+      "chest": null,
+      "goal": "marked",
+      "killGoal": null
+    },
+    {
+      "id": "marked",
+      "name": "Отмеченные и дверь",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 2.5,
+        "y": 4.5
+      },
+      "door": {
+        "x": 15.3,
+        "y": 5.2
+      },
+      "obstacles": [
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 5,
+          "y": 0,
+          "w": 1,
+          "h": 3
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 10,
+          "y": 7,
+          "w": 1,
+          "h": 3
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 2,
+          "y": 6,
+          "w": 3,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 11,
+          "y": 3,
+          "w": 3,
+          "h": 1
+        },
+        {
+          "shape": "circle",
+          "kind": "pond",
+          "x": 8,
+          "y": 7.6,
+          "r": 0.8
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 3.5,
+          "y": 2.6,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 12.5,
+          "y": 6.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 7,
+          "y": 2.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 14.5,
+          "y": 1.5,
+          "r": 0.42
+        }
+      ],
+      "terrain": [],
+      "enemies": [
+        {
+          "x": 8.8,
+          "y": 4.9,
+          "color": 0,
+          "hp": 0,
+          "marked": true
+        },
+        {
+          "x": 9.65,
+          "y": 4.9,
+          "color": 0,
+          "hp": 0,
+          "marked": true
+        },
+        {
+          "x": 9.23,
+          "y": 5.64,
+          "color": 0,
+          "hp": 0,
+          "marked": true
+        },
+        {
+          "x": 8.38,
+          "y": 5.64,
+          "color": 0,
+          "hp": 0,
+          "marked": true
+        },
+        {
+          "x": 7.95,
+          "y": 4.9,
+          "color": 2,
+          "hp": 0,
+          "marked": true
+        },
+        {
+          "x": 8.38,
+          "y": 4.16,
+          "color": 2,
+          "hp": 0,
+          "marked": true
+        },
+        {
+          "x": 9.23,
+          "y": 4.16,
+          "color": 2,
+          "hp": 3,
+          "marked": true
+        },
+        {
+          "x": 10.16,
+          "y": 5.69,
+          "color": 0,
+          "hp": 3,
+          "marked": true
+        },
+        {
+          "x": 8.8,
+          "y": 6.47,
+          "color": 0,
+          "hp": 3,
+          "marked": true
+        },
+        {
+          "x": 7.44,
+          "y": 5.69,
+          "color": 0,
+          "hp": 3,
+          "marked": true
+        },
+        {
+          "x": 7.44,
+          "y": 4.11,
+          "color": 2,
+          "hp": 3,
+          "marked": true
+        },
+        {
+          "x": 8.8,
+          "y": 3.33,
+          "color": 2,
+          "hp": 3,
+          "marked": true
+        }
+      ],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "marked",
+      "killGoal": null
+    },
+    {
+      "id": "ford",
+      "name": "Брод",
+      "width": 24,
+      "height": 14,
+      "heroStart": {
+        "x": 3.3,
+        "y": 7
+      },
+      "door": {
+        "x": 23.3,
+        "y": 7
+      },
+      "obstacles": [
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 6.3,
+          "y": 3.9,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 6.6,
+          "y": 10.4,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 9.2,
+          "y": 2.8,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 9.6,
+          "y": 11,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 18,
+          "y": 3.6,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 18.2,
+          "y": 10.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 21.4,
+          "y": 5,
+          "r": 0.42
+        }
+      ],
+      "terrain": [
+        {
+          "kind": "river",
+          "shape": "band",
+          "points": [
+            {
+              "x": 12.3,
+              "y": 0
+            },
+            {
+              "x": 12.3,
+              "y": 0.7
+            },
+            {
+              "x": 13.4,
+              "y": 3.8
+            },
+            {
+              "x": 12,
+              "y": 7
+            },
+            {
+              "x": 13.4,
+              "y": 10.6
+            },
+            {
+              "x": 13.4,
+              "y": 14
+            }
+          ],
+          "width": 3
+        }
+      ],
+      "enemies": [
+        {
+          "x": 20.1,
+          "y": 3.1,
+          "color": 0,
+          "kind": "archer"
+        },
+        {
+          "x": 20.7,
+          "y": 7.8,
+          "color": 2,
+          "kind": "archer",
+          "hp": 6,
+          "marked": true,
+          "leader": true
+        },
+        {
+          "x": 19.8,
+          "y": 12,
+          "color": 3,
+          "kind": "archer"
+        },
+        {
+          "x": 15.6,
+          "y": 6,
+          "color": 1,
+          "hp": 1,
+          "kind": "wolf"
+        },
+        {
+          "x": 15.8,
+          "y": 8.4,
+          "color": 2,
+          "hp": 1,
+          "kind": "wolf"
+        }
+      ],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "marked",
+      "killGoal": null
+    },
+    {
+      "id": "outpost",
+      "name": "Застава",
+      "width": 20,
+      "height": 14,
+      "heroStart": {
+        "x": 10,
+        "y": 12.5
+      },
+      "door": {
+        "x": 10,
+        "y": 0.7
+      },
+      "obstacles": [
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 6.44,
+          "y": 3.1,
+          "w": 2.56,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 11,
+          "y": 3.1,
+          "w": 5.5,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 15.5,
+          "y": 4.1,
+          "w": 1,
+          "h": 5.9
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 2.75,
+          "y": 9,
+          "w": 6.25,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 11,
+          "y": 9,
+          "w": 4.5,
+          "h": 1
+        }
+      ],
+      "terrain": [
+        {
+          "shape": "poly",
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 3.75,
+              "y": 0
+            },
+            {
+              "x": 4.25,
+              "y": 2.8
+            },
+            {
+              "x": 3.75,
+              "y": 6.3
+            },
+            {
+              "x": 4.375,
+              "y": 8.4
+            },
+            {
+              "x": 3,
+              "y": 10.36
+            },
+            {
+              "x": 0,
+              "y": 10.64
+            }
+          ],
+          "kind": "cliff"
+        }
+      ],
+      "enemies": [
+        {
+          "x": 9,
+          "y": 6.2,
+          "color": 1,
+          "kind": "shield",
+          "elite": true
+        },
+        {
+          "x": 11.75,
+          "y": 5.04,
+          "color": 2,
+          "kind": "archer",
+          "elite": true
+        }
+      ],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": {
+        "x": 13.8,
+        "y": 7.7
+      },
+      "goal": "kills",
+      "killGoal": 30
+    },
+    {
+      "id": "last-stand",
+      "name": "Последний рубеж",
+      "width": 24,
+      "height": 15,
+      "heroStart": {
+        "x": 12,
+        "y": 7.5
+      },
+      "door": {
+        "x": 12,
+        "y": 0.7
+      },
+      "obstacles": [
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 5.4,
+          "y": 3.5,
+          "w": 1,
+          "h": 3
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 5.4,
+          "y": 8.5,
+          "w": 1,
+          "h": 3
+        },
+        {
+          "shape": "circle",
+          "kind": "pond",
+          "x": 16.4,
+          "y": 7.5,
+          "r": 3.4
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 21.5,
+          "y": 3.4,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 21.5,
+          "y": 11.6,
+          "r": 0.42
+        }
+      ],
+      "terrain": [],
+      "enemies": [
+        {
+          "x": 3.3,
+          "y": 7.5,
+          "color": 3,
+          "kind": "porcupine",
+          "elite": true
+        },
+        {
+          "x": 10.4,
+          "y": 12.4,
+          "color": 0,
+          "kind": "sapper",
+          "elite": true
+        }
+      ],
+      "buttons": [],
+      "braziers": [
+        {
+          "x": 12.8,
+          "y": 4.6
+        },
+        {
+          "x": 12.8,
+          "y": 10.4
+        }
+      ],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 40
+    },
+    {
+      "id": "jailer",
+      "name": "Тюремщик",
+      "width": 20,
+      "height": 14,
+      "heroStart": {
+        "x": 10,
+        "y": 12.5
+      },
+      "door": {
+        "x": 10,
+        "y": 0.7
+      },
+      "obstacles": [
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 6.44,
+          "y": 3.1,
+          "w": 2.56,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 11,
+          "y": 3.1,
+          "w": 5.5,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 15.5,
+          "y": 4.1,
+          "w": 1,
+          "h": 5.9
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 2.75,
+          "y": 9,
+          "w": 6.25,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 11,
+          "y": 9,
+          "w": 4.5,
+          "h": 1
+        }
+      ],
+      "terrain": [
+        {
+          "shape": "poly",
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 3.75,
+              "y": 0
+            },
+            {
+              "x": 4.25,
+              "y": 2.8
+            },
+            {
+              "x": 3.75,
+              "y": 6.3
+            },
+            {
+              "x": 4.375,
+              "y": 8.4
+            },
+            {
+              "x": 3,
+              "y": 10.36
+            },
+            {
+              "x": 0,
+              "y": 10.64
+            }
+          ],
+          "kind": "cliff"
+        }
+      ],
+      "enemies": [
+        {
+          "x": 7.5,
+          "y": 6.5,
+          "color": 1,
+          "kind": "jailer",
+          "marked": true
+        },
+        {
+          "x": 6.7,
+          "y": 6.9,
+          "color": 0,
+          "kind": "jailer-weight"
+        }
+      ],
+      "buttons": [],
+      "braziers": [],
+      "gates": [
+        {
+          "x": 10,
+          "y": 3.6
+        },
+        {
+          "x": 10,
+          "y": 9.5
+        }
+      ],
+      "chest": null,
+      "goal": "marked",
+      "killGoal": null
+    },
+    {
+      "id": "jailer-yard",
+      "name": "Тюремщик",
+      "width": 20,
+      "height": 14,
+      "heroStart": {
+        "x": 10,
+        "y": 12.5
+      },
+      "door": {
+        "x": 10,
+        "y": 0.7
+      },
+      "obstacles": [
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 6.44,
+          "y": 3.1,
+          "w": 2.56,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 11,
+          "y": 3.1,
+          "w": 5.5,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 15.5,
+          "y": 4.1,
+          "w": 1,
+          "h": 5.9
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 2.75,
+          "y": 9,
+          "w": 6.25,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 11,
+          "y": 9,
+          "w": 4.5,
+          "h": 1
+        }
+      ],
+      "terrain": [],
+      "enemies": [
+        {
+          "x": 7.5,
+          "y": 6.5,
+          "color": 1,
+          "kind": "jailer",
+          "marked": true
+        },
+        {
+          "x": 6.7,
+          "y": 6.9,
+          "color": 0,
+          "kind": "jailer-weight"
+        }
+      ],
+      "buttons": [],
+      "braziers": [],
+      "gates": [
+        {
+          "x": 10,
+          "y": 3.6
+        },
+        {
+          "x": 10,
+          "y": 9.5
+        }
+      ],
+      "chest": null,
+      "goal": "marked",
+      "killGoal": null
+    },
+    {
+      "id": "troll",
+      "name": "Берлога тролля",
+      "width": 24,
+      "height": 15,
+      "heroStart": {
+        "x": 12,
+        "y": 12
+      },
+      "door": {
+        "x": 21.5,
+        "y": 0.8
+      },
+      "obstacles": [
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 7.5,
+          "y": 0,
+          "w": 1.5,
+          "h": 3
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 15,
+          "y": 0,
+          "w": 1.5,
+          "h": 3
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 9,
+          "y": 0,
+          "w": 6,
+          "h": 1.6
+        },
+        {
+          "shape": "circle",
+          "kind": "pond",
+          "x": 5.5,
+          "y": 9.5,
+          "r": 2.4
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 3.5,
+          "y": 4,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 20.5,
+          "y": 4.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 19.5,
+          "y": 11.5,
+          "r": 0.42
+        }
+      ],
+      "terrain": [],
+      "enemies": [
+        {
+          "x": 12,
+          "y": 2.2,
+          "color": 1,
+          "kind": "troll",
+          "marked": true
+        },
+        {
+          "x": 10.5,
+          "y": 2.6,
+          "color": 0,
+          "kind": "troll-club"
+        },
+        {
+          "x": 13.5,
+          "y": 2.6,
+          "color": 1,
+          "kind": "troll-rock"
+        },
+        {
+          "x": 12,
+          "y": 3.9,
+          "color": 2,
+          "kind": "troll-tail"
+        }
+      ],
+      "buttons": [],
+      "braziers": [
+        {
+          "x": 9.6,
+          "y": 4
+        },
+        {
+          "x": 14.4,
+          "y": 4
+        }
+      ],
+      "gates": [
+        {
+          "x": 0.8,
+          "y": 6
+        },
+        {
+          "x": 23.2,
+          "y": 6
+        },
+        {
+          "x": 12,
+          "y": 14.4
+        }
+      ],
+      "chest": null,
+      "goal": "marked",
+      "killGoal": null
+    }
+  ],
+  "proposed": [
+    {
+      "id": "glade",
+      "name": "Поляна",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 8,
+        "y": 5
+      },
+      "door": {
+        "x": 8,
+        "y": 0.7
+      },
+      "obstacles": [
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 3,
+          "y": 2,
+          "w": 1,
+          "h": 3
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 10,
+          "y": 7,
+          "w": 3,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 12,
+          "y": 1,
+          "w": 1,
+          "h": 2
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 5.5,
+          "y": 7.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 2.5,
+          "y": 7.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 9.5,
+          "y": 2.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 14.5,
+          "y": 5.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 6.5,
+          "y": 1.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "pond",
+          "x": 12.6,
+          "y": 4.6,
+          "r": 0.95
+        }
+      ],
+      "terrain": [],
+      "enemies": [
+        {
+          "kind": "basic",
+          "x": 4.8,
+          "y": 4,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 5.7,
+          "y": 3.5,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 6.5,
+          "y": 3.9,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 7.1,
+          "y": 4.5,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 5.8,
+          "y": 5.1,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 10.1,
+          "y": 4.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 10.7,
+          "y": 5.1,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 11.5,
+          "y": 5.6,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 12.2,
+          "y": 6.2,
+          "color": 0
+        }
+      ],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 20,
+      "variant": "base",
+      "variantLabel": "Основа · 9 обычных",
+      "routes": [
+        {
+          "label": "Короткий проход на свободный запад",
+          "points": [
+            {
+              "x": 8,
+              "y": 5
+            },
+            {
+              "x": 7.1,
+              "y": 4.5
+            },
+            {
+              "x": 5.8,
+              "y": 5.1
+            },
+            {
+              "x": 4.5,
+              "y": 5.8
+            }
+          ],
+          "mode": "mixed"
+        },
+        {
+          "label": "Дуга к открытому северному выходу",
+          "points": [
+            {
+              "x": 8,
+              "y": 5
+            },
+            {
+              "x": 9.1,
+              "y": 4.5
+            },
+            {
+              "x": 10.7,
+              "y": 5.1
+            },
+            {
+              "x": 11.5,
+              "y": 5.6
+            },
+            {
+              "x": 10.4,
+              "y": 3.3
+            },
+            {
+              "x": 8,
+              "y": 0.7
+            }
+          ],
+          "mode": "mixed"
+        }
+      ],
+      "spawnAreas": [
+        {
+          "x": 3,
+          "y": 5.5,
+          "r": 1.1,
+          "label": "Западный подход"
+        },
+        {
+          "x": 13.6,
+          "y": 6.6,
+          "r": 1,
+          "label": "Восточный подход"
+        }
+      ],
+      "annotations": [
+        "Контрольная открытая форма; маршруты — намерение, не готовые цепи."
+      ],
+      "intent": "Открытая поляна даёт выбрать безопасный конец первой цепи.",
+      "change": "Геометрия сохранена; две группы показаны как стартовая композиция.",
+      "composition": "9B: 5 слева, 4 справа; общий floor 28 остаётся вне схемы."
+    },
+    {
+      "id": "glade",
+      "name": "Поляна",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 8,
+        "y": 5
+      },
+      "door": {
+        "x": 8,
+        "y": 0.7
+      },
+      "obstacles": [
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 3,
+          "y": 2,
+          "w": 1,
+          "h": 3
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 10,
+          "y": 7,
+          "w": 3,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 12,
+          "y": 1,
+          "w": 1,
+          "h": 2
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 5.5,
+          "y": 7.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 2.5,
+          "y": 7.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 9.5,
+          "y": 2.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 14.5,
+          "y": 5.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 6.5,
+          "y": 1.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "pond",
+          "x": 12.6,
+          "y": 4.6,
+          "r": 0.95
+        }
+      ],
+      "terrain": [],
+      "enemies": [
+        {
+          "kind": "basic",
+          "x": 5.2,
+          "y": 3.6,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 6.1,
+          "y": 3.3,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 6.8,
+          "y": 3.9,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 5.9,
+          "y": 4.6,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 4.8,
+          "y": 5.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 10.1,
+          "y": 6.3,
+          "color": 0
+        },
+        {
+          "kind": "wolf",
+          "x": 11.3,
+          "y": 6,
+          "color": 0
+        },
+        {
+          "kind": "wolf",
+          "x": 12.1,
+          "y": 6.7,
+          "color": 0
+        },
+        {
+          "kind": "wolf",
+          "x": 13.1,
+          "y": 6.3,
+          "color": 0
+        }
+      ],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 20,
+      "variant": "intro-wolf",
+      "variantLabel": "Знакомство · стая",
+      "routes": [
+        {
+          "label": "Принять стаю через обычных",
+          "points": [
+            {
+              "x": 8,
+              "y": 5
+            },
+            {
+              "x": 6.8,
+              "y": 3.9
+            },
+            {
+              "x": 5.9,
+              "y": 4.6
+            },
+            {
+              "x": 9,
+              "y": 6
+            },
+            {
+              "x": 11.3,
+              "y": 6
+            }
+          ],
+          "mode": "mixed"
+        },
+        {
+          "label": "Сместиться на свободный север",
+          "points": [
+            {
+              "x": 8,
+              "y": 5
+            },
+            {
+              "x": 8.1,
+              "y": 3.5
+            },
+            {
+              "x": 7.9,
+              "y": 2
+            },
+            {
+              "x": 8,
+              "y": 0.7
+            }
+          ],
+          "mode": "walk"
+        }
+      ],
+      "spawnAreas": [
+        {
+          "x": 3,
+          "y": 5.5,
+          "r": 1,
+          "label": "Обычные с запада"
+        },
+        {
+          "x": 13.7,
+          "y": 6.2,
+          "r": 0.8,
+          "label": "Вход стаи"
+        }
+      ],
+      "annotations": [
+        "Волчий вход — композиция, не постоянная точка появления."
+      ],
+      "intent": "Обычные звенья отделяют героя от первого входа стаи.",
+      "change": "Та же поляна; справа виден отдельный подход трёх волков.",
+      "composition": "6B+3W: 4B у героя, 2B сбоку, стая 3W справа; общий floor 28."
+    },
+    {
+      "id": "glade",
+      "name": "Поляна",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 8,
+        "y": 5
+      },
+      "door": {
+        "x": 8,
+        "y": 0.7
+      },
+      "obstacles": [
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 3,
+          "y": 2,
+          "w": 1,
+          "h": 3
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 10,
+          "y": 7,
+          "w": 3,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 12,
+          "y": 1,
+          "w": 1,
+          "h": 2
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 5.5,
+          "y": 7.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 2.5,
+          "y": 7.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 9.5,
+          "y": 2.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 14.5,
+          "y": 5.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 6.5,
+          "y": 1.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "pond",
+          "x": 12.6,
+          "y": 4.6,
+          "r": 0.95
+        }
+      ],
+      "terrain": [],
+      "enemies": [
+        {
+          "kind": "basic",
+          "x": 4.9,
+          "y": 3.5,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 5.8,
+          "y": 3.1,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 6.6,
+          "y": 3.6,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 5.7,
+          "y": 4.3,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 10,
+          "y": 5.8,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 10.8,
+          "y": 6.4,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 11.7,
+          "y": 6.1,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 12.4,
+          "y": 6.8,
+          "color": 0
+        },
+        {
+          "kind": "boar",
+          "x": 14.2,
+          "y": 4,
+          "color": 0
+        }
+      ],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 20,
+      "variant": "intro-boar",
+      "variantLabel": "Знакомство · кабан",
+      "routes": [
+        {
+          "label": "Встреча через левый кластер",
+          "points": [
+            {
+              "x": 8,
+              "y": 5
+            },
+            {
+              "x": 6.6,
+              "y": 3.6
+            },
+            {
+              "x": 5.7,
+              "y": 4.3
+            },
+            {
+              "x": 6.1,
+              "y": 5.8
+            }
+          ],
+          "mode": "mixed"
+        },
+        {
+          "label": "Поперечный уход от полосы кабана",
+          "points": [
+            {
+              "x": 8,
+              "y": 5
+            },
+            {
+              "x": 8,
+              "y": 6.5
+            },
+            {
+              "x": 9.1,
+              "y": 7.7
+            },
+            {
+              "x": 10.3,
+              "y": 6.6
+            }
+          ],
+          "mode": "walk"
+        }
+      ],
+      "spawnAreas": [
+        {
+          "x": 2.6,
+          "y": 5.2,
+          "r": 1,
+          "label": "Левый подход"
+        },
+        {
+          "x": 13.5,
+          "y": 5.3,
+          "r": 0.9,
+          "label": "Правая полоса"
+        }
+      ],
+      "annotations": [
+        "Кабан не запирает обязательный выход."
+      ],
+      "intent": "Открытая поперечная полоса оставляет место для бокового ответа на рывок.",
+      "change": "Та же поляна; кабан подходит по восточной полосе.",
+      "composition": "8B+1 кабан: два кластера по 4B, кабан справа; общий floor 28."
+    },
+    {
+      "id": "p-yard",
+      "name": "Прогалина",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 8,
+        "y": 7.1
+      },
+      "door": {
+        "x": 8,
+        "y": 0.7
+      },
+      "obstacles": [
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 0,
+          "y": 0,
+          "w": 3.2,
+          "h": 2.2
+        },
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 12.9,
+          "y": 0,
+          "w": 3.1,
+          "h": 2.2
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 2.2,
+          "y": 7.8,
+          "r": 0.42
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 13.8,
+          "y": 7.8,
+          "r": 0.42
+        }
+      ],
+      "terrain": [],
+      "enemies": [
+        {
+          "kind": "basic",
+          "x": 4.6,
+          "y": 3.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 5.5,
+          "y": 2.8,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 6.3,
+          "y": 3.3,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 5.2,
+          "y": 4,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 6.1,
+          "y": 4.5,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 10.1,
+          "y": 3.1,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 10.9,
+          "y": 3.6,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 11.7,
+          "y": 3.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 10.9,
+          "y": 4.5,
+          "color": 0
+        }
+      ],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 25,
+      "variant": "practice",
+      "variantLabel": "Практика · широкая дуга",
+      "routes": [
+        {
+          "label": "Принять группу в центре, закончить справа",
+          "points": [
+            {
+              "x": 8,
+              "y": 7.1
+            },
+            {
+              "x": 7.2,
+              "y": 5.5
+            },
+            {
+              "x": 6.1,
+              "y": 4.5
+            },
+            {
+              "x": 9,
+              "y": 4.5
+            },
+            {
+              "x": 11,
+              "y": 5.2
+            }
+          ],
+          "mode": "mixed"
+        },
+        {
+          "label": "Широкая южная дуга к следующему подходу",
+          "points": [
+            {
+              "x": 8,
+              "y": 7.1
+            },
+            {
+              "x": 6,
+              "y": 8.3
+            },
+            {
+              "x": 4,
+              "y": 7.4
+            },
+            {
+              "x": 3.7,
+              "y": 5.7
+            }
+          ],
+          "mode": "walk"
+        }
+      ],
+      "spawnAreas": [
+        {
+          "x": 2.5,
+          "y": 5,
+          "r": 1,
+          "label": "Западный бок"
+        },
+        {
+          "x": 13.2,
+          "y": 5.4,
+          "r": 1,
+          "label": "Восточный бок"
+        }
+      ],
+      "annotations": [
+        "Знакомая роль добавляется только если выбрана рецептом."
+      ],
+      "intent": "Два неглубоких выступа меняют угол входа без разделения боя на комнаты.",
+      "change": "Северные углы выступают; середина и южная дуга открыты."
+    },
+    {
+      "id": "p-gorge",
+      "name": "Засека",
+      "width": 18,
+      "height": 10,
+      "heroStart": {
+        "x": 3,
+        "y": 5
+      },
+      "door": {
+        "x": 17.3,
+        "y": 5
+      },
+      "obstacles": [
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 8.1,
+          "y": 0,
+          "w": 1.2,
+          "h": 2.5
+        },
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 8.1,
+          "y": 6,
+          "w": 1.2,
+          "h": 1.5
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 2,
+          "y": 8.5,
+          "r": 0.42
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 15.8,
+          "y": 8.5,
+          "r": 0.42
+        }
+      ],
+      "terrain": [],
+      "enemies": [
+        {
+          "kind": "basic",
+          "x": 4.5,
+          "y": 3.3,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 5.4,
+          "y": 3.7,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 6.2,
+          "y": 4.3,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 5.4,
+          "y": 5,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 11.4,
+          "y": 3.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 12.3,
+          "y": 3.7,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 13.1,
+          "y": 4.4,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 12,
+          "y": 5.1,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 13.3,
+          "y": 5.5,
+          "color": 0
+        }
+      ],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 25,
+      "variant": "practice",
+      "variantLabel": "Практика · две чаши",
+      "routes": [
+        {
+          "label": "Принять поток у широкого соединения",
+          "points": [
+            {
+              "x": 3,
+              "y": 5
+            },
+            {
+              "x": 5.5,
+              "y": 4.5
+            },
+            {
+              "x": 7.5,
+              "y": 4.3
+            },
+            {
+              "x": 10,
+              "y": 4.3
+            },
+            {
+              "x": 12.1,
+              "y": 4.5
+            }
+          ],
+          "mode": "walk"
+        },
+        {
+          "label": "Нижний обход к флангу правой чаши",
+          "points": [
+            {
+              "x": 3,
+              "y": 5
+            },
+            {
+              "x": 4.4,
+              "y": 8.3
+            },
+            {
+              "x": 7.4,
+              "y": 8.5
+            },
+            {
+              "x": 10,
+              "y": 8.5
+            },
+            {
+              "x": 13.1,
+              "y": 6.7
+            }
+          ],
+          "mode": "walk"
+        }
+      ],
+      "spawnAreas": [
+        {
+          "x": 4.1,
+          "y": 7,
+          "r": 1,
+          "label": "Левая чаша"
+        },
+        {
+          "x": 14.7,
+          "y": 3.1,
+          "r": 1,
+          "label": "Правая чаша"
+        },
+        {
+          "x": 12,
+          "y": 8,
+          "r": 0.8,
+          "label": "Нижнее раскрытие"
+        }
+      ],
+      "annotations": [
+        "Обе группы свободно сходятся к герою; горло не закрывается."
+      ],
+      "intent": "Широкая связь и нижний обход дают два угла входа в правую чашу.",
+      "change": "18×10 вместо трёх узких отсеков; центральный проём 3.5, нижний обход 2.5."
+    },
+    {
+      "id": "p-braziers",
+      "name": "Жаровни",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 8,
+        "y": 8.2
+      },
+      "door": {
+        "x": 8,
+        "y": 0.7
+      },
+      "obstacles": [
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 0,
+          "y": 2.7,
+          "w": 2.7,
+          "h": 1.1
+        },
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 13.3,
+          "y": 5.7,
+          "w": 2.7,
+          "h": 1.1
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 2,
+          "y": 8.1,
+          "r": 0.42
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 14.1,
+          "y": 8.2,
+          "r": 0.42
+        }
+      ],
+      "terrain": [],
+      "enemies": [
+        {
+          "kind": "basic",
+          "x": 6.4,
+          "y": 6.3,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 7.6,
+          "y": 6.5,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 8.5,
+          "y": 5.8,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 8.2,
+          "y": 2.8,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 10.2,
+          "y": 5.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 11.1,
+          "y": 5,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 11.9,
+          "y": 4.5,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 12.2,
+          "y": 3.7,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 8.7,
+          "y": 3.5,
+          "color": 0,
+          "hp": 3
+        }
+      ],
+      "buttons": [],
+      "braziers": [
+        {
+          "x": 7.4,
+          "y": 5.2
+        },
+        {
+          "x": 4.4,
+          "y": 4.3
+        },
+        {
+          "x": 11,
+          "y": 3.5
+        }
+      ],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 25,
+      "variant": "intro",
+      "variantLabel": "Знакомство · маршрут силы",
+      "routes": [
+        {
+          "label": "Центральный огонь к крепкой цели",
+          "points": [
+            {
+              "x": 8,
+              "y": 8.2
+            },
+            {
+              "x": 7.6,
+              "y": 6.5
+            },
+            {
+              "x": 7.4,
+              "y": 5.2
+            },
+            {
+              "x": 8.7,
+              "y": 3.5
+            }
+          ],
+          "mode": "mixed"
+        },
+        {
+          "label": "Внешняя дуга с сохранённым огнём",
+          "points": [
+            {
+              "x": 8,
+              "y": 8.2
+            },
+            {
+              "x": 10,
+              "y": 7.4
+            },
+            {
+              "x": 11.9,
+              "y": 5.5
+            },
+            {
+              "x": 12.2,
+              "y": 3.7
+            },
+            {
+              "x": 11,
+              "y": 3.5
+            }
+          ],
+          "mode": "mixed"
+        }
+      ],
+      "spawnAreas": [
+        {
+          "x": 3.7,
+          "y": 6.2,
+          "r": 0.9,
+          "label": "Левый подход"
+        },
+        {
+          "x": 12.5,
+          "y": 2.5,
+          "r": 0.8,
+          "label": "Северный фланг"
+        }
+      ],
+      "annotations": [
+        "HP 3 у одного обычного — пример разрешённой крепкой цели."
+      ],
+      "intent": "Огонь даёт силу к крепкой цели, но свободная дуга оставляет иной ответ.",
+      "change": "Смещённые боковые выступы, три доступных огня и цель за центральным подходом."
+    },
+    {
+      "id": "p-cliff",
+      "name": "Овраг",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 3,
+        "y": 5.9
+      },
+      "door": {
+        "x": 15.3,
+        "y": 3
+      },
+      "obstacles": [
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 1.6,
+          "y": 8.4,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 14.4,
+          "y": 8.4,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 12.8,
+          "y": 1.4,
+          "r": 0.42
+        }
+      ],
+      "terrain": [
+        {
+          "shape": "poly",
+          "points": [
+            {
+              "x": 6.8,
+              "y": 0
+            },
+            {
+              "x": 9.2,
+              "y": 0
+            },
+            {
+              "x": 8.9,
+              "y": 2.4
+            },
+            {
+              "x": 8.7,
+              "y": 4.4
+            },
+            {
+              "x": 9.1,
+              "y": 6.4
+            },
+            {
+              "x": 8,
+              "y": 7.2
+            },
+            {
+              "x": 7,
+              "y": 6.4
+            },
+            {
+              "x": 7.3,
+              "y": 4.4
+            },
+            {
+              "x": 7.1,
+              "y": 2.4
+            }
+          ],
+          "kind": "cliff"
+        }
+      ],
+      "enemies": [
+        {
+          "kind": "basic",
+          "x": 2.7,
+          "y": 3.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 3.7,
+          "y": 2.8,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 4.6,
+          "y": 3.3,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 5.1,
+          "y": 4.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 4,
+          "y": 4.9,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 10.5,
+          "y": 3.1,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 11.4,
+          "y": 3.5,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 12.3,
+          "y": 4,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 11.1,
+          "y": 4.7,
+          "color": 0
+        }
+      ],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 25,
+      "variant": "intro",
+      "variantLabel": "Знакомство · переправа",
+      "routes": [
+        {
+          "label": "Короткая переправа через шейку",
+          "points": [
+            {
+              "x": 3,
+              "y": 5.9
+            },
+            {
+              "x": 5.5,
+              "y": 4.5
+            },
+            {
+              "x": 7.5,
+              "y": 4.4
+            },
+            {
+              "x": 9.5,
+              "y": 4.4
+            },
+            {
+              "x": 11.1,
+              "y": 4.7
+            }
+          ],
+          "mode": "mixed"
+        },
+        {
+          "label": "Сухой обход под оконечностью оврага",
+          "points": [
+            {
+              "x": 3,
+              "y": 5.9
+            },
+            {
+              "x": 5.6,
+              "y": 8.2
+            },
+            {
+              "x": 8,
+              "y": 8.5
+            },
+            {
+              "x": 10.5,
+              "y": 8.2
+            },
+            {
+              "x": 12.2,
+              "y": 6.3
+            }
+          ],
+          "mode": "walk"
+        }
+      ],
+      "spawnAreas": [
+        {
+          "x": 3.2,
+          "y": 7.1,
+          "r": 0.8,
+          "label": "Ближний берег"
+        },
+        {
+          "x": 12.7,
+          "y": 5.7,
+          "r": 0.9,
+          "label": "Дальний берег"
+        },
+        {
+          "x": 8.7,
+          "y": 8.7,
+          "r": 0.6,
+          "label": "Нижнее раскрытие"
+        }
+      ],
+      "annotations": [
+        "Связь через щель требует проверки по реальным центрам звеньев."
+      ],
+      "intent": "Короткое пересечение и сухой нижний обход предлагают разные позиции после перехода.",
+      "change": "Сохранён овраг 16×10; стартовые группы показаны на обоих берегах."
+    },
+    {
+      "id": "shields",
+      "name": "Стена щитов",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 8,
+        "y": 7
+      },
+      "door": {
+        "x": 8,
+        "y": 0.7
+      },
+      "obstacles": [
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 1.5,
+          "y": 2.2,
+          "w": 3,
+          "h": 0.8
+        },
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 11.2,
+          "y": 1.4,
+          "w": 3.2,
+          "h": 0.8
+        },
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 1.5,
+          "y": 7.2,
+          "w": 3,
+          "h": 0.8
+        },
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 11.1,
+          "y": 7.4,
+          "w": 3,
+          "h": 0.8
+        }
+      ],
+      "terrain": [],
+      "enemies": [
+        {
+          "kind": "basic",
+          "x": 4.8,
+          "y": 3.7,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 5.6,
+          "y": 3.1,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 6.5,
+          "y": 3.7,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 5.8,
+          "y": 4.4,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 9.6,
+          "y": 3.7,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 10.4,
+          "y": 3.1,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 11.3,
+          "y": 3.6,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 10.4,
+          "y": 4.4,
+          "color": 0
+        },
+        {
+          "kind": "shield",
+          "x": 8,
+          "y": 3.3,
+          "color": 0
+        }
+      ],
+      "buttons": [],
+      "braziers": [
+        {
+          "x": 5,
+          "y": 5.6
+        },
+        {
+          "x": 11,
+          "y": 5.6
+        }
+      ],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 25,
+      "variant": "intro",
+      "variantLabel": "Знакомство · боковой заход",
+      "routes": [
+        {
+          "label": "Через левый огонь к боку щита",
+          "points": [
+            {
+              "x": 8,
+              "y": 7
+            },
+            {
+              "x": 6.7,
+              "y": 6.1
+            },
+            {
+              "x": 5,
+              "y": 5.6
+            },
+            {
+              "x": 5.8,
+              "y": 4.4
+            },
+            {
+              "x": 8,
+              "y": 3.3
+            }
+          ],
+          "mode": "mixed"
+        },
+        {
+          "label": "Сначала обычные на правом фланге",
+          "points": [
+            {
+              "x": 8,
+              "y": 7
+            },
+            {
+              "x": 9.3,
+              "y": 6.6
+            },
+            {
+              "x": 11,
+              "y": 5.6
+            },
+            {
+              "x": 10.4,
+              "y": 4.4
+            },
+            {
+              "x": 8.8,
+              "y": 3.2
+            }
+          ],
+          "mode": "mixed"
+        }
+      ],
+      "spawnAreas": [
+        {
+          "x": 3.2,
+          "y": 5.1,
+          "r": 0.9,
+          "label": "Левый фланг"
+        },
+        {
+          "x": 12.9,
+          "y": 4.6,
+          "r": 0.9,
+          "label": "Правый фланг"
+        }
+      ],
+      "annotations": [
+        "Стрелка направления щита в схеме не заменяет проверку его поворота в бою."
+      ],
+      "intent": "Боковой огонь и свободный второй фланг дают два угла к одному щиту.",
+      "change": "Палисады смещены у края; первый щит виден один."
+    },
+    {
+      "id": "buttons",
+      "name": "Нажать 3 кнопки",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 8,
+        "y": 5
+      },
+      "door": {
+        "x": 8,
+        "y": 9.3
+      },
+      "obstacles": [
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 4.7,
+          "y": 3.5,
+          "w": 0.8,
+          "h": 2.3
+        },
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 10.5,
+          "y": 3.5,
+          "w": 0.8,
+          "h": 2.3
+        },
+        {
+          "kind": "pond",
+          "shape": "circle",
+          "x": 6.1,
+          "y": 1.4,
+          "r": 0.65
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 2,
+          "y": 8.1,
+          "r": 0.42
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 14,
+          "y": 8.1,
+          "r": 0.42
+        }
+      ],
+      "terrain": [],
+      "enemies": [
+        {
+          "kind": "basic",
+          "x": 6.3,
+          "y": 3.7,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 7.1,
+          "y": 3.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 6.3,
+          "y": 5.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 6.8,
+          "y": 6.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 8.8,
+          "y": 3.3,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 9.6,
+          "y": 3.8,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 9.7,
+          "y": 5.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 9.1,
+          "y": 6.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 8,
+          "y": 7.2,
+          "color": 0
+        }
+      ],
+      "buttons": [
+        {
+          "x": 2,
+          "y": 5
+        },
+        {
+          "x": 14,
+          "y": 5
+        },
+        {
+          "x": 8,
+          "y": 0.8
+        }
+      ],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "buttons",
+      "killGoal": null,
+      "variant": "intro",
+      "variantLabel": "Знакомство · конец цепи",
+      "routes": [
+        {
+          "label": "Левая кнопка с сухим окончанием",
+          "points": [
+            {
+              "x": 8,
+              "y": 5
+            },
+            {
+              "x": 7,
+              "y": 6.4
+            },
+            {
+              "x": 4.1,
+              "y": 6.5
+            },
+            {
+              "x": 2,
+              "y": 5
+            }
+          ],
+          "mode": "mixed"
+        },
+        {
+          "label": "Правая сначала, ближняя на возвращении",
+          "points": [
+            {
+              "x": 8,
+              "y": 5
+            },
+            {
+              "x": 9.1,
+              "y": 6.4
+            },
+            {
+              "x": 12,
+              "y": 6.5
+            },
+            {
+              "x": 14,
+              "y": 5
+            }
+          ],
+          "mode": "mixed"
+        }
+      ],
+      "spawnAreas": [
+        {
+          "x": 3,
+          "y": 7,
+          "r": 0.8,
+          "label": "Подход к левой"
+        },
+        {
+          "x": 13,
+          "y": 7,
+          "r": 0.8,
+          "label": "Подход к правой"
+        },
+        {
+          "x": 8,
+          "y": 2.4,
+          "r": 0.8,
+          "label": "Общий верх"
+        }
+      ],
+      "annotations": [
+        "Кнопка нажимается только концом цепи; ходьба к ней не нажимает."
+      ],
+      "intent": "Три сухих области кнопок позволяют выбрать порядок и место следующего старта.",
+      "change": "Боковые стенки короче, верхний пруд отодвинут от кнопки."
+    },
+    {
+      "id": "p-archer-yard",
+      "name": "Стрельбище",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 3.4,
+        "y": 7.2
+      },
+      "door": {
+        "x": 11.5,
+        "y": 0.7
+      },
+      "obstacles": [
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 0,
+          "y": 0,
+          "w": 5,
+          "h": 3
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 2.1,
+          "y": 4.6,
+          "r": 0.42
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 13.8,
+          "y": 7.8,
+          "r": 0.42
+        }
+      ],
+      "terrain": [],
+      "enemies": [
+        {
+          "kind": "basic",
+          "x": 4.8,
+          "y": 5.3,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 5.7,
+          "y": 4.9,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 6.6,
+          "y": 5.4,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 6.1,
+          "y": 6.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 5.1,
+          "y": 8.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 6.1,
+          "y": 8.5,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 7.1,
+          "y": 8,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 8,
+          "y": 8.4,
+          "color": 0
+        },
+        {
+          "kind": "archer",
+          "x": 7.1,
+          "y": 3.6,
+          "color": 0
+        }
+      ],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 25,
+      "variant": "intro",
+      "variantLabel": "Знакомство · первый лучник",
+      "routes": [
+        {
+          "label": "Прямо через обычных к лучнику",
+          "points": [
+            {
+              "x": 3.4,
+              "y": 7.2
+            },
+            {
+              "x": 4.8,
+              "y": 5.3
+            },
+            {
+              "x": 6.6,
+              "y": 5.4
+            },
+            {
+              "x": 7.1,
+              "y": 3.6
+            }
+          ],
+          "mode": "mixed"
+        },
+        {
+          "label": "Нижний обход и смена точки прицела",
+          "points": [
+            {
+              "x": 3.4,
+              "y": 7.2
+            },
+            {
+              "x": 5.2,
+              "y": 8.5
+            },
+            {
+              "x": 8.2,
+              "y": 7.5
+            },
+            {
+              "x": 9.2,
+              "y": 5.2
+            },
+            {
+              "x": 7.1,
+              "y": 3.6
+            }
+          ],
+          "mode": "walk"
+        }
+      ],
+      "spawnAreas": [
+        {
+          "x": 4.9,
+          "y": 7.9,
+          "r": 0.7,
+          "label": "Южные обычные"
+        },
+        {
+          "x": 12.9,
+          "y": 4.8,
+          "r": 0.9,
+          "label": "Следующий открытый край"
+        }
+      ],
+      "annotations": [
+        "Стена не отменяет уже поставленную точечную метку."
+      ],
+      "intent": "Один видимый лучник учит менять конечную точку после прицела.",
+      "change": "Неглубокий северо-западный выступ и открытый обход с юга."
+    },
+    {
+      "id": "powder",
+      "name": "Пороховой склад",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 8,
+        "y": 5
+      },
+      "door": {
+        "x": 0.7,
+        "y": 5
+      },
+      "obstacles": [],
+      "terrain": [
+        {
+          "kind": "cliff",
+          "shape": "poly",
+          "points": [
+            {
+              "x": 11.1,
+              "y": 0
+            },
+            {
+              "x": 13.2,
+              "y": 0
+            },
+            {
+              "x": 13,
+              "y": 2.5
+            },
+            {
+              "x": 12.7,
+              "y": 4.6
+            },
+            {
+              "x": 13,
+              "y": 6.2
+            },
+            {
+              "x": 11.9,
+              "y": 6.8
+            },
+            {
+              "x": 11,
+              "y": 6.1
+            },
+            {
+              "x": 11.5,
+              "y": 4.5
+            },
+            {
+              "x": 11.4,
+              "y": 2.4
+            }
+          ]
+        },
+        {
+          "kind": "cliff",
+          "shape": "poly",
+          "points": [
+            {
+              "x": 2.8,
+              "y": 10
+            },
+            {
+              "x": 5,
+              "y": 10
+            },
+            {
+              "x": 4.8,
+              "y": 7.5
+            },
+            {
+              "x": 4.5,
+              "y": 5.5
+            },
+            {
+              "x": 4.8,
+              "y": 4.2
+            },
+            {
+              "x": 3.9,
+              "y": 3.6
+            },
+            {
+              "x": 3,
+              "y": 4.3
+            },
+            {
+              "x": 3.4,
+              "y": 5.7
+            },
+            {
+              "x": 3.2,
+              "y": 7.5
+            }
+          ]
+        }
+      ],
+      "enemies": [
+        {
+          "kind": "basic",
+          "x": 6.5,
+          "y": 3.1,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 7.4,
+          "y": 2.6,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 8.2,
+          "y": 3.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 6.5,
+          "y": 4.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 8.9,
+          "y": 6.5,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 9,
+          "y": 7.5,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 9.9,
+          "y": 8.1,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 11,
+          "y": 8,
+          "color": 0
+        },
+        {
+          "kind": "sapper",
+          "x": 10.5,
+          "y": 6.8,
+          "color": 0
+        }
+      ],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 25,
+      "variant": "intro",
+      "variantLabel": "Знакомство · сапёр у края",
+      "routes": [
+        {
+          "label": "Сапёр у края, затем отход в центр",
+          "points": [
+            {
+              "x": 8,
+              "y": 5
+            },
+            {
+              "x": 8.9,
+              "y": 6.5
+            },
+            {
+              "x": 10.5,
+              "y": 6.8
+            },
+            {
+              "x": 8.1,
+              "y": 5.3
+            }
+          ],
+          "mode": "mixed"
+        },
+        {
+          "label": "Безопаснее обойти по широкой стороне",
+          "points": [
+            {
+              "x": 8,
+              "y": 5
+            },
+            {
+              "x": 7,
+              "y": 3.2
+            },
+            {
+              "x": 5.5,
+              "y": 2.4
+            },
+            {
+              "x": 2.2,
+              "y": 2.7
+            },
+            {
+              "x": 0.7,
+              "y": 5
+            }
+          ],
+          "mode": "walk"
+        }
+      ],
+      "spawnAreas": [
+        {
+          "x": 7.5,
+          "y": 8.2,
+          "r": 0.8,
+          "label": "Центральное раскрытие"
+        },
+        {
+          "x": 14,
+          "y": 6.7,
+          "r": 0.8,
+          "label": "Противоположный край"
+        }
+      ],
+      "annotations": [
+        "Задержка взрыва и движение соседей могут изменить каскад."
+      ],
+      "intent": "У края возможен каскад, а широкая середина даёт место уйти от взрыва.",
+      "change": "Две противоположные расселины с упрощённым дальним изгибом."
+    },
+    {
+      "id": "archers",
+      "name": "Стрелковая гряда",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 2.5,
+        "y": 5
+      },
+      "door": {
+        "x": 15.3,
+        "y": 5
+      },
+      "obstacles": [
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 5.2,
+          "y": 0,
+          "w": 0.8,
+          "h": 2.2
+        },
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 5.2,
+          "y": 4.4,
+          "w": 0.8,
+          "h": 1.5
+        },
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 5.2,
+          "y": 8,
+          "w": 0.8,
+          "h": 2
+        },
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 10.2,
+          "y": 0,
+          "w": 0.8,
+          "h": 3.1
+        },
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 10.2,
+          "y": 5.5,
+          "w": 0.8,
+          "h": 4.5
+        }
+      ],
+      "terrain": [],
+      "enemies": [
+        {
+          "kind": "basic",
+          "x": 3.4,
+          "y": 2.8,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 4.2,
+          "y": 3.3,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 3.5,
+          "y": 6.4,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 4.3,
+          "y": 7,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 6.9,
+          "y": 3.7,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 7.8,
+          "y": 4.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 8.7,
+          "y": 4.5,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 7.1,
+          "y": 6,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 8.1,
+          "y": 6.5,
+          "color": 0
+        },
+        {
+          "kind": "archer",
+          "x": 7.6,
+          "y": 1.4,
+          "color": 0
+        },
+        {
+          "kind": "archer",
+          "x": 13,
+          "y": 2.4,
+          "color": 0,
+          "hp": 5,
+          "marked": true,
+          "leader": true
+        },
+        {
+          "kind": "archer",
+          "x": 13.5,
+          "y": 7.3,
+          "color": 0
+        }
+      ],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "marked",
+      "killGoal": null,
+      "variant": "leader",
+      "variantLabel": "Атаман · два подхода",
+      "routes": [
+        {
+          "label": "Севером к атаману",
+          "points": [
+            {
+              "x": 2.5,
+              "y": 5
+            },
+            {
+              "x": 4.5,
+              "y": 3.3
+            },
+            {
+              "x": 6.5,
+              "y": 3.3
+            },
+            {
+              "x": 9.3,
+              "y": 4.1
+            },
+            {
+              "x": 11.8,
+              "y": 4.1
+            },
+            {
+              "x": 13,
+              "y": 2.4
+            }
+          ],
+          "mode": "walk"
+        },
+        {
+          "label": "Югом к стрелку, затем разворот",
+          "points": [
+            {
+              "x": 2.5,
+              "y": 5
+            },
+            {
+              "x": 4.5,
+              "y": 6.8
+            },
+            {
+              "x": 7.7,
+              "y": 6.8
+            },
+            {
+              "x": 9.4,
+              "y": 4.4
+            },
+            {
+              "x": 11.8,
+              "y": 4.4
+            },
+            {
+              "x": 13,
+              "y": 2.4
+            }
+          ],
+          "mode": "walk"
+        }
+      ],
+      "spawnAreas": [
+        {
+          "x": 3,
+          "y": 7.5,
+          "r": 0.7,
+          "label": "Левый подход"
+        },
+        {
+          "x": 8.3,
+          "y": 7.3,
+          "r": 0.6,
+          "label": "Средний проход"
+        },
+        {
+          "x": 12.3,
+          "y": 5.7,
+          "r": 0.6,
+          "label": "Правая площадка"
+        }
+      ],
+      "annotations": [
+        "Одна отмеченная цель; смерть атамана открывает дверь."
+      ],
+      "intent": "Северный подход короче к атаману, южный даёт материал у обычного стрелка.",
+      "change": "Два укороченных заслона расширяют среднюю площадку."
+    },
+    {
+      "id": "p-river",
+      "name": "Излучина",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 2.5,
+        "y": 5
+      },
+      "door": {
+        "x": 15.3,
+        "y": 5
+      },
+      "obstacles": [
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 2.1,
+          "y": 1.8,
+          "r": 0.42
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 3.5,
+          "y": 8.7,
+          "r": 0.42
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 13.6,
+          "y": 1.8,
+          "r": 0.42
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 13.7,
+          "y": 8.4,
+          "r": 0.42
+        }
+      ],
+      "terrain": [
+        {
+          "kind": "river",
+          "shape": "band",
+          "width": 2.6,
+          "points": [
+            {
+              "x": 7.5,
+              "y": 0
+            },
+            {
+              "x": 7.5,
+              "y": 0.7
+            },
+            {
+              "x": 8.4,
+              "y": 3.4
+            },
+            {
+              "x": 7.5,
+              "y": 6.6
+            },
+            {
+              "x": 8.4,
+              "y": 9.3
+            },
+            {
+              "x": 8.4,
+              "y": 10
+            }
+          ]
+        }
+      ],
+      "enemies": [
+        {
+          "kind": "basic",
+          "x": 3.6,
+          "y": 3.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 4.5,
+          "y": 3,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 5.3,
+          "y": 3.7,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 4.6,
+          "y": 4.5,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 5.4,
+          "y": 5.3,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 10.8,
+          "y": 3.5,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 11.7,
+          "y": 3.9,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 12.4,
+          "y": 4.7,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 11.2,
+          "y": 5.1,
+          "color": 0
+        }
+      ],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 25,
+      "variant": "intro",
+      "variantLabel": "Знакомство · вода",
+      "routes": [
+        {
+          "label": "Центральное пересечение по сблизившимся звеньям",
+          "points": [
+            {
+              "x": 2.5,
+              "y": 5
+            },
+            {
+              "x": 5.4,
+              "y": 5.3
+            },
+            {
+              "x": 7.8,
+              "y": 5
+            },
+            {
+              "x": 10.3,
+              "y": 5
+            },
+            {
+              "x": 11.2,
+              "y": 5.1
+            }
+          ],
+          "mode": "mixed"
+        },
+        {
+          "label": "Нижний вход и пешая переправа",
+          "points": [
+            {
+              "x": 2.5,
+              "y": 5
+            },
+            {
+              "x": 5.2,
+              "y": 7.8
+            },
+            {
+              "x": 8.1,
+              "y": 8.2
+            },
+            {
+              "x": 10.8,
+              "y": 8
+            },
+            {
+              "x": 12.5,
+              "y": 6.5
+            }
+          ],
+          "mode": "walk"
+        }
+      ],
+      "spawnAreas": [
+        {
+          "x": 4.3,
+          "y": 6.5,
+          "r": 0.8,
+          "label": "Ближний сухой берег"
+        },
+        {
+          "x": 11.9,
+          "y": 6.8,
+          "r": 0.8,
+          "label": "Дальний сухой берег"
+        }
+      ],
+      "annotations": [
+        "Вода шире радиуса цепи: нужен промежуточный враг или сближение."
+      ],
+      "intent": "Оба берега дают бой до цели; вода остаётся проходимой пешком с замедлением.",
+      "change": "Ближайшие деревья отведены от двух мест входа в реку."
+    },
+    {
+      "id": "lynx-den",
+      "name": "Рысье логово",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 7.8,
+        "y": 5
+      },
+      "door": {
+        "x": 15.3,
+        "y": 5
+      },
+      "obstacles": [
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 5,
+          "y": 0,
+          "w": 1,
+          "h": 4
+        },
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 5,
+          "y": 6,
+          "w": 1,
+          "h": 4
+        },
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 10,
+          "y": 0,
+          "w": 1,
+          "h": 1.75
+        },
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 10,
+          "y": 3.75,
+          "w": 1,
+          "h": 2.5
+        },
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 10,
+          "y": 8.25,
+          "w": 1,
+          "h": 1.75
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 2.5,
+          "y": 2.5,
+          "r": 0.42
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 2.5,
+          "y": 7.5,
+          "r": 0.42
+        }
+      ],
+      "terrain": [],
+      "enemies": [
+        {
+          "kind": "lynx",
+          "x": 2.4,
+          "y": 5,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 6.7,
+          "y": 3.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 7.9,
+          "y": 3.4,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 7.1,
+          "y": 6.6,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 8.5,
+          "y": 6.9,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 11.9,
+          "y": 2.5,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 13.1,
+          "y": 2.9,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 12,
+          "y": 7.1,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 13.4,
+          "y": 7.5,
+          "color": 0
+        }
+      ],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 25,
+      "variant": "intro",
+      "variantLabel": "Знакомство: одна рысь",
+      "routes": [
+        {
+          "label": "Центр → верхнее раскрытие",
+          "points": [
+            {
+              "x": 7.8,
+              "y": 5
+            },
+            {
+              "x": 8.8,
+              "y": 3
+            },
+            {
+              "x": 10.5,
+              "y": 2.7
+            },
+            {
+              "x": 13.4,
+              "y": 3.5
+            }
+          ],
+          "mode": "mixed"
+        },
+        {
+          "label": "Центр → нижнее раскрытие",
+          "points": [
+            {
+              "x": 7.8,
+              "y": 5
+            },
+            {
+              "x": 8.8,
+              "y": 7
+            },
+            {
+              "x": 10.5,
+              "y": 7.2
+            },
+            {
+              "x": 13.4,
+              "y": 6.7
+            }
+          ],
+          "mode": "mixed"
+        }
+      ],
+      "spawnAreas": [
+        {
+          "x": 7.7,
+          "y": 5,
+          "r": 1.2,
+          "label": "центральная площадка"
+        },
+        {
+          "x": 12.7,
+          "y": 2.9,
+          "r": 1,
+          "label": "верхнее раскрытие"
+        },
+        {
+          "x": 12.7,
+          "y": 7.2,
+          "r": 1,
+          "label": "нижнее раскрытие"
+        }
+      ],
+      "annotations": [
+        "Рысь подходит из левой чаши.",
+        "Узость не требует уклонения на месте."
+      ],
+      "intent": "Принять рысь на центральной площадке или выйти через другой правый проём и зайти с фланга.",
+      "change": "Одна видимая рысь вместо двух; правые проходы заканчиваются сухими площадками.",
+      "composition": "A: 8B + 1 рысь; вторая рысь только после освобождения слота. F=28 включает A."
+    },
+    {
+      "id": "lynx-den",
+      "name": "Рысье логово",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 7.8,
+        "y": 5
+      },
+      "door": {
+        "x": 15.3,
+        "y": 5
+      },
+      "obstacles": [
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 5,
+          "y": 0,
+          "w": 1,
+          "h": 4
+        },
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 5,
+          "y": 6,
+          "w": 1,
+          "h": 4
+        },
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 10,
+          "y": 0,
+          "w": 1,
+          "h": 1.75
+        },
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 10,
+          "y": 3.75,
+          "w": 1,
+          "h": 2.5
+        },
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 10,
+          "y": 8.25,
+          "w": 1,
+          "h": 1.75
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 2.5,
+          "y": 2.5,
+          "r": 0.42
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 2.5,
+          "y": 7.5,
+          "r": 0.42
+        }
+      ],
+      "terrain": [],
+      "enemies": [
+        {
+          "kind": "lynx",
+          "x": 2.4,
+          "y": 5,
+          "color": 0
+        },
+        {
+          "kind": "lynx",
+          "x": 13.2,
+          "y": 2.6,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 6.7,
+          "y": 3.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 7.9,
+          "y": 3.4,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 7.1,
+          "y": 6.6,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 8.5,
+          "y": 6.9,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 11.9,
+          "y": 2.5,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 13.1,
+          "y": 2.9,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 12,
+          "y": 7.1,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 13.4,
+          "y": 7.5,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 3.3,
+          "y": 4.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 3.3,
+          "y": 5.8,
+          "color": 0
+        }
+      ],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 25,
+      "variant": "practice",
+      "variantLabel": "Практика: два направления",
+      "routes": [
+        {
+          "label": "Центр → верхнее раскрытие",
+          "points": [
+            {
+              "x": 7.8,
+              "y": 5
+            },
+            {
+              "x": 8.8,
+              "y": 3
+            },
+            {
+              "x": 10.5,
+              "y": 2.7
+            },
+            {
+              "x": 13.4,
+              "y": 3.5
+            }
+          ],
+          "mode": "mixed"
+        },
+        {
+          "label": "Центр → нижнее раскрытие",
+          "points": [
+            {
+              "x": 7.8,
+              "y": 5
+            },
+            {
+              "x": 8.8,
+              "y": 7
+            },
+            {
+              "x": 10.5,
+              "y": 7.2
+            },
+            {
+              "x": 13.4,
+              "y": 6.7
+            }
+          ],
+          "mode": "mixed"
+        }
+      ],
+      "spawnAreas": [
+        {
+          "x": 7.7,
+          "y": 5,
+          "r": 1.2,
+          "label": "центральная площадка"
+        },
+        {
+          "x": 12.7,
+          "y": 2.9,
+          "r": 1,
+          "label": "верхнее раскрытие"
+        },
+        {
+          "x": 12.7,
+          "y": 7.2,
+          "r": 1,
+          "label": "нижнее раскрытие"
+        }
+      ],
+      "annotations": [
+        "Рысь подходит из левой чаши.",
+        "Узость не требует уклонения на месте."
+      ],
+      "intent": "Переключить угол ответа между двумя рысями, не попадая в их линии одновременно.",
+      "change": "Вторая рысь уже видна у правого верхнего выхода; группа обычных остаётся в двух чашах.",
+      "composition": "A: 10B + 2 рыси; обычные 4 в центре, 4 справа и 2 у левого раскрытия. Специальные тела внутри общего F."
+    },
+    {
+      "id": "p-thicket",
+      "name": "Тёрн",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 2.5,
+        "y": 5
+      },
+      "door": {
+        "x": 15.3,
+        "y": 5
+      },
+      "obstacles": [
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 1.5,
+          "y": 1.5,
+          "r": 0.42
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 14.5,
+          "y": 8.5,
+          "r": 0.42
+        }
+      ],
+      "terrain": [
+        {
+          "kind": "thorns",
+          "shape": "poly",
+          "points": [
+            {
+              "x": 5.8,
+              "y": 2.6
+            },
+            {
+              "x": 9.8,
+              "y": 2.5
+            },
+            {
+              "x": 10.6,
+              "y": 5.5
+            },
+            {
+              "x": 9.8,
+              "y": 7
+            },
+            {
+              "x": 6.2,
+              "y": 7
+            },
+            {
+              "x": 5.4,
+              "y": 5.2
+            }
+          ]
+        },
+        {
+          "kind": "thorns",
+          "shape": "circle",
+          "x": 3.8,
+          "y": 1.7,
+          "r": 0.9
+        },
+        {
+          "kind": "thorns",
+          "shape": "circle",
+          "x": 12.4,
+          "y": 2.2,
+          "r": 1
+        }
+      ],
+      "enemies": [
+        {
+          "kind": "basic",
+          "x": 4.3,
+          "y": 3.8,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 4.4,
+          "y": 4.9,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 4.1,
+          "y": 6,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 3.2,
+          "y": 5.7,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 11.4,
+          "y": 3.9,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 12.4,
+          "y": 4.4,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 11.6,
+          "y": 5.8,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 12.8,
+          "y": 6.2,
+          "color": 0
+        }
+      ],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 20,
+      "variant": "base",
+      "variantLabel": "Предложение",
+      "routes": [
+        {
+          "label": "Сквозь терновник",
+          "points": [
+            {
+              "x": 2.5,
+              "y": 5
+            },
+            {
+              "x": 4.6,
+              "y": 5
+            },
+            {
+              "x": 7.1,
+              "y": 5
+            },
+            {
+              "x": 10.7,
+              "y": 5.1
+            },
+            {
+              "x": 13.8,
+              "y": 5.3
+            }
+          ],
+          "mode": "mixed"
+        },
+        {
+          "label": "Сухой нижний обход",
+          "points": [
+            {
+              "x": 2.5,
+              "y": 5
+            },
+            {
+              "x": 4.5,
+              "y": 8.4
+            },
+            {
+              "x": 8,
+              "y": 8.4
+            },
+            {
+              "x": 11.5,
+              "y": 8.3
+            },
+            {
+              "x": 14.5,
+              "y": 6.9
+            }
+          ],
+          "mode": "walk"
+        }
+      ],
+      "spawnAreas": [
+        {
+          "x": 4.2,
+          "y": 5,
+          "r": 1,
+          "label": "ближний край"
+        },
+        {
+          "x": 11.8,
+          "y": 5.1,
+          "r": 1.1,
+          "label": "дальний край"
+        }
+      ],
+      "annotations": [
+        "Цепь заканчивается на сухой стороне.",
+        "Пеший нижний путь остаётся открытым."
+      ],
+      "intent": "Пройти цепью через замедленную группу на сухую дальнюю сторону или обойти куст снизу и ударить вдоль кромки.",
+      "change": "Простой центральный контур сдвинут вверх; нижний сухой путь читается сразу.",
+      "composition": "A: 8B, по 4 с обеих сторон куста; остальное — общий добор, без дикобраза на вводе."
+    },
+    {
+      "id": "thorns",
+      "name": "Колючие заросли",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 8,
+        "y": 5
+      },
+      "door": {
+        "x": 8,
+        "y": 0.7
+      },
+      "obstacles": [],
+      "terrain": [
+        {
+          "kind": "thorns",
+          "shape": "poly",
+          "points": [
+            {
+              "x": 3.2,
+              "y": 0
+            },
+            {
+              "x": 4.4,
+              "y": 0
+            },
+            {
+              "x": 4.4,
+              "y": 2.5
+            },
+            {
+              "x": 4.2,
+              "y": 5.1
+            },
+            {
+              "x": 4.2,
+              "y": 6.4
+            },
+            {
+              "x": 3.2,
+              "y": 6.4
+            },
+            {
+              "x": 3,
+              "y": 4.7
+            }
+          ]
+        },
+        {
+          "kind": "thorns",
+          "shape": "poly",
+          "points": [
+            {
+              "x": 11.6,
+              "y": 0
+            },
+            {
+              "x": 12.8,
+              "y": 0
+            },
+            {
+              "x": 13,
+              "y": 4.7
+            },
+            {
+              "x": 12.8,
+              "y": 6.4
+            },
+            {
+              "x": 11.8,
+              "y": 6.4
+            },
+            {
+              "x": 11.6,
+              "y": 5.1
+            }
+          ]
+        },
+        {
+          "kind": "thorns",
+          "shape": "poly",
+          "points": [
+            {
+              "x": 7,
+              "y": 6.7
+            },
+            {
+              "x": 9,
+              "y": 6.7
+            },
+            {
+              "x": 9.3,
+              "y": 7.3
+            },
+            {
+              "x": 8.9,
+              "y": 7.7
+            },
+            {
+              "x": 7,
+              "y": 7.7
+            },
+            {
+              "x": 6.7,
+              "y": 7.3
+            }
+          ]
+        }
+      ],
+      "enemies": [
+        {
+          "kind": "basic",
+          "x": 6.1,
+          "y": 7.9,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 7,
+          "y": 8.6,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 9.2,
+          "y": 8.5,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 10.2,
+          "y": 7.9,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 6.4,
+          "y": 3.4,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 7.5,
+          "y": 3.1,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 8.6,
+          "y": 3.5,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 9.5,
+          "y": 4.1,
+          "color": 0
+        },
+        {
+          "kind": "porcupine",
+          "x": 10.7,
+          "y": 5.6,
+          "color": 0
+        }
+      ],
+      "buttons": [
+        {
+          "x": 1.5,
+          "y": 1.5
+        },
+        {
+          "x": 14.5,
+          "y": 1.5
+        },
+        {
+          "x": 8,
+          "y": 8.2
+        }
+      ],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "buttons",
+      "killGoal": null,
+      "variant": "base",
+      "variantLabel": "Предложение",
+      "routes": [
+        {
+          "label": "К левой кнопке через изгородь",
+          "points": [
+            {
+              "x": 8,
+              "y": 5
+            },
+            {
+              "x": 5.3,
+              "y": 4.8
+            },
+            {
+              "x": 3.7,
+              "y": 4.7
+            },
+            {
+              "x": 2.1,
+              "y": 4.3
+            },
+            {
+              "x": 1.5,
+              "y": 1.5
+            }
+          ],
+          "mode": "mixed"
+        },
+        {
+          "label": "Сухая дуга к правой кнопке",
+          "points": [
+            {
+              "x": 8,
+              "y": 5
+            },
+            {
+              "x": 10.5,
+              "y": 5.1
+            },
+            {
+              "x": 10.5,
+              "y": 8.6
+            },
+            {
+              "x": 13.9,
+              "y": 8.5
+            },
+            {
+              "x": 14.5,
+              "y": 5.9
+            },
+            {
+              "x": 14.5,
+              "y": 1.5
+            }
+          ],
+          "mode": "walk"
+        }
+      ],
+      "spawnAreas": [
+        {
+          "x": 8,
+          "y": 8.6,
+          "r": 1,
+          "label": "нижний переход"
+        },
+        {
+          "x": 8,
+          "y": 3.5,
+          "r": 1.1,
+          "label": "внутренний проход"
+        },
+        {
+          "x": 14.5,
+          "y": 5,
+          "r": 0.8,
+          "label": "сухая кромка"
+        }
+      ],
+      "annotations": [
+        "Ходьба не нажимает кнопку.",
+        "После трёх кнопок дверь достижима по сухому полу."
+      ],
+      "intent": "Пересечь мягкую изгородь цепью к кнопке или подойти сухим внешним путём и нажать короткой цепью.",
+      "change": "Изгороди укорочены; у обеих верхних кнопок есть сухое место для разворота.",
+      "composition": "A: 8B + 1 дикобраз: 4 у нижнего перехода, 4 у внутреннего бокового прохода, дикобраз на открытой кромке."
+    },
+    {
+      "id": "shaman-circle",
+      "name": "Круг шамана",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 8,
+        "y": 8.3
+      },
+      "door": {
+        "x": 0.7,
+        "y": 4
+      },
+      "obstacles": [
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 8,
+          "y": 6,
+          "r": 0.42
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 2.6,
+          "y": 6.2,
+          "r": 0.42
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 13.4,
+          "y": 6.2,
+          "r": 0.42
+        },
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 0,
+          "y": 8.6,
+          "w": 2,
+          "h": 1.4
+        },
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 14,
+          "y": 8.6,
+          "w": 2,
+          "h": 1.4
+        }
+      ],
+      "terrain": [],
+      "enemies": [
+        {
+          "kind": "shaman",
+          "x": 8,
+          "y": 1.2,
+          "color": 0,
+          "hp": 6,
+          "marked": true,
+          "leader": true
+        },
+        {
+          "kind": "basic",
+          "x": 5.3,
+          "y": 6.4,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 6.2,
+          "y": 6.9,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 5.2,
+          "y": 7.5,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 6.4,
+          "y": 7.8,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 10,
+          "y": 6.4,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 10.9,
+          "y": 6.9,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 9.8,
+          "y": 7.7,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 11,
+          "y": 7.8,
+          "color": 0
+        }
+      ],
+      "buttons": [],
+      "braziers": [
+        {
+          "x": 4.6,
+          "y": 4.4
+        },
+        {
+          "x": 11.4,
+          "y": 4.4
+        },
+        {
+          "x": 8,
+          "y": 3.4
+        }
+      ],
+      "gates": [],
+      "chest": null,
+      "goal": "marked",
+      "killGoal": null,
+      "variant": "intro",
+      "variantLabel": "Знакомство: открытый центр",
+      "routes": [
+        {
+          "label": "Короткий левый заход",
+          "points": [
+            {
+              "x": 8,
+              "y": 8.3
+            },
+            {
+              "x": 5.2,
+              "y": 7.3
+            },
+            {
+              "x": 4.8,
+              "y": 4.5
+            },
+            {
+              "x": 6.3,
+              "y": 2.3
+            },
+            {
+              "x": 8,
+              "y": 1.8
+            }
+          ],
+          "mode": "mixed"
+        },
+        {
+          "label": "Правая дуга через огонь",
+          "points": [
+            {
+              "x": 8,
+              "y": 8.3
+            },
+            {
+              "x": 11.7,
+              "y": 7.1
+            },
+            {
+              "x": 11.4,
+              "y": 4.4
+            },
+            {
+              "x": 10,
+              "y": 2.5
+            },
+            {
+              "x": 8,
+              "y": 1.8
+            }
+          ],
+          "mode": "mixed"
+        }
+      ],
+      "spawnAreas": [
+        {
+          "x": 5.7,
+          "y": 7,
+          "r": 1,
+          "label": "левый торец"
+        },
+        {
+          "x": 10.5,
+          "y": 7,
+          "r": 1,
+          "label": "правый торец"
+        },
+        {
+          "x": 8,
+          "y": 2.2,
+          "r": 0.8,
+          "label": "верхняя площадка"
+        }
+      ],
+      "annotations": [
+        "Одна отмеченная цель.",
+        "Открытый центр оставляет прямой ответ."
+      ],
+      "intent": "Убрать усиливаемую группу слева или собрать силу справа и атаковать атамана.",
+      "change": "Центр остаётся открытым, без острова; один атаман вместо старых трёх целей.",
+      "composition": "A: 8B + 1 отмеченный атаман-шаман; других шаманов до его смерти нет."
+    },
+    {
+      "id": "shaman-circle",
+      "name": "Круг шамана",
+      "width": 18,
+      "height": 12,
+      "heroStart": {
+        "x": 9,
+        "y": 10.2
+      },
+      "door": {
+        "x": 0.7,
+        "y": 4
+      },
+      "obstacles": [
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 7.7,
+          "y": 5.2,
+          "w": 2.6,
+          "h": 2.5
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 3,
+          "y": 7.7,
+          "r": 0.42
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 15,
+          "y": 7.7,
+          "r": 0.42
+        },
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 0,
+          "y": 10.6,
+          "w": 2,
+          "h": 1.4
+        },
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 16,
+          "y": 10.6,
+          "w": 2,
+          "h": 1.4
+        }
+      ],
+      "terrain": [],
+      "enemies": [
+        {
+          "kind": "shaman",
+          "x": 9,
+          "y": 1.4,
+          "color": 0,
+          "hp": 6,
+          "marked": true,
+          "leader": true
+        },
+        {
+          "kind": "basic",
+          "x": 4.7,
+          "y": 8.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 5.6,
+          "y": 8.6,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 4.8,
+          "y": 9.3,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 6,
+          "y": 9.5,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 12,
+          "y": 8.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 13.1,
+          "y": 8.6,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 12.1,
+          "y": 9.3,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 13.2,
+          "y": 9.5,
+          "color": 0
+        }
+      ],
+      "buttons": [],
+      "braziers": [
+        {
+          "x": 5.1,
+          "y": 5
+        },
+        {
+          "x": 12.9,
+          "y": 5
+        },
+        {
+          "x": 9,
+          "y": 3.4
+        }
+      ],
+      "gates": [],
+      "chest": null,
+      "goal": "marked",
+      "killGoal": null,
+      "variant": "practice",
+      "variantLabel": "Практика: центральный остров",
+      "routes": [
+        {
+          "label": "Левый короткий подход",
+          "points": [
+            {
+              "x": 9,
+              "y": 10.2
+            },
+            {
+              "x": 6.3,
+              "y": 9.2
+            },
+            {
+              "x": 5.8,
+              "y": 6.4
+            },
+            {
+              "x": 5.1,
+              "y": 5
+            },
+            {
+              "x": 6.4,
+              "y": 3.2
+            },
+            {
+              "x": 9,
+              "y": 2.2
+            }
+          ],
+          "mode": "mixed"
+        },
+        {
+          "label": "Правая дуга силы",
+          "points": [
+            {
+              "x": 9,
+              "y": 10.2
+            },
+            {
+              "x": 12.4,
+              "y": 9
+            },
+            {
+              "x": 12.9,
+              "y": 5
+            },
+            {
+              "x": 11.2,
+              "y": 3.5
+            },
+            {
+              "x": 9,
+              "y": 2.2
+            }
+          ],
+          "mode": "mixed"
+        }
+      ],
+      "spawnAreas": [
+        {
+          "x": 5.4,
+          "y": 8.8,
+          "r": 1,
+          "label": "левый торец"
+        },
+        {
+          "x": 12.6,
+          "y": 8.8,
+          "r": 1,
+          "label": "правый торец"
+        },
+        {
+          "x": 9,
+          "y": 2.5,
+          "r": 1,
+          "label": "верхняя площадка"
+        }
+      ],
+      "annotations": [
+        "Остров не закрывает всю верхнюю цель.",
+        "Торцы поддерживаются добором."
+      ],
+      "intent": "Снять помеху по короткому левому подходу или собрать силу по правой дуге к атаману.",
+      "change": "18×12, небольшой твёрдый остров; оба боковых обхода раскрываются к общей верхней площадке.",
+      "composition": "A: 8B + 1 отмеченный атаман-шаман; четыре B у каждого нижнего торца."
+    },
+    {
+      "id": "marked",
+      "name": "Отмеченные и дверь",
+      "width": 16,
+      "height": 10,
+      "heroStart": {
+        "x": 2.5,
+        "y": 4.5
+      },
+      "door": {
+        "x": 15.3,
+        "y": 5.2
+      },
+      "obstacles": [
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 4.8,
+          "y": 0,
+          "w": 1,
+          "h": 2.5
+        },
+        {
+          "kind": "wall",
+          "shape": "rect",
+          "x": 10.6,
+          "y": 7.5,
+          "w": 1,
+          "h": 2.5
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 2.8,
+          "y": 2.3,
+          "r": 0.42
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 13.6,
+          "y": 7.5,
+          "r": 0.42
+        },
+        {
+          "kind": "pond",
+          "shape": "circle",
+          "x": 13.3,
+          "y": 2.4,
+          "r": 0.8
+        }
+      ],
+      "terrain": [],
+      "enemies": [
+        {
+          "x": 8.8,
+          "y": 4.9,
+          "color": 0,
+          "hp": 0,
+          "marked": true
+        },
+        {
+          "x": 9.65,
+          "y": 4.9,
+          "color": 0,
+          "hp": 0,
+          "marked": true
+        },
+        {
+          "x": 9.23,
+          "y": 5.64,
+          "color": 0,
+          "hp": 0,
+          "marked": true
+        },
+        {
+          "x": 8.38,
+          "y": 5.64,
+          "color": 0,
+          "hp": 0,
+          "marked": true
+        },
+        {
+          "x": 7.95,
+          "y": 4.9,
+          "color": 2,
+          "hp": 0,
+          "marked": true
+        },
+        {
+          "x": 8.38,
+          "y": 4.16,
+          "color": 2,
+          "hp": 0,
+          "marked": true
+        },
+        {
+          "x": 9.23,
+          "y": 4.16,
+          "color": 2,
+          "hp": 3,
+          "marked": true
+        },
+        {
+          "x": 10.16,
+          "y": 5.69,
+          "color": 0,
+          "hp": 3,
+          "marked": true
+        },
+        {
+          "x": 8.8,
+          "y": 6.47,
+          "color": 0,
+          "hp": 3,
+          "marked": true
+        },
+        {
+          "x": 7.44,
+          "y": 5.69,
+          "color": 0,
+          "hp": 3,
+          "marked": true
+        },
+        {
+          "x": 7.44,
+          "y": 4.11,
+          "color": 2,
+          "hp": 3,
+          "marked": true
+        },
+        {
+          "x": 8.8,
+          "y": 3.33,
+          "color": 2,
+          "hp": 3,
+          "marked": true
+        }
+      ],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "marked",
+      "killGoal": null,
+      "variant": "base",
+      "variantLabel": "Предложение",
+      "routes": [
+        {
+          "label": "Южная внешняя дуга",
+          "points": [
+            {
+              "x": 2.5,
+              "y": 4.5
+            },
+            {
+              "x": 4.6,
+              "y": 7.8
+            },
+            {
+              "x": 7,
+              "y": 7.8
+            },
+            {
+              "x": 8.8,
+              "y": 6.5
+            }
+          ],
+          "mode": "mixed"
+        },
+        {
+          "label": "Северный подход",
+          "points": [
+            {
+              "x": 2.5,
+              "y": 4.5
+            },
+            {
+              "x": 4.7,
+              "y": 3.2
+            },
+            {
+              "x": 6.8,
+              "y": 2.7
+            },
+            {
+              "x": 8.8,
+              "y": 3.3
+            }
+          ],
+          "mode": "mixed"
+        }
+      ],
+      "spawnAreas": [
+        {
+          "x": 4.4,
+          "y": 5.5,
+          "r": 0.9,
+          "label": "ближняя дуга"
+        },
+        {
+          "x": 12.5,
+          "y": 5.5,
+          "r": 1,
+          "label": "дальний край"
+        }
+      ],
+      "annotations": [
+        "12 отмеченных, два цвета 7/5.",
+        "Сила каждой цепи набирается заново."
+      ],
+      "intent": "Собрать силу на слабых звеньях одного цвета и атаковать крепкий край орды; следующий проход собирает силу заново.",
+      "change": "Внешний подход расчищен, компактная двуцветная орда из 12 целей сохранена.",
+      "composition": "A: 12 отмеченных B внутри F; 7 тел одного цвета, 5 другого, из них 6 крепких HP 3. Отдельной стартовой группы нет."
+    },
+    {
+      "id": "ford",
+      "name": "Брод",
+      "width": 24,
+      "height": 14,
+      "heroStart": {
+        "x": 3.3,
+        "y": 7
+      },
+      "door": {
+        "x": 23.3,
+        "y": 7
+      },
+      "obstacles": [
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 6.3,
+          "y": 3.9,
+          "r": 0.42
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 6.6,
+          "y": 10.4,
+          "r": 0.42
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 9.1,
+          "y": 2.8,
+          "r": 0.42
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 9.6,
+          "y": 11,
+          "r": 0.42
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 18,
+          "y": 3.6,
+          "r": 0.42
+        },
+        {
+          "kind": "tree",
+          "shape": "circle",
+          "x": 18.2,
+          "y": 10.5,
+          "r": 0.42
+        }
+      ],
+      "terrain": [
+        {
+          "kind": "river",
+          "shape": "band",
+          "points": [
+            {
+              "x": 12.3,
+              "y": 0
+            },
+            {
+              "x": 12.3,
+              "y": 0.7
+            },
+            {
+              "x": 13.4,
+              "y": 3.8
+            },
+            {
+              "x": 12,
+              "y": 7
+            },
+            {
+              "x": 13.4,
+              "y": 10.6
+            },
+            {
+              "x": 13.4,
+              "y": 14
+            }
+          ],
+          "width": 3
+        }
+      ],
+      "enemies": [
+        {
+          "kind": "archer",
+          "x": 20.1,
+          "y": 3.1,
+          "color": 0
+        },
+        {
+          "kind": "archer",
+          "x": 20.7,
+          "y": 7.8,
+          "color": 0,
+          "hp": 6,
+          "marked": true,
+          "leader": true
+        },
+        {
+          "kind": "archer",
+          "x": 19.8,
+          "y": 12,
+          "color": 0
+        },
+        {
+          "kind": "wolf",
+          "x": 15.6,
+          "y": 6,
+          "color": 0
+        },
+        {
+          "kind": "wolf",
+          "x": 15.8,
+          "y": 8.4,
+          "color": 0
+        },
+        {
+          "kind": "wolf",
+          "x": 16.8,
+          "y": 7.3,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 6.7,
+          "y": 6.1,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 7.7,
+          "y": 6.4,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 6.7,
+          "y": 7.6,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 7.8,
+          "y": 7.8,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 16.9,
+          "y": 5.5,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 17.8,
+          "y": 6.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 17,
+          "y": 8.7,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 18,
+          "y": 9.2,
+          "color": 0
+        }
+      ],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": null,
+      "goal": "marked",
+      "killGoal": null,
+      "variant": "base",
+      "variantLabel": "Предложение",
+      "routes": [
+        {
+          "label": "Центральная переправа",
+          "points": [
+            {
+              "x": 3.3,
+              "y": 7
+            },
+            {
+              "x": 7.3,
+              "y": 7
+            },
+            {
+              "x": 11.5,
+              "y": 7
+            },
+            {
+              "x": 14.5,
+              "y": 7
+            },
+            {
+              "x": 18,
+              "y": 7
+            },
+            {
+              "x": 20.7,
+              "y": 7.8
+            }
+          ],
+          "mode": "mixed"
+        },
+        {
+          "label": "Северный прикрытый подход",
+          "points": [
+            {
+              "x": 3.3,
+              "y": 7
+            },
+            {
+              "x": 6,
+              "y": 5
+            },
+            {
+              "x": 9.8,
+              "y": 4.5
+            },
+            {
+              "x": 12.7,
+              "y": 4.5
+            },
+            {
+              "x": 16.3,
+              "y": 4.6
+            },
+            {
+              "x": 19,
+              "y": 5.5
+            }
+          ],
+          "mode": "walk"
+        }
+      ],
+      "spawnAreas": [
+        {
+          "x": 7.3,
+          "y": 7,
+          "r": 1.1,
+          "label": "ближний берег"
+        },
+        {
+          "x": 16.6,
+          "y": 7,
+          "r": 1.2,
+          "label": "дальний берег"
+        },
+        {
+          "x": 18,
+          "y": 4.8,
+          "r": 0.9,
+          "label": "северный подход"
+        }
+      ],
+      "annotations": [
+        "Вода замедляет пеший переход.",
+        "Волки двигаются, не образуют мост."
+      ],
+      "intent": "Использовать подошедшую стаю для центрального перехода или перейти севернее и выйти к атаману сбоку.",
+      "change": "Центральная открытая переправа и северный участок с прикрытым берегом; ближняя группа сокращает пустое плечо.",
+      "composition": "Практика A: 8B + 3 волка + 3 лучника, один лучник — атаман L. Срез F=31: 25B + 3W + 3 лучника."
+    },
+    {
+      "id": "outpost",
+      "name": "Застава",
+      "width": 20,
+      "height": 14,
+      "heroStart": {
+        "x": 10,
+        "y": 12.5
+      },
+      "door": {
+        "x": 10,
+        "y": 0.7
+      },
+      "obstacles": [
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 6.44,
+          "y": 3.1,
+          "w": 2.56,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 11,
+          "y": 3.1,
+          "w": 5.5,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 15.5,
+          "y": 4.1,
+          "w": 1,
+          "h": 5.9
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 2.75,
+          "y": 9,
+          "w": 6.25,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 11,
+          "y": 9,
+          "w": 4.5,
+          "h": 1
+        }
+      ],
+      "terrain": [
+        {
+          "shape": "poly",
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 3.75,
+              "y": 0
+            },
+            {
+              "x": 4.25,
+              "y": 2.8
+            },
+            {
+              "x": 3.75,
+              "y": 6.3
+            },
+            {
+              "x": 4.375,
+              "y": 8.4
+            },
+            {
+              "x": 3,
+              "y": 10.36
+            },
+            {
+              "x": 0,
+              "y": 10.64
+            }
+          ],
+          "kind": "cliff"
+        }
+      ],
+      "enemies": [
+        {
+          "kind": "shield",
+          "x": 9.4,
+          "y": 6.7,
+          "color": 1,
+          "elite": true
+        },
+        {
+          "kind": "shield",
+          "x": 10.8,
+          "y": 5.5,
+          "color": 2
+        },
+        {
+          "kind": "archer",
+          "x": 13.1,
+          "y": 6.4,
+          "color": 2,
+          "elite": true
+        },
+        {
+          "kind": "archer",
+          "x": 12.7,
+          "y": 8.1,
+          "color": 3
+        },
+        {
+          "kind": "basic",
+          "x": 9.2,
+          "y": 11.3,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 10.1,
+          "y": 11.4,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 8.2,
+          "y": 11.8,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 11.2,
+          "y": 11.8,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 8.6,
+          "y": 2.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 9.6,
+          "y": 2.1,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 10.7,
+          "y": 2.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 11.7,
+          "y": 2.2,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 8.2,
+          "y": 7.8,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 9.2,
+          "y": 7.8,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 11.4,
+          "y": 7.8,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 12.4,
+          "y": 8.7,
+          "color": 0
+        }
+      ],
+      "buttons": [],
+      "braziers": [],
+      "gates": [],
+      "chest": {
+        "x": 13.8,
+        "y": 7.7
+      },
+      "goal": "kills",
+      "killGoal": 30,
+      "variant": "base",
+      "variantLabel": "Предложение",
+      "routes": [
+        {
+          "label": "Южные ворота, бой снаружи",
+          "points": [
+            {
+              "x": 10,
+              "y": 12.5
+            },
+            {
+              "x": 10,
+              "y": 10.6
+            },
+            {
+              "x": 10,
+              "y": 8.6
+            },
+            {
+              "x": 11.8,
+              "y": 7.4
+            }
+          ],
+          "mode": "mixed"
+        },
+        {
+          "label": "Внешний восточный обход",
+          "points": [
+            {
+              "x": 10,
+              "y": 12.5
+            },
+            {
+              "x": 17.6,
+              "y": 11.3
+            },
+            {
+              "x": 17.5,
+              "y": 2.2
+            },
+            {
+              "x": 10,
+              "y": 2.2
+            },
+            {
+              "x": 10,
+              "y": 5.1
+            },
+            {
+              "x": 13.8,
+              "y": 7.7
+            }
+          ],
+          "mode": "walk"
+        }
+      ],
+      "spawnAreas": [
+        {
+          "x": 10,
+          "y": 11.4,
+          "r": 1,
+          "label": "южные ворота"
+        },
+        {
+          "x": 10,
+          "y": 2.1,
+          "r": 1,
+          "label": "северные ворота"
+        },
+        {
+          "x": 12.5,
+          "y": 7.4,
+          "r": 1,
+          "label": "двор"
+        }
+      ],
+      "annotations": [
+        "Сундук доброволен.",
+        "Фильтр незнакомых видов в этом эскизе практики не применён."
+      ],
+      "intent": "Принять поток снаружи южных ворот или обойти справа к северным и рискнуть ради сундука.",
+      "change": "Двор и оба воротных раскрытия сохранены; щит у прямого входа, стрелок ближе к сундуку.",
+      "composition": "Практика A: 12B + 2 щита + 2 лучника; E — один щит и один лучник внутри этих четырёх. Срез F=39: 35B + 4 специальных."
+    },
+    {
+      "id": "last-stand",
+      "name": "Последний рубеж",
+      "width": 24,
+      "height": 15,
+      "heroStart": {
+        "x": 12,
+        "y": 7.5
+      },
+      "door": {
+        "x": 12,
+        "y": 0.7
+      },
+      "obstacles": [
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 5.4,
+          "y": 3.5,
+          "w": 1,
+          "h": 3
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 5.4,
+          "y": 8.5,
+          "w": 1,
+          "h": 3
+        },
+        {
+          "shape": "circle",
+          "kind": "pond",
+          "x": 16.4,
+          "y": 7.5,
+          "r": 3.4
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 21.5,
+          "y": 3.4,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 21.5,
+          "y": 11.6,
+          "r": 0.42
+        }
+      ],
+      "terrain": [],
+      "enemies": [
+        {
+          "kind": "porcupine",
+          "x": 3.3,
+          "y": 7.5,
+          "color": 3,
+          "elite": true
+        },
+        {
+          "kind": "porcupine",
+          "x": 7.8,
+          "y": 5.2,
+          "color": 1
+        },
+        {
+          "kind": "sapper",
+          "x": 10.4,
+          "y": 12.4,
+          "color": 0,
+          "elite": true
+        },
+        {
+          "kind": "sapper",
+          "x": 14.8,
+          "y": 3.8,
+          "color": 2
+        },
+        {
+          "kind": "basic",
+          "x": 8,
+          "y": 4.4,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 9,
+          "y": 5,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 10,
+          "y": 4.1,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 11.2,
+          "y": 5.4,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 7.8,
+          "y": 9.7,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 8.7,
+          "y": 10.6,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 10.9,
+          "y": 10.7,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 11.6,
+          "y": 9.7,
+          "color": 0
+        }
+      ],
+      "buttons": [],
+      "braziers": [
+        {
+          "x": 12.8,
+          "y": 4.6
+        },
+        {
+          "x": 9.8,
+          "y": 10.5
+        }
+      ],
+      "gates": [],
+      "chest": null,
+      "goal": "kills",
+      "killGoal": 40,
+      "variant": "base",
+      "variantLabel": "Предложение",
+      "routes": [
+        {
+          "label": "Широкий западный берег",
+          "points": [
+            {
+              "x": 12,
+              "y": 7.5
+            },
+            {
+              "x": 11.8,
+              "y": 5.5
+            },
+            {
+              "x": 9.7,
+              "y": 4.8
+            },
+            {
+              "x": 7.8,
+              "y": 4.5
+            },
+            {
+              "x": 9.8,
+              "y": 3
+            }
+          ],
+          "mode": "mixed"
+        },
+        {
+          "label": "Руины и раскрытие к воде",
+          "points": [
+            {
+              "x": 12,
+              "y": 7.5
+            },
+            {
+              "x": 8.2,
+              "y": 7.5
+            },
+            {
+              "x": 5.9,
+              "y": 7.5
+            },
+            {
+              "x": 4.4,
+              "y": 7.5
+            },
+            {
+              "x": 5.9,
+              "y": 7.5
+            },
+            {
+              "x": 9.8,
+              "y": 10.5
+            }
+          ],
+          "mode": "mixed"
+        }
+      ],
+      "spawnAreas": [
+        {
+          "x": 9.7,
+          "y": 4.8,
+          "r": 1.2,
+          "label": "северный огонь"
+        },
+        {
+          "x": 9.2,
+          "y": 10.5,
+          "r": 1.2,
+          "label": "южный огонь"
+        },
+        {
+          "x": 3.8,
+          "y": 7.5,
+          "r": 1,
+          "label": "руины"
+        }
+      ],
+      "annotations": [
+        "Авторская группа не равна всему F.",
+        "После 40 убийств действуют отдельные FINAL_PHASES."
+      ],
+      "intent": "Набрать цепь на западном берегу и использовать огонь или принять меньший фронт у руин.",
+      "change": "Северный огонь у открытого берега; южный ближе к раскрытию руин, оба доступны с двух сторон.",
+      "composition": "Поздний срез F=31: 27B + 2 сапёра + 2 дикобраза; E внутри специальных — по одному. A: 8B + четыре специальных, остальное добор."
+    },
+    {
+      "id": "jailer",
+      "name": "Тюремщик",
+      "width": 20,
+      "height": 14,
+      "heroStart": {
+        "x": 10,
+        "y": 12.5
+      },
+      "door": {
+        "x": 10,
+        "y": 0.7
+      },
+      "obstacles": [
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 6.44,
+          "y": 3.1,
+          "w": 2.56,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 11,
+          "y": 3.1,
+          "w": 5.5,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 15.5,
+          "y": 4.1,
+          "w": 1,
+          "h": 5.9
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 2.75,
+          "y": 9,
+          "w": 6.25,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 11,
+          "y": 9,
+          "w": 4.5,
+          "h": 1
+        }
+      ],
+      "terrain": [
+        {
+          "shape": "poly",
+          "points": [
+            {
+              "x": 0,
+              "y": 0
+            },
+            {
+              "x": 3.75,
+              "y": 0
+            },
+            {
+              "x": 4.25,
+              "y": 2.8
+            },
+            {
+              "x": 3.75,
+              "y": 6.3
+            },
+            {
+              "x": 4.375,
+              "y": 8.4
+            },
+            {
+              "x": 3,
+              "y": 10.36
+            },
+            {
+              "x": 0,
+              "y": 10.64
+            }
+          ],
+          "kind": "cliff"
+        }
+      ],
+      "enemies": [
+        {
+          "kind": "jailer",
+          "x": 7.5,
+          "y": 6.5,
+          "color": 1,
+          "marked": true
+        },
+        {
+          "kind": "jailer-weight",
+          "x": 6.7,
+          "y": 6.9,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 9.4,
+          "y": 10.9,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 10.5,
+          "y": 10.9,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 8.8,
+          "y": 11.7,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 11.2,
+          "y": 11.7,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 12.2,
+          "y": 10.9,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 8.6,
+          "y": 2.1,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 9.6,
+          "y": 2.1,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 10.7,
+          "y": 2.1,
+          "color": 0
+        }
+      ],
+      "buttons": [],
+      "braziers": [],
+      "gates": [
+        {
+          "x": 10,
+          "y": 3.6
+        },
+        {
+          "x": 10,
+          "y": 9.5
+        }
+      ],
+      "chest": null,
+      "goal": "marked",
+      "killGoal": null,
+      "variant": "base",
+      "variantLabel": "Предложение",
+      "routes": [
+        {
+          "label": "Южные ворота к гире",
+          "points": [
+            {
+              "x": 10,
+              "y": 12.5
+            },
+            {
+              "x": 10,
+              "y": 10.3
+            },
+            {
+              "x": 10,
+              "y": 8.1
+            },
+            {
+              "x": 8,
+              "y": 7.3
+            },
+            {
+              "x": 6.7,
+              "y": 6.9
+            }
+          ],
+          "mode": "mixed"
+        },
+        {
+          "label": "Северный обход к боковому углу",
+          "points": [
+            {
+              "x": 10,
+              "y": 12.5
+            },
+            {
+              "x": 17.4,
+              "y": 11.5
+            },
+            {
+              "x": 17.4,
+              "y": 2.2
+            },
+            {
+              "x": 10,
+              "y": 2.1
+            },
+            {
+              "x": 10,
+              "y": 4.7
+            },
+            {
+              "x": 8.8,
+              "y": 6
+            }
+          ],
+          "mode": "walk"
+        }
+      ],
+      "spawnAreas": [
+        {
+          "x": 10,
+          "y": 11.5,
+          "r": 1,
+          "label": "южный подход"
+        },
+        {
+          "x": 10,
+          "y": 2.2,
+          "r": 0.9,
+          "label": "северный подход"
+        },
+        {
+          "x": 12.6,
+          "y": 6.7,
+          "r": 1.2,
+          "label": "свободный двор"
+        }
+      ],
+      "annotations": [
+        "Гиря движется вместе с боссом.",
+        "Свисток сохраняет выбор дальних ворот."
+      ],
+      "composition": "A: 8B + ядро + гиря = 10 авторских тел; 5 B у южного входа и 3 B у северного. Общий floor большого поля 31 включает босса и часть.",
+      "intent": "Подойти к гире через южные ворота и отойти в восточный двор или использовать северный обход для смены угла.",
+      "change": "Знакомый западный обрыв остаётся; центрально-восточная площадка свободна для уклонения."
+    },
+    {
+      "id": "jailer-yard",
+      "name": "Тюремщик",
+      "width": 20,
+      "height": 14,
+      "heroStart": {
+        "x": 10,
+        "y": 12.5
+      },
+      "door": {
+        "x": 10,
+        "y": 0.7
+      },
+      "obstacles": [
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 6.44,
+          "y": 3.1,
+          "w": 2.56,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 11,
+          "y": 3.1,
+          "w": 5.5,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 15.5,
+          "y": 4.1,
+          "w": 1,
+          "h": 5.9
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 2.75,
+          "y": 9,
+          "w": 6.25,
+          "h": 1
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 11,
+          "y": 9,
+          "w": 4.5,
+          "h": 1
+        }
+      ],
+      "terrain": [],
+      "enemies": [
+        {
+          "kind": "jailer",
+          "x": 7.5,
+          "y": 6.5,
+          "color": 1,
+          "marked": true
+        },
+        {
+          "kind": "jailer-weight",
+          "x": 6.7,
+          "y": 6.9,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 9.4,
+          "y": 10.9,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 10.5,
+          "y": 10.9,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 8.8,
+          "y": 11.7,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 11.2,
+          "y": 11.7,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 12.2,
+          "y": 10.9,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 8.6,
+          "y": 2.1,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 9.6,
+          "y": 2.1,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 10.7,
+          "y": 2.1,
+          "color": 0
+        }
+      ],
+      "buttons": [],
+      "braziers": [],
+      "gates": [
+        {
+          "x": 10,
+          "y": 3.6
+        },
+        {
+          "x": 10,
+          "y": 9.5
+        }
+      ],
+      "chest": null,
+      "goal": "marked",
+      "killGoal": null,
+      "variant": "base",
+      "variantLabel": "Предложение",
+      "routes": [
+        {
+          "label": "Южные ворота к гире",
+          "points": [
+            {
+              "x": 10,
+              "y": 12.5
+            },
+            {
+              "x": 10,
+              "y": 10.3
+            },
+            {
+              "x": 10,
+              "y": 8.1
+            },
+            {
+              "x": 8,
+              "y": 7.3
+            },
+            {
+              "x": 6.7,
+              "y": 6.9
+            }
+          ],
+          "mode": "mixed"
+        },
+        {
+          "label": "Западный сухой обход",
+          "points": [
+            {
+              "x": 10,
+              "y": 12.5
+            },
+            {
+              "x": 2.1,
+              "y": 11.4
+            },
+            {
+              "x": 1.8,
+              "y": 7.6
+            },
+            {
+              "x": 5.5,
+              "y": 6.2
+            },
+            {
+              "x": 6.7,
+              "y": 6.9
+            }
+          ],
+          "mode": "walk"
+        }
+      ],
+      "spawnAreas": [
+        {
+          "x": 10,
+          "y": 11.5,
+          "r": 1,
+          "label": "южный подход"
+        },
+        {
+          "x": 10,
+          "y": 2.2,
+          "r": 0.9,
+          "label": "северный подход"
+        },
+        {
+          "x": 2.3,
+          "y": 6.8,
+          "r": 1,
+          "label": "свободный запад"
+        }
+      ],
+      "annotations": [
+        "Гиря движется вместе с боссом.",
+        "Свисток сохраняет выбор дальних ворот."
+      ],
+      "composition": "A: 8B + ядро + гиря = 10 авторских тел; 5 B у южного входа и 3 B у северного. Общий floor большого поля 31 включает босса и часть.",
+      "intent": "Атаковать гирю через южные ворота или зайти широко с открытой западной земли.",
+      "change": "Западная земля свободна: здесь нет обрыва или другой новой местности."
+    },
+    {
+      "id": "troll",
+      "name": "Берлога тролля",
+      "width": 24,
+      "height": 15,
+      "heroStart": {
+        "x": 12,
+        "y": 12
+      },
+      "door": {
+        "x": 21.5,
+        "y": 0.8
+      },
+      "obstacles": [
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 7.5,
+          "y": 0,
+          "w": 1.5,
+          "h": 3
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 15,
+          "y": 0,
+          "w": 1.5,
+          "h": 3
+        },
+        {
+          "shape": "rect",
+          "kind": "wall",
+          "x": 9,
+          "y": 0,
+          "w": 6,
+          "h": 1.6
+        },
+        {
+          "shape": "circle",
+          "kind": "pond",
+          "x": 5.5,
+          "y": 9.5,
+          "r": 2.4
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 3.5,
+          "y": 4,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 20.5,
+          "y": 4.5,
+          "r": 0.42
+        },
+        {
+          "shape": "circle",
+          "kind": "tree",
+          "x": 19.5,
+          "y": 11.5,
+          "r": 0.42
+        }
+      ],
+      "terrain": [],
+      "enemies": [
+        {
+          "kind": "troll",
+          "x": 12,
+          "y": 2.2,
+          "color": 1,
+          "marked": true
+        },
+        {
+          "kind": "troll-club",
+          "x": 10.5,
+          "y": 2.6,
+          "color": 0
+        },
+        {
+          "kind": "troll-rock",
+          "x": 13.5,
+          "y": 2.6,
+          "color": 1
+        },
+        {
+          "kind": "troll-tail",
+          "x": 12,
+          "y": 3.9,
+          "color": 2
+        },
+        {
+          "kind": "basic",
+          "x": 10.6,
+          "y": 6.1,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 11.8,
+          "y": 6.4,
+          "color": 0
+        },
+        {
+          "kind": "basic",
+          "x": 12.8,
+          "y": 6.1,
+          "color": 0
+        }
+      ],
+      "buttons": [],
+      "braziers": [
+        {
+          "x": 9.6,
+          "y": 4
+        },
+        {
+          "x": 14.4,
+          "y": 4
+        }
+      ],
+      "gates": [
+        {
+          "x": 0.8,
+          "y": 6
+        },
+        {
+          "x": 23.2,
+          "y": 6
+        },
+        {
+          "x": 12,
+          "y": 14.4
+        }
+      ],
+      "chest": null,
+      "goal": "marked",
+      "killGoal": null,
+      "variant": "base",
+      "variantLabel": "Предложение",
+      "routes": [
+        {
+          "label": "Левый огонь → дубина",
+          "points": [
+            {
+              "x": 12,
+              "y": 12
+            },
+            {
+              "x": 8.5,
+              "y": 12
+            },
+            {
+              "x": 8.5,
+              "y": 7
+            },
+            {
+              "x": 9.6,
+              "y": 4
+            },
+            {
+              "x": 10.5,
+              "y": 2.6
+            }
+          ],
+          "mode": "mixed"
+        },
+        {
+          "label": "Сухой восток → камень",
+          "points": [
+            {
+              "x": 12,
+              "y": 12
+            },
+            {
+              "x": 17.5,
+              "y": 10.7
+            },
+            {
+              "x": 17.4,
+              "y": 6
+            },
+            {
+              "x": 14.4,
+              "y": 4
+            },
+            {
+              "x": 13.5,
+              "y": 2.6
+            }
+          ],
+          "mode": "mixed"
+        }
+      ],
+      "spawnAreas": [
+        {
+          "x": 11.7,
+          "y": 6.4,
+          "r": 1,
+          "label": "первый подход"
+        },
+        {
+          "x": 15.6,
+          "y": 6.8,
+          "r": 1,
+          "label": "соседний подход"
+        },
+        {
+          "x": 10,
+          "y": 9.1,
+          "r": 0.8,
+          "label": "нижний подход"
+        }
+      ],
+      "annotations": [
+        "Три входа волков рыка сохранены.",
+        "Сухой правый подход не требует жаровни."
+      ],
+      "intent": "Подойти к дубине через левый огонь или к камню через правый, затем использовать доступную часть либо окно ядра.",
+      "change": "Сохраняются задняя стена, левый медленный берег и широкий сухой восточный подход; центр свободен.",
+      "composition": "A: 3B + ядро + 3 части = 7 авторских тел. Эффективный floor=9 при trollCrowd=0.3, включая 4 боссовые сущности; первый периодический заказ 2–4 B. Это не F=31."
+    }
+  ]
+}

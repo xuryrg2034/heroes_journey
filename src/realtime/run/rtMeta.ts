@@ -16,10 +16,11 @@ import { rtGarrisonNodeId } from './garrison';
 import { TROLL_RUN_ARENAS } from '../sim/arenasBoss';
 import { SCHEDULE_KINDS } from './schedule';
 import {
-  HEARTH_HERB_SALT, HEARTH_MAPS_SALT, HEARTH_QUEST_SALT, isRtHearthNpc, isRtHeroId, isRtQuest, RT_HEARTH_MAX_LEVEL, RT_HEARTH_NPCS, RT_HEARTH_PRICES, RT_HERO_ID, RT_HERO_IDS,
-  RT_META_THRESHOLDS, RT_TOAD_ID, rtHeroPacks, rtLockedAfter, type RtHearthLevel, type RtHearthNpc, type RtHeroId, type RtMetaItem, type RtQuest, type RtQuestId,
+  HEARTH_GATE_SALT, HEARTH_HERB_SALT, HEARTH_MAPS_SALT, HEARTH_QUEST_SALT, isRtHearthNpc, isRtHeroId, isRtQuest, RT_HEARTH_GATED_LEVEL, RT_HEARTH_LOCKED, RT_HEARTH_MAX_LEVEL, RT_HEARTH_NPCS, RT_HEARTH_NPCS_L3, RT_HEARTH_PRICES, RT_HERO_ID, RT_HERO_IDS, RT_QUEST_NPC,
+  HEARTH_VOW_SALT, isRtHearthLeaver, RT_HEARTH_AWAY_ON, RT_HEARTH_GAMBLER_ON, RT_HEARTH_MONK_ON, type RtHearthLeaver, RT_META_THRESHOLDS, RT_VOW_IDS, type RtVowId, RT_TOAD_ID, rtHeroPacks, rtLockedAfter, type RtHearthGuest, type RtHearthLevel, type RtHearthNpc, type RtHeroId, type RtMetaItem, type RtQuest, type RtQuestId, type RtQuestNpc,
 } from './metaCatalog';
-import { isRtAshLevel, type RtAshLevel } from './rtRun';
+import { isRtAshLevel, rtCasinoResult, rtKnackShown, rtReachedJailer, type RtAshLevel } from './rtRun';
+import { isWarmupBest, type WarmupRecords } from './warmup';
 
 export { RT_HEARTH_PRICES, RT_META_PACKS, RT_META_THRESHOLDS } from './metaCatalog';
 
@@ -35,6 +36,37 @@ export const RT_XP_FEAT = 5;
 export const RT_XP_VICTORY = 25;
 /** Баланс: «Испытание» multiplies the run's XP by 1 + this × level (rounded down). */
 export const RT_XP_ASH_STEP = 0.1;
+/** Баланс (task 51г, spec 3.3): a vow kept gives this much XP (outside «Испытание»'s factor); Евлампий's quest — this many shackles cut. */
+export const RT_XP_VOW = 15;
+/** Task 51г: the shackles a run cut (its fights' `cuts`). */
+export const rtRunCuts = (run: Pick<RtRunState, 'battles'>): number => run.battles.reduce((sum, record) => sum + (record.cuts ?? 0), 0);
+/**
+ * Task 51г «Обет» (spec 3.3): each vow of the run kept or not, read after the run from its state — counted only when the run reached the
+ * Jailer's row (an early death would «keep» any vow); null — no vows, or not counted. «Мимо торговцев» — no merchant node entered;
+ * «Без привала» — no rest; «Без лечения на карте» — no map heal bought; «Без переброса» — no reroll (`vowRerolled`).
+ */
+export function rtVowsOf(run: RtRunState): { id: RtVowId; kept: boolean }[] | null {
+  return rtReachedJailer(run) ? rtVowsNow(run) : null;
+}
+/**
+ * Task 51г (ui: the run's header «сдержано N из M»): the run's vows as they stand now — the same rule as `rtVowsOf` without the Jailer's
+ * row (a vow broken in the middle of the run reads broken at once). Null — no vows.
+ */
+export function rtVowsNow(run: RtRunState): { id: RtVowId; kept: boolean }[] | null {
+  const vows = run.hearth?.vows;
+  if (!vows?.length) return null;
+  const entered = (type: string) => [...run.visited, ...run.pending && 'nodeId' in run.pending && run.pending.nodeId ? [run.pending.nodeId] : []].some(id => rtNode(run, id)?.type === type);
+  return vows.map(id => ({ id, kept: id === 'vow-no-shop' ? !entered('shop') : id === 'vow-no-rest' ? !entered('rest') : id === 'vow-no-mapheal' ? !run.healBought : !run.vowRerolled }));
+}
+/** Task 51г: the vows Евлампий offers at the start (`hearth-vow` of the base seed): 2 (level 1, take 1) or 3 (level 2, take 2) of the four. */
+export function rtHearthVows(seed: number, count: number): RtVowId[] {
+  const left = [...RT_VOW_IDS], out: RtVowId[] = [];
+  for (let k = 0; k < count && left.length; k++) out.push(left.splice(mixSeed(mixSeed(seed >>> 0, HEARTH_VOW_SALT), k) % left.length, 1)[0]);
+  return out;
+}
+export const RT_MONK_CUTS = 2;
+/** Баланс (task 51в, spec 3.2): Шиш's quest «Вернись с 10 ресурсами» — the run's resources at its end (and what «Повозка» sent) at least this. */
+export const RT_GAMBLER_HOARD = 10;
 /** Баланс (task 37): a quest done gives this much XP and stock (the stock outside the carry's cap). */
 export const RT_QUEST_XP = 10;
 export const RT_QUEST_STOCK = 3;
@@ -97,13 +129,46 @@ export interface RtHeroMeta { xp: number; packs: string[]; record?: RtDepthRecor
 export type RtDeathCause = 'crowd' | 'archer' | 'sapper' | 'jailer' | 'final' | 'fire' | 'other' | 'guardroom' | 'castellan' | 'troll';
 /** The previous run as the camp's lines read it. `quest` — true done, false failed, absent — the run had no quest. */
 /** Task 49 (ui, the camp's lines npc-lines-v2): `hero` — the previous run was Ведунья's (`run.heroId`); absent — the cat's (every `last` before it). */
-export interface RtHearthLast { won: boolean; row: number; beaten: boolean; cause?: RtDeathCause; quest?: boolean; firstWin?: true; pack?: true; hero?: typeof RT_TOAD_ID }
+/**
+ * Task 51 (npc-lines-v2, `win_garrison_first`): `firstGarrison` — the run passed the garrison and no hero of the profile had before
+ * (`wonLevel` 2 the first time); absent otherwise.
+ */
+export interface RtHearthLast {
+  won: boolean; row: number; beaten: boolean; cause?: RtDeathCause; quest?: boolean; firstWin?: true; pack?: true; hero?: typeof RT_TOAD_ID; firstGarrison?: true;
+  /** Task 51в (Шиш's lines `first_won` / `first_lost`, `casino_*`): the run played the goblins' circle — its last game won or lost. Absent — no game. */
+  casino?: 'won' | 'lost';
+  /** Task 51г (Евлампий's lines `memory_cuts`): the shackles the run cut (sum of `RtBattleRecord.cuts`); absent — none. */
+  cuts?: number;
+  /** Task 51г (`vow_kept`, `vow_broken`): the run's vows, each kept or not — only when the run reached the Jailer's row (counted). */
+  vows?: { id: RtVowId; kept: boolean }[];
+  /** Task 51 (ui: Евлампий's `memory_castellan`, every time): this run passed the garrison (won the Castellan); absent — not. */
+  garrisonWon?: true;
+  /** Task 51д (`back_met`, `back_missed`): the run was an NPC's away run — the NPC and whether it was met on the road. */
+  away?: { npc: RtHearthLeaver; met: boolean };
+  /** Task 50 §18 (ui: «Повадка» `habit_first`): the run offered the archetype row on its gift (`run.habits`; «Без повадки» too). Absent — not. */
+  habitOffered?: true;
+  /**
+   * Task 50 §18 (ui: «Сноровка» `knack_first`): the run showed the knack screen at least once (`rtKnackShown`). Absent — not. Read
+   * from the run without a mark: a knack node with no cards (`rtKnackOptions` empty) counts too.
+   */
+  knackOffered?: true;
+}
+/** The NPCs' levels: v1's three always; task 51's Шиш and Евлампий only once bought (absent — 0: a profile before it hashes as before). */
+export type RtHearthLevels = Record<'owl' | 'herb' | 'smith', RtHearthLevel> & Partial<Record<'gambler' | 'monk', RtHearthLevel>>;
 export interface RtHearthMeta {
   stock: number;
-  levels: Record<RtHearthNpc, RtHearthLevel>;
-  /** Марфа and Ерофей came (the owl is there from the first camp); `self` — came by the fallback path (no event). */
-  met: { herb?: true; smith?: true };
-  self?: { herb?: true; smith?: true };
+  levels: RtHearthLevels;
+  /** Марфа and Ерофей came (the owl is there from the first camp); `self` — came by the fallback path (no event). Task 51: Шиш, Евлампий too. */
+  met: Partial<Record<RtHearthGuest, true>>;
+  self?: Partial<Record<RtHearthGuest, true>>;
+  /** Task 51 (spec 3.4): the quests each NPC gave that were done (its leaving reads it); absent until the first one. */
+  done?: Partial<Record<RtHearthNpc, number>>;
+  /** Task 51г: Евлампий's fallback path — finished runs since the profile's first run into the garrison (absent until then; gone once he came). */
+  monkQuiet?: number;
+  /** Task 51д (spec 3.4): the NPC away for the next run (`leave` lines; the trace in the camp); absent — nobody. */
+  away?: { npc: RtHearthLeaver };
+  /** Task 51д: the meetings on the road by NPC (the lines' counter); absent until the first. */
+  met2?: Partial<Record<RtHearthLeaver, number>>;
   /** Lines shown, by `npc:key` (the view cycles a key's lines by this count). */
   lines: Record<string, number>;
   /** The quest of the next run (chosen at the end of the run before). */
@@ -125,12 +190,15 @@ export interface RtMeta {
   offered?: string[];
   /** The last run applied (its key) and its result: a second call for the same run returns it. */
   applied?: { key: string; end: RtMetaEnd };
+  /** Task 51ж «Разминка»: the warmup layouts' records (run/warmup.ts `warmupMerge`); absent until the first attempt with a score. */
+  warmup?: WarmupRecords;
 }
 
 // ---------- The end of a run (the view's contract) ----------
 
 /** Task 38 (design smoke v65, D1): `guardroom` and `castellan` — the garrison's checkpoint and boss, apart from the forest's Jailer and final. */
-export type RtXpPartId = 'battles' | 'elite' | 'jailer' | 'final' | 'guardroom' | 'castellan' | 'feats' | 'victory' | 'ash' | 'quest';
+/** Task 51г: `vows` — the vows kept (+15 each, outside «Испытание»). */
+export type RtXpPartId = 'battles' | 'elite' | 'jailer' | 'final' | 'guardroom' | 'castellan' | 'feats' | 'victory' | 'ash' | 'quest' | 'vows';
 export interface RtXpPart { id: RtXpPartId; xp: number; n?: number }
 export interface RtMetaPackView { id: string; title: string; items: RtMetaItem[] }
 export interface RtMetaEnd {
@@ -146,8 +214,12 @@ export interface RtMetaEnd {
   record: { before: { row: number; won: boolean; level?: 2; wonLevel?: 1 | 2 } | null; after: { row: number; won: boolean; level?: 2; wonLevel?: 1 | 2 }; beaten: boolean };
   /** Task 40: `cart` — what «Повозка» sent (inside `n`, 100 %); absent — no cart. `resources` — the stock left at the end. */
   carry: { n: number; share: 1 | 0.5; cap: number; resources: number; cart?: number };
+  /** Task 51в: the NPCs who came to the camp after this run — by the run's deed or by the fallback path (`self`); absent — none. */
+  arrived?: { npc: RtHearthGuest; self?: true }[];
+  /** Task 51г: the run's vows, each kept or not (only when counted: the run reached the Jailer's row); absent — none. */
+  vows?: { id: RtVowId; kept: boolean }[];
   stock: { before: number; after: number };
-  quest?: { npc: RtHearthNpc; id: RtQuestId; done: boolean; xp: number; stock: number };
+  quest?: { npc: RtQuestNpc; id: RtQuestId; done: boolean; xp: number; stock: number };
 }
 
 /** The key of a run's end (a second call for it returns the applied result). */
@@ -236,6 +308,10 @@ export function rtQuestDone(quest: RtQuest, run: RtRunState, record: RtDepthReco
     case 'owl-forest': return won(run) || rtForestCleared(run);
     case 'herb-flasks': return ITEM_KINDS.reduce((sum, kind) => sum + run.items[kind], 0) >= 2;
     case 'smith-sever': return run.battles.some(entry => entry.severed === true);
+    // Task 51в: the resources at the end (before the carry) and what «Повозка» sent at «Предместье».
+    case 'gambler-hoard': return stockTotal(run.materials) + (run.cart?.n ?? 0) >= RT_GAMBLER_HOARD;
+    // Task 51г: the shackles cut in the run's fights.
+    case 'monk-cuts': return rtRunCuts(run) >= RT_MONK_CUTS;
   }
 }
 
@@ -263,11 +339,13 @@ export function rtDeathCause(run: RtRunState): RtDeathCause | undefined {
 }
 
 export const emptyHearth = (): RtHearthMeta => ({ stock: 0, levels: { owl: 0, herb: 0, smith: 0 }, met: {}, lines: {}, quiet: 0 });
-const presentNpcs = (hearth: RtHearthMeta): RtHearthNpc[] => RT_HEARTH_NPCS.filter(npc => npc === 'owl' || hearth.met[npc as 'herb' | 'smith']);
+/** The NPCs in the camp that give quests (task 51: Шиш and Евлампий join the draw with their quests, 51в–51г; task 51д: not the one away). */
+const presentNpcs = (hearth: RtHearthMeta): RtQuestNpc[] => RT_HEARTH_NPCS.filter((npc): npc is RtQuestNpc => QUEST_NPCS.includes(npc) && (npc === 'owl' || !!hearth.met[npc as RtHearthGuest]) && hearth.away?.npc !== npc);
+const QUEST_NPCS: readonly string[] = Object.values(RT_QUEST_NPC);
 /** The quest the next run gets: one NPC present by the stream `hearth-quest` of the ended run's seed; the owl's by the record. */
 export function rtNextQuest(seed: number, hearth: RtHearthMeta, record: RtDepthRecord | undefined): RtQuest {
   const npcs = presentNpcs(hearth), npc = npcs[mixSeed(mixSeed(seed >>> 0, HEARTH_QUEST_SALT), 0) % npcs.length];
-  const id: RtQuestId = npc === 'herb' ? 'herb-flasks' : npc === 'smith' ? 'smith-sever' : owlQuestId(record);
+  const id: RtQuestId = npc === 'herb' ? 'herb-flasks' : npc === 'smith' ? 'smith-sever' : npc === 'gambler' ? 'gambler-hoard' : npc === 'monk' ? 'monk-cuts' : owlQuestId(record);
   return { npc, id };
 }
 /** The owl's quest by a depth record: at the forest's last row (not a garrison record) «Пройди лес», else «Дальше». Task 38: a record of the garrison has passed the forest — «Дальше». */
@@ -284,7 +362,9 @@ export const rtQuestFor = (quest: RtQuest, record: RtDepthRecord | undefined): R
  * The meta after `run` (a run without a given seed, finished or abandoned): the new `meta` and what the end screen shows. The
  * caller checks the seed and the applied key (`RtProfileStore.endRunMeta`).
  */
-export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState, options: { viewerRun?: number } = {}): { meta: RtMeta; end: RtMetaEnd } {
+export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState, options: { viewerRun?: number; gambler?: boolean; monk?: boolean; away?: boolean } = {}): { meta: RtMeta; end: RtMetaEnd } {
+  // Task 51в: Шиш comes only while his camp is on (`RT_HEARTH_GAMBLER_ON`, or the option); task 51г: Евлампий likewise; task 51д: the leaving.
+  const gambler = options.gambler ?? RT_HEARTH_GAMBLER_ON, monk = options.monk ?? RT_HEARTH_MONK_ON, leaving = options.away ?? RT_HEARTH_AWAY_ON;
   // Task 49: a run that won the Jailer frees Ведунья here too, if the view did not (`rtFreeByJailer`, the camp's fallback).
   const base: RtMeta = structuredClone(previous ?? { heroes: {} }), meta = rtFreeByJailer(base, run, options.viewerRun)?.meta ?? base;
   const heroId = run.heroId ?? RT_HERO_ID, hero: RtHeroMeta = meta.heroes[heroId] ?? { xp: 0, packs: [] };
@@ -296,7 +376,10 @@ export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState, optio
   const questDone = quest ? rtQuestDone(quest, run, hero.record) : false;
   const xp = rtRunXp(run), parts = [...xp.parts];
   if (questDone) parts.push({ id: 'quest', xp: RT_QUEST_XP });
-  const gained = xp.total + (questDone ? RT_QUEST_XP : 0);
+  // Task 51г: the vows kept — +15 each, outside «Испытание»'s factor (after it, before the pack's threshold).
+  const vows = rtVowsOf(run), vowXp = (vows?.filter(v => v.kept).length ?? 0) * RT_XP_VOW;
+  if (vowXp) parts.push({ id: 'vows', xp: vowXp, n: vowXp / RT_XP_VOW });
+  const gained = xp.total + (questDone ? RT_QUEST_XP : 0) + vowXp;
   // At most one pack a run; the rest carried, clipped to the next threshold − 1 (the StS rule).
   const before = hero.xp, index = hero.packs.length;
   let after = before + gained, pack: RtMetaPackView | null = null;
@@ -326,15 +409,40 @@ export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState, optio
   // The carry and the quest's stock (outside the cap).
   const carry = rtCarry(run), stockBefore = hearth.stock;
   hearth.stock = stockBefore + carry.n + (questDone ? RT_QUEST_STOCK : 0);
+  // Task 51: the quest done counts for its NPC (the leaving of 51д reads it).
+  if (quest && questDone) hearth.done = { ...hearth.done, [quest.npc]: (hearth.done?.[quest.npc] ?? 0) + 1 };
+  // Task 51д: the NPC away comes back after one run (met on the road or not); then the one whose quest this run was done leaves — after
+  // its first quest done, then after every second (1, 3, 5 …) — one at a time.
+  const awayRun = hearth.away ? { npc: hearth.away.npc, met: run.hearth?.away === hearth.away.npc && !!run.npcMeet } : undefined;
+  if (awayRun) { delete hearth.away; if (awayRun.met) hearth.met2 = { ...hearth.met2, [awayRun.npc]: (hearth.met2?.[awayRun.npc] ?? 0) + 1 }; }
+  if (leaving && quest && questDone && isRtHearthLeaver(quest.npc) && hearth.met[quest.npc] && (hearth.done![quest.npc] ?? 0) % 2 === 1) hearth.away = { npc: quest.npc };
   // Марфа and Ерофей: met by the run's event choice; else the fallback after RT_HEARTH_FALLBACK_RUNS quiet runs since the first camp.
-  const metNow = rtMetByEvents(run).filter(npc => !hearth.met[npc]);
+  // Task 51в: Шиш — by a game of the goblins' circle (`run.casino.games`).
+  const metNow: RtHearthGuest[] = [...rtMetByEvents(run), ...gambler && (run.casino?.games.length ?? 0) >= 1 ? ['gambler' as const] : [],
+    // Task 51г: Евлампий — by shackles cut in a fight of the run.
+    ...monk && rtRunCuts(run) >= 1 ? ['monk' as const] : []].filter(npc => !hearth.met[npc]);
   for (const npc of metNow) hearth.met[npc] = true;
+  const arrived: { npc: RtHearthGuest; self?: true }[] = metNow.map(npc => ({ npc }));
   if (!firstCamp) {
     hearth.quiet = metNow.length ? 0 : hearth.quiet + 1;
-    const unmet = (['herb', 'smith'] as const).find(npc => !hearth.met[npc]);
-    if (unmet && hearth.quiet >= RT_HEARTH_FALLBACK_RUNS) { hearth.met[unmet] = true; hearth.self = { ...hearth.self, [unmet]: true }; hearth.quiet = 0; }
+    // Task 51в: the fallback queue Марфа → Ерофей → Шиш.
+    const unmet = (['herb', 'smith', ...gambler ? ['gambler' as const] : []] as const).find(npc => !hearth.met[npc]);
+    if (unmet && hearth.quiet >= RT_HEARTH_FALLBACK_RUNS) { hearth.met[unmet] = true; hearth.self = { ...hearth.self, [unmet]: true }; hearth.quiet = 0; arrived.push({ npc: unmet, self: true }); }
   }
-  hearth.last = { won: win, row, beaten, ...rtDeathCause(run) ? { cause: rtDeathCause(run) } : {}, ...quest ? { quest: questDone } : {}, ...win && !oldPassed ? { firstWin: true as const } : {}, ...pack ? { pack: true as const } : {}, ...heroId === RT_TOAD_ID ? { hero: RT_TOAD_ID } : {} };
+  // Task 51г: Евлампий's own queue — the finished runs since the profile's first run into the garrison (this one counts); after
+  // `RT_HEARTH_FALLBACK_RUNS` of them he comes by himself.
+  if (monk && !hearth.met.monk && (hearth.monkQuiet !== undefined || rtRunLevel(run) === 2)) {
+    hearth.monkQuiet = (hearth.monkQuiet ?? 0) + 1;
+    if (hearth.monkQuiet >= RT_HEARTH_FALLBACK_RUNS) { hearth.met.monk = true; hearth.self = { ...hearth.self, monk: true }; arrived.push({ npc: 'monk', self: true }); }
+  }
+  if (hearth.met.monk) delete hearth.monkQuiet;
+  // Task 51в: the last game of the circle (Шиш's lines), only while his camp is on.
+  const lastGame = gambler ? run.casino?.games[run.casino.games.length - 1] : undefined, casino = lastGame ? (rtCasinoResult(lastGame).win ? 'won' as const : 'lost' as const) : undefined;
+  // Task 51г: the shackles cut (Евлампий's lines), only while his camp is on.
+  const cuts = monk ? rtRunCuts(run) : 0;
+  // Task 51: the garrison passed the first time for the profile (no hero's record had `wonLevel` 2 before this run).
+  const firstGarrison = passed === 2 && !RT_HERO_IDS.some(id => previous?.heroes[id]?.record && rtWonLevelOf(previous.heroes[id]!.record!) >= 2);
+  hearth.last = { won: win, row, beaten, ...rtDeathCause(run) ? { cause: rtDeathCause(run) } : {}, ...quest ? { quest: questDone } : {}, ...win && !oldPassed ? { firstWin: true as const } : {}, ...pack ? { pack: true as const } : {}, ...heroId === RT_TOAD_ID ? { hero: RT_TOAD_ID } : {}, ...firstGarrison ? { firstGarrison: true as const } : {}, ...rtRunWonLevel(run) === 2 ? { garrisonWon: true as const } : {}, ...casino ? { casino } : {}, ...cuts ? { cuts } : {}, ...vows ? { vows } : {}, ...awayRun ? { away: awayRun } : {}, ...run.habits ? { habitOffered: true as const } : {}, ...rtKnackShown(run) ? { knackOffered: true as const } : {} };
   hearth.quest = rtNextQuest(run.seed, hearth, record);
   meta.hearth = hearth;
   const end: RtMetaEnd = {
@@ -346,6 +454,7 @@ export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState, optio
     },
     carry, stock: { before: stockBefore, after: hearth.stock },
     ...quest ? { quest: { npc: quest.npc, id: quest.id, done: questDone, xp: questDone ? RT_QUEST_XP : 0, stock: questDone ? RT_QUEST_STOCK : 0 } } : {},
+    ...arrived.length ? { arrived } : {}, ...vows ? { vows: vows.map(v => ({ ...v })) } : {},
   };
   meta.applied = { key: rtRunKey(run), end };
   return { meta, end };
@@ -355,10 +464,18 @@ export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState, optio
 
 export interface RtHearthView {
   stock: number;
+  /** Task 51: every NPC's level (Шиш and Евлампий 0 until bought). */
   levels: Record<RtHearthNpc, RtHearthLevel>;
-  met: { herb: boolean; smith: boolean };
+  met: Record<RtHearthGuest, boolean>;
   /** Came by the fallback path (the view's `first_self` lines). */
-  self: { herb?: true; smith?: true };
+  self: Partial<Record<RtHearthGuest, true>>;
+  /** Task 51 (spec 2.1): level 3 is sold — a hero of the profile passed the forest (`rtHearthGate3`); before it the lock «Дойди до гарнизона». */
+  gate3: boolean;
+  /** Task 51д: the NPC away for the next run (its place shows its trace); the meetings on the road by NPC. */
+  away?: RtHearthLeaver;
+  met2: Partial<Record<RtHearthLeaver, number>>;
+  /** Task 51: the quests done by NPC (absent ones — 0). */
+  done: Partial<Record<RtHearthNpc, number>>;
   /** Bestiary: the enemy kinds the viewer met (the task 26 history, `RtProfile.seen`, kinds only). */
   seen: string[];
   quest?: RtQuest;
@@ -369,16 +486,27 @@ export function rtHearthView(meta: RtMeta | undefined, seen: readonly string[] |
   const hearth = meta?.hearth ?? emptyHearth();
   // Task 49: the quest as the hero `hero` (default — the chosen one) would carry it (`rtQuestFor`).
   return {
-    stock: hearth.stock, levels: { ...hearth.levels }, met: { herb: !!hearth.met.herb, smith: !!hearth.met.smith }, self: { ...hearth.self },
+    stock: hearth.stock, levels: { gambler: 0, monk: 0, ...hearth.levels }, met: { herb: !!hearth.met.herb, smith: !!hearth.met.smith, gambler: !!hearth.met.gambler, monk: !!hearth.met.monk }, self: { ...hearth.self },
+    gate3: rtHearthGate3(meta), done: { ...hearth.done }, ...hearth.away ? { away: hearth.away.npc } : {}, met2: { ...hearth.met2 },
     seen: SCHEDULE_KINDS.filter(kind => seen?.includes(kind)), ...hearth.quest ? { quest: rtQuestFor(hearth.quest, meta?.heroes[hero]?.record) } : {}, ...hearth.last ? { last: { ...hearth.last } } : {}, lines: { ...hearth.lines },
   };
 }
-/** Why a purchase is refused: too little stock (`need`, `have`), the NPC not in the camp, or the level not the next one (or locked). */
-export type RtHearthBuy = { ok: true } | { ok: false; need: number; have: number; reason?: 'absent' | 'level' };
+/**
+ * Task 51 (spec 2.1): level 3 of the camp is sold once a hero of the profile passed the forest (its record's `wonLevel` ≥ 1 — the
+ * moment it first enters the garrison). The camp's upgrades are the profile's, so the gate is too (any hero).
+ */
+export const rtHearthGate3 = (meta: RtMeta | undefined): boolean => RT_HERO_IDS.some(id => !!meta?.heroes[id]?.record && rtWonLevelOf(meta.heroes[id]!.record!) >= 1);
+/**
+ * Why a purchase is refused: too little stock (`need`, `have`), the NPC not in the camp, or the level not the next one. Task 51: `gate` —
+ * level 3 before a hero passed the forest (`rtHearthGate3`); `locked` — a level not sold in stage 3 (Евлампий's 3rd, `RT_HEARTH_LOCKED`).
+ */
+export type RtHearthBuy = { ok: true } | { ok: false; need: number; have: number; reason?: 'absent' | 'level' | 'gate' | 'locked' };
 export function rtHearthBuy(meta: RtMeta | undefined, npc: RtHearthNpc, level: number): { result: RtHearthBuy; meta?: RtMeta } {
   const hearth = meta?.hearth ?? emptyHearth(), price = RT_HEARTH_PRICES[level - 1] ?? 0, have = hearth.stock;
   if (!isRtHearthNpc(npc) || (npc !== 'owl' && !hearth.met[npc])) return { result: { ok: false, need: price, have, reason: 'absent' } };
-  if (!Number.isInteger(level) || level !== hearth.levels[npc] + 1 || level > RT_HEARTH_MAX_LEVEL) return { result: { ok: false, need: price, have, reason: 'level' } };
+  if (!Number.isInteger(level) || level !== (hearth.levels[npc] ?? 0) + 1 || level > RT_HEARTH_MAX_LEVEL) return { result: { ok: false, need: price, have, reason: 'level' } };
+  if (RT_HEARTH_LOCKED[npc] !== undefined && level >= RT_HEARTH_LOCKED[npc]!) return { result: { ok: false, need: price, have, reason: 'locked' } };
+  if (level >= RT_HEARTH_GATED_LEVEL && !rtHearthGate3(meta)) return { result: { ok: false, need: price, have, reason: 'gate' } };
   if (have < price) return { result: { ok: false, need: price, have } };
   const next: RtMeta = structuredClone(meta ?? { heroes: {} });
   next.hearth = { ...structuredClone(hearth), stock: have - price, levels: { ...hearth.levels, [npc]: level as RtHearthLevel } };
@@ -391,6 +519,9 @@ export interface RtHearthStart {
   maps?: number[];
   /** Марфа: 1 kind (level 1 — no choice) or 2 to choose from (level 2); absent — none. */
   items?: ItemKind[];
+  /** Task 51г: Евлампий's vows offered (2 or 3) and how many to take (`vowCount`: 1 or 2); absent — none. */
+  vows?: RtVowId[];
+  vowCount?: number;
   /** The flags of the run (`createRtRun(seed, { locked, hearth })`): the maps offered, Ерофей's rerolls and hammers, the quest. */
   flags: RtHearthFlags;
 }
@@ -406,22 +537,41 @@ export function rtHearthItems(seed: number, count: number): ItemKind[] {
   for (let k = 0; k < count && left.length; k++) out.push(left.splice(mixSeed(mixSeed(seed >>> 0, HEARTH_HERB_SALT), k) % left.length, 1)[0]);
   return out;
 }
+/** Task 51б «Склянка в гарнизон»: the 2 different kinds Марфа's level 3 offers at «Предместье» — the stream `hearth-gate` of the base seed. */
+export function rtHearthGateItems(seed: number): ItemKind[] {
+  const left = [...ITEM_KINDS], out: ItemKind[] = [];
+  for (let k = 0; k < 2 && left.length; k++) out.push(left.splice(mixSeed(mixSeed(seed >>> 0, HEARTH_GATE_SALT), k) % left.length, 1)[0]);
+  return out;
+}
 /** Task 49: `hero` — the hero of the run being started (default — the chosen one): the owl's quest by its record (`rtQuestFor`). */
 export function rtHearthStartOf(meta: RtMeta | undefined, seed: number, hero: RtHeroId = rtHeroChoice(meta)): RtHearthStart {
   const hearth = meta?.hearth;
   if (!hearth) return { flags: {} };
-  const { owl, herb, smith } = hearth.levels;
-  const maps = owl > 0 ? rtHearthMaps(seed, owl + 1) : undefined, items = herb > 0 && hearth.met.herb ? rtHearthItems(seed, herb) : undefined;
+  const { owl, herb, smith, gambler, monk: monkLevel } = hearth.levels;
+  // Task 51: level 3 keeps level 2's service in the forest (3 maps, 2 kinds) and adds its own in the garrison (the flags below).
+  // Task 51д: Марфа away — her consumable by the stream, no choice (the service stays as a «заготовка»).
+  const maps = owl > 0 ? rtHearthMaps(seed, Math.min(owl, 2) + 1) : undefined, items = herb > 0 && hearth.met.herb ? rtHearthItems(seed, hearth.away?.npc === 'herb' ? 1 : Math.min(herb, 2)) : undefined;
   const flags: RtHearthFlags = {
     ...maps ? { maps: maps.length as 2 | 3 } : {}, ...smith >= 1 && hearth.met.smith ? { jailerRerolls: 1 } : {}, ...smith >= 2 && hearth.met.smith ? { hammerAll: true as const } : {},
     ...hearth.quest ? { quest: rtQuestFor(hearth.quest, meta?.heroes[hero]?.record) } : {},
+    // Task 51б (spec 2.2): «Путь в гарнизон», «Склянка в гарнизон» (2 kinds by the stream `hearth-gate`), «Правка в гарнизоне».
+    ...owl >= 3 ? { garrisonMaps: 2 as const } : {}, ...herb >= 3 && hearth.met.herb ? { gateItems: rtHearthGateItems(seed) } : {},
+    ...smith >= 3 && hearth.met.smith ? { garrisonRerolls: 1 } : {},
+    // Task 51в: Шиш — «Шишова лавка» (1), «Лавка в гарнизоне» (2), «Размен».
+    ...(gambler ?? 0) >= 1 && hearth.met.gambler ? { shopRerolls: ((gambler ?? 0) >= 3 ? 2 : 1) as 1 | 2 } : {}, ...(gambler ?? 0) >= 2 && hearth.met.gambler ? { swap: true as const } : {},
+    // Task 51д: the NPC away — it waits on the road (the first rest of its zone).
+    ...hearth.away ? { away: hearth.away.npc } : {},
   };
-  return { ...maps ? { maps } : {}, ...items ? { items } : {}, flags };
+  // Task 51г: Евлампий's vows — 2 to take 1 of (level 1) or 3 to take 2 of (level 2); the choice goes into the flags (`rtHearthFlagsWith`).
+  const vows = (monkLevel ?? 0) >= 1 && hearth.met.monk ? rtHearthVows(seed, (monkLevel ?? 0) >= 2 ? 3 : 2) : undefined;
+  return { ...maps ? { maps } : {}, ...items ? { items } : {}, ...vows ? { vows, vowCount: vows.length - 1 } : {}, flags };
 }
 /** The run's flags with the chosen start consumable (`item`; one kind offered — that one). */
-export function rtHearthFlagsWith(start: RtHearthStart, item?: ItemKind): RtHearthFlags {
+export function rtHearthFlagsWith(start: RtHearthStart, item?: ItemKind, vows: readonly RtVowId[] = []): RtHearthFlags {
   const chosen = item && start.items?.includes(item) ? item : start.items?.length === 1 ? start.items[0] : undefined;
-  return { ...start.flags, ...chosen ? { startItems: [chosen] } : {} };
+  // Task 51г: the vows taken — of those offered, different, at most `vowCount` (fewer, or none, is a choice too).
+  const taken = [...new Set(vows)].filter(id => start.vows?.includes(id)).slice(0, start.vowCount ?? 0);
+  return { ...start.flags, ...chosen ? { startItems: [chosen] } : {}, ...taken.length ? { vows: taken } : {} };
 }
 
 /** The items still locked for a new run of the hero (`createRtRun(seed, { locked })`). Task 49: every hero its own packs (Ведунья — all 15 at first). */
@@ -512,11 +662,34 @@ export function rtHeroViews(meta: RtMeta | undefined): RtHeroView[] {
 
 const isCount = (value: unknown): value is number => typeof value === 'number' && Number.isInteger(value) && value >= 0;
 const isPlain = (value: unknown): value is Record<string, unknown> => !!value && typeof value === 'object' && !Array.isArray(value);
-const level = (value: unknown): RtHearthLevel => (value === 1 || value === 2 ? value : 0);
+// Task 51: level 3 is a stored level too.
+const level = (value: unknown): RtHearthLevel => (value === 1 || value === 2 || value === 3 ? value : 0);
+/** Task 51: the stored quests done by NPC — positive counts of known NPCs; none — undefined. */
+function doneOf(value: unknown): Partial<Record<RtHearthNpc, number>> | undefined {
+  if (!isPlain(value)) return undefined;
+  const out = Object.fromEntries(RT_HEARTH_NPCS.flatMap(npc => (isCount(value[npc]) && (value[npc] as number) > 0 ? [[npc, value[npc] as number]] : [])));
+  return Object.keys(out).length ? out : undefined;
+}
+/** Task 51: the guests' flags (`met`, `self`) — `true` kept for a known NPC, in `RT_HEARTH_NPCS` order (v1's two first, as before). */
+const guests = (value: Record<string, unknown>): Partial<Record<RtHearthGuest, true>> =>
+  Object.fromEntries(RT_HEARTH_NPCS.filter(npc => npc !== 'owl' && value[npc] === true).map(npc => [npc, true])) as Partial<Record<RtHearthGuest, true>>;
 /** A stored `last` (task 49: `hero` kept only as `toad`; a `last` without it — as stored, byte for byte). */
 function lastOf(value: Record<string, unknown>): RtHearthLast {
-  const last = structuredClone(value) as unknown as RtHearthLast & { hero?: unknown };
+  const last = structuredClone(value) as unknown as RtHearthLast & { hero?: unknown; casino?: unknown };
   if (last.hero !== undefined && last.hero !== RT_TOAD_ID) delete last.hero;
+  // Task 51: `firstGarrison`, `garrisonWon` — only `true`.
+  if ((last as { firstGarrison?: unknown }).firstGarrison !== undefined && (last as { firstGarrison?: unknown }).firstGarrison !== true) delete last.firstGarrison;
+  if ((last as { garrisonWon?: unknown }).garrisonWon !== undefined && (last as { garrisonWon?: unknown }).garrisonWon !== true) delete last.garrisonWon;
+  // Task 50 §18: `habitOffered`, `knackOffered` — only `true`.
+  if ((last as { habitOffered?: unknown }).habitOffered !== undefined && (last as { habitOffered?: unknown }).habitOffered !== true) delete last.habitOffered;
+  if ((last as { knackOffered?: unknown }).knackOffered !== undefined && (last as { knackOffered?: unknown }).knackOffered !== true) delete last.knackOffered;
+  // Task 51в: `casino` only `won` / `lost`.
+  if (last.casino !== undefined && last.casino !== 'won' && last.casino !== 'lost') delete last.casino;
+  // Task 51г: `cuts` a whole number from 1; `vows` known ids with a boolean.
+  if (last.cuts !== undefined && !(isCount(last.cuts) && last.cuts >= 1)) delete last.cuts;
+  if (last.vows !== undefined && !(Array.isArray(last.vows) && last.vows.every(v => isPlain(v) && RT_VOW_IDS.includes(v.id as RtVowId) && typeof v.kept === 'boolean'))) delete last.vows;
+  // Task 51д: `away` — a leaver and a boolean.
+  if (last.away !== undefined && !(isPlain(last.away) && isRtHearthLeaver(last.away.npc) && typeof last.away.met === 'boolean')) delete last.away;
   return last;
 }
 /** A stored `meta` as the profile reads it (anything malformed falls back to its empty part; absent — undefined). */
@@ -542,16 +715,29 @@ export function parseRtMeta(value: unknown): RtMeta | undefined {
   const h = value.hearth;
   const hearth: RtHearthMeta | undefined = isPlain(h) ? {
     stock: isCount(h.stock) ? h.stock : 0,
-    levels: { owl: level(isPlain(h.levels) ? h.levels.owl : 0), herb: level(isPlain(h.levels) ? h.levels.herb : 0), smith: level(isPlain(h.levels) ? h.levels.smith : 0) },
-    met: { ...isPlain(h.met) && h.met.herb === true ? { herb: true as const } : {}, ...isPlain(h.met) && h.met.smith === true ? { smith: true as const } : {} },
-    ...isPlain(h.self) ? { self: { ...h.self.herb === true ? { herb: true as const } : {}, ...h.self.smith === true ? { smith: true as const } : {} } } : {},
+    // Task 51: Шиш's and Евлампий's levels only when above 0 (absent — 0, as a profile before it).
+    levels: { owl: level(isPlain(h.levels) ? h.levels.owl : 0), herb: level(isPlain(h.levels) ? h.levels.herb : 0), smith: level(isPlain(h.levels) ? h.levels.smith : 0),
+      ...Object.fromEntries(RT_HEARTH_NPCS_L3.flatMap(npc => { const v = level(isPlain(h.levels) ? h.levels[npc] : 0); return v ? [[npc, v]] : []; })) },
+    met: isPlain(h.met) ? guests(h.met) : {},
+    ...isPlain(h.self) ? { self: guests(h.self) } : {},
     lines: isPlain(h.lines) ? Object.fromEntries(Object.entries(h.lines).filter(([, n]) => isCount(n))) as Record<string, number> : {},
     ...isRtQuest(h.quest) ? { quest: { npc: h.quest.npc, id: h.quest.id } } : {},
     quiet: isCount(h.quiet) ? h.quiet : 0,
+    // Task 51г: Евлампий's fallback count.
+    ...isCount(h.monkQuiet) ? { monkQuiet: h.monkQuiet } : {},
+    // Task 51д: the NPC away, the meetings (positive counts of the leavers).
+    ...isPlain(h.away) && isRtHearthLeaver(h.away.npc) ? { away: { npc: h.away.npc } } : {},
+    ...isPlain(h.met2) && Object.keys(h.met2).some(k => isRtHearthLeaver(k) && isCount((h.met2 as Record<string, unknown>)[k]) && ((h.met2 as Record<string, number>)[k]) > 0)
+      ? { met2: Object.fromEntries(Object.entries(h.met2 as Record<string, unknown>).filter(([k, n]) => isRtHearthLeaver(k) && isCount(n) && n > 0)) as Partial<Record<RtHearthLeaver, number>> } : {},
+    // Task 51: the quests done by NPC (positive counts of known NPCs; none — absent).
+    ...doneOf(h.done) ? { done: doneOf(h.done)! } : {},
     // Task 49: `last.hero` only `toad`; anything else is dropped (the cat's run, as a `last` without the field).
     ...isPlain(h.last) ? { last: lastOf(h.last) } : {},
   } : undefined;
   const offered = Array.isArray(value.offered) ? [...new Set(value.offered.filter((id): id is string => typeof id === 'string'))] : undefined;
   const applied = isPlain(value.applied) && typeof value.applied.key === 'string' && isPlain(value.applied.end) ? { key: value.applied.key, end: structuredClone(value.applied.end) as unknown as RtMetaEnd } : undefined;
-  return { heroes, ...hero ? { hero } : {}, ...freed ? { freed } : {}, ...hearth ? { hearth } : {}, ...offered ? { offered } : {}, ...applied ? { applied } : {} };
+  // Task 51ж: the warmup records — only valid ones (`isWarmupBest`); none — absent (a profile before it reads as stored).
+  const warmupEntries = isPlain(value.warmup) ? Object.entries(value.warmup).filter(([id, record]) => isWarmupBest(id, record)) : [];
+  const warmup = warmupEntries.length ? Object.fromEntries(warmupEntries.map(([id, record]) => [id, { best: (record as { best: number }).best }])) as WarmupRecords : undefined;
+  return { heroes, ...hero ? { hero } : {}, ...freed ? { freed } : {}, ...hearth ? { hearth } : {}, ...offered ? { offered } : {}, ...applied ? { applied } : {}, ...warmup ? { warmup } : {} };
 }

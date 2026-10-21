@@ -113,7 +113,15 @@ export function bagKill(world: World): void {
  */
 export function bagHurt(world: World, lost: number): void {
   const bag = world.bag;
-  if (!bag || lost <= 0 || bag.step >= BAG_STEPS) return;
+  if (!bag || lost <= 0) return;
+  // Task 56 «Урожай» (`Params.bagResetAll`): every step goes, the filled ones too (nothing to take — no progress at all).
+  if (world.params.bagResetAll) {
+    if (bag.kills <= 0) return;
+    bag.kills = 0; bag.step = 0; bag.resets++;
+    world.events.push({ type: 'bag', action: 'reset', step: 0 });
+    return;
+  }
+  if (bag.step >= BAG_STEPS) return;
   const start = bag.step > 0 ? bagThresholds(world)[bag.step - 1] : 0;
   if (bag.kills <= start) return;
   bag.kills = start;

@@ -163,6 +163,11 @@ export interface Loadout {
    * closed chain) at the end of `talismans`. Absent — the cat: the kit of before.
    */
   hero?: LoadoutHero;
+  /**
+   * Task 56 «Приметы» (run/omens.ts): the ids of the fight's omens (its level's, then its node's) — for the logs and the telemetry only;
+   * the run puts their rules into the fight's values (`rtArenaParams`). Not in the kit: the world hashes as before.
+   */
+  omens?: string[];
 }
 
 /**

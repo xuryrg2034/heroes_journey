@@ -46,6 +46,7 @@ import { SLICE_EVENTS, sliceCosts, sliceOptionGap } from './sliceEvents';
 import { ENERGY_MAX } from '../sim/chain';
 import { EVENT_EXTRA_ENEMIES, EVENT_PACE_FACTOR, ITEM_TITLES } from '../sim/kit';
 import type { Loadout } from '../sim/kit';
+import type { WorldEvent } from '../sim/world';
 // Phase B, track Д4: the sources — the Jailer's hammer, the real-time draws of the gift and events.
 import { addLuck, countLuck, rtLuckLines, validLuckTally, RT_FIGHT_LUCK_KEYS, type RtEventLuck, type RtLuckLine, type RtLuckTally } from './rtLuck';
 import { HAMMER_SALT, isHammerId, rtEventTalismanOffer, rtHammerOffer, rtTalismanDraw, rtTalismanLeft, type HammerId } from './rtTalismans';
@@ -62,10 +63,12 @@ import { validDeath, type RtDeath } from './rtRunEnd';
 // Task 16 «Подвиги»: the feat kinds of the simulation (sim/feat.ts).
 import { FEAT_KINDS, isFeatKind, type FeatKind } from '../sim/feat';
 // Tasks 36–37 «Мета» and «Очаг»: the meta catalogue (a leaf module: the packs' ids, the camp's quests).
-import { isRtLockable, isRtQuest, RT_HERO_ID, RT_TOAD_ID, type RtHeroId, type RtQuest } from './metaCatalog';
+import { HEARTH_GMAPS_SALT, HEARTH_SHOP_SALT, isRtHearthLeaver, isRtLockable, isRtVow, NPC_MEET_SALT, RT_MEET_ZONES, type RtHearthLeaver, type RtVowId, isRtQuest, metaSalt, RT_HERO_ID, RT_TOAD_ID, type RtHeroId, type RtQuest } from './metaCatalog';
 // Task 49 «Второй герой»: the hero's innate items (sim/buildIds.ts; the fight's `Loadout.hero` gives them to the kit).
 import { HERO_INNATE } from '../sim/buildIds';
 import { HAMMER_IDS, RT_HAMMER_OFFER_SIZE } from './rtTalismans';
+// Task 56 «Приметы»: the catalogue, the rolls and the fight's values of the omens (a leaf of the run).
+import { isRtOmenPool, rtFairItem, rtLevelOmenRoll, rtNodeOmenPick, rtOmen, rtOmenColors, rtOmenParams, RT_OMEN_FAIR_HEAL, RT_OMEN_IDS, RT_OMEN_NODE_ROW, type RtFightOmens, type RtOmenId, type RtOmenLevel, type RtOmens } from './omens';
 // Task 38 «Гарнизон, шаг 1»: the garrison level after the forest (run/garrison.ts; the flow — section «Task 38» below).
 import { garrisonArena, garrisonBolts, garrisonCombinedMap, garrisonDeep, garrisonKit, garrisonKnights, garrisonRelicOffer, garrisonSeed, GARRISON_RELIC_SLOTS, generateGarrisonMap, GARRISON_RUN_ARENAS, RT_GARRISON_MOAT_ON, RT_GARRISON_ON, RT_GARRISON_STEP2_ON, rtGarrisonNodeId } from './garrison';
 
@@ -248,21 +251,33 @@ export function rtArenaParams(run: RtArenaRules | RtRunState, params: Params): P
     out.invulnerability = rtRowGrace(rules.gentleRow);
     if (rules.gentleRow < RT_GENTLE_TOUGH_TOUCH_ROW) out.toughTouch = false;
   }
+  // Task 56 «Приметы» (spec 5.1): over the run's values — the level's omen, then the node's («Испытание» and the build act in the fight,
+  // over these: the loadout and the kit). No omen — the values as before.
+  for (const id of rules.omens ?? []) rtOmenParams(id, out);
   return out;
 }
 /**
  * Task 17: what of the run decides the params of its open battle (`rtArenaParams`): the flag `markedGoals` and, for a run
  * with `gentleEntry`, the run row of the open battle node (`gentleRow`; absent — an older run, or no battle open).
  */
-export interface RtArenaRules { markedGoals?: true; gentleRow?: number; shortFuse?: true; forms?: true; potionCap?: number; forestShooters?: true }
+export interface RtArenaRules {
+  markedGoals?: true; gentleRow?: number; shortFuse?: true; forms?: true; potionCap?: number;
+  /** Task 56 «Приметы»: the fight omens of the open battle — its level's, then its node's (`rtFightOmens`; absent — none). */
+  omens?: RtOmenId[];
+  /** Task 57а «Лес: стрелки»: a forest fight of a run with `forestShooters` plays the new shooters' rules (`RT_FOREST_SHOOTERS_PARAMS`). */
+  forestShooters?: true;
+}
 export function rtArenaRules(run: RtRunState): RtArenaRules {
   const pending = run.pending, node = pending?.kind === 'battle' ? rtNode(run, pending.nodeId) : undefined;
   // Task 38: a garrison fight has no gentle row (the invulnerability 0.5 s and the tough touch from its row 1).
   const gentle = run.gentleEntry && node && !rtGarrisonNodeId(node.id);
   // Task 57а: the new shooters are the forest's — a garrison fight keeps its values.
   const shooters = run.forestShooters && !(node && rtGarrisonNodeId(node.id));
-  return { ...run.markedGoals ? { markedGoals: true as const } : {}, ...gentle ? { gentleRow: runRow(node.row) } : {}, ...run.shortFuse ? { shortFuse: true as const } : {}, ...run.forms ? { forms: true as const } : {}, ...run.potionCap ? { potionCap: run.potionCap } : {}, ...shooters ? { forestShooters: true as const } : {} };
+  const omens = pending?.kind === 'battle' ? fightOmenList(pending.omens) : [];
+  return { ...run.markedGoals ? { markedGoals: true as const } : {}, ...gentle ? { gentleRow: runRow(node.row) } : {}, ...run.shortFuse ? { shortFuse: true as const } : {}, ...run.forms ? { forms: true as const } : {}, ...run.potionCap ? { potionCap: run.potionCap } : {}, ...omens.length ? { omens } : {}, ...shooters ? { forestShooters: true as const } : {} };
 }
+/** Task 56: the omens of a fight in the order they act (spec 5.1): the level's, then the node's. */
+const fightOmenList = (omens: RtFightOmens | undefined): RtOmenId[] => (omens ? [...omens.level ? [omens.level] : [], ...omens.node ? [omens.node] : []] : []);
 /**
  * Task 30: the rules a fight of a run with the flag `forms` plays over `RUN_FORCED` (design 15.10.2026): the counters' window —
  * one chain (`counterWindow`, «Острие», «Улов»), «Близнецы» with their price (`twinsAlternate`, `twinsNoShift`, task 33), the
@@ -441,6 +456,8 @@ export type RtRunPending =
     oathOffer?: OathId[]; oath?: OathId;
     /** Task 16 «Подвиги»: the node's feat, fixed when the battle opened (`rtFeatOf`; absent — none, or a run without `feats`). */
     feat?: RtFeat;
+    /** Task 56 «Приметы»: the omens the fight plays (`rtFightOmens`, the card = the fight; absent — none). */
+    omens?: RtFightOmens;
   }
   /** A rest: heal, or craft (`crafted` — the consumables made here so far; non-empty — the heal is gone). */
   | { kind: 'rest'; nodeId: string; crafted: ItemKind[] }
@@ -449,7 +466,11 @@ export type RtRunPending =
   /** The entered event: `draw` — the index of the `events` draw it took on entering; `attempts` — escalation outcomes so far. */
   | { kind: 'event'; nodeId: string; draw: number; attempts?: number[] }
   /** The merchant: the stock rolled on entering and what was bought at this visit (in order). */
-  | { kind: 'shop'; nodeId: string; stock: RtShopStock; bought: RtShopPurchase[] }
+  | {
+    kind: 'shop'; nodeId: string; stock: RtShopStock; bought: RtShopPurchase[]; /** Task 51в «Шишова лавка»: the goods of this visit were drawn again (`rtShopReroll`). */ rerolled?: true;
+    /** Task 56 «Ярмарочный день»: the omen's free reroll was spent at this visit; `rerolls` 2 — it and Шиш's both (absent — one). */
+    fairRerolled?: true; rerolls?: 2;
+  }
   /** The start gift waits for its choice (before the row-5 nodes). */
   | { kind: 'gift' }
   /**
@@ -546,6 +567,10 @@ export interface RtBattleRecord {
   severed?: true;
   /** Task 48: the Troll's parts severed in this fight (1–3; only a fight on the Troll's arena of a run with `troll`). Absent — none. */
   parts?: number;
+  /** Task 51г: the keymaster's shackles the dash cut in this fight (from the outcome's `cuts`, a lost fight's too). Absent — none. */
+  cuts?: number;
+  /** Task 56 «Приметы»: the omens the fight played (its node's and its level's). Absent — none. */
+  omens?: RtFightOmens;
 }
 /**
  * The arena (or event) a node got when entered. `roster` (phase A, Т2): the arena's roster (sim/rosters.ts); absent — the
@@ -565,6 +590,12 @@ export interface RtRunState {
   seed: number;
   /** The run was started with a given seed (`?seed=`): the gift is the full one and the profile's gift mark is not changed. */
   seeded?: true;
+  /**
+   * Task 51з «Поход дня» (docs/design-notes/task-51-camp-l3.md, 6.2): the local date `ГГГГ-ММ-ДД` of the run of the day — its seed is the
+   * date's (`rtDailySeed`), its flags the preset's (run/rtDaily.ts `RT_DAILY_PRESET`), it is `seeded` (the meta does not change). Absent —
+   * an ordinary run.
+   */
+  daily?: string;
   /**
    * The roster mix (design decision 11.10.2026, `Params.rosterMix`; run/arenaPools.ts `MIXED_ROSTER_ARENAS`, `ARENA_POOLS`):
    * «Застава» and «Брод» take a pool roster in about half of their fights, «Логово» stands on run rows 6–8. Set when the run
@@ -663,6 +694,29 @@ export interface RtRunState {
   /** Task 37 «Правка»: the free rerolls of the Jailer's screens spent (≤ `hearth.jailerRerolls`); absent until the first. */
   jailerRerolled?: number;
   /**
+   * Task 51б «Путь в гарнизон» (`hearth.garrisonMaps`): the garrison map chosen at «Предместье» — 0 the base one (`garrisonSeed`), 1
+   * the second (`rtGarrisonMaps`); it gives the garrison's seed (`rtGarrisonSeed`). Absent — a run without the flag, or not entered yet.
+   */
+  garrisonMap?: 0 | 1;
+  /** Task 51б «Склянка в гарнизон» (`hearth.gateItems`): the consumable taken at «Предместье»; absent — none taken (or no flag). */
+  gateItem?: ItemKind;
+  /** Task 51б «Правка в гарнизоне»: the free rerolls of the garrison's reward screens spent (≤ `hearth.garrisonRerolls`); absent until the first. */
+  garrisonRerolled?: number;
+  /**
+   * Task 51в (Шиш, spec 3.2): `shopRerolled` — «Шишова лавка» spent (a forest merchant's goods drawn again, once a run);
+   * `garrisonShopRerolled` — «Лавка в гарнизоне» spent (a garrison merchant's); `swapped` — «Размен» spent (once a run). Absent until then.
+   */
+  shopRerolled?: true;
+  garrisonShopRerolled?: true;
+  swapped?: true;
+  /** Task 51г «Без переброса»: a run with that vow rerolled something (a screen, the hammers, the merchant's goods); absent — not. */
+  vowRerolled?: true;
+  /**
+   * Task 51д «Встреча на привале» (spec 3.4): the NPC away (`hearth.away`) met at the first rest of its zone — that rest's node and the
+   * deal made there (absent — none yet). Absent — not met (yet).
+   */
+  npcMeet?: { nodeId: string; deal?: string };
+  /**
    * Task 30 «Формы в походе» (design 15.10.2026; docs/realtime-slice.md, section 8): the run's forms — the first Jailer's screen
    * offers forms (`RT_FORMS`) instead of the hammers, «Застава» a form of the other field in its rare place, the common pool
    * holds «Близнецы» (`RT_OPENERS`), one form per field (a new one replaces the old), the fights play the counters' chain window
@@ -726,6 +780,14 @@ export interface RtRunState {
    */
   step2?: true;
   /**
+   * Task 51 (design 17.10.2026, task-51 spec section 17, one rule for every relic screen): the relic screens fill their empty places — the
+   * forest final's relic (1 of 3, the Troll's 1 of 4) and «Караульня»'s oath and relic screen, whose relics and oaths the Jailer's screen and
+   * the screens before spend (since task 38 the final showed 1–2 of 3, «Караульня» 0–1) — with a rare talisman each by the same draw
+   * (`rtFillRares`; the Jailer's screen is not touched). Set when a run with the garrison is created (`RT_RELIC_FILL_ON`); absent — a run saved
+   * before it: the screens of before, to its end (the Troll's 1 of 4 filled as before).
+   */
+  relicFill?: true;
+  /**
    * Task 57а «Лес: стрелки» (design 17.10.2026, docs/design-notes/task-57-forest-enemies.md, 10): the run's forest fights play the
    * rules of the new shooters (`RT_FOREST_SHOOTERS_PARAMS` in `rtArenaParams`: the arena's shooters' timer, the dash and the bomb put
    * out the light shots); the forest's arcs and pools of «Пращник», «Улей», «Светляк» come with it (level design). Set when the run is
@@ -746,6 +808,16 @@ export interface RtRunState {
    * the cart (`moat` and the camp); absent — no cart (every run without the camp, byte for byte as before).
    */
   cart?: { n: number; before: number };
+  /**
+   * Task 56 «Приметы» (run/omens.ts; spec docs/design-notes/task-56-omens.md, 9.1): the pool's snapshot at the creation and the levels'
+   * omens (a level's — from its start: the forest's at the creation, the garrison's on entering it). Only in a run with the omens (lane A
+   * merge note: an optional field of the same version 7) — absent: a run without them saves byte for byte as before.
+   */
+  omens?: RtOmens;
+  /** Task 56 «Перепутье»: the steps off the map's links taken under the level's omen. Absent until the first. */
+  crossroadsFree?: number;
+  /** Task 56 «Ярмарочный день»: the merchants (by node) whose free reroll of the omen was spent (each 1). Absent until the first. */
+  fairRerolls?: Record<string, number>;
   /** The map, kept whole: a later tuning of the generator never changes a run in progress. */
   map: GeneratedForestMap;
   /** Draws made by each long stream of the run (runStreams.ts): arenas (`pool`), events, merchant, gift. */
@@ -869,6 +941,12 @@ export type RtRunEvent =
   | { type: 'event-attempt'; nodeId: string; option: string; attempt: number; outcome: number; text: string }
   | { type: 'event-resolved'; nodeId: string; option: string; outcome: number; text: string }
   | { type: 'shop-bought'; nodeId: string; purchase: RtShopPurchase }
+  /** Task 51д: the NPC away met at this rest; the deal made with it. */
+  | { type: 'npc-met'; nodeId: string; npc: RtHearthLeaver }
+  | { type: 'npc-deal'; nodeId: string; npc: RtHearthLeaver; deal: string }
+  /** Task 51в: Шиш's «Шишова лавка» drew the goods again; «Размен» changed 3 of `from` for 2 of `to`. */
+  | { type: 'shop-rerolled'; nodeId: string; stock: RtShopStock }
+  | { type: 'shop-swapped'; nodeId: string; from: ResourceKind; to: ResourceKind }
   /**
    * Task 15 «Лечение на карте»: a heal bought for `price` resources (`paid` by kind), HP `hpBefore` → `hpAfter`; `nodeId` — the
    * battle card's node when bought there, else the last completed node (null — none yet); `row` — its run row (0 — none).
@@ -959,6 +1037,11 @@ export interface RtArenaOutcome {
    * keeps it only on the Troll's arena: a won fight with all three offers its relic 1 of 4 (`rtLevelSlots`).
    */
   parts?: number;
+  /**
+   * Task 51г (Евлампий): the shackles of the keymaster the dash cut in this fight (`tether` events `cut` of kind `shackle`, the count of
+   * the telemetry's `shackleCuts`); absent — none, or not read.
+   */
+  cuts?: number;
   /** Iteration 2.1 (interface): consumables used on this arena, and whether its start showed the item hint. */
   itemsUsed?: number;
   itemHint?: boolean;
@@ -974,6 +1057,17 @@ export interface RtArenaOutcome {
   doorDie?: boolean;
 }
 
+// ---------- Task 51з «Поход дня»: the date's seed (the rest — run/rtDaily.ts) ----------
+
+/** A local date `ГГГГ-ММ-ДД` (a real calendar day). */
+export function isRtDailyDate(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [y, m, d] = value.split('-').map(Number), days = [31, y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0) ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return y >= 2000 && m >= 1 && m <= 12 && d >= 1 && d <= days[m - 1];
+}
+/** Task 51з (design 6.2): the seed of the run of the day — `mixSeed(metaSalt('daily'), metaSalt(date))`. One date — one seed for everyone. */
+export const rtDailySeed = (date: string): number => mixSeed(metaSalt('daily'), metaSalt(date)) >>> 0;
+
 // ---------- Creating a run, the map ----------
 
 /**
@@ -981,7 +1075,7 @@ export interface RtArenaOutcome {
  * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
  * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
  */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; troll?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; potionCap?: number; knacks?: boolean; habits?: boolean; hero?: RtHeroId; forestShooters?: boolean } = {}): RtRunState {
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; schedule?: readonly string[]; jailer?: boolean; troll?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; relicFill?: boolean; potionCap?: number; knacks?: boolean; habits?: boolean; hero?: RtHeroId; omens?: readonly string[]; daily?: string; forestShooters?: boolean } = {}): RtRunState {
   const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
   // Task 12 (13.10.2026): the goal layouts of the `marked` arenas, as the mix — on as `RT_RUN_FORCED` says unless the option says.
   const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
@@ -1020,19 +1114,27 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   // Task 43 «Гарнизон, шаг 2» (16.10.2026): «Ристалище», «Бойницы», knights and crossbowmen — only with «Ров», by `RT_GARRISON_STEP2_ON`
   // unless the option says.
   const step2 = moat && (options.step2 ?? RT_GARRISON_STEP2_ON);
+  // Task 51 (design 17.10.2026): the relic screens filled — its own flag, only with the garrison (the relic screens are its).
+  const relicFill = garrison && (options.relicFill ?? RT_RELIC_FILL_ON);
   // Task 57а «Лес: стрелки» (17.10.2026): the new shooters of the forest, by `RT_FOREST_SHOOTERS_ON` unless the option says.
   const forestShooters = options.forestShooters ?? RT_FOREST_SHOOTERS_ON;
   // Task 41 «Три зелья» (16.10.2026): the cap of healing potions, `RT_POTION_CAP` unless the option says (0 — none, as a save before it).
   const potionCap = Math.max(0, Math.floor(options.potionCap ?? RT_POTION_CAP));
   // Task 49: Ведунья's run keeps her id (with or without the meta); the cat's — `cat` with the meta's snapshot only, as before.
   const heroId: RtHeroId | undefined = options.hero === RT_TOAD_ID ? RT_TOAD_ID : locked ? RT_HERO_ID : undefined;
+  // Task 56 «Приметы»: the pool the profile opened (spec 7.2: a snapshot, the catalogue's order); none given or empty — a run without omens.
+  const pool = options.omens ? RT_OMEN_IDS.filter(id => options.omens!.includes(id)) : [];
   const run: RtRunState = {
-    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked } : {}, ...heroId ? { heroId } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...potionCap ? { potionCap } : {}, ...forestShooters ? { forestShooters: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {},
+    // Task 51з: the run of the day (only seeded, its seed the date's; run/rtDaily.ts `createRtDailyRun`).
+    ...options.seeded && isRtDailyDate(options.daily) && (seed >>> 0) === rtDailySeed(options.daily) ? { daily: options.daily } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked } : {}, ...heroId ? { heroId } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...relicFill ? { relicFill: true as const } : {}, ...potionCap ? { potionCap } : {}, ...pool.length ? { omens: { pool } } : {}, ...forestShooters ? { forestShooters: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
   // Task 17, P3: a healing potion in hand, its kind open (the prologue's «Зелье» taught it); no draw of any stream.
   if (potion) { run.items.healing = RT_START_POTIONS; run.openItems.push('healing'); }
+  // Task 56: the forest's omen is rolled now (spec 4.1: the level starts with the run).
+  startLevelOmen(run, 1);
   // Task 37 «Склянка в дорогу»: the camp's start consumable joins the run and opens (no draw of any run stream).
   if (hearth?.startItems) gainItems(run, hearth.startItems, []);
   if (options.gift) {
@@ -1234,14 +1336,24 @@ export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}):
     const step2 = run.step2 ? { knights: garrisonKnights(pending.arena, node.type, runRow(node.row), before), bolts: garrisonBolts(pending.arena, runRow(node.row), before) } : undefined;
     garrisonKit(kit, node, pending.battle, !!run.moat && garrisonDeep(pending.arena, runRow(node.row), before), step2);
     // Task 45 «Испытание VIII»: the garrison plays the fifth colour too (`garrisonKit` drops the panel's palette by the row).
-    return { ...kit, ...rtAshSkill(ash, pending.battle) };
+    return withOmens({ ...kit, ...rtAshSkill(ash, pending.battle) }, pending);
   }
   // Task 26 «Расписание леса»: a scheduled run's fight takes the schedule's elite and enemy rules (it replaces Е2 and the final's rule).
   if (run.schedule && node && pending?.kind === 'battle') {
     const pick = run.picks.find(entry => entry.nodeId === node.id);
     scheduleKit(kit, run, node, pending.battle, { arena: pending.arena, ...pending.roster !== undefined ? { roster: pending.roster } : {}, ...pick?.arc !== undefined ? { arc: pick.arc } : {} }, rtScheduleMet(run), pending.seed);
   }
-  return kit;
+  return withOmens(kit, pending);
+}
+/**
+ * Task 56 «Приметы»: the open battle's omens in its loadout — their ids (`Loadout.omens`: logs and telemetry; not in the kit, no hash)
+ * and «Скудные краски»'s palette less one (after «Испытание VIII»'s fifth colour: 5 → 4). No omen — the loadout as it is.
+ */
+function withOmens(kit: Loadout, pending: RtRunPending | null): Loadout {
+  const omens = pending?.kind === 'battle' ? fightOmenList(pending.omens) : [];
+  if (!omens.length) return kit;
+  const colors = rtOmenColors(omens, kit.colors);
+  return { ...kit, ...colors !== undefined ? { colors } : {}, omens };
 }
 
 /**
@@ -1721,7 +1833,11 @@ function drawTalismanOffer(run: RtRunState, nodeId: string, source: RtTalismanSo
   // Task 38: the forest final's reward — a relic 1 of 3.
   // Task 48: the Troll's three parts severed in the won final — 1 of 4 (the first three are those of 3).
   if (source === 'level') return levelOffer(run, nodeId, base, pool);
-  if (source === 'oath') return rtTalismanOffer(base, source, pool, rtOathSlots(run, nodeId));
+  if (source === 'oath') {
+    const options = rtTalismanOffer(base, source, pool, rtOathSlots(run, nodeId));
+    // Task 51: «Караульня» of a run with the flag — the places the oaths and relics left empty take a rare talisman each (the same draw).
+    return run.relicFill && rtGarrisonNodeId(nodeId) ? rtFillRares(options, rtOathSlots(run, nodeId), base, pool) : options;
+  }
   if (source === 'hard') {
     // Task 30: the rare place of «Застава» holds a form of the other field (`rtFormSlotField`) — by the node's form roll over the
     // forms of that field not shown on this screen; the other places are the offer's own (the same `talismans` draw).
@@ -1758,14 +1874,30 @@ export function rtRerollView(run: RtRunState): RtRerollView | null {
   const pending = run.pending;
   // Task 37 «Правка»: the Jailer's oath and relic screen rerolls while the camp's free rerolls last (`rtJailerRerollsLeft`).
   // Task 30: the Jailer's form screen (instead of the hammer screen) rerolls the same way.
-  const free = pending?.kind === 'talisman' && (pending.source === 'oath' || pending.source === 'form') && rtJailerRerollsLeft(run) > 0;
+  // Task 51б «Правка в гарнизоне»: on a garrison node every screen that rerolls («Застава», the breakthrough, an event's reward, the chest,
+  // the feat, «Караульня»'s oath screen) rerolls free while the garrison's free rerolls last (`rtGarrisonRerollsLeft`).
+  const jailerFree = pending?.kind === 'talisman' && (pending.source === 'oath' || pending.source === 'form') && rtJailerRerollsLeft(run) > 0;
+  const garrisonFree = pending?.kind === 'talisman' && !!rtGarrisonNodeId(pending.nodeId) && rtGarrisonRerollsLeft(run) > 0
+    && (pending.source === 'oath' || pending.source === 'form' || RT_REROLL_SOURCES.includes(pending.source));
+  const free = jailerFree || garrisonFree;
   if (pending?.kind !== 'talisman' || !(free || RT_REROLL_SOURCES.includes(pending.source))) return null;
   const rerolls = pending.rerolls ?? 0, price = free ? 0 : RT_REROLL_PRICE + rerolls, total = stockTotal(run.materials);
   const shown = [...pending.rerolled ?? [], ...pending.options];
   // Task 30: the form screen — some form of the pool not shown on it yet (its reroll fills the places left from those shown).
   const left = pending.source === 'form' ? rtFormPool(run).some(id => !shown.includes(id)) : (talismanOfferOf(run, pending.nodeId, pending.source, 0, shown, false) ?? []).length > 0;
-  const reason = !left ? (pending.source === 'form' ? 'Других форм нет' : 'Других талисманов не осталось') : total < price ? `Нужно ресурсов: ${price}, есть ${total}` : '';
+  // Task 51 (17.10.2026): a screen whose every option stays through a reroll (the guaranteed pair, the archetype's form) has nothing to
+  // reroll — a reroll would take no shown talisman (a save with such a reroll is malformed).
+  const kept = rerollKept(run, pending), nothing = pending.options.every(id => kept.includes(id));
+  const reason = nothing ? 'Нечего перебрасывать' : !left ? (pending.source === 'form' ? 'Других форм нет' : 'Других талисманов не осталось') : total < price ? `Нужно ресурсов: ${price}, есть ${total}` : '';
   return { price, total, rerolls, available: !reason, reason, ...free ? { free: true as const } : {} };
+}
+/**
+ * The options a reroll keeps on the screen: task 44 — the guaranteed pair (not one of the shown ones); task 50 — the form of the run's
+ * archetype in place 1 of the Jailer's form screen. The reroll and its view read the same.
+ */
+function rerollKept(run: RtRunState, pending: Extract<RtRunPending, { kind: 'talisman' }>): RtTalismanId[] {
+  const habitForm = pending.source === 'form' ? rtHabitKept(run, pending.nodeId) : null;
+  return [...rtFusionOwed(run).map(o => o.partner), ...habitForm ? [habitForm] : []];
 }
 /**
  * «Перебросить» (design 12.10.2026): pay the price from the most numerous resources (`shopPayment`), take the next draw of
@@ -1781,12 +1913,11 @@ export function rtRerollTalismans(current: RtRunState): RtRunStep {
   const run = structuredClone(current), pending = run.pending as Extract<RtRunPending, { kind: 'talisman' }>;
   const paid = view.free ? emptyMaterials() : shopPayment(run.materials, view.price);
   for (const kind of RESOURCE_KINDS) run.materials[kind] -= paid[kind];
-  if (view.free) run.jailerRerolled = (run.jailerRerolled ?? 0) + 1;
-  // Task 44: the guaranteed pair stays on the screen through a reroll — it is not one of the shown ones. Task 50: so does the form of
-  // the run's archetype in place 1 of the Jailer's form screen.
-  const habitForm = pending.source === 'form' ? rtHabitKept(run, pending.nodeId) : null;
-  const pairs = [...rtFusionOwed(run).map(o => o.partner), ...habitForm ? [habitForm] : []];
-  const rerolled = [...pending.rerolled ?? [], ...pending.options.filter(id => !pairs.includes(id))];
+  // Task 51б: on a garrison node the garrison's free reroll is spent first.
+  markVowReroll(run);
+  if (view.free && rtGarrisonNodeId(pending.nodeId) && rtGarrisonRerollsLeft(run) > 0) run.garrisonRerolled = (run.garrisonRerolled ?? 0) + 1;
+  else if (view.free) run.jailerRerolled = (run.jailerRerolled ?? 0) + 1;
+  const rerolled = [...pending.rerolled ?? [], ...pending.options.filter(id => !rerollKept(run, pending).includes(id))];
   // Task 30: the form screen rerolls by the node's form roll — no `talismans` draw.
   const options = talismanOfferOf(run, pending.nodeId, pending.source, pending.source === 'form' ? 0 : draw(run, 'talismans', true), rerolled)!;
   run.pending = { ...pending, options, rerolls: view.rerolls + 1, rerolled };
@@ -1851,6 +1982,20 @@ export const RT_KNACK_CARDS = 2;
  */
 export const rtKnackNode = (run: Pick<RtRunState, 'knacks'>, node: Pick<ForestMapNode, 'type' | 'row'>): boolean =>
   !!run.knacks && (node.type === 'battle' || node.type === 'breakthrough') && runRow(node.row) >= RT_KNACK_ROW;
+/**
+ * The run showed the knack screen at least once (the camp's `last.knackOffered`): a won fight of a knack node (`rtKnackNode`) whose
+ * screens before it are passed — the run does not wait at that node on the die or a talisman screen other than the feat's (those
+ * come before the knack screen). No mark in the save: a knack node whose `rtKnackOptions` was empty (every counter on rank II or
+ * gone) counts too, though it showed no screen.
+ */
+export function rtKnackShown(run: RtRunState): boolean {
+  const pending = run.pending, before = (nodeId: string) => pending !== null && 'nodeId' in pending && pending.nodeId === nodeId
+    && (pending.kind === 'die' || pending.kind === 'hammer' || (pending.kind === 'talisman' && pending.source !== 'feat'));
+  return !!run.knacks && run.battles.some(entry => {
+    const node = entry.won ? rtNode(run, entry.nodeId) : undefined;
+    return !!node && rtKnackNode(run, node) && !before(entry.nodeId);
+  });
+}
 /**
  * The knack screen of `nodeId` (design 3.2): card A — a counter the run holds on rank I (not a part of a fusion: parts are not in
  * `talismans`), card B — a counter not in the run, common or uncommon, of the run's pool (not taken, not gone, not locked, no clash).
@@ -1968,7 +2113,9 @@ export function rtMapNodes(run: Pick<RtRunState, 'map' | 'garrisonLevel'>): Fore
 export function rtAvailableNodes(run: RtRunState): ForestMapNode[] {
   if (run.pending || run.result) return [];
   const map = rtRunMap(run);
-  const ids = run.currentNodeId === null ? map.starts() : map.node(run.currentNodeId)?.next ?? [];
+  // Task 56 «Перепутье»: under the level's omen every node of the next row of the same part (`crossroadsNext`).
+  const from = run.currentNodeId === null ? null : map.node(run.currentNodeId);
+  const ids = from === null ? map.starts() : !from ? [] : rtLevelOmen(run) === 'crossroads' ? crossroadsNext(map, from) : from.next;
   return ids.flatMap(id => { const node = map.node(id); return node ? [node] : []; });
 }
 
@@ -1982,7 +2129,7 @@ export const isArenaNode = (node: ForestMapNode): boolean => ['battle', 'hard', 
 function draw(run: RtRunState, stream: RunStream, advance: boolean): number {
   // Task 38: in the garrison every draw is the garrison's own stream (its seed, its counters from 0).
   const level = run.garrisonLevel, streams = level ? level.streams : run.streams;
-  const value = streamValue(level ? garrisonSeed(run.seed) : run.seed, stream, streams[stream]);
+  const value = streamValue(level ? rtGarrisonSeed(run) : run.seed, stream, streams[stream]);
   if (advance) streams[stream]++;
   return value;
 }
@@ -2043,9 +2190,89 @@ function arenaPick(run: RtRunState, node: ForestMapNode, advance: boolean): RtAr
 }
 
 /** The arena seed of a node: the run seed and the node id, as the battles of the turn-based run (forestNodeSeed). */
-export const arenaSeed = (run: Pick<RtRunState, 'seed'>, nodeId: string): number =>
-  // Task 38: a garrison node's seed — from the garrison's seed and its generator id (design 1.2), not the forest's.
-  rtGarrisonNodeId(nodeId) ? forestNodeSeed(garrisonSeed(run.seed), nodeId.slice(2)) : forestNodeSeed(run.seed, nodeId);
+export const arenaSeed = (run: Pick<RtRunState, 'seed' | 'garrisonMap'>, nodeId: string): number =>
+  // Task 38: a garrison node's seed — from the garrison's seed and its generator id (design 1.2), not the forest's. Task 51б: the
+  // garrison's seed of the map chosen (`rtGarrisonSeed`; without «Путь в гарнизон» — `garrisonSeed`, as before).
+  rtGarrisonNodeId(nodeId) ? forestNodeSeed(rtGarrisonSeed(run), nodeId.slice(2)) : forestNodeSeed(run.seed, nodeId);
+
+// ---------- Task 56 «Приметы» (run/omens.ts; spec docs/design-notes/task-56-omens.md) ----------
+
+/** The level of a node: 2 — the garrison's, 1 — the forest's. */
+const omenLevelOf = (nodeId: string): RtOmenLevel => (rtGarrisonNodeId(nodeId) ? 2 : 1);
+/** The level's omen of the run (absent — no omens, the level not started, or no omen fit): by default the level the run is on. */
+export const rtLevelOmen = (run: Pick<RtRunState, 'omens' | 'garrisonLevel'>, level: RtOmenLevel = rtLevel(run)): RtOmenId | undefined => run.omens?.level?.[level];
+/** The level's omen of `run` by its pool and the level's seed (the forest — the run's, the garrison — of the map chosen). */
+const levelOmenOf = (run: Pick<RtRunState, 'seed' | 'garrisonMap'>, pool: readonly string[], level: RtOmenLevel): RtOmenId | undefined =>
+  rtLevelOmenRoll(pool, level === 2 ? rtGarrisonSeed(run) : run.seed, level);
+/** Spec 4.1: the level starts — its omen is written (nothing in a run without omens, or when none fits). */
+function startLevelOmen(run: RtRunState, level: RtOmenLevel): void {
+  if (!run.omens) return;
+  const id = levelOmenOf(run, run.omens.pool, level);
+  if (id) run.omens.level = { ...run.omens.level, [level]: id };
+}
+/** Spec 3.1: a node may have an omen of its own — «бой» or «Застава», from row `RT_OMEN_NODE_ROW` of its level. */
+const omenNodeType = (node: Pick<ForestMapNode, 'type' | 'row'>): boolean => (node.type === 'battle' || node.type === 'hard') && runRow(node.row) >= RT_OMEN_NODE_ROW;
+/** Spec 3.2: the node's own omen — its roll, whether the map shows it now or not (none — absent). */
+export function rtNodeOmenRoll(run: Pick<RtRunState, 'omens' | 'seed' | 'garrisonMap'>, node: Pick<ForestMapNode, 'id' | 'type' | 'row'>): RtOmenId | undefined {
+  if (!run.omens || !omenNodeType(node)) return undefined;
+  const level = omenLevelOf(node.id);
+  return rtNodeOmenPick(run.omens.pool, arenaSeed(run, node.id), level, run.omens.level?.[level]);
+}
+/** The view's API (spec 3.3): the node's omen as the map shows it — none on a node «Перепутье» hides. */
+export const rtNodeOmen = (run: RtRunState, node: ForestMapNode): RtOmenId | undefined => (rtCrossroadsHidden(run, node) ? undefined : rtNodeOmenRoll(run, node));
+/**
+ * Spec 4.2: the omens a fight of `node` plays — its own (`rtNodeOmenRoll`) and its level's fight omen: not on the checkpoint and the
+ * boss, «Урожай» only where the bag is (the forest from run row `RT_BAG_ROW`, the garrison from its row 1). A map omen — none here.
+ */
+export function rtFightOmens(run: Pick<RtRunState, 'omens' | 'seed' | 'garrisonMap'>, node: Pick<ForestMapNode, 'id' | 'type' | 'row'>): RtFightOmens {
+  if (!run.omens) return {};
+  const own = rtNodeOmenRoll(run, node), levelId = run.omens.level?.[omenLevelOf(node.id)];
+  const boss = node.type === 'checkpoint' || node.type === 'boss', bag = !boss && (rtGarrisonNodeId(node.id) || runRow(node.row) >= RT_BAG_ROW);
+  const level = levelId && rtOmen(levelId)?.where === 'fight' && !boss && (levelId !== 'harvest' || bag) ? levelId : undefined;
+  return { ...own ? { node: own } : {}, ...level ? { level } : {} };
+}
+/** The map's part of a node (spec 2.2 «Перепутье»): the trails (rows 1–4) or its branch. */
+const mapPart = (node: Pick<ForestMapNode, 'lane'>): string => (node.lane === 'den' || node.lane === 'camp' ? node.lane : 'trails');
+const LINKED_ONLY: readonly string[] = ['checkpoint', 'breakthrough', 'boss'];
+/**
+ * «Перепутье»: the nodes open after `from` — every node of the next row of its level and its part; the checkpoint, the way into the
+ * branches, the breakthrough and the boss — by the map's links, as before.
+ */
+function crossroadsNext(map: ForestRunMap, from: ForestMapNode): string[] {
+  const linked = from.next.flatMap(id => { const node = map.node(id); return node ? [node] : []; });
+  if (!linked.length || linked.some(node => LINKED_ONLY.includes(node.type) || mapPart(node) !== mapPart(from))) return from.next;
+  const row = linked[0].row, garrison = rtGarrisonNodeId(from.id);
+  const more = map.nodes.filter(node => node.row === row && rtGarrisonNodeId(node.id) === garrison && mapPart(node) === mapPart(from) && !LINKED_ONLY.includes(node.type) && !from.next.includes(node.id));
+  return [...from.next, ...more.map(node => node.id)];
+}
+/** The nodes the map's links open now (no «Перепутье»): the first row, or the last node's `next`. */
+function linkedNext(run: RtRunState): string[] {
+  const map = rtRunMap(run);
+  return run.currentNodeId === null ? map.starts() : map.node(run.currentNodeId)?.next ?? [];
+}
+/**
+ * The view's API (spec 2.2 «Перепутье», its price): the node's type and omen are hidden — a node of the level the run is on, beyond
+ * the next row (the row after the last node completed in this level; none yet — the level's first row).
+ */
+export function rtCrossroadsHidden(run: RtRunState, node: ForestMapNode): boolean {
+  if (rtLevelOmen(run) !== 'crossroads' || rtGarrisonNodeId(node.id) !== !!run.garrisonLevel) return false;
+  const current = run.currentNodeId ? rtNode(run, run.currentNodeId) : undefined;
+  const here = current && rtGarrisonNodeId(current.id) === !!run.garrisonLevel ? current.row : Math.min(...rtMapNodes(run).map(entry => entry.row)) - 1;
+  return node.row > here + 1;
+}
+/**
+ * The save's check of the omens (spec 9.1): the pool — known ids in the catalogue's order; the levels' omens — the rolls of the levels
+ * started (the forest always, the garrison once in it).
+ */
+function validOmens(value: Record<string, unknown>): boolean {
+  const omens = value.omens;
+  if (!isRecord(omens) || Object.keys(omens).some(key => key !== 'pool' && key !== 'level') || !isRtOmenPool(omens.pool) || !omens.pool.length) return false;
+  const run = value as unknown as RtRunState, pool = omens.pool, expected: Partial<Record<RtOmenLevel, RtOmenId>> = {};
+  const forest = levelOmenOf(run, pool, 1), garrison = value.garrisonLevel !== undefined ? levelOmenOf(run, pool, 2) : undefined;
+  if (forest) expected[1] = forest;
+  if (garrison) expected[2] = garrison;
+  return JSON.stringify(omens.level ?? {}) === JSON.stringify(expected) && (omens.level === undefined) === !Object.keys(expected).length;
+}
 
 // ---------- Task 26 «Расписание леса» (design 15.10.2026; run/schedule.ts, docs/realtime-slice.md) ----------
 
@@ -2127,7 +2354,9 @@ function startArena(run: RtRunState, node: ForestMapNode, battle: RtBattleKind, 
   if (entry) Object.assign(entry, { arena: pick.arena }, roster, arc); else run.picks.push({ nodeId: node.id, arena: pick.arena, ...roster, ...arc });
   // Task 16 «Подвиги»: the node's feat is fixed now (its talisman reward checked against the pool as it is).
   const feat = rtFeatOf(run, node);
-  run.pending = { kind: 'battle', nodeId: node.id, arena: pick.arena, seed: arenaSeed(run, node.id), battle, ...roster, ...feat ? { feat } : {} };
+  // Task 56 «Приметы»: the omens the card showed are the fight's (fixed now).
+  const omens = rtFightOmens(run, node);
+  run.pending = { kind: 'battle', nodeId: node.id, arena: pick.arena, seed: arenaSeed(run, node.id), battle, ...roster, ...feat ? { feat } : {}, ...omens.node || omens.level ? { omens } : {} };
   events.push({ type: 'battle-ready', nodeId: node.id, arena: pick.arena });
 }
 
@@ -2184,6 +2413,8 @@ export function rtEnterNode(current: RtRunState, nodeId: string, oath: OathId | 
   const stake = rtOathStakeOn(options.oathStake);
   if (oath !== null && !(rtOathPreview(current, node, stake) ?? []).includes(oath)) return fail('Этого зарока нет среди предложенных.');
   const run = structuredClone(current), events: RtRunEvent[] = [{ type: 'node-entered', nodeId, row: node.row }];
+  // Task 56 «Перепутье»: a step off the map's links is counted (the save's check reads the count).
+  if (!linkedNext(current).includes(nodeId)) run.crossroadsFree = (run.crossroadsFree ?? 0) + 1;
   if (isArenaNode(node)) {
     startArena(run, node, battleKindOf(node), events);
     if (rtOathNode(node) && run.pending?.kind === 'battle') {
@@ -2196,16 +2427,17 @@ export function rtEnterNode(current: RtRunState, nodeId: string, oath: OathId | 
     }
     return { ok: true, run, events };
   }
-  if (node.type === 'rest') { run.pending = { kind: 'rest', nodeId, crafted: [] }; return { ok: true, run, events }; }
+  if (node.type === 'rest') {
+    run.pending = { kind: 'rest', nodeId, crafted: [] };
+    // Task 51д: the NPC away waits at the first rest of its zone.
+    if (run.hearth?.away && !run.npcMeet && rtMeetZone(run.hearth.away, node)) { run.npcMeet = { nodeId }; events.push({ type: 'npc-met', nodeId, npc: run.hearth.away }); }
+    return { ok: true, run, events };
+  }
   if (node.type === 'find') { offerFind(run, nodeId, events); return { ok: true, run, events }; }
   if (node.type === 'shop') {
     // The stock of the turn-based merchant from the `merchant` stream (spent, as there): consumables of the open kinds
     // first (none open — none; one open — the other slot a closed kind, buying it opens it).
-    const base = draw(run, 'merchant', true), stock = shopStock(base, run.openItems, GIFT_POOL);
-    // Step 3: the talisman of the visit from the slice's list (the rarity roll of the turn-based merchant).
-    // Task 44: the guaranteed pair of a half replaces the visit's talisman (`stock.pair`; no stream spent beyond the visit's draw).
-    const drawn = rtShopTalisman(base, talismanPool(run)), pair = rtFusionPair(run, nodeId, 'shop', drawn ? [drawn] : []);
-    run.pending = { kind: 'shop', nodeId, stock: { items: stock.items, talisman: pair ?? drawn, ...pair ? { pair: true as const } : {} }, bought: [] };
+    run.pending = { kind: 'shop', nodeId, stock: shopStockOf(run, nodeId, draw(run, 'merchant', true)), bought: [] };
     return { ok: true, run, events };
   }
   // B7 К9: the circle's roll comes before the event's draw; the circle spends no `events` draw.
@@ -2266,7 +2498,11 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
     // Task 28: the Jailer's weight severed (a lost fight's too: the record keeps what happened).
     ...outcome.severed === true && current.jailer && JAILER_RUN_ARENAS.includes(pending.arena) ? { severed: true as const } : {},
     // Task 48: the Troll's parts severed (a lost fight's too).
-    ...current.troll && TROLL_RUN_ARENAS.includes(pending.arena) && count(outcome.parts ?? 0) >= 1 ? { parts: Math.min(3, count(outcome.parts ?? 0)) } : {} });
+    ...current.troll && TROLL_RUN_ARENAS.includes(pending.arena) && count(outcome.parts ?? 0) >= 1 ? { parts: Math.min(3, count(outcome.parts ?? 0)) } : {},
+    // Task 51г: the shackles cut (a lost fight's too).
+    ...count(outcome.cuts ?? 0) >= 1 ? { cuts: count(outcome.cuts ?? 0) } : {},
+    // Task 56: the omens the fight played (a lost fight's too).
+    ...pending.omens ? { omens: structuredClone(pending.omens) } : {} });
   // П5: the fight's chance joins the run's tally (a lost fight's too).
   const luck = addLuck(run.luck, outcome.luck, RT_FIGHT_LUCK_KEYS);
   if (luck) run.luck = luck;
@@ -2787,6 +3023,145 @@ export function rtShopBuy(current: RtRunState, id: string): RtRunStep {
   pending.bought.push(purchase);
   return { ok: true, run, events: [{ type: 'shop-bought', nodeId: pending.nodeId, purchase: structuredClone(purchase) }, ...events] };
 }
+/**
+ * The goods of a merchant's visit from `base` (the visit's `merchant` draw; task 51в — the reroll's `hearth-shop` draw): the turn-based
+ * merchant's consumables, the talisman of the slice's list (the rarity roll of the turn-based merchant); task 44 — the guaranteed pair of
+ * a half replaces it (`stock.pair`; no stream spent beyond the draw).
+ */
+function shopStockOf(run: RtRunState, nodeId: string, base: number): RtShopStock {
+  const stock = shopStock(base, run.openItems, GIFT_POOL), drawn = rtShopTalisman(base, talismanPool(run)), pair = rtFusionPair(run, nodeId, 'shop', drawn ? [drawn] : []);
+  // Task 56 «Ярмарочный день»: one more consumable in the last place (its own salt of the node seed; the goods above are as before).
+  const fair = rtLevelOmen(run, omenLevelOf(nodeId)) === 'fair' ? rtFairItem(arenaSeed(run, nodeId), stock.items) : undefined;
+  return { items: fair ? [...stock.items, fair] : stock.items, talisman: pair ?? drawn, ...pair ? { pair: true as const } : {} };
+}
+/**
+ * Task 51г: the keymaster's shackles a fight's dash cut — the sim's `tether` events `cut` of kind `shackle` (the telemetry's `shackleCuts`);
+ * the view counts them over the fight's events and passes the sum as `RtArenaOutcome.cuts`.
+ */
+export const rtShackleCuts = (events: readonly WorldEvent[]): number => events.filter(e => e.type === 'tether' && e.action === 'cut' && e.kind === 'shackle').length;
+/** Task 51в «Шишова лавка»: the base of a merchant's goods drawn again — the stream `hearth-shop` of the node's seed (no run stream spent). */
+const shopRerollBase = (run: Pick<RtRunState, 'seed' | 'garrisonMap'>, nodeId: string, index = 0): number => mixSeed(mixSeed(arenaSeed(run, nodeId), HEARTH_SHOP_SALT), index);
+/**
+ * Task 51в «Шишова лавка» (Шиш ur. 1, spec 3.2) and «Лавка в гарнизоне» (ur. 3): the free reroll of the open merchant's goods — a forest
+ * merchant with `hearth.shopRerolls`, a garrison one with `shopRerolls` 2; once a run each; before a good of the stock is bought; once a
+ * visit. Null — no merchant, or no such reroll in this run (the merchant has no button then).
+ */
+export interface RtShopRerollView {
+  available: boolean; reason: string; garrison: boolean;
+  /** Task 56 «Ярмарочный день»: the next reroll is the omen's (free, one at each merchant of its level); absent — Шиш's. */
+  fair?: true;
+}
+export function rtShopRerollView(run: RtRunState): RtShopRerollView | null {
+  const pending = run.pending, shops = run.hearth?.shopRerolls ?? 0;
+  if (pending?.kind !== 'shop') return null;
+  const garrison = !!rtGarrisonNodeId(pending.nodeId);
+  // Task 56: «Ярмарочный день» of the merchant's level gives its own free reroll; with Шиш's the two add up (the omen's goes first).
+  const fairOn = rtLevelOmen(run, omenLevelOf(pending.nodeId)) === 'fair', shishOn = garrison ? shops >= 2 : shops >= 1;
+  if (!fairOn && !shishOn) return null;
+  const fair = fairOn && !run.fairRerolls?.[pending.nodeId], spent = garrison ? run.garrisonShopRerolled : run.shopRerolled;
+  const bought = pending.bought.some(entry => entry.good === 'item' || entry.good === 'talisman');
+  // Design 20.10.2026 (task-56 §158): one reason when the merchant's rerolls are spent, with Шиш's and with «Ярмарочный день»'s alike.
+  const reason = fair || (shishOn && !spent) ? (bought ? 'Товар уже куплен' : '') : 'Перебросов не осталось';
+  return { available: !reason, reason, garrison, ...fair ? { fair: true as const } : {} };
+}
+/**
+ * «Перебросить» at the merchant (Шиш, free): the goods (consumables and the talisman) drawn again from the stream `hearth-shop` of the
+ * node's seed; the heal and «Закалка» stay. The talisman shown before goes back to the pool (as a screen's reroll). The forest's outputs
+ * do not change: the visit's first goods are the merchant stream's, as before.
+ */
+export function rtShopReroll(current: RtRunState): RtRunStep {
+  const view = rtShopRerollView(current);
+  if (!view) return fail('Сейчас нечего перебрасывать.');
+  if (!view.available) return fail(view.reason);
+  const run = structuredClone(current), pending = run.pending as Extract<RtRunPending, { kind: 'shop' }>;
+  // Task 56: the visit's second reroll (the omen's and Шиш's together) draws the stream's next value.
+  const index = pending.rerolled ? 1 : 0;
+  pending.stock = shopStockOf(run, pending.nodeId, shopRerollBase(run, pending.nodeId, index));
+  if (index) pending.rerolls = 2;
+  pending.rerolled = true;
+  if (view.fair) { run.fairRerolls = { ...run.fairRerolls, [pending.nodeId]: 1 }; pending.fairRerolled = true; }
+  else if (view.garrison) run.garrisonShopRerolled = true; else run.shopRerolled = true;
+  markVowReroll(run);
+  return { ok: true, run, events: [{ type: 'shop-rerolled', nodeId: pending.nodeId, stock: structuredClone(pending.stock) }] };
+}
+// ---------- Task 51д «Уход по делам» and «Встреча на привале» (spec 3.4) ----------
+
+/** Task 51д: `node` is in the zone of the NPC away — its branch (or the trails) and its run rows. */
+export function rtMeetZone(npc: RtHearthLeaver, node: Pick<ForestMapNode, 'id' | 'row'>): boolean {
+  const zone = RT_MEET_ZONES[npc], row = runRow(node.row);
+  if (rtGarrisonNodeId(node.id) || row < zone.rows[0] || row > zone.rows[1]) return false;
+  const branch = node.id.startsWith('den-') ? 'den' : node.id.startsWith('camp-') ? 'camp' : null;
+  return branch === zone.branch;
+}
+/** Баланс (spec 3.4): the deal's price — Марфа's consumable and Ерофей's talisman cost this many resources; Шиш's «Скупка» gives as many. */
+export const RT_MEET_PRICE = 2;
+/** The meeting's deal options (ids): Марфа `item:<kind>` (2 kinds), Ерофей `talisman:<id>` (2 commons), Шиш `sell:<kind>` (a consumable held). */
+export interface RtMeetDeal { id: string; available: boolean; reason: string; item?: ItemKind; talisman?: RtTalismanId; gain?: ResourceKind }
+/** The meeting on the open rest: the NPC, its deals, whether one is made. Null — not the rest of the meeting. */
+export interface RtMeetView { npc: RtHearthLeaver; nodeId: string; deals: RtMeetDeal[]; deal?: string }
+/** The base of a meeting's deals: the stream `npc-meet` of the run seed and the node (no run stream spent). */
+const meetBase = (run: Pick<RtRunState, 'seed'>, nodeId: string): number => mixSeed(mixSeed(run.seed >>> 0, NPC_MEET_SALT), [...nodeId].reduce((h, ch) => Math.imul(h ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5));
+export function rtMeetView(run: RtRunState): RtMeetView | null {
+  const pending = run.pending, npc = run.hearth?.away, meet = run.npcMeet;
+  if (pending?.kind !== 'rest' || !npc || !meet || meet.nodeId !== pending.nodeId) return null;
+  const base = meetBase(run, pending.nodeId), total = stockTotal(run.materials), done = meet.deal !== undefined;
+  const short = total < RT_MEET_PRICE ? `Нужно ресурсов: ${RT_MEET_PRICE}, есть ${total}` : '';
+  let deals: RtMeetDeal[];
+  if (npc === 'herb') {
+    // Марфа: 2 resources → 1 consumable of 2 (the rule of three potions: a healing one with a full hand is not sold).
+    const left = [...ITEM_KINDS], kinds: ItemKind[] = [];
+    for (let k = 0; k < 2; k++) kinds.push(left.splice(mixSeed(base, k) % left.length, 1)[0]);
+    deals = kinds.map(item => { const reason = done ? 'Сделка уже была' : rtItemRefusal(run, item) ? RT_ITEM_REFUSAL_TEXT.handFull : short; return { id: `item:${item}`, item, available: !reason, reason }; });
+  } else if (npc === 'smith') {
+    // Ерофей: 2 resources → 1 common talisman of 2 (as «Заточка» of «Бродячий точильщик»).
+    deals = rtEventTalismanOffer(base, 2, talismanPool(run)).map(talisman => { const reason = done ? 'Сделка уже была' : short; return { id: `talisman:${talisman}`, talisman, available: !reason, reason }; });
+  } else {
+    // Шиш «Скупка»: 1 consumable from the hand → 2 resources of the kind the deal names.
+    const gain = RESOURCE_KINDS[mixSeed(base, 0) % RESOURCE_KINDS.length];
+    deals = ITEM_KINDS.filter(item => run.items[item] > 0).map(item => { const reason = done ? 'Сделка уже была' : ''; return { id: `sell:${item}`, item, gain, available: !reason, reason }; });
+  }
+  return { npc, nodeId: pending.nodeId, deals, ...done ? { deal: meet.deal } : {} };
+}
+/** The meeting's one deal (`rtMeetView().deals[].id`); the rest's own choice (heal, craft, fusion) stays. «Уйти» — no step (nothing lost). */
+export function rtMeetDeal(current: RtRunState, id: string): RtRunStep {
+  const view = rtMeetView(current);
+  if (!view) return fail('Здесь никто не ждёт.');
+  const deal = view.deals.find(entry => entry.id === id);
+  if (!deal) return fail('Такой сделки нет.');
+  if (!deal.available) return fail(deal.reason);
+  const run = structuredClone(current), events: RtRunEvent[] = [{ type: 'npc-deal', nodeId: view.nodeId, npc: view.npc, deal: id }];
+  if (view.npc === 'gambler') { run.items[deal.item!] -= 1; run.materials[deal.gain!] += RT_MEET_PRICE; }
+  else {
+    const paid = shopPayment(run.materials, RT_MEET_PRICE);
+    for (const kind of RESOURCE_KINDS) run.materials[kind] -= paid[kind];
+    if (deal.item) gainItems(run, [deal.item], events);
+    if (deal.talisman) takeTalisman(run, deal.talisman, events);
+  }
+  run.npcMeet = { nodeId: view.nodeId, deal: id };
+  return { ok: true, run, events };
+}
+
+/** Баланс (spec 3.2): «Размен» — this many of one kind for that many of another. */
+export const RT_SWAP_GIVE = 3;
+export const RT_SWAP_GET = 2;
+/** Task 51в «Размен» (Шиш ur. 2): at an open merchant of a run with `hearth.swap`, once a run — the kinds that can be given (3 or more held). */
+export interface RtShopSwapView { available: boolean; reason: string; give: ResourceKind[] }
+export function rtShopSwapView(run: RtRunState): RtShopSwapView | null {
+  if (run.pending?.kind !== 'shop' || !run.hearth?.swap) return null;
+  const give = RESOURCE_KINDS.filter(kind => run.materials[kind] >= RT_SWAP_GIVE);
+  const reason = run.swapped ? 'Размен уже был' : !give.length ? `Нужно ${RT_SWAP_GIVE} ресурса одного вида` : '';
+  return { available: !reason, reason, give };
+}
+/** «Размен»: `RT_SWAP_GIVE` of `from` → `RT_SWAP_GET` of `to` (another kind); no chance. */
+export function rtShopSwap(current: RtRunState, from: ResourceKind, to: ResourceKind): RtRunStep {
+  const view = rtShopSwapView(current);
+  if (!view) return fail('Сейчас нет размена.');
+  if (!view.available) return fail(view.reason);
+  if (!view.give.includes(from) || !RESOURCE_KINDS.includes(to) || from === to) return fail('Так не разменять.');
+  const run = structuredClone(current);
+  run.materials[from] -= RT_SWAP_GIVE; run.materials[to] += RT_SWAP_GET; run.swapped = true;
+  return { ok: true, run, events: [{ type: 'shop-swapped', nodeId: (run.pending as { nodeId: string }).nodeId, from, to }] };
+}
 export function rtShopLeave(current: RtRunState): RtRunStep {
   const pending = current.pending;
   if (pending?.kind !== 'shop') return fail('Сейчас нет торговца.');
@@ -2859,7 +3234,9 @@ export function rtHealOpen(run: RtRunState, where: RtHealWhere = {}): boolean {
 }
 
 export function healOffer(run: RtRunState, where: RtHealWhere = {}): RtHealOffer {
-  const gain = Math.max(0, Math.min(RT_HEAL_MAP_GAIN, run.maxHp - run.hp)), price = RT_HEAL_MAP_PRICE + (run.healBought ?? 0), have = rtResourceTotal(run);
+  // Task 56 «Ярмарочный день»: the heal on the map of the level is dearer by 1 (the count of heals — the run's, as before).
+  const fair = rtLevelOmen(run) === 'fair' ? RT_OMEN_FAIR_HEAL : 0;
+  const gain = Math.max(0, Math.min(RT_HEAL_MAP_GAIN, run.maxHp - run.hp)), price = RT_HEAL_MAP_PRICE + (run.healBought ?? 0) + fair, have = rtResourceTotal(run);
   const reason = !run.healMap ? 'off' : !rtHealOpen(run, where) ? 'closed' : gain <= 0 ? 'full' : have < price ? 'poor' : undefined;
   return { gain, price, ok: !reason, ...reason ? { reason } : {}, ...reason === 'poor' ? { need: price } : {}, have };
 }
@@ -3221,7 +3598,24 @@ export function rtChooseGiftPick(current: RtRunState, pick: string): RtRunStep {
  * run at once), `jailerRerolls` — Ерофей's free rerolls of the Jailer's screens (hammer, oath and relics), `hammerAll` — the
  * Jailer's hammer screen shows every hammer not locked, `quest` — the NPC's quest of this run (checked after it, rtMeta.ts).
  */
-export interface RtHearthFlags { maps?: 2 | 3; startItems?: ItemKind[]; jailerRerolls?: number; hammerAll?: true; quest?: RtQuest }
+export interface RtHearthFlags {
+  maps?: 2 | 3; startItems?: ItemKind[]; jailerRerolls?: number; hammerAll?: true; quest?: RtQuest;
+  /**
+   * Task 51б (level 3 of the camp, docs/design-notes/task-51-camp-l3.md, 2.2): `garrisonMaps` — Неясыть's «Путь в гарнизон», 2 garrison
+   * maps at «Предместье»; `gateItems` — Марфа's «Склянка в гарнизон», 2 kinds to take one of there; `garrisonRerolls` — Ерофей's «Правка
+   * в гарнизоне», free rerolls of the garrison's reward screens (the oath and relic screen of «Караульня»). Absent — none, as before.
+   */
+  garrisonMaps?: 2; gateItems?: ItemKind[]; garrisonRerolls?: number;
+  /**
+   * Task 51в (Шиш, spec 3.2): `shopRerolls` — «Шишова лавка», a free reroll of a forest merchant's goods (1), with «Лавка в гарнизоне» a
+   * garrison merchant's too (2); `swap` — «Размен» at a merchant, 3 resources of a kind → 2 of another, once a run.
+   */
+  shopRerolls?: 1 | 2; swap?: true;
+  /** Task 51г (Евлампий, spec 3.3): the vows taken for this run (1 — «Обет», 2 — «Два обета»); checked after the run (rtMeta.ts). */
+  vows?: RtVowId[];
+  /** Task 51д (spec 3.4): the NPC away for this run — it waits at the first rest of its zone (`RT_MEET_ZONES`, `npcMeet`). */
+  away?: RtHearthLeaver;
+}
 /** Баланс (task 37): the most free Jailer rerolls a run may carry (v1 gives 1). */
 export const RT_HEARTH_REROLLS_MAX = 3;
 /** The camp's flags as a run keeps them (unknown or malformed parts dropped; nothing — undefined). */
@@ -3232,6 +3626,16 @@ export function rtCleanHearth(value: unknown): RtHearthFlags | undefined {
   const out: RtHearthFlags = {
     ...value.maps === 2 || value.maps === 3 ? { maps: value.maps } : {}, ...items ? { startItems: items } : {}, ...rerolls !== undefined ? { jailerRerolls: rerolls } : {},
     ...value.hammerAll === true ? { hammerAll: true as const } : {}, ...isRtQuest(value.quest) ? { quest: { npc: value.quest.npc, id: value.quest.id } } : {},
+    // Task 51б: level 3 of the camp (each absent unless given right).
+    ...value.garrisonMaps === 2 ? { garrisonMaps: 2 as const } : {},
+    ...isItemList(value.gateItems) && value.gateItems.length === 2 && new Set(value.gateItems).size === 2 ? { gateItems: [...value.gateItems] } : {},
+    ...isCount(value.garrisonRerolls) && value.garrisonRerolls >= 1 && value.garrisonRerolls <= RT_HEARTH_REROLLS_MAX ? { garrisonRerolls: value.garrisonRerolls } : {},
+    // Task 51в: Шиш.
+    ...value.shopRerolls === 1 || value.shopRerolls === 2 ? { shopRerolls: value.shopRerolls } : {}, ...value.swap === true ? { swap: true as const } : {},
+    // Task 51г: Евлампий's vows — 1 or 2 different known ones.
+    ...Array.isArray(value.vows) && value.vows.length >= 1 && value.vows.length <= 2 && value.vows.every(isRtVow) && new Set(value.vows).size === value.vows.length ? { vows: [...value.vows] as RtVowId[] } : {},
+    // Task 51д: the NPC away.
+    ...isRtHearthLeaver(value.away) ? { away: value.away } : {},
   };
   return Object.keys(out).length ? out : undefined;
 }
@@ -3244,6 +3648,8 @@ export const rtHeroId = (run: Pick<RtRunState, 'heroId'>): RtHeroId => run.heroI
  * the events (`rtEventCandidates`). Task 30's forms read it too once their pool is in the run.
  */
 export const rtIsLocked = (run: Pick<RtRunState, 'locked'>, id: string): boolean => !!run.locked?.includes(id);
+/** Task 51б «Правка в гарнизоне»: the free rerolls of the garrison's reward screens left in this run. */
+export const rtGarrisonRerollsLeft = (run: Pick<RtRunState, 'hearth' | 'garrisonRerolled'>): number => Math.max(0, (run.hearth?.garrisonRerolls ?? 0) - (run.garrisonRerolled ?? 0));
 /** Task 37 «Правка»: the free rerolls of the Jailer's screens left in this run. */
 export const rtJailerRerollsLeft = (run: Pick<RtRunState, 'hearth' | 'jailerRerolled'>): number => Math.max(0, (run.hearth?.jailerRerolls ?? 0) - (run.jailerRerolled ?? 0));
 /** Task 37: the free reroll of the open Jailer's hammer screen — the rerolls left, whether one is possible now and why not. */
@@ -3268,8 +3674,11 @@ export function rtRerollHammers(current: RtRunState): RtRunStep {
   const rerolled = [...pending.rerolled ?? [], ...pending.options], options = rtHammerOptions(run, pending.nodeId, rerolled);
   run.pending = { ...pending, options, rerolled };
   run.jailerRerolled = (run.jailerRerolled ?? 0) + 1;
+  markVowReroll(run);
   return { ok: true, run, events: [{ type: 'hammer-rerolled', nodeId: pending.nodeId, options: [...options] }] };
 }
+/** Task 51г «Без переброса»: a reroll of a run with that vow breaks it (the mark is kept only in such a run). */
+function markVowReroll(run: RtRunState): void { if (run.hearth?.vows?.includes('vow-no-reroll')) run.vowRerolled = true; }
 
 // ---------- Task 38 «Гарнизон, шаг 1» (design 15.10.2026; run/garrison.ts, docs/realtime-slice.md, «Гарнизон») ----------
 
@@ -3300,7 +3709,15 @@ export function rtLevelSlots(run: Pick<RtRunState, 'battles'>, nodeId: string): 
  */
 function levelOffer(run: RtRunState, nodeId: string, base: number, pool: RtTalismanPool): RtTalismanOption[] {
   const slots = rtLevelSlots(run, nodeId), options: RtTalismanOption[] = garrisonRelicOffer(base, pool, slots);
-  if (slots !== RT_TROLL_ALL_PARTS_SLOTS) return options;
+  // Task 51: a run with `relicFill` fills every final relic screen (1 of 3 too); without it — only the Troll's 1 of 4, as before.
+  return slots === RT_TROLL_ALL_PARTS_SLOTS || run.relicFill ? rtFillRares(options, slots, base, pool) : options;
+}
+/**
+ * Task 48 (spec 24.13) and task 51 (design 17.10.2026, one rule for the relic screens): the places of `slots` the relics (and oaths) left empty
+ * take a rare talisman each — by the screen's own draw `base` (`rtTalismanOffer` of a hard battle, its rare place), the talismans shown on
+ * the screen out of the pool for the next one. Changes and returns `options`.
+ */
+export function rtFillRares(options: RtTalismanOption[], slots: number, base: number, pool: RtTalismanPool): RtTalismanOption[] {
   while (options.length < slots) {
     const rare = rtTalismanOffer(base, 'hard', { ...pool, gone: [...pool.gone, ...options] }, 1)[0];
     if (!rare) break;
@@ -3326,19 +3743,53 @@ function openOutskirts(run: RtRunState, events: RtRunEvent[]): void {
  * 6»; an integer of 0 … the view's `max`, else refused): they leave the run's stock at once (`shopPayment`: each unit from the kind
  * held most) and are carried 100 % at any end (`RtRunState.cart`).
  */
-export function rtEnterGarrison(current: RtRunState, deposit?: number): RtRunStep {
+export function rtEnterGarrison(current: RtRunState, deposit?: number, choice: RtGateChoice = {}): RtRunStep {
   if (current.pending?.kind !== 'outskirts' || !current.garrison || current.garrisonLevel || current.result) return fail('Сейчас нет пути в гарнизон.');
-  const cart = rtCartView(current);
+  const cart = rtCartView(current), gate = rtGateView(current);
   if (deposit !== undefined && (!cart || !Number.isInteger(deposit) || deposit < 0 || deposit > cart.max)) return fail('Столько в Повозку не положить.');
-  const run = structuredClone(current);
-  run.garrisonLevel = { map: generateGarrisonMap(run.seed), streams: emptyStreams() };
+  // Task 51б: the garrison map (0 — the base one; only with «Путь в гарнизон») and the consumable (only one of «Склянка в гарнизон», not refused).
+  if (choice.map !== undefined && (!gate?.maps || (choice.map !== 0 && choice.map !== 1))) return fail('Этой карты гарнизона нет.');
+  if (choice.item !== undefined && !gate?.items?.some(entry => entry.item === choice.item && entry.available)) return fail('Этот расходник не взять.');
+  const run = structuredClone(current), events: RtRunEvent[] = [];
+  if (gate?.maps) run.garrisonMap = choice.map ?? 0;
+  if (choice.item !== undefined) { gainItems(run, [choice.item], events); run.gateItem = choice.item; }
+  run.garrisonLevel = { map: run.garrisonMap === 1 ? generateForestMap(rtGarrisonSeed(run)) : generateGarrisonMap(run.seed), streams: emptyStreams() };
+  // Task 56: the garrison's omen is rolled now, by the garrison's seed of the map chosen (spec 4.1).
+  startLevelOmen(run, 2);
   run.pending = null;
-  if (!cart) return { ok: true, run, events: [{ type: 'garrison-entered' }] };
+  if (!cart) return { ok: true, run, events: [...events, { type: 'garrison-entered' }] };
   const n = deposit ?? cart.deposit, paid = shopPayment(run.materials, n);
   for (const kind of RESOURCE_KINDS) run.materials[kind] -= paid[kind];
   run.cart = { n, before: cart.stock };
-  return { ok: true, run, events: [{ type: 'garrison-entered', cart: n }] };
+  return { ok: true, run, events: [...events, { type: 'garrison-entered', cart: n }] };
 }
+/** Task 51б: the choices of «Предместье» (`rtEnterGarrison`): `map` — the garrison map (`rtGateView().maps`), `item` — the consumable taken. */
+export interface RtGateChoice { map?: 0 | 1; item?: ItemKind }
+/**
+ * Task 51б (level 3 of the camp): «Предместье»'s offers of a run with the camp's flags — `maps` (Неясыть's «Путь в гарнизон»: the 2
+ * garrison seeds, the base one first; index 0/1 is the choice) and `items` (Марфа's «Склянка в гарнизон»: the 2 kinds, a healing one
+ * unavailable with a full hand — `rtItemRefusal`, the rule of three potions). Null — not on «Предместье», or neither flag.
+ */
+export interface RtGateView { maps?: number[]; items?: { item: ItemKind; available: boolean }[] }
+export function rtGateView(run: RtRunState): RtGateView | null {
+  if (run.pending?.kind !== 'outskirts' || run.garrisonLevel || run.result) return null;
+  const maps = run.hearth?.garrisonMaps ? rtGarrisonMaps(run.seed) : undefined, items = run.hearth?.gateItems;
+  if (!maps && !items) return null;
+  return { ...maps ? { maps } : {}, ...items ? { items: items.map(item => ({ item, available: !rtItemRefusal(run, item) })) } : {} };
+}
+/**
+ * Task 51б «Путь в гарнизон» (spec 2.2): the 2 garrison seeds of a run seed — `garrisonSeed(seed)` first, then the draws of the salt
+ * `hearth-gmaps` from it (the next one when a draw equals the first, as `rtHearthMaps`). No forest output changes.
+ */
+export function rtGarrisonMaps(seed: number): number[] {
+  const first = garrisonSeed(seed), out = [first];
+  for (let k = 1; out.length < 2 && k < 16; k++) { const next = mixSeed(mixSeed(first, HEARTH_GMAPS_SALT), k) >>> 0; if (!out.includes(next)) out.push(next); }
+  return out;
+}
+/** Task 51б: the garrison's seed of a run — the second map's with `garrisonMap` 1, else `garrisonSeed(seed)` as before. */
+export const rtGarrisonSeed = (run: Pick<RtRunState, 'seed' | 'garrisonMap'>): number => (run.garrisonMap === 1 ? rtGarrisonMaps(run.seed)[1] : garrisonSeed(run.seed));
+/** Task 51 (design 17.10.2026): a new run with the garrison fills its relic screens' empty places (`RtRunState.relicFill`). */
+export const RT_RELIC_FILL_ON = true;
 /** Баланс (task 40, design 4): the cart keeps this much of the stock by default («оставить 6»); it takes at most the forest's cap. */
 export const RT_CART_KEEP = 6;
 export const RT_CART_MAX = 20;
@@ -3497,6 +3948,8 @@ function validCasino(run: RtRunState, map: ForestRunMap): boolean {
 function checkRun(value: unknown): RtRunState | null {
   if (!isRecord(value) || value.version !== RT_RUN_VERSION || !isSeed(value.seed) || validateStoredMap(value.map).length) return null;
   if (value.seeded !== undefined && value.seeded !== true) return null;
+  // Task 51з: the run of the day — seeded, a date, the date's seed.
+  if (value.daily !== undefined && !(value.seeded === true && isRtDailyDate(value.daily) && value.seed === rtDailySeed(value.daily))) return null;
   // The roster mix (11.10.2026): a flag; absent — a save before it, whose arenas and rosters are chosen again by the old rule.
   if (value.rosterMix !== undefined && value.rosterMix !== true) return null;
   // Task 12 (13.10.2026): a flag; absent — a save before it, whose `marked` arenas keep the old layouts.
@@ -3554,26 +4007,60 @@ function checkRun(value: unknown): RtRunState | null {
   // Task 40: a flag, only with the garrison; the cart only in a run with it and the camp, once in the garrison (n of 0 … the
   // cart's most, not above the stock it was taken from).
   if (value.moat !== undefined && !(value.moat === true && value.garrison === true)) return null;
+  // Task 51: the relic screens filled — a flag, only with the garrison.
+  if (value.relicFill !== undefined && !(value.relicFill === true && value.garrison === true)) return null;
   // Task 43: a flag, only with «Ров».
   if (value.step2 !== undefined && !(value.step2 === true && value.moat === true)) return null;
   // Task 57а: a flag; absent — a save before it (or a run without the new shooters).
   if (value.forestShooters !== undefined && value.forestShooters !== true) return null;
   // Task 41: the cap of healing potions, a whole number from 1; absent — a save before it (no cap).
   if (value.potionCap !== undefined && !(isCount(value.potionCap) && value.potionCap >= 1)) return null;
+  // Task 56: the omens (the pool and the levels' rolls); the count of off-link steps (1 or more, only under «Перепутье» — the path below).
+  if (value.omens !== undefined && !validOmens(value)) return null;
+  if (value.crossroadsFree !== undefined && !(isCount(value.crossroadsFree) && value.crossroadsFree >= 1)) return null;
   if (value.cart !== undefined && !(value.moat === true && value.hearth !== undefined && value.garrisonLevel !== undefined && isRecord(value.cart)
     && Object.keys(value.cart).length === 2 && isCount(value.cart.n) && isCount(value.cart.before) && value.cart.n <= RT_CART_MAX && value.cart.n <= value.cart.before)) return null;
   const garrisonStreams = value.garrisonLevel === undefined ? null : validGarrisonLevel(value);
   if (value.garrisonLevel !== undefined && !garrisonStreams) return null;
-  const level = garrisonStreams ? { seed: garrisonSeed(value.seed as number), streams: garrisonStreams } : { seed: value.seed as number, streams };
+  // Task 51б: the garrison map chosen (only in a run with «Путь в гарнизон», once in the garrison); the consumable taken (one of «Склянка в
+  // гарнизон», only once in the garrison); the garrison's free rerolls spent (1 … the flags' count).
+  if (value.garrisonMap !== undefined && !((value.garrisonMap === 0 || value.garrisonMap === 1) && isRecord(value.hearth) && value.hearth.garrisonMaps === 2 && value.garrisonLevel !== undefined)) return null;
+  if (value.gateItem !== undefined && !(isRecord(value.hearth) && Array.isArray(value.hearth.gateItems) && value.hearth.gateItems.includes(value.gateItem) && value.garrisonLevel !== undefined)) return null;
+  if (value.garrisonRerolled !== undefined && !(isCount(value.garrisonRerolled) && value.garrisonRerolled >= 1 && isRecord(value.hearth) && value.garrisonRerolled <= (value.hearth.garrisonRerolls as number))) return null;
+  // Task 51в: Шиш's rerolls and «Размен» spent — only with their flags.
+  if (value.shopRerolled !== undefined && !(value.shopRerolled === true && isRecord(value.hearth) && isCount(value.hearth.shopRerolls) && value.hearth.shopRerolls >= 1)) return null;
+  if (value.garrisonShopRerolled !== undefined && !(value.garrisonShopRerolled === true && isRecord(value.hearth) && value.hearth.shopRerolls === 2 && value.garrisonLevel !== undefined)) return null;
+  if (value.swapped !== undefined && !(value.swapped === true && isRecord(value.hearth) && value.hearth.swap === true)) return null;
+  // Task 51д: the meeting only in a run with an NPC away, at a rest of its zone (entered or open now).
+  if (value.npcMeet !== undefined && !(isRecord(value.npcMeet) && typeof value.npcMeet.nodeId === 'string' && isRecord(value.hearth) && isRtHearthLeaver(value.hearth.away)
+    && (value.npcMeet.deal === undefined || (typeof value.npcMeet.deal === 'string' && /^(item|talisman|sell):[a-z-]+$/.test(value.npcMeet.deal))))) return null;
+  // Task 51г: the reroll mark only in a run with «Без переброса».
+  if (value.vowRerolled !== undefined && !(value.vowRerolled === true && isRecord(value.hearth) && Array.isArray(value.hearth.vows) && value.hearth.vows.includes('vow-no-reroll'))) return null;
+  const level = garrisonStreams ? { seed: rtGarrisonSeed(value as { seed: number; garrisonMap?: 0 | 1 }), streams: garrisonStreams } : { seed: value.seed as number, streams };
   const run = value as unknown as RtRunState;
   const map = rtRunMap(run), known = (id: unknown): id is string => typeof id === 'string' && !!map.node(id);
   if (!Array.isArray(run.visited) || !run.visited.every(known) || !(run.currentNodeId === null || known(run.currentNodeId))) return null;
   if ((run.currentNodeId ?? null) !== (run.visited[run.visited.length - 1] ?? null)) return null;
-  // The path goes along the map's edges from a row-5 node.
-  for (let n = 0; n < run.visited.length; n++) {
-    const from = n === 0 ? map.starts() : map.node(run.visited[n - 1])!.next;
-    if (!from.includes(run.visited[n])) return null;
+  // Task 51д: the meeting's rest — a rest of the zone of the NPC away, entered (visited or open now).
+  if (run.npcMeet) {
+    const meetNode = map.node(run.npcMeet.nodeId), open = isRecord(run.pending) && run.pending.kind === 'rest' && run.pending.nodeId === run.npcMeet.nodeId;
+    if (!meetNode || meetNode.type !== 'rest' || !rtMeetZone(run.hearth!.away!, meetNode) || !(open || run.visited.includes(meetNode.id))) return null;
   }
+  // The path goes along the map's edges from a row-5 node. Task 56: a step off them only under «Перепутье» of its level, counted.
+  let offLinks = 0;
+  const offLink = (fromId: string | undefined, id: string): boolean | null => {
+    const from = fromId === undefined ? null : map.node(fromId)!;
+    if ((from ? from.next : map.starts()).includes(id)) return false;
+    return from && run.omens?.level?.[omenLevelOf(id)] === 'crossroads' && omenLevelOf(from.id) === omenLevelOf(id) && crossroadsNext(map, from).includes(id) ? true : null;
+  };
+  for (let n = 0; n < run.visited.length; n++) {
+    const off = offLink(n === 0 ? undefined : run.visited[n - 1], run.visited[n]);
+    if (off === null) return null;
+    if (off) offLinks++;
+  }
+  // Task 56 «Ярмарочный день»: the omen's rerolls spent — merchants entered (visited or open) on a level with the omen, each once.
+  if (run.fairRerolls !== undefined && !(isRecord(run.fairRerolls) && Object.keys(run.fairRerolls).length && Object.entries(run.fairRerolls).every(([id, n]) => n === 1 && known(id)
+    && map.node(id)!.type === 'shop' && run.omens?.level?.[omenLevelOf(id)] === 'fair' && (run.visited.includes(id) || (isRecord(run.pending) && (run.pending as { nodeId?: unknown }).nodeId === id))))) return null;
   if (!isCount(run.maxHp) || run.maxHp < 1 || !isCount(run.hp) || run.hp > run.maxHp || (run.hp < 1 && run.result?.outcome !== 'defeat')) return null;
   if (!isMaterials(run.materials) || !isCount(run.hardenings)) return null;
   // Step 3: consumables in hand, the open ones (each once), the energy banked for the next arena (0–7).
@@ -3686,12 +4173,16 @@ function checkRun(value: unknown): RtRunState | null {
     if (record.severed !== undefined && (record.severed !== true || !run.jailer || !JAILER_RUN_ARENAS.includes(record.arena))) return null;
     // Task 48: the Troll's parts severed — 1…3, only a fight on the Troll's arena of a run with `troll`.
     if (record.parts !== undefined && (!isCount(record.parts) || record.parts < 1 || record.parts > 3 || !run.troll || !TROLL_RUN_ARENAS.includes(record.arena))) return null;
+    // Task 51г: the shackles cut — a whole number from 1.
+    if (record.cuts !== undefined && !(isCount(record.cuts) && record.cuts >= 1)) return null;
     // B6 К7: only «Застава» has the chest.
     if (record.chest !== undefined && (record.chest !== true || record.arena !== HARD_ARENA)) return null;
     // П6: the killing blow only on the run's lost record.
     if (record.death !== undefined && (record.won || !validDeath(record.death) || !isRecord(run.result) || run.result.outcome !== 'defeat' || run.result.nodeId !== record.nodeId)) return null;
     // Task 16: a fight's feat only in a run with feats, the node's own draw.
     if (record.feat !== undefined && !(run.feats === true && validFeat(record.feat, run.seed, map.node(record.nodeId)!, true))) return null;
+    // Task 56: the omens a fight played — the node's and its level's, by their rolls (absent — none).
+    if (JSON.stringify(record.omens ?? {}) !== JSON.stringify(rtFightOmens(run, map.node(record.nodeId)!)) || (record.omens !== undefined && !Object.keys(record.omens as object).length)) return null;
   }
   // B7 К9: the circle and the casino stream's counter — both or neither (absent: no circle stood in the run).
   if ((run.casinoDraws === undefined) !== (run.casino === undefined) || (run.casino !== undefined && !validCasino(run, map))) return null;
@@ -3705,6 +4196,9 @@ function checkRun(value: unknown): RtRunState | null {
   }
   if (run.result !== null && (!isRecord(run.result) || !['victory', 'defeat'].includes(run.result.outcome) || !known(run.result.nodeId))) return null;
   const pending = run.pending as unknown;
+  // Task 56: the off-link steps of a run with no node entered (nothing open, the gift, a transition's screen) — all on the path.
+  const entered = isRecord(pending) && pending.kind !== 'gift' && pending.kind !== 'outskirts' && !(pending.kind === 'talisman' && pending.source === 'level');
+  if (!entered && offLinks !== (run.crossroadsFree ?? 0)) return null;
   if (pending === null) return { ...run, streams };
   // An ended run has nothing open.
   if (run.result !== null || !isRecord(pending)) return null;
@@ -3712,8 +4206,8 @@ function checkRun(value: unknown): RtRunState | null {
   // Task 38: the transition's screens — the forest final's relic and «Предместье» (their node is completed: not one of `next`).
   if (pending.kind === 'outskirts' || (pending.kind === 'talisman' && pending.source === 'level')) return validLevelPending(run, map, pending, streams) ? { ...run, streams } : null;
   if (!known(pending.nodeId)) return null;
-  const next = run.currentNodeId === null ? map.starts() : map.node(run.currentNodeId)!.next;
-  if (!next.includes(pending.nodeId)) return null;
+  const off = offLink(run.currentNodeId ?? undefined, pending.nodeId);
+  if (off === null || offLinks + (off ? 1 : 0) !== (run.crossroadsFree ?? 0)) return null;
   const node = map.node(pending.nodeId)!, pick = run.picks.find(entry => entry.nodeId === pending.nodeId);
   switch (pending.kind) {
     case 'battle': {
@@ -3735,6 +4229,8 @@ function checkRun(value: unknown): RtRunState | null {
       if (pending.oath !== undefined && !(isOathId(pending.oath) && Array.isArray(pending.oathOffer) && pending.oathOffer.includes(pending.oath))) return null;
       // Task 16: the open battle's feat — only in a run with feats, the node's own draw.
       if (pending.feat !== undefined && !(run.feats === true && validFeat(pending.feat, run.seed, node, false))) return null;
+      // Task 56: the card's omens — the node's and its level's, by their rolls (absent — none).
+      if (JSON.stringify(pending.omens ?? {}) !== JSON.stringify(rtFightOmens(run, node)) || (pending.omens !== undefined && !Object.keys(pending.omens as object).length)) return null;
       break;
     }
     case 'die': {
@@ -3784,7 +4280,9 @@ function checkRun(value: unknown): RtRunState | null {
       if ((rerolls === undefined) !== (rerolled === undefined)) return null;
       if (rerolls !== undefined) {
         // Task 37 «Правка»: the Jailer's oath screen rerolls only by the camp's free rerolls (counted in `jailerRerolled`).
-        const freeOath = source === 'oath' && isCount(run.jailerRerolled) && isCount(rerolls) && rerolls <= run.jailerRerolled;
+        // Task 51б: on a garrison node the garrison's free rerolls (`garrisonRerolled`) count too.
+        const freeSpent = (run.jailerRerolled ?? 0) + (rtGarrisonNodeId(node.id) ? run.garrisonRerolled ?? 0 : 0);
+        const freeOath = source === 'oath' && freeSpent >= 1 && isCount(rerolls) && rerolls <= freeSpent;
         if (!(RT_REROLL_SOURCES.includes(source as RtTalismanSource) || freeOath) || !isCount(rerolls) || rerolls < 1 || !isTalismanList(rerolled) || rerolled.length < rerolls) return null;
         // Task 16: the feat's first offer is its own draw — its rerolls alone take `talismans` draws.
         if (rerolled.some(id => options.includes(id) || run.talismans.includes(id) || run.talismansGone.includes(id)) || !(level.streams.talismans >= (source === 'feat' ? 0 : 1) + rerolls)) return null;
@@ -3820,7 +4318,10 @@ function checkRun(value: unknown): RtRunState | null {
     case 'shop': {
       if (node.type !== 'shop' || !Array.isArray(pending.bought) || !isRecord(pending.stock)) return null;
       const stock = pending.stock;
-      if (!isItemList(stock.items) || stock.items.length > SHOP_ITEMS || new Set(stock.items).size !== stock.items.length) return null;
+      // Task 56 «Ярмарочный день»: the merchant of the level with the omen has its extra consumable in the last place.
+      const fair = run.omens?.level?.[omenLevelOf(node.id)] === 'fair';
+      if (!isItemList(stock.items) || stock.items.length > SHOP_ITEMS + (fair ? 1 : 0) || new Set(stock.items).size !== stock.items.length) return null;
+      if (fair && !(stock.items.length >= 1 && stock.items[stock.items.length - 1] === rtFairItem(arenaSeed(run, node.id), (stock.items as ItemKind[]).slice(0, -1)))) return null;
       if (stock.talisman !== null && !validShopTalisman(stock.talisman)) return null;
       // Phase B (track Д4): the talisman of the visit is drawn again — the last `merchant` draw over the pool at the entering
       // (a talisman bought at this visit was not taken yet then).
@@ -3828,9 +4329,18 @@ function checkRun(value: unknown): RtRunState | null {
       const boughtTalisman = pending.bought.some(entry => isRecord(entry) && entry.good === 'talisman');
       // Task 30: a bought «Близнецы» may have replaced «Якорь у героя» — it was taken then, gone now: the same draw either way.
       const entering = talismanPool({ ...run, talismans: run.talismans.filter(id => !(boughtTalisman && id === stock.talisman)) });
+      // Task 56: the omen's reroll marks only on a rerolled visit.
+      if (pending.rerolled === undefined && (pending.fairRerolled !== undefined || pending.rerolls !== undefined)) return null;
       // Task 44: the guaranteed pair (`stock.pair`) — a half's partner in a run with fusions, instead of the draw.
       if (stock.pair !== undefined) { if (!(stock.pair === true && run.fusions === true && typeof stock.talisman === 'string' && fusionOfHalf(stock.talisman))) return null; }
-      else if (rtShopTalisman(streamValue(level.seed, 'merchant', level.streams.merchant - 1), entering) !== stock.talisman) return null;
+      // Task 51в: goods drawn again by «Шишова лавка» — from the stream `hearth-shop` of the node (the counter of its level spent).
+      else if (pending.rerolled !== undefined) {
+        // Task 56: the omen's reroll (its node's mark), Шиш's, or both (`rerolls` 2: the stream's second value).
+        const garrisonShop = !!rtGarrisonNodeId(node.id), shish = garrisonShop ? run.garrisonShopRerolled === true : run.shopRerolled === true, n = pending.rerolls === 2 ? 2 : 1;
+        if (pending.rerolled !== true || (pending.rerolls !== undefined && pending.rerolls !== 2) || (pending.fairRerolled !== undefined && !(pending.fairRerolled === true && fair && run.fairRerolls?.[node.id] === 1))) return null;
+        if (!(pending.fairRerolled ? n === 1 || shish : n === 1 && shish)) return null;
+        if (rtShopTalisman(shopRerollBase(run, node.id, n - 1), entering) !== stock.talisman) return null;
+      } else if (rtShopTalisman(streamValue(level.seed, 'merchant', level.streams.merchant - 1), entering) !== stock.talisman) return null;
       const items = stock.items as ItemKind[];
       if (!pending.bought.every(entry => isRecord(entry) && isCount(entry.price) && isMaterials(entry.paid) && (entry.good === 'heal' || entry.good === 'harden'
         || entry.good === 'item' && isCount(entry.slot) && entry.slot < items.length && entry.item === items[entry.slot]
