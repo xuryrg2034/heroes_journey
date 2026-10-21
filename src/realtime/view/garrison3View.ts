@@ -295,10 +295,10 @@ export class Garrison3View {
       const t = Math.max(0, Math.min(1, 1 - pot.left / Math.max(1e-6, pot.flight))), dist = Math.hypot(pot.x - pot.x0, pot.y - pot.y0);
       s.potT.push(t);
       const apex = Math.min(4.2, 1.6 + 0.35 * dist) * u, h = 4 * apex * t * (1 - t);
-      const gx = (pot.x0 + (pot.x - pot.x0) * t) * u, gy = (pot.y0 + (pot.y - pot.y0) * t) * u, sz = r * 0.5;
+      const gx = (pot.x0 + (pot.x - pot.x0) * t) * u, gy = (pot.y0 + (pot.y - pot.y0) * t) * u, sz = r * 0.5 * 1.3;
       const sr = sz * (0.7 + 0.9 * t);
       g.ellipse(gx, gy, sr, sr * 0.45).fill({ color: 0x000000, alpha: 0.15 + 0.3 * t });
-      this.drawPot(g, gx, gy - h, sz, t * 9.4, clock);
+      this.drawPot(g, gx, gy - h, sz, t * 9.4, clock, true);
     }
     this.drawPitchedFeet(g, world, clock, r, sees);
     this.drawRecruits(g, world, clock, r, ink, sees);
@@ -323,19 +323,21 @@ export class Garrison3View {
   }
 
   /** A clay pot at (`x`, `y`), `sz` px wide, turned by `spin`, smoking. */
-  private drawPot(g: Graphics, x: number, y: number, sz: number, spin: number, clock: number): void {
+  private drawPot(g: Graphics, x: number, y: number, sz: number, spin: number, clock: number, rim = false): void {
     // Smoke: three puffs rising and thinning.
     for (let i = 0; i < 3; i++) {
       const ph = (clock * 0.9 + i / 3) % 1;
       g.circle(x + Math.sin(clock * 3 + i * 2) * sz * 0.5, y - sz * 0.9 - ph * sz * 2.2, sz * 0.28 * (1 + ph)).fill({ color: SMOKE, alpha: 0.4 * (1 - ph) });
     }
+    // A pale rim (as the keys' white contour) so the pot in the air reads over the bodies of the crowd.
+    if (rim) g.circle(x, y, sz + 3.5).fill({ color: 0xffffff, alpha: 0.9 });
     g.circle(x, y, sz).fill(POT).stroke({ color: NAVY, width: 3 });
     // The band and the glow of the hot pitch at the mouth turn with the pot.
     const c = Math.cos(spin), n = Math.sin(spin);
     g.moveTo(x - sz * c, y - sz * n).lineTo(x + sz * c, y + sz * n).stroke({ color: POT_BAND, width: 3, alpha: 0.9 });
     g.ellipse(x + sz * 0.05 * n, y - sz * 0.55, sz * 0.62, sz * 0.2).fill(POT_BAND).stroke({ color: NAVY, width: 2 });
     g.ellipse(x + sz * 0.05 * n, y - sz * 0.55, sz * 0.4, sz * 0.1).fill({ color: POT_GLOW, alpha: 0.9 });
-    g.arc(x, y, sz * 0.78, Math.PI * 0.75, Math.PI * 1.15).stroke({ color: 0xffffff, width: 1.6, alpha: 0.25 });
+    g.moveTo(x + Math.cos(Math.PI * 0.75) * sz * 0.78, y + Math.sin(Math.PI * 0.75) * sz * 0.78).arc(x, y, sz * 0.78, Math.PI * 0.75, Math.PI * 1.15).stroke({ color: 0xffffff, width: 1.6, alpha: 0.25 });
   }
 
   /** Drops at the feet of the hero and of the enemies in pitch, and the hero's sticky trail. */

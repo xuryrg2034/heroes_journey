@@ -133,12 +133,15 @@ function pitchRig(k: number, extra: Partial<Params> = {}, loadout?: Loadout): { 
 
 check('the pitcher: the pot over its head in the windup (the arc fills), none before and after; the mark and the pot in the air the whole flight, the mark blinking every 0.12 s; both gone at the fall; the pool lies after it (3 seeds)', () => {
   for (const k of [1, 2, 3]) {
-    const { rig } = pitchRig(k), w = rig.w, s = shownAt(rig);
+    const { rig, pitcher } = pitchRig(k), w = rig.w, s = shownAt(rig);
     rig.render();
     assert(s.windups === 0 && s.marks === 0 && s.pots === 0 && s.pools === 0, `seed ${k}: nothing before the windup`);
     rig.run(1, r => s.windups > 0 || r.events.some(e => e.type === 'pot' && e.action === 'aim'));
     rig.frame();
     assert(s.windups === 1 && s.pots === 0 && s.marks === 0, `seed ${k}: the pot over the pitcher in the windup (${s.windups})`);
+    // Nothing is drawn far from the pitcher in its windup (a stray line from the arc of the pot's gloss ran to the screen's corner, pw-59a-3).
+    const wb = rig.g.getLocalBounds(), reach = 4 * R;
+    assert(wb.minX >= pitcher.x * U - reach && wb.maxX <= pitcher.x * U + reach && wb.minY >= pitcher.y * U - reach - R * 2 && wb.maxY <= pitcher.y * U + reach, `seed ${k}: the windup's drawing stays round the pitcher (${wb.minX.toFixed(0)}…${wb.maxX.toFixed(0)}, ${wb.minY.toFixed(0)}…${wb.maxY.toFixed(0)})`);
     rig.run(1, () => s.pots > 0);
     let frames = 0, lit = 0, flips = 0, prev: boolean | null = null;
     while (s.pots > 0 && w.status === 'playing') {
