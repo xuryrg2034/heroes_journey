@@ -95,6 +95,8 @@ class Rig {
   readonly floats: { text: string; x: number; y: number; color: number }[] = [];
   readonly events: WorldEvent[] = [];
   clock = 0;
+  /** The camera's view: what the view may draw (everything by default). */
+  seeing: (p: Vec) => boolean = () => true;
   constructor(readonly sim: Simulation) {}
   get w(): World { return this.sim.world; }
   /** Draw the world as it stands (no tick): the events brought so far are shown first. */
@@ -103,8 +105,8 @@ class Rig {
     for (const ev of events) { this.view.onEvent(ev, w, this.clock, R); this.events.push(ev); }
     this.g.clear();
     this.view.beginFrame();
-    this.view.drawGround(this.g, w, tools, this.clock, R, () => true);
-    this.view.drawOver(this.g, w, this.clock, R, 1, ink, () => true);
+    this.view.drawGround(this.g, w, tools, this.clock, R, this.seeing);
+    this.view.drawOver(this.g, w, this.clock, R, 1, ink, this.seeing);
     if (w.chain.length && !w.move) this.view.drawPlan(this.g, w, planChain(w), this.clock, R, () => true);
   }
   frame(): void {
@@ -153,6 +155,22 @@ check('the pitcher: the pot over its head in the windup (the arc fills), none be
     assert(lit > 0 && lit < frames && Math.abs(flips - flight / MARK_BLINK) <= 3, `seed ${k}: the mark blinks every ${MARK_BLINK} s (${flips} flips in ${flight.toFixed(2)} s, ${lit}/${frames} lit)`);
     assert(s.marks === 0 && s.pots === 0 && s.throws === 1 && s.lands === 1 && s.pools === 1 && s.pooled === 1, `seed ${k}: the fall — the mark and the pot gone, one pool (${JSON.stringify({ m: s.marks, p: s.pots, l: s.lands, pools: s.pools })})`);
     assert(s.heroHits === 1 && w.hero.hp === 98 && s.heroInPitch === 1 && s.drops >= 3, `seed ${k}: the hero stood on the mark — hit, in the pitch, drops at his feet (${s.heroHits}, ${s.drops})`);
+  }
+});
+
+check('the pitcher off the screen: the mark of the fall and the pot in the air are still drawn in every frame of the flight (design 21.10.2026; 3 seeds)', () => {
+  for (const k of [1, 2, 3]) {
+    const { rig, pitcher } = pitchRig(k), s = rig.view.shown;
+    // The camera sees the hero's side only: the pitcher (x 12) and the pot at its hands are out of the view, the mark at the hero is in it.
+    rig.seeing = p => p.x < 9;
+    assert(!rig.seeing(pitcher), `seed ${k}: the pitcher is out of the view`);
+    rig.run(3, r => r.events.some(e => e.type === 'pot' && e.action === 'throw'));
+    let frames = 0, bad = 0;
+    while (rig.w.status === 'playing' && s.lands === 0 && frames < 400) {
+      rig.frame(); frames++;
+      if (s.lands === 0 && (s.marks !== 1 || s.pots !== 1)) bad++;
+    }
+    assert(frames >= 100 && bad === 0 && s.lands === 1, `seed ${k}: mark and pot drawn in every frame of the flight (${frames} frames, ${bad} without)`);
   }
 });
 

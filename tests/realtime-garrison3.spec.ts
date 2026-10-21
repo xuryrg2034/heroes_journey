@@ -142,18 +142,12 @@ test('task 59а view: «Смолокур (проба)» — the mark stands the 
   expect(errors).toEqual([]);
 });
 
-test('task 59а view: «Смолокур (проба)» — the mark of the fall is drawn in every frame of the flight, from the throw to the blow, also with the pitcher off the screen (design 21.10.2026; no edge arrow for it)', async ({ page }) => {
+test('task 59а view: «Смолокур (проба)» — the mark of the fall is drawn in every frame of the flight, from the throw to the blow. The pitcher off the screen is proved in Node (garrison3View.spec.ts): the 18×12 arena of the probe is larger than the field, but the camera keeps the pitcher in view here', async ({ page }) => {
   test.setTimeout(120_000);
   const errors = collectErrors(page);
   await openProbe(page, 1);
   await quiet(page);
-  // The hero as far from the pitcher as it still throws (`pitchFar` + 1 = 8): its screen point must lie above the field.
-  const pitcher = (await snap(page)).enemies.find(e => e.kind === 'pitcher')!;
-  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [pitcher.x, pitcher.y + 7.9] as const);
-  await gameWait(page, 0.5);
-  const seen = await page.evaluate(([x, y]) => { const p = (window as any).__realtime.toScreen(x, y); return p.y >= 62 && p.y <= 720 && p.x >= 0 && p.x <= 1280; }, [pitcher.x, pitcher.y] as const);
-  expect(seen, 'the pitcher stands off the screen (above the field)').toBe(false);
-  // Every throw of two: from the frame the pot flies to the frame it lands, one mark at the hero's point of the throw, in the view.
+  // Every throw of two (design 21.10.2026): from the frame the pot flies to the frame it lands, one mark at the hero's point of the throw, in the view.
   for (const lands0 of [0, 1]) {
     await page.evaluate(() => { (window as any).__g3bad = ''; });
     await untilFrame(page, (sn, lands0: number, late) => {
