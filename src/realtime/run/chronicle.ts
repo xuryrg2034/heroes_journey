@@ -171,9 +171,10 @@ export function rtChronicleRun(previous: RtChronicle | undefined, run: RtRunStat
   const taken = rtChronicleTaken(run), items = { ...c.items };
   // Task 58в: `shown` — the forms, the field's items, the hammers, the rerolled and the knack's refused cards a screen showed.
   for (const id of [...run.talismansGone, ...run.shown ?? []]) if (isRtChronicleItem(id) && !taken.includes(id) && !items[id]) items[id] = 1;
+  // A fusion «seen» (spec 3.4, question 11): both parts taken in this run (a form replaced before its end too; Ведунья's innate part).
   for (const recipe of RT_CHRONICLE_ITEMS.fusions) {
     const parts = rtChronicleParts(recipe), innate = rtInnate(run);
-    if (!taken.includes(recipe) && !items[recipe] && parts.every(part => run.talismans.includes(part) || innate.includes(part))) items[recipe] = 1;
+    if (!taken.includes(recipe) && !items[recipe] && parts.every(part => taken.includes(part) || innate.includes(part))) items[recipe] = 1;
   }
   for (const id of taken) if (items[id] !== 2) { items[id] = 2; refs.push(`item:${id}`); }
   if (Object.keys(items).length) c.items = items;
