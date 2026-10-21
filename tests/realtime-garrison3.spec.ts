@@ -99,6 +99,48 @@ async function drawChain(page: Page, ids: number[], release = true, detour = fal
   if (release) await page.mouse.up();
 }
 
+/**
+ * The camera has come to rest on the hero (it glides after a teleport): the screen points of the bodies are read only then. A press placed
+ * by a point read while the camera still moved landed on another body (pw v77, «Привратники»: the chain began on the pair's second).
+ */
+async function cameraSettled(page: Page): Promise<void> {
+  const still = await untilFrame(page, (_snap, _arg: null, late, rt) => {
+    const h = rt.snapshot().hero, s = rt.toScreen(h.x, h.y), w = window as any, last = w.__g3Cam;
+    w.__g3Cam = { x: s.x, y: s.y, n: last && Math.abs(last.x - s.x) < 0.5 && Math.abs(last.y - s.y) < 0.5 ? last.n + 1 : 0 };
+    return w.__g3Cam.n >= 5 ? true : late ? false : undefined;
+  }, null, 4);
+  expect(still, 'the camera came to rest').toBe(true);
+}
+
+/** A hero's walk sampled in the page on every frame (`seconds` of game time with `key` down); the frames are what the test reasons from. */
+interface WalkFrame { t: number; x: number; y: number; inPitch: number; pools: number; crowd: boolean }
+async function sampledWalk(page: Page, key: string, seconds: number): Promise<WalkFrame[]> {
+  await page.evaluate(() => { (window as any).__g3walk = []; });
+  await page.keyboard.down(key);
+  const frames = await untilFrame(page, (sn, until: number, late) => {
+    const w = window as any, log = w.__g3walk as WalkFrame[];
+    if (!log.length || log[log.length - 1].t !== sn.time) log.push({ t: sn.time, x: sn.hero.x, y: sn.hero.y, inPitch: sn.garrison.heroInPitch, pools: sn.garrison.pools, crowd: !!sn.heroInCrowd });
+    return log[0].t + until <= sn.time || late ? log : undefined;
+  }, seconds, seconds + 5);
+  await page.keyboard.up(key);
+  return frames;
+}
+/**
+ * The walk's speed over the frame pairs whose both ends are `inPitch` (a pool under the hero) or both outside (`false`): units per game second,
+ * with the seconds and the pairs counted, and the pairs the crowd slowed (the sim's `crowdSlow` stacks with the pool).
+ */
+function walkSpeed(frames: readonly WalkFrame[], inPitch: boolean): { speed: number; seconds: number; pairs: number; crowd: number } {
+  let dist = 0, seconds = 0, pairs = 0, crowd = 0;
+  for (let i = 1; i < frames.length; i++) {
+    const a = frames[i - 1], b = frames[i], want = inPitch ? 1 : 0;
+    if (a.inPitch !== want || b.inPitch !== want || b.t <= a.t) continue;
+    dist += Math.hypot(b.x - a.x, b.y - a.y); seconds += b.t - a.t; pairs++;
+    if (b.crowd) crowd++;
+  }
+  return { speed: seconds > 0 ? dist / seconds : 0, seconds, pairs, crowd };
+}
+const frameTable = (frames: readonly WalkFrame[]): string => frames.map(f => `t ${f.t.toFixed(3)} x ${f.x.toFixed(3)} y ${f.y.toFixed(3)} pitch ${f.inPitch} pools ${f.pools} crowd ${f.crowd ? 1 : 0}`).join('\n');
+
 const place = (page: Page, x: number, y: number, color: number, hp: number, kind = 'basic'): Promise<number> =>
   page.evaluate(([x, y, color, hp, kind]) => (window as any).__realtime.place(x, y, color, hp, kind), [x, y, color, hp, kind] as const);
 
@@ -149,19 +191,30 @@ test('task 59а view: «Смолокур (проба)» — the mark stands the 
   await expect.poll(async () => (await snap(page)).garrison.heroInPitch).toBe(1);
   expect((await snap(page)).garrison.drops).toBeGreaterThan(0);
   await shot(page, 'hero-in-pitch');
-  // In the pool he walks slower than out of it (×0.6).
-  const walk = async (): Promise<number> => {
-    const x0 = (await snap(page)).hero.x;
-    await page.keyboard.down('KeyA');
-    await gameWait(page, 0.3);
-    await page.keyboard.up('KeyA');
-    return Math.abs((await snap(page)).hero.x - x0);
-  };
-  const inPool = await walk();
-  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [3, 3] as const);
+  // In the pool he walks slower than out of it (×0.6). No more pots: the walk is measured on the frames of the page (the key goes down at
+  // once, nothing is read around it), then, once the pool has dried, from the same point again — the same crowd, wall and camera, the pool
+  // is the only difference. If the check fails, the frames are in its message: whether the hero stood in the pool and what slowed him.
+  await page.evaluate(() => (window as any).__realtime.setParam('pitchReload', 1000));
+  await gameWait(page, 0.5); // the hit's knock is over: the walk starts from a standing hero
+  const spot = (await snap(page)).hero;
+  const inFrames = await sampledWalk(page, 'KeyA', 0.3);
+  const inPool = walkSpeed(inFrames, true);
+  await untilFrame(page, (sn, _a, late) => sn.garrison.pools === 0 || late ? sn.garrison.pools : undefined, null, 6);
+  expect((await snap(page)).garrison.pools, 'the pool dried').toBe(0);
+  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [spot.x, spot.y] as const);
   await gameWait(page, 0.2);
-  const onGround = await walk();
-  expect(inPool).toBeLessThan(onGround * 0.8);
+  const outFrames = await sampledWalk(page, 'KeyA', 0.3);
+  const onGround = walkSpeed(outFrames, false);
+  const report = `in the pool ${JSON.stringify(inPool)}, on the ground at the same spot ${JSON.stringify(onGround)}
+-- in the pool, frames:
+${frameTable(inFrames)}
+-- on the ground, frames:
+${frameTable(outFrames)}`;
+  expect(inPool.pairs, `the hero walked in the pool on some frames
+${report}`).toBeGreaterThan(2);
+  expect(onGround.pairs, `the control walked out of the pool on some frames
+${report}`).toBeGreaterThan(2);
+  expect(inPool.speed, report).toBeLessThan(onGround.speed * 0.8);
   await sameHash(page);
   expect(errors).toEqual([]);
 });
@@ -198,6 +251,7 @@ test('task 59а view: «Смолокур (проба)» — a chain with «Ог�
   // Three weak links across the pool (the hero 3 west of its centre, as the Node check lays them).
   await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [pool.x - 3, pool.y] as const);
   const ids = [await place(page, pool.x - 1.6, pool.y, 0, 0), await place(page, pool.x - 0.2, pool.y, 0, 0), await place(page, pool.x + 1.2, pool.y, 0, 0)];
+  await cameraSettled(page);
   await drawChain(page, ids, false);
   await expect.poll(async () => (await snap(page)).garrison.poolFire).toBe(1);
   await shot(page, 'plan-fire-rim');
@@ -264,6 +318,7 @@ test('task 59а view: «Привратники (проба)» — a chain into o
   expect(col.length).toBe(5);
   const top = col[0];
   await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [COLUMNS[a.color] + 0.6, top.y + 0.5] as const);
+  await cameraSettled(page);
   await drawChain(page, [top.id, a.id], false);
   await expect.poll(async () => (await snap(page)).garrison.wardens.warn).toBe(1);
   await shot(page, 'wardens-warn');
@@ -284,6 +339,7 @@ test('task 59а view: «Привратники (проба)» — a chain into o
   const column = (await columnOf(pair[0].color)).reverse();
   expect(column.length).toBe(5);
   await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [COLUMNS[pair[0].color] + 0.6, column[0].y + 0.9] as const);
+  await cameraSettled(page);
   await drawChain(page, [...column.map(e => e.id), pair[0].id, pair[1].id], false);
   await expect.poll(async () => (await snap(page)).garrison.wardens.gold).toBe(2);
   expect((await snap(page)).garrison.wardens.warn).toBe(0);
