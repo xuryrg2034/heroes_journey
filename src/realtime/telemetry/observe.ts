@@ -95,6 +95,11 @@ import { WOLF_RUSH } from '../sim/enemies/wolf';
 import { BOSS_CLEAR, JAILER } from '../sim/enemies/jailer';
 import { CASTELLAN, KNIGHT, houndFrenzied, prisonerRioting } from '../sim/enemies/garrison';
 import { WISP } from '../sim/enemies/wisp';
+// Task 59б: the garrison's step 3 (the recruits' formations, the wardens' pairs and anger, the pools of pitch).
+import { RECRUIT, recruitGroup } from '../sim/enemies/recruit';
+import { WARDEN, wardenAngry } from '../sim/enemies/warden';
+import { inPitch, PITCH_FIRE_SOURCE, POT_SOURCE } from '../sim/pitch';
+import type { GarrisonStep3Summary } from './schema';
 import { TROLL, TROLL_CLUB, TROLL_CLUB_SOURCE, TROLL_ROCK, TROLL_ROCK_SOURCE, TROLL_TAIL, TROLL_TAIL_SOURCE } from '../sim/enemies/troll';
 import { kindOf } from '../sim/enemies/kinds';
 import { dist, inThorns, inWater } from '../sim/geometry';
@@ -218,6 +223,10 @@ export function createFightObserver(start: World): FightObserver {
   const elites = new Map<number, { born: number; chains: number; lastDash: number }>();
   // Task 43: the last dash (`s.chain.count`) that struck each knight.
   const knightDash = new Map<number, number>();
+  // Task 59б: the summary of step 3 (made at its first number), the formations seen, the wardens' pairs (open — not yet gone), the angry.
+  const step3 = (): GarrisonStep3Summary => (s.garrison.step3 ??= { pots: 0, potHits: 0, pitchSeconds: 0, ignites: { path: 0, burning: 0 }, pitchKills: 0,
+    formations: 0, orderRefusals: 0, orderBlocks: 0, drills: 0, unlinks: 0, pairs: 0, pairsCleared: 0, angers: 0, angerDamage: 0 });
+  const formations = new Set<number>(), pairs = new Map<string, [number, number]>(), angered = new Set<number>();
   let goalsDone = start.greedStart !== null;
   // К7: the curse is on now (a world that starts cursed — a test — counts from its own ticks).
   if (start.curse) { s.chest.taken = start.curse.tick; s.chest.liftedAt = start.curse.lifted ?? null; }
@@ -281,6 +290,8 @@ export function createFightObserver(start: World): FightObserver {
     let top = seenId;
     for (const e of w.enemies) {
       if (e.id > seenId) { seen.set(e.id, e); if (e.id > top) top = e.id; if (e.kind === KNIGHT) s.garrison.knights++; if (e.kind === 'wolf' && s.boss?.troll) s.boss.troll.wolves++; if (e.kind === WISP) s.forest.wisps.appeared++; }
+      // Task 59б: a formation of recruits seen.
+      if (e.kind === RECRUIT && !formations.has(recruitGroup(e))) { formations.add(recruitGroup(e)); step3().formations = formations.size; }
       if (e.elite && !elites.has(e.id)) { elites.set(e.id, { born: w.time, chains: 0, lastDash: -1 }); s.elites.count++; }
     }
     seenId = top;
@@ -321,6 +332,9 @@ export function createFightObserver(start: World): FightObserver {
           if (ev.source === 'hound' && striker && houndFrenzied(striker)) { s.garrison.frenzyHits++; s.garrison.frenzyDamage += ev.damage; }
           // Task 41: a rioting prisoner's touch on the hero (any kind but the hound: its touch is the hound's field above).
           if (striker && prisonerRioting(striker)) s.garrison.riotDamage += ev.damage;
+          // Task 59б: the pot on the hero; the angry warden's touch and «Размах».
+          if (ev.source === POT_SOURCE) step3().potHits++;
+          if (ev.source === 'warden-swing' || (ev.source === WARDEN && striker && wardenAngry(striker))) step3().angerDamage += ev.damage;
           // Task 56: «Гроза» hit the hero; a touch of the colour on «Перекличка» (raised by it).
           if (ev.source === 'storm') bump(omenFired, 'storm:hero');
           if (striker && world.rollcall?.color === striker.color && ev.source === kindOf(striker).hitSource) bump(omenFired, 'rollcall:touch');
@@ -343,6 +357,8 @@ export function createFightObserver(start: World): FightObserver {
           if (ev.source === 'riot') s.garrison.riotKills++;
           // Task 57а: a wisp the chain killed.
           if (ev.source === 'chain' && seen.get(ev.enemyId)?.kind === WISP) s.forest.wisps.chainKills++;
+          // Task 59б: a kill of the burning pitch.
+          if (ev.source === PITCH_FIRE_SOURCE) step3().pitchKills++;
           // Task 43: a knight killed (by any source).
           if (seen.get(ev.enemyId)?.kind === KNIGHT) s.garrison.knightKills++;
           else if (ev.source === 'slot-bust') s.slot.bustKills++;
@@ -447,6 +463,18 @@ export function createFightObserver(start: World): FightObserver {
         case 'frenzy': if (ev.action === 'start' && ev.riot) s.garrison.riots++; return;
         // Task 43: a knight shed its armour (the offensive began).
         case 'knightShed': s.garrison.knightSheds++; return;
+        // Task 59б: the pitcher's pots and the pools lit; the recruits' law; the wardens' anger.
+        case 'pot':
+          if (ev.action === 'throw') step3().pots++;
+          else if (ev.action === 'ignite') step3().ignites[ev.cause === 'burning' ? 'burning' : 'path']++;
+          return;
+        case 'recruit':
+          if (ev.action === 'refused') step3().orderBlocks++;
+          else if (ev.action === 'drill') step3().drills++;
+          else if (ev.action === 'unlink') step3().unlinks++;
+          else if (ev.action === 'order') { const key = `order:${skipKey(ev.id, ev.links ?? 0)}`; if (!skips.has(key)) { skips.add(key); step3().orderRefusals++; } }
+          return;
+        case 'warden': if (ev.action === 'anger' && ev.stage === 'start') { step3().angers++; angered.add(ev.id); } return;
         // Task 57а «Лес: стрелки»: windups, the shots' ends, the wisps going out.
         case 'shooter': if (ev.action === 'aim') bump(s.forest.volleys, ev.kind); return;
         case 'shot':
@@ -756,6 +784,19 @@ export function createFightObserver(start: World): FightObserver {
       if (dt > 0) {
         if (inWater(hero, w.arena)) s.movement.water += dt;
         if (w.arena.terrain && inThorns(hero, w.arena)) s.movement.thorns += dt;
+        // Task 59б: the hero's centre in pitch.
+        if (w.pitch?.pools.length && inPitch(w, hero)) step3().pitchSeconds += dt;
+      }
+      // Task 59б: the wardens' pairs — seen once both are drawn; gone (both dead) without an anger — cleared.
+      for (const e of enemies) {
+        if (e.kind !== WARDEN || e.vars.wp === undefined) continue;
+        const a = Math.min(e.id, e.vars.wp), b = Math.max(e.id, e.vars.wp), key = `${a}:${b}`;
+        if (!pairs.has(key)) { pairs.set(key, [a, b]); step3().pairs++; }
+      }
+      for (const [key, [a, b]] of pairs) {
+        if (enemies.some(e => e.id === a || e.id === b)) continue;
+        pairs.delete(key);
+        if (!angered.has(a) && !angered.has(b)) step3().pairsCleared++;
       }
     },
 

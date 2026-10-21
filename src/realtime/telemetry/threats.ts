@@ -45,6 +45,12 @@
  *   touch hurt — hit, a shield took it — shielded, its flight ran out — dodged (the exit time is the flight it survived), the chain or
  *   anything else killed it — interrupted.
  *
+ * - `pot`, `warden-swing` (task 59б «Гарнизон, шаг 3») — the pitcher's pot from its throw (`pot` `throw`) with the hero's body in its mark
+ *   (`pitchMarkRadius` + the hero's body round the point fixed at the throw); its landing (`pot` `land`): a `pot` hit — hit, the hero in
+ *   the circle unhurt (a dash, a jump, a shield) — shielded, else dodged (the pot lands after its thrower's death too). The angry warden's
+ *   «Размах» (the knight's circle, `wardenSwing`) from its windup (`warden` `swing` `start`) with the hero's body in it: the strike
+ *   (`warden` `swing` `hit`) — a `warden-swing` hit, else shielded (in the zone) or dodged; the warden died — interrupted.
+ *
  * Outcomes: `hit` — a strike of this enemy by this source; `shielded` — the body in the zone on the strike tick but not
  * hurt (invulnerability, the chain's shield, a dash, a jump, the focus spare: decision 12); `dodged` — the body out of the
  * zone on the strike tick; `interrupted` — the enemy died, was knocked back, dropped its attack, or the fight ended (the
@@ -60,6 +66,8 @@ import { BOLT_HALF } from '../sim/enemies/crossbow';
 import { STONE_RADIUS } from '../sim/enemies/slinger';
 import { HIVE_SPEED, WASP_LIFE, WASP_RADIUS } from '../sim/enemies/hive';
 import { KNIGHT_CHARGE_SOURCE, KNIGHT_LANE_WIDTH, KNIGHT_SWING_SOURCE, knightLane, knightSwing } from '../sim/enemies/garrison';
+import { WARDEN_SWING_SOURCE, wardenSwing } from '../sim/enemies/warden';
+import { pitchMarkRadius, POT_SOURCE } from '../sim/pitch';
 import { blockedAt, cliffAt, dist, type Vec } from '../sim/geometry';
 import { bodyRadiusOf } from '../sim/enemies/kinds';
 import { heroRadius } from '../sim/params';
@@ -68,8 +76,8 @@ import { enemyFrozen, touchReachOf, type Enemy, type World, type WorldEvent } fr
 import { EventCursor } from './observe';
 import type { ThreatTally } from './schema';
 
-export type ThreatKind = 'archer' | 'boar' | 'wolf' | 'lynx' | 'sapper' | 'sapper-instant' | 'flail' | 'throw' | 'bolt' | 'knight-charge' | 'knight-swing' | 'sling' | 'hive' | 'wisp';
-export const THREAT_KINDS: readonly ThreatKind[] = ['archer', 'boar', 'wolf', 'lynx', 'sapper', 'sapper-instant', 'flail', 'throw', 'bolt', 'knight-charge', 'knight-swing', 'sling', 'hive', 'wisp'];
+export type ThreatKind = 'archer' | 'boar' | 'wolf' | 'lynx' | 'sapper' | 'sapper-instant' | 'flail' | 'throw' | 'bolt' | 'knight-charge' | 'knight-swing' | 'sling' | 'hive' | 'wisp' | 'pot' | 'warden-swing';
+export const THREAT_KINDS: readonly ThreatKind[] = ['archer', 'boar', 'wolf', 'lynx', 'sapper', 'sapper-instant', 'flail', 'throw', 'bolt', 'knight-charge', 'knight-swing', 'sling', 'hive', 'wisp', 'pot', 'warden-swing'];
 export type ThreatOutcome = 'hit' | 'shielded' | 'dodged' | 'interrupted';
 export type CoverKind = 'wall' | 'cliff';
 
@@ -153,6 +161,11 @@ export class ThreatTracker {
   /** Task 57а: the open volley warnings by the shooter's id — the hit source, and its shots once loosed. */
   private readonly volleyOpen = new Map<number, { o: Open; source: string; shots: Set<number> | null; snuffed: boolean }>();
   private readonly wispOpen = new Map<number, Open>();
+  /** Task 59б: this tick's pots and wardens' swings; the open warnings by the pot's and the warden's id. */
+  private potEvents: Extract<WorldEvent, { type: 'pot' }>[] = [];
+  private wardenEvents: Extract<WorldEvent, { type: 'warden' }>[] = [];
+  private readonly potOpen = new Map<number, { o: Open; by: number; at: Vec }>();
+  private readonly wardenOpen = new Map<number, Open>();
   /** Hits already explained by a warning of this tick. */
   private used = new Set<Hit>();
 
@@ -165,7 +178,7 @@ export class ThreatTracker {
   tick(world: World, realDt: number = SIM_DT): void {
     this.real += realDt;
     this.hits = []; this.kills.clear(); this.blasts = []; this.used.clear(); this.bossStarts = []; this.bossHits = []; this.boltAims = []; this.boltShots = []; this.knightStarts = []; this.knightEnds = [];
-    this.shooterEvents = []; this.shotEnds = []; this.wispEvents = [];
+    this.shooterEvents = []; this.shotEnds = []; this.wispEvents = []; this.potEvents = []; this.wardenEvents = [];
     this.cursor.read(world, ev => {
       if (ev.type === 'hit') this.hits.push({ enemyId: ev.enemyId, source: ev.source });
       else if (ev.type === 'knightMove') { if (ev.stage === 'start') this.knightStarts.push({ id: ev.id, move: ev.move }); else if (ev.stage === 'end' || ev.stage === 'hit') this.knightEnds.push({ id: ev.id, move: ev.move }); }
@@ -176,6 +189,8 @@ export class ThreatTracker {
       else if (ev.type === 'shooter') this.shooterEvents.push(ev);
       else if (ev.type === 'shot') this.shotEnds.push(ev);
       else if (ev.type === 'wisp') this.wispEvents.push(ev);
+      else if (ev.type === 'pot') this.potEvents.push(ev);
+      else if (ev.type === 'warden') this.wardenEvents.push(ev);
     });
     this.enemies = new Map(world.enemies.map(e => [e.id, e]));
     // Exit times first: the strike tick counts too.
@@ -193,6 +208,7 @@ export class ThreatTracker {
     this.resolveBolts(world);
     this.resolveKnights(world);
     this.resolveForest(world);
+    this.resolveStep3(world);
     if (world.status !== 'playing') for (const o of [...this.open]) this.close(o, world, 'interrupted', 'end');
     else this.openNew(world);
     this.wolfState = new Map(world.enemies.filter(e => e.kind === 'wolf').map(e => [e.id, e.vars.st ?? 0]));
@@ -258,6 +274,37 @@ export class ThreatTracker {
   }
 
   private kindOpen(kind: ThreatKind): Open[] { return this.open.filter(o => o.w.kind === kind); }
+
+  // ---- Task 59б: the pitcher's pot and the angry warden's «Размах» ----
+
+  private resolveStep3(world: World): void {
+    const hero = world.hero, inMark = (w: World, at: Vec): boolean => dist(w.hero, at) < pitchMarkRadius(w) + heroRadius(w.params);
+    for (const ev of this.potEvents) {
+      if (ev.action === 'land') {
+        const open = this.potOpen.get(ev.id);
+        if (!open) continue;
+        this.potOpen.delete(ev.id);
+        this.close(open.o, world, this.hitBy([open.by], POT_SOURCE) ? 'hit' : ev.hit === 'hero' ? 'shielded' : 'dodged');
+      } else if (ev.action === 'throw' && ev.by !== undefined) {
+        const at = { x: ev.x, y: ev.y };
+        if (inMark(world, at)) this.potOpen.set(ev.id, { o: this.add('pot', [ev.by], world, w => inMark(w, at)), by: ev.by, at });
+      }
+    }
+    for (const [id, o] of this.wardenOpen) {
+      if (this.wardenEvents.some(ev => ev.id === id && ev.action === 'swing' && ev.stage === 'hit')) {
+        this.wardenOpen.delete(id);
+        this.close(o, world, this.hitBy([id], WARDEN_SWING_SOURCE) ? 'hit' : o.inZone(world) ? 'shielded' : 'dodged');
+      } else if (!this.enemies.has(id)) { this.wardenOpen.delete(id); this.close(o, world, 'interrupted', 'dead'); }
+    }
+    for (const ev of this.wardenEvents) {
+      if (ev.action !== 'swing' || ev.stage !== 'start') continue;
+      const e = this.enemies.get(ev.id), swing = e ? wardenSwing(world, e) : null;
+      if (!swing || dist(hero, swing) > swing.r + heroRadius(world.params)) continue;
+      // The circle of the windup (the warden stands while it winds up; the strike clears its state — the circle stays the windup's).
+      const circle = { x: swing.x, y: swing.y, r: swing.r };
+      this.wardenOpen.set(ev.id, this.add('warden-swing', [ev.id], world, w => dist(w.hero, circle) <= circle.r + heroRadius(w.params)));
+    }
+  }
 
   // ---- Archer ----
 

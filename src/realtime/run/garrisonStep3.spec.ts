@@ -6,6 +6,11 @@
 import { garrisonDrill, RT_GARRISON_STEP3_ON, rtGarrisonNodeId } from './garrison';
 import { walkRun } from './metaWalk.testkit';
 import { createRtRun, parseRtRun, rtArenaLoadout, serializeRtRun, type RtRunState } from './rtRun';
+import { RtRecorder } from '../telemetry/recorder';
+import { memoryJournalStore, type KeyValueStore } from '../telemetry/buffer';
+import { defaultParams } from '../sim/params';
+import { checkRecord, emptyFightSummary, runKey, runRecordId, sessionKey, type RunRecord } from '../telemetry/schema';
+import { garrisonSection, garrisonStats, type FightEntry } from '../telemetry/report';
 
 let checks = 0;
 function check(name: string, run: () => void): void { run(); checks++; console.log(`ok - ${name}`); }
@@ -61,5 +66,45 @@ check('a run without the flag plays the garrison of step 2 byte for byte: the ga
   // The digest of the same 300 walks on the base 8afcb20d (task 59а, before 59б): scratch probe, 21.10.2026.
   assert(textHash(lines.join('\n')) === 2747571745, `digest ${textHash(lines.join('\n'))}`);
 });
+
+check('telemetry: the run record field `drill` passes checkRecord (another value refused); the report section «Гарнизон» counts the step 3 — fights and deaths on its arenas, formations by one pass, pairs cleared, pitch, drills', () => {
+  const session = sessionKey(Date.UTC(2026, 9, 21), 7), runId = runKey(Date.UTC(2026, 9, 21), 1);
+  const base = { schema: 1, id: runRecordId(session, runId), kind: 'run', session, run: runId, build: 'b', at: '2026-10-21T00:00:00Z', params: { storage: 'p', hash: 'h' },
+    seed: 1, outcome: 'defeat', farRow: 3, death: null, nodes: [], choices: [], fights: [], kit: {}, runParams: {} };
+  assert(checkRecord({ ...base, drill: 'barracks' }) === null && checkRecord({ ...base, drill: 'armory' }) === null, 'the drill passes');
+  assert(checkRecord({ ...base, drill: 'castle' }) === 'run meta', 'another drill refused');
+  const fight = (arena: string, step3: Partial<NonNullable<ReturnType<typeof emptyFightSummary>['garrison']['step3']>>, death = false, fire = false): FightEntry => {
+    const summary = emptyFightSummary();
+    summary.garrison.step3 = { pots: 0, potHits: 0, pitchSeconds: 0, ignites: { path: 0, burning: 0 }, pitchKills: 0, formations: 0, orderRefusals: 0, orderBlocks: 0, drills: 0, unlinks: 0, pairs: 0, pairsCleared: 0, angers: 0, angerDamage: 0, ...step3 };
+    if (death) summary.death = { source: 'pot' } as unknown as typeof summary.death;
+    if (fire) summary.build.fired['fire-pass'] = 1;
+    return { record: { arena, level: 2, summary }, run: null, notes: [], journal: null, error: null, analysis: null, hashOk: null, summaryDiff: [] } as unknown as FightEntry;
+  };
+  const runs = [{ run: 'A', outcome: 'defeat', nodes: [], drill: 'barracks' }, { run: 'B', outcome: 'victory', nodes: [], drill: 'armory' }, { run: 'C', outcome: 'defeat', nodes: [], drill: 'barracks' }] as unknown as RunRecord[];
+  const fights = [fight('g-barracks', { formations: 2, drills: 1 }), fight('g-barbican', { pairs: 2, pairsCleared: 1, angers: 1 }, true),
+    fight('g-tarworks', { pots: 3, pitchSeconds: 4, ignites: { path: 1, burning: 1 } }, false, true), fight('g-tarworks', { pots: 2, pitchSeconds: 2 })];
+  const t = garrisonStats(runs, fights).step3;
+  assert(t.arenas['g-tarworks']?.fights === 2 && t.arenas['g-barbican']?.deaths === 1 && t.formations === 2 && t.drills === 1 && t.pairs === 2 && t.pairsCleared === 1, JSON.stringify(t));
+  assert(t.pitchFights === 2 && t.pitchSeconds === 6 && t.fireFights === 1 && t.ignites === 2 && t.drill.barracks === 2 && t.drill.armory === 1, JSON.stringify(t));
+  const text = garrisonSection(runs, fights);
+  assert(text.includes('строёв одним проходом 1 из 2') && text.includes('пар без гнева 1 из 2') && text.includes('«Казарма» 2'), text.split(String.fromCharCode(10)).slice(-3).join(' | '));
+});
+
+// The recorder (as the view feeds it): a run of step 3 — its run record carries the drill.
+{
+  const m = new Map<string, string>();
+  const local = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v); }, removeItem: (k: string) => { m.delete(k); }, key: (i: number) => [...m.keys()][i] ?? null, get length() { return m.size; } } as unknown as KeyValueStore;
+  const rec = new RtRecorder({ sandbox: false, paramsStorage: 'p', params: defaultParams(), local, sessionStore: { getItem: () => null, setItem: () => undefined }, channel: null, sinkPollMs: 0, buffer: { storage: local, journals: memoryJournalStore() } });
+  for (const k of [1, 2, 3, 4]) {
+    rec.runStarted(null, createRtRun(seedOf(k), { step3: true }));
+  }
+  await new Promise(resolve => setTimeout(resolve, 20));
+  const records = (await rec.buffer.all()).filter((r): r is RunRecord => r.kind === 'run');
+  for (const k of [1, 2, 3, 4]) {
+    const record = records.filter(r => r.seed === seedOf(k)).pop();
+    assert(record?.drill === garrisonDrill(seedOf(k)) && checkRecord(record) === null, `seed ${k}: the run record's drill ${record?.drill}`);
+  }
+  checks++; console.log('ok - the recorder: a run of step 3 writes its drill into the run record (4 seeds)');
+}
 
 console.log(`garrison step 3: ${checks} checks passed`);

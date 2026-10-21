@@ -1526,6 +1526,16 @@ function refreshFocus(world: World, link: ChainLink): void {
 }
 
 /** Press: start a chain on an enemy or an object within R of the hero. Returns true when a chain started. */
+/**
+ * Task 59б (telemetry, spec 12): a press or the pointer event on a recruit the law of order refuses — event `recruit` `order` (the
+ * observer counts it once per body and drawn chain length). Events only: the rules never read it.
+ */
+function noteOrderRefusal(world: World, p: Vec, plan: ChainPlan): void {
+  if (!recruitsOn(world)) return;
+  const under = pick(world, p, e => e.kind === RECRUIT, () => false), e = under?.kind === 'enemy' ? findEnemy(world, under.id) : undefined;
+  if (e && enemyRefusal(world, e, plan) === 'order') world.events.push({ type: 'recruit', action: 'order', id: e.id, x: e.x, y: e.y, links: world.chain.length });
+}
+
 export function beginChain(world: World, p: Vec): boolean {
   if (world.status !== 'playing' || world.move) return false;
   world.chain = [];
@@ -1533,7 +1543,7 @@ export function beginChain(world: World, p: Vec): boolean {
   delete world.forkAnchor;
   const plan = planChain(world, world.chain, NO_PIERCE);
   const target = pick(world, p, e => canLink(world, e, plan), o => canLinkObject(world, o, plan));
-  if (!target) return false;
+  if (!target) { noteOrderRefusal(world, p, plan); return false; }
   // Task 56: «Половодье» and «Перекличка» mark the link as it is taken (omens.ts `omenLink`; nothing without them).
   world.chain = [omenLink(world, target, target.kind === 'enemy' ? findEnemy(world, target.id) : undefined)];
   // A chain always starts with the full reserve: its first link refreshes focus too.
@@ -1572,7 +1582,7 @@ export function dragChain(world: World, p: Vec, mode: DragMode = 'full'): void {
     const old = pick(world, p, e => (seeLinks && inChain(world, e) >= 0) || canLink(world, e, plan), o => (seeLinks && linkIndex(world, { kind: 'object', id: o.id }) >= 0) || canLinkObject(world, o, plan));
     if (old?.kind === 'enemy' && linkIndex(world, old) < 0 && (target?.kind !== 'enemy' || target.id !== old.id)) world.events.push({ type: 'shiftSkip', enemyId: old.id, links: world.chain.length });
   }
-  if (!target) return;
+  if (!target) { if (mode === 'full') noteOrderRefusal(world, p, plan); return; }
   const index = linkIndex(world, target);
   // Task 39: the held pointer nearest to a link of the chain does nothing (it never truncates).
   if (index >= 0 && mode !== 'full') return;

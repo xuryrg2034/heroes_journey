@@ -276,9 +276,10 @@ function fightOmens(ctx: FightContext): Pick<FightRecord, 'omens'> {
   if (!omens) return {};
   return { omens: [...omens.level ? [{ id: omens.level, scope: 'level' as const }] : [], ...omens.node ? [{ id: omens.node, scope: 'node' as const }] : []] };
 }
-function runLevels(run: RtRunState): Pick<RunRecord, 'level' | 'levelCleared' | 'cart'> {
+function runLevels(run: RtRunState): Pick<RunRecord, 'level' | 'levelCleared' | 'cart' | 'drill'> {
   const cleared = rtRunWonLevel(run);
-  return { ...rtLevel(run) === 2 ? { level: 2 as const } : {}, ...cleared ? { levelCleared: cleared } : {}, ...run.cart ? { cart: { ...run.cart } } : {} };
+  // Task 59б: the trails' drill of a run of step 3.
+  return { ...rtLevel(run) === 2 ? { level: 2 as const } : {}, ...cleared ? { levelCleared: cleared } : {}, ...run.cart ? { cart: { ...run.cart } } : {}, ...run.step3 ? { drill: run.step3.drill } : {} };
 }
 
 export function runKit(run: RtRunState): RunRecord['kit'] {

@@ -441,6 +441,8 @@ export interface RunRecord extends RtHeader {
   levelCleared?: 1 | 2;
   /** Task 40 «Повозка»: what the cart sent at «Предместье» (`n`) and the stock it was taken from (`before`); absent — no cart. */
   cart?: { n: number; before: number };
+  /** Task 59б (from 21.10.2026): the trails' drill of a run of step 3 (`RtRunState.step3.drill`); absent — no step 3, older records. */
+  drill?: 'armory' | 'barracks';
   /** Task 36: items locked in the run (the snapshot's count; 0 — a meta run with every pack open); absent — not a meta run. */
   locked?: number;
   /** Task 37: the carry to the camp and the stock before and after it (the quest's stock included). */
@@ -715,6 +717,8 @@ function runMetaOk(r: Record<string, unknown>): boolean {
   if (r.level !== undefined && r.level !== 2) return false;
   if (r.levelCleared !== undefined && r.levelCleared !== 1 && r.levelCleared !== 2) return false;
   if (r.cart !== undefined && !(plain(r.cart) && whole(r.cart.n) && whole(r.cart.before) && (r.cart.n as number) <= (r.cart.before as number))) return false;
+  // Task 59б: the trails' drill of step 3.
+  if (r.drill !== undefined && r.drill !== 'armory' && r.drill !== 'barracks') return false;
   if (stock !== undefined && !(plain(stock) && whole(stock.before) && whole(stock.after))) return false;
   if (r.hearthBuys !== undefined && !(Array.isArray(r.hearthBuys) && r.hearthBuys.every(b => plain(b) && typeof b.npc === 'string' && whole(b.level, 1) && whole(b.price, 1)))) return false;
   if (r.npcClicks !== undefined && !(plain(r.npcClicks) && Object.values(r.npcClicks).every(n => whole(n, 1)))) return false;
@@ -1147,6 +1151,22 @@ export interface GarrisonSummary {
    * (any source: `kill` of a knight), chains on a knight (a dash that struck a knight counts once per knight).
    */
   knights: number; knightSheds: number; knightKills: number; knightChains: number;
+  /** Task 59б (from 21.10.2026; absent — no kind of step 3 in the fight, older records too): `GarrisonStep3Summary`. */
+  step3?: GarrisonStep3Summary;
+}
+
+/**
+ * Task 59б «Гарнизон, шаг 3» (observe.ts; spec 12): the pitcher — pots thrown (`pot` `throw`), the hero hit by them (`hit` of `pot`), game
+ * seconds the hero's centre stood in pitch, pools lit by the dash's path and by a burning enemy (`pot` `ignite`), kills of the burning pitch
+ * (`pitch-fire`); the recruits — formations seen, presses on a recruit out of order (`recruit` `order`, once per body and drawn chain
+ * length), hits out of order put out (`recruit` `refused`), formations by one pass (`drill`), links dropped out of order (`unlink`); the
+ * wardens — pairs seen (both of a pair drawn), pairs gone without an anger, angers (`warden` `anger` `start`), the HP the angry ones took
+ * (their touch in the anger and «Размах», `warden-swing`).
+ */
+export interface GarrisonStep3Summary {
+  pots: number; potHits: number; pitchSeconds: number; ignites: { path: number; burning: number }; pitchKills: number;
+  formations: number; orderRefusals: number; orderBlocks: number; drills: number; unlinks: number;
+  pairs: number; pairsCleared: number; angers: number; angerDamage: number;
 }
 
 /**

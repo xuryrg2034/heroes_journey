@@ -1878,7 +1878,19 @@ export interface GarrisonStats {
   damage: Record<string, number>;
   /** Runs with the cart: what it took and the stock it was taken from. */
   carts: { n: number; before: number }[];
+  /**
+   * Task 59б (`garrison.step3`, `RunRecord.drill`): the fights on the step 3's own arenas — fights and deaths by arena; the formations
+   * by one pass of those seen, the pairs cleared of those seen, the hero's seconds in pitch per fight with pitch, the pools lit per fight
+   * with pitch and the fire of «Огненный проход»; the runs by drill.
+   */
+  step3: {
+    arenas: Record<string, { fights: number; deaths: number }>;
+    formations: number; drills: number; pairs: number; pairsCleared: number; angers: number;
+    pitchFights: number; pitchSeconds: number; fireFights: number; ignites: number; drill: Record<string, number>;
+  };
 }
+/** Task 59б: the step 3's own arenas (spec 7.1; level design's — the report names them by id until they exist). */
+const STEP3_ARENAS: readonly string[] = ['g-tarworks', 'g-barracks', 'g-barbican'];
 const GARRISON_ROWS = 10;
 export function garrisonStats(runs: readonly RunRecord[], runFights: readonly FightEntry[]): GarrisonStats {
   const reached: Record<string, number> = {}, deaths: Record<string, number> = {}, damage: Record<string, number> = {};
@@ -1903,13 +1915,37 @@ export function garrisonStats(runs: readonly RunRecord[], runFights: readonly Fi
     firstShackleCut: sums.flatMap(s => (s.garrison.firstShackleCut === null ? [] : [s.garrison.firstShackleCut])), damage,
     knights: { seen: sums.reduce((a, s) => a + s.garrison.knights, 0), sheds: sums.reduce((a, s) => a + s.garrison.knightSheds, 0), kills: sums.reduce((a, s) => a + s.garrison.knightKills, 0), chains: sums.reduce((a, s) => a + s.garrison.knightChains, 0) },
     carts: runs.flatMap(r => (r.cart ? [{ n: r.cart.n, before: r.cart.before }] : [])),
+    step3: step3Stats(runs, own, sums),
+  };
+}
+
+/** Task 59б: the step 3's numbers of the garrison's fights (`garrisonStats`). */
+function step3Stats(runs: readonly RunRecord[], own: readonly FightEntry[], sums: readonly FightSummary[]): GarrisonStats['step3'] {
+  const arenas: GarrisonStats['step3']['arenas'] = {}, drill: Record<string, number> = {};
+  own.forEach((e, i) => {
+    if (!STEP3_ARENAS.includes(e.record.arena)) return;
+    const a = arenas[e.record.arena] ??= { fights: 0, deaths: 0 };
+    a.fights++;
+    if (sums[i].death) a.deaths++;
+  });
+  for (const r of runs) if (r.drill) bump(drill, r.drill);
+  const all = sums.flatMap(s => (s.garrison.step3 ? [{ s, t: s.garrison.step3 }] : []));
+  const pitch = all.filter(x => x.t.pots > 0), fire = pitch.filter(x => (x.s.build.fired['fire-pass'] ?? 0) > 0);
+  return {
+    arenas, drill,
+    formations: all.reduce((a, x) => a + x.t.formations, 0), drills: all.reduce((a, x) => a + x.t.drills, 0),
+    pairs: all.reduce((a, x) => a + x.t.pairs, 0), pairsCleared: all.reduce((a, x) => a + x.t.pairsCleared, 0), angers: all.reduce((a, x) => a + x.t.angers, 0),
+    pitchFights: pitch.length, pitchSeconds: pitch.reduce((a, x) => a + x.t.pitchSeconds, 0),
+    fireFights: fire.length, ignites: fire.reduce((a, x) => a + x.t.ignites.path + x.t.ignites.burning, 0),
   };
 }
 const GARRISON_SOURCES: readonly [string, string][] = [
   ['hound', 'пёс (на поводке или после ярости)'], ['hound-frenzy', 'пёс в ярости'], ['guard', 'стражник'], ['handler', 'псарь'], ['keymaster', 'ключник'],
-  ['lunge', '«Спустить пса»'], ['castellan', 'Кастелян'], ['bolt', 'болт арбалетчика'], ['castellan-bolt', 'болт Кастеляна'], ['knight', 'рыцарь (касание)'], ['knight-charge', 'рывок рыцаря'], ['knight-swing', 'размах рыцаря'], ['touch', 'обычные враги'],
+  ['lunge', '«Спустить пса»'], ['castellan', 'Кастелян'], ['bolt', 'болт арбалетчика'], ['castellan-bolt', 'болт Кастеляна'], ['knight', 'рыцарь (касание)'], ['knight-charge', 'рывок рыцаря'], ['knight-swing', 'размах рыцаря'],
+  // Task 59б: the step 3's kinds.
+  ['pot', 'горшок смолокура'], ['pitcher', 'смолокур (касание)'], ['recruit', 'новобранец'], ['warden', 'привратник (касание)'], ['warden-swing', 'размах привратника'], ['touch', 'обычные враги'],
 ];
-const GARRISON_LEGEND = 'Задача 40 (с 16.10.2026; эвристика, не оценка баланса): походы через оба уровня — лес («л N») и гарнизон («г N»), ряд по посещённым узлам (`RunRecord.nodes`: узел гарнизона — `g:…`). Дошли — походы, вошедшие в узел этого ряда (поход в гарнизоне прошёл все ряды леса); доля — от всех походов отчёта. Смерти — проигранные походы по ряду последнего узла. Бои гарнизона — `FightRecord.level` 2 (или узел `g:`): рубки за бой (`chain.cuts`: поводки и кандалы), убийства яростью пса и узника (`chain.frenzyKills`, не в зачёт игроку), кандалы надеты и разрублены, срывы узников, их убийства и урон герою от их касаний (`garrison.riots`, `riotKills`, `riotDamage`, задача 41), секунда первой рубки кандалов (`garrison`), урон герою по источникам (`damage.bySource`; касания пса в ярости — `garrison.frenzyDamage` — отдельно). Рыцари (задача 43): встречено, латы сняты, убито (любым источником), цепей на рыцаря (`garrison.knights`, `knightSheds`, `knightKills`, `knightChains`). Повозка — сдача у «Предместья» (`RunRecord.cart`). Цель плейтеста — отсев 10–15 п. п. на уровень и нет ряда, где смертей больше, чем у обоих соседей.';
+const GARRISON_LEGEND = 'Задача 40 (с 16.10.2026; эвристика, не оценка баланса): походы через оба уровня — лес («л N») и гарнизон («г N»), ряд по посещённым узлам (`RunRecord.nodes`: узел гарнизона — `g:…`). Дошли — походы, вошедшие в узел этого ряда (поход в гарнизоне прошёл все ряды леса); доля — от всех походов отчёта. Смерти — проигранные походы по ряду последнего узла. Бои гарнизона — `FightRecord.level` 2 (или узел `g:`): рубки за бой (`chain.cuts`: поводки и кандалы), убийства яростью пса и узника (`chain.frenzyKills`, не в зачёт игроку), кандалы надеты и разрублены, срывы узников, их убийства и урон герою от их касаний (`garrison.riots`, `riotKills`, `riotDamage`, задача 41), секунда первой рубки кандалов (`garrison`), урон герою по источникам (`damage.bySource`; касания пса в ярости — `garrison.frenzyDamage` — отдельно). Рыцари (задача 43): встречено, латы сняты, убито (любым источником), цепей на рыцаря (`garrison.knights`, `knightSheds`, `knightKills`, `knightChains`). Повозка — сдача у «Предместья» (`RunRecord.cart`). Шаг 3 (задача 59б, `garrison.step3`): бои и смерти на «Смолокурне», «Казарме», «Барбакане»; строёв новобранцев одним проходом из встреченных (`drills` / `formations`); пар привратников без гнева из встреченных (`pairsCleared` / `pairs`) и гневов; секунд героя в смоле на бой со смолой (бой, где бросали горшки); поджогов на бой со смолой и «Огненным проходом»; походы по набору троп (`RunRecord.drill`). Цель плейтеста — отсев 10–15 п. п. на уровень и нет ряда, где смертей больше, чем у обоих соседей.';
 export function garrisonSection(runs: readonly RunRecord[], runFights: readonly FightEntry[]): string {
   const st = garrisonStats(runs, runFights);
   if (!st.runs && !st.fights) return `${GARRISON_LEGEND}\n\n_походов и боёв гарнизона нет_`;
@@ -1927,8 +1963,13 @@ export function garrisonSection(runs: readonly RunRecord[], runFights: readonly 
   const k = st.knights;
   const knights = k.seen ? `Рыцари: встречено ${k.seen}, латы сняты ${k.sheds}, убито ${k.kills}, цепей на рыцаря ${k.chains} (на одного ${n1(k.chains / k.seen)}).` : 'Рыцарей в боях гарнизона нет.';
   const carts = st.carts.length ? `Повозка: походов ${st.carts.length}, сдано мед. ${n1(median(st.carts.map(c => c.n)))}, запас до сдачи мед. ${n1(median(st.carts.map(c => c.before)))}.` : 'Повозка: сдач нет.';
+  // Task 59б: the step 3.
+  const t = st.step3, ratio = (a: number, b: number): string => (b ? `${a} из ${b} (${pct(a, b)})` : '—');
+  const step3Arenas = STEP3_ARENAS.filter(id => t.arenas[id]).map(id => [arenaTitle(id), t.arenas[id].fights, t.arenas[id].deaths, pct(t.arenas[id].deaths, t.arenas[id].fights)]);
+  const step3 = [step3Arenas.length ? table(['Арена шага 3', 'Боёв', 'Смертей', 'Доля'], step3Arenas) : '_боёв на аренах шага 3 нет_', '',
+    `Шаг 3: строёв одним проходом ${ratio(t.drills, t.formations)}; пар без гнева ${ratio(t.pairsCleared, t.pairs)}, гневов ${t.angers}; в смоле ${t.pitchFights ? n1(t.pitchSeconds / t.pitchFights) : '—'} с на бой со смолой (${t.pitchFights}); поджогов ${t.fireFights ? n1(t.ignites / t.fireFights) : '—'} на бой со смолой и огнём (${t.fireFights}). Набор троп: ${Object.keys(t.drill).length ? Object.entries(t.drill).map(([d, n]) => `${d === 'barracks' ? '«Казарма»' : '«Ристалище»'} ${n}`).join(', ') : '—'}.`].join('\n');
   return [GARRISON_LEGEND, '', table(['Ряд', 'Дошли', 'Доля', 'Смертей'], curve), '', fights, '',
-    damage.length ? table(['Урон герою в гарнизоне', 'HP', 'Доля'], damage) : '_урона в боях гарнизона нет_', '', knights, '', carts].join('\n');
+    damage.length ? table(['Урон герою в гарнизоне', 'HP', 'Доля'], damage) : '_урона в боях гарнизона нет_', '', knights, '', carts, '', step3].join('\n');
 }
 
 /**
