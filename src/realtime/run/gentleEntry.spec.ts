@@ -508,7 +508,7 @@ check('saves: a new run keeps its three flags and `secondWindSpent`; a save with
   const oldRun = parseRtRun(JSON.stringify(old));
   assert(oldRun && oldRun.gentleEntry === undefined && oldRun.startPotion === undefined && oldRun.secondWind === undefined, 'a save without the flags loads');
   const battle = rowRun(3, true, 1)!, oldBattle: RtRunState = { ...structuredClone(battle) };
-  delete oldBattle.gentleEntry; delete oldBattle.shortFuse; delete oldBattle.forms; delete oldBattle.potionCap; delete oldBattle.bossHoles; delete oldBattle.markerSeek; // tasks 30, 41, «Дыры ядра», the markers (20.10.2026): a save before them too
+  delete oldBattle.gentleEntry; delete oldBattle.shortFuse; delete oldBattle.forms; delete oldBattle.potionCap; delete oldBattle.bossHoles; delete oldBattle.corePickFirst; delete oldBattle.markerSeek; // tasks 30, 41, «Дыры ядра», «Ядро в окне — первым», the markers (20.10.2026): a save before them too
   assert(rtArenaLoadout(battle).randomElites === false && rtArenaLoadout(oldBattle).randomElites === true, 'the old save plays the old row 3');
   assert(same(rtArenaRules(oldBattle), {}) || same(rtArenaRules(oldBattle), { markedGoals: true }), 'no row params for the old save');
   for (const bad of [{ gentleEntry: false }, { gentleEntry: 1 }, { startPotion: false }, { secondWind: 1 }, { secondWindSpent: true }, { secondWindSpent: false }]) {

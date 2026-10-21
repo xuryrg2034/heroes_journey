@@ -942,12 +942,17 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   if (arena.troll || arena.chief) {
     for (const key of CORE_WARD_KEYS) if (params[key] === false) params = { ...copyParams(params), [key]: true };
   }
+  // «Дыры ядра» Колдуна (21.10.2026): «Зал колдуна» plays `warlockHoles` when the values have it off (without the key — the old paths).
+  if (arena.warlock && params.warlockHoles === false) params = { ...copyParams(params), warlockHoles: true };
   // Task 55а: an arena of the castle plays the law of the shove (when the values have it off; a journal keeps the copy).
   if (arena.castle && !params.shove) params = { ...copyParams(params), shove: true };
   // Task 55, stage Д: the warlock's arena plays his charm, the boss's solid bodies and his crowd (when the values hold the old ones).
   if (arena.warlock && !params.warlockCharm) params = { ...copyParams(params), warlockCharm: true };
   if (arena.warlock && !params.trollSolid) params = { ...copyParams(params), trollSolid: true };
   if (arena.warlock && (params.warlockCrowd ?? DEFAULT_PARAMS.warlockCrowd) === DEFAULT_PARAMS.warlockCrowd) params = { ...copyParams(params), warlockCrowd: WARLOCK_CROWD };
+  // «Ядро в окне — первым» (21.10.2026): the bosses' arenas pick the core in its window first when the values have it off; values
+  // without the key (a journal before it, a run saved without the flag) — the nearest, as before. A journal keeps the copy.
+  if ((arena.troll || arena.chief || arena.warlock) && params.corePickFirst === false) params = { ...copyParams(params), corePickFirst: true };
   // Task 57а: an arena of the new shooters plays its own timer when the values have none (and the archer in it; a journal keeps the copy).
   if (arena.volleyGap && !params.volleyGap) params = { ...copyParams(params), volleyGap: arena.volleyGap };
   if (arena.volleyArcher && !params.volleyArcher) params = { ...copyParams(params), volleyArcher: true };
@@ -1683,6 +1688,15 @@ export function killEnemy(world: World, e: Enemy, cause: KillCause): void {
  */
 export function bossCoreWards(world: World, e: Enemy, source: string): boolean {
   return (e.kind === TROLL && trollWards(world, e, source)) || (e.kind === CHIEF && chiefWards(world, e, source));
+}
+
+/**
+ * The fire trail on `e` (elites.ts `updateAffixes`): true — it does not burn (the core rings). `coreTrailWard`: the Troll's and the
+ * Chief's core rules (`bossCoreWards`); `warlockHoles`: the warlock's (charmed, out of his window — it rings; in it — the window's one hit).
+ */
+export function coreTrailWards(world: World, e: Enemy): boolean {
+  const p = world.params;
+  return (!!p.coreTrailWard && bossCoreWards(world, e, 'fire-trail')) || (!!p.warlockHoles && e.kind === WARLOCK && warlockWards(world, e, 'fire-trail'));
 }
 
 export function damageEnemy(world: World, e: Enemy, damage: number, cause: KillCause): void {

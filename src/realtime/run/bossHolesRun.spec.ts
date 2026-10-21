@@ -1,6 +1,6 @@
 /**
  * «Дыры ядра боссов» in the run (core's decision 21.10.2026): a new run keeps the flag `bossHoles` and its fights play the core's
- * wards (`CORE_WARD_KEYS`); a save without the flag plays the old paths. Node only: `npm run test:realtime-boss-holes`.
+ * wards (`BOSS_HOLE_KEYS`: the Troll's and the Chief's, the warlock's); a save without the flag plays the old paths. Node only: `npm run test:realtime-boss-holes`.
  *
  * Everything goes through the run's own commands (enter, resolve, choose) to the den boss — «Берлога тролля» — and, for the fight,
  * the world the run starts (its params, loadout and seed) with journalled commands (teleport, place, chill):
@@ -12,7 +12,7 @@
  * The plates are 0 in the fights (the trail never burns a plated core): the check is of the trail on a bare core.
  */
 import { TROLL, TROLL_CLUB, TROLL_ROCK } from '../sim/enemies/troll';
-import { CORE_WARD_KEYS } from '../sim/params';
+import { BOSS_HOLE_KEYS } from '../sim/params';
 import { replay, Simulation, SIM_DT } from '../sim/simulation';
 import type { Enemy, World, WorldEvent } from '../sim/world';
 import {
@@ -71,7 +71,7 @@ check('a new run: the flag, the save reads it back; the den boss\'s fight has th
     const run = toDenBoss(createRtRun(seedOf(k), { gift: 'mini' }), k);
     assert(run.bossHoles === true && same(parseRtRun(serializeRtRun(run)), run), `seed ${k}: the flag read back`);
     const { sim, core, events } = trailFight(run, k), p = sim.world.params;
-    assert(CORE_WARD_KEYS.every(key => p[key] === true), `seed ${k}: the fight's keys on (${CORE_WARD_KEYS.map(key => p[key]).join(', ')})`);
+    assert(BOSS_HOLE_KEYS.every(key => p[key] === true), `seed ${k}: the fight's keys on (${BOSS_HOLE_KEYS.map(key => p[key]).join(', ')})`);
     const hp = sim.world.params.trollHp;
     assert(core.hp === hp && burned(events, core) === 0, `seed ${k}: the core whole (${core.hp} of ${hp})`);
     assert(events.some(e => e.type === 'trollWindow' && e.action === 'block' && e.source === 'fire-trail'), `seed ${k}: the trail rings`);
@@ -84,7 +84,7 @@ check('a save without the flag (before the task): read back the same; the fight\
     assert(fresh.bossHoles === undefined && !serializeRtRun(fresh).includes('bossHoles'), `seed ${k}: no flag in the old save`);
     const run = toDenBoss(parseRtRun(serializeRtRun(fresh))!, k);
     const { sim, core, events } = trailFight(run, k), p = sim.world.params;
-    assert(CORE_WARD_KEYS.every(key => !(key in p)), `seed ${k}: no key of the task in the fight's values`);
+    assert(BOSS_HOLE_KEYS.every(key => !(key in p)), `seed ${k}: no key of the task in the fight's values`);
     assert(core.hp < sim.world.params.trollHp && burned(events, core) > 0, `seed ${k}: the trail burns the closed core (${core.hp})`);
     assert(parseRtRun(serializeRtRun({ ...fresh, bossHoles: 'yes' as unknown as true })) === null, `seed ${k}: a malformed flag`);
   }
