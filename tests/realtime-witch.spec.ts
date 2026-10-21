@@ -2,6 +2,8 @@ import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
 import { gameWait } from './realtimeFrames';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
+import { BIG_CLEARING_ARENA } from '../src/realtime/sim/arenasCamera';
+import { areaContains, lineOfSight } from '../src/realtime/sim/geometry';
 
 /**
  * Task 62 «Ведунья v2: круг, разряд, кольцо», stage A, the view (docs/design-notes/task-62-witch-v2.md, 2.1–2.3, 3.1, 3.7, 6; design decisions
@@ -131,14 +133,21 @@ test('bodies out of the circle are muted once (also the foreign colour out of it
   // The chain's bodies walk to her; each leaves its rune: the dot stays, a thin line leads to the body.
   const back = await screen(page, 7.0, 3.8);
   await page.mouse.move(back.x, back.y, { steps: 4 });
+  // The rune is the enemy's point at the tick of the press (the bodies stand: speed 0): the world's own `chain[i].rune`, read from the snapshot.
+  const s0 = await snap(page);
+  expect(s0.witch.runes.length).toBe(3);
+  s0.chain.forEach((id: number, i: number) => {
+    const body = s0.enemies.find((e: any) => e.id === id);
+    expect(Math.hypot(body.x - s0.witch.runes[i].x, body.y - s0.witch.runes[i].y), `the rune of link ${i} is its body's point`).toBeLessThan(0.02);
+  });
   await page.evaluate(() => (window as any).__realtime.setParam('enemySpeed', 2));
   await gameWait(page, 0.5);
   await expect.poll(async () => (await snap(page)).witch.shown.ties).toBeGreaterThan(0);
   const s = await snap(page);
   expect(s.witch.shown.runes).toBe(3);
   expect(s.witch.runes.length).toBe(3);
-  // The runes did not follow the bodies: the first rune is where the first body was taken.
-  expect(s.witch.runes[0].x).toBeCloseTo(10.6, 1);
+  // The runes did not follow the bodies: they are the world's points of before the walk, unchanged.
+  expect(s.witch.runes).toEqual(s0.witch.runes);
   expect(s.enemies.find((e: any) => e.id === first).x).toBeLessThan(10.2);
   await shot(page, 'witch-chain-muted');
   await page.mouse.up();
@@ -239,24 +248,27 @@ test('the camera keeps Ведунья in the centre while she draws (a glide, no
   const errors = collectErrors(page);
   for (const hero of ['toad', null] as const) {
     await openWitch(page, hero, { testId: 'camera-arena-1', name: 'Большая поляна' });
-    await page.evaluate(() => { const rt = (window as any).__realtime; rt.teleport(8, 7.5); });
+    await page.evaluate(() => { const rt = (window as any).__realtime; rt.teleport(6, 7.5); });
+    // The route is checked before the press: the hero, the enemy and the carried-to point are free of obstacles, the hero sees the enemy.
+    for (const p of [{ x: 6, y: 7.5 }, { x: 4.8, y: 7.5 }, { x: 12, y: 7.5 }]) expect(BIG_CLEARING_ARENA.obstacles.some(o => areaContains(o, p)), `(${p.x}, ${p.y}) is free`).toBe(false);
+    expect(lineOfSight({ x: 6, y: 7.5 }, { x: 4.8, y: 7.5 }, BIG_CLEARING_ARENA)).toBe(true);
     await page.waitForTimeout(1500);
-    await place(page, 9.6, 7.5, 0, 3);
-    const at = await screen(page, 9.6, 7.5);
+    await place(page, 4.8, 7.5, 0, 3);
+    const at = await screen(page, 4.8, 7.5);
     await page.mouse.move(at.x, at.y);
     await page.mouse.down();
     await expect.poll(async () => (await snap(page)).chain.length).toBe(1);
     const start = await page.evaluate(() => (window as any).__realtime.camera());
-    // The hero is carried 6 units to the right while the chain is in her hand; the camera's x is sampled on every frame.
+    // The hero is carried 6 units to the right (to a free point) while the chain is in her hand; the camera's x is sampled on every frame.
     const frames: number[] = await page.evaluate(async () => {
       const rt = (window as any).__realtime, xs: number[] = [];
-      rt.teleport(14, 7.5);
+      rt.teleport(12, 7.5);
       for (let i = 0; i < 90; i++) { await new Promise(r => requestAnimationFrame(r)); xs.push(rt.camera().x); }
       return xs;
     });
-    const end = frames[frames.length - 1], travel = 14 - start.x;
+    const end = frames[frames.length - 1], travel = 12 - start.x;
     if (hero === 'toad') {
-      expect(Math.abs(end - 14)).toBeLessThan(0.1);
+      expect(Math.abs(end - 12)).toBeLessThan(0.1);
       // No jump: no single frame covers more than half of the way; the glide is monotonic.
       let biggest = 0;
       frames.reduce((prev, x) => { biggest = Math.max(biggest, Math.abs(x - prev)); expect(x).toBeGreaterThanOrEqual(prev - 1e-9); return x; }, start.x);
