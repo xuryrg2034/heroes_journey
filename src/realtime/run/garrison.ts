@@ -59,10 +59,10 @@ export const RT_GARRISON_STEP2_ON = true;
 /**
  * Task 59б «Гарнизон, шаг 3» (docs/design-notes/task-59-garrison-step3.md, 7.2): a new run of step 2 takes the arenas of step 3
  * (`RtRunState.step3`): the trails' drill («Ристалище» and the knight, or «Казарма» and the recruits), «Барбакан» and the wardens on `den`,
- * «Смолокурня» and the pitcher on `camp`. Off until the three arenas and the view (the design's decision turns it on). A run saved before
+ * «Смолокурня» and the pitcher on `camp`. On since 22.10.2026 (the design's decision after the shares' measure and the garrison curve). A run saved before
  * it (no flag) plays the garrison of step 2 to its end, its pools byte for byte.
  */
-export const RT_GARRISON_STEP3_ON = false;
+export const RT_GARRISON_STEP3_ON = true;
 const textHash = (text: string): number => [...text].reduce((hash, ch) => Math.imul(hash ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5);
 /** The salt of the garrison's seed (its map, its streams, its arena seeds). */
 export const GARRISON_SALT = textHash('garrison-map');

@@ -418,21 +418,21 @@ await check('telemetry: the run record\'s `chronicle` (its list and the pages), 
   rec.dispose();
 });
 
-await check('task 59б (spec 10; review 21.10.2026): the chapter «Гарнизон» by the flag of step 3 — 6 kinds with it off (the build now), 9 with it on (the pitcher, the recruit, the warden unknown, then «seen»); the owl’s hint takes them only with the flag; a kind met before stays in the profile with the flag off', () => {
+await check('task 59б (spec 10; review 21.10.2026): the chapter «Гарнизон» by the flag of step 3 — 9 with it on (the build since 22.10.2026), 6 with it off (the pitcher, the recruit, the warden unknown, then «seen»); the owl’s hint takes them only with the flag; a kind met before stays in the profile with the flag off', () => {
   const novel = [PITCHER, RECRUIT, WARDEN];
-  assert(!RT_GARRISON_STEP3_ON && RT_CHRONICLE_GARRISON_KINDS.join() === chronicleGarrisonKinds(false).join() && chronicleGarrisonKinds(false).length === 6, `flag off: ${RT_CHRONICLE_GARRISON_KINDS}`);
+  assert(RT_GARRISON_STEP3_ON && RT_CHRONICLE_GARRISON_KINDS.join() === chronicleGarrisonKinds(true).join() && chronicleGarrisonKinds(false).length === 6, `the build (flag on since 22.10.2026): ${RT_CHRONICLE_GARRISON_KINDS}`);
   assert(chronicleGarrisonKinds(true).length === 9 && novel.every(id => chronicleGarrisonKinds(true).includes(id)), `flag on: ${chronicleGarrisonKinds(true)}`);
   const profile = parseRtProfile(JSON.stringify(CHRONICLE_FIXTURES.garrison()));
   const chapter = (view: RtChronicleView) => view.pages.find(p => p.id === 'bestiary')!.chapters.find(c => c.id === 'garrison')!;
   const view = (pr: typeof profile, step3?: boolean) => rtChronicleView(pr, 'cat', { gambler: true, monk: true, ...step3 === undefined ? {} : { step3 } });
-  assert(chapter(view(profile)).entries.length === 6 && chapter(view(profile, false)).entries.length === 6, 'six without the flag');
+  assert(chapter(view(profile)).entries.length === 9 && chapter(view(profile, false)).entries.length === 6, 'nine by the build\'s flag, six without it');
   const before = view(profile, true);
   assert(chapter(before).entries.length === 9 && novel.every(id => chapter(before).entries.find(e => e.id === id)?.state === 'unknown'), 'nine with the flag, unknown before');
   const met = rtChronicleMeet(profile.meta!.chronicle, { kinds: novel, affixes: [] });
   assert(met.changed && novel.every(id => met.chronicle?.kinds?.includes(id)), 'the meeting writes — with the flag off too (the profile keeps them)');
   const after = { ...profile, meta: { ...profile.meta!, chronicle: met.chronicle } };
   assert(novel.every(id => chapter(view(after, true)).entries.find(e => e.id === id)?.state === 'seen'), 'seen after, with the flag');
-  assert(chapter(view(after)).entries.length === 6 && !novel.some(id => chapter(view(after)).entries.some(e => e.id === id)), 'the flag off: the chapter shows none of them');
+  assert(chapter(view(after, false)).entries.length === 6 && !novel.some(id => chapter(view(after, false)).entries.some(e => e.id === id)), 'the flag off: the chapter shows none of them');
   const reread = parseRtProfile(JSON.stringify({ ...profile, meta: { ...profile.meta!, chronicle: met.chronicle } }));
   assert(novel.every(id => reread.meta?.chronicle?.kinds?.includes(id)), 'a kind met before stays in the profile with the flag off');
   // The owl's hint: over every candidate of a profile that met no garrison kind — the step 3's only with the flag.
@@ -447,7 +447,7 @@ await check('task 59б (spec 10; review 21.10.2026): the chapter «Гарниз�
     }
     return out;
   };
-  const off = hints(), on = hints(true);
+  const off = hints(false), on = hints(true);
   assert(off.size > 0 && !novel.some(id => off.has(`kind:${id}`)), `the hint without the flag: ${[...off].join(', ')}`);
   assert(novel.some(id => on.has(`kind:${id}`)), `the hint with the flag takes them: ${[...on].join(', ')}`);
 });

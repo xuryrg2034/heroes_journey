@@ -33,11 +33,11 @@ const textHash = (text: string): number => [...text].reduce((hash, ch) => Math.i
 
 /** A garrison fight a walk entered: the node, its garrison row and branch, the arena, the loadout, the run before it. */
 interface Fight { nodeId: string; row: number; branch: string | null; type: string; arena: string; loadout: Loadout; state: RtRunState }
-/** A run with the garrison (its default flags: «Ров», step 2) walked to its end; `branch` — the walk prefers that branch's nodes. */
+/** A run with the garrison (its default flags: «Ров», step 2; step 3 off — this suite is step 2's rules) walked to its end; `branch` — the walk prefers that branch's nodes. */
 function walkStep2(k: number, branch?: 'den' | 'camp', create: WalkOptions['create'] = {}): { walk: Walk; fights: Fight[] } {
   const fights: Fight[] = [];
   const walk = walkRun({
-    k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, ...create },
+    k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, step3: false, ...create },
     ...branch ? { pickNode: (_run: RtRunState, ids: readonly string[]) => ids.find(id => bareNodeId(id).startsWith(`${branch}-`)) ?? null } : {},
     each: state => {
       const pending = state.pending;
@@ -213,7 +213,7 @@ check('the node card (`rtNodeEnemies`): before entering, an available garrison n
   for (let k = 1; k <= 16; k++) {
     const cards = new Map<string, RtNodeEnemies>();
     walkRun({
-      k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true },
+      k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, step3: false },
       pickNode: (_run: RtRunState, ids: readonly string[]) => ids.find(id => bareNodeId(id).startsWith(k % 2 ? 'camp-' : 'den-')) ?? null,
       each: state => {
         const pending = state.pending;

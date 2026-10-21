@@ -52,8 +52,10 @@ function assert(condition: unknown, message: string): asserts condition { if (!c
 const textHash = (text: string): number => [...text].reduce((hash, ch) => Math.imul(hash ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5);
 const seedOf = (k: number): number => Math.imul(k, 2654435761) >>> 0;
 
-check('the game\'s default: `RT_GARRISON_STEP3_ON` off — a new run has no `step3`; asked for, a run of step 2 takes it with the seed\'s drill; without step 2 — none', () => {
-  assert(RT_GARRISON_STEP3_ON === false && createRtRun(seedOf(1)).step3 === undefined, 'off by default');
+check('the game\'s default: `RT_GARRISON_STEP3_ON` on (design 22.10.2026) — a new run of step 2 takes `step3` with the seed\'s drill; asked off — none; a save made before the flag (no field) reads back without it; without step 2 — none', () => {
+  assert(RT_GARRISON_STEP3_ON === true && createRtRun(seedOf(1)).step3?.drill === garrisonDrill(seedOf(1)), 'on by default');
+  const old = createRtRun(seedOf(1), { step3: false }), oldBack = parseRtRun(serializeRtRun(old));
+  assert(old.step3 === undefined && oldBack !== null && oldBack.step3 === undefined && oldBack.step2 === true, 'a run made before the flag: no step3 after a reload');
   const run = createRtRun(seedOf(2), { step3: true });
   assert(run.step2 === true && run.step3?.drill === garrisonDrill(seedOf(2)), JSON.stringify(run.step3));
   assert(createRtRun(seedOf(3), { step3: true, step2: false }).step3 === undefined && createRtRun(seedOf(4), { step3: true, garrison: false }).step3 === undefined, 'only with step 2');
@@ -87,7 +89,7 @@ check('a run without the flag plays the garrison of step 2 byte for byte: the ga
   const lines: string[] = [];
   for (let k = 1; k <= 300; k++) {
     const seen = new Set<string>(), out: string[] = [];
-    const walk = walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true }, each: state => {
+    const walk = walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, step3: false }, each: state => {
       const p = state.pending;
       if (p?.kind !== 'battle' || !rtGarrisonNodeId(p.nodeId) || seen.has(p.nodeId)) return;
       seen.add(p.nodeId);
