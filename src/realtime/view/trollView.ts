@@ -15,7 +15,7 @@
  *   a white ring on each link that dropped out.
  * Coordinates are arena pixels (`unit` per arena unit); `r` is the drawing radius of a body in px.
  */
-import { BOSS_ART, CLUB_AXIS, CLUB_GRIP, CLUB_HAND } from '../sim/bossArt';
+import { BOSS_ART, CLUB_AXIS, CLUB_GRIP, CLUB_HAND, rockInFlight } from '../sim/bossArt';
 import { countPlace, type VisibleArea } from './edgeMarkers';
 import { ColorMatrixFilter, Container, Graphics, Text } from 'pixi.js';
 import { characterSprite, hasCharacterArt } from '../art/characterAssets';
@@ -355,10 +355,10 @@ export class TrollView {
   rockInAir(world: World): { from: Enemy; to: Vec; f: number } | null {
     const m = trollMove(world), core = trollCore(world);
     if (!m || m.move !== 'rock' || !core) return null;
-    const left = core.vars.t ?? 0;
-    if (left > ROCK_FLIGHT + 1e-9) return null;
+    // Whether the rock is in the air is the sim's (`rockInFlight`: the press zone reads the same); the point on its way is the view's.
     const rock = world.enemies.find(p => p.partOf === core.id && p.kind === TROLL_ROCK);
-    return rock && rock.vars.lie === undefined ? { from: rock, to: m.at, f: Math.max(0, Math.min(1, 1 - left / ROCK_FLIGHT)) } : null;
+    if (!rock || !rockInFlight(world, rock)) return null;
+    return { from: rock, to: m.at, f: Math.max(0, Math.min(1, 1 - (core.vars.t ?? 0) / ROCK_FLIGHT)) };
   }
 
   /**
