@@ -848,3 +848,21 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-daily-claim { margin: 0 0 6px; font-weight: 700; }
 .rt-run-modal .rt-daily-proof .rt-other, .rt-daily-proof .rt-other { width: auto; flex: 1 1 auto; margin: 0; padding: 8px 10px; }
 .rt-daily-proof .rt-other:disabled { opacity: .45; cursor: not-allowed; }
+
+/* Task 51е «Трофеи на стене лагеря»: the perch at the top of the camp (stage px of 1280×720): a rod, ten hooks; an empty hook is a bare peg. */
+.rt-hearth-perch { position: absolute; left: 360px; top: 6px; width: 560px; height: 76px; z-index: 1; pointer-events: none; }
+.rt-hearth-rod { position: absolute; left: 0; right: 0; top: 6px; height: 7px; background: #6a4a2a; border: 2px solid #18232d; border-radius: 4px; box-shadow: 0 4px 8px #0009; }
+.rt-hearth-hooks { position: absolute; left: 0; right: 0; top: 13px; display: grid; grid-template-columns: repeat(10, 56px); }
+.rt-hearth-hook { position: relative; display: flex; align-items: flex-end; justify-content: center; height: 62px; pointer-events: auto; }
+.rt-hearth-hook::before { content: ''; position: absolute; left: 50%; top: 0; width: 3px; height: 8px; margin-left: -1px; background: #18232d; }
+.rt-hearth-hung::before { height: 14px; }
+.rt-hearth-hook img, .rt-hearth-trophy-fb { width: 46px; height: 46px; object-fit: contain; margin-bottom: 2px; filter: drop-shadow(0 4px 4px #000a); }
+.rt-hearth-trophy-fb { display: flex; align-items: center; justify-content: center; border-radius: 50%; background: #c4ad77; color: #1b2017; font: 700 22px Georgia, serif; border: 2px solid #18232d; }
+.rt-hearth-hung:hover img, .rt-hearth-hung:focus-visible img { transform: translateY(-2px) scale(1.08); filter: drop-shadow(0 0 10px #ffb347aa); }
+.rt-hearth-trophy-tip { display: none; position: absolute; left: 50%; top: 66px; transform: translateX(-50%); z-index: 4; min-width: 120px; padding: 5px 10px; background: #f1e6c8; color: #1b2017; border: 2px solid #18232d; text-align: center; white-space: nowrap; box-shadow: 0 6px 16px #000b; }
+.rt-hearth-trophy-tip b { display: block; font: 600 14px Georgia, serif; }
+.rt-hearth-trophy-tip i { display: block; font: italic 12px Georgia, serif; color: #5a5234; }
+.rt-hearth-hung:hover .rt-hearth-trophy-tip, .rt-hearth-hung:focus-visible .rt-hearth-trophy-tip { display: block; }
+.rt-hearth-hung.rt-drop img, .rt-hearth-hung.rt-drop .rt-hearth-trophy-fb { animation: rt-trophy-drop .7s cubic-bezier(.3, 1.4, .5, 1) both; }
+@keyframes rt-trophy-drop { 0% { transform: translateY(-60px); opacity: 0; } 55% { transform: translateY(0); opacity: 1; } 75% { transform: translateY(-8px); } 100% { transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .rt-hearth-hung.rt-drop img, .rt-hearth-hung.rt-drop .rt-hearth-trophy-fb { animation: none; } }

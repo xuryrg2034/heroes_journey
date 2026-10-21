@@ -146,6 +146,8 @@ export interface RunHost {
    * and the end screen's line; the fights write it (`main.ts`: kinds that come into view in a meta run, `chronicle.meet`).
    */
   chronicle?: boolean;
+  /** Task 51е «Трофеи»: on (not in the sandbox) - the camp's perch over the profile store's trophies. */
+  trophies?: boolean;
   /** Telemetry (58а `RunRecorder.chronicleOpened`): the window of the chronicle was closed in the camp after `run`. */
   chronicleOpened?(run: RtRunState | null, opened: { pages: readonly string[]; seconds: number; unread: boolean }): void;
   /**
@@ -553,6 +555,7 @@ export class RunView {
       back: () => this.open(),
       sound: kind => this.host.meta?.sound(kind),
       ...this.chronicle ? { chronicle: this.chronicle } : {},
+      ...host.trophies ? { trophies: { list: () => this.profile.trophies(), earned: () => [...this.profile.load().meta?.applied?.end.trophies ?? []], import: () => { this.profile.trophiesImport(); } } } : {},
       // The retro: the P8 memory of kinds and affixes (this device's), once when the camp opens.
       memory: () => { const seen = this.host.newSeen?.store; return { kinds: seen ? Object.keys(KIND_CAPTIONS).filter(k => seen.hasKind(k)) : [], affixes: seen ? AFFIX_IDS.filter(id => seen.hasAffix(id)) : [] }; },
       ...host.chronicleOpened ? { chronicleOpened: opened => this.host.chronicleOpened?.(this.run, opened) } : {},

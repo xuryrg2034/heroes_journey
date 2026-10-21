@@ -873,6 +873,7 @@ async function boot(): Promise<void> {
     ...newSeen ? { newSeen: { store: newSeen, on: () => newOnMap } } : {},
     // Task 58 «Летопись»: the camp's book and the end screen's line (the profile store's chronicle; not in the sandbox). Telemetry: the visit's pages and seconds.
     chronicle: true,
+    trophies: true,
     chronicleOpened: (run, opened) => { if (run) recorder?.chronicleOpened(run, opened); },
     // Task 26 «Расписание леса»: the history's start from the older memory (design 15.10.2026), read once per profile.
     scheduleSeed: () => scheduleSeedHistory(SCHEDULE_KINDS.filter(kind => !!newSeen?.hasKind(kind)), AFFIX_IDS.filter(id => !!newSeen?.hasAffix(id)), FIRST_MEET_IDS.filter(id => !!firstMeets?.has(id))),
@@ -2185,6 +2186,8 @@ async function boot(): Promise<void> {
        * the profile's (`meta.chronicle` in the stored profile): tests seed and read it there.
        */
       chronicleShown: () => runView.hearth?.shown.chronicle ?? null,
+      /** Task 51е (tests): the perch now - the trophies held (ids in order), the ones falling this visit, the hooks, the owl's last trophy line. */
+      trophiesShown: () => runView.hearth?.shown.trophies ?? null,
       /** Task 47, tests only: multiplies the times of the staged screens (С6, С8) by `k` — a slow reveal to act in the middle of it. */
       screenPace: (k: number) => { runView.screenPace = k > 0 ? k : 1; },
       winArena: async () => {
