@@ -213,6 +213,8 @@ export interface ArenaTemplate extends ArenaShape {
    * sandbox shows them as the run does. Omitted — the values as given.
    */
   garrison?: boolean;
+  /** Task 55а «Замок: толчок»: an arena of the castle — it plays the law of the shove (`Params.shove`) whatever the values say. */
+  castle?: boolean;
   /**
    * Task 40 «Гарнизон, шаг 1б»: the arena plays the keymaster's shackles whatever the given values hold — the world gets a copy with
    * `Params.shackles` on (world.ts `createWorld`; the journal keeps that copy). «Ров». Omitted — the values as given.

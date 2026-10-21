@@ -32,6 +32,8 @@ import './recruit';
 import './warden';
 // Task 59а: the pitcher (the law of pitch, pitch.ts).
 import './pitcher';
+// Task 55а «Замок: толчок»: the barrel, the wardrobe and the rook.
+import './castle';
 
 export { BOAR_ART_SCALE, type BoarState } from './boar';
 export { packmates, wolfHowl, wolfRushLine, wolfState, WOLF_RUSH } from './wolf';
@@ -53,4 +55,6 @@ export { CHIEF, CHIEF_LADLE, CHIEF_MOVES, CHIEF_SACK, chiefCore, chiefMove, chie
 export { RECRUIT, recruitCurrent, recruitGroup, recruitNumber, recruitQueue } from './recruit';
 export { WARDEN, wardenAngry, wardenPartner } from './warden';
 export { PITCHER, pitcherWindup } from './pitcher';
+// Task 55а: the castle's things and the rook for the view.
+export { BARREL, ROOK, WARDROBE, rookLine, wardrobeLying, wardrobeTopple } from './castle';
 export * from './kinds';

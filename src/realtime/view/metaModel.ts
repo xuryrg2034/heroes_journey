@@ -7,14 +7,18 @@
 import type { ItemKind } from '../sim/kit';
 import { BUILD_LABELS, labelOf } from './buildColumn';
 import { forestEvent } from '../forest/forestEvents';
+import { isRtOmenId, rtOmen } from '../run/omens';
+import { omenIconSvg } from './omenMark';
 
 /** The kinds of things a pack opens (the card's caption and picture follow it). */
-export type MetaItemKind = 'talisman' | 'relic' | 'hammer' | 'form' | 'event';
+/** Task 56: `omen` — the omen a pack opens (core `rtPackOmen`): a card of its own after the pack's items. */
+export type MetaItemKind = 'talisman' | 'relic' | 'hammer' | 'form' | 'event' | 'omen';
 export interface MetaPackItem { id: string; kind: MetaItemKind }
 export interface MetaPack { id: string; title: string; items: MetaPackItem[] }
 /** The parts of a run's experience, in the order the end screen lists them. */
-export type MetaXpPart = 'battles' | 'elite' | 'jailer' | 'final' | 'guardroom' | 'castellan' | 'feats' | 'victory' | 'ash' | 'quest';
-export type NpcId = 'owl' | 'herb' | 'smith';
+/** Task 51г (core): `vows` — Евлампий's vows kept. */
+export type MetaXpPart = 'battles' | 'elite' | 'jailer' | 'final' | 'guardroom' | 'castellan' | 'feats' | 'victory' | 'ash' | 'quest' | 'vows';
+export type NpcId = 'owl' | 'herb' | 'smith' | 'gambler' | 'monk';
 
 /** The meta at the end of a run (null — no meta: a given seed, the sandbox, the prologue). */
 export interface MetaEnd {
@@ -23,6 +27,11 @@ export interface MetaEnd {
   /** The pack thresholds, sums of experience: [60, 180, 360, 600, 900]. */
   thresholds: number[];
   pack: MetaPack | null;
+  /**
+   * Task 56 «Приметы» (the view adds it to core's `RtMetaEnd`): the omens this run's end opened for the viewer — «Приметы: +N» (the pool
+   * before and after the end; the whole pool when the gates opened with this run). Absent or 0 — no line.
+   */
+  omens?: number;
   nextPack: { id: string; title: string; at: number; size: number } | null;
   /**
    * Task 38: `level` 2 — the garrison's record (absent — the forest). Task 40: `wonLevel` — the level it passed (1 the forest, 2 the
@@ -33,6 +42,8 @@ export interface MetaEnd {
   carry: { n: number; share: number; cap: number; resources: number; cart?: number };
   stock: { before: number; after: number };
   quest?: { npc: NpcId; id: string; done: boolean; xp: number; stock: number };
+  /** Task 51г: the run's vows, each kept or not (only when counted: the run reached the Jailer's row); absent — none. */
+  vows?: { id: string; kept: boolean }[];
 }
 
 /** Task 49: the heroes as the camp and «Новый поход» show them (the profile's `heroes()`; the cat always open, Ведунья once freed). */
@@ -48,6 +59,9 @@ export interface HearthState {
   /** Task 51а: level 3 is for sale (a hero of the profile has entered the garrison); before it the lock «Дойди до гарнизона». */
   gate3: boolean;
   met: Record<NpcId, boolean>;
+  /** Task 51д: the NPC away for the next run (its place shows the trace); `done` — the quests done by NPC (the departure's number). */
+  away?: NpcId;
+  done?: Partial<Record<NpcId, number>>;
   /** The hero's experience now, the thresholds and the next pack (null — all open). */
   xp: number;
   thresholds: number[];
@@ -58,7 +72,8 @@ export interface HearthState {
   seen: string[];
   quest?: { npc: NpcId; id: string };
   /** What the last run was: the lines' occasion (`quest` — the quest's result; `firstWin` — the profile's first victory). */
-  last?: { won: boolean; cause?: string; row: number; beaten: boolean; quest?: boolean; firstWin?: boolean; pack?: boolean; hero?: 'toad' };
+  /** `habitOffered` / `knackOffered` (task 50 §18): the run offered the archetype / the knack (the core sets them with the hearth; absent until then). */
+  last?: { habitOffered?: true; knackOffered?: true; won: boolean; cause?: string; row: number; beaten: boolean; quest?: boolean; firstWin?: boolean; pack?: boolean; hero?: 'toad'; casino?: 'won' | 'lost'; firstGarrison?: boolean; garrisonWon?: boolean; away?: { npc: NpcId; met: boolean }; cuts?: number; vows?: { id: string; kept: boolean }[] };
   /** The NPC who came by themselves (the fallback way): their meeting line is `first_self`. */
   self?: Partial<Record<NpcId, boolean>>;
   /** The lines said so far, by `npc:key` (the profile's `lines`). */
@@ -66,7 +81,8 @@ export interface HearthState {
 }
 
 /** The start of a run from the camp: the maps to choose from (seeds, the base first), the consumables to choose from, the run's flags (core). */
-export interface HearthStart { maps?: number[]; items?: ItemKind[]; flags?: object }
+/** Task 51г: `vows` — Евлампий's vows offered (2 or 3), `vowCount` — how many may be taken (1 or 2; fewer, or none, is a choice too). */
+export interface HearthStart { maps?: number[]; items?: ItemKind[]; vows?: string[]; vowCount?: number; flags?: object }
 
 /** What the view needs of the meta (core's profile; a stub until it lands). */
 export interface MetaSource {
@@ -87,6 +103,9 @@ export const HEARTH_PRICES = [4, 8, 16] as const;
 /** Task 51а: what a level 3 shows before the gate (the lock's caption: «Закрыто · Дойди до гарнизона»). */
 export const HEARTH_GATE_LOCK = { name: 'Закрыто', rule: 'Дойди до гарнизона' } as const;
 
+/** Task 51г: the lock of Евлампий's level 3 (design: «после замка колдуна»; the gate of the others does not open it). */
+export const HEARTH_MONK_LOCK = { name: 'Закрыто', rule: 'После замка колдуна' } as const;
+
 /** The NPC of v1: names, who they are, their upgrades (level 1–3; task 51б: level 3 serves the garrison). */
 export const NPCS: Readonly<Record<NpcId, { name: string; who: string; upgrades: [string, string, string]; rules: [string, string, string] }>> = {
   owl: { name: 'Неясыть', who: 'сова-летописица', upgrades: ['Два пути', 'Три пути', 'Путь в гарнизон'],
@@ -95,9 +114,14 @@ export const NPCS: Readonly<Record<NpcId, { name: string; who: string; upgrades:
     rules: ['+1 расходник в начале похода', 'Расходник в дорогу — на выбор из 2', 'В Предместье — расходник из 2 на выбор'] },
   smith: { name: 'Ерофей', who: 'точильщик', upgrades: ['Правка', 'Полный верстак', 'Правка в гарнизоне'],
     rules: ['+1 бесплатный переброс на экранах Тюремщика', 'Все открытые молоты на экране Тюремщика', '+1 бесплатный переброс в гарнизоне'] },
+  gambler: { name: 'Шиш', who: 'гоблин-шулер', upgrades: ['Шишова лавка', 'Размен', 'Лавка в гарнизоне'],
+    rules: ['+1 бесплатный переброс у торговца', 'У торговца — обмен ресурсов, раз за поход', '+1 бесплатный переброс у торговца гарнизона'] },
+  // Task 51г: level 3 is never for sale in stage 3 (`HEARTH_MONK_LOCK`).
+  monk: { name: 'Евлампий', who: 'расстрига', upgrades: ['Обет', 'Два обета', 'Закрыто'],
+    rules: ['Перед походом — обет из 2 на выбор', 'Перед походом — 2 обета из 3', 'После замка колдуна'] },
 };
-/** The order of the six places round the fire: the three NPC of v1, then three empty places. */
-export const HEARTH_PLACES: readonly (NpcId | null)[] = ['owl', 'herb', 'smith', null, null, null];
+/** The order of the six places round the fire: the NPC of v1, Шиш on the right stump (task 51в; the left one waits for the next guest), then empty places. */
+export const HEARTH_PLACES: readonly (NpcId | null)[] = ['owl', 'herb', 'smith', null, 'gambler', 'monk'];
 
 /** The end screen's line of each part of the experience. */
 export function xpPartLabel(id: MetaXpPart, n?: number): string {
@@ -113,15 +137,18 @@ export function xpPartLabel(id: MetaXpPart, n?: number): string {
     case 'victory': return 'Победа похода';
     case 'ash': return 'Испытание';
     case 'quest': return 'Задание';
+    case 'vows': return n !== undefined ? `Обеты: ${n}` : 'Обеты';
   }
 }
 
 /** The forest events a pack may open (the card's name). */
 
-const KIND_WORD: Readonly<Record<MetaItemKind, string>> = { talisman: 'талисман', relic: 'реликвия', hammer: 'молот', form: 'форма', event: 'событие' };
+const KIND_WORD: Readonly<Record<MetaItemKind, string>> = { talisman: 'талисман', relic: 'реликвия', hammer: 'молот', form: 'форма', event: 'событие', omen: 'примета' };
 
 /** A pack card: its name, a big glyph (or the form's SVG) and what it is. */
 export function metaItemCard(item: MetaPackItem): { title: string; glyph: string; svg?: string; kind: string } {
+  // Task 56: an omen's card — its name and its icon (the catalogue is core's: `run/omens.ts`).
+  if (item.kind === 'omen') { const def = rtOmen(item.id); return { title: def?.title ?? item.id, glyph: '•', ...isRtOmenId(item.id) ? { svg: omenIconSvg(item.id, 56) } : {}, kind: KIND_WORD.omen }; }
   if (item.kind === 'event') return { title: forestEvent(item.id)?.title ?? item.id, glyph: '?', kind: KIND_WORD.event };
   const label = BUILD_LABELS[item.id] ? labelOf(item.id) : { title: item.id, glyph: '•' };
   return { title: label.title, glyph: label.glyph, ...('svg' in label && label.svg ? { svg: label.svg } : {}), kind: KIND_WORD[item.kind] };

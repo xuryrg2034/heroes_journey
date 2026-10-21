@@ -48,6 +48,10 @@ import { withKnights } from './rosters';
 import { spawnEnemy, spawnReaper, toughHpMaxOf, updateSpawning, type QueuedSpawn, type SpawnMarker } from './spawn';
 // К7 «Проклятый сундук» (chest.ts): the chest of «Застава», its touch, the curse on the touch.
 import { curseTouch, placeChest, touchChest, type CurseState } from './chest';
+// Task 55а «Замок: толчок» (shove.ts): the things sliding after a dash.
+import { updateShoves, type Shove, type ShovePlan, type ShoveStop } from './shove';
+// Task 56 «Приметы» (omens.ts): the omens' fight rules — the storm, the sleep, the pools, the roll call.
+import { drowseSweep, floodArena, omensEarly, omensLate, rageFactor, rollcallTouch, type DrowseWorld, type FloodWorld, type RollcallWorld, type StormWorld } from './omens';
 
 /**
  * Id of a registered enemy kind (enemies/*): prototype kinds `basic`, `wolf` (fast, hits harder next to other wolves),
@@ -142,13 +146,20 @@ export interface Enemy {
    * on every other enemy and while `Params.bossFrame` is off (worlds without it hash as before).
    */
   partOf?: number;
+  /**
+   * Task 56 «Сонный час» (omens.ts, `Params.omenDrowse`): it sleeps — held as frozen (`enemyFrozen`: it stands, does not touch, its
+   * mechanic is off) until the first dash or the end of the sleep. Absent on every other enemy (worlds without it hash as before).
+   */
+  sleep?: true;
+  /** Task 56 «Сонный час»: game seconds left of its rage after it woke (walk ×`omenWakeWalk`). Absent otherwise. */
+  rage?: number;
 }
 
 /**
  * The enemy is held now: it stands, does not touch, its behaviour's mechanic (shield, shot, fuse, quills) is off — frozen by
  * the cold, or an armoured elite in its open window (elites.ts; the window is not the cold: no brittleness, no ×2).
  */
-export function enemyFrozen(e: Enemy): boolean { return (e.chill ?? 0) > 0 || (e.armor?.open ?? 0) > 0; }
+export function enemyFrozen(e: Enemy): boolean { return (e.chill ?? 0) > 0 || (e.armor?.open ?? 0) > 0 || !!e.sleep; }
 
 /**
  * Button or door: a chain link of any color that gives no power and takes no damage (design answer 5),
@@ -192,7 +203,15 @@ export const OBJECT_RADIUS = 0.45;
  * A link of the drawn chain. `fork` (task 33, `Params.forkBranches`): «Развилка» took it from that older link (its anchor, fixed
  * when it was taken: bodies move) — absent otherwise.
  */
-export type ChainLink = ({ kind: 'enemy'; id: number } | { kind: 'object'; id: number }) & { fork?: { kind: 'enemy' | 'object'; id: number } };
+export type ChainLink = ({ kind: 'enemy'; id: number } | { kind: 'object'; id: number }) & {
+  fork?: { kind: 'enemy' | 'object'; id: number };
+  /**
+   * Task 56 (omens.ts `omenLink`), fixed when the link is taken: «Половодье» — the enemy's centre was in water (`wet`: its hit +1);
+   * «Перекличка» — its colour was on the roll call (`call`: +0.5 energy). Absent otherwise (chains without them hash as before).
+   */
+  wet?: true;
+  call?: true;
+};
 
 /** The last finished dash (render: combo counter, score popup; result screen). */
 export interface ChainSummary { kills: number; hits: number; crystals: number; score: number; time: number }
@@ -243,6 +262,9 @@ export interface HeroMove {
   route?: Vec[];
   /** Stage 2, step 3: links frozen and brittle at the release — struck ×2 even if they thaw on the way (absent when none). */
   brittle?: number[];
+  /** Task 56: the enemy links taken in water («Половодье») and of the colour on the roll call («Перекличка») — from the release (absent when none). */
+  wet?: number[];
+  call?: number[];
   /**
    * Iteration 2.1 (docs/realtime-slice.md, section 12): links armed at the release (`EnemyBehavior.armed`: porcupines with
    * their quills up) — their chain
@@ -287,6 +309,12 @@ export interface HeroMove {
    * not dry during the move and light once it is over (its return run too). Absent when none.
    */
   pitch?: number[];
+  /**
+   * Task 55а (`Params.shove`, shove.ts): the shove the release fixed (the plan's `shove`) and whether the dash reached its thing
+   * (`shoveHit`) — the dash's end runs it then, else cancels it. Absent when the chain does not end on a thing.
+   */
+  shove?: ShovePlan;
+  shoveHit?: true;
 }
 
 /**
@@ -586,7 +614,30 @@ export type WorldEvent =
   | { type: 'warden'; action: 'anger' | 'swing'; stage: 'start' | 'end' | 'hit'; id: number; x: number; y: number }
   // Task 59а (pitch.ts): the pitcher's windup (`aim`: id — the pitcher), the throw (id — the pot, `by`, from `x0`/`y0` to the mark,
   // `flight`), the landing (`hit` — the hero in its circle), a pool (id — the pool, `life`), it dried (`burnt` — burnt out), it lit (`cause`).
-  | { type: 'pot'; action: 'aim' | 'throw' | 'land' | 'pool' | 'dry' | 'ignite'; id: number; x: number; y: number; by?: number; x0?: number; y0?: number; flight?: number; hit?: 'hero'; life?: number; burnt?: true; cause?: 'path' | 'burning' };
+  | { type: 'pot'; action: 'aim' | 'throw' | 'land' | 'pool' | 'dry' | 'ignite'; id: number; x: number; y: number; by?: number; x0?: number; y0?: number; flight?: number; hit?: 'hero'; life?: number; burnt?: true; cause?: 'path' | 'burning' }
+  /**
+   * Task 55а (shove.ts): a shove — `start` (the plan: from (`x`, `y`) to (`x1`, `y1`), what stops it, the `target`), `crush` (a body
+   * crushed: `target`), `impact` (the strike at the stop: `target`, or the wall), `stop` (the thing stands at its point), `fall` (into a
+   * cliff), `cancel` (the dash did not reach the thing). The rules never read it.
+   */
+  | { type: 'shove'; action: 'start' | 'crush' | 'impact' | 'stop' | 'fall' | 'cancel'; thingId: number; x: number; y: number; x1?: number; y1?: number; stop?: ShoveStop; target?: number }
+  /** Task 55а: a thing broke (`by` — what it stopped at); not a kill. */
+  | { type: 'thing'; action: 'break'; id: number; x: number; y: number; by: ShoveStop }
+  /** Task 55а (enemies/castle.ts): «Падение шкафа» — `windup` (the lane fixed), `hit`, `rise` (it stands up). */
+  | { type: 'wardrobe'; action: 'windup' | 'hit' | 'rise'; id: number; x: number; y: number }
+  /**
+   * Task 55а: «Удар ладьи» — `aim` (the axis fixed both ways, from (`x0`, `y0`) to (`x1`, `y1`)) and `shot` (`plus`, `minus` — what each
+   * half struck: `hero`, `enemy`, `thing` — the shelter; absent — nothing).
+   */
+  | { type: 'rook'; action: 'aim' | 'shot'; id: number; axis: 'row' | 'column'; x0: number; y0: number; x1: number; y1: number; plus?: 'hero' | 'enemy' | 'thing'; minus?: 'hero' | 'enemy' | 'thing' }
+  /**
+   * Task 56 «Приметы» (omens.ts): «Гроза» — a mark stood (`mark`) or struck (`strike`) at (`x`, `y`) of radius `r`; «Сонный час» — the
+   * sleepers woke (`wake`: `cause` the first dash or the time, `count` of them); «Перекличка» — a colour was called (`call`). The
+   * rules never read them.
+   */
+  | { type: 'omen'; omen: 'storm'; action: 'mark' | 'strike'; x: number; y: number; r: number }
+  | { type: 'omen'; omen: 'drowse'; action: 'wake'; cause: 'pass' | 'time'; count: number }
+  | { type: 'omen'; omen: 'rollcall'; action: 'call'; color: number };
 
 export interface World {
   arena: ArenaTemplate;
@@ -732,6 +783,16 @@ export interface World {
   pots?: Pot[];
   /** Task 59а: the pools of pitch, the common pause, the burnt enemies' pauses — absent until the first throw. */
   pitch?: PitchState;
+  /** Task 55а (shove.ts): the things sliding now after a dash's shove — absent while none (worlds without a shove hash as before). */
+  shoves?: Shove[];
+  /** Task 56 «Гроза» (omens.ts, `Params.omenStorm`): the next mark and the mark standing — absent until the rule acts (worlds hash as before). */
+  storm?: StormWorld;
+  /** Task 56 «Сонный час» (omens.ts, `Params.omenDrowse`): the sleep and the wake — absent until the rule acts. */
+  drowse?: DrowseWorld;
+  /** Task 56 «Половодье» (omens.ts, `Params.omenFlood`): the pools placed at the start (ponds in `arena.obstacles` too) — absent without it. */
+  flood?: FloodWorld;
+  /** Task 56 «Перекличка» (omens.ts, `Params.omenRollcall`): the colour on the roll call and the next call — absent until the rule acts. */
+  rollcall?: RollcallWorld;
 }
 
 /**
@@ -811,7 +872,9 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   const deep = loadout?.deep === true && marked.deepEnemies?.length ? { ...marked, enemies: [...marked.enemies, ...marked.deepEnemies] } : marked;
   // Task 43, part Г: the run's crossbowmen (`Loadout.bolts`) after them, and its knights in the start formations (`Loadout.knights`).
   const bolted = loadout?.bolts === true && deep.boltEnemies?.length ? { ...deep, enemies: [...deep.enemies, ...deep.boltEnemies] } : deep;
-  const arena = withKnights(bolted, kitOf({ knights: loadout?.knights }).knights ?? 0);
+  // Task 56 «Половодье» (omens.ts): the pools join the arena before the flow field is built (the stream `omen`; off — the arena as it is).
+  const rng = new RngStreams(seed);
+  const { arena, flood } = floodArena(withKnights(bolted, kitOf({ knights: loadout?.knights }).knights ?? 0), params, rng);
   // Task 27 «Каркас босса»: a boss arena plays the frame — a copy of the values with it on (the given object stays as it is).
   if (arena.bossFrame && !params.bossFrame) params = { ...copyParams(params), bossFrame: true };
   // Task 28: a boss arena's death of the boss ends the fight — on when the values have the key off (absent: an older journal, as it was).
@@ -835,6 +898,8 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   // Task 54: the Chief's arena plays his feast and the boss's solid bodies (when the values have them off; a journal keeps the copy).
   if (arena.chief && params.chiefFeast === false) params = { ...copyParams(params), chiefFeast: true };
   if (arena.chief && params.trollSolid === false) params = { ...copyParams(params), trollSolid: true };
+  // Task 55а: an arena of the castle plays the law of the shove (when the values have it off; a journal keeps the copy).
+  if (arena.castle && !params.shove) params = { ...copyParams(params), shove: true };
   const maxHp = start ? Math.max(1, Math.floor(start.maxHp)) : params.heroHp;
   const hp = start ? Math.max(1, Math.min(maxHp, Math.floor(start.hp))) : params.heroHp;
   // Stage 2, step 3 («Песочные часы»): the phase table starts later — the delay is the talisman's, read once at the start.
@@ -851,7 +916,7 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   const world: World = {
     arena,
     params,
-    rng: new RngStreams(seed),
+    rng,
     hero: { x: arena.heroStart.x, y: arena.heroStart.y, hp, maxHp, invulnerable: 0, chainShield: 0, hurtFlash: 0, knockVx: 0, knockVy: 0, knock: 0 },
     enemies: [],
     markers: [],
@@ -886,6 +951,7 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
     energy: 0,
     blasts: [],
     trails: [],
+    ...flood ? { flood } : {},
   };
   // Stage 2, step 3: the loadout of the arena — its consumables and the energy the run banked for it (up to the cap).
   if (loadout) {
@@ -910,6 +976,8 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   if (arena.restore) world.restore = { ids: startIds };
   // The prologue: the enemies sleep until the first press (only on an arena with `sleepUntilChain`).
   if (arena.sleepUntilChain) world.asleep = true;
+  // Task 56 «Сонный час» (omens.ts): the start enemies sleep from the start (only with the rule on).
+  if (params.omenDrowse) { world.drowse = { next: 0 }; drowseSweep(world); }
   // К7 «Проклятый сундук»: the chest at the template's point (after the start enemies: they keep their ids).
   placeChest(world);
   // The prologue: the goblin of the template stands from the start (after the start enemies: they keep their ids).
@@ -1215,8 +1283,9 @@ export function win(world: World, by: DoorExit): void {
 /** Contact damage of one enemy now: its kind decides (the reaper, a wolf with its pack bonus, the base touch). */
 export function touchDamage(world: World, e: Enemy): number {
   // К7 «Проклятый сундук»: the curse adds +1 to the touch (not the reaper's); nothing while the chest is not taken.
-  const damage = touchBase(world, e);
-  return world.curse ? curseTouch(world, e, damage) : damage;
+  const damage = touchBase(world, e), cursed = world.curse ? curseTouch(world, e, damage) : damage;
+  // Task 56 «Перекличка» (omens.ts): a touch of the colour on the roll call +1 (nothing before a call).
+  return world.rollcall ? rollcallTouch(world, e, cursed) : cursed;
 }
 function touchBase(world: World, e: Enemy): number {
   // The elite bonus comes in `hurtHero` (every hit of an elite, stage 2, step 3) — not on a raised touch (`touchRaised`).
@@ -1342,6 +1411,8 @@ export function enemySpeed(world: World, e: Enemy): number {
   if (e.affixes) speed *= affixSpeedFactor(world, e);
   // Phase B (build.ts, decision 22): the build's multiplier of the walk — not the reaper (charges and leaps do not read it).
   const walk = kindOf(e).immune ? 1 : enemyWalkFactorOf(world);
+  // Task 56 «Сонный час» (omens.ts): the rage of the woken (×`omenWakeWalk`; nothing without it).
+  if (e.rage !== undefined) speed *= rageFactor(world, e);
   return walk === 1 ? speed : speed * walk;
 }
 
@@ -1401,6 +1472,9 @@ export function noteBlock(world: World, x: number, y: number, source: HitSource,
   if (heroGuarded(world)) world.events.push({ type: 'block', x, y, source, ...enemyId ? { enemyId } : {} });
 }
 
+/** Task 55а: the link `id` is a thing (the barrel, the wardrobe) — never an enemy link for a count. */
+const thingLink = (world: World, id: number): boolean => { const e = world.enemies.find(x => x.id === id); return !!e && !!kindOf(e).thing; };
+
 /**
  * «Щит фокуса» (`focusGuardLinks`, design 12.10.2026): the drawn chain has that many enemy links (an elite with plates is a
  * link) and the focus is not empty (`focusing`: the time slowed) — touches and hits spare the hero. The released dash plays
@@ -1410,7 +1484,8 @@ export function focusGuarded(world: World): boolean {
   const need = world.params.focusGuardLinks;
   if (!(need > 0) || !world.focusing || world.move || world.status !== 'playing') return false;
   let links = 0;
-  for (const link of world.chain) if (link.kind === 'enemy' && ++links >= need) return true;
+  // Task 55а: a thing is no enemy link for the shield (nothing changes without one).
+  for (const link of world.chain) if (link.kind === 'enemy' && !thingLink(world, link.id) && ++links >= need) return true;
   return false;
 }
 
@@ -1997,6 +2072,8 @@ export function update(world: World, dt: number, realDt = dt): void {
   world.time += dt;
   // Task 18 «Испытание V»: the run's pace of the phase table (`Kit.phaseScale`; absent — as before).
   world.pressure = pressureAt(world.params, world.time, world.greedStart, world.arena, phaseDelayOf(world), world.kit?.phaseScale ?? 1);
+  // Task 56 «Приметы» (omens.ts): the sleep and the wake by time, the rage, the roll call (nothing while their keys are off).
+  omensEarly(world, dt);
   const hero = world.hero;
   hero.invulnerable = Math.max(0, hero.invulnerable - dt);
   hero.chainShield = Math.max(0, hero.chainShield - dt);
@@ -2011,6 +2088,8 @@ export function update(world: World, dt: number, realDt = dt): void {
   if (!world.bossCleared) {
     if (world.params.reaperEnabled && world.greedStart !== null && !world.reaperSpawned && world.time - world.greedStart >= world.params.reaperTime) spawnReaper(world);
     updateSpawning(world, dt);
+    // Task 56 «Сонный час»: the newcomers of the sleep fall asleep before they move (nothing without it).
+    if (world.drowse) drowseSweep(world);
   }
   stepHeroKnock(world, dt);
   stepHeroWalk(world, dt);
@@ -2026,6 +2105,9 @@ export function update(world: World, dt: number, realDt = dt): void {
   if (world.params.doorWalkIn && !world.move && touchedNow && doorOpen(world)) { win(world, 'walk'); featExit(world, 0); return; }
   updateFlow(world, dt);
   const knocked = moveEnemies(world, dt);
+  // Task 55а (shove.ts): the shoved things slide on, crush and strike — before the parting (nothing without a shove).
+  updateShoves(world, dt);
+  if (world.status !== 'playing') return;
   const shoved = separate(world);
   // Stage 3a (М2): bodies pushed over a cliff fall (only on an arena with a cliff).
   dropIntoCliffs(world, shoved, undefined, knocked);
@@ -2049,12 +2131,17 @@ export function update(world: World, dt: number, realDt = dt): void {
   updateAffixes(world, dt);
   if (world.status !== 'playing') return;
   updateBraziers(world, dt);
+  // Task 56 «Гроза» (omens.ts): the mark and its strike (nothing while the key is off).
+  omensLate(world);
+  if (world.status !== 'playing') return;
   // Package «Урон имеет значение»: the armour's window and regrowth (elites with armour only), before the touches.
   updateArmor(world, dt);
   // The prologue, task 13 (room 9 «Щит», `restoreAfterShield`): the return runs before the touches, so the ring and the hero are
   // back in the tick the shield ends, before a touch could hurt (every other arena: after the touches, as before).
   const restoreFirst = !!world.arena.restoreAfterShield;
   if (restoreFirst && world.restore) updateRestore(world, world.restore);
+  // Task 56 «Сонный час»: an enemy summoned in this tick's steps sleeps before it could touch (nothing without it).
+  if (world.drowse) drowseSweep(world);
   contactDamage(world, dt);
   // The prologue: the start enemies' return (only on an arena with `restore`).
   if (!restoreFirst && world.restore && world.status === 'playing') updateRestore(world, world.restore);

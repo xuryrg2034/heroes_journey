@@ -16,7 +16,7 @@ import {
   createRtRun, parseRtRun, rtEnterGarrison, rtRerollTalismans, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseTalisman, rtEnterNode, rtFormReplaces, rtFusionPair, rtFusionRecipe,
   rtFusionsReady, rtRestFuse, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun, type RtRunEvent, type RtRunState, type RtRunStep,
 } from './rtRun';
-import { isRtForm, rtTalisman } from './rtTalismans';
+import { isRtForm, rtFormField, rtTalisman } from './rtTalismans';
 import { COUNTER_TALISMANS as CT, FORMS, FROST_PASS, FUSIONS, FUSION_RECIPES, HAMMERS, RELICS as RL, fusionOfHalf, type FusionId } from '../sim/buildIds';
 import { RT_META_PACKS, rtLockedAfter } from './metaCatalog';
 import { kitOf } from '../sim/kit';
@@ -125,12 +125,17 @@ await check('the pair guarantee: a half taken — the next screen that can carry
     const met = new Set<string>();
     for (const s of seen.screens) {
       if (!CARRYING.includes(s.source)) continue;
-      const owed = s.held.filter(h => { const of = fusionOfHalf(h); return of && !s.held.includes(of.partner) && !s.held.includes(of.fusion) && !met.has(h) && !s.gone.includes(of.partner); });
+      // Task 46 (design decision 9): no partner form that would replace a form half whose own pair is held (it cannot be offered) —
+      // reached since task 51's «Караульня» offers rare counters in the garrison (a half may come there beside a held pair).
+      const blocked = (partner: string) => isRtForm(partner) && s.held.some(id => rtFormField(id) === rtFormField(partner) && !!fusionOfHalf(id) && s.held.includes(fusionOfHalf(id)!.partner));
+      const owed = s.held.filter(h => { const of = fusionOfHalf(h); return of && !s.held.includes(of.partner) && !s.held.includes(of.fusion) && !met.has(h) && !s.gone.includes(of.partner) && !blocked(of.partner); });
       const partners = owed.map(h => fusionOfHalf(h)!.partner).filter(p => s.source !== 'form' || isRtForm(p));
       if (!partners.length) continue;
       const at = s.options.findIndex(id => partners.includes(id));
       assert(at >= 0, `seed ${k}: a ${s.source} screen after a half (${owed}) shows a partner: ${s.options}`);
-      if (s.source === 'hard' && s.options.length > 1) { assert(at > 0, `seed ${k}: «Застава»'s rare place kept`); rare++; }
+      // The guarantee never takes «Застава»'s rare place; a partner may stand there by the place's own content — a rare talisman or the form
+      // of the other field (task 30) — then nothing changes.
+      if (s.source === 'hard' && s.options.length > 1) { assert(at > 0 || rtTalisman(s.options[0])?.rarity === 'rare' || isRtForm(s.options[0]), `seed ${k}: «Застава»'s rare place kept (${s.options})`); rare++; }
       for (const h of owed) if (s.options.includes(fusionOfHalf(h)!.partner)) met.add(h);
       // A pair the draw put there itself may stand anywhere; the guarantee's place is the last one.
       if (at !== s.options.length - 1) continue;
@@ -190,7 +195,8 @@ await check('the guarantee is once and survives a reroll: a run holding «Ине
 await check('the rest: both parts held — «Сплав» beside the heal; the fusion takes the rest, the parts leave the run and the pool; the next arena holds the fusion with its parts; a heal keeps the offer for the next rest', () => {
   const made = new Set<string>();
   let declined = 0, after = 0, again = 0;
-  for (let k = 1; k <= 40 && (made.size < 3 || !declined); k++) {
+  // The walks go on until a run was offered the fusion again after a heal too (task 51: «Караульня»'s rares changed the garrison's paths).
+  for (let k = 1; k <= 80 && (made.size < 3 || !declined || !again); k++) {
     const fuse = k % 2 === 1;
     const seen: Seen = { screens: [], events: [], fused: [] };
     const end = walk(createRtRun(seedOf(k + 500), { gift: 'mini' }), k, { fuse, prefer: preferRestWhenReady(k % 2 ? 'hard' : 'shop') }, seen);

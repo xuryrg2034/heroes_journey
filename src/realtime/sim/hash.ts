@@ -89,6 +89,13 @@ export function worldState(world: World): unknown {
     // Task 59а (`Params.pitch`, pitch.ts): the pots in flight and the pools of pitch (absent until the first throw — worlds hash as before).
     ...world.pots ? { pots: world.pots } : {},
     ...world.pitch ? { pitch: world.pitch } : {},
+    // Task 55а «Замок: толчок» (shove.ts): the things sliding now (absent while none — worlds without a shove hash as before).
+    ...world.shoves ? { shoves: world.shoves } : {},
+    // Task 56 «Приметы» (omens.ts): the storm, the sleep, the pools, the roll call (each absent until its rule acts — worlds hash as before).
+    ...world.storm ? { storm: world.storm } : {},
+    ...world.drowse ? { drowse: world.drowse } : {},
+    ...world.flood ? { flood: world.flood } : {},
+    ...world.rollcall ? { rollcall: world.rollcall } : {},
   };
 }
 
