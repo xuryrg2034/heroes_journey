@@ -26,7 +26,7 @@ import { durabilityOf } from '../sim/shove';
 import { Simulation, SIM_DT } from '../sim/simulation';
 import type { Enemy, World, WorldEvent } from '../sim/world';
 import { bossBarState, goalLabelOf } from './bossBar';
-import { collectEdgeMarkers, hudBossCore, seesUnderHud } from './edgeMarkers';
+import { collectEdgeMarkers, coreCentreHidden, countPlace, hudBossCore, seesUnderHud, type VisibleArea } from './edgeMarkers';
 import { bossMoveLabels, WARLOCK_MOVE_TEXT } from './worldLabels';
 import { MAGIC, WarlockView, buildWarlock, reticleInk, type WarlockArt } from './warlockView';
 
@@ -244,6 +244,39 @@ check('«под чарами» is the violet sign, the lemon only in the window:
   assert(reticleInk(h.w, { kind: 'basic' }) === null, 'any other marked enemy: the common lemon');
   toWindow(h);
   assert(!warlockState(h.w)!.spellbound && warlockState(h.w)!.window?.open && reticleInk(h.w, h.core) === null, 'charm gone, window open: lemon'); 
+});
+
+const AREA: VisibleArea = { x0: 0, y0: 84, x1: 1280, y1: 630 };
+check('design rule 1: the pointer is for a core that cannot be taken — the centre of his ring under the HUD, under the bar or off the sides; a ring in view with the head cut off gets none', () => {
+  assert(!coreCentreHidden({ x: 60, y: 130 }, AREA), 'the ring in the top-left corner, in view (the head is above the band): no pointer');
+  assert(coreCentreHidden({ x: 600, y: 60 }, AREA), 'the centre under the top band: a pointer');
+  assert(coreCentreHidden({ x: 600, y: 650 }, AREA) && coreCentreHidden({ x: -4, y: 300 }, AREA) && coreCentreHidden({ x: 1290, y: 300 }, AREA), 'under the bar, off the sides: a pointer');
+  assert(!coreCentreHidden({ x: 600, y: 300 }, AREA), 'in the clear: none');
+});
+
+check('design rule 2: the window count stays in the visible area and never on the ring: at the head when that is in view, else beside the ring (right when the left is off the area)', () => {
+  const ring = 40, pad = 18;
+  const inView = countPlace({ x: 600, y: 200 }, { x: 600, y: 300 }, ring, AREA, pad);
+  assert(inView.x === 600 && inView.y === 200, 'head in view: the count stays at the head');
+  for (const core of [{ x: 600, y: 130 }, { x: 60, y: 130 }, { x: 1250, y: 100 }, { x: 600, y: 600 }]) {
+    const put = countPlace({ x: core.x, y: core.y - 130 }, core, ring, AREA, pad);
+    assert(put.x >= AREA.x0 && put.x <= AREA.x1 && put.y >= AREA.y0 && put.y <= AREA.y1, `inside the area for ${JSON.stringify(core)}: ${JSON.stringify(put)}`);
+    assert(Math.hypot(put.x - core.x, put.y - core.y) > ring, `not on the ring for ${JSON.stringify(core)}`);
+  }
+  const corner = countPlace({ x: 60, y: 0 }, { x: 60, y: 130 }, ring, AREA, pad);
+  assert(corner.x > 60, 'at the left edge the count goes to the right of the ring');
+});
+
+check('the view puts a window count under the HUD edge beside the ring when his head is above the visible area (real fight, the area as the render gives it)', () => {
+  const h = hall(1, { shoveDistance: 6 });
+  toWindow(h);
+  const area: VisibleArea = { x0: 0, y0: h.core.y * U - R * 0.5, x1: 4000, y1: 4000 };
+  h.view.syncCore(h.art, h.w, h.clock, R, true, area);
+  const label = (h.view as unknown as { countLabel: { position: { x: number; y: number }; visible: boolean } }).countLabel;
+  assert(label.visible, 'the count is shown');
+  assert(label.position.y >= area.y0 && Math.hypot(label.position.x - h.core.x * U, label.position.y - h.core.y * U) > R * 1.4, `inside, off the ring: ${label.position.x},${label.position.y}`);
+  h.view.syncCore(h.art, h.w, h.clock, R, true, { x0: 0, y0: 0, x1: 4000, y1: 4000 });
+  assert(label.position.y < h.core.y * U - R, 'with the head in view the count stands at the head');
 });
 
 console.log('warlockView: all checks passed');

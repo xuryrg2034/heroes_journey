@@ -15,6 +15,7 @@
  *   a white ring on each link that dropped out.
  * Coordinates are arena pixels (`unit` per arena unit); `r` is the drawing radius of a body in px.
  */
+import { countPlace, type VisibleArea } from './edgeMarkers';
 import { ColorMatrixFilter, Container, Graphics, Text } from 'pixi.js';
 import { characterSprite, hasCharacterArt } from '../art/characterAssets';
 import type { Vec } from '../sim/geometry';
@@ -459,7 +460,7 @@ export class TrollView {
    * the head thrown back while he roars, the whole-second count over the head. `art` — the core's drawing (`buildCore`), null when
    * the body is not drawn. `r` — the body's drawing radius in px.
    */
-  syncCore(art: CoreArt | null, world: World, clock: number, r: number, visible: boolean): void {
+  syncCore(art: CoreArt | null, world: World, clock: number, r: number, visible: boolean, area?: VisibleArea): void {
     const st = trollState(world), s = this.shown;
     if (this.countLabel) this.countLabel.visible = false;
     if (!art || !st) return;
@@ -487,7 +488,9 @@ export class TrollView {
     label.text = s.count;
     label.style.fill = win.left <= 1 ? 0xff8a6a : 0xfff2c4;
     // Right of the head, below the snore arc's right end and the HP plaque (design 17.10.2026, task 48 §24.15: it sat on both).
-    label.position.set(st.x * U + r * TROLL_ART * 0.48, st.y * U - r * TROLL_ART * TROLL_ART_ASPECT * 0.45);
+    const at = { x: st.x * U + r * TROLL_ART * 0.48, y: st.y * U - r * TROLL_ART * TROLL_ART_ASPECT * 0.45 };
+    const put = area ? countPlace(at, { x: st.x * U, y: st.y * U }, r * 1.4, area, 18) : at;
+    label.position.set(put.x, put.y);
     label.visible = true;
   }
 

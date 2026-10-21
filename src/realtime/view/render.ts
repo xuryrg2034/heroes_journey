@@ -27,7 +27,7 @@ import { ELITE_LEMON, PLAQUE_FADE, PLAQUE_LIFE, drawPlatePips, drawWindowPulse, 
 import type { ItemKind } from '../sim/kit';
 import { areaContains, inWater, type Area, type TerrainZone, type Vec } from '../sim/geometry';
 import { Camera, CAMERA, placeEdgeArrows, type CameraBounds, type CameraKeep, type PlacedArrow } from './camera';
-import { collectEdgeMarkers, seesUnderHud } from './edgeMarkers';
+import { collectEdgeMarkers, coreCentreHidden, seesUnderHud, type VisibleArea } from './edgeMarkers';
 import { drawRoleGlyph, roleOf, type EnemyRole } from './roles';
 import { DEFAULT_PARAMS, enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from '../sim/params';
 import { shieldFails } from '../sim/guard';
@@ -1005,14 +1005,25 @@ export class RealtimeRenderer {
     return { x: this.camera.x, y: this.camera.y, viewW: b.viewW, viewH: b.viewH, scale: this.scale, intro: this.intro ? CAMERA.bossIntro - this.intro.t : 0 };
   }
 
+  /** The visible area of the stage in screen px: inside the HUD above, the action bar below and the sides (`edgeInset`). */
+  private visibleArea(): VisibleArea {
+    const ins = this.edgeInset;
+    return { x0: ins.left, y0: ins.top, x1: this.freeW - ins.right, y1: this.freeH - ins.bottom };
+  }
+
+  /** The same area in arena px (the boss windows' counts stand in it). */
+  private visibleArenaArea(): VisibleArea {
+    const a = this.visibleArea(), p0 = this.toArena(a.x0, a.y0), p1 = this.toArena(a.x1, a.y1);
+    return { x0: p0.x * UNIT, y0: p0.y * UNIT, x1: p1.x * UNIT, y1: p1.y * UNIT };
+  }
+
   /**
-   * Task 55 Д (design 21.10.2026): a boss core's drawing is cut off by the HUD above or the action bar below (`edgeInset`) — the head's point
-   * under the top band, the feet under the bar, or the middle outside the sides. The camera is not touched: only the pointer and the window's count.
+   * Task 55 Д (design 21.10.2026): a boss core cannot be taken when the centre of his ring (the point the player clicks) is under the HUD, under
+   * the action bar or off the sides: then he gets the goal pointer and the window's count by it. A drawing cut by the HUD whose ring is in view
+   * is no reason for a pointer. The camera is not touched.
    */
-  private bossCoreHidden(e: Enemy, world: World): boolean {
-    const r = enemyDrawRadius(world.params), up = e.kind === TROLL ? r * (TROLL_ART * TROLL_ART_ASPECT - TROLL_FEET) : e.kind === CHIEF ? r * (CHIEF_ART - CHIEF_FEET) : r * (WARLOCK_ART - WARLOCK_FEET);
-    const head = this.toScreen(e.x, e.y - up * 0.85), feet = this.toScreen(e.x, e.y + r), ins = this.edgeInset;
-    return head.y < ins.top || feet.y > this.freeH - ins.bottom || head.x < ins.left || head.x > this.freeW - ins.right;
+  private bossCoreHidden(e: Enemy, _world: World): boolean {
+    return coreCentreHidden(this.toScreen(e.x, e.y), this.visibleArea());
   }
 
   /**
@@ -1429,7 +1440,7 @@ export class RealtimeRenderer {
         const R = BASE_ENEMY_RADIUS * UNIT;
         if (e.kind === TROLL) {
           if (view.hpLabel?.parent) { const at = coreBadgeAt(R); view.hpLabel.parent.position.set(at.x, at.y); }
-          this.troll.syncCore(view.trollArt ?? null, world, this.clock, enemyDrawRadius(world.params) * UNIT, view.root.visible);
+          this.troll.syncCore(view.trollArt ?? null, world, this.clock, enemyDrawRadius(world.params) * UNIT, view.root.visible, this.visibleArenaArea());
         } else {
           const core = world.enemies.find(c => c.id === e.partOf);
           if (view.hpLabel?.parent && core) { const at = partBadgeAt(e.kind, partOutward(core, e), R); view.hpLabel.parent.position.set(at.x, at.y); }
@@ -1444,7 +1455,7 @@ export class RealtimeRenderer {
         const R = BASE_ENEMY_RADIUS * UNIT;
         if (e.kind === CHIEF) {
           if (view.hpLabel?.parent) { const at = chiefBadgeAt(R); view.hpLabel.parent.position.set(at.x, at.y); }
-          this.chief.syncCore(view.chiefArt ?? null, world, this.clock, enemyDrawRadius(world.params) * UNIT, view.root.visible);
+          this.chief.syncCore(view.chiefArt ?? null, world, this.clock, enemyDrawRadius(world.params) * UNIT, view.root.visible, this.visibleArenaArea());
         } else {
           const core = chiefCore(world);
           if (view.hpLabel?.parent && core) { const at = chiefPartBadgeAt(core, e, R); view.hpLabel.parent.position.set(at.x, at.y); }
@@ -1454,7 +1465,7 @@ export class RealtimeRenderer {
       // Task 55 Д: the warlock's plaque by his head; his drawing floats, turns dazed in the window, glows and counts (warlockView.ts).
       if (e.kind === WARLOCK) {
         if (view.hpLabel?.parent) { const at = warlockBadgeAt(BASE_ENEMY_RADIUS * UNIT); view.hpLabel.parent.position.set(at.x, at.y); }
-        this.warlock.syncCore(view.warlockArt ?? null, world, this.clock, enemyDrawRadius(world.params) * UNIT, view.root.visible);
+        this.warlock.syncCore(view.warlockArt ?? null, world, this.clock, enemyDrawRadius(world.params) * UNIT, view.root.visible, this.visibleArenaArea());
       }
       if (eaterSits(e)) { view.body.scale.set(1, 0.82); view.body.position.set(0, BASE_ENEMY_RADIUS * UNIT * 0.16); }
       else if (e.kind === 'basic' && view.body.scale.y !== 1) { view.body.scale.set(1, 1); view.body.position.set(0, 0); }

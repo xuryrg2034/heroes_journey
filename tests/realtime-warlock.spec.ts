@@ -18,7 +18,7 @@ interface WarlockState {
   shift: { candle: number; progress: number } | null; window: { open: boolean; left: number; hit: boolean } | null;
 }
 interface WarlockShown {
-  core: number; hud: number; dazed: number; glow: number; count: string; edgeCount: string; beam: number; beamTo: number; candles: number; target: number; flame: number; signProgress: number; haze: number; dropping: number;
+  core: number; hud: number; countAt: { x: number; y: number } | null; dazed: number; glow: number; count: string; edgeCount: string; beam: number; beamTo: number; candles: number; target: number; flame: number; signProgress: number; haze: number; dropping: number;
   sparks: number; hits: number; opens: number; unlinks: number; snaps: number; marks: number; arrivals: number; smokes: number;
 }
 interface Snap {
@@ -270,7 +270,7 @@ test('task 55 Д: a window that runs out with him in the drawn chain — the lin
   expect(errors).toEqual([]);
 });
 
-test('task 55 Д: the window opens with one bell; the hero far south — his drawing is under the HUD: the goal pointer stands and the window count is by it; the lemon returns to the reticle (screenshot)', async ({ page }) => {
+test('task 55 Д: the window opens with one bell; the centre of his ring under the HUD: the goal pointer stands and the window count is by it; the lemon returns to the reticle (screenshot)', async ({ page }) => {
   test.setTimeout(150_000);
   const errors = collectErrors(page);
   await openHall(page);
@@ -286,17 +286,49 @@ test('task 55 Д: the window opens with one bell; the hero far south — his dra
     if (!st) return late ? null : undefined;
     const at = st.window ? st.candles[st.candle] : st.shift ? st.candles[st.shift.candle] : st.candles[st.candle];
     const head = rt.toScreen(at.x, at.y - 1.36).y, body = rt.toScreen(at.x, at.y).y;
-    if (st.window?.open && sn.warlock.shown.hud === 1 && sn.warlock.shown.edgeCount !== '' && head < 84 && body > 84) return sn;
+    if (st.window?.open && sn.warlock.shown.hud === 1 && sn.warlock.shown.edgeCount !== '' && body < 84 && body > 0) return sn;
     if (late) return null;
-    if (head > 60) rt.teleport(12, Math.min(14.4, sn.hero.y + 0.05));
-    else if (head < 36) rt.teleport(12, Math.max(1, sn.hero.y - 0.05));
+    if (body > 62) rt.teleport(12, Math.min(14.4, sn.hero.y + 0.05));
+    else if (body < 36) rt.teleport(12, Math.max(1, sn.hero.y - 0.05));
     return undefined;
   }, null, 6);
-  expect(edge, 'the count stands by the core pointer, his drawing under the top band').not.toBeNull();
-  expect(edge!.warlock.shown.hud, 'the core is in the camera view, its drawing under the HUD').toBe(1);
+  expect(edge, 'the count stands by the core pointer, the ring's centre under the top band').not.toBeNull();
+  expect(edge!.warlock.shown.hud, 'the centre of his ring is under the HUD, in the camera view').toBe(1);
   expect(edge!.eliteView.edgeArrows, 'a goal pointer').toBeGreaterThanOrEqual(1);
   expect(edge!.warlock.sounds, 'one bell for the window').toBe(sounds0 + 1);
   expect(edge!.markedView.charmed, 'no violet reticle in phase 2').toBe(0);
   await shot(page, 'window-pointer');
+  expect(errors).toEqual([]);
+});
+
+test('task 55 Д (design rule): the ring in view with the head cut off by the HUD — no pointer; the window count is pushed under the HUD edge, beside the ring (screenshot)', async ({ page }) => {
+  test.setTimeout(150_000);
+  const errors = collectErrors(page);
+  await openHall(page);
+  await quiet(page);
+  await cameraSettled(page);
+  await breakCharm(page);
+  await page.evaluate(() => (window as any).__realtime.teleport(12, 11));
+  // The ring's centre a hand below the top band (the head above it): the hero steps until the camera puts the arriving core there.
+  const seen = await untilFrame(page, (sn, _arg: null, late, rt) => {
+    const st = sn.warlock.state;
+    if (!st) return late ? null : undefined;
+    const at = st.window ? st.candles[st.candle] : st.shift ? st.candles[st.shift.candle] : st.candles[st.candle];
+    const body = rt.toScreen(at.x, at.y).y, head = rt.toScreen(at.x, at.y - 1.36).y;
+    if (st.window?.open && sn.warlock.shown.count !== '' && body > 100 && head < 84) return { sn, body, head };
+    if (late) return null;
+    if (body > 150) rt.teleport(12, Math.min(14.4, sn.hero.y + 0.05));
+    else if (body < 120) rt.teleport(12, Math.max(1, sn.hero.y - 0.05));
+    return undefined;
+  }, null, 6);
+  expect(seen, 'the ring is in view, the head is under the band').not.toBeNull();
+  const s = seen!.sn as Snap;
+  expect(s.warlock.shown.hud, 'the ring can be clicked: no pointer').toBe(0);
+  expect(s.warlock.shown.edgeCount, 'no count by a pointer').toBe('');
+  const at = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [s.warlock.shown.countAt!.x, s.warlock.shown.countAt!.y] as const);
+  expect(at.y, 'the count is under the HUD edge').toBeGreaterThanOrEqual(84);
+  const ring = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [s.warlock.state!.x, s.warlock.state!.y] as const);
+  expect(Math.hypot(at.x - ring.x, at.y - ring.y), 'the count is off the ring').toBeGreaterThan(30);
+  await shot(page, 'window-ring-in-view');
   expect(errors).toEqual([]);
 });

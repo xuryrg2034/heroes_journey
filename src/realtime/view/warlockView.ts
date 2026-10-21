@@ -15,6 +15,7 @@
  *   the window's last second (the sim's `warlockLinkDrop`, the same as `planChain(...).warlockDrop`) those links blink.
  * Coordinates are arena pixels (`unit` per arena unit); `r` is the drawing radius of a body in px.
  */
+import { countPlace, type VisibleArea } from './edgeMarkers';
 import { ColorMatrixFilter, Container, Graphics, Text } from 'pixi.js';
 import { characterSprite, hasCharacterArt } from '../art/characterAssets';
 import { eliteArmorView } from '../sim/elites';
@@ -111,8 +112,10 @@ export class WarlockView {
   readonly shown = {
     /** The core is drawn this frame (0/1), dazed (his window stands), its glow is lit, the count over the head ('' — none) and by his goal arrow. */
     core: 0, dazed: 0, glow: 0, count: '', edgeCount: '',
-    /** The core is in the camera's view but its drawing is under the HUD or the action bar (it gets the pointer: render.ts `bossCoreHidden`). */
+    /** The core is in the camera's view but the centre of his ring is under the HUD or the action bar (he gets the pointer: render.ts `bossCoreHidden`). */
     hud: 0,
+    /** Where the window's count stands, in arena units (null — none). */
+    countAt: null as { x: number; y: number } | null,
     /** The charm's beam drawn (0/1) and the id of the wardrobe it ends at (−1 none). */
     beam: 0, beamTo: -1,
     /** The candles drawn, the target one (−1 none) with its flame's size in arena units and the sign's fill 0…1, the core's haze drawn (0/1), the drawn chain's dropping core blinks (0/1). */
@@ -138,7 +141,7 @@ export class WarlockView {
 
   beginFrame(): void {
     const s = this.shown;
-    s.core = 0; s.hud = 0; s.dazed = 0; s.glow = 0; s.count = ''; s.beam = 0; s.beamTo = -1; s.candles = 0; s.target = -1; s.flame = 0; s.signProgress = 0; s.haze = 0; s.dropping = 0;
+    s.core = 0; s.hud = 0; s.countAt = null; s.dazed = 0; s.glow = 0; s.count = ''; s.beam = 0; s.beamTo = -1; s.candles = 0; s.target = -1; s.flame = 0; s.signProgress = 0; s.haze = 0; s.dropping = 0;
   }
 
   /** The new fight: no effects, no memory. */
@@ -256,7 +259,7 @@ export class WarlockView {
    * The core's frame: the drawing floats; in the window the dazed drawing replaces it, a lemon glow rings the contour while the window takes
    * the hit (it blinks in the last half second), the whole-second count over the head. `art` — `buildWarlock`, null when the body is not drawn.
    */
-  syncCore(art: WarlockArt | null, world: World, clock: number, r: number, visible: boolean): void {
+  syncCore(art: WarlockArt | null, world: World, clock: number, r: number, visible: boolean, area?: VisibleArea): void {
     const st = warlockState(world), s = this.shown;
     if (this.countLabel) this.countLabel.visible = false;
     if (!art || !st) return;
@@ -277,8 +280,11 @@ export class WarlockView {
     s.count = windowCount(win.left);
     label.text = s.count;
     label.style.fill = win.left <= 1 ? 0xff8a6a : 0xfff2c4;
-    label.position.set(st.x * U - r * WARLOCK_ART * 0.4, st.y * U - r * WARLOCK_ART * 0.5);
+    const at = { x: st.x * U - r * WARLOCK_ART * 0.4, y: st.y * U - r * WARLOCK_ART * 0.5 };
+    const put = area ? countPlace(at, { x: st.x * U, y: st.y * U }, r * 1.4, area, 18) : at;
+    label.position.set(put.x, put.y);
     label.visible = true;
+    s.countAt = { x: put.x / U, y: put.y / U };
   }
 
   /** The count by the core's goal arrow while the core is off screen (the window is seen wherever the hero is). */
