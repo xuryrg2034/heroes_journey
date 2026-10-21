@@ -21,6 +21,10 @@ export const CHARACTER_ART_IDS = [
   'troll', 'troll-sleep', 'troll-club', 'troll-rock',
   // Task 49 «Второй герой»: Ведунья (the hero's sprite; the drawn toad stays the fallback) and the Jailer's cage (the drawn cage stays the fallback).
   'toad', 'jailer-cage',
+  // Task 55а «Замок, шаг 1а»: the wardrobe, the rook and the barrel (the drawn stand-ins of view/castleView.ts stay the fallback).
+  'castle-wardrobe', 'castle-rook', 'castle-barrel',
+  // Task 54a: the camp boss, his cauldron, ladle and sack (the drawn stand-ins of view/chiefView.ts stay the fallback).
+  'chief', 'chief-cauldron', 'chief-ladle', 'chief-sack',
 ] as const;
 
 export type CharacterArtId = typeof CHARACTER_ART_IDS[number];

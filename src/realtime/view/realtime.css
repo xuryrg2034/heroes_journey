@@ -228,7 +228,17 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* Design 17.10.2026 (§17): the sign stands apart from the consumables' line that follows it. */
 .rt-run-habit { display: inline-flex; align-items: center; cursor: help; margin-right: 14px; }
 .rt-run-choice:has(.rt-habit-mark) { padding-right: 44px; }
-.rt-habit-mark { position: absolute; top: 6px; right: 6px; display: inline-flex; font-style: normal; pointer-events: none; }
+/* Task 50 §18: the mark answers a hover with a readable bubble (`data-tip`); a click on it is the card's click. */
+.rt-habit-mark { position: absolute; top: 6px; right: 6px; display: inline-flex; font-style: normal; cursor: help; }
+.rt-habit-mark:hover::after, .rt-habit-item:hover::after { content: attr(data-tip); position: absolute; right: 0; top: 100%; margin-top: 4px; z-index: 5; width: max-content; max-width: 220px; padding: 6px 9px; border: 1px solid #c8a56b; border-radius: 6px; background: #1a2330; color: #f2dfb4; font: 12px/1.3 'DM Sans', Arial, sans-serif; text-align: left; pointer-events: none; }
+.rt-habit-mark.rt-habit-flash svg { animation: rt-habit-flash .4s ease-out 1; }
+@keyframes rt-habit-flash { 0% { transform: scale(1); filter: none; } 35% { transform: scale(1.5); filter: drop-shadow(0 0 6px #ffd36b) brightness(1.5); } 100% { transform: scale(1); filter: none; } }
+.rt-habit-hint, .rt-knack-hint { margin: 0; color: #a7ad93; font-size: 12px; }
+.rt-habit-items { grid-column: 1 / span 2; display: flex; gap: 5px; }
+.rt-habit-item { position: relative; cursor: help; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background: #2a3324; border: 1px solid #5a5e44; font-style: normal; font-size: 12px; color: #f2dfb4; }
+.rt-habit-item:hover::after { right: auto; left: 0; }
+.rt-habit-item svg { width: 18px; height: 18px; }
+.rt-knack-card .rt-knack-now { color: #a7ad93; }
 .rt-run-choice:hover:not(:disabled) { border-color: #c8a56b; background: #2d3526; }
 .rt-run-choice:disabled { opacity: .55; cursor: default; }
 .rt-run-choice b { font: 600 16px Georgia, serif; color: #f2dfb4; }
@@ -506,10 +516,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-kind-event { outline-color: #8fd18a; }
 
 /* Task 37 «Очаг» (hearthView.ts): the camp, one screen 1280×720 — the fire in the centre, six places round it, the stock on top. */
-.rt-hearth { position: absolute; inset: 0; z-index: 8; color: var(--rt-ink); overflow: hidden; background: #0a0e09 center / 1280px 720px no-repeat; }
+.rt-hearth { position: absolute; inset: 0; z-index: 8; color: var(--rt-ink); overflow: hidden; background: #0a0e09; }
+/* UI-01б: the picture's edges beyond the scaled scene — the same art, blurred and dimmed, covering the window. */
+.rt-hearth::before { content: ''; position: absolute; inset: -24px; background: var(--hearth-art, none) center / cover no-repeat; filter: blur(14px) brightness(.5); pointer-events: none; }
 .rt-hearth.rt-hearth-noart { background: radial-gradient(ellipse 46% 52% at 50% 58%, #4a2a14 0%, #2a1c10 26%, #131a10 60%, #0a0e09 100%); }
 .rt-hearth-fire-wrap { display: none; position: absolute; left: 640px; top: 300px; transform: translateX(-50%); }
 .rt-hearth-noart .rt-hearth-fire-wrap { display: block; }
+.rt-hearth-noart::before { display: none; }
 .rt-hearth-glow { position: absolute; left: 640px; top: 400px; width: 520px; height: 360px; transform: translate(-50%, -50%); background: radial-gradient(closest-side, #ffb34733, #ff8a3c14 55%, transparent); pointer-events: none; animation: rt-hearth-glow 2.4s ease-in-out infinite alternate; }
 @keyframes rt-hearth-glow { 0% { opacity: .65; transform: translate(-50%, -50%) scale(.97); } 100% { opacity: 1; transform: translate(-50%, -50%) scale(1.03); } }
 .rt-hearth:not(.rt-hearth-noart) .rt-hearth-empty { visibility: hidden; }
@@ -520,7 +533,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-hearth-head > b { font: 600 24px Georgia, serif; color: #e8d7ad; text-shadow: 0 2px 6px #000; }
 .rt-hearth-stock { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; padding: 4px 12px; border: 1px solid #82774e; background: #1a1e16; }
 .rt-hearth-stock b { font: 700 20px system-ui, sans-serif; color: #ffd88a; font-variant-numeric: tabular-nums; }
-.rt-hearth-stage { position: absolute; inset: 0; }
+/* UI-01 (20.10.2026): the scene is the art's own box — 1280×720 in the window's middle, where the background lies (centred at its size); the places, the fire, the panel and the bubble keep their 1280×720 coordinates inside it, so on a wide window they stand on the picture. */
+.rt-hearth-stage { position: absolute; left: 50%; top: 50%; width: 1280px; height: 720px; transform: translate(-50%, -50%) scale(var(--s, 1)); background: var(--hearth-art, none) center / 100% 100% no-repeat; }
+/* UI-01б: `--s` = max(1, min(window width / 1280, window height / 720)) is set by hearthView.ts; the whole scene (picture, figures, names, panels) scales by it. */
 .rt-hearth-center { position: absolute; left: 640px; top: 548px; transform: translateX(-50%); width: 340px; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 10px 14px 12px; background: #0a0e09b3; border: 1px solid #5a5234; }
 .rt-hearth-fire { width: 240px; height: 204px; filter: drop-shadow(0 0 40px #ff8a3c88); }
 .rt-flame { transform-origin: 100px 138px; animation: rt-flame 1.4s ease-in-out infinite alternate; }
@@ -681,3 +696,104 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-gate-items { display: flex; flex-direction: column; gap: 6px; min-width: 150px; }
 .rt-gate-item { text-align: center; }
 .rt-gate-item:disabled { opacity: .5; }
+
+/* Task 56 «Приметы» (omenMark.ts): the sign in the map's header, the badge at a node, the grey «?» of «Перепутье», the card's line, the pack's omen card. */
+.rt-run-omen { display: inline-flex; align-items: center; cursor: help; margin: 0 14px 0 6px; vertical-align: middle; }
+.rt-omen-badge { cursor: help; }
+.rt-node.rt-hidden circle { fill: #1b1f19; stroke: #3b3d30; stroke-dasharray: 4 3; }
+.rt-node.rt-hidden text { fill: #6d705e; }
+.rt-node.rt-hidden.rt-available circle { stroke: #8f8a6c; }
+.rt-run-dangers li.rt-omen-line { display: flex; align-items: center; gap: 8px; border-left-color: #8fb7d6; }
+.rt-run-dangers li.rt-omen-line .rt-omen-icon { flex: none; }
+.rt-omen-text { flex: 1; }
+.rt-omen-level { display: inline-flex; align-items: center; gap: 6px; flex: none; margin-left: auto; padding-left: 8px; border-left: 1px solid #4a4d39; cursor: help; }
+.rt-omen-level b { color: #e0d4ad; font-weight: 600; }
+.rt-omen-note { display: flex; align-items: center; gap: 6px; }
+.rt-meta-omens { margin: 0; font-size: 15px; color: #e5dcc0; }
+.rt-meta-omens b { font: 700 18px system-ui, sans-serif; color: #ffd88a; font-variant-numeric: tabular-nums; }
+.rt-kind-omen { outline-color: #8fb7d6; }
+/* Task 51в: Шиш at the merchant — the reroll with his portrait, «Размен» (3 of one kind for 2 of another); compact: the card stays in 720 px. */
+.rt-run-modal .rt-shop-reroll { display: flex; align-items: center; justify-content: center; gap: 10px; padding-top: 3px; padding-bottom: 3px; }
+.rt-shop-npc { height: 36px; width: auto; }
+.rt-shop-note { margin: 2px 0 0; font-size: 12px; }
+.rt-shop-swap { display: grid; gap: 4px; padding: 6px 0 0; margin-top: 6px; border-top: 1px solid #4a4d39; }
+.rt-swap-head { display: flex; align-items: center; gap: 10px; }
+.rt-swap-head .rt-cart-head { margin: 0 auto 0 0; }
+.rt-run-modal .rt-swap-do { width: auto; margin: 0; padding: 4px 14px; }
+.rt-swap-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; color: #a7ad93; font-size: 13px; }
+.rt-swap-row > span { min-width: 84px; }
+.rt-swap-kind { padding: 3px 10px; background: #262d21; border: 1px solid #4a4d39; color: var(--rt-ink); cursor: pointer; }
+.rt-swap-kind small { color: #a7ad93; }
+.rt-swap-kind.rt-chosen { border-color: #ffd88a; background: #2d3526; }
+.rt-swap-kind:disabled { opacity: .4; cursor: default; }
+
+/* Task 51в: «✦» over a guest who came, until the first click (the same sign as «новое» of the Chronicle; «!» is the quest's). */
+.rt-hearth-new-mark { position: absolute; top: -6px; left: calc(50% - 11px); width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #2a2340; border: 1px solid #c8b0ff; color: #c8b0ff; font: 700 14px Georgia, serif; font-style: normal; pointer-events: none; }
+
+/* Task 51г: Евлампий's vows at the start of a run (2 or 3 cards, take up to 1 or 2). */
+.rt-vow.rt-chosen { border-color: #ffd88a; background: #2d3526; }
+.rt-vow:disabled { opacity: .45; }
+.rt-vow-go { display: block; width: 100%; margin-top: 14px; }
+.rt-hearth-modal .rt-run-note { margin: 0 0 10px; }
+
+/* Task 51д: the trace of an NPC away (on its place) and the meeting at the rest (portrait button, deal window). */
+.rt-hearth-trace .rt-hearth-art { filter: drop-shadow(0 4px 6px #000a); }
+.rt-hearth-trace:hover .rt-hearth-art { transform: translateY(-3px); }
+.rt-run-choice.rt-meet { display: flex; align-items: center; gap: 12px; }
+.rt-meet > span { display: grid; gap: 2px; }
+.rt-meet-npc { height: 56px; width: auto; flex: none; }
+.rt-meet-head { display: flex; align-items: center; justify-content: center; gap: 12px; }
+.rt-meet-head .rt-meet-npc { height: 52px; }
+
+/* Task 51г: the vows' sign in the map's header; a hover shows the list, a broken vow is struck through. */
+.rt-run-vows { position: relative; display: inline-flex; align-items: center; cursor: help; margin-right: 14px; }
+.rt-vows-tip { display: none; position: absolute; top: calc(100% + 8px); left: 0; z-index: 30; margin: 0; padding: 8px 12px; list-style: none; width: 260px; background: #f1e6c8; color: #1b2017; border: 2px solid #18232d; box-shadow: 0 6px 18px #000a; font: 13px Georgia, serif; }
+.rt-run-vows:hover .rt-vows-tip, .rt-run-vows:focus .rt-vows-tip { display: block; }
+.rt-vows-tip li { display: grid; padding: 3px 0; }
+.rt-vows-tip .rt-vows-head { font-weight: 700; border-bottom: 1px solid #c9b98a; margin-bottom: 3px; }
+.rt-vows-tip small { color: #5a5234; font-size: 12px; }
+.rt-vows-tip .rt-broken { text-decoration: line-through; opacity: .65; }
+.rt-vows-tip b { color: #1b2017; font: 700 14px Georgia, serif; }
+
+/* Task 56в: a merchant with more than 4 goods (fair, Шиш, «Размен») must fit 1280×720 without scrolling — the goods in two columns, a wider card. */
+.rt-run-modal:has(.rt-shop-two) .rt-card { width: min(780px, calc(100vw - 32px)); }
+.rt-shop-two { grid-template-columns: 1fr 1fr; gap: 6px; }
+.rt-shop-two .rt-run-choice { padding: 6px 10px; }
+.rt-run-modal:has(.rt-shop-two) h2 { font-size: 26px; margin: 0 0 4px; }
+
+/* Task 51ж «Разминка»: «Чурбаки» by the fire (stand-in drawing), the choice of the layouts, the attempt's exit and result. */
+.rt-hearth-warmup { display: flex; flex-direction: column; align-items: center; }
+.rt-hearth-warmup svg, .rt-hearth-warmup-art { filter: drop-shadow(0 6px 6px #000a); transition: transform .15s, filter .15s; }
+.rt-hearth-warmup:hover svg, .rt-hearth-warmup:hover .rt-hearth-warmup-art { transform: translateY(-4px) scale(1.04); filter: drop-shadow(0 0 12px #ffb347aa); }
+.rt-hearth-warmup-card { width: 560px; }
+.rt-hearth-warmup-list { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 8px; }
+.rt-hearth-warmup-row { width: 100%; display: grid; grid-template-columns: 150px 1fr auto; align-items: center; gap: 12px; padding: 8px 12px; text-align: left; background: #1a1e16; border: 2px solid #444837; color: #e8d7ad; }
+.rt-hearth-warmup-row:hover { border-color: #c8a56b; }
+.rt-hearth-warmup-row b { font: 600 16px Georgia, serif; }
+.rt-hearth-warmup-row span { font-size: 13px; color: var(--rt-muted); }
+.rt-hearth-warmup-row em { font: 700 14px system-ui, sans-serif; font-style: normal; color: #ffd88a; font-variant-numeric: tabular-nums; }
+.rt-hearth-warmup-row em[data-none] { color: var(--rt-muted); font-weight: 400; }
+.rt-warmup-exit { position: absolute; top: 14px; right: 18px; z-index: 7; padding: 3px 9px; font-size: 12px; color: var(--rt-muted); background: #121710b3; border: 1px solid var(--rt-line); cursor: pointer; opacity: 0.75; }
+.rt-warmup-exit:hover { opacity: 1; color: var(--rt-ink); }
+.rt-warmup-card { min-width: 380px; }
+.rt-warmup-card h2 { color: #e8d7ad; }
+.rt-warmup-card .rt-warmup-score { margin: 4px 0 10px; font: 600 26px Georgia, serif; color: #f1e6c8; }
+.rt-warmup-card .rt-warmup-record { margin: 0 0 6px; font-size: 14px; color: var(--rt-muted); }
+.rt-warmup-card .rt-warmup-record.rt-new { color: #ffd88a; font-weight: 700; }
+.rt-warmup-card .rt-warmup-say { margin: 8px 0 12px; padding: 6px 10px; background: #f1e6c8; color: #1b2017; border: 2px solid #18232d; font: italic 14px Georgia, serif; line-height: 1.35; }
+.rt-warmup-card .rt-warmup-say b { font-style: normal; }
+/* Task 51з «Поход дня»: the button under «В поход» at the fire, its panel, the end screen's block. */
+.rt-hearth-gorow { display: flex; gap: 8px; align-items: stretch; width: 100%; }
+.rt-hearth-gorow .rt-hearth-go { flex: 1 1 0; min-width: 0; }
+.rt-hearth-daily { flex: 1 1 0; min-width: 0; font-size: 14px; padding: 5px 8px; }
+.rt-hearth-daily:disabled { opacity: .55; }
+.rt-hearth-daily-reason { margin: -3px 0 -4px; color: #c9c5a8; font-size: 11px; text-align: center; }
+.rt-daily-card { width: 420px; }
+.rt-daily-date, .rt-daily-tries { margin: 0 0 6px; }
+.rt-daily-results { margin: 0 0 10px; padding: 0 0 0 18px; }
+.rt-daily-proof { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 4px; }
+.rt-daily-status { min-height: 1.3em; margin: 4px 0 10px; font-size: 13px; }
+.rt-daily-end { margin: 0 0 10px; }
+.rt-daily-claim { margin: 0 0 6px; font-weight: 700; }
+.rt-run-modal .rt-daily-proof .rt-other, .rt-daily-proof .rt-other { width: auto; flex: 1 1 auto; margin: 0; padding: 8px 10px; }
+.rt-daily-proof .rt-other:disabled { opacity: .45; cursor: not-allowed; }

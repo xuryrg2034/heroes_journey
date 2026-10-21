@@ -11,6 +11,7 @@
  * 4. «В лагерь: +N» — the resources fly from the header's number to it and it counts up; task 40 — «(Повозка +M)» beside it.
  * View only: the profile already holds the result (`MetaEnd`).
  */
+import { RT_XP_VOW } from '../run/rtMeta';
 import { GARRISON_TITLE } from '../run/garrison';
 import { countUpValue } from './juice';
 import { metaItemCard, xpBar, xpPartLabel, type MetaEnd } from './metaModel';
@@ -41,7 +42,10 @@ const hasRecord = (r: { row: number; wonLevel?: number; level?: number }): boole
 
 /** The block: the experience, the bar, the record, the carry, the pack's cards face down. */
 function blockHtml(m: MetaEnd): string {
-  const parts = m.xp.parts.filter(p => p.xp !== 0).map(p => `<li data-testid="meta-part-${p.id}"><span>${esc(xpPartLabel(p.id, p.n))}</span><b>+${p.xp}</b></li>`).join('');
+  // Task 51г (design 17.10.2026): «Обеты: сдержано N из M · +15×N» — the broken ones are seen by the number (a line even at N = 0).
+  const kept = m.vows?.filter(v => v.kept).length ?? 0;
+  const vows = m.vows?.length ? `<li data-testid="meta-part-vows"><span>Обеты: сдержано ${kept} из ${m.vows.length}</span><b>+${RT_XP_VOW}×${kept}</b></li>` : '';
+  const parts = m.xp.parts.filter(p => p.xp !== 0 && !(p.id === 'vows' && m.vows?.length)).map(p => `<li data-testid="meta-part-${p.id}"><span>${esc(xpPartLabel(p.id, p.n))}</span><b>+${p.xp}</b></li>`).join('') + vows;
   const bar = xpBar(m.xp.before, m.thresholds);
   const rec = m.record.after, before = m.record.before;
   const word = rowWord(rec.row, rec.wonLevel ?? 0, rec.level);
@@ -49,6 +53,8 @@ function blockHtml(m: MetaEnd): string {
     ? `<p class="rt-meta-record rt-meta-beaten" data-testid="meta-record" data-beaten="true"><b>${esc(word[0].toUpperCase() + word.slice(1))} — новый рекорд</b>${before && hasRecord(before) ? `<small>прежний: ${esc(rowWord(before.row, before.wonLevel ?? 0, before.level, rec.level === 2))}</small>` : ''}</p>`
     // Smoke v62: no record yet (row 0) — no line (a garrison record of row 0 has its line: «лес пройден»).
     : hasRecord(rec) ? `<p class="rt-meta-record" data-testid="meta-record" data-beaten="false"><small>Рекорд: ${esc(word)}</small></p>` : '';
+  // Task 56: the omens the end opened — one quiet line, as «В лагерь» (absent or 0 — none).
+  const omens = m.omens ? `<p class="rt-meta-omens" data-testid="meta-omens">Приметы: <b>+${m.omens}</b></p>` : '';
   const quest = m.quest ? `<p class="rt-meta-quest${m.quest.done ? ' rt-done' : ''}" data-testid="meta-quest">Задание: ${m.quest.done ? `выполнено <b>+${m.quest.xp} опыта, +${m.quest.stock} запаса</b>` : 'не выполнено'}</p>` : '';
   const cards = m.pack ? `<div class="rt-pack" data-testid="meta-pack" data-pack="${esc(m.pack.id)}"><p class="rt-pack-title">${esc(m.pack.title)}</p><div class="rt-pack-cards">${m.pack.items.map((item, i) => {
     const c = metaItemCard(item);
@@ -60,7 +66,7 @@ function blockHtml(m: MetaEnd): string {
   return `<div class="rt-meta-xp"><b class="rt-meta-gain" data-testid="meta-xp-gain">+0 опыта</b><ul class="rt-meta-parts">${parts}</ul></div>`
     + `<div class="rt-meta-bar" data-testid="meta-bar"><i class="rt-meta-fill" style="width:${(bar.k * 100).toFixed(1)}%"></i>`
     + `<span class="rt-meta-mark"${bar.to === null ? ' hidden' : ''}></span><em data-testid="meta-xp-now">${m.xp.before}${bar.to !== null ? ` / ${bar.to}` : ''}</em>${next}</div>`
-    + record + quest + cards
+    + record + quest + omens + cards
     // Task 40 «Повозка»: what the cart sent at «Предместье» is inside N — named beside it (absent — no cart in the run).
     + `<p class="rt-meta-carry" data-testid="meta-carry">В лагерь: <b>+0</b>${ICON}${m.carry.cart !== undefined ? `<span class="rt-meta-cart" data-testid="meta-carry-cart">(Повозка +${m.carry.cart})</span>` : ''}${m.carry.share < 1 && m.carry.resources > 0 ? `<small>${Math.round(m.carry.share * 100)} % из ${m.carry.resources}</small>` : ''}</p>`;
 }

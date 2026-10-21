@@ -17,20 +17,20 @@ import { rosterTitle } from '../sim/rosters';
 import { rtHp } from '../run/hpScale';
 import {
   arenaPreview, createRtRun, rtRunParams, isArenaNode, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtEnterNode,
-  rtChooseHabit, rtChooseTalisman, rtRerollTalismans, rtRerollView, rtHammerRerollView, rtRerollHammers, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtFoughtJailer, rtRestCraft, rtRestFinish, rtRestFuse, rtRestHeal, rtRestView, rtFusionRecipe, rtFusionsReady, rtInnate, rtHandFull, rtItemRefusal, rtPotionCap, RT_ITEM_REFUSAL_TEXT, rtShopBuy, rtShopLeave, rtShopView, rtItemHintDue,
+  rtChooseHabit, rtChooseTalisman, rtRerollTalismans, rtRerollView, rtHammerRerollView, rtRerollHammers, rtEventView, rtGiftView, rtMapNodes, rtNode, rtNodeStatus, rtNodeTitle, rtReachedJailer, rtFoughtJailer, rtRestCraft, rtRestFinish, rtRestFuse, rtRestHeal, rtRestView, rtFusionRecipe, rtFusionsReady, rtInnate, rtHandFull, rtItemRefusal, rtPotionCap, RT_ITEM_REFUSAL_TEXT, rtShopBuy, rtShopLeave, rtShopView, rtMeetView, rtMeetDeal, RT_MEET_PRICE, rtShopReroll, rtShopRerollView, rtShopSwap, rtShopSwapView, RT_SWAP_GIVE, RT_SWAP_GET, rtItemHintDue,
   rtOathPreview, rtOathStakeOn, rtArenaRules, RT_SECOND_WIND_LAST_ROW, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
   rtCasinoView, rtCasinoPlay, rtCasinoLeave, rtCasinoNode, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE,
   healOffer, healOnMap, healVisible, rtResourceTotal, rtNodeFeat, RT_HEAL_MAP_GAIN, rtAsh, rtAshOptions, rtAshTitle, rtRunWon, isRtAshLevel, type RtAshLevel, rtScheduleMet, RT_JAILER_SEVERED_SLOTS, RT_TROLL_ALL_PARTS_SLOTS, rtTrollNode, rtFormReplaces, rtFormSlotField,
-  rtEnterGarrison, rtLevel, rtCartView, rtGateView, rtChooseKnack, type RtCartView, type RtGateView,
+  rtCrossroadsHidden, rtFightOmens, rtNodeOmen, rtEnterGarrison, rtLevel, rtCartView, rtGateView, rtChooseKnack, type RtCartView, type RtGateView,
   type RtArenaOutcome, type RtArenaRules, type RtCasinoTable, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
 import { GIFT_HP_PRICE, GIFT_MAX_HP_PRICE } from '../forest/runGift';
-import { RT_HABITS, RT_RARITY_NAME, rtHammer, rtTalisman, rtTalismanShown, rtTalismanText, type RtHabitId } from '../run/rtTalismans';
+import { RT_FORMS, RT_HABITS, RT_RARITY_NAME, RT_TALISMANS, rtHammer, rtTalisman, rtTalismanShown, rtTalismanText, type RtHabitId } from '../run/rtTalismans';
 import { FORM_FIELD_TITLES, fusionRecipe, isFusionId, type FusionId } from '../sim/buildIds';
 import { labelOf } from './buildColumn';
 import { honeLine, rankMarkHtml, wearsRank } from './knackView';
-import { createRtProfileStore, createRtRunStore } from '../run/rtRunStorage';
+import { createRtProfileStore, createRtRunStore, rtProfileOmenPool } from '../run/rtRunStorage';
 import { rtRunEndLines } from '../run/rtRunEnd';
 import type { HeroStart } from '../sim/world';
 import { RT_NODE_TYPES } from './nodeTypes';
@@ -46,17 +46,26 @@ import type { SoundSetting } from './paramStorage';
 import { FX_LEVELS, countUpTime, countUpValue, fxLevelOf, type FxLevel } from './juice';
 import { SECOND_WIND_HP } from '../sim/world';
 import { featCardLine } from './featView';
-import { habitIconSvg, habitMark, habitSign } from './habitMark';
+import { habitIconSvg, habitMark, habitSign, vowIconSvg } from './habitMark';
+import { omenBadge, omenCardHtml, omenIconSvg, omenSign, omensEnd } from './omenMark';
+import { rtOmen, rtOmensGate, type RtFightOmens } from '../run/omens';
 import type { FirstMeetId } from './firstMeet';
 import { ICON as STOCK_ICON, MetaEndView, type MetaSound } from './metaEnd';
-import { HearthView } from './hearthView';
+import { HearthView, NPC_ART, artUrl } from './hearthView';
+import type { WarmupId, WarmupMerge } from '../run/warmup';
+import { DailySessionStore, DailyTools, dailyEndHtml, type DailySession } from './dailyView';
+import { RT_STEP_FNS, createRtDailyRun, rtDailyClaim, rtDailyProof, rtDailyView, rtStep, RtDailyProofStore, type RtDailyView, type RtStepCall, type RtStepFn } from '../run/rtDaily';
+import type { Journal } from '../sim/simulation';
+import { npcLine, type LineKey } from './npcLines';
+import { NPCS, type NpcId } from './metaModel';
 import { ProfileMeta } from './metaSource';
-import { MAP_KINDS, mapCounts, mapPreview, RunStart } from './runStart';
-import { rtHearthFlagsWith, rtJailerWonRow, rtRunKey, type RtHearthStart, type RtMetaEnd } from '../run/rtMeta';
-import { RT_HERO_ID, RT_TOAD_ID, type RtHeroId } from '../run/metaCatalog';
+import { MAP_KINDS, VOW_RULES, mapCounts, mapPreview, RunStart } from './runStart';
+import { rtHearthFlagsWith, rtJailerWonRow, rtRunKey, rtVowsNow, type RtHearthStart, type RtMetaEnd } from '../run/rtMeta';
+import { RT_OMENS_ON } from '../run/omens';
+import { RT_HERO_ID, RT_TOAD_ID, type RtHeroId, type RtVowId, RT_VOW_TITLES } from '../run/metaCatalog';
 import { defaultParams } from '../sim/params';
 import { TOAD_LINES } from './heroLines';
-import type { MetaHeroId } from './metaModel';
+import type { MetaEnd, MetaHeroId } from './metaModel';
 import type { HearthStart } from './metaModel';
 import { KIND_CAPTIONS } from './newSeen';
 import { END_STEP, REVEAL_FADE, endShown, endTotal, revealDelays, revealDone, revealShown, screenTier, type RewardTier } from './reveal';
@@ -78,6 +87,8 @@ export type RewardSound = 'reward0' | 'reward1' | 'reward2';
 
 /** What the run asks of the arena view. */
 export interface RunHost {
+  /** Task 51ж «Разминка»: «Чурбаки» of the camp start an attempt on layout `id` (absent — the camp has no «Чурбаки»). */
+  warmup?: { start(id: WarmupId): void };
   /**
    * Start the arena of the entered battle node (the run's HP, the node's seed, the run's consumables and energy; phase A —
    * its roster, absent for the template's own composition) and show it. `rules` (`rtArenaRules`): task 12 — the run's flag
@@ -170,6 +181,12 @@ export interface RunHost {
   };
   /** Task 49: `?hero=toad` in the address - a debug run of that hero, without the meta (as `?seed=`; the run is a seeded one). */
   fixedHero?: RtHeroId;
+  /**
+   * Task 51з «Поход дня»: the run of the day (absent — no button at the fire). `date` - today's `ГГГГ-ММ-ДД` (the address `?daily=` sets it
+   * for tests), `build` - this build's id (the proof's), `fight` - the journal of the fight that just ended (the proof holds each), the
+   * telemetry: the attempt began, a proof passed the check.
+   */
+  daily?: { date(): string; build(): string; fight(): Journal | null; attempt?(run: RtRunState, attempt: number): void; verified?(run: RtRunState): void };
   /** Telemetry (П8): a map choice made while a sign was shown on an available node card. Absent — nothing recorded. */
   mapChoice?(run: RtRunState, choice: MapSignChoice): void;
 }
@@ -320,13 +337,25 @@ export function recipeHtml(run: RtRunState | null | undefined, id: string): stri
 /** Task 44: an item's icon as the build column draws it (a drawn SVG, or its sign). */
 const itemIcon = (id: string, ranked = false): string => { const label = labelOf(id); return `<i class="rt-fuse-icon">${label.svg ?? escapeHtml(label.glyph)}${ranked ? rankMarkHtml() : ''}</i>`; };
 
+/** Task 50 §18: the opened items of a habit's tag shown on its card — up to three icons beside the card's words. */
+export const HABIT_ITEMS_SHOWN = 3;
+/** The line under «Повадка» while it is not chosen (design 20.10.2026, task 50 §18). */
+export const HABIT_HINT = 'Предметы с этим знаком будут попадаться чаще';
+/** The line under «Сноровка» (the same design decision). */
+export const KNACK_HINT = 'Усиль счётчик, который у тебя есть, или возьми новый';
+function habitItems(run: RtRunState, habit: RtHabitId): string[] {
+  // The catalogue's opened items of the tag (not locked by the meta, not a relic: those come by the Jailer's gift), in the catalogue's order.
+  const seen = new Set<string>(), ids = [...RT_TALISMANS, ...RT_FORMS].filter(def => def.rarity !== 'relic' && def.tags?.includes(habit) && !run.locked?.includes(def.id) && !seen.has(def.id) && !!seen.add(def.id)).map(def => def.id);
+  return ids.slice(0, HABIT_ITEMS_SHOWN);
+}
 /** Task 50: the archetype row of the open gift — four cards and «Без повадки»; the chosen one stays lit, the rest wait off. */
-function habitRowHtml(habit: NonNullable<ReturnType<typeof rtGiftView>>['habit'] & object): string {
+function habitRowHtml(habit: NonNullable<ReturnType<typeof rtGiftView>>['habit'] & object, run: RtRunState): string {
   const none = habit.chosen && habit.id === null;
   const cards = RT_HABITS.map(def => `<button class="rt-habit-card${habit.id === def.id ? ' rt-on' : ''}" data-action="habit" data-habit="${def.id}" data-testid="habit-${def.id}" aria-pressed="${habit.id === def.id}" ${habit.chosen ? 'disabled' : ''}>`
-    + `${habitIconSvg(def.id, 34)}<b>${escapeHtml(def.name)}</b><small>${escapeHtml(def.line)}</small></button>`).join('');
+    + `${habitIconSvg(def.id, 34)}<b>${escapeHtml(def.name)}</b><small>${escapeHtml(def.line)}</small>`
+    + `<span class="rt-habit-items" data-testid="habit-items-${def.id}">${habitItems(run, def.id).map(id => { const label = labelOf(id, !!run.forms); return `<i class="rt-habit-item" data-item="${id}" data-tip="${escapeHtml(talismanName(id, run))}" aria-label="${escapeHtml(talismanName(id, run))}">${label.svg ?? escapeHtml(label.glyph)}</i>`; }).join('')}</span></button>`).join('');
   // Design 17.10.2026 (§17): one word over the four cards, as «Сноровка» over its two.
-  return `<div class="rt-habits" data-testid="gift-habits" data-chosen="${habit.chosen}"><h3 data-testid="gift-habits-title">Повадка</h3><div class="rt-habit-cards">${cards}</div>`
+  return `<div class="rt-habits" data-testid="gift-habits" data-chosen="${habit.chosen}"><h3 data-testid="gift-habits-title">Повадка</h3>${habit.chosen ? '' : `<p class="rt-habit-hint" data-testid="gift-habits-hint">${HABIT_HINT}</p>`}<div class="rt-habit-cards">${cards}</div>`
     + `<button class="rt-habit-none${none ? ' rt-on' : ''}" data-action="habit" data-habit="none" data-testid="habit-none" aria-pressed="${!!none}" ${habit.chosen ? 'disabled' : ''}>Без повадки</button></div>`;
 }
 
@@ -357,7 +386,8 @@ function giftText(option: GiftOption, run: Pick<RtRunState, 'forms'> | null): st
       const reward = option.reward.kind === 'pick-talisman' ? `талисман на выбор: ${option.reward.talismans.map(id => talismanName(id, run)).join(' или ')}` : `талисман «${option.reward.talisman ? talismanName(option.reward.talisman, run) : '—'}»`;
       return `${reward}; цена: ${price}`;
     }
-    case 'oath': return `Клятва: «${option.oath ? talismanName(option.oath, run) : '—'}» — ${option.oath ? rtTalismanShown(option.oath, !!run?.forms)?.effect ?? '' : 'клятв не осталось'}`;
+    // Design 20.10.2026: the oath's name already says «Клятва» — ««Клятва голода» — effect»; none left — «Клятв не осталось».
+    case 'oath': return option.oath ? `«${talismanName(option.oath, run)}» — ${rtTalismanShown(option.oath, !!run?.forms)?.effect ?? ''}` : 'Клятв не осталось';
   }
 }
 
@@ -429,6 +459,12 @@ export class RunView {
   private outskirtsFrom: number | null = null;
   /** Task 40 «Повозка»: the deposit «−» and «+» chose on «Предместье» (null — the default, `rtCartView`'s «оставить 6»). */
   private cartN: number | null = null;
+  /** Task 51в «Размен»: the kinds chosen at the merchant (given, taken); cleared by a swap and by leaving. */
+  private swapFrom: ResourceKind | null = null;
+  private swapTo: ResourceKind | null = null;
+  /** Task 51д «Встреча на привале»: the deal window is open; the NPC's lines of this rest (hello, the deal's, the refusal's) said once. */
+  private meetOpen = false;
+  private meetSay: { node: string; hello: string; deal?: string; no?: string } | null = null;
   /** Task 51б: the choices at «Предместье» (null — the default: the base map, the first consumable that can be taken). */
   private gateMap: 0 | 1 | null = null;
   private gateItem: ItemKind | null = null;
@@ -449,6 +485,11 @@ export class RunView {
   /** Task 47 (tests read it via `screensInfo`): chords by tier and the last one; screens revealed, run-ends staged, and the skips. */
   private readonly screenCount = { chords: [0, 0, 0], last: null as RewardTier | null, reveals: 0, revealSkips: 0, ends: 0, endSkips: 0 };
   readonly hearth: HearthView | null;
+  /** Task 51з «Поход дня»: the attempt in progress (its steps and fights, kept across a reload), the proof's tools, and the store of the session. */
+  private daily: DailySession | null = null;
+  private readonly dailySessions = new DailySessionStore(typeof localStorage === 'undefined' ? null : localStorage);
+  private readonly dailyTools = new DailyTools(new RtDailyProofStore(typeof localStorage === 'undefined' ? null : localStorage), () => this.host.daily?.build() ?? 'unknown',
+    date => { if (this.run?.daily === date) this.host.daily?.verified?.(this.run); }, () => { if (!this.hearth?.isOpen) this.draw(); else this.hearth.draw(); });
   /** Tasks 36–37: the one start of a new run with the camp's choices (the camp's «В поход» and «Новый поход»). */
   readonly runStart = new RunStart();
   /** Task 35, С3 (tests read it): flights started, tokens thrown, the number now and whether it is counting. */
@@ -466,6 +507,7 @@ export class RunView {
     });
     this.el.addEventListener('change', event => {
       const target = event.target as HTMLSelectElement;
+      if (this.dailyTools.change(target)) return;
       if (target.dataset.action === 'fx-level') this.host.fx?.set(fxLevelOf(target.value));
       if (target.dataset.action === 'sound-volume') this.host.sound?.preview();
     });
@@ -478,6 +520,8 @@ export class RunView {
     });
     this.run = this.store.load();
     if (this.run?.result) this.endBase = rtRunKey(this.run);
+    // Task 51з: a run of the day open at load is continued with its session (a lost one: the run plays on, its proof is not made).
+    if (this.run?.daily && !this.run.result) { const session = this.dailySessions.load(); this.daily = session?.date === this.run.daily ? session : { date: this.run.daily, attempt: 1, steps: [], journals: [], broken: true }; }
     // Task 47, С6/С8: a click on the bare screen or a key shows the revealed cards / the run-end lines at once. A shown card or a
     // button acts as always (the reveal never takes a press aimed at a visible control).
     this.el.addEventListener('click', event => {
@@ -495,7 +539,9 @@ export class RunView {
       bought: (npc, level, price) => this.host.meta?.buy?.(this.run, npc, level, price),
       back: () => this.open(),
       sound: kind => this.host.meta?.sound(kind),
+      ...host.daily ? { daily: { view: () => this.dailyViewNow(), start: () => this.startDaily(), tools: this.dailyTools } } : {},
       beasts: () => { const seen = this.host.newSeen?.store; return seen ? Object.keys(KIND_CAPTIONS).filter(k => seen.hasKind(k)) : []; },
+      ...host.warmup ? { warmup: { records: () => this.profile.warmup(), start: (id: WarmupId) => this.host.warmup?.start(id) } } : {},
     }) : null;
   }
 
@@ -509,7 +555,7 @@ export class RunView {
     // An abandoned run is settled first: its end picks the next run's quest, which the plan below carries (design smoke v62).
     this.settleAbandoned();
     const base = Math.floor(Math.random() * 0x100000000) >>> 0;
-    this.runStart.begin(this.profile.hearthStart(base), base, (seed, item, plan, map) => this.newRun(undefined, { seed, item, plan, map }));
+    this.runStart.begin(this.profile.hearthStart(base), base, (seed, item, plan, map, vows) => this.newRun(undefined, { seed, item, plan, map, vows }));
   }
 
   /** Tasks 36–37: the key of the abandoned run already settled (its meta applied, its telemetry sent once). */
@@ -528,6 +574,9 @@ export class RunView {
     if (end) this.host.meta?.end?.(previous, end);
   }
 
+  /** Task 51ж: an attempt of warmup layout `id` ended with `score` (null — none): merged into the profile's records (core's `warmupResult`). */
+  warmupResult(id: WarmupId, score: number | null): WarmupMerge { return this.profile.warmupResult(id, score); }
+
   /** Tasks 36–37: the camp «Очаг» over the run screen. */
   openHearth(): void {
     if (!this.hearth) return;
@@ -543,10 +592,23 @@ export class RunView {
     if (this.metaEnd?.key === key) return this.metaEnd;
     this.metaEnd?.stop();
     // Core: the first call for a run applies it (experience, pack, record, carry), a repeated one returns the same.
+    const poolBefore = RT_OMENS_ON ? rtProfileOmenPool(this.profile.load()) : [];
     const end = this.profile.endRunMeta(run);
-    this.metaEnd = end ? new MetaEndView(end, key, s => this.host.meta?.sound(s)) : null;
+    this.metaEnd = end ? new MetaEndView(this.withOmens(run, end, poolBefore), key, s => this.host.meta?.sound(s)) : null;
     if (this.metaEnd && !play) this.metaEnd.finish();
     return this.metaEnd;
+  }
+
+  /**
+   * Task 56 «Приметы» (spec 7.2): the end's omens — «Приметы: +N» by the pool before and after the end (a pack, the garrison or Шиш
+   * opened one) and the pack's omen as a card after its items. Only for a viewer the gates are open for: the run played with omens, or the
+   * gates opened with this run (then the whole pool is new). A reloaded end screen finds the pool settled: no line then.
+   */
+  private withOmens(run: RtRunState, end: RtMetaEnd, before: readonly string[]): MetaEnd {
+    if (!RT_OMENS_ON) return end as MetaEnd;
+    const profile = this.profile.load();
+    const { gained, card } = omensEnd({ playedWith: !!run.omens, gateOpen: rtOmensGate(profile.omensOpen === true, profile.seen ?? [], rtAsh(run)), before, after: rtProfileOmenPool(profile), packId: end.pack?.id });
+    return { ...end, ...gained > 0 ? { omens: gained } : {}, ...card && end.pack ? { pack: { ...end.pack, items: [...end.pack.items, card] } } : {} } as MetaEnd;
   }
 
   get state(): RtRunState | null { return this.run; }
@@ -568,11 +630,12 @@ export class RunView {
   }
 
   /** A new run (a given seed — `?seed=` — makes it a seeded run). */
-  newRun(seed?: number, camp?: { seed: number; item: KitItem | null; plan: HearthStart; map: number | null }): RtRunState {
+  newRun(seed?: number, camp?: { seed: number; item: KitItem | null; plan: HearthStart; map: number | null; vows?: string[] }): RtRunState {
     const seeded = seed !== undefined || this.fixedSeed !== null || !!this.host.fixedHero;
     const value = (seed ?? this.fixedSeed ?? camp?.seed ?? Math.floor(Math.random() * 0x100000000)) >>> 0;
     this.hearth?.close();
     this.metaEnd?.stop(); this.metaEnd = null;
+    this.daily = null; this.dailySessions.clear();
     // Smoke v62: the run abandoned on its end screen is the previous one (settled already, `abandon`).
     const previous = this.run ?? this.abandoned;
     this.abandoned = null;
@@ -581,14 +644,17 @@ export class RunView {
     // The camp's flags (core `hearthStart`): the start's plan with the map and the consumable chosen (`beginRun`); a run started
     // otherwise (a test hook) — the plan of its seed with no map choice. Only a meta run (not `?seed=`, not the sandbox).
     const plan = this.meta && !seeded ? (camp?.plan as RtHearthStart | undefined) ?? this.profile.hearthStart(value) : null;
-    const flags = plan ? rtHearthFlagsWith(camp ? plan : { ...plan, flags: { ...plan.flags, maps: undefined } }, camp?.item ?? plan.items?.[0]) : null;
+    const flags = plan ? rtHearthFlagsWith(camp ? plan : { ...plan, flags: { ...plan.flags, maps: undefined } }, camp?.item ?? plan.items?.[0], (camp?.vows ?? []) as RtVowId[]) : null;
     // Task 49: a meta run takes the chosen hero (its own locked items); `?hero=toad` - a seeded debug run of that hero (the meta does not count).
     const hero = this.meta && !seeded ? this.profile.heroChoice() : null;
     const metaRun = this.meta && !seeded ? { hero: hero!, locked: this.profile.locked(hero!), ...flags && Object.values(flags).some(v => v !== undefined) ? { hearth: flags } : {} } : {};
     // Task 16 «Подвиги»: feats from the run after the first Jailer (the profile's `jailer`); the viewer's run number for telemetry.
     // Task 18 «Испытание I–V»: the level chosen on «Новый поход» (the profile's last choice; 0 while the choice is closed).
     // Task 26 «Расписание леса»: the viewer's history goes into the run as a snapshot (the run ignores it from «Испытание II»).
-    this.run = createRtRun(value, { gift: this.profile.giftKind(seeded), seeded, feats: this.profile.featsOn(), ash: this.profile.ashChoice(), schedule: this.profile.scheduleHistory(() => this.host.scheduleSeed?.() ?? []), ...metaRun, ...seeded && this.host.fixedHero ? { hero: this.host.fixedHero } : {} });
+    const ash = this.profile.ashChoice(), schedule = this.profile.scheduleHistory(() => this.host.scheduleSeed?.() ?? []);
+    // Task 56 «Приметы» (core): the pool the profile opened, past the gates (`?seed=` reads it, changes nothing); `RT_OMENS_ON` off — none.
+    const omens = RT_OMENS_ON ? this.profile.omensStart({ ash, history: schedule, seeded }) : null;
+    this.run = createRtRun(value, { gift: this.profile.giftKind(seeded), seeded, feats: this.profile.featsOn(), ash, schedule, ...metaRun, ...seeded && this.host.fixedHero ? { hero: this.host.fixedHero } : {}, ...omens ? { omens } : {} });
     if (camp?.map !== null && camp?.map !== undefined) this.host.meta?.map?.(this.run, camp.map);
     const viewerRun = this.profile.startRun();
     this.host.session?.clock.runStarted();
@@ -597,6 +663,69 @@ export class RunView {
     this.selected = null; this.notice = ''; this.confirmReset = false; this.luckOpen = false;
     this.open();
     return this.run;
+  }
+
+  /**
+   * Task 51з: THE place a run step is made. An ordinary run calls `direct` (as always: its options, its saves, its hashes are untouched). A
+   * run of the day goes through the core's `rtStep` and the call joins the attempt's journal of steps - the proof replays exactly
+   * these. A step `rtStep` cannot make (`rtMeetDeal`, `rtShopReroll`, `rtShopSwap`: the camp's, never open in the run of the day) is refused
+   * there, never made without a record.
+   */
+  private go(run: RtRunState, fn: string, args: unknown[], direct: () => RtRunStep): RtRunStep {
+    const daily = this.daily;
+    if (!run.daily || !daily) return direct();
+    if (!(RT_STEP_FNS as readonly string[]).includes(fn)) return { ok: false, reason: 'В походе дня этого нет.' };
+    const call: RtStepCall = { fn: fn as RtStepFn, args: JSON.parse(JSON.stringify(args)) as unknown[] };
+    const step = rtStep(run, call);
+    if (step.ok) { daily.steps.push(call); this.dailySessions.save(daily); }
+    return step;
+  }
+
+  /** The end screen's block of a run of the day (its claim and the proof's buttons); '' for an ordinary run. */
+  private dailyEndNow(run: RtRunState): string {
+    if (!run.daily || !this.host.daily) return '';
+    const view = this.dailyViewNow(run.daily), claim = rtDailyClaim(run);
+    // Not the best attempt of the day: the log's best is better than this claim (the kept proof is the best's).
+    const best = view.best ? JSON.stringify(view.best) === JSON.stringify(claim) : null;
+    return dailyEndHtml(run.daily, claim, view, best, this.dailyTools);
+  }
+
+  /** The screen's model of the run of the day (the button at the fire, its panel, the end block). */
+  private dailyViewNow(date = this.host.daily?.date() ?? ''): RtDailyView {
+    return rtDailyView(this.profile.dailyLog(), this.dailyTools.proofs, date, { won: this.profile.load().won === true, runOpen: !!this.run && !this.run.result });
+  }
+
+  /** «Начать» of the panel: one more attempt of today (the core's log counts it), the run of the date, the first screen of the run. */
+  startDaily(): void {
+    const host = this.host.daily;
+    if (!host || !this.meta) return;
+    const date = host.date();
+    if (!this.dailyViewNow(date).canStart) return;
+    this.hearth?.close();
+    this.metaEnd?.stop(); this.metaEnd = null;
+    const previous = this.run ?? this.abandoned;
+    this.abandoned = null;
+    const attempt = this.profile.dailyBegin(date) ?? 1;
+    this.run = createRtDailyRun(date);
+    this.daily = { date, attempt, steps: [], journals: [], broken: false };
+    this.dailySessions.save(this.daily, true);
+    // The run of the day is no run of the viewer's (spec 6.2): neither the profile's count nor the session clock's «походов» takes it.
+    this.store.save(this.run);
+    this.host.runStarted?.(previous, this.run);
+    host.attempt?.(this.run, attempt);
+    this.selected = null; this.notice = ''; this.confirmReset = false; this.luckOpen = false;
+    this.open();
+  }
+
+  /** The run of the day ended: the log (the core's), the best attempt's proof kept (made by the core's `rtDailyProof`), the end block redrawn. */
+  private finishDaily(run: RtRunState): void {
+    const daily = this.daily, host = this.host.daily;
+    this.daily = null;
+    this.dailySessions.clear();
+    if (!daily || !host || !run.daily || daily.date !== run.daily) return;
+    const done = this.profile.dailyFinish(daily.date, daily.attempt, rtDailyClaim(run), host.build());
+    if (daily.broken || !done?.best) return;
+    rtDailyProof(daily.date, host.build(), daily.steps, daily.journals, run).then(proof => { this.dailyTools.proofs.keep(proof); if (this.run === run || this.run?.daily === run.daily) this.draw(); }, () => { /* no proof: the log stands */ });
   }
 
   /** Apply a run step: save it, note what happened, start an arena if one is ready, redraw. Returns the reason of a refusal. */
@@ -614,6 +743,7 @@ export class RunView {
       if (this.outskirtsFrom !== null && this.outskirtsFrom < this.run.hp) this.host.meta?.sound('heal');
     }
     if (this.run.result && !before?.result) {
+      if (this.run.daily) this.finishDaily(this.run);
       this.profile.endRun({ reachedJailer: rtReachedJailer(this.run), seeded: !!this.run.seeded, won: rtRunWon(this.run), hero: this.run.heroId ?? RT_HERO_ID });
       const meta = this.metaEndOf(this.run, true);
       if (meta) this.host.meta?.end?.(this.run, meta.meta as RtMetaEnd);
@@ -697,7 +827,7 @@ export class RunView {
   /** Enter a node; an oath node — under `oath` (casino stage 1, item 2; null — «Без клятвы»). */
   enter(nodeId: string, oath: OathId | null = null): string {
     if (!this.run) return 'Нет похода.';
-    const step = rtEnterNode(this.run, nodeId, oath, { goblinCircle: !!this.host.goblinCircle, oathStake: rtOathStakeOn(this.host.oathStake) });
+    const step = this.go(this.run, 'rtEnterNode', [nodeId, oath], () => rtEnterNode(this.run!, nodeId, oath, { goblinCircle: !!this.host.goblinCircle, oathStake: rtOathStakeOn(this.host.oathStake) }));
     // Task 8c: the card closes with the step (back on the map nothing is chosen).
     if (step.ok) this.selected = null;
     // П8: a choice made with the sign shown is recorded (only then): which nodes wore it, which was chosen.
@@ -716,9 +846,13 @@ export class RunView {
   recordArena(outcome: Omit<RtArenaOutcome, 'nodeId'>): string {
     const pending = this.run?.pending;
     if (!this.run || pending?.kind !== 'battle') return 'Нет открытого боя.';
-    const notice = this.apply(resolveArena(this.run, { ...outcome, nodeId: pending.nodeId }));
+    const run = this.run, arrived = { ...outcome, nodeId: pending.nodeId }, journal = this.daily ? this.host.daily?.fight() ?? null : null;
+    const step = this.go(run, 'resolveArena', [arrived], () => resolveArena(run, arrived));
+    // Task 51з: the fight's journal joins the attempt's, in order of the `resolveArena` steps (one is missing - the attempt makes no proof).
+    if (this.daily && step.ok) { if (journal) this.daily.journals.push(structuredClone(journal)); else this.daily.broken = true; this.dailySessions.save(this.daily, true); }
+    const notice = this.apply(step);
     // Task 26: what a scheduled fight showed joins the viewer's history (a lost fight's too).
-    const seen = this.run?.schedule ? this.run.battles.at(-1)?.seen : undefined;
+    const seen = this.run?.schedule && !this.run.daily ? this.run.battles.at(-1)?.seen : undefined;
     if (seen?.length && this.run) this.profile.meetSchedule(seen, this.run.seed);
     return notice;
   }
@@ -727,7 +861,7 @@ export class RunView {
   /** Task 50: take the card `id` (`hone` — rank II; else a new counter) or «Пропустить» (null). Returns the reason of a refusal. */
   chooseKnack(id: string | null, hone = false): string {
     if (!this.run || this.run.pending?.kind !== 'knack') return 'Сейчас нет «Сноровки».';
-    const step = rtChooseKnack(this.run, id ? { id, ...hone ? { hone: true as const } : {} } : null);
+    const option = id ? { id, ...hone ? { hone: true as const } : {} } : null, step = this.go(this.run, 'rtChooseKnack', [option], () => rtChooseKnack(this.run!, option));
     if (step.ok && id && hone) this.host.honed?.(id);
     return this.apply(step);
   }
@@ -745,10 +879,10 @@ export class RunView {
       const icon = `<i class="rt-knack-icon">${label.svg ?? escapeHtml(label.glyph)}${hone ? rankMarkHtml() : ''}</i>`;
       const head = `<b>${icon}<span>${escapeHtml(talismanName(id, run))}</span><em>${hone ? 'Ранг II' : 'Новый'}</em></b>`;
       // Task 50, 4.3: the habit's weight acts on both cards of the knack — the tagged one carries the habit's mark (card Б via `talismanCardLines`).
-      const lines = hone ? `${habitMark(run, id)}<small>${escapeHtml(def?.effect ?? '')}</small><small class="rt-knack-hone" data-testid="knack-line-${id}">${escapeHtml(honeLine(id))}</small>` : talismanCardLines(id, run);
+      const lines = hone ? `${habitMark(run, id)}<small class="rt-knack-now" data-testid="knack-now-${id}">Сейчас: ${escapeHtml(def?.effect ?? '')}</small><small class="rt-knack-hone" data-testid="knack-line-${id}">${escapeHtml(honeLine(id))}</small>` : talismanCardLines(id, run);
       return `<button class="rt-run-choice rt-knack-card" data-action="knack" data-option="${id}"${hone ? ' data-hone="1"' : ''} data-kind="${hone ? 'hone' : 'new'}" data-testid="knack-${hone ? 'hone' : 'new'}-${id}">${head}${lines}</button>`;
     }).join('');
-    return `<div class="rt-run-choices rt-knack-cards" data-testid="knack-cards">${cards}</div>`
+    return `<p class="rt-knack-hint" data-testid="knack-hint">${KNACK_HINT}</p><div class="rt-run-choices rt-knack-cards" data-testid="knack-cards">${cards}</div>`
       + '<button class="rt-other rt-knack-skip" data-action="knack" data-option="" data-testid="knack-skip">Пропустить</button>';
   }
 
@@ -770,6 +904,97 @@ export class RunView {
     // Task 28: the Jailer's node plays the arena «Тюремщик» — one name, not «Тюремщик · Тюремщик».
     const title = rtNodeTitle(this.run, node), arenaName = arenaTitle(pending.arena), label = title === arenaName ? title : `${title} · ${arenaName}`;
     this.host.startArena(pending.arena, pending.seed, { hp: this.run.hp, maxHp: this.run.maxHp }, label, rtArenaLoadout(this.run, this.host.loadoutOptions), { blink: arenaBlink(this.run), hint: rtItemHintDue(this.run) }, pending.roster, rtArenaRules(this.run));
+  }
+
+  /**
+   * Task 51г (design 17.10.2026): the sign of the vows taken in the map's header (not in the fight's HUD) - a knot on a rope on a dark disc; on a hover a
+   * list of the vows (name and rule). A broken vow is struck through from the start of the run by the core's check of the current state
+   * (`rtVowsNow`; the end counts the same, only from the Jailer's row - `rtVowsOf`). `brokenVows` is the one place for it.
+   */
+  private brokenVows(run: RtRunState): ReadonlySet<string> {
+    return new Set((rtVowsNow(run) ?? []).filter(v => !v.kept).map(v => v.id));
+  }
+  private vowSign(run: RtRunState): string {
+    const vows = run.hearth?.vows;
+    if (!vows?.length) return '';
+    const gone = this.brokenVows(run), items = vows.map(id => {
+      const broken = gone.has(id);
+      return `<li class="${broken ? 'rt-broken' : ''}" data-testid="run-vow-${id}" data-broken="${broken}"><b>${escapeHtml(RT_VOW_TITLES[id])}</b><small>${escapeHtml(VOW_RULES[id])}</small></li>`;
+    }).join('');
+    return `<span class="rt-run-vows" data-testid="run-vows" tabindex="0" aria-label="Обеты похода">${vowIconSvg(24)}`
+      + `<ul class="rt-vows-tip" data-testid="run-vows-tip"><li class="rt-vows-head">Обеты</li>${items}</ul></span>`;
+  }
+
+  /** Task 51д: one line of the NPC for the key (the hero of the run: Ведунья's variants), counted in the profile's memory; '' - none. */
+  private meetLine(npc: NpcId, key: LineKey): string {
+    const line = npcLine(npc, key, this.run?.heroId === RT_TOAD_ID ? 'toad' : undefined, this.profile.load().meta?.hearth?.lines ?? {});
+    if (!line) return '';
+    this.profile.markLine(line.id);
+    return line.text;
+  }
+  private meetPortrait(npc: NpcId): string {
+    return `<img class="rt-meet-npc" src="${artUrl(`characters/${NPC_ART[npc]}.png`)}" alt="" onerror="this.hidden=true">`;
+  }
+  /** The rest's button of the meeting (the portrait, the hello line); after the deal — what was done; after «Уйти» — the NPC's answer. */
+  private meetButtonHtml(meet: NonNullable<ReturnType<typeof rtMeetView>>): string {
+    const say = this.meetSay, text = meet.deal ? 'Сделка сделана' : say?.no || say?.hello || '';
+    return `<button class="rt-run-choice rt-meet" data-action="meet-open" data-testid="meet-open" data-npc="${meet.npc}" ${meet.deal ? 'disabled' : ''}>${this.meetPortrait(meet.npc)}`
+      + `<span><b>${escapeHtml(NPCS[meet.npc].name)} ждёт на привале</b><small data-testid="meet-hello">${escapeHtml(text)}</small></span></button>`;
+  }
+  /** The deal window: the NPC's deal line, the deals (Марфа - a consumable for 2 resources, Ерофей - a talisman for 2, Шиш - «Скупка» of a consumable), «Уйти». */
+  private meetWindowHtml(run: RtRunState, meet: NonNullable<ReturnType<typeof rtMeetView>>, card: (body: string, testId: string) => string): string {
+    const deals = meet.deals.map(deal => {
+      const head = deal.talisman ? `<b>${escapeHtml(talismanName(deal.talisman, run))} — ${RT_MEET_PRICE} рес.</b>${talismanCardLines(deal.talisman, run)}`
+        : meet.npc === 'gambler' ? `<b>Продать: ${escapeHtml(ITEM_TITLES[deal.item!])} → +${RT_MEET_PRICE} «${escapeHtml(RESOURCES[deal.gain!].label)}»</b>`
+        : `<b>${escapeHtml(ITEM_TITLES[deal.item!])} — ${RT_MEET_PRICE} рес.</b>`;
+      const why = deal.available ? '' : deal.reason === RT_ITEM_REFUSAL_TEXT.handFull ? handFullHtml(`meet-${deal.id}`) : `<small class="rt-run-reason">${escapeHtml(deal.reason)}</small>`;
+      return `<button class="rt-run-choice" data-action="meet-deal" data-deal="${deal.id}" data-testid="meet-${deal.id}" ${deal.available ? '' : 'disabled'}>${head}${why}</button>`;
+    }).join('');
+    return card(`<h2 class="rt-meet-head">${this.meetPortrait(meet.npc)}${escapeHtml(NPCS[meet.npc].name)}</h2><p class="rt-run-line" data-testid="meet-line">${escapeHtml(this.meetSay?.deal ?? '')}</p>`
+      + `<div class="rt-run-choices">${deals || '<p class="rt-run-note">Продавать нечего: расходников нет.</p>'}</div>`
+      + `<button class="rt-other" data-action="meet-leave" data-testid="meet-leave">Уйти</button>`, 'run-meet');
+  }
+  /** Task 51д (tests read it, `__realtime.run.meetShown`): the meeting at the open rest (core's view) and whether its window is open; null — none. */
+  meetInfo(): { npc: string; deals: { id: string; available: boolean; reason: string }[]; deal: string | null; open: boolean; hello: string } | null {
+    const meet = this.run ? rtMeetView(this.run) : null;
+    return meet ? { npc: meet.npc, deals: meet.deals.map(d => ({ id: d.id, available: d.available, reason: d.reason })), deal: meet.deal ?? null, open: this.meetOpen, hello: this.meetSay?.hello ?? '' } : null;
+  }
+
+  /**
+   * Task 51в (Шиш's levels 1–3, spec 3.2): at the merchant the free reroll of the goods with Шиш's portrait («Шишова лавка», «Лавка в гарнизоне»;
+   * off with its reason) and «Размен» (level 2): 3 of one kind → 2 of another, once a run. Core's views `rtShopRerollView`, `rtShopSwapView`;
+   * no button and no block without the level.
+   */
+  private shopGamblerHtml(run: RtRunState): string {
+    const portrait = `<img class="rt-shop-npc" src="${new URL('art/characters/npc-gambler.png', document.baseURI).href}" alt="" onerror="this.hidden=true">`;
+    const reroll = rtShopRerollView(run), swap = rtShopSwapView(run);
+    let html = '';
+    if (reroll) {
+      // Task 56: one button — the omen's reroll (it goes first, `fair`) carries the fair's icon and says «от приметы», Шиш's — his portrait.
+      const fairName = rtOmen('fair')?.title ?? '', source = reroll.fair ? `от приметы «${fairName}»` : reroll.garrison ? 'Лавка в гарнизоне (Шиш)' : 'Шишова лавка';
+      const note = reroll.fair && reroll.available ? `${source}: товар и талисман выпадут заново, лечение и закалка останутся` : reroll.available ? (reroll.garrison ? 'Лавка в гарнизоне (Шиш): товар и талисман выпадут заново, лечение и закалка останутся' : 'Шишова лавка: товар и талисман выпадут заново, лечение и закалка останутся') : reroll.reason;
+      html += `<button class="rt-other rt-shop-reroll" data-action="shop-reroll" data-testid="shop-reroll" data-fair="${reroll.fair ? 1 : 0}" title="${escapeHtml(note)}" ${reroll.available ? '' : 'disabled'}>${reroll.fair ? omenIconSvg('fair', 30) : portrait}<span>Перебросить товар — бесплатно</span></button>`
+        + `<p class="rt-run-note rt-shop-note${reroll.available ? '' : ' rt-run-reason'}" data-testid="shop-reroll-note">${reroll.available ? escapeHtml(source) : escapeHtml(reroll.reason)}</p>`;
+    }
+    if (swap) {
+      const from = this.swapFrom && swap.give.includes(this.swapFrom) ? this.swapFrom : null, to = from && this.swapTo !== from ? this.swapTo : null;
+      const chip = (kind: ResourceKind, action: string, on: boolean, off: boolean): string =>
+        `<button class="rt-swap-kind${on ? ' rt-chosen' : ''}" data-action="${action}" data-kind="${kind}" data-testid="${action}-${kind}" aria-pressed="${on}" ${off ? 'disabled' : ''}>${RESOURCES[kind].label} <small>${run.materials[kind]}</small></button>`;
+      const give = RESOURCE_KINDS.map(kind => chip(kind, 'swap-from', from === kind, !swap.available || !swap.give.includes(kind))).join('');
+      const take = RESOURCE_KINDS.map(kind => chip(kind, 'swap-to', to === kind, !swap.available || !from || kind === from)).join('');
+      html += `<div class="rt-shop-swap" data-testid="shop-swap"><div class="rt-swap-head"><span class="rt-cart-head">Размен · ${RT_SWAP_GIVE} → ${RT_SWAP_GET}</span>`
+        + (swap.available ? '' : `<small class="rt-run-reason" data-testid="shop-swap-note">${escapeHtml(swap.reason)}</small>`)
+        + `<button class="rt-other rt-swap-do" data-action="swap-do" data-testid="swap-do" ${swap.available && from && to ? '' : 'disabled'}>Обменять</button></div>`
+        + `<div class="rt-swap-row"><span>Отдать ${RT_SWAP_GIVE}</span>${give}</div><div class="rt-swap-row"><span>Получить ${RT_SWAP_GET}</span>${take}</div></div>`;
+    }
+    return html;
+  }
+  /** Task 51в (tests read it, `__realtime.run.shopShown`): the merchant's reroll and swap as the screen shows them (null — no merchant). */
+  shopInfo(): { reroll: { available: boolean; reason: string; garrison: boolean } | null; swap: { available: boolean; reason: string; give: string[] } | null; from: string | null; to: string | null } | null {
+    const run = this.run;
+    if (!run || run.pending?.kind !== 'shop') return null;
+    const swap = rtShopSwapView(run);
+    return { reroll: rtShopRerollView(run), swap, from: swap && this.swapFrom && swap.give.includes(this.swapFrom) ? this.swapFrom : null, to: this.swapTo };
   }
 
   /** Task 40 «Повозка»: the deposit shown — the one «−» and «+» chose, within 0 … `max` (none chosen — the default). */
@@ -879,6 +1104,7 @@ export class RunView {
     const run = this.run;
     if (target.dataset.node) { this.selected = target.dataset.node; this.notice = ''; this.draw(); return; }
     const action = target.dataset.action!;
+    if (this.dailyTools.click(target)) return;
     if (action === 'new-run') {
       if (run && !run.result && !this.confirmReset) { this.confirmReset = true; this.draw(); return; }
       this.confirmReset = false;
@@ -918,48 +1144,57 @@ export class RunView {
     if (action === 'enter-oath' && this.selected && isOathId(target.dataset.oath)) { this.enter(this.selected, target.dataset.oath); return; }
     if (action === 'battle') { this.enterArena(); return; }
     // Task 15: the map heal (the map, a node card, the window «Бой» before «В бой»; never in a started fight).
-    if (action === 'map-heal') { this.apply(healOnMap(run, { arenaOpen: this.inArena })); return; }
+    if (action === 'map-heal') { this.apply(this.go(run, 'healOnMap', [{ arenaOpen: this.inArena }], () => healOnMap(run, { arenaOpen: this.inArena }))); return; }
     // Casino stage 1, item 4: the die at the door; a click on the rolling die skips its animation, «Дальше» closes it.
     if (action === 'die-roll') { this.throwDie(run); return; }
-    if (action === 'die-take') { this.apply(rtDieChoose(run, false)); return; }
+    if (action === 'die-take') { this.apply(this.go(run, 'rtDieChoose', [false], () => rtDieChoose(run, false))); return; }
     if (action === 'die-skip') { this.landDie(); return; }
     if (action === 'die-close') { this.closeDie(); return; }
-    if (action === 'rest-heal') { this.apply(rtRestHeal(run)); return; }
-    if (action === 'rest-fuse') { const fusion = target.dataset.fusion; if (isFusionId(fusion)) this.apply(rtRestFuse(run, fusion)); return; }
-    if (action === 'rest-craft') { this.apply(rtRestCraft(run, target.dataset.resource as ResourceKind)); return; }
-    if (action === 'rest-finish') { this.apply(rtRestFinish(run)); return; }
-    if (action === 'find') { this.apply(rtChooseFind(run, target.dataset.item as ItemKind)); return; }
-    if (action === 'gift-pick') { this.apply(rtChooseGiftPick(run, target.dataset.pick!)); return; }
-    if (action === 'talisman') { this.apply(rtChooseTalisman(run, target.dataset.option || null)); return; }
+    if (action === 'rest-heal') { this.apply(this.go(run, 'rtRestHeal', [], () => rtRestHeal(run))); return; }
+    if (action === 'rest-fuse') { const fusion = target.dataset.fusion; if (isFusionId(fusion)) this.apply(this.go(run, 'rtRestFuse', [fusion], () => rtRestFuse(run, fusion))); return; }
+    if (action === 'rest-craft') { const resource = target.dataset.resource as ResourceKind; this.apply(this.go(run, 'rtRestCraft', [resource], () => rtRestCraft(run, resource))); return; }
+    if (action === 'rest-finish') { this.apply(this.go(run, 'rtRestFinish', [], () => rtRestFinish(run))); return; }
+    if (action === 'find') { const item = target.dataset.item as ItemKind; this.apply(this.go(run, 'rtChooseFind', [item], () => rtChooseFind(run, item))); return; }
+    if (action === 'gift-pick') { const pick = target.dataset.pick!; this.apply(this.go(run, 'rtChooseGiftPick', [pick], () => rtChooseGiftPick(run, pick))); return; }
+    if (action === 'talisman') { const id = target.dataset.option || null; this.apply(this.go(run, 'rtChooseTalisman', [id], () => rtChooseTalisman(run, id))); return; }
     // B5 К10 «Переброс»: a new offer for resources (no animation, П11).
-    if (action === 'talisman-reroll') { this.apply(rtRerollTalismans(run)); return; }
+    if (action === 'talisman-reroll') { this.apply(this.go(run, 'rtRerollTalismans', [], () => rtRerollTalismans(run))); return; }
     // Task 50 «Сноровка»: a card (rank II of a counter, or a new one) or «Пропустить» (no option).
     if (action === 'knack') { this.chooseKnack(target.dataset.option || null, !!target.dataset.hone); return; }
-    if (action === 'hammer-reroll') { this.apply(rtRerollHammers(run)); return; }
-    if (action === 'hammer') { this.apply(rtChooseHammer(run, (target.dataset.option || null) as Parameters<typeof rtChooseHammer>[1])); return; }
-    if (action === 'shop-leave') { this.apply(rtShopLeave(run)); return; }
+    if (action === 'hammer-reroll') { this.apply(this.go(run, 'rtRerollHammers', [], () => rtRerollHammers(run))); return; }
+    if (action === 'hammer') { const id = (target.dataset.option || null) as Parameters<typeof rtChooseHammer>[1]; this.apply(this.go(run, 'rtChooseHammer', [id], () => rtChooseHammer(run, id))); return; }
+    // Task 51д: the meeting at the rest — the window of the NPC's deal, the deal, «Уйти» (no step; the NPC's refusal line).
+    if (action === 'meet-open') { const meet = rtMeetView(run); if (meet && this.meetSay) { this.meetOpen = true; this.meetSay.deal = this.meetLine(meet.npc, 'meet_deal'); this.draw(); } return; }
+    if (action === 'meet-leave') { const meet = rtMeetView(run); this.meetOpen = false; if (meet && this.meetSay) this.meetSay.no = this.meetLine(meet.npc, 'meet_no'); this.draw(); return; }
+    if (action === 'meet-deal') { this.meetOpen = false; const deal = target.dataset.deal!; this.apply(this.go(run, 'rtMeetDeal', [deal], () => rtMeetDeal(run, deal))); return; }
+    if (action === 'shop-leave') { this.swapFrom = this.swapTo = null; this.apply(this.go(run, 'rtShopLeave', [], () => rtShopLeave(run))); return; }
+    // Task 51в: Шиш's reroll of the goods and «Размен» (the kinds chosen on the screen, then «Обменять»).
+    if (action === 'shop-reroll') { this.apply(this.go(run, 'rtShopReroll', [], () => rtShopReroll(run))); return; }
+    if (action === 'swap-from') { this.swapFrom = target.dataset.kind as ResourceKind; if (this.swapTo === this.swapFrom) this.swapTo = null; this.draw(); return; }
+    if (action === 'swap-to') { this.swapTo = target.dataset.kind as ResourceKind; this.draw(); return; }
+    if (action === 'swap-do') { const from = this.swapFrom, to = this.swapTo; this.swapFrom = this.swapTo = null; if (from && to) this.apply(this.go(run, 'rtShopSwap', [from, to], () => rtShopSwap(run, from, to))); return; }
     // Task 38: «В гарнизон» from «Предместье». Task 40: with the cart, the deposit «−» and «+» chose goes with it.
     // Task 51б: the garrison map and the consumable chosen on «Предместье» (the level 3 of the camp) go with it.
-    if (action === 'garrison') { const cart = rtCartView(run), gate = rtGateView(run); this.apply(rtEnterGarrison(run, cart ? this.cartValue(cart) : undefined, gate ? this.gateChoice(gate) : undefined)); return; }
+    if (action === 'garrison') { const cart = rtCartView(run), gate = rtGateView(run), deposit = cart ? this.cartValue(cart) : undefined, choice = gate ? this.gateChoice(gate) : undefined; this.apply(this.go(run, 'rtEnterGarrison', deposit === undefined ? [] : [deposit], () => rtEnterGarrison(run, deposit, choice))); return; }
     if (action === 'gate-map') { this.gateMap = target.dataset.index === '1' ? 1 : 0; this.redrawGate(run); return; }
     if (action === 'gate-item') { this.gateItem = target.dataset.item as ItemKind; this.redrawGate(run); return; }
     if (action === 'cart-minus' || action === 'cart-plus') { this.stepCart(run, action === 'cart-plus' ? 1 : -1); return; }
-    if (action === 'shop-buy') { this.apply(rtShopBuy(run, target.dataset.good!)); return; }
+    if (action === 'shop-buy') { const good = target.dataset.good!; this.apply(this.go(run, 'rtShopBuy', [good], () => rtShopBuy(run, good))); return; }
     // B7 К9: the circle's tables (the outcome fixed at the click, then 1.2 s of rolling), «Уйти»; a click skips the roll.
     if (action === 'casino-play') { this.playCasino(run, target.dataset.table as RtCasinoTable); return; }
-    if (action === 'casino-leave') { this.apply(rtCasinoLeave(run)); return; }
+    if (action === 'casino-leave') { this.apply(this.go(run, 'rtCasinoLeave', [], () => rtCasinoLeave(run))); return; }
     if (action === 'roll-skip') { this.landChance(); return; }
     if (action === 'roll-close') { this.closeChance(); return; }
     if (action === 'event-option') { this.chooseEventOption(run, target.dataset.option!); return; }
-    if (action === 'habit') { const id = target.dataset.habit; this.apply(rtChooseHabit(run, id === 'none' ? null : (id as RtHabitId))); return; }
-    if (action === 'gift') { this.apply(rtChooseGift(run, target.dataset.index === 'skip' ? null : Number(target.dataset.index))); return; }
+    if (action === 'habit') { const id = target.dataset.habit; const habit = id === 'none' ? null : (id as RtHabitId); this.apply(this.go(run, 'rtChooseHabit', [habit], () => rtChooseHabit(run, habit))); return; }
+    if (action === 'gift') { const index = target.dataset.index === 'skip' ? null : Number(target.dataset.index); this.apply(this.go(run, 'rtChooseGift', [index], () => rtChooseGift(run, index))); return; }
   }
 
   // ---------- The die at the door (casino stage 1, item 4) ----------
 
   /** «Бросить»: the run pays by the face fixed at the showing; the die rolls 1.2 s over the next screen, then lands. */
   private throwDie(run: RtRunState): void {
-    const step = rtDieChoose(run, true);
+    const step = this.go(run, 'rtDieChoose', [true], () => rtDieChoose(run, true));
     const resolved = step.ok ? step.events.find(event => event.type === 'die-resolved') : undefined;
     this.clearDieTimers();
     this.dieRoll = resolved?.type === 'die-resolved' ? { face: resolved.face, paid: resolved.resources.length, kinds: [...resolved.resources],
@@ -1007,7 +1242,7 @@ export class RunView {
 
   /** A table of the circle: the run applies the game (its outcome fixed now), the picture rolls 1.2 s over the next screen. */
   private playCasino(run: RtRunState, table: RtCasinoTable): void {
-    const step = rtCasinoPlay(run, table);
+    const step = this.go(run, 'rtCasinoPlay', [table], () => rtCasinoPlay(run, table));
     const played = step.ok ? step.events.find(event => event.type === 'casino-played') : undefined;
     if (played?.type === 'casino-played') {
       const game = played.game;
@@ -1023,7 +1258,7 @@ export class RunView {
    * the live wheel; every other option as before. The flash (LDW): more resources than the one paid, or a talisman taken.
    */
   private chooseEventOption(run: RtRunState, optionId: string): void {
-    const event = rtEventView(run)?.event, step = rtChooseEventOption(run, optionId);
+    const event = rtEventView(run)?.event, step = this.go(run, 'rtChooseEventOption', [optionId], () => rtChooseEventOption(run, optionId));
     const resolved = step.ok ? step.events.find(entry => entry.type === 'event-resolved') : undefined;
     if (event?.id === CASINO_WHEEL_EVENT && optionId === 'spin' && resolved?.type === 'event-resolved') {
       const rolled = eventOption(event, optionId)!.outcomes[resolved.outcome], gave = step.ok && step.events.some(entry => entry.type === 'talisman-taken');
@@ -1109,6 +1344,7 @@ export class RunView {
     this.el.innerHTML = `${this.headerHtml(run)}${this.pickLineHtml(run)}<div class="rt-run-body">${this.mapHtml(run)}${run.pending || run.result ? '' : this.detailHtml(run)}</div>${this.modalHtml(run)}${this.dieRollHtml()}${this.chanceHtml()}`;
     this.flyResources(run);
     this.stageScreens(run);
+    this.flashHabit(run);
     // Task 38: «Предместье»'s bar fills to the HP after the heal (once: then it is drawn full).
     const heal = this.el.querySelector<HTMLElement>('[data-testid="outskirts-bar"] i');
     if (heal && heal.dataset.to && heal.style.width !== heal.dataset.to) { const to = heal.dataset.to; requestAnimationFrame(() => requestAnimationFrame(() => { heal.style.width = to; })); this.outskirtsFrom = null; }
@@ -1118,13 +1354,28 @@ export class RunView {
   }
 
   /**
+   * Task 50 §18: the first screen of the run that shows the habit's mark on an item card — the mark flashes for 0.4 s, once a run (the seed
+   * keys it; a view memory, not saved: a reloaded run may flash once more). The gift's own row has no marks.
+   */
+  private habitFlashSeed: number | null = null;
+  private habitFlashes = 0;
+  private flashHabit(run: RtRunState): void {
+    if (!run.habit || this.habitFlashSeed === run.seed) return;
+    const marks = this.el.querySelectorAll<HTMLElement>('.rt-habit-mark');
+    if (!marks.length) return;
+    this.habitFlashSeed = run.seed; this.habitFlashes++;
+    marks.forEach(mark => mark.classList.add('rt-habit-flash'));
+  }
+
+  /**
    * Task 50 (tests read it, `__realtime.run.habitShown`): the run's archetype (`habit`: its id, null — «Без повадки», undefined — no row
    * or not yet), whether the open gift shows the row (`row`) and has decided it (`chosen`), `signs` — the header's sign (0 or 1), and on the
-   * screen now `marks` — the item cards that carry the archetype's icon (`marked`: their ids).
+   * screen now `marks` — the item cards that carry the archetype's icon (`marked`: their ids). Task 50 §18: `flashes` / `flashing` — the
+   * mark's flash, `items` — the icons on each habit card, `hint` — the line under «Повадка».
    */
-  habitInfo(): { habit: string | null | undefined; row: boolean; chosen: boolean; signs: number; marks: number; marked: string[] } {
+  habitInfo(): { habit: string | null | undefined; row: boolean; chosen: boolean; signs: number; marks: number; marked: string[]; flashes: number; flashing: number; items: Record<string, string[]>; hint: string } {
     const run = this.run, gift = run ? rtGiftView(run) : null, marked = [...this.el.querySelectorAll<HTMLElement>('.rt-habit-mark')].map(el => el.dataset.for ?? '');
-    return { habit: run ? (gift?.habit ? gift.habit.id : run.habit) : undefined, row: !!gift?.habit, chosen: !!gift?.habit?.chosen || (!!run?.habits && !gift), signs: this.el.querySelectorAll('.rt-run-habit').length, marks: marked.length, marked };
+    return { habit: run ? (gift?.habit ? gift.habit.id : run.habit) : undefined, row: !!gift?.habit, chosen: !!gift?.habit?.chosen || (!!run?.habits && !gift), signs: this.el.querySelectorAll('.rt-run-habit').length, marks: marked.length, marked, flashes: this.habitFlashes, flashing: this.el.querySelectorAll('.rt-habit-flash').length, items: Object.fromEntries([...this.el.querySelectorAll<HTMLElement>('.rt-habit-items')].map(el => [el.dataset.testid?.replace('habit-items-', '') ?? '', [...el.querySelectorAll<HTMLElement>('.rt-habit-item')].map(i => i.dataset.item ?? '')])), hint: this.el.querySelector('[data-testid="gift-habits-hint"]')?.textContent ?? '' };
   }
 
   /** Task 47 (tests read it): the chords and the staged screens so far, and whether a reveal or a run-end is running now. */
@@ -1391,7 +1642,7 @@ export class RunView {
       ...hammer && hp ? [`<span${hp.cls} data-testid="run-hammer-slot" title="Молот: ${escapeHtml(hammer.effect + hp.title)}">⚒ ${escapeHtml(hammer.name)}${hp.sign}</span>`] : [],
       ...run.talismans.map(id => {
         const m = pairMark(id), ranked = wearsRank(run.honed, id);
-        return `<span${m.cls}${m.test}${ranked ? ` data-honed="1"` : ''} title="${escapeHtml(rtTalismanText(id, !!run.forms) + m.title + (ranked ? ` · Ранг II${honeLine(fusionRecipe(id)?.counter ?? id).replace(/^Ранг II/, '')}` : ''))}"${rtTalisman(id)?.rarity === 'relic' ? ` data-testid="run-relic-${id}"` : ''}>${rtTalisman(id)?.rarity === 'relic' ? '◆ ' : ''}${escapeHtml(talismanName(id, run))}${id === 'ash-ward' && run.wardSpent ? ' (рассыпался)' : ''}${m.sign}${ranked ? rankMarkHtml() : ''}</span>`;
+        return `<span${m.cls}${m.test}${ranked ? ` data-honed="1"` : ''} title="${escapeHtml((ranked ? `${honeLine(fusionRecipe(id)?.counter ?? id)} · ` : '') + rtTalismanText(id, !!run.forms) + m.title)}"${rtTalisman(id)?.rarity === 'relic' ? ` data-testid="run-relic-${id}"` : ''}>${rtTalisman(id)?.rarity === 'relic' ? '◆ ' : ''}${escapeHtml(talismanName(id, run))}${id === 'ash-ward' && run.wardSpent ? ' (рассыпался)' : ''}${m.sign}${ranked ? rankMarkHtml() : ''}</span>`;
       }),
     ].join(', ');
     const reset = this.confirmReset
@@ -1410,7 +1661,7 @@ export class RunView {
     const ash = rtAshTitle(rtAsh(run));
     // Task 38: the garrison's map is headed «Гарнизон».
     // Task 38: a run that goes on into the garrison names its level by one word — «Лес», then «Гарнизон»; a run without it — «Поход».
-    return `<header class="rt-run-head"><b data-testid="run-title" data-level="${rtLevel(run)}">${levelWord(run)}</b>${ash ? `<span class="rt-run-ash" data-testid="run-ash-title">${ash}</span>` : ''}<span class="rt-run-hp" data-testid="run-hp">HP ${run.hp} / ${run.maxHp}</span>${windHtml}${habitSign(run)}${heal}`
+    return `<header class="rt-run-head"><b data-testid="run-title" data-level="${rtLevel(run)}">${levelWord(run)}</b>${omenSign(run)}${ash ? `<span class="rt-run-ash" data-testid="run-ash-title">${ash}</span>` : ''}<span class="rt-run-hp" data-testid="run-hp">HP ${run.hp} / ${run.maxHp}</span>${windHtml}${habitSign(run)}${this.vowSign(run)}${heal}`
       + `<span class="rt-run-items" data-testid="run-items">${items}</span>${talismans ? `<span class="rt-run-talismans" data-testid="run-talismans">${talismans}</span>` : ''}`
       + `${run.energy > 0 ? `<span class="rt-run-energy" data-testid="run-energy">⚡ ${run.energy} к арене</span>` : ''}`
       + `${resources}${reset}${this.sandboxButton(run)}${this.logsButton()}${this.settingsHtml()}</header>`
@@ -1488,12 +1739,14 @@ export class RunView {
     })).join('');
     const circles = nodes.map(node => {
       const status = rtNodeStatus(run, node, available), info = RT_NODE_TYPES[node.type], shown = node.type === 'event' && rtNodeTitle(run, node) === 'Находка' ? RT_NODE_TYPES.find : info;
+      // Task 56 «Перепутье»: a node beyond the next row is a grey «?» — no type, no omen (core `rtCrossroadsHidden`, `rtNodeOmen`).
+      const hidden = rtCrossroadsHidden(run, node), omen = hidden ? undefined : rtNodeOmen(run, node);
       // B7 К9: the circle's node keeps the event's place on the map; once entered, it shows a die.
-      const icon = run.casino?.nodeId === node.id ? CASINO_ICON : shown.icon;
-      return `<g class="rt-node rt-${status}${this.selected === node.id ? ' rt-selected' : ''}" data-node="${node.id}" data-testid="node-${node.id}" data-status="${status}" data-type="${node.type}" transform="translate(${x(node)},${y(node)})">`
-        + `<circle r="17"/><text dy="6">${icon}</text><title>${escapeHtml(rtNodeTitle(run, node))}</title>`
+      const icon = hidden ? '?' : run.casino?.nodeId === node.id ? CASINO_ICON : shown.icon;
+      return `<g class="rt-node rt-${status}${hidden ? ' rt-hidden' : ''}${this.selected === node.id ? ' rt-selected' : ''}" data-node="${node.id}" data-testid="node-${node.id}" data-status="${status}" data-type="${hidden ? 'hidden' : node.type}"${omen ? ` data-omen="${omen}"` : ''} transform="translate(${x(node)},${y(node)})">`
+        + `<circle r="17"/><text dy="6">${icon}</text><title>${hidden ? 'Тип узла скрыт «Перепутьем»' : escapeHtml(rtNodeTitle(run, node))}</title>${omen ? omenBadge(omen) : ''}`
         // Task 38: the garrison's exams seen from the start — «Караульня» (row 5) and «Кастелян» (row 10) under their circles.
-        + (rtLevel(run) === 2 && (node.type === 'checkpoint' || node.type === 'boss') ? `<text class="rt-node-cap" dy="36" data-testid="map-cap-${node.type}">${escapeHtml(rtNodeTitle(run, node))}</text>` : '') + '</g>';
+        + (!hidden && rtLevel(run) === 2 && (node.type === 'checkpoint' || node.type === 'boss') ? `<text class="rt-node-cap" dy="36" data-testid="map-cap-${node.type}">${escapeHtml(rtNodeTitle(run, node))}</text>` : '') + '</g>';
     }).join('');
     return `<svg class="rt-run-map${rtLevel(run) === 2 ? ' rt-map-garrison' : ''}" viewBox="0 0 ${W} ${H}" data-testid="run-map" data-level="${rtLevel(run)}">${edges}${circles}</svg>`;
   }
@@ -1511,7 +1764,7 @@ export class RunView {
    * Task 8c: the dangers of a battle node, one line each (goal, enemies, elites, terrain; view/nodeCard.ts) — the card of the
    * chosen node and the window «Бой» after a reload.
    */
-  private dangersHtml(run: RtRunState, node: ForestMapNode | undefined, arena: string, roster: string | undefined, newKinds: readonly string[] = [], met?: ReadonlySet<string>): string {
+  private dangersHtml(run: RtRunState, node: ForestMapNode | undefined, arena: string, roster: string | undefined, newKinds: readonly string[] = [], met?: ReadonlySet<string>, omens?: RtFightOmens): string {
     // Task 17: the rules the fight of this node will play (`cardRules` — the conditions of `rtArenaLoadout`): the card equals the fight.
     // Task 43, part Г: a garrison node — its fight's own start (`rtNodeEnemies`: the world the fight starts with) and the additions.
     const garrison = node ? rtNodeEnemies(run, node) : null;
@@ -1520,7 +1773,7 @@ export class RunView {
     const items = lines.map(line => {
       const sign = line.newKinds?.length || line.newTerrain?.length ? ` <span class="rt-new-sign" data-testid="run-new-sign">${NEW_SIGN}</span>` : '';
       return `<li data-testid="run-danger-${line.id}"><b>${line.label}:</b> ${escapeHtml(line.text)}${sign}</li>`;
-    }).join('');
+    }).join('') + omenCardHtml(omens);
     return `<ul class="rt-run-dangers" data-testid="run-dangers">${items}</ul>`;
   }
 
@@ -1536,12 +1789,17 @@ export class RunView {
     if (!node) return '';
     const available = rtAvailableNodes(run);
     const status = rtNodeStatus(run, node, available), info = RT_NODE_TYPES[node.type];
-    const arena = isArenaNode(node) ? arenaPreview(run, node) : null;
+    // Task 56 «Перепутье»: the card of a node beyond the next row says the type is hidden (no title, no arena, no omen).
+    const hidden = rtCrossroadsHidden(run, node);
+    if (hidden) return `<div class="rt-overlay rt-run-node" data-testid="run-node-card"><div class="rt-card rt-run-detail" data-testid="run-detail" data-card="${node.id}" data-hidden="1"><h2>?</h2><p class="rt-run-meta">ряд похода ${runRow(node.row)} · ${STATUS_LABEL[status]}</p><p class="rt-run-note">Тип узла скрыт «Перепутьем».</p></div></div>`;
+    const arena = isArenaNode(node) ? arenaPreview(run, node) : null, omens = rtFightOmens(run, node);
     const fresh = arena && status === 'available' && this.hasNewSign(run, node) ? this.freshKinds(run, node, arena) : [];
     const body = `<h2>${info.icon} ${escapeHtml(rtNodeTitle(run, node))}</h2>`
       + `<p class="rt-run-meta">${info.label} · ряд похода ${runRow(node.row)} · ${STATUS_LABEL[status]}</p>`
-      + (arena ? this.arenaHead(arena.arena, arena.roster) + this.dangersHtml(run, node, arena.arena, arena.roster, fresh, status === 'available' ? this.terrainMet(run, node) : undefined)
-        : isArenaNode(node) && status === 'locked' ? '<p class="rt-run-note">Арена станет известна, когда узел откроется.</p>' : '')
+      + (arena ? this.arenaHead(arena.arena, arena.roster) + this.dangersHtml(run, node, arena.arena, arena.roster, fresh, status === 'available' ? this.terrainMet(run, node) : undefined, omens)
+        // Task 56: the badge on the map is the node's own — a locked node's card names its omen too (the arena is not known yet; the omen is the roll's).
+        : isArenaNode(node) && status === 'locked' ? '<p class="rt-run-note">Арена станет известна, когда узел откроется.</p>'
+          + (omens.node || omens.level ? `<ul class="rt-run-dangers">${omenCardHtml(omens)}</ul>` : '') : '')
       + (status === 'available' ? this.featHtml(run, node) : '')
       + (nodeHint(node, run) ? `<p class="rt-run-hint">${escapeHtml(nodeHint(node, run)!)}</p>` : '')
       // B7 К9 (no hidden odds): an event node the circle may still stand on says so, with its chance; the terms in small
@@ -1587,13 +1845,14 @@ export class RunView {
       const facts = rtRunEndLines(run).map(line => `<li data-testid="run-end-${line.id}">${escapeHtml(line.text)}</li>`).join('');
       // Tasks 36–37: the meta block (experience, pack, record, the carry) — its element is put in after the redraw (`draw`).
       const meta = this.metaEndOf(run, false);
-      return card(`<h2>${won ? 'Поход пройден' : 'Поход окончен'}</h2>${run.garrison ? `<p class="rt-run-level-word" data-testid="run-end-level">${levelWord(run)}</p>` : ''}${meta ? '<div data-meta-slot></div>' : ''}${facts ? `<ul class="rt-run-end-facts" data-testid="run-end-facts">${facts}</ul>` : ''}`
+      return card(`<h2>${won ? 'Поход пройден' : 'Поход окончен'}</h2>${run.garrison ? `<p class="rt-run-level-word" data-testid="run-end-level">${levelWord(run)}</p>` : ''}${meta ? '<div data-meta-slot></div>' : ''}${this.dailyEndNow(run)}${facts ? `<ul class="rt-run-end-facts" data-testid="run-end-facts">${facts}</ul>` : ''}`
         + `<dl class="rt-result-stats"><dt>Арен пройдено</dt><dd>${run.battles.filter(b => b.won).length}</dd>`
         + `<dt>Узлов</dt><dd>${run.visited.length}</dd><dt>Убито</dt><dd>${kills}</dd><dt>Получено урона</dt><dd>${damage}</dd></dl>`
         + this.luckHtml(run)
-        + (this.host.session?.on() ? `<p class="rt-run-session" data-testid="run-session-line">${escapeHtml(this.host.session.clock.endLine())}</p>` : '')
-        + this.heroCardsHtml() + this.ashHtml() + (meta ? '<button class="rt-again" data-action="hearth" data-testid="run-to-hearth">В лагерь</button>' : '')
-        + `<button class="${meta ? 'rt-other' : 'rt-again'}" data-action="new-run" data-testid="run-new">Новый поход</button>${this.logsButton('logs-open-result')}`, `run-result-${run.result.outcome}`);
+        // Design 21.10.2026: the run of the day is no run of the session or the profile — its end has no «В игре … · походов N».
+        + (this.host.session?.on() && !run.daily ? `<p class="rt-run-session" data-testid="run-session-line">${escapeHtml(this.host.session.clock.endLine())}</p>` : '')
+        + (run.daily ? '' : this.heroCardsHtml() + this.ashHtml()) + (meta || (run.daily && this.hearth) ? '<button class="rt-again" data-action="hearth" data-testid="run-to-hearth">В лагерь</button>' : '')
+        + `<button class="${meta || run.daily ? 'rt-other' : 'rt-again'}" data-action="new-run" data-testid="run-new">Новый поход</button>${this.logsButton('logs-open-result')}`, `run-result-${run.result.outcome}`);
     }
     const pending = run.pending;
     if (!pending) return '';
@@ -1604,7 +1863,7 @@ export class RunView {
       const pendingNode = rtNode(run, pending.nodeId);
       // Task 15: the window covers the map header — the heal button stands here, over «В бой» (design 14.10.2026).
       const heal = this.healHtml(run);
-      return card(`<h2>Бой</h2>${this.arenaHead(pending.arena, pending.roster)}${this.dangersHtml(run, pendingNode, pending.arena, pending.roster)}${this.featHtml(run, pendingNode)}${oath}<p class="rt-run-note">Начатая арена не сохраняется: после перезагрузки она начинается заново.</p>`
+      return card(`<h2>Бой</h2>${this.arenaHead(pending.arena, pending.roster)}${this.dangersHtml(run, pendingNode, pending.arena, pending.roster, [], undefined, pending.omens)}${this.featHtml(run, pendingNode)}${oath}<p class="rt-run-note">Начатая арена не сохраняется: после перезагрузки она начинается заново.</p>`
         + (heal ? `<p class="rt-run-heal-line">HP ${run.hp} / ${run.maxHp} ${heal}</p>` : '')
         + `<button class="rt-again" data-action="battle" data-testid="run-battle">В бой</button>`, 'run-battle-modal');
     }
@@ -1653,11 +1912,14 @@ export class RunView {
         + `<b>${escapeHtml(giftText(entry.option, run))}</b>${entry.handFull ? handFullHtml(`gift-${entry.index}`) : entry.reason ? `<small>${escapeHtml(entry.reason)}</small>` : ''}`
         // Task 41 (design 16.10.2026): consumables with healing among others at the cap are taken — the healing does not join.
         + `${!entry.handFull && entry.option.kind === 'items' && entry.option.items.includes('healing') && rtItemRefusal(run, 'healing') ? `<small class="rt-run-reason rt-hand-full" data-testid="hand-full-gift-${entry.index}">${RT_ITEM_REFUSAL_TEXT.handFull}: лечение не войдёт</small>` : ''}</button>`).join('');
-      return card(`<h2>Дар в дорогу</h2><p>${view.kind === 'full' ? 'Полный дар' : 'Малый дар'}: выбери одно. Недоступные варианты выключены.</p>${view.habit ? habitRowHtml(view.habit) : ''}<div class="rt-run-choices">${buttons}</div>`
+      return card(`<h2>Дар в дорогу</h2><p>${view.kind === 'full' ? 'Полный дар' : 'Малый дар'}: выбери одно. Недоступные варианты выключены.</p>${view.habit ? habitRowHtml(view.habit, run) : ''}<div class="rt-run-choices">${buttons}</div>`
         + (view.canSkip ? `<button class="rt-other" data-action="gift" data-index="skip" data-testid="gift-skip" ${waiting ? 'disabled' : ''}>Дальше без дара</button>` : ''), 'run-gift');
     }
     if (pending.kind === 'rest') {
-      const view = rtRestView(run)!;
+      const view = rtRestView(run)!, meet = rtMeetView(run);
+      if (!meet) { this.meetOpen = false; this.meetSay = null; }
+      else if (this.meetSay?.node !== meet.nodeId) this.meetSay = { node: meet.nodeId, hello: this.meetLine(meet.npc, 'meet_hello') };
+      if (meet && this.meetOpen && !meet.deal) return this.meetWindowHtml(run, meet, card);
       const recipes = view.recipes.map(recipe => `<button class="rt-run-choice" data-action="rest-craft" data-resource="${recipe.resource}" data-testid="craft-${recipe.resource}" ${recipe.available ? '' : 'disabled'}>`
         + `<b>Крафт: ${escapeHtml(ITEM_TITLES[recipe.item])}</b><small>${recipe.cost} «${escapeHtml(RESOURCES[recipe.resource].label)}» (есть ${recipe.have})${recipe.opens ? ' · откроется в походе' : ''}</small>`
         + `${recipe.handFull ? handFullHtml(`craft-${recipe.resource}`) : ''}</button>`).join('');
@@ -1665,7 +1927,7 @@ export class RunView {
       const fusions = view.fusions.map(f => `<button class="rt-run-choice rt-run-fuse" data-action="rest-fuse" data-fusion="${f.fusion}" data-testid="rest-fuse-${f.fusion}" ${f.available ? '' : 'disabled'}>`
         + `<span class="rt-fuse-recipe">${itemIcon(f.form)}<em>+</em>${itemIcon(f.counter, wearsRank(run.honed, f.counter))}<em>→</em>${itemIcon(f.fusion, wearsRank(run.honed, f.fusion))}</span><b>Сплав: «${escapeHtml(partName(f.fusion, run))}»</b>`
         + `<small>${f.available ? `«${escapeHtml(partName(f.form, run))}» и «${escapeHtml(partName(f.counter, run))}» станут одним; привал уйдёт на сплав` : 'выбран крафт'}</small></button>`).join('');
-      return card(`<h2>Привал</h2><p>${fusions ? 'Лечение, крафт или сплав: сплав занимает привал, первый рецепт отменяет лечение и сплав.' : 'Лечение или крафт: первый рецепт отменяет лечение этого привала.'}${view.crafted.length ? ` Сделано: ${view.crafted.map(item => ITEM_TITLES[item]).join(', ')}.` : ''}</p>`
+      return card(`<h2>Привал</h2>${meet ? this.meetButtonHtml(meet) : ''}<p>${fusions ? 'Лечение, крафт или сплав: сплав занимает привал, первый рецепт отменяет лечение и сплав.' : 'Лечение или крафт: первый рецепт отменяет лечение этого привала.'}${view.crafted.length ? ` Сделано: ${view.crafted.map(item => ITEM_TITLES[item]).join(', ')}.` : ''}</p>`
         + `<div class="rt-run-choices"><button class="rt-run-choice" data-action="rest-heal" data-testid="rest-heal" ${view.heal.available ? '' : 'disabled'}><b>Лечение +${view.heal.amount} HP</b>`
         + `<small>${!view.heal.available ? 'выбран крафт' : view.heal.amount < view.heal.value ? `лечит до ${view.heal.value} HP, не выше максимума` : `лечит до ${view.heal.value} HP`}</small></button>${fusions}${recipes}</div>`
         + (view.canFinish ? `<button class="rt-other" data-action="rest-finish" data-testid="rest-finish">К карте</button>` : ''), 'run-rest');
@@ -1739,8 +2001,8 @@ export class RunView {
         + `${good.replaces ? `<small class="rt-run-reason" data-testid="replaces-${good.replaces}">Заменит «${escapeHtml(talismanName(good.replaces, run))}»</small>` : ''}${good.talisman ? habitMark(run, good.talisman) + recipeHtml(run, good.talisman) : ''}</button>`).join('');
       // Task 15: the header has one number; the merchant names the kinds (he takes from the most numerous).
       const kinds = resourceKindsText(run.materials);
-      return card(`<h2>Торговец</h2><p data-testid="shop-resources">Ресурсов: ${view.total}${kinds ? ` (${kinds})` : ''}.</p><div class="rt-run-choices">${goods}</div>`
-        + `<button class="rt-other" data-action="shop-leave" data-testid="shop-leave">Уйти</button>`, 'run-shop');
+      return card(`<h2>Торговец</h2><p data-testid="shop-resources">Ресурсов: ${view.total}${kinds ? ` (${kinds})` : ''}.</p><div class="rt-run-choices${view.goods.length > 4 ? ' rt-shop-two' : ''}" data-testid="shop-goods">${goods}</div>`
+        + this.shopGamblerHtml(run) + `<button class="rt-other" data-action="shop-leave" data-testid="shop-leave">Уйти</button>`, 'run-shop');
     }
     const view = rtEventView(run);
     if (!view) return '';

@@ -74,7 +74,7 @@ await check('the carry: a victory 100 %, a death 50 % with the floor min(resourc
       assert(at !== null && !(at as RtRunState).result, `${name} ${options.k}: an open run to abandon`);
       run = at;
     }
-    const resources = stockTotal(run.materials), end = createRtProfileStore(memoryStorage()).endRunMeta(run)!;
+    const resources = stockTotal(run.materials), end = createRtProfileStore(memoryStorage(), { gambler: false, monk: false }).endRunMeta(run)!;
     const want = run.result?.outcome === 'victory' ? Math.min(20, resources) : Math.min(20, Math.max(Math.floor(resources / 2), Math.min(resources, 6)));
     assert(end.carry.n === want && end.carry.resources === resources && end.carry.cap === RT_CARRY_CAP_PER_LEVEL && end.carry.share === (run.result?.outcome === 'victory' ? 1 : 0.5), `${name} ${options.k}: carry ${JSON.stringify(end.carry)}, want ${want}`);
     assert(end.stock.before === 0 && end.stock.after === want, `${name} ${options.k}: stock ${JSON.stringify(end.stock)}`);
@@ -88,7 +88,7 @@ await check('the carry: a victory 100 %, a death 50 % with the floor min(resourc
 });
 
 await check('purchases: the next level for its price; a shortfall shows the price and the stock; an NPC not in the camp — refused; level 3 by the gate of task 51', () => {
-  const store = createRtProfileStore(memoryStorage());
+  const store = createRtProfileStore(memoryStorage(), { gambler: false, monk: false });
   store.endRunMeta(walkRun(campRun(store, 1, { loot: 1, loseAt: run => rowOf(run) >= 2 })).run);
   const have = store.hearth().stock;
   assert(have < 4, `a short first run (${have})`);
@@ -105,7 +105,7 @@ await check('purchases: the next level for its price; a shortfall shows the pric
 });
 
 await check('Марфа and Ерофей come from the real event choice («Перевязать», «Заточка»), not from the other choices; the event and its stream unchanged', () => {
-  const store = createRtProfileStore(memoryStorage());
+  const store = createRtProfileStore(memoryStorage(), { gambler: false, monk: false });
   store.endRunMeta(walkRun(campRun(store, 1)).run);
   const leave = eventRun(store, 'wounded-cub', 'leave', 10);
   store.endRunMeta(leave.walk.run);
@@ -130,7 +130,7 @@ await check('Марфа and Ерофей come from the real event choice («Пе
 });
 
 await check('the fallback: an NPC not met comes by itself after 3 finished runs since the first camp — Марфа first, then Ерофей', () => {
-  const store = createRtProfileStore(memoryStorage());
+  const store = createRtProfileStore(memoryStorage(), { gambler: false, monk: false });
   const quiet = (k: number) => store.endRunMeta(walkRun({ ...campRun(store, k), eventChoice: () => 'leave', loseAt: run => rowOf(run) >= 3 }).run);
   quiet(1);
   quiet(2); quiet(3);
@@ -142,7 +142,7 @@ await check('the fallback: an NPC not met comes by itself after 3 finished runs 
 });
 
 await check('the camp\'s flags on real runs: Марфа\'s start consumable (L1 by the stream, L2 a choice of 2), Ерофей\'s free Jailer reroll and «Полный верстак», Неясыть\'s 2 and 3 maps', () => {
-  const storage = memoryStorage(), store = createRtProfileStore(storage);
+  const storage = memoryStorage(), store = createRtProfileStore(storage, { gambler: false, monk: false });
   store.endRunMeta(walkRun(campRun(store, 1)).run);
   // Every NPC present (the profile as the fallback leaves it), stock earned by real runs.
   for (let k = 2; !store.hearth().met.smith; k++) store.endRunMeta(walkRun({ ...campRun(store, k, { loot: 4 }), eventChoice: () => 'leave' }).run);
@@ -202,7 +202,7 @@ await check('the camp\'s flags on real runs: Марфа\'s start consumable (L1 
 });
 
 await check('quests: counted by the real run and not without the condition; +10 XP and +3 stock outside the carry\'s cap; the next quest by the stream', () => {
-  const store = createRtProfileStore(memoryStorage());
+  const store = createRtProfileStore(memoryStorage(), { gambler: false, monk: false });
   store.endRunMeta(walkRun(campRun(store, 1, { loseAt: run => rowOf(run) >= 3 })).run);
   for (let k = 2; !store.hearth().met.smith; k++) store.endRunMeta(walkRun({ ...campRun(store, k, { loseAt: run => rowOf(run) >= 2 }), eventChoice: () => 'leave' }).run);
   const results: Record<string, { done: number; failed: number }> = {};
@@ -232,7 +232,7 @@ await check('quests: counted by the real run and not without the condition; +10 
 });
 
 await check('the camp view: the last run (cause, first win, pack, record), the bestiary, the lines\' counter', () => {
-  const storage = memoryStorage(), store = createRtProfileStore(storage);
+  const storage = memoryStorage(), store = createRtProfileStore(storage, { gambler: false, monk: false });
   assert(!store.markLine('owl:first'), 'no camp before the first run');
   store.endRunMeta(walkRun(campRun(store, 3, { loseAt: (_run, type) => type === 'checkpoint' })).run);
   let view = store.hearth();
@@ -251,14 +251,14 @@ await check('the camp view: the last run (cause, first win, pack, record), the b
   store.meetSchedule(['wolf', 'archer', 'elite', 'cliff'], seedOf(99));
   assert(same(store.hearth().seen, ['wolf', 'archer']), `the bestiary: kinds only (${store.hearth().seen})`);
   // A profile reloaded from its text reads the same camp.
-  assert(same(createRtProfileStore(storage).hearth(), store.hearth()) && JSON.parse(storage.data.get(RT_PROFILE_STORAGE_KEY)!).meta.hearth.stock === store.hearth().stock, 'stored');
+  assert(same(createRtProfileStore(storage, { gambler: false, monk: false }).hearth(), store.hearth()) && JSON.parse(storage.data.get(RT_PROFILE_STORAGE_KEY)!).meta.hearth.stock === store.hearth().stock, 'stored');
 });
 
 await check('telemetry: the run record gets the camp\'s flags, the map chosen, the meta end, purchases and NPC clicks', async () => {
   const local: KeyValueStore = (() => { const m = new Map<string, string>(); return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v); }, removeItem: (k: string) => { m.delete(k); }, key: (i: number) => [...m.keys()][i] ?? null, get length() { return m.size; } } as unknown as KeyValueStore; })();
   const session = { getItem: () => null, setItem: () => undefined };
   const rec = new RtRecorder({ sandbox: false, paramsStorage: 'p', params: defaultParams(), local, sessionStore: session, channel: null, sinkPollMs: 0, buffer: { storage: local, journals: memoryJournalStore() } });
-  const store = createRtProfileStore(memoryStorage());
+  const store = createRtProfileStore(memoryStorage(), { gambler: false, monk: false });
   store.endRunMeta(walkRun(campRun(store, 1)).run);
   earn(store, 8, 400);
   store.buyHearth('owl', 1);
