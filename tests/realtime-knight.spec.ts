@@ -25,6 +25,18 @@ async function openSandbox(page: Page, query: string): Promise<void> {
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
 }
 
+/**
+ * The sandbox menu's number of the arena named `name` (`?arena=N` counts from 1 over the whole menu): found in the menu itself, so an
+ * arena put into the menu before it (task 59б) moves no route of this file.
+ */
+async function arenaQuery(page: Page, name: string): Promise<string> {
+  await page.goto('/?sandbox=1');
+  await expect(page.getByTestId('menu')).toBeVisible();
+  const index = await page.locator('.rt-arena').evaluateAll((els, wanted) => els.findIndex(e => e.querySelector('b')?.textContent === wanted), name);
+  expect(index, `«${name}» in the sandbox menu`).toBeGreaterThanOrEqual(0);
+  return `&arena=${index + 1}`;
+}
+
 /** Only what the test places acts (no newcomers, bodies creep at the slider's minimum, nothing hurts the hero); the hero at `hero`. */
 async function quiet(page: Page, hero: { x: number; y: number }): Promise<void> {
   await page.evaluate(([x, y]) => {
@@ -62,7 +74,7 @@ async function pass(page: Page, knight: number): Promise<void> {
 test('task 43 view: «Рыцарь (проба)» — the knights stand in armour, two plate pips each, no elite plaque', async ({ page }) => {
   test.setTimeout(60_000);
   const errors = collectErrors(page);
-  await openSandbox(page, '&arena=27');
+  await openSandbox(page, await arenaQuery(page, 'Рыцарь (проба)'));
   await expect.poll(async () => (await snap(page)).arena).toBe('g-knight-test');
   await gameWait(page, 0.5);
   const s = await snap(page);
@@ -78,7 +90,7 @@ test('task 43 view: «Рыцарь (проба)» — the knights stand in armou
 test('task 43 view: a chain through the knight takes a plate pip; the last one — the shed, then the charge lane and the swing circle fill with their windups', async ({ page }) => {
   test.setTimeout(120_000);
   const errors = collectErrors(page);
-  await openSandbox(page, '&arena=27');
+  await openSandbox(page, await arenaQuery(page, 'Рыцарь (проба)'));
   await expect.poll(async () => (await snap(page)).arena).toBe('g-knight-test');
   await quiet(page, { x: 8, y: 6.6 });
   await page.evaluate(() => { const rt = (window as any).__realtime; rt.setParam('knightChargeWindup', 3); rt.setParam('knightSwingWindup', 3); });
