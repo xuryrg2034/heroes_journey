@@ -614,6 +614,12 @@ export type WorldEvent =
    */
   | { type: 'knightMove'; id: number; move: 'charge' | 'swing'; stage: 'start' | 'run' | 'end' | 'hit' }
   /**
+   * Task 62 «Ведунья v2» (chain.ts `castDischarge`): the discharge of a release — Ведунья's place and circle, the links in the order drawn
+   * (an enemy's rune, an object's place) and whether each was struck (`chainHit` events of the same command carry the hits). The view
+   * draws the thread through them; the rules never read it.
+   */
+  | { type: 'cast'; x: number; y: number; r: number; links: { kind: 'enemy' | 'object'; id: number; x: number; y: number; struck: boolean }[] }
+  /**
    * Task 59а (enemies/recruit.ts, «Новобранцы»): a hit reached a recruit out of order and went out (`refused`: its `source`), or a whole
    * formation fell by one pass (`drill`: `id` — the formation, `energy` given, `x`/`y` — the hero, `lx`/`ly` — where its last recruit fell), or a link of the drawn chain went out of order and left it
    * (`unlink`, spec 4.2 variant А). The rules never read it.

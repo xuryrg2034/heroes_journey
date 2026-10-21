@@ -23,7 +23,7 @@
  */
 import { registerArena } from './arenas';
 import { COUNTER_TALISMANS, HAMMERS } from './buildIds';
-import { castCircle, enemyRefusal, objectRefusal, planChain, type ChainPlan } from './chain';
+import { castCircle, castFirstRune, enemyRefusal, inCast, objectRefusal, planChain, witchGlyphClass, witchStands, type ChainPlan } from './chain';
 import { CHIEF } from './enemies/chief';
 import { BARREL } from './enemies/castle';
 import { TROLL, TROLL_ROCK } from './enemies/troll';
@@ -275,6 +275,60 @@ check('the classifier\'s corpus: rings, squares, triangles, the refusals «ни�
   assert(glyphClass({ ...p, glyphRingCorner: 0 }, poly(10, 7.9, 8.764, 6.402, 9.236, 4.948, 10.764, 4.948, 11.236, 6.402)).hasOwnProperty('refusal'), 'with `glyphRingCorner` 0 (the rule of 90°) the 80° corner is refused');
   const s = classifyGlyph(p, [...SQUARE]), t = classifyGlyph(p, poly(8, 5, 11, 5, 9.5, 7.6)), r = classifyGlyph(p, [...PENTAGON]);
   assert('refusal' in s && s.refusal === 'notFigure' && 'refusal' in t && t.refusal === 'notFigure' && 'kind' in r && r.kind === 'ring', 'stage A: the square and the triangle refused, the ring');
+});
+
+// ---- The view's API (task 62, the contract core → ui) ----
+
+check('the closing target is the first rune, not its enemy: the enemy walked off — the pointer on its body does not close, on the rune it does', () => {
+  for (const k of SEEDS) {
+    const f = fight(quiet({}, true), k), w = f.w;
+    f.sim.command({ t: 'teleport', x: 7.5, y: 6 });
+    const ring = PENTAGON.map(q => place(f, q));
+    draw(f, ring);
+    const target = castFirstRune(w)!;
+    assert(target && target.x === PENTAGON[0].x && target.y === PENTAGON[0].y && target.r > 0, `seed ${k}: the target is the first rune (${JSON.stringify(target)})`);
+    tick(f, 40);
+    const first = ring[0];
+    const off = Math.sqrt((first.x - target.x) ** 2 + (first.y - target.y) ** 2);
+    assert(off > target.r, `seed ${k}: the first enemy walked off its rune (${off.toFixed(2)} > ${target.r.toFixed(2)})`);
+    f.sim.command({ t: 'drag', x: first.x, y: first.y, mode: 'full' });
+    assert(!w.chainClosed, `seed ${k}: the pointer on the enemy's body does not close`);
+    f.sim.command({ t: 'drag', x: target.x, y: target.y, mode: 'full' });
+    const closed = w.chainClosed === 'first' || of(w.events, 'loop').some(e => e.action === 'refused');
+    assert(closed, `seed ${k}: the pointer on the rune closes (or is refused as a figure) (${w.chainClosed})`);
+  }
+});
+
+check('the event `cast` of a discharge: her place and circle, the links in the order drawn at their runes, `struck` — the skipped one out of the circle', () => {
+  for (const k of SEEDS) {
+    const f = fight(quiet({}, true), k), w = f.w;
+    const a = place(f, { x: 7.5, y: 6 }), b = place(f, { x: 8, y: 8.6 }), c = place(f, { x: 4, y: 3.5 });
+    draw(f, [a, b, c]);
+    assert(witchStands(w) && inCast(w, b), `seed ${k}: she stands with a chain, the second link in her circle`);
+    const runes = w.chain.map(l => ({ ...l.rune! }));
+    f.sim.command({ t: 'teleport', x: 5, y: 3 });
+    assert(!inCast(w, b), `seed ${k}: the second link out of her circle now`);
+    const { events } = release(f);
+    const cast = of(events, 'cast');
+    assert(cast.length === 1 && cast[0].x === 5 && cast[0].y === 3 && Math.abs(cast[0].r - castCircle(w).r) < 1e-9, `seed ${k}: one cast event at her place (${JSON.stringify(cast[0])})`);
+    const links = cast[0].links;
+    assert(links.map(l => l.id).join() === [a.id, b.id, c.id].join() && links.every((l, i) => l.x === runes[i].x && l.y === runes[i].y), `seed ${k}: the links in order at their runes`);
+    assert(links.map(l => l.struck).join() === 'true,false,true', `seed ${k}: struck ${links.map(l => l.struck)}`);
+    assert(of(events, 'chainHit').map(h => h.enemyId).join() === [a.id, c.id].join() && !witchStands(w), `seed ${k}: the hits are the struck ones; she walks again`);
+  }
+});
+
+check('«Показать фигуру»: the class of any contour (a square too), while the game refuses it «не фигура»; no v2 — nothing', () => {
+  const f = fight(quiet(), 1), w = f.w;
+  f.sim.command({ t: 'teleport', x: 8, y: 6 });
+  const sq = SQUARE.map(q => place(f, q));
+  draw(f, sq);
+  const shown = witchGlyphClass(w), plan = planChain(w);
+  assert(shown && 'kind' in shown && shown.kind === 'square' && plan.glyph && 'refusal' in plan.glyph && plan.glyph.refusal === 'notFigure', `the class «Квадрат», the game «не фигура» (${JSON.stringify(shown)})`);
+  const g = fight(quiet({ witchV2: false }), 1);
+  g.sim.command({ t: 'teleport', x: 8, y: 6 });
+  draw(g, SQUARE.map(q => place(g, q)));
+  assert(witchGlyphClass(g.w) === null && castFirstRune(g.w) === null && !witchStands(g.w) && !planChain(g.w).cast, 'v1: no class, no target, no stand, no circle');
 });
 
 // ---- The focus and the pause ----

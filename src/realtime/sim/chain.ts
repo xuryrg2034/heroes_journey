@@ -33,7 +33,7 @@ import { curseKill, takeChest } from './chest';
 import { hasTalisman, sealOnlyShield } from './kit';
 import { witchOn } from './kit';
 // Task 62 «Ведунья v2»: the figures of a closed chain (the geometry).
-import { classifyGlyph, type GlyphKind, type GlyphRefusal, type GlyphResult } from './glyphs';
+import { classifyGlyph, glyphClass, type GlyphKind, type GlyphRefusal, type GlyphResult } from './glyphs';
 import { afterLinkPowerOf, anchorsOf, buildActive, chainShieldMinKillsOf, chainShieldOf, colorRuleOf, colorShiftOf, crystalEveryOf, endShadowOf, focusMaxOf, hasHook, honedFired, jumpCostOf, linkGainOf, linkPowerOf, linkRadiusBaseOf, linkRadiusOf, nextChainNo, platesBeforeOf, rank2LinksOf, runHook, secondKey, talismanFired, type ChainAnchor, type ChainEnd, type HonedRelease, type LinkContext } from './build';
 import { BUILD_SOURCES, COUNTER_TALISMANS, FORMS, FUSIONS, HAMMERS } from './buildIds';
 // Task 52, Р2: the dwell gesture of «Развилка» (its anchor; the anchors hook reads the same).
@@ -73,7 +73,7 @@ import { WARLOCK, warlockCharmOn, warlockClosed, warlockLinkDrop, warlockReserve
 // Task 57а «Лес: стрелки»: the dash puts out the light shots it touches (`Params.snuffShots`).
 import { snuffAlong, snuffing } from './shots';
 import { CHIEF, chiefFeastOn, chiefGuarded, chiefHitOutcome, chiefLinkDrop, chiefQueue, chiefQueueShort, chiefRelease, chiefShut, chiefWards } from './enemies/chief';
-import { NO_COLOR, OBJECT_RADIUS, checkGoals, damageEnemy, doorOf, doorOpen, pushOutOfSolids, enemyFrozen, findObject, nextFiring, startShieldWindow, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
+import { NO_COLOR, OBJECT_RADIUS, checkGoals, damageEnemy, doorOf, doorOpen, pushOutOfSolids, enemyFrozen, findObject, nextFiring, startShieldWindow, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World, type WorldEvent } from './world';
 // Task 56 «Приметы» (omens.ts): the marks of a link taken in water or of the colour on the roll call.
 import { callEnergy, fixOmenLinks, omenLink, wetHit } from './omens';
 
@@ -1015,8 +1015,17 @@ export function loopKindAt(world: World, p: Vec): LoopKind | null {
   const under = pick(world, p,
     e => inChain(world, e) >= 0 || canLink(world, e, plan),
     o => linkIndex(world, { kind: 'object', id: o.id }) >= 0 || canLinkObject(world, o, plan), true);
-  // Task 62: Ведунья v2 closes on her first rune only (3 runes at least: the figure decides the rest), never on herself.
-  if (under) return under.kind === first.kind && under.id === first.id && world.chain.length - 2 !== 0 && (witch ? chainRunes(world.chain).length >= GLYPH_MIN_RUNES : n >= loopMinOf(params, 'first')) ? 'first' : null;
+  // Task 62 (spec 3.1): Ведунья v2 closes on her first rune — its point, in the first enemy's pick radius (3 runes at least: the figure
+  // decides the rest), never on herself; a new link or another link of the chain nearer to the pointer than the rune is taken instead.
+  if (witch) {
+    const target = castFirstRune(world);
+    if (!target || world.chain.length - 2 === 0 || chainRunes(world.chain).length < GLYPH_MIN_RUNES) return null;
+    const d = dist(p, target);
+    if (d > target.r) return null;
+    const near = under && !(under.kind === first.kind && under.id === first.id) ? linkPoint(world, under) : null;
+    return near && dist(near, p) < d ? null : 'first';
+  }
+  if (under) return under.kind === first.kind && under.id === first.id && world.chain.length - 2 !== 0 && n >= loopMinOf(params, 'first') ? 'first' : null;
   if (!witch && params.loopHeroCloses && dist(p, world.hero) <= HERO_CANCEL_RADIUS && n >= loopMinOf(params, 'hero')) return 'hero';
   return null;
 }
@@ -1463,6 +1472,26 @@ export function castRefusal(world: World, target: Vec, edge: number, ordinary = 
 }
 /** Ведунья v2: an enemy link is struck by the discharge now — on the arena, in the circle, in sight from her. */
 const castReaches = (world: World, enemy: Enemy): boolean => castRefusal(world, enemy, enemyArtRadius(world.params, enemy)) === null;
+/** The view's API (task 62): an enemy in Ведунья v2's reach now — in her circle and in sight (out of it the view dims it). */
+export const inCast = (world: World, enemy: Enemy): boolean => witchOn(world) && castReaches(world, enemy);
+/** The view's API: Ведунья v2 stands — a chain in her hand (the walk does nothing until the release). */
+export const witchStands = (world: World): boolean => witchOn(world) && world.chain.length > 0 && !world.move;
+/**
+ * The view's API (spec 3.1): the target of the closing — the first rune and the pick radius of its enemy; the pointer event there closes the
+ * drawn chain (`loopKindAt`). Null — no v2, no chain, or its first link is no enemy on the arena.
+ */
+export function castFirstRune(world: World): { x: number; y: number; r: number } | null {
+  const first = witchOn(world) ? world.chain[0] : undefined, e = first?.kind === 'enemy' && first.rune ? findEnemy(world, first.id) : undefined;
+  return first?.rune && e ? { x: first.rune.x, y: first.rune.y, r: pickRadius(world, e) } : null;
+}
+/**
+ * The view's API, the sandbox's «Показать фигуру» (spec 6, stage A): the class of the drawn chain's contour of runes whatever stage A acts
+ * on — «Квадрат» and «Треугольник» too (`glyphClass`). Null — no v2, or fewer than 3 runes. The game's answer is `ChainPlan.glyph`.
+ */
+export function witchGlyphClass(world: World): GlyphResult | null {
+  const runes = witchOn(world) ? chainRunes(world.chain) : [];
+  return runes.length >= GLYPH_MIN_RUNES ? glyphClass(world.params, runes) : null;
+}
 /** Ведунья v2: the runes of the drawn chain's enemy links, in order (the contour of a figure; crystals and objects are no corners). */
 export function chainRunes(links: readonly ChainLink[]): Vec[] {
   return links.flatMap(l => (l.kind === 'enemy' && l.rune ? [{ x: l.rune.x, y: l.rune.y }] : []));
@@ -1922,8 +1951,14 @@ export function releaseChain(world: World): boolean {
  * starts (`World.castAt`). The highlight (`planChain`) reads the same rules.
  */
 function castDischarge(world: World): void {
-  const move = world.move!, home = { x: world.hero.x, y: world.hero.y };
+  const move = world.move!, home = { x: world.hero.x, y: world.hero.y }, circle = castCircle(world);
   world.castAt = world.time;
+  // The view's thread (event `cast`): every link in order — its rune (an object — its place) and whether the discharge struck it.
+  const thread: Extract<WorldEvent, { type: 'cast' }>['links'] = move.links.map(l => {
+    const at = l.kind === 'enemy' && l.rune ? l.rune : linkPoint(world, l) ?? home;
+    return { kind: l.kind, id: l.id, x: at.x, y: at.y, struck: false };
+  });
+  const mark = (id: number): void => { const t = thread.find(e => e.kind === 'enemy' && e.id === id); if (t) t.struck = true; };
   while (move.links.length && world.status === 'playing' && world.move === move) {
     const link = move.links.shift()!;
     if (link.kind === 'object') {
@@ -1940,8 +1975,10 @@ function castDischarge(world: World): void {
     if (!enemy || !castReaches(world, enemy)) continue;
     // Task 55а: a thing ends the chain unstruck, its shove waits for the end (the dash's rule; the open question of 62 × 55а — the lead's).
     if (isThing(enemy) && shoveOn(world)) { move.links = []; if (move.shove?.thing === enemy.id) move.shoveHit = true; continue; }
+    mark(enemy.id);
     hitEnemy(world, enemy);
   }
+  world.events.push({ type: 'cast', x: home.x, y: home.y, r: circle.r, links: thread });
   // As the dash: a door entered ends the move (the chain's score counts), a defeat leaves it.
   if (world.move !== move || world.status === 'defeat') return;
   move.stop = home; move.point = null; delete move.route; delete move.detour;
