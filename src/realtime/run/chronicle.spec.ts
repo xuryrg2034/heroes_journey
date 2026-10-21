@@ -20,7 +20,7 @@
  */
 import { offeredNow, ok, seedOf, walkRun, type Walk } from './metaWalk.testkit';
 import { createRtProfileStore, parseRtProfile, RT_PROFILE_STORAGE_KEY, type RtProfileStore, type RunStorage } from './rtRunStorage';
-import { parseRtMeta, rtRunKey } from './rtMeta';
+import { parseRtMeta, rtMetaLocked, rtRunKey } from './rtMeta';
 import { RT_DAILY_PRESET } from './rtDaily';
 import {
   createRtRun, parseRtRun, rtChooseHammer, rtChooseTalisman, rtHammerRerollView, rtInnate, rtRerollHammers, rtRerollTalismans, rtRerollView, rtShopLeave, rtShopReroll, rtShopRerollView,
@@ -181,6 +181,12 @@ await check('58в: the note `shown` changes no draw (a run with it walks the run
   const read = (patch: Record<string, unknown>) => parseRtRun(JSON.stringify({ ...base, ...patch }));
   assert(read({}) !== null && read({ chronicle: undefined }) === null && read({ shown: [] }) === null && read({ shown: ['no-such-item'] }) === null
     && read({ shown: [base.shown[0], base.shown[0]] }) === null && read({ shown: [...base.shown, base.talismans[0]] }) === null && read({ chronicle: 1 }) === null, 'malformed notes refused');
+  // A save edited by hand: an item a pack locks, or the hero's innate «Печать» (Ведунья's), in `shown` — no run (no leak of the locked).
+  const locked = walkRun({ k: 3, create: { gift: 'full', garrison: false, chronicle: true, locked: rtMetaLocked(undefined) } }).run, lockedBase = JSON.parse(serializeRtRun(locked));
+  const lockedId = lockedBase.locked.find((id: string) => !lockedBase.shown?.includes(id))!;
+  assert(lockedBase.shown?.length && parseRtRun(JSON.stringify(lockedBase)) !== null && parseRtRun(JSON.stringify({ ...lockedBase, shown: [...lockedBase.shown, lockedId] })) === null, `a locked item in shown refused (${lockedId})`);
+  const toad = walkRun({ k: 5, create: { gift: 'full', garrison: false, chronicle: true, hero: 'toad' } }).run, toadBase = JSON.parse(serializeRtRun(toad));
+  assert(toadBase.shown?.length && parseRtRun(JSON.stringify(toadBase)) !== null && parseRtRun(JSON.stringify({ ...toadBase, shown: [...toadBase.shown, 'form-seal'] })) === null, 'the innate «Печать» in shown refused');
 });
 
 await check('«Свойства элит» from the chronicle itself: the retro reads the history once; «Обучение» and later runs never shrink the book', () => {
