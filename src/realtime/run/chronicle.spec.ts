@@ -1,0 +1,248 @@
+/**
+ * Task 58 «Летопись», core 58а (docs/design-notes/task-58-discovery.md, sections 4, 6.1, 7, 8, 10 and 11). Node only:
+ * `npm run test:realtime-chronicle`. Whole runs walked by the run's own commands (metaWalk.testkit.ts), the profile as the view keeps it
+ * (`createRtProfileStore` with the chronicle on):
+ * - a meta run's end writes what it did: the events entered (the circle), the items taken and seen, the fusions made, the bosses met and
+ *   won with the viewer's run, the hero freed, the garrison's chapter; the run's list (`chronicleAdded`) holds its fights' kinds too;
+ * - a run with a given seed writes nothing; an abandoned run writes; a second end of the same run writes nothing twice; «Обучение»
+ *   keeps the chronicle; with the chronicle off (and before its first write) a profile reads and writes byte for byte as before;
+ * - the retro on fixtures (the П8 memory, the history, Ведунья freed, the garrison passed, the best «Испытание»), once;
+ * - nothing hidden leaks into the contract (the garrison before it is reached, Ведунья before the Jailer, the locked items' state);
+ * - the owl's hint: different targets on different profiles, always obtainable, the same input — the same hint, a target seen — gone;
+ * - the telemetry's fields, `checkRecord`, the report's section «Летопись».
+ * Seeds `Math.imul(k, 2654435761) >>> 0`.
+ */
+import { seedOf, walkRun, type Walk } from './metaWalk.testkit';
+import { createRtProfileStore, parseRtProfile, RT_PROFILE_STORAGE_KEY, type RtProfileStore, type RunStorage } from './rtRunStorage';
+import { rtRunKey } from './rtMeta';
+import { createRtRun, rtInnate, type RtRunState } from './rtRun';
+import { isRtForm } from './rtTalismans';
+import { rtChronicleParts, RT_CHRONICLE_BOSSES, RT_CHRONICLE_GARRISON_KINDS, isRtChronicleFusion, isRtChronicleItem } from './chronicleCatalog';
+import { rtChronicleHint, type RtChronicleView } from './chroniclePages';
+import type { RtChronicle } from './chronicle';
+import { TROLL_RUN_ARENAS } from '../sim/arenasBoss';
+import { RtRecorder } from '../telemetry/recorder';
+import { memoryJournalStore, type KeyValueStore } from '../telemetry/buffer';
+import { checkRecord, type RunRecord } from '../telemetry/schema';
+import { chronicleSection } from '../telemetry/report';
+import { defaultParams } from '../sim/params';
+
+let checks = 0;
+async function check(name: string, run: () => void | Promise<void>): Promise<void> { await run(); checks++; console.log(`ok - ${name}`); }
+function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
+const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+function memoryStorage(): RunStorage & { data: Map<string, string> } {
+  const data = new Map<string, string>();
+  return { data, getItem: key => data.get(key) ?? null, setItem: (key, value) => { data.set(key, value); }, removeItem: key => { data.delete(key); } };
+}
+const NPCS = { gambler: true, monk: true };
+const profileText = (storage: { data: Map<string, string> }): string => storage.data.get(RT_PROFILE_STORAGE_KEY) ?? '';
+const chronicleOf = (store: RtProfileStore): RtChronicle => store.load().meta?.chronicle ?? {};
+/** A meta run of the store: started (the viewer's run number), walked with the camp's flags, its fights' kinds met on the way. */
+function metaRun(store: RtProfileStore, k: number, create: Record<string, unknown> = {}, extra: Partial<Parameters<typeof walkRun>[0]> = {}): { walk: Walk; viewerRun: number } {
+  const viewerRun = store.startRun().run;
+  const walk = walkRun({ k, create: { gift: 'full', garrison: false, forms: true, fusions: true, locked: store.locked(), hearth: store.hearthStart(seedOf(k)).flags, ...create }, ...extra });
+  return { walk, viewerRun };
+}
+const entry = (view: RtChronicleView, page: string, chapter: string, id: string) =>
+  view.pages.find(p => p.id === page)?.chapters.find(c => c.id === chapter)?.entries.find(e => e.id === id);
+
+await check('a meta run\'s end writes what the run did (events, items taken and seen, fusions, bosses with the viewer\'s run), its list holds them', () => {
+  const storage = memoryStorage(), store = createRtProfileStore(storage, { chronicle: true });
+  let events = 0, seen = 0, fusions = 0, troll = 0, casino = 0;
+  for (let k = 1; k <= 12; k++) {
+    const loseTroll = k % 3 === 0;
+    const { walk, viewerRun } = metaRun(store, k, { garrison: k % 4 === 0 }, { fuse: true, circle: true, ...loseTroll ? { loseAt: (r: RtRunState, type: string) => type === 'boss' && r.pending?.kind === 'battle' && TROLL_RUN_ARENAS.includes(r.pending.arena) } : {} });
+    const before = chronicleOf(store), run = walk.run;
+    const end = store.endRunMeta(run)!, after = chronicleOf(store);
+    assert(end.chronicle && same(store.chronicleAdded(rtRunKey(run)), end.chronicle.added), `seed ${k}: the run's list`);
+    // Events: every event node entered; the circle.
+    for (const pick of run.picks) if (pick.eventId) { assert(after.events?.includes(pick.eventId), `seed ${k}: event ${pick.eventId}`); events++; }
+    if (run.casino) { assert(after.events?.includes('casino'), `seed ${k}: the circle`); casino++; }
+    // Items: every talisman held at the end — taken (but the hero's innate); a talisman left on a screen — seen at least.
+    for (const id of run.talismans) if (isRtChronicleItem(id) && !rtInnate(run).includes(id)) assert(after.items?.[id] === 2, `seed ${k}: ${id} taken`);
+    for (const id of run.talismansGone) if (isRtChronicleItem(id) && !isRtForm(id) && !isRtChronicleFusion(id)) { assert((after.items?.[id] ?? 0) >= 1, `seed ${k}: ${id} seen`); if (after.items?.[id] === 1) seen++; }
+    // Fusions: made at a rest — both parts taken.
+    for (const id of run.talismans.filter(isRtChronicleFusion)) { assert(after.fusions?.includes(id) && rtChronicleParts(id).every(part => after.items?.[part] === 2), `seed ${k}: fusion ${id}`); fusions++; }
+    // Bosses: the first meeting, the first win — with the viewer's run.
+    for (const boss of RT_CHRONICLE_BOSSES) {
+      const fights = run.battles.filter(b => boss.arenas.includes(b.arena));
+      if (!fights.length) continue;
+      const b = after.bosses?.[boss.id]!;
+      assert(b && b.met === (before.bosses?.[boss.id]?.met ?? viewerRun), `seed ${k}: ${boss.id} met`);
+      if (fights.some(f => f.won)) assert(b.won === (before.bosses?.[boss.id]?.won ?? viewerRun), `seed ${k}: ${boss.id} won`);
+      else assert(b.won === before.bosses?.[boss.id]?.won, `seed ${k}: ${boss.id} lost — no win`);
+      if (boss.id === 'troll' && !fights.some(f => f.won)) troll++;
+    }
+    // The list: new refs only, all unread.
+    for (const ref of end.chronicle!.added) assert(after.unread?.includes(ref) && !before.unread?.includes(ref) || ref.startsWith('kind:'), `seed ${k}: ${ref} new`);
+  }
+  assert(events >= 5 && seen >= 3 && fusions >= 1 && troll >= 1 && casino >= 1, `covered: events ${events}, seen ${seen}, fusions ${fusions}, troll lost ${troll}, circle ${casino}`);
+  const c = chronicleOf(store);
+  assert(c.bosses?.jailer?.won !== undefined && c.bosses?.castellan?.won !== undefined, `the Jailer and the Castellan won: ${JSON.stringify(c.bosses)}`);
+  assert(c.unread?.includes('hero:toad') && c.unread.includes('chapter:garrison'), 'Ведунья freed, the garrison\'s chapter');
+});
+
+await check('the fights\' kinds (`chronicleMeet`) join the run\'s list; repeats and unknown ids write nothing; the list stays the run\'s after a reload', () => {
+  const storage = memoryStorage(), store = createRtProfileStore(storage, { chronicle: true });
+  const { walk } = metaRun(store, 1, {}, {});
+  assert(store.chronicleMeet(['wolf', 'boar', 'no-such-kind'], ['fiery']), 'new kinds written');
+  const text = profileText(storage);
+  assert(!store.chronicleMeet(['boar', 'wolf'], ['fiery']) && !store.chronicleMeet(['no-such-kind'], ['no-affix']) && profileText(storage) === text, 'repeats and unknown ids: no write');
+  const end = store.endRunMeta(walk.run)!;
+  assert(['kind:wolf', 'kind:boar', 'affix:fiery'].every(ref => end.chronicle!.added.includes(ref)) && !end.chronicle!.added.includes('kind:no-such-kind'), `the run's list ${end.chronicle!.added}`);
+  const again = createRtProfileStore(storage, { chronicle: true });
+  assert(same(again.chronicleAdded(rtRunKey(walk.run)), end.chronicle!.added) && same(again.chronicleAdded('another'), []), 'the list after a reload; another key — none');
+  // The next run's list starts empty: the kinds met before its end are its own.
+  const next = metaRun(again, 2);
+  again.chronicleMeet(['lynx'], []);
+  const nextEnd = again.endRunMeta(next.walk.run)!;
+  assert(nextEnd.chronicle!.added.includes('kind:lynx') && !nextEnd.chronicle!.added.includes('kind:wolf'), `the next run's list ${nextEnd.chronicle!.added}`);
+});
+
+await check('a run with a given seed writes nothing; an abandoned run writes; the same end twice writes once; «Обучение» keeps the chronicle', () => {
+  const storage = memoryStorage(), store = createRtProfileStore(storage, { chronicle: true });
+  store.chronicleMeet(['wolf'], []);
+  const text = profileText(storage), seeded = walkRun({ k: 3, create: { gift: 'full', garrison: false, seeded: true } });
+  assert(store.endRunMeta(seeded.run) === null && profileText(storage) === text, 'a seeded run: nothing');
+  // Abandoned on its way (no result): the events entered so far are written.
+  let mid: RtRunState | undefined;
+  metaRun(store, 5, {}, { each: state => { if (!mid && state.picks.some(p => p.eventId) && state.pending === null) mid = state; } });
+  assert(mid && !mid.result, 'a state with an event entered');
+  const end = store.endRunMeta(mid)!, written = profileText(storage);
+  assert(mid.picks.filter(p => p.eventId).every(p => chronicleOf(store).events?.includes(p.eventId!)) && end.chronicle!.added.some(ref => ref.startsWith('event:')), 'the abandoned run wrote its events');
+  assert(same(store.endRunMeta(mid), end) && profileText(storage) === written, 'the same end again: the same result, no write');
+  const kept = JSON.stringify(chronicleOf(store));
+  store.resetSchedule(seedOf(5));
+  assert(JSON.stringify(chronicleOf(store)) === kept && (store.load().seen ?? []).length === 0, '«Обучение» empties the history, keeps the chronicle');
+});
+
+await check('the chronicle off: no field ever; a profile before the first write reads and writes byte for byte', () => {
+  const off = memoryStorage(), on = memoryStorage();
+  const a = createRtProfileStore(off, { chronicle: false });
+  for (let k = 1; k <= 4; k++) { const { walk } = metaRun(a, k, { garrison: k === 2 }); a.endRunMeta(walk.run); a.freeHero(walk.run); }
+  assert(!a.chronicleMeet(['wolf'], []) && !a.chronicleImport({ kinds: ['wolf'], affixes: [] }) && !a.chronicleRead() && !profileText(off).includes('chronicle'), 'off: nothing written');
+  // A profile of before (no field) under a store with the chronicle on: what writes no chronicle keeps it byte for byte.
+  on.data.set(RT_PROFILE_STORAGE_KEY, profileText(off));
+  const c = createRtProfileStore(on, { chronicle: true });
+  for (const s of [a, c]) { s.startRun(); s.markLine('owl:first'); s.buyHearth('owl', 1); s.hearthStart(seedOf(9)); s.chooseHero('cat'); }
+  assert(profileText(on) === profileText(off) && parseRtProfile(profileText(on)).meta?.chronicle === undefined, 'byte for byte before the first write');
+});
+
+await check('the retro: the П8 memory, the history, Ведунья freed, the garrison passed, the best «Испытание» — once, nothing unread', () => {
+  const base = { version: 1, giftFull: true, jailer: true, runs: 14, won: true, seen: ['wolf', 'shaman', 'elite', 'affix', 'affix:fiery', 'cliff'],
+    meta: { heroes: { cat: { xp: 400, packs: ['hunter'], record: { row: 4, won: true, xp: 90, level: 2, wonLevel: 2 }, ashBest: 5 } }, freed: { toad: { row: 5, run: 3 } } } };
+  const storage = memoryStorage();
+  storage.data.set(RT_PROFILE_STORAGE_KEY, JSON.stringify(base));
+  const store = createRtProfileStore(storage, { chronicle: true });
+  assert(store.chronicleImport({ kinds: ['lynx', 'guard', 'not-a-kind'], affixes: ['swift'] }), 'imported');
+  const c = chronicleOf(store);
+  assert(same(c.kinds, ['guard', 'lynx', 'shaman', 'wolf']) && same(c.affixes, ['fiery', 'swift']), `kinds and affixes ${JSON.stringify(c)}`);
+  assert(same(c.bosses, { jailer: { met: 3, won: 3 }, castellan: { met: 0, won: 0 } }) && c.since === 14 && c.retro === true && !c.unread, `bosses, since, retro ${JSON.stringify(c)}`);
+  const text = profileText(storage);
+  assert(!store.chronicleImport({ kinds: ['boar'], affixes: [] }) && profileText(storage) === text, 'once: the second import does nothing');
+  const view = store.chronicle('cat');
+  assert(entry(view, 'heroes', 'ash-cat', 'ash:cat:5')?.state === 'seen' && entry(view, 'heroes', 'ash-cat', 'ash:cat:6')?.state === 'unknown', 'the ladder to V');
+  assert(entry(view, 'bosses', 'forest', 'troll')?.state === 'unknown' && entry(view, 'bosses', 'garrison', 'castellan')?.state === 'won', 'the Troll «?» (no branch known), the Castellan won');
+  assert(entry(view, 'heroes', 'heroes', 'toad')?.state === 'met' && entry(view, 'heroes', 'heroes', 'toad')?.run === 3 && view.unread === 0 && view.retro, 'Ведунья freed in run 3; nothing unread; the retro line');
+  // A forest win without `ashBest` (before task 49): the ladder at 0; the forest passed without its branch: the Troll «?».
+  const old = memoryStorage();
+  old.data.set(RT_PROFILE_STORAGE_KEY, JSON.stringify({ version: 1, giftFull: true, runs: 5, won: true, meta: { heroes: { cat: { xp: 90, packs: [], record: { row: 10, won: true, xp: 60 } } } } }));
+  const s2 = createRtProfileStore(old, { chronicle: true });
+  s2.chronicleImport({ kinds: [], affixes: [] });
+  const v2 = s2.chronicle();
+  assert(v2.pages.find(p => p.id === 'heroes')!.chapters.find(ch => ch.id === 'ash-cat')!.entries.every(e => e.state === 'unknown') && entry(v2, 'bosses', 'forest', 'troll')?.state === 'unknown' && !v2.retro, 'no ashBest: the ladder at 0; nothing brought — no retro line');
+});
+
+await check('nothing hidden leaks: the garrison before it is reached (one blank chapter), Ведунья before the Jailer, the locked items without a state of their own', () => {
+  const store = createRtProfileStore(memoryStorage(), { chronicle: true });
+  const fresh = store.chronicle();
+  const ids = (v: RtChronicleView, page: string) => v.pages.find(p => p.id === page)!.chapters;
+  for (const page of ['bestiary', 'bosses']) {
+    const chapters = ids(fresh, page), blank = chapters.find(ch => ch.state === 'blank');
+    assert(!chapters.some(ch => ch.id === 'garrison') && blank?.level === 2 && blank.entries.length === 0 && chapters.filter(ch => ch.state === 'blank').length === 1, `${page}: the garrison hidden, one blank chapter`);
+  }
+  assert(!JSON.stringify(fresh).includes('castellan') && !RT_CHRONICLE_GARRISON_KINDS.some(id => JSON.stringify(fresh).includes(`"${id}"`)), 'no garrison id in the contract');
+  assert(!ids(fresh, 'heroes').flatMap(ch => ch.entries).some(e => e.id === 'toad') && !ids(fresh, 'heroes').some(ch => ch.id.startsWith('ash-')), 'Ведунья and the ladders hidden');
+  const locked = ids(fresh, 'items').flatMap(ch => ch.entries).filter(e => e.state === 'locked');
+  assert(locked.length >= 8 && locked.every(e => store.locked().includes(e.id)) && ids(fresh, 'events')[0].entries.filter(e => e.state === 'locked').length === 3, `the packs' items and events locked (${locked.length})`);
+  assert(fresh.total[1] === fresh.pages.reduce((n, p) => n + p.known, 0) && fresh.total[0] === 1 + 1, `the counts: only the visible (${fresh.total})`);
+  // After the garrison: its chapters open on both pages, no blank one (no further level in this build).
+  const { walk } = metaRun(store, 2, { garrison: true });
+  store.endRunMeta(walk.run);
+  const after = store.chronicle();
+  for (const page of ['bestiary', 'bosses']) assert(ids(after, page).some(ch => ch.id === 'garrison' && ch.state === 'open') && !ids(after, page).some(ch => ch.state === 'blank'), `${page}: the garrison open`);
+  assert(after.total[1] > fresh.total[1], 'the book grew');
+});
+
+await check('the owl\'s hint: different targets on different profiles, always obtainable, the same input — the same hint, a target seen — gone', () => {
+  const targets = new Set<string>();
+  for (let k = 1; k <= 6; k++) {
+    const storage = memoryStorage(), store = createRtProfileStore(storage, { chronicle: true });
+    for (let r = 0; r < k; r++) { const { walk } = metaRun(store, k * 10 + r, { garrison: r % 2 === 1 }); store.endRunMeta(walk.run); }
+    const profile = store.load(), view = store.chronicle();
+    const hint = rtChronicleHint(profile, 'cat', NPCS);
+    assert(hint && same(hint, rtChronicleHint(profile, 'cat', NPCS)) && same(view.hint, hint), `seed ${k}: a hint, the same twice`);
+    targets.add(hint.target);
+    // Obtainable: its entry is visible and empty (not locked, a level reached); a fusion names a part taken.
+    for (let runs = 0; runs < 40; runs++) {
+      const h = rtChronicleHint({ ...profile, runs }, 'cat', NPCS)!;
+      const [kind, id] = h.target.split(':');
+      const all = view.pages.flatMap(p => p.chapters.flatMap(ch => ch.entries));
+      const target = all.find(e => e.id === (kind === 'ash' ? h.target : id));
+      assert(target?.state === 'unknown', `seed ${k}: target ${h.target} visible and empty (${target?.state})`);
+      if (kind === 'item') assert(h.part && profile.meta?.chronicle?.items?.[h.part] === 2, `seed ${k}: the fusion's part ${h.part}`);
+    }
+  }
+  assert(targets.size >= 3, `different targets: ${[...targets]}`);
+  // A target seen is never hinted again: every event target written into the profile.
+  const storage = memoryStorage(), store = createRtProfileStore(storage, { chronicle: true });
+  const { walk } = metaRun(store, 7);
+  store.endRunMeta(walk.run);
+  const profile = store.load(), before = new Set<string>();
+  for (let runs = 0; runs < 60; runs++) before.add(rtChronicleHint({ ...profile, runs }, 'cat', NPCS)!.target);
+  const events = [...before].filter(t => t.startsWith('event:')).map(t => t.slice(6));
+  assert(events.length >= 3, 'event targets');
+  const seen = { ...profile, meta: { ...profile.meta!, chronicle: { ...profile.meta!.chronicle, events: [...profile.meta!.chronicle?.events ?? [], ...events].sort() } } };
+  for (let runs = 0; runs < 60; runs++) assert(!rtChronicleHint({ ...seen, runs }, 'cat', NPCS)!.target.startsWith('event:') || !events.includes(rtChronicleHint({ ...seen, runs }, 'cat', NPCS)!.target.slice(6)), 'a seen event is not hinted');
+  // Ведунья: no fusion with her innate «Печать» is hinted.
+  for (let runs = 0; runs < 60; runs++) assert(rtChronicleHint({ ...profile, runs }, 'toad', NPCS)?.target !== 'item:fusion-ice-seal', 'no «Ледяная печать» hint for Ведунья');
+});
+
+await check('read: the unread are read (the pages\' «✦», the count), once', () => {
+  const storage = memoryStorage(), store = createRtProfileStore(storage, { chronicle: true });
+  const { walk } = metaRun(store, 1);
+  store.chronicleMeet(['wolf'], []);
+  store.endRunMeta(walk.run);
+  const before = store.chronicle();
+  assert(before.unread > 0 && before.pages.find(p => p.id === 'bestiary')!.unread, 'unread before');
+  assert(store.chronicleRead() && !store.chronicleRead(), 'read once');
+  const after = store.chronicle();
+  assert(after.unread === 0 && after.pages.every(p => !p.unread) && same(after.total, before.total), 'read: no «✦», the same counts');
+});
+
+await check('telemetry: the run record\'s `chronicle` (its list and the pages), `chronicleOpen`, `hint`; `checkRecord`; the report\'s section', async () => {
+  const local: KeyValueStore = (() => { const m = new Map<string, string>(); return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => { m.set(k, v); }, removeItem: (k: string) => { m.delete(k); }, key: (i: number) => [...m.keys()][i] ?? null, get length() { return m.size; } } as unknown as KeyValueStore; })();
+  const rec = new RtRecorder({ sandbox: false, paramsStorage: 'p', params: defaultParams(), local, sessionStore: { getItem: () => null, setItem: () => undefined }, channel: null, sinkPollMs: 0, buffer: { storage: local, journals: memoryJournalStore() } });
+  const store = createRtProfileStore(memoryStorage(), { chronicle: true });
+  const { walk } = metaRun(store, 2);
+  rec.runStarted(null, createRtRun(walk.run.seed, { garrison: false, gift: 'full' }));
+  store.chronicleMeet(['wolf', 'boar'], []);
+  const end = store.endRunMeta(walk.run)!, view = store.chronicle();
+  rec.runMetaEnd(walk.run, end);
+  rec.chronicleOpened(walk.run, { pages: ['bestiary', 'items'], seconds: 12.34, unread: true });
+  rec.chronicleHint(walk.run, view.hint!); rec.chronicleHint(walk.run, { key: 'other', target: 'other' });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  const record = (await rec.buffer.all()).filter((r): r is RunRecord => r.kind === 'run').pop()!;
+  assert(record.chronicle && same(record.chronicle.added, end.chronicle!.added) && same(record.chronicle.pages, Object.fromEntries(view.pages.map(p => [p.id, [p.have, p.known]]))), `the record's chronicle ${JSON.stringify(record.chronicle)}`);
+  assert(same(record.chronicleOpen, [{ pages: ['bestiary', 'items'], seconds: 12.3, unread: true }]) && same(record.hint, { key: view.hint!.key, target: view.hint!.target }), 'the window and the first hint');
+  assert(checkRecord(record) === null, `checkRecord ${checkRecord(record)}`);
+  for (const bad of [{ chronicle: { added: 'x', pages: {} } }, { chronicle: { added: [], pages: { items: [5, 2] } } }, { chronicleOpen: [{ pages: [], seconds: -1, unread: true }] }, { hint: { key: 1, target: 'x' } }])
+    assert(checkRecord({ ...record, ...bad } as unknown as RunRecord) !== null, `malformed ${JSON.stringify(bad)} refused`);
+  const section = chronicleSection([record, { ...record, viewerRun: 12, at: '2099-01-01T00:00:00.000Z' }]);
+  assert(['Бестиарий', 'Талисманы и формы', 'Первые находки', 'Подсказка Неясыти', '1–3', '11–20'].every(word => section.includes(word)), section);
+  assert(chronicleSection([]).includes('нет'), 'no runs — a line');
+  rec.dispose();
+});
+
+console.log(`realtime-chronicle: ${checks} checks passed`);

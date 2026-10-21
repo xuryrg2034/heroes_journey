@@ -1032,6 +1032,51 @@ export function heroesSection(runs: readonly RunRecord[], entries: readonly Figh
     first < 0 ? 'Спасения Ведуньи в записях нет (`RunRecord.freed`).' : `После спасения (поход ${ordered[first].run}): походов ${after.length}, из них Ведуньей ${chose} (${pct(chose, after.length)}).`].join('\n');
 }
 
+/** Task 58 «Летопись»: the pages' titles of the report. */
+const CHRONICLE_PAGE_TITLES: Readonly<Record<string, string>> = { bestiary: 'Бестиарий', bosses: 'Боссы', events: 'События', items: 'Талисманы и формы', heroes: 'Герои', hearth: 'Очаг' };
+const CHRONICLE_BUCKETS: readonly { title: string; from: number; to: number }[] = [{ title: '1–3', from: 1, to: 3 }, { title: '4–10', from: 4, to: 10 }, { title: '11–20', from: 11, to: 20 }, { title: '21+', from: 21, to: Infinity }];
+/** The first finds the section follows: the ref's predicate. */
+const CHRONICLE_FIRSTS: readonly { title: string; is: (ref: string) => boolean }[] = [
+  { title: 'глава «Гарнизон»', is: ref => ref === 'chapter:garrison' },
+  { title: 'первый сплав', is: ref => ref.startsWith('item:fusion-') },
+  { title: 'Тролль', is: ref => ref === 'boss:troll' },
+  { title: 'Кастелян', is: ref => ref === 'boss:castellan' },
+];
+/**
+ * Task 58 «Летопись» (`RunRecord.chronicle`, `chronicleOpen`, `hint`; docs/design-notes/task-58-discovery.md, section 10): the share of
+ * each page written by the viewer's run, the viewer's run of the first finds, the window opened after a run, the hint followed by the next
+ * run of the session (heuristic: the session stands for the viewer), the items seen and not taken.
+ */
+export function chronicleSection(runs: readonly RunRecord[]): string {
+  const list = runs.filter(r => r.chronicle);
+  if (!list.length) return '_походов с Летописью нет_';
+  const pages = Object.keys(CHRONICLE_PAGE_TITLES);
+  const rows = CHRONICLE_BUCKETS.map(b => {
+    const inside = list.filter(r => r.viewerRun !== undefined && r.viewerRun >= b.from && r.viewerRun <= b.to);
+    return [b.title, inside.length, ...pages.map(id => {
+      const shares = inside.flatMap(r => { const p = r.chronicle!.pages[id]; return p && p[1] ? [p[0] / p[1]] : []; });
+      return shares.length ? `${Math.round(100 * median(shares))}%` : '—';
+    })];
+  });
+  const firsts = CHRONICLE_FIRSTS.map(f => {
+    const at = list.filter(r => r.viewerRun !== undefined && r.chronicle!.added.some(f.is)).map(r => r.viewerRun!);
+    return `${f.title} — ${at.length ? `медиана ${n1(median(at))} (записей ${at.length})` : 'нет'}`;
+  });
+  const opened = list.filter(r => r.chronicleOpen?.length), withNew = list.filter(r => r.chronicle!.added.length);
+  const bySession = new Map<string, RunRecord[]>();
+  for (const r of [...list].sort((a, b) => a.at.localeCompare(b.at))) bySession.set(r.session, [...bySession.get(r.session) ?? [], r]);
+  let hinted = 0, followed = 0;
+  for (const own of bySession.values()) own.forEach((r, i) => { if (!r.hint || i + 1 >= own.length) return; hinted++; if (own[i + 1].chronicle!.added.includes(r.hint.target)) followed++; });
+  const latest = [...bySession.values()].map(own => own[own.length - 1].chronicle!).filter(c => c.seenItems !== undefined && c.pages.items);
+  const seenShare = latest.map(c => { const all = c.seenItems! + c.pages.items![0]; return all ? c.seenItems! / all : 0; });
+  return ['Доля записанного — медиана `have / known` страницы (видимые главы) у походов с этим номером похода зрителя. Эвристика до плейтеста: Летопись открывают < 15 % визитов — её не видно или она скучна; подсказке следуют < 10 % — тексты пустые, > 70 % — подсказка ведёт маршрут.', '',
+    table(['Походы зрителя', 'Походов', ...pages.map(id => CHRONICLE_PAGE_TITLES[id])], rows), '',
+    `Первые находки (номер похода зрителя): ${firsts.join('; ')}.`, '',
+    `Окно «Летопись» после похода: открыто ${pct(opened.length, list.length)} визитов (${opened.length} из ${list.length}); после похода с новыми записями («✦») — ${pct(withNew.filter(r => r.chronicleOpen?.length).length, withNew.length)}.`, '',
+    `Подсказка Неясыти: показана после ${list.filter(r => r.hint).length} походов; следующий поход той же сессии записал её цель — ${pct(followed, hinted)} (${followed} из ${hinted}).`, '',
+    `Предметы «видел, не взял» (последний поход сессии): ${seenShare.length ? `медиана ${pct(Math.round(100 * median(seenShare)), 100)} от видевших и взятых` : 'нет данных'}.`].join('\n');
+}
+
 /** Task 50 «Выборы»: build choices a run (`RunRecord.choices` of `BUILD_CHOICE_SOURCES`), all of them and the knack screen's apart. */
 export function choicesSection(runs: readonly RunRecord[]): string {
   if (!runs.length) return '_походов нет_';
@@ -1203,6 +1248,8 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Сноровка', '', knacksSection(runs), '',
     '## Повадка', '', habitsSection(runs), '',
     '## Выборы', '', choicesSection(runs), '',
+    // Task 58 «Летопись».
+    '## Летопись', '', chronicleSection(runs), '',
     '## Элиты', '', ELITE_LEGEND, '', table(ELITE_HEAD, eliteRows(runFights, sandbox)), '',
     '## Однорукий гоблин', '', SLOT_LEGEND, '', table(SLOT_HEAD, [slotRow('походы', runFights), slotRow('песочница', sandbox)].filter((r): r is (string | number)[] => !!r)), '',
     // Task 20: how the hero left the lit idol's circle.

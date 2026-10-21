@@ -334,7 +334,7 @@ interface RunMeta {
   knacks?: RunKnack[];
   honed?: { id: string; row: number }[];
   /** Tasks 36–37: the run's meta fields (`RunRecord.xp` … `quest`; absent — none yet). */
-  metaTlm?: Partial<Pick<RunRecord, 'xp' | 'pack' | 'record' | 'locked' | 'carry' | 'stock' | 'hearthBuys' | 'npcClicks' | 'hearth' | 'quest' | 'arrive' | 'vows'>>;
+  metaTlm?: Partial<Pick<RunRecord, 'xp' | 'pack' | 'record' | 'locked' | 'carry' | 'stock' | 'hearthBuys' | 'npcClicks' | 'hearth' | 'quest' | 'arrive' | 'vows' | 'chronicle' | 'chronicleOpen' | 'hint'>>;
   /** Task 49: the hero this run freed (`heroFreed`). */
   freed?: { hero: 'toad'; row: number };
 }
@@ -845,6 +845,8 @@ export class RtRecorder {
       if (end.quest) tlm.quest = { npc: end.quest.npc, id: end.quest.id, done: end.quest.done };
       // Task 51в: the NPCs who came after this run.
       if (end.vows) tlm.vows = end.vows.map(v => ({ ...v }));
+      // Task 58: the entries the run added, the pages after it.
+      if (end.chronicle?.pages) tlm.chronicle = { added: [...end.chronicle.added], pages: Object.fromEntries(Object.entries(end.chronicle.pages).map(([id, p]) => [id, [p[0], p[1]] as [number, number]])), ...end.chronicle.seenItems !== undefined ? { seenItems: end.chronicle.seenItems } : {} };
       if (end.arrived) tlm.arrive = end.arrived.map(a => ({ npc: a.npc, path: a.self ? 'self' as const : 'deed' as const, ...meta.viewerRun !== undefined ? { viewerRun: meta.viewerRun } : {} }));
       this.saveMeta(); this.writeRun(run);
     });
@@ -864,6 +866,24 @@ export class RtRecorder {
     safe(undefined, () => {
       const meta = this.metaFor(run), tlm = meta.metaTlm ??= {};
       (tlm.hearthBuys ??= []).push({ npc, level, price });
+      this.saveMeta(); this.writeRun(run);
+    });
+  }
+  /** Task 58: the window «Летопись» was closed in the camp after `run` — the pages looked at, the seconds open, «✦» on when opened. */
+  chronicleOpened(run: RtRunState, opened: { pages: readonly string[]; seconds: number; unread: boolean }): void {
+    if (!(opened.seconds >= 0)) return;
+    safe(undefined, () => {
+      const meta = this.metaFor(run), tlm = meta.metaTlm ??= {};
+      (tlm.chronicleOpen ??= []).push({ pages: [...opened.pages], seconds: Math.round(opened.seconds * 10) / 10, unread: opened.unread === true });
+      this.saveMeta(); this.writeRun(run);
+    });
+  }
+  /** Task 58: the owl said her hint in the camp after `run` (once a visit; the first one stays). */
+  chronicleHint(run: RtRunState, hint: { key: string; target: string }): void {
+    safe(undefined, () => {
+      const meta = this.metaFor(run), tlm = meta.metaTlm ??= {};
+      if (tlm.hint) return;
+      tlm.hint = { key: hint.key, target: hint.target };
       this.saveMeta(); this.writeRun(run);
     });
   }
