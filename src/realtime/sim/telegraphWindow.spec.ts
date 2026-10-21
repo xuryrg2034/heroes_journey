@@ -24,6 +24,10 @@ import {
   CLUB_WIDTH, CLUB_WINDUP, PHASE3_WINDUP as TROLL_PHASE3_WINDUP, ROCK_FLIGHT, ROCK_RADIUS, ROCK_WINDUP, TAIL_INNER, TAIL_OUTER, TAIL_WINDUP, TROLL, TROLL_CLUB,
   TROLL_MOVES, TROLL_ROCK, TROLL_TAIL,
 } from './enemies/troll';
+import {
+  CHIEF, CHIEF_LADLE, CHIEF_MOVES, CHIEF_SACK, PEPPER_RADIUS, PEPPER_WINDUP, PHASE3_WINDUP as CHIEF_PHASE3_WINDUP, SWING_RADIUS, SWING_WINDUP,
+} from './enemies/chief';
+import { BARREL, ROOK, ROOK_HALF, ROOK_WINDUP, TOPPLE_WIDTH, WARDROBE, WARDROBE_WINDUP } from './enemies/castle';
 import { registerArena } from './arenas';
 import { defaultParams, heroRadius, type Params } from './params';
 import { Simulation, SIM_DT } from './simulation';
@@ -83,7 +87,15 @@ const THREATS: readonly Threat[] = [
   // «Хвост метёт» — the ring 1.2–3.2 around the core, the worst point its inner edge (inside 1.2 is the core's body and touch).
   { id: 'troll-club', source: TROLL_CLUB, move: 'club', title: 'Тролль: удар дубиной', window: () => CLUB_WINDUP * TROLL_PHASE3_WINDUP, exit: p => CLUB_WIDTH / 2 + heroRadius(p) },
   { id: 'troll-rock', source: TROLL_ROCK, move: 'rock', title: 'Тролль: бросок камня', window: () => ROCK_WINDUP * TROLL_PHASE3_WINDUP + ROCK_FLIGHT, exit: p => ROCK_RADIUS + heroRadius(p) },
+  // Task 55а (spec 3.2, 3.3): «Падение шкафа» — the lane 3 × 1.2 from the wardrobe, the way out sideways from its axis (the first windup
+  // of a fight ×1.5 is extra); «Удар ладьи» — the axis 0.5 wide, the way out sideways (the first windup 1.5 is extra).
+  { id: 'wardrobe-topple', source: WARDROBE, title: 'шкаф: падение', window: p => p.wardrobeWindup ?? WARDROBE_WINDUP, exit: p => TOPPLE_WIDTH / 2 + heroRadius(p) },
+  { id: 'rook-strike', source: ROOK, title: 'ладья: удар', window: p => p.rookWindup ?? ROOK_WINDUP, exit: p => ROOK_HALF + heroRadius(p) },
   { id: 'troll-tail', source: TROLL_TAIL, move: 'tail', title: 'Тролль: хвост метёт', window: () => TAIL_WINDUP, exit: p => TAIL_OUTER + heroRadius(p) - TAIL_INNER },
+  // Task 54 (spec 8): «Взмах половником» — the worst point pressed to the core's front (a solid body: the touch's distance), the way
+  // out along the radius; «Горсть перца» — a circle's centre, out across the line; phase 3's windup ×0.8.
+  { id: 'chief-ladle', source: CHIEF_LADLE, move: 'swing', title: 'Главарь: взмах половником', window: () => SWING_WINDUP, exit: p => SWING_RADIUS + heroRadius(p) - touchDistance(p) },
+  { id: 'chief-pepper', source: CHIEF_SACK, move: 'pepper', title: 'Главарь: горсть перца', window: () => PEPPER_WINDUP * CHIEF_PHASE3_WINDUP, exit: p => PEPPER_RADIUS + heroRadius(p) },
 ];
 
 /** Task 27: the Jailer's moves without a hit on the hero, and why. */
@@ -92,6 +104,9 @@ const MOVES_OUTSIDE: Readonly<Record<string, string>> = {
   // Task 48: the Troll's core.
   roar: 'рык Тролля: героя не бьёт — метки волков у нор (1 с)',
   snore: 'храп Тролля: героя не бьёт — окно ядра, части не бьют',
+  // Task 54: the Chief's core and his sack («Свисток» — the record of the Jailer's: markers at the gate).
+  feast: '«Обед!» Главаря: героя не бьёт — перекраска у котелка, едоки, окно ядра',
+  season: '«Приправа» Главаря: героя не бьёт — новый цвет варева',
 };
 
 /** Kinds without a zone-and-moment telegraph, and why. */
@@ -112,6 +127,10 @@ const OUTSIDE: Readonly<Record<string, string>> = {
   keymaster: 'касание, без телеграфа (кандалы держат врага, героя не бьют)',
   // Task 48 «Тролль»: the core's own moves («Рык», «Храп») do not hit the hero — `MOVES_OUTSIDE`.
   [TROLL]: 'касание, без телеграфа (рык и храп героя не бьют; удары — у частей)',
+  // Task 54 «Главарь»: the core's own moves («Обед!», «Приправа», «Свисток») do not hit the hero — `MOVES_OUTSIDE`.
+  [CHIEF]: 'касание, без телеграфа (обед, приправа и свисток героя не бьют; удары — у половника и мешка)',
+  // Task 55а: the barrel is a thing — it never strikes (the player shoves it).
+  [BARREL]: 'вещь: не бьёт и не касается; толкает её игрок',
 };
 
 /** A run battle's params (the run's numbers, the short fuse of task 19). */
@@ -134,7 +153,7 @@ check('window ≥ reaction 0.2 s + the walk out of the worst point at the hero\'
 
 check('task 27: every move of the Jailer (task 48: of the Troll) is a threat of the table or listed outside it with a reason; no record of an unknown move', () => {
   const recorded = new Set([...THREATS.flatMap(t => t.move ? [t.move] : []), ...Object.keys(MOVES_OUTSIDE)]);
-  const moves: readonly string[] = [...JAILER_MOVES, ...TROLL_MOVES];
+  const moves: readonly string[] = [...new Set([...JAILER_MOVES, ...TROLL_MOVES, ...CHIEF_MOVES])];
   const missing = moves.filter(m => !recorded.has(m));
   assert(!missing.length, `the bosses' moves with no record of their window: ${missing.join(', ')}`);
   const stale = [...recorded].filter(m => !moves.includes(m));

@@ -36,6 +36,8 @@ export function worldState(world: World): unknown {
     chain: world.chain,
     // Loop research, step 2: a closed chain (absent while open — worlds without the loop hash as before).
     ...world.chainClosed ? { chainClosed: world.chainClosed } : {},
+    // Task 52, Р2: the anchor of the dwell gesture (absent without it — worlds hash as before).
+    ...world.forkAnchor ? { forkAnchor: world.forkAnchor } : {},
     // Package «Урон имеет значение»: the firing counter (absent until used).
     ...world.firing ? { firing: world.firing } : {},
     move: world.move,
@@ -84,6 +86,13 @@ export function worldState(world: World): unknown {
     ...world.bossCleared ? { bossCleared: true } : {},
     // Task 38 «Гарнизон» (`Params.tethers`, tethers.ts): the tethers on the arena (absent while none — worlds hash as before).
     ...world.tethers?.length ? { tethers: world.tethers } : {},
+    // Task 55а «Замок: толчок» (shove.ts): the things sliding now (absent while none — worlds without a shove hash as before).
+    ...world.shoves ? { shoves: world.shoves } : {},
+    // Task 56 «Приметы» (omens.ts): the storm, the sleep, the pools, the roll call (each absent until its rule acts — worlds hash as before).
+    ...world.storm ? { storm: world.storm } : {},
+    ...world.drowse ? { drowse: world.drowse } : {},
+    ...world.flood ? { flood: world.flood } : {},
+    ...world.rollcall ? { rollcall: world.rollcall } : {},
   };
 }
 

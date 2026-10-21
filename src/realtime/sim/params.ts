@@ -914,7 +914,8 @@ export interface Params {
    */
   trollWindow: boolean;
   /**
-   * Task 48 (design 16.10.2026, docs/design-notes/task-48-troll.md, 24.10): the Troll's core and parts are solid for the hero — he never
+   * Task 48 (design 16.10.2026, docs/design-notes/task-48-troll.md, 24.10): the boss's solid bodies — the Troll's core and parts (task 54:
+   * the Chief's too; the key keeps its name for the journals) are solid for the hero — he never
    * stands inside them (walking, a knockback, the end of a dash or a jump put him out as out of an obstacle; the plan's end and the
    * jump's landing show that point), and the bodies are never moved by the parting or the crowd. Off by default and in journals without
    * the key (the old path: the bodies parted). The arena «Берлога тролля» turns it on for itself.
@@ -934,6 +935,29 @@ export interface Params {
   trollSnoreRegrow: number;
   trollRoarPeriod: number;
   trollCrowd: number;
+  // ---- Task 54 «Главарь с котелком» (sim/enemies/chief.ts, sim/arenasBoss.ts `chief`; docs/realtime-elite-behaviors.md, «Главарь (задача 54)»). ----
+  /**
+   * The Chief's feast (design 17.10.2026, docs/design-notes/task-54-chief.md, 7): with the frame on, the Chief's core is closed outside
+   * the window «Обед!» opens — the chain refuses it (`outOfWindow`, «вне окна»); in the window it is a link of the brew's colour that a
+   * chain takes only with `chiefFeastLinks` enemy links of that colour before it (`queue`, «в очередь»); one hit per window, the
+   * chain's only — no other source ever hurts the core (event `chiefFeast` `block`). Off by default and in journals without the key:
+   * the core is open always (the feast still recolours and seats its eaters). The arena «Стан Главаря» turns it on for itself
+   * (`ArenaTemplate.chief`).
+   */
+  chiefFeast: boolean;
+  /**
+   * Task 54, the Chief's numbers (read only on his arena — no journal before the task has it; the defaults are the design's): the
+   * core's HP and plates, the queue (enemy links of the brew's colour before the core), the window's and the eaters' seconds, the gap
+   * from a window's end to the next «Обед!»'s windup in phases 1–2, the queue from which the hit takes two plates (0 — never), the
+   * crowd's factor — its density floor and its top-up pace (the groups' interval ÷ it).
+   */
+  chiefHp: number;
+  chiefPlates: number;
+  chiefFeastLinks: number;
+  chiefFeastTime: number;
+  chiefFeastGap: number;
+  chiefFeastBig: number;
+  chiefCrowd: number;
   // ---- Task 33 «Цена „Близнецов“ и „Развилки“» (sim/forms.ts, chain.ts; docs/realtime-prototype.md, 9ф). ----
   /**
    * «Близнецы»: strict alternation (design 15.10.2026). While the chain goes by one colour of the pair, as before; once it took
@@ -950,6 +974,13 @@ export interface Params {
    * journals without the key: 0.
    */
   forkBranches: number;
+  /**
+   * Task 52 «Числа», Р2 (docs/design-notes/task-52-numbers.md, 3.5): «Развилка»'s gesture — game seconds the pointer rests on an older
+   * link of the chain (not the last, not the one before it) to make it the fork's anchor; the next link is taken only from it (`fork`).
+   * 0 — the old rule (every link an anchor). The sandbox 0,25 (`DEFAULT_PARAMS`, design 17.10.2026); the run — 0 (`RUN_FORCED`); journals
+   * without the key: 0 (the old rule; their hashes as before).
+   */
+  forkDwell: number;
   // ---- Task 34 «Смена цвета — только точкой курсора» (chain.ts `dragChain`; docs/realtime-prototype.md, «Смена цвета»). ----
   /**
    * While the chain's colour is free by «Смена цвета» (`colorShiftLinks`), an enemy of another colour joins only at the pointer
@@ -1065,6 +1096,73 @@ export interface Params {
   knightSwingDamage: number;
   /** Task 43: game seconds between the knight's moves in the offensive (and from the shed armour to its first move). */
   knightPause: number;
+  // ---- Task 55а «Замок: толчок» (sim/shove.ts, sim/enemies/castle.ts; docs/realtime-elite-behaviors.md, «Замок: толчок»). ----
+  // The things (the barrel, the wardrobe) and the rook stand only on the castle's arenas; without one no key below is read and no world
+  // field appears. Journals without a key play the default below (the kinds' numbers: `params.x ?? CONST`).
+  /**
+   * Task 55а: the law of the shove — a thing is the last link of a chain; the dash's end shoves it along the chain's last segment: it
+   * crushes the weak on its way and strikes the first tough body (or a wall). Off by default and in journals without the key; the
+   * castle's arenas turn it on for themselves (`ArenaTemplate.castle`), the run will (task 55в).
+   */
+  shove: boolean;
+  /** Task 55а: the wardrobe's shove — its length (units; journals without the key: 3). */
+  shoveDistance: number;
+  /** Task 55а: the speed a shoved thing slides (units / game s; 12). */
+  shoveSpeed: number;
+  /** Task 55а: the wardrobe's strike on the tough body it stops at (HP; 1). */
+  shoveImpact: number;
+  /** Task 55а: the barrel rolls to its first stop, this far at most (units; 16). */
+  barrelRoll: number;
+  /** Task 55а: the barrel's strike on the tough body it stops at (HP; 2). */
+  barrelImpact: number;
+  /** Task 55а «Падение шкафа»: the wardrobe's rest from rising to its next windup (game s; 5). */
+  wardrobePeriod: number;
+  /** Task 55а: the topple's windup — its lane fixed at the start (game s; 1.2; the first of a fight ×1.5). */
+  wardrobeWindup: number;
+  /** Task 55а: the topple's damage to the hero in its lane (2). */
+  wardrobeDamage: number;
+  /** Task 55а «Удар ладьи»: the rook's rest after a strike (game s; 3.5). */
+  rookPeriod: number;
+  /** Task 55а: the strike's windup — the axis fixed at the start (game s; 1.0; the first of a fight 1.5). */
+  rookWindup: number;
+  /** Task 55а: the strike's damage to the hero (2). */
+  rookDamage: number;
+  // ---- Task 56 «Приметы» (sim/omens.ts, docs/realtime-slice.md, «Приметы»; spec docs/design-notes/task-56-omens.md). ----
+  // Every rule is off by default; journals without a key play as before (the numbers — their defaults, `omenNum`). The run turns a
+  // rule on for the fight of a node or a level with that omen (run/omens.ts); the sandbox — the panel group «Приметы».
+  /** «Гроза»: the storm's marks and strikes (`World.storm`). */
+  omenStorm: boolean;
+  /** «Гроза»: the first mark's game second, then a mark every this many s (from the last mark). */
+  omenStormFirst: number;
+  omenStormEvery: number;
+  /** «Гроза»: game seconds from the mark to its strike; the mark's radius (units). */
+  omenStormFuse: number;
+  omenStormRadius: number;
+  /** «Гроза»: damage to every enemy whose body touches the circle (credited; an armoured elite — a plate) and to the hero whose centre is in it. */
+  omenStormDamage: number;
+  omenStormHero: number;
+  /** «Гроза»: enemies within the radius of the best point a mark needs (fewer — the count waits). */
+  omenStormMin: number;
+  /** «Сонный час»: the enemies of the first `omenDrowseTime` s sleep until the first dash (`World.drowse`, `Enemy.sleep`). */
+  omenDrowse: boolean;
+  omenDrowseTime: number;
+  /** «Сонный час»: the woken walk ×`omenWakeWalk` for `omenWakeTime` s (`Enemy.rage`). */
+  omenWakeWalk: number;
+  omenWakeTime: number;
+  /** «Половодье»: pools placed at the start by the stream `omen` (`World.flood`); a link taken in water hits +`omenFloodHit`. */
+  omenFlood: boolean;
+  omenFloodPools: number;
+  omenFloodRadius: number;
+  omenFloodHit: number;
+  /** «Перекличка»: a colour on the roll call (`World.rollcall`) from `omenRollcallFirst` s, every `omenRollcallEvery` s. */
+  omenRollcall: boolean;
+  omenRollcallFirst: number;
+  omenRollcallEvery: number;
+  /** «Перекличка»: energy a link of that colour adds over the usual; damage a touch of that colour adds. */
+  omenRollcallEnergy: number;
+  omenRollcallTouch: number;
+  /** «Урожай» (bag.ts `bagHurt`): a real HP loss takes every step of the bag, the filled ones too (event `bag` `reset` with step 0). */
+  bagResetAll: boolean;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -1482,10 +1580,22 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   trollSnoreRegrow: 1,
   trollRoarPeriod: 20,
   trollCrowd: 1,
+  // Task 54 «Главарь с котелком» (enemies/chief.ts): the feast off by default (the arena «Стан Главаря» turns it on); his numbers
+  // (hypotheses of the spec, read on his arena only).
+  chiefFeast: false,
+  chiefHp: 2,
+  chiefPlates: 4,
+  chiefFeastLinks: 3,
+  chiefFeastTime: 4,
+  chiefFeastGap: 6,
+  chiefFeastBig: 6,
+  chiefCrowd: 0.3,
   // Task 33 (forms.ts): the sandbox's price of the forms; `RUN_FORCED` turns it off, a run with forms on (task 30, `RT_FORMS_PARAMS`).
   twinsAlternate: true,
   twinsNoShift: true,
   forkBranches: 1,
+  // Task 52, Р2: the sandbox plays the dwell gesture (0,25 s); the run — 0 (`RUN_FORCED`); journals without the key — 0.
+  forkDwell: 0.25,
   // Task 34 (chain.ts): another colour on a free chain only at the pointer; the run turns it on too (`RUN_FORCED`).
   shiftAtPointer: true,
   // Task 39 (chain.ts `pickAt`): the held pointer takes a body only when it is nearer than every link of the chain.
@@ -1527,6 +1637,42 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   knightSwingRadius: 1.6,
   knightSwingDamage: 2,
   knightPause: 2,
+  // Task 55а «Замок: толчок»: off by default (the castle's arenas turn it on for themselves).
+  shove: false,
+  shoveDistance: 3,
+  shoveSpeed: 12,
+  shoveImpact: 1,
+  barrelRoll: 16,
+  barrelImpact: 2,
+  wardrobePeriod: 5,
+  wardrobeWindup: 1.2,
+  wardrobeDamage: 2,
+  rookPeriod: 3.5,
+  rookWindup: 1,
+  rookDamage: 2,
+  // Task 56 «Приметы» (sim/omens.ts, bag.ts): every rule off; the numbers of the spec (section 2.2).
+  omenStorm: false,
+  omenStormFirst: 6,
+  omenStormEvery: 7,
+  omenStormFuse: 1.2,
+  omenStormRadius: 1,
+  omenStormDamage: 3,
+  omenStormHero: 2,
+  omenStormMin: 3,
+  omenDrowse: false,
+  omenDrowseTime: 4,
+  omenWakeWalk: 1.25,
+  omenWakeTime: 4,
+  omenFlood: false,
+  omenFloodPools: 3,
+  omenFloodRadius: 1,
+  omenFloodHit: 1,
+  omenRollcall: false,
+  omenRollcallFirst: 3,
+  omenRollcallEvery: 12,
+  omenRollcallEnergy: 0.5,
+  omenRollcallTouch: 1,
+  bagResetAll: false,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -1982,12 +2128,13 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   { kind: 'bool', key: 'twinsNoShift', group: 'Талисманы', label: '«Близнецы» выключают «Смену цвета»', stage: 5,
     hint: 'С «Близнецами» в сборке смена цвета не наступает, даже если «Смена цвета: после … звеньев» больше 0. В походе выключено.' },
   n('forkBranches', 'Талисманы', '«Развилка»: развилок за цепь', 0, 4, 1, 5, '', 'Сколько звеньев цепь может взять не от последнего звена (и не от героя с «Якорем»). Потом якорь — снова только последнее звено. 0 — без предела. В походе — 0.'),
+  n('forkDwell', 'Талисманы', '«Развилка»: задержка на старом звене', 0, 1, 0.05, 5, 'с', 'Задача 52. 0 — прежнее правило: якорь — любое звено цепи. Больше 0 — якорь последнее звено; курсор, неподвижный на старом звене (не на последнем и не на предыдущем — там шаг назад) столько игровых секунд, делает его якорем: следующее звено берётся только от него. Песочница: 0,25 с; поход: 0.'),
   n('jailerHp', 'Босс', 'Тюремщик: HP ядра', 2, 10, 1, 5, '', 'HP ядра при появлении (новый бой). Арена «Тюремщик» ставит 5, если на панели значение по умолчанию (2).'),
   // Task 48 «Тролль» (enemies/troll.ts, docs/realtime-elite-behaviors.md, «Тролль (задача 48)»).
   { kind: 'bool', key: 'trollWindow', group: 'Тролль', label: 'Окно Тролля', stage: 5,
     hint: 'Ядро Тролля закрыто вне окна: цепь его не берёт («вне окна»), огонь, взрывы, волна, прямая, печать и возврат его не ранят. Окно открывают «Удар дубиной» (1,5 с), «Хвост метёт» (1 с) и «Храп». Одно попадание за окно. Арена «Берлога тролля» включает правило сама.' },
-  { kind: 'bool', key: 'trollSolid', group: 'Тролль', label: 'Тело Тролля — препятствие', stage: 5,
-    hint: 'Герой не входит в тело ядра и частей Тролля: его выталкивает, как от стены; сами тела не сдвигаются. Арена «Берлога тролля» включает правило сама.' },
+  { kind: 'bool', key: 'trollSolid', group: 'Тролль', label: 'Тела босса — препятствие', stage: 5,
+    hint: 'Тела-препятствия босса (Тролль, Главарь): герой не входит в тело ядра и частей — его выталкивает, как от стены; сами тела не сдвигаются. Арены «Берлога тролля» и «Стан Главаря» включают правило сами.' },
   n('trollHp', 'Тролль', 'Тролль: HP ядра', 1, 12, 1, 5, '', 'Со следующего запуска арены.'),
   n('trollPlates', 'Тролль', 'Тролль: пластины ядра', 0, 10, 1, 5, '', 'И потолок отрастания «Храпа». Со следующего запуска арены.'),
   n('trollWindowClub', 'Тролль', 'Окно после «Удара дубиной»', 0.2, 5, 0.1, 5, 'с'),
@@ -1996,6 +2143,16 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('trollSnoreRegrow', 'Тролль', '«Храп»: пластин за сон', 0, 3, 1, 5, '', '0 — «Храп» без отрастания.'),
   n('trollRoarPeriod', 'Тролль', '«Рык»: раз в', 5, 60, 1, 5, 'с', 'Во второй и третьей фазе; первый — при входе во вторую.'),
   n('trollCrowd', 'Тролль', 'Тролль: толпа', 0.25, 2, 0.05, 5, '×', 'Множитель плотности и темпа пополнения толпы. Арена «Берлога тролля» ставит 0,3, если на панели 1.'),
+  // Task 54 «Главарь с котелком» (enemies/chief.ts, docs/realtime-elite-behaviors.md, «Главарь (задача 54)»).
+  { kind: 'bool', key: 'chiefFeast', group: 'Главарь', label: '«Обед!» Главаря', stage: 5,
+    hint: 'Главарь закрыт вне окна «Обеда!» («вне окна»). В окне его берёт только цепь цвета варева, в которой до него не меньше трёх звеньев этого цвета («в очередь»); одно попадание за окно, другой урон его не ранит. Арена «Стан Главаря» включает правило сама.' },
+  n('chiefHp', 'Главарь', 'Главарь: HP ядра', 1, 12, 1, 5, '', 'Со следующего запуска арены.'),
+  n('chiefPlates', 'Главарь', 'Главарь: пластины ядра', 0, 10, 1, 5, '', 'Со следующего запуска арены.'),
+  n('chiefFeastLinks', 'Главарь', 'Очередь: звеньев цвета варева', 0, 8, 1, 5, '', 'Столько звеньев цвета варева нужно в цепи до Главаря.'),
+  n('chiefFeastTime', 'Главарь', '«Обед!»: окно', 1, 10, 0.5, 5, 'с', 'Столько же сидят едоки.'),
+  n('chiefFeastGap', 'Главарь', '«Обед!»: перерыв', 1, 20, 0.5, 5, 'с', 'От конца окна до замаха следующего «Обеда!» в первой и второй фазе (в третьей — 4 с).'),
+  n('chiefFeastBig', 'Главарь', 'Очередь на два', 0, 12, 1, 5, '', 'Очередь от стольких звеньев снимает две пластины. 0 — никогда.'),
+  n('chiefCrowd', 'Главарь', 'Главарь: толпа', 0.25, 2, 0.05, 5, '×', 'Множитель плотности и темпа пополнения толпы на арене «Стан Главаря».'),
   // Task 38 «Гарнизон, шаг 1» (tethers.ts, enemies/garrison.ts, docs/realtime-elite-behaviors.md).
   { kind: 'bool', key: 'tethers', group: 'Гарнизон', label: 'Закон связи', stage: 5,
     hint: 'Поводок — линия между псарём (или Кастеляном) и псом, не звено. Отрезок прохода цепи, пересекающий поводок, рубит его после прохода; подсветка показывает те же поводки. Прыжок, ходьба, круговой удар и расходники не рубят. Сорвавшийся пёс в ярости кусает всех. В походе включено.' },
@@ -2035,6 +2192,48 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('knightSwingRadius', 'Гарнизон', 'Рыцарь: радиус размаха', 0.5, 4, 0.1, 5, 'ед.', 'Враги в круге теряют 1 HP (элита — пластину); убийства не засчитываются игроку.'),
   n('knightSwingDamage', 'Гарнизон', 'Рыцарь: урон размаха', 0, 5, 1, 5),
   n('knightPause', 'Гарнизон', 'Рыцарь: пауза между приёмами', 0.5, 6, 0.25, 5, 'с'),
+  // Task 55а «Замок: толчок» (sim/shove.ts, sim/enemies/castle.ts).
+  { kind: 'bool', key: 'shove', group: 'Замок', label: 'Толчок', stage: 5,
+    hint: 'Вещь (бочка, шкаф) — последнее звено цепи; конец прохода толкает её по последнему отрезку: давит слабых, бьёт первое крепкое. Арены замка включают сами.' },
+  n('shoveDistance', 'Замок', 'Толчок шкафа: длина', 1, 8, 0.25, 5, 'ед.'),
+  n('shoveSpeed', 'Замок', 'Толчок: скорость', 2, 24, 1, 5, 'ед./с'),
+  n('shoveImpact', 'Замок', 'Шкаф: удар по крепкому', 0, 5, 1, 5),
+  n('barrelRoll', 'Замок', 'Бочка: путь не дальше', 2, 30, 1, 5, 'ед.'),
+  n('barrelImpact', 'Замок', 'Бочка: удар по крепкому', 0, 5, 1, 5),
+  n('wardrobePeriod', 'Замок', 'Падение шкафа: отдых', 1, 15, 0.5, 5, 'с'),
+  n('wardrobeWindup', 'Замок', 'Падение шкафа: замах', 0.2, 3, 0.1, 5, 'с', 'Полоса 3 × 1,2 от шкафа к герою фиксируется в начале замаха. Первый замах боя ×1,5.'),
+  n('wardrobeDamage', 'Замок', 'Падение шкафа: урон героя', 0, 5, 1, 5),
+  n('rookPeriod', 'Замок', 'Ладья: отдых', 0.5, 10, 0.25, 5, 'с'),
+  n('rookWindup', 'Замок', 'Удар ладьи: замах', 0.2, 3, 0.1, 5, 'с', 'Ось через ладью в обе стороны фиксируется в начале замаха; бьёт первое тело на каждой половине. Первый замах боя 1,5 с.'),
+  n('rookDamage', 'Замок', 'Удар ладьи: урон героя', 0, 5, 1, 5),
+  // Task 56 «Приметы» (sim/omens.ts): the sandbox's toggles of the omens that are new rules (off; the run sets them by its omens).
+  { kind: 'bool', key: 'omenStorm', group: 'Приметы', label: '«Гроза»', stage: 5,
+    hint: 'Раз в 7 с (первая — на 6-й) метка у самой плотной толпы (от 3 врагов); через 1,2 с удар: враги в круге −3 в зачёт, элита — пластина; герой в круге −2 (не в проходе, не в прыжке, щиты не спасают). Жнец и боссы — не цель.' },
+  n('omenStormFirst', 'Приметы', '«Гроза»: первая метка', 0, 30, 0.5, 5, 'с'),
+  n('omenStormEvery', 'Приметы', '«Гроза»: метка раз в', 1, 30, 0.5, 5, 'с'),
+  n('omenStormFuse', 'Приметы', '«Гроза»: от метки до удара', 0.2, 5, 0.1, 5, 'с'),
+  n('omenStormRadius', 'Приметы', '«Гроза»: радиус', 0.5, 3, 0.1, 5, 'ед.'),
+  n('omenStormDamage', 'Приметы', '«Гроза»: урон врагам', 0, 6, 1, 5),
+  n('omenStormHero', 'Приметы', '«Гроза»: урон герою', 0, 5, 1, 5),
+  n('omenStormMin', 'Приметы', '«Гроза»: врагов для метки', 1, 8, 1, 5),
+  { kind: 'bool', key: 'omenDrowse', group: 'Приметы', label: '«Сонный час»', stage: 5,
+    hint: 'Враги первых 4 с спят: стоят, не касаются, не стреляют. Будит первый проход цепи или конец 4 с; разбуженные 4 с ходят ×1,25. Действует со следующего запуска арены.' },
+  n('omenDrowseTime', 'Приметы', '«Сонный час»: сон', 0, 15, 0.5, 5, 'с'),
+  n('omenWakeWalk', 'Приметы', '«Сонный час»: ярость, ходьба', 1, 3, 0.05, 5, '×'),
+  n('omenWakeTime', 'Приметы', '«Сонный час»: ярость', 0, 15, 0.5, 5, 'с'),
+  { kind: 'bool', key: 'omenFlood', group: 'Приметы', label: '«Половодье»', stage: 5,
+    hint: 'Лужи на арене (вода, как пруд: ходьба ×0,5). Звено врага, взятое в воде, бьёт +1. Со следующего запуска арены.' },
+  n('omenFloodPools', 'Приметы', '«Половодье»: луж', 0, 6, 1, 5),
+  n('omenFloodRadius', 'Приметы', '«Половодье»: радиус лужи', 0.5, 2, 0.1, 5, 'ед.'),
+  n('omenFloodHit', 'Приметы', '«Половодье»: сила мокрого звена', 0, 3, 1, 5, '+'),
+  { kind: 'bool', key: 'omenRollcall', group: 'Приметы', label: '«Перекличка»', stage: 5,
+    hint: 'Раз в 12 с (первая — на 3-й) один цвет на перекличке: его звено +0,5 энергии, касание врага этого цвета +1 урона.' },
+  n('omenRollcallFirst', 'Приметы', '«Перекличка»: первая', 0, 30, 0.5, 5, 'с'),
+  n('omenRollcallEvery', 'Приметы', '«Перекличка»: раз в', 1, 60, 1, 5, 'с'),
+  n('omenRollcallEnergy', 'Приметы', '«Перекличка»: энергия звена', 0, 2, 0.5, 5, '+'),
+  n('omenRollcallTouch', 'Приметы', '«Перекличка»: касание', 0, 3, 1, 5, '+'),
+  { kind: 'bool', key: 'bagResetAll', group: 'Приметы', label: '«Урожай»: удар сбрасывает всю котомку', stage: 5,
+    hint: 'Потеря HP сбрасывает все ступени котомки у двери, и заполненные. Цены ступеней «Урожая» (2 / 4 / 6) — в группе «Котомка у двери».' },
 ];
 
 const MAX_PHASES = 8;
@@ -2084,7 +2283,7 @@ export function defaultParams(): Params { return sanitizeParams(null); }
  * panel holds. Task 29: the counters' chain window (`counterWindow`) — off here; task 30: a run with the flag `forms` turns it on with the
  * forms' price and `returnFixed` (run/rtRun.ts `RT_FORMS_PARAMS`, `rtArenaParams`).
  */
-export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4, loopEnabled: false, loopHint: false, pierceEnabled: false, secondWind: false, endBlastMinLinks: 3, fireMinLinks: 3, returnFixed: false, counterWindow: false, twinsAlternate: false, twinsNoShift: false, forkBranches: 0, shiftAtPointer: true, holdNearest: true, holdHeroLink: true });
+export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor: false, eliteSandbox: false, sandboxTalismans: '', shieldFollowsHero: false, wolfRing: true, speedClasses: true, eliteAffixes: 0, archerPoint: true, colorCount: 4, loopEnabled: false, loopHint: false, pierceEnabled: false, secondWind: false, endBlastMinLinks: 3, fireMinLinks: 3, returnFixed: false, counterWindow: false, twinsAlternate: false, twinsNoShift: false, forkBranches: 0, forkDwell: 0, shiftAtPointer: true, holdNearest: true, holdHeroLink: true });
 /**
  * The values a run arena plays with: the saved panel with the stand-ins of run rules off (`RUN_FORCED`) and the run's own
  * numbers on top (`forced`; iteration 2.1: the healing consumable — `rtRunParams`, run/rtRun.ts).

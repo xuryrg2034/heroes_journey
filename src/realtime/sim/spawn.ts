@@ -283,6 +283,13 @@ export function nextPaletteColor(world: World, color: number): number {
 /** A random chain colour of the palette (spawnRoll; one draw whatever its size — with all four the draws of before). */
 function rollColor(world: World): number { const p = palette(world); return p[Math.floor(rollRng(world).next() * p.length)]; }
 
+/** Task 55а: the enemies of the crowd — the things (the barrel, the wardrobe) are not in its density or its limit (no thing — every enemy). */
+function crowdOf(world: World): number {
+  let n = 0;
+  for (const e of world.enemies) if (!enemyKind(e.kind).thing) n++;
+  return n;
+}
+
 /** Boars on the arena, at markers and in the queue: the cap (the arena's `boarMax`, else the panel's) counts all of them. */
 function boarCount(world: World): number {
   return world.enemies.filter(e => e.kind === 'boar').length + world.markers.filter(m => m.kind === 'boar').length + world.queue.filter(q => q.kind === 'boar').length;
@@ -371,7 +378,7 @@ function heldPoint(world: World, q: QueuedSpawn, dt: number): Vec | null {
 function placeQueued(world: World, dt: number): void {
   const max = enemyLimit(world.params, world.arena), delay = world.params.markerDelay;
   const hold = world.params.spawnGroupHold === true;
-  while (world.queue.length && world.enemies.length + world.markers.length < max) {
+  while (world.queue.length && crowdOf(world) + world.markers.length < max) {
     const q = world.queue[0];
     if (hold) {
       const p = heldPoint(world, q, dt);
@@ -421,6 +428,8 @@ function relocateMarker(world: World, m: SpawnMarker): void {
  */
 function crowdFactorOf(world: World): number {
   if (world.arena.troll) return world.params.trollCrowd ?? 1;
+  // Task 54: the Chief's crowd (`Params.chiefCrowd`; read on his arena only).
+  if (world.arena.chief) return world.params.chiefCrowd ?? 1;
   return world.arena.castellanFull ? world.params.castellanCrowd ?? 1 : 1;
 }
 
@@ -429,7 +438,7 @@ function topUpToFloor(world: World): void {
   // Task 43: the full Castellan's yard crowd (`Params.castellanCrowd`; 1 — no factor, the path of before).
   const crowd = crowdFactorOf(world), k = crowd === 1 ? world.kit?.floorScale : (world.kit?.floorScale ?? 1) * crowd;
   const floor = Math.min(floorWithScale(world.pressure.phase.floor, world.arena, k), enemyLimit(world.params, world.arena));
-  const present = (): number => world.enemies.filter(e => e.kind !== 'reaper').length + world.markers.length + world.queue.length;
+  const present = (): number => world.enemies.filter(e => e.kind !== 'reaper' && !enemyKind(e.kind).thing).length + world.markers.length + world.queue.length;
   for (let guard = 0; guard < 200 && present() < floor; guard++) {
     const before = world.queue.length;
     rollGroup(world, rollRng(world).next() >= world.pressure.phase.wolfShare);
@@ -498,7 +507,7 @@ export function spawnEnemy(world: World, at: Vec, color: number, hp: number, kin
 
 /** Debug: drop up to `count` enemies on free edge points immediately, skipping markers (limit still applies). */
 export function spawnBurst(world: World, count: number): void {
-  const room = Math.max(0, enemyLimit(world.params, world.arena) - world.enemies.length - world.markers.length);
+  const room = Math.max(0, enemyLimit(world.params, world.arena) - crowdOf(world) - world.markers.length);
   for (let i = 0; i < Math.min(count, room); i++) {
     const anchor = findAnchor(world);
     const p = anchor ? pointNear(world, anchor) : null;

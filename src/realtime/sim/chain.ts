@@ -33,6 +33,8 @@ import { curseKill, takeChest } from './chest';
 import { hasTalisman, sealOnlyShield } from './kit';
 import { afterLinkPowerOf, anchorsOf, buildActive, chainShieldMinKillsOf, chainShieldOf, colorRuleOf, colorShiftOf, crystalEveryOf, endShadowOf, focusMaxOf, hasHook, honedFired, jumpCostOf, linkGainOf, linkPowerOf, linkRadiusOf, nextChainNo, platesBeforeOf, rank2LinksOf, runHook, secondKey, talismanFired, type ChainAnchor, type ChainEnd, type HonedRelease, type LinkContext } from './build';
 import { COUNTER_TALISMANS, FORMS, FUSIONS, HAMMERS } from './buildIds';
+// Task 52, Р2: the dwell gesture of «Развилка» (its anchor; the anchors hook reads the same).
+import { forkAnchorNow, forkDwellOn, forkSpent } from './forms';
 // Task 44 «Сплавы»: the fusions' pure rules (the highlight and the dash read the same ones).
 import { blastPlatesOn, boomerangFull, brandOn, brandPaintable, brandReach, endBlastOf, frostWaveCold, fusionEndOn, hunterBlastOn, hunterEnd, iceSealCold, piercePlates } from './fusions';
 // Task 46: the end of the dash in the highlight (the bodies of the wave, the end blast and the paint).
@@ -40,6 +42,8 @@ import { enemiesInCircle, enemiesNearPath } from './buildHits';
 import { finisherHonedKills, finisherTopIds, frostNeighbour, FROST_EDGE_LINKS, honedOn, honeWaveStartOf, SHOCKWAVE_RADIUS } from './talismansRt';
 import { returnPowerFor, returnRoute, returnTargets, traceTo } from './returnRun';
 import { BOSS_CORES, colorlessCore, endsFight } from './enemies/jailer';
+// Task 55а «Замок: толчок» (shove.ts): a thing is the chain's last link; the dash's end shoves it.
+import { isThing, shoveOn, shovePath, sliding, startShove, type ShovePlan } from './shove';
 import { blockedAt, cliffAt, dist, inThorns, lineOfSight, overCliff, pushOutOfObstacles, type Vec } from './geometry';
 import { heroRadius, type Params } from './params';
 import { closingEdgeCrosses, enemiesInside, loopMinOf, sealDamage, sealHoldOf, strikeSeal } from './seal';
@@ -55,7 +59,10 @@ import { cutTethers, dashPathPoints, dropShackleOf, planTetherCuts, settleTether
 import { behindGrate, gateLever, grateLinkDrop, jumpDownFree, onGallery } from './enemies/garrison';
 // Task 48: the Troll's window (the refusal, one hit per window, the drop from the drawn chain).
 import { TROLL, trollLinkDrop, trollReserve, trollShut, trollWards, trollWindowOn } from './enemies/troll';
+import { CHIEF, chiefGuarded, chiefHitOutcome, chiefLinkDrop, chiefQueue, chiefQueueShort, chiefRelease, chiefShut, chiefWards } from './enemies/chief';
 import { NO_COLOR, OBJECT_RADIUS, checkGoals, damageEnemy, doorOf, doorOpen, pushOutOfSolids, enemyFrozen, findObject, nextFiring, startShieldWindow, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World } from './world';
+// Task 56 «Приметы» (omens.ts): the marks of a link taken in water or of the colour on the roll call.
+import { callEnergy, fixOmenLinks, omenLink, wetHit } from './omens';
 
 export { OBJECT_RADIUS };
 export type { ChainAnchor };
@@ -84,6 +91,8 @@ export interface StrikeOutcome {
    */
   plate?: true;
   platesAfter?: number;
+  /** Task 55а: the link is a thing (`Params.shove`): no strike, no power — the dash stops at it and shoves it at its end. */
+  thing?: true;
 }
 
 /** Power a chain hit on a plate spends (4.3, rule 1: as a weak enemy's +1 taken back). */
@@ -106,6 +115,23 @@ export function strike(power: number, hp: number, factor = 1, gain = 1, plates =
   const killed = damage >= hp;
   const spent = Math.min(available, Math.min(damage, hp));
   return { available, damage, hpBefore: hp, hpAfter: killed ? 0 : hp - damage, killed, powerAfter: available - spent };
+}
+
+/** Task 55а: the outcome of a thing link — nothing struck, the power passes unchanged; the dash stops there (a survivor's way). */
+function thingOutcome(power: number): StrikeOutcome {
+  return { available: power, damage: 0, hpBefore: 0, hpAfter: 0, killed: false, powerAfter: power, thing: true };
+}
+
+/**
+ * Task 55а (spec 2.2): the shove's direction — the chain's last segment, from the previous link (its place now) or, for a lone link,
+ * from the hero to the thing. «Якорь у героя» gives the reach only: the direction is the previous link's.
+ */
+function shoveDirection(world: World, links: readonly ChainLink[], index: number, thing: Enemy): Vec {
+  const prev = (index > 0 ? linkPoint(world, links[index - 1]) : null) ?? world.hero;
+  const dx = thing.x - prev.x, dy = thing.y - prev.y, d = dhypot(dx, dy);
+  if (d > 1e-9) return { x: dx / d, y: dy / d };
+  const hx = thing.x - world.hero.x, hy = thing.y - world.hero.y, h = dhypot(hx, hy) || 1;
+  return { x: hx / h, y: hy / h };
 }
 
 /** Stage 2, step 3: the multiplier of a chain hit on `enemy` now — ×`frostFactor` while it is frozen and brittle. */
@@ -153,6 +179,12 @@ export interface ChainPlan {
   endsOnSurvivor: boolean;
   /** The last link is a button or the door: nothing may follow it. */
   endsOnObject: boolean;
+  /**
+   * Task 55а (`Params.shove`): the last link is a thing — the chain is over (`endsOnObject` too: the refusal «цепь закончена»), and
+   * `shove` is the shove the dash's end runs when no survivor stops the dash before it (the release fixes it, `HeroMove.shove`).
+   */
+  endsOnThing?: true;
+  shove?: ShovePlan;
   power: number;
   kills: number;
   /**
@@ -208,6 +240,12 @@ export interface ChainPlan {
    * `trollWindow` `unlink`) and this plan is the rest's. Absent otherwise.
    */
   trollDrop?: { index: number; left: number };
+  /**
+   * Task 54 «Главарь с котелком» (enemies/chief.ts `chiefLinkDrop`): the drawn chain holds the Chief's core while his window is open —
+   * the core's link `index` and the seconds `left` before the window ends; then the core and the links after it leave the chain
+   * (event `chiefFeast` `unlink`) and this plan is the rest's. Absent otherwise.
+   */
+  chiefDrop?: { index: number; left: number };
   /**
    * Task 38 «Гарнизон» (`Params.tethers`, tethers.ts): the tethers the dash of this chain cuts — by their held body — read from the
    * bodies where they stand now along the dash's path (the hero, then the links up to the one it stops on). The release fixes the
@@ -341,6 +379,8 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   let reached = 0;
   // Task 38: how many links the dash's path runs through (up to its first survivor, or the core that ends the fight); -1 — all.
   let pathEnd = -1, linkIndex = -1;
+  // Task 55а: the drawn chain ends on a thing, and the shove the dash's end runs (none when a survivor stops the dash before it).
+  let endsOnThing = false, shove: ShovePlan | undefined;
   for (const link of links) {
     linkIndex++;
     if (cleared) { out.push({ link, outcome: null }); continue; }
@@ -353,10 +393,20 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
       out.push({ link, outcome: null });
       continue;
     }
+    // Task 55а (`Params.shove`): a thing — no strike, no power, no build link; the dash stops at it as at a survivor and shoves it
+    // along the chain's last segment (from the previous link, or the hero, to the thing; positions now — the release fixes them).
+    if (isThing(enemy) && shoveOn(world)) {
+      out.push({ link, outcome: thingOutcome(power) });
+      endsOnThing = true;
+      if (!endsOnSurvivor && !cleared) { stopPower = power; pathEnd = linkIndex + 1; shove = shovePath(world, enemy, shoveDirection(world, links, linkIndex, enemy)); }
+      continue;
+    }
     const ctx: LinkContext | null = build ? { chain, index: ++index, enemy, id: enemy.id, elite: !!enemy.elite, elitesBefore: elites, power, plan: true, crystalsBefore: crystals, ...colorless ? { colorlessBefore: colorless } : {}, ...far?.has(enemy.id) ? { far: true as const } : {} } : null;
     // Task 50 («Охотник на элит» II): plates the link loses before its hit — the strike takes the rest.
     const pre = honedKit && ctx ? platesBeforeOf(world, ctx, platesOf(enemy)) : 0, marks = honedKit && ctx ? rank2LinksOf(world, ctx) : [];
-    const outcome = strike(ctx ? power + linkPowerOf(world, ctx) : power, enemy.hp, chainFactor(world, enemy), gain, platesOf(enemy) - pre);
+    let outcome = strike((ctx ? power + linkPowerOf(world, ctx) : power) + wetHit(world, link.kind === 'enemy' && !!link.wet), enemy.hp, chainFactor(world, enemy), gain, platesOf(enemy) - pre);
+    // Task 54: the Chief's core — a queue of `chiefFeastBig` links takes two plates (the dash reads the same, `dashStrike`).
+    if (enemy.kind === CHIEF) outcome = chiefHitOutcome(world, enemy, outcome, chiefQueue(world, enemy, links, linkIndex));
     power = outcome.powerAfter;
     // The package: a plate pass is the elite's link too — «Охотник на элит» gives the tail its power (4.3, «Связь с силой цепи»).
     if (ctx) { if (outcome.killed || outcome.plate) power += afterLinkPowerOf(world, ctx, outcome); if (enemy.elite) elites++; if (colorlessLink(world, enemy)) colorless++; }
@@ -376,11 +426,11 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
     ? planTetherCuts(world, dashPathPoints(world.hero, links, reachedLinks, l => linkPoint(world, l)),
       new Set(out.slice(0, reachedLinks).flatMap(l => l.outcome?.killed && l.link.kind === 'enemy' ? [l.link.id] : []))) : [];
   const last = links[links.length - 1];
-  const endsOnObject = !!last && last.kind === 'object' && !passObject(world, last);
+  const endsOnObject = endsOnThing || (!!last && last.kind === 'object' && !passObject(world, last));
   let seal = links === world.chain && loopClosed(world) ? sealPreview(world, world.chainClosed!) : null;
   // Loop research, step 3: the pierce of the drawn chain only (a closed loop — the seal wins).
   // Task 28: no pierce after a chain that ends the fight (the release's pierce is cancelled when the core dies).
-  let pierce = options.pierce !== false && links === world.chain && pierceOn(world) && !loopClosed(world) && !endsOnSurvivor && !cleared
+  let pierce = options.pierce !== false && links === world.chain && pierceOn(world) && !loopClosed(world) && !endsOnSurvivor && !cleared && !endsOnThing
     ? planPierce(world, links, out, power) : null;
   // Task 28: the pierce's run kills the core — the bodies after it are dead by then (not struck).
   const pierceEnd = pierce ? pierce.bodies.findIndex(b => b.outcome.killed && endsFight(world, findEnemy(world, b.id)!)) : -1;
@@ -419,11 +469,13 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   const grate = links === world.chain && !world.move ? grateLinkDrop(world, links) : null;
   // Task 48: the Troll's core of the drawn chain, dropped when his window ends.
   const trollDrop = links === world.chain && !world.move ? trollLinkDrop(world, links) : null;
+  // Task 54: the Chief's core of the drawn chain, dropped when his window ends.
+  const chiefDrop = links === world.chain && !world.move ? chiefLinkDrop(world, links) : null;
   // Task 50: the counters' rank II at the end of the dash (the drawn chain only, not after a chain that ends the fight).
   const honed = honedKit ? planHoned(world, out, pierce, seal, far, options.back !== false && links === world.chain && !over) : null;
   // Task 49: the law of Ведунья — the drawn open chain gives no after-chain shield (the dash: heroLaw.ts, `ChainEnd.endForm`).
   const noShield = links === world.chain && !seal && sealOnlyShield(world);
-  return { ...grate ? { grate } : {}, ...trollDrop ? { trollDrop } : {}, links: out, endsOnSurvivor, endsOnObject, power, kills, ...seal ? { seal } : {}, ...noShield ? { noShield: true as const } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {}, ...cuts.length ? { cuts } : {}, ...fused?.blast ? { blast: fused.blast } : {}, ...fused?.wave ? { wave: fused.wave } : {}, ...honed && Object.keys(honed).length ? { honed } : {} };
+  return { ...grate ? { grate } : {}, ...trollDrop ? { trollDrop } : {}, ...chiefDrop ? { chiefDrop } : {}, links: out, endsOnSurvivor, endsOnObject, ...endsOnThing ? { endsOnThing: true as const } : {}, ...shove ? { shove } : {}, power, kills, ...seal ? { seal } : {}, ...noShield ? { noShield: true as const } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {}, ...cuts.length ? { cuts } : {}, ...fused?.blast ? { blast: fused.blast } : {}, ...fused?.wave ? { wave: fused.wave } : {}, ...honed && Object.keys(honed).length ? { honed } : {} };
 }
 
 /**
@@ -478,7 +530,8 @@ function planHoned(world: World, out: readonly LinkPlan[], pierce: PiercePreview
   }
   // «Иней на клинке»: a chain of 3+ enemy links reached, its last one alive after the end's shadows (a wave may finish it). Task 48:
   // the Troll's core struck in its window is out of the shadows' lists (one hit a window: they cannot strike it) — alive after them.
-  const spared = last?.enemy.kind === TROLL && trollWindowOn(world) && !ended.enemies.some(e => e.id === last.enemy.id);
+  // Task 54: so is the Chief's core (no shadow ever strikes it under the feast's rule).
+  const spared = ((last?.enemy.kind === TROLL && trollWindowOn(world)) || (!!last && chiefGuarded(world, last.enemy))) && !ended.enemies.some(e => e.id === last!.enemy.id);
   if (frost && last && !last.outcome.killed && dash.links >= FROST_EDGE_LINKS && (spared || ended.enemies.some(e => e.id === last.enemy.id))) {
     const near = frostNeighbour(world, last.enemy, ended.enemies);
     if (near !== null) result.frost = { survivor: last.enemy.id, near };
@@ -493,6 +546,8 @@ function lastReached(world: World, out: readonly LinkPlan[]): { enemy: Enemy; ou
     if (link.kind === 'object') { if (findObject(world, link.id) && !passObject(world, link)) break; continue; }
     const enemy = findEnemy(world, link.id);
     if (!enemy || !outcome) continue;
+    // Task 55а: a thing ends the dash; the last enemy link before it is the end's centre.
+    if (outcome.thing) break;
     last = { enemy, outcome };
     if (!outcome.killed && !outcome.plate) break;
   }
@@ -697,6 +752,8 @@ function planDashEnd(world: World, out: readonly LinkPlan[], pierce: PiercePrevi
     if (o?.killed) continue;
     // Task 48: one hit a window — the Troll's core struck by the first pass (the links, the pierce, the seal) or closed now: no hit.
     if (trollShut(world, e) || (e.kind === TROLL && trollWindowOn(world) && (o || (seal && seal.damage > 0 && seal.inside.includes(e.id))))) continue;
+    // Task 54: the Chief's core under the feast's rule — only the chain's hit lands on it: no shadow of the end strikes it.
+    if (chiefGuarded(world, e)) continue;
     let hp = o ? o.hpAfter : e.hp, plates = o?.plate ? o.platesAfter ?? 0 : platesOf(e);
     if (seal && seal.damage > 0 && seal.inside.includes(e.id)) {
       if (plates > 0) plates--;
@@ -748,7 +805,8 @@ function planPierce(world: World, links: readonly ChainLink[], out: readonly Lin
   const bodies = shape.bodies.flatMap(b => {
     const e = findEnemy(world, b.id);
     // Task 48: the Troll's core closed now — the pierce passes it by.
-    if (!e || trollShut(world, e)) return [];
+    // Task 54: the Chief's core under the feast's rule — the pierce passes it by.
+    if (!e || trollShut(world, e) || chiefGuarded(world, e)) return [];
     const outcome = strike(power, e.hp, chainFactor(world, e), 0, platesOf(e));
     return [{ id: b.id, t: b.t, outcome: outcome.plate && plates > 1 ? { ...outcome, platesAfter: Math.max(0, platesOf(e) - plates) } : outcome }];
   });
@@ -778,7 +836,7 @@ export function sealPreview(world: World, kind: LoopKind): SealPreview | null {
   const links = chainEnemyCount(world);
   if (links < loopMinOf(world.params, kind)) return null;
   // Task 48: the Troll's core closed now is no body inside (the seal does not strike it).
-  const ring = loopRing(world, kind), inside = enemiesInside(world, ring, world.chain).filter(e => !trollShut(world, e)), damage = sealDamage(links), hold = sealHoldOf(world.params, links);
+  const ring = loopRing(world, kind), inside = enemiesInside(world, ring, world.chain).filter(e => !trollShut(world, e) && !chiefGuarded(world, e)), damage = sealDamage(links), hold = sealHoldOf(world.params, links);
   // Task 44 «Ледяная печать»: the survivors of the strike (a plated body loses a plate, not HP) freeze max(hold, 3 s), brittle.
   const cold = iceSealCold(world, hold);
   const ice = cold ? { ids: inside.filter(e => platesOf(e) > 0 || e.hp > damage).map(e => e.id), brittle: cold.brittle } : null;
@@ -1068,7 +1126,7 @@ export function colorJoin(world: World, enemy: Enemy, color: number | null = cha
  * neither «Чужак» nor a colour of «Близнецы». The Jailer's core with the frame on. The refusal, the highlight, П1 and the view
  * read it through `colorJoin`, `chainColor`; the view draws such a body without a team colour.
  */
-export function colorlessLink(world: World, enemy: Pick<Enemy, 'kind'>): boolean { return colorlessCore(world, enemy); }
+export function colorlessLink(world: World, enemy: Pick<Enemy, 'kind'>): boolean { return colorlessCore(world, enemy) || (isThing(enemy) && shoveOn(world)); }
 
 /**
  * Task 34 (`Params.shiftAtPointer`, user 15.10.2026): the colour of the drawn chain's last segment while «Смена цвета» holds it
@@ -1122,6 +1180,9 @@ export function chainAnchors(world: World): ChainAnchor[] {
  */
 export function nextLink(world: World, target: ChainLink): ChainLink {
   const plain: ChainLink = { kind: target.kind, id: target.id } as ChainLink;
+  // Task 52, Р2: the dwell chose the anchor — the link is taken from it (the only anchor then, forms.ts).
+  const chosen = world.chain.length ? forkAnchorNow(world) : null;
+  if (chosen) return { ...plain, fork: { kind: chosen.kind, id: chosen.id } };
   if (!((world.params.forkBranches ?? 0) > 0) || !world.chain.length) return plain;
   const point = linkPoint(world, plain), enemy = plain.kind === 'enemy' ? findEnemy(world, plain.id) : undefined;
   if (!point) return plain;
@@ -1158,7 +1219,7 @@ export function inChain(world: World, enemy: Enemy): number {
  * Why a target cannot be the next link (stage G): the checks of `canLink` / `canLinkObject` in their order, and the
  * text the pointer hint shows. One function decides both, so the hint never disagrees with the chain.
  */
-export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'unlit' | 'color' | 'far' | 'sight' | 'guarded' | 'crossed' | 'sealed' | 'lever' | 'shackled' | 'handFull' | 'grate' | 'outOfWindow';
+export type Refusal = 'move' | 'colorless' | 'inChain' | 'afterSurvivor' | 'afterObject' | 'pressed' | 'closed' | 'unlit' | 'color' | 'far' | 'sight' | 'guarded' | 'crossed' | 'sealed' | 'lever' | 'shackled' | 'handFull' | 'grate' | 'outOfWindow' | 'sliding' | 'queue';
 export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   move: 'идёт проход',
   colorless: 'не берётся цепью',
@@ -1187,6 +1248,10 @@ export const REFUSAL_TEXT: Readonly<Record<Refusal, string>> = {
   grate: 'за решёткой',
   // Task 48 «Тролль»: the Troll's core outside his window (enemies/troll.ts `trollShut`) — his own moves open it.
   outOfWindow: 'вне окна',
+  // Task 55а: a thing sliding after a shove, or the one it is about to strike («катится» is the die's word, task 55 §18).
+  sliding: 'в движении',
+  // Task 54 «Главарь с котелком»: the Chief's core in his window, the queue of the brew's colour before it short (enemies/chief.ts).
+  queue: 'в очередь',
 };
 
 /**
@@ -1242,12 +1307,17 @@ export function enemyAnchors(world: World, enemy: Enemy): ChainAnchor[] { return
 export function enemyRefusal(world: World, enemy: Enemy, plan: ChainPlan = planChain(world, world.chain, NO_PIERCE)): Refusal | null {
   if (world.status !== 'playing' || world.move) return 'move';
   if (enemy.color === NO_COLOR || !kindOf(enemy).chainable) return 'colorless';
+  // Task 55а: a thing is a link only with the law of the shove; one sliding (or about to be struck by one) is no link now.
+  if (isThing(enemy) && !shoveOn(world)) return 'colorless';
+  if (world.shoves && sliding(world, enemy.id)) return 'sliding';
   // Task 40: the keymaster's prisoner (only while a shackle holds it: nothing in worlds without one).
   if (world.tethers && shackled(world, enemy)) return 'shackled';
   // Task 43: the full Castellan's core behind its grate.
   if (behindGrate(world, enemy)) return 'grate';
   // Task 48: the Troll's core outside his window (or its hit spent).
   if (trollShut(world, enemy)) return 'outOfWindow';
+  // Task 54: the Chief's core outside his window (or its hit spent).
+  if (chiefShut(world, enemy)) return 'outOfWindow';
   if (inChain(world, enemy) >= 0) return 'inChain';
   if (loopClosed(world)) return 'sealed';
   if (plan.endsOnSurvivor) return 'afterSurvivor';
@@ -1255,6 +1325,8 @@ export function enemyRefusal(world: World, enemy: Enemy, plan: ChainPlan = planC
   // Phase A, T4: «Хамелеон» in its window is taken by a chain of any colour (it takes the chain's colour, `adoptChainColor`);
   // task 29: the colour rule of the forms («Близнецы», «Чужак») — `colorJoin`.
   if (!colorJoin(world, enemy)) return 'color';
+  // Task 54: the Chief's core in his window — the queue of the brew's colour before it.
+  if (chiefQueueShort(world, enemy)) return 'queue';
   const reach = reachRefusal(world, enemy, enemyArtRadius(world.params, enemy));
   if (reach) return reach;
   // Stage 2 of the transition (design answer 08.10.2026): the kind's say about the direction of the strike — always from
@@ -1345,10 +1417,12 @@ export function beginChain(world: World, p: Vec): boolean {
   if (world.status !== 'playing' || world.move) return false;
   world.chain = [];
   delete world.chainClosed;
+  delete world.forkAnchor;
   const plan = planChain(world, world.chain, NO_PIERCE);
   const target = pick(world, p, e => canLink(world, e, plan), o => canLinkObject(world, o, plan));
   if (!target) return false;
-  world.chain = [target];
+  // Task 56: «Половодье» and «Перекличка» mark the link as it is taken (omens.ts `omenLink`; nothing without them).
+  world.chain = [omenLink(world, target, target.kind === 'enemy' ? findEnemy(world, target.id) : undefined)];
   // A chain always starts with the full reserve: its first link refreshes focus too.
   world.focusRefreshed = new Set();
   refreshFocus(world, target);
@@ -1364,6 +1438,8 @@ export type DragMode = 'full' | 'sweep' | 'append';
 /** Drag: append a valid link, truncate on a selected one, cancel on the hero. */
 export function dragChain(world: World, p: Vec, mode: DragMode = 'full'): void {
   if (world.status !== 'playing' || world.move) return;
+  // Task 52, Р2: the pointer event left the link it rested on — its dwell done, it stays the anchor (`ready`); not done — no anchor.
+  if (mode === 'full' && world.forkAnchor) leaveForkAnchor(world, p);
   // Loop research, step 2: the loop gesture comes first (only the pointer event itself, never a sweep or the held pointer).
   if (mode === 'full' && loopOn(world) && world.chain.length && loopGesture(world, p)) return;
   // Stage H (user 08.10.2026): the hero is link zero of the step back — with one link the pointer on the hero takes it off
@@ -1387,6 +1463,11 @@ export function dragChain(world: World, p: Vec, mode: DragMode = 'full'): void {
   const index = linkIndex(world, target);
   // Task 39: the held pointer nearest to a link of the chain does nothing (it never truncates).
   if (index >= 0 && mode !== 'full') return;
+  // Task 52, Р2: the pointer event on an older link (not the last, not the one before it) starts its dwell (`forkAnchorNow`).
+  if (index >= 0 && index <= world.chain.length - 3 && forkDwellOn(world) && hasTalisman(world, FORMS.fork) && !forkSpent(world)) {
+    if (!world.forkAnchor || world.forkAnchor.kind !== target.kind || world.forkAnchor.id !== target.id) world.forkAnchor = { kind: target.kind, id: target.id, since: world.time };
+    return;
+  }
   if (index >= 0) {
     // Stage H: one step back only — the second-to-last link takes the last one off; an older link does nothing (after a
     // crystal the pointer often crosses old links). A link taken off and taken again does not refresh focus (stage E).
@@ -1399,10 +1480,24 @@ export function dragChain(world: World, p: Vec, mode: DragMode = 'full'): void {
   if (!world.chain.length) world.focusRefreshed = new Set();
   const color = chainColor(world), need = twinsNextColor(world);
   const joined = target.kind === 'enemy' ? findEnemy(world, target.id) : undefined, join = joined ? colorJoin(world, joined, color) : null;
-  world.chain.push(nextLink(world, target));
+  world.chain.push(omenLink(world, nextLink(world, target), joined));
+  // Task 52, Р2: the fork is taken — the anchor is the last link again.
+  delete world.forkAnchor;
   // Phase A, T4: a chameleon taken in its window by a chain of another colour takes the chain's colour (task 33: the pair's next).
   if (joined && join === 'chameleon') adoptChainColor(world, joined, need ?? color);
   refreshFocus(world, target);
+}
+
+/**
+ * Task 52, Р2: the pointer event at `p` is not on the link the dwell rests on — done (`forkAnchorNow` held it long enough): it stays
+ * the anchor until a link joins; not done, or no longer an older link — no anchor.
+ */
+function leaveForkAnchor(world: World, p: Vec): void {
+  const fa = world.forkAnchor!;
+  const on = pick(world, p, e => fa.kind === 'enemy' && e.id === fa.id, o => fa.kind === 'object' && o.id === fa.id);
+  if (on) return;
+  if (!fa.ready && forkAnchorNow(world)) fa.ready = true;
+  else if (!fa.ready || !forkAnchorNow(world)) delete world.forkAnchor;
 }
 
 /** Task 39 (`Params.holdNearest`): the held still pointer (`append`) sees the chain's links too — the pointer event always does. */
@@ -1471,7 +1566,7 @@ export function hoverRefusal(world: World, p: Vec, held = false): Refusal | null
   return o ? objectRefusal(world, o, plan) : null;
 }
 
-export function cancelChain(world: World): void { world.chain = []; delete world.chainClosed; }
+export function cancelChain(world: World): void { world.chain = []; delete world.chainClosed; delete world.forkAnchor; }
 
 /**
  * Iteration 2.1: the damage to the hero a chain hit on `enemy` would do now through its armed reaction (`EnemyBehavior.armed`:
@@ -1497,9 +1592,13 @@ export function releaseChain(world: World): boolean {
   const pierce = pierceOn(world) ? full?.pierce : undefined, back = backFixed ? full?.back : undefined;
   // Task 38: the tethers the player saw cut — fixed now, cut when the dash ends (only while the law acts and a tether stands).
   const cuts = live && tethersOn(world) && world.tethers?.length ? (full ?? planChain(world, world.chain, NO_PIERCE)).cuts : undefined;
+  // Task 55а: the drawn chain ends on a thing — its shove is fixed by the release (`cuts`' pattern).
+  const lastDrawn = world.chain[world.chain.length - 1], lastThing = lastDrawn?.kind === 'enemy' ? findEnemy(world, lastDrawn.id) : undefined;
+  const shoveFix = live && lastThing && isThing(lastThing) && shoveOn(world) ? (full ?? planChain(world, world.chain, NO_PIERCE)).shove : undefined;
   const links = world.chain.filter(l => linkPoint(world, l));
   world.chain = [];
   delete world.chainClosed;
+  delete world.forkAnchor;
   if (!links.length || world.status !== 'playing' || world.move) return false;
   world.move = { ...newMove('dash', { x: world.hero.x, y: world.hero.y }, null, world.params.dashSpeed), links };
   if (seal) {
@@ -1508,7 +1607,11 @@ export function releaseChain(world: World): boolean {
   }
   if (pierce) fixPierce(world, world.move, pierce);
   if (cuts?.length) world.move.cuts = [...cuts];
+  // Task 55а: the shove the player saw — fixed now, run when the dash ends if it reached the thing.
+  if (shoveFix) world.move.shove = JSON.parse(JSON.stringify(shoveFix)) as ShovePlan;
   // Task 48: a move whose plan strikes the Troll's core holds his window's hit for itself until it is over.
+  // Task 54: the queue of a chain that strikes the Chief's core (its hit takes two plates with a long one).
+  chiefRelease(world, links);
   if (trollWindowOn(world)) trollReserve(world, [...links.flatMap(l => (l.kind === 'enemy' ? [l.id] : [])), ...pierce?.bodies.map(b => b.id) ?? [], ...full?.back?.hits.map(h => h.id) ?? [], ...seal?.inside ?? []]);
   // «Смена цвета»: the links that free the colour, as drawn (absent while the rule is off or the chain has none).
   const shifts = colorShiftIds(world, links);
@@ -1525,6 +1628,8 @@ export function releaseChain(world: World): boolean {
   // Stage 2, step 3: the links struck ×2 by this dash — frozen and brittle now (the ×2 is fixed at the release).
   const brittle = links.flatMap(l => { const e = l.kind === 'enemy' ? findEnemy(world, l.id) : undefined; return e && chainFactor(world, e) > 1 ? [e.id] : []; });
   if (brittle.length) world.move.brittle = brittle;
+  // Task 56: the links taken in water and of the colour on the roll call (omens.ts; nothing without them).
+  fixOmenLinks(world.move, links);
   // Iteration 2.1: links whose chain-hit reaction is armed now (the porcupine with its quills up) — fixed at the release, as the ×2.
   const armed = links.flatMap(l => { const e = l.kind === 'enemy' ? findEnemy(world, l.id) : undefined; return e && armedDamage(world, e) > 0 ? [e.id] : []; });
   if (armed.length) world.move.armed = armed;
@@ -1588,6 +1693,8 @@ function pierceHit(world: World, move: HeroMove, id: number): void {
   if (!enemy) return;
   // Task 48: the Troll's core closed or its window's hit spent — the run passes it by.
   if (enemy.kind === TROLL && trollWards(world, enemy, PIERCE_SOURCE)) return;
+  // Task 54: the Chief's core under the feast's rule — the pierce never lands on it.
+  if (enemy.kind === CHIEF && chiefWards(world, enemy, PIERCE_SOURCE)) return;
   const factor = pierce.brittle?.includes(id) ? Math.max(1, world.params.frostFactor) : 1;
   const outcome = strike(move.power, enemy.hp, factor, 0, platesOf(enemy));
   if (move.purse) move.purse.embers += linkEmbers(enemy, outcome);
@@ -1775,7 +1882,11 @@ function dashStrike(world: World, move: HeroMove, enemy: Enemy): { ctx: LinkCont
   const ctx: LinkContext | null = b ? { chain: b.chain, index: b.links + 1, enemy, id: enemy.id, elite: !!enemy.elite, elitesBefore: b.elites, power: move.power, plan: false, crystalsBefore: move.broken, ...b.colorless ? { colorlessBefore: b.colorless } : {} } : null;
   // Task 50 («Охотник на элит» II): plates the link loses before its hit (`hitEnemy` strips them) — the strike takes the rest, as the plan.
   const honed = !!ctx && !!world.kit?.honed, pre = honed ? platesBeforeOf(world, ctx!, platesOf(enemy)) : 0;
-  return { ctx, pre, marks: honed ? rank2LinksOf(world, ctx!) : [], outcome: strike(ctx ? move.power + linkPowerOf(world, ctx) : move.power, enemy.hp, dashFactor(world, enemy), linkGainOf(world), platesOf(enemy) - pre) };
+  // Task 56 «Половодье»: a link taken in water hits +1, as the plan's (`wetHit`; 0 without it).
+  const wet = wetHit(world, !!move.wet?.includes(enemy.id));
+  const outcome = strike((ctx ? move.power + linkPowerOf(world, ctx) : move.power) + wet, enemy.hp, dashFactor(world, enemy), linkGainOf(world), platesOf(enemy) - pre);
+  // Task 54: the Chief's core — the queue fixed at the release (`chiefRelease`) takes two plates when long (the plan's rule).
+  return { ctx, pre, marks: honed ? rank2LinksOf(world, ctx!) : [], outcome: enemy.kind === CHIEF ? chiefHitOutcome(world, enemy, outcome, enemy.vars.wq ?? 0) : outcome };
 }
 
 /** Phase B: the layer notes an enemy link the dash reached (struck or passed fallen). */
@@ -1792,6 +1903,8 @@ function hitEnemy(world: World, enemy: Enemy): void {
   const move = world.move!, p = world.params;
   // Task 48: the Troll's core closed (never so for a released plan: `trollReserve`) — the dash stops on it, unhurt.
   if (enemy.kind === TROLL && trollWards(world, enemy, 'chain')) { move.links = []; returnToStop(move); return; }
+  // Task 54: the Chief's core closed (never so for a released chain: the refusal and the window's timer standing) — the same.
+  if (enemy.kind === CHIEF && chiefWards(world, enemy, 'chain')) { move.links = []; returnToStop(move); return; }
   const { ctx, outcome, pre, marks } = dashStrike(world, move, enemy);
   // Stage 2 of the transition: the kind's reaction to the hit (the porcupine's quills); the hero's death comes first.
   behaviorOf(enemy).onChainHit?.(world, enemy, outcome);
@@ -1808,7 +1921,8 @@ function hitEnemy(world: World, enemy: Enemy): void {
   if (world.oath) oathLink(world);
   move.power = outcome.powerAfter;
   move.hits++;
-  world.energy = Math.min(ENERGY_MAX, world.energy + p.energyPerKill);
+  // Task 56 «Перекличка»: a link of the colour called when it was taken adds its energy (0 without it).
+  world.energy = Math.min(ENERGY_MAX, world.energy + p.energyPerKill + callEnergy(world, move, enemy.id));
   enemy.hurtFlash = Math.max(p.hitFlash, 0.01);
   world.events.push({ type: 'chainHit', enemyId: enemy.id, damage: outcome.damage, killed: outcome.killed, x: enemy.x, y: enemy.y, combo: move.hits, ...outcome.plate ? { plates: outcome.platesAfter } : {} });
   // «Смена цвета» (design answer 12.10.2026): the link that freed the colour — killed or a plate taken; a survivor ends the
@@ -1817,7 +1931,10 @@ function hitEnemy(world: World, enemy: Enemy): void {
   if (outcome.plate) {
     // The package (4.3, rule 1): the hit takes a plate (at 0 the window opens), the elite is no survivor — the chain goes on
     // through it; the hero does not take its spot (it stands). As the last link: back to the stop, as from a survivor.
-    stripPlates(world, enemy, { source: 'chain' }, false);
+    // Task 54: the Chief's long queue takes two plates (or the last plate and 1 HP; `chiefHitOutcome`).
+    const plates = platesOf(enemy) - (outcome.platesAfter ?? 0);
+    stripPlates(world, enemy, { source: 'chain', ...plates > 1 ? { plates } : {} }, false);
+    if (outcome.hpAfter < enemy.hp) enemy.hp = outcome.hpAfter;
     if (ctx) { move.power += afterLinkPowerOf(world, ctx, outcome); noteLink(move, enemy, false, colorlessLink(world, enemy)); runHook(world, 'onLink', m => m.onLink!(world, ctx, outcome)); }
     if (!move.links.length) returnToStop(move);
     maybeFinisher(world);
@@ -2000,6 +2117,10 @@ function finishMove(world: World): void {
   if (move.kind === 'dash' && world.oath) oathDashEnd(world);
   // Task 38: the dash cuts the tethers its release fixed (the bodies freed act once no move runs).
   if (move.kind === 'dash' && move.cuts && world.status === 'playing') cutTethers(world, move.cuts);
+  // Task 55а: the shove the release fixed — run now if the dash reached the thing, else cancelled (a survivor stopped it before).
+  const shove = move.kind === 'dash' && world.status === 'playing' ? move.shove : undefined;
+  if (shove && move.shoveHit) startShove(world, shove);
+  else if (shove) world.events.push({ type: 'shove', action: 'cancel', thingId: shove.thing, x: shove.from.x, y: shove.from.y });
   // Task 40: the shackles of a keymaster that died during the move fall now (after the dash, after the jump).
   if (world.tethers) settleTethers(world);
   if (move.kind === 'dash') {
@@ -2028,7 +2149,9 @@ function finishMove(world: World): void {
     if (end && endRankOn(world) && (move.seal || move.pierced)) end.endForm = move.seal ? 'seal' : 'pierce';
     // Task 50: the kills it needs are the build's (`chainShieldMinKillsOf`: «Добивание» II fewer; without it the panel's).
     const shield = chainShieldOf(world, end);
-    if (shield > 0 && move.kills >= chainShieldMinKillsOf(world, end)) {
+    // Task 55а: the shove's planned kills are this chain's (spec 2.5) — they count for the shield in the dash's end.
+    const shoveKills = shove && move.shoveHit ? shove.crushed.length + (shove.impact?.killed ? 1 : 0) : 0;
+    if (shield > 0 && move.kills + shoveKills >= chainShieldMinKillsOf(world, end)) {
       hero.chainShield = shield;
       // The prologue, task 13 (goal `shield`): a new shield window for the room's lamps (nothing on another arena).
       startShieldWindow(world);
@@ -2098,6 +2221,16 @@ function advanceMove(world: World, move: HeroMove, budget: number, path: Vec[] |
         passFallen(world, fallen);
         // «Прямая»: the last link fell on the ground (not into a cliff) — the run starts.
         if (move.pierce && !move.pierce.start && !move.links.length && !move.detour) beginPierce(world, move);
+        continue;
+      }
+      // Task 55а: a thing — the hero reaches it at the touch distance, strikes nothing and goes back to the stop; its shove waits for the end.
+      if (isThing(enemy) && shoveOn(world)) {
+        const arrived = moveHero(enemy, budget, touchDistanceOf(world.params, enemy));
+        budget -= dist(before, world.hero);
+        if (!arrived) return false;
+        move.links = [];
+        if (move.shove?.thing === enemy.id) move.shoveHit = true;
+        returnToStop(move);
         continue;
       }
       // A kill takes the enemy's spot; a survivor is struck from the touch distance.
