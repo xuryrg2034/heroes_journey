@@ -28,7 +28,7 @@ import { CAMERA_ARENAS } from '../sim/arenasCamera';
 import { BOSS_ARENAS, FOREST_BOSS_ARENAS, JAILER_RUN_ARENAS } from '../sim/arenasBoss';
 import { SHOOTERS_ARENAS } from '../sim/arenasShooters';
 // Task 59а: the probes of the garrison's step 3 at the very end of the sandbox menu.
-import { STEP3_ARENAS } from '../sim/arenasStep3';
+import { STEP3_ARENAS, STEP3_RUN_ARENAS } from '../sim/arenasStep3';
 // Task 38: the garrison's arenas at the end of the sandbox menu (`?arena=20…24`).
 import { GARRISON_ARENAS } from '../sim/arenasGarrison';
 import { CASTLE_ARENAS } from '../sim/arenasCastle';
@@ -119,9 +119,10 @@ const NOTE_FLASH_MS = 1000;
  * docs/realtime-stage3.md, section 11); then the boss arena «Тюремщик» (task 27, key ⇧9, `?arena=19`); the garrison's after it; at the end
  * «Берлога тролля» (task 48, no key, `?arena=30`), «Стан Главаря» (`?arena=31`), the castle's three (task 55а, `?arena=32…34`), «Стрелки
  * леса (проба)» (task 57а, `?arena=35`); at the end the probes of the garrison's step 3 (task 59а, no key): «Смолокур (проба)» `?arena=36`,
- * «Новобранцы (проба)» `?arena=37`, «Привратники (проба)» `?arena=38`. `?arena=N` opens one at once.
+ * «Новобранцы (проба)» `?arena=37`, «Привратники (проба)» `?arena=38`; after them the full arenas of step 3 (task 59б, no key, the next
+ * numbers): «Смолокурня», «Казарма». `?arena=N` opens one at once.
  */
-const SANDBOX_ARENAS: readonly ArenaTemplate[] = [...ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS, ...BEHAVIOR_ARENAS, ...CAMERA_ARENAS, ...BOSS_ARENAS, ...GARRISON_ARENAS, ...FOREST_BOSS_ARENAS, ...CASTLE_ARENAS, ...SHOOTERS_ARENAS, ...STEP3_ARENAS];
+const SANDBOX_ARENAS: readonly ArenaTemplate[] = [...ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS, ...BEHAVIOR_ARENAS, ...CAMERA_ARENAS, ...BOSS_ARENAS, ...GARRISON_ARENAS, ...FOREST_BOSS_ARENAS, ...CASTLE_ARENAS, ...SHOOTERS_ARENAS, ...STEP3_ARENAS, ...STEP3_RUN_ARENAS];
 /** Arenas on the plain digit keys (1–9, 0); the rest are on Shift + digit (stage 3a). */
 const DIGIT_ARENAS = ARENAS.length + SLICE_ARENAS.length;
 /** What an arena forces over the panel's phase table (stage 2): «стай волков и кабанов нет (доли 0)» and the like. */
@@ -333,7 +334,7 @@ async function boot(): Promise<void> {
   menuCard.append(...menuRunButton ? [menuRunButton] : [], el('h2', '', 'Выбери арену'));
   const arenaList = el('div', 'rt-arenas');
   // The camera sample's button has its own test id: the menu counts of the older tests (`arena-*`) stay as they were.
-  const camera0 = DIGIT_ARENAS + TERRAIN_ARENAS.length + BEHAVIOR_ARENAS.length, boss0 = camera0 + CAMERA_ARENAS.length, garrison0 = boss0 + BOSS_ARENAS.length, forest0 = garrison0 + GARRISON_ARENAS.length, castle0 = forest0 + FOREST_BOSS_ARENAS.length, shooters0 = castle0 + CASTLE_ARENAS.length, step30 = shooters0 + SHOOTERS_ARENAS.length;
+  const camera0 = DIGIT_ARENAS + TERRAIN_ARENAS.length + BEHAVIOR_ARENAS.length, boss0 = camera0 + CAMERA_ARENAS.length, garrison0 = boss0 + BOSS_ARENAS.length, forest0 = garrison0 + GARRISON_ARENAS.length, castle0 = forest0 + FOREST_BOSS_ARENAS.length, shooters0 = castle0 + CASTLE_ARENAS.length, step30 = shooters0 + SHOOTERS_ARENAS.length, step3run0 = step30 + STEP3_ARENAS.length;
   // The menu shows before the art has loaded (`loadCharacterArt`): a pick made meanwhile is kept and played once the game is ready
   // (before, the click reached `start` before it existed and was lost — more art, task 43, made the wait longer).
   let earlyPick: number | null = null;
@@ -357,7 +358,9 @@ async function boot(): Promise<void> {
     if (i === shooters0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Лес: стрелки (только песочница)'));
     // Task 59а: the probes of the garrison's step 3 at the very end (the numbers before stay), test id `step3-arena-N`.
     if (i === step30) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Гарнизон, шаг 3 — пробы: смолокур, новобранцы, привратники (только песочница)'));
-    const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span data-summary="${i}">${markedGoalArena(arena, params.markedGoals).summary}</span>`, i >= step30 ? `step3-arena-${i - step30 + 1}` : i >= shooters0 ? `shooters-arena-${i - shooters0 + 1}` : i >= castle0 ? `castle-arena-${i - castle0 + 1}` : i >= forest0 ? `boss-arena-${BOSS_ARENAS.length + i - forest0 + 1}` : i >= garrison0 ? `garrison-arena-${i - garrison0 + 1}` : i >= boss0 ? `boss-arena-${i - boss0 + 1}` : i >= camera0 ? `camera-arena-${i - camera0 + 1}` : `arena-${i + 1}`);
+    // Task 59б: the full arenas of step 3 after the probes, test id `step3-run-arena-N`.
+    if (i === step3run0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Гарнизон, шаг 3 — арены'));
+    const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span data-summary="${i}">${markedGoalArena(arena, params.markedGoals).summary}</span>`, i >= step3run0 ? `step3-run-arena-${i - step3run0 + 1}` : i >= step30 ? `step3-arena-${i - step30 + 1}` : i >= shooters0 ? `shooters-arena-${i - shooters0 + 1}` : i >= castle0 ? `castle-arena-${i - castle0 + 1}` : i >= forest0 ? `boss-arena-${BOSS_ARENAS.length + i - forest0 + 1}` : i >= garrison0 ? `garrison-arena-${i - garrison0 + 1}` : i >= boss0 ? `boss-arena-${i - boss0 + 1}` : i >= camera0 ? `camera-arena-${i - camera0 + 1}` : `arena-${i + 1}`);
     b.addEventListener('click', () => pick(i));
     arenaList.appendChild(b);
   });

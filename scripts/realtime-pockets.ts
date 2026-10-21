@@ -16,6 +16,7 @@ import { ARENAS as PROTOTYPE_ARENAS, SLICE_ARENAS, TERRAIN_ARENAS, markedCount, 
 import { BEHAVIOR_ARENAS } from '../src/realtime/sim/arenasStage3';
 import { CAMERA_ARENAS } from '../src/realtime/sim/arenasCamera';
 import { GARRISON_ARENAS } from '../src/realtime/sim/arenasGarrison';
+import { STEP3_RUN_ARENAS } from '../src/realtime/sim/arenasStep3';
 import { WARMUP_ARENAS } from '../src/realtime/sim/arenasWarmup';
 // The prototype arenas 1–3, the slice arenas 4–10 (stage 2 of the transition, steps 2 and 4) and the terrain samples of
 // stage 3a, step 1 (river, cliff, thorns, braziers, gorge).
@@ -28,7 +29,9 @@ const GARRISON = process.argv.includes('--garrison');
 // Task 51ж: `--warmup` — the warmup's layouts that walk to the hero (not the calm «Строй»; «Через пропасть» counts the far bank as
 // pockets by design — only the chain and the jump cross its cliff).
 const WARMUP = process.argv.includes('--warmup');
-const ARENAS: readonly ArenaLayout[] = WARMUP ? WARMUP_ARENAS.filter(a => !a.calm) : GARRISON ? GARRISON_ARENAS.filter(a => !a.castellanFull)
+// Task 59б: `--step3` — the full arenas of the garrison's step 3 («Смолокурня», «Казарма», «Барбакан»).
+const STEP3 = process.argv.includes('--step3');
+const ARENAS: readonly ArenaLayout[] = WARMUP ? WARMUP_ARENAS.filter(a => !a.calm) : STEP3 ? STEP3_RUN_ARENAS : GARRISON ? GARRISON_ARENAS.filter(a => !a.castellanFull)
   : [...LAYOUTS, ...LAYOUTS.filter(a => a.markedGoal).map(a => ({ ...markedGoalArena(a, true), name: `${a.name} (атаман или орда)` }))];
 import { type Vec, blockedAt, dist, setFlowClock } from '../src/realtime/sim/geometry';
 import { defaultParams, enemyBodyRadius, heroRadius, type Params } from '../src/realtime/sim/params';
