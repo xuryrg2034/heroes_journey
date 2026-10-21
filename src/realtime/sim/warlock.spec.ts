@@ -316,7 +316,7 @@ function links(h: Hall, at: Vec, points: readonly Vec[]): Enemy[] {
   return points.map(q => { const id = h.sim.command({ t: 'place', x: q.x, y: q.y, color: 0, hp: 0, kind: 'basic' }) as number; return h.w.enemies.find(e => e.id === id)!; });
 }
 
-check('«Прямая» (sandbox `pierceEnabled`): charmed or out of his window it passes him by — the highlight has no outcome on him, he is untouched; in the window — a plate, as the highlight said', () => {
+check('«Прямая» (sandbox `pierceEnabled`): charmed or out of his window it passes him by — the highlight has no outcome on him, he is untouched (charmed: one «звон»); in the window — a plate, as the highlight said', () => {
   for (const k of SEEDS) for (const gate of GATES) {
     const h = gated(k, gate, { pierceEnabled: true, pierceLength: 4 }), c = { x: h.core.x, y: h.core.y };
     // Three weak links on a line from the south towards him; the pierce's corridor beyond holds only him.
@@ -325,14 +325,17 @@ check('«Прямая» (sandbox `pierceEnabled`): charmed or out of his window 
     const plan = planChain(h.w), body = plan.pierce?.bodies.find(b => b.id === h.core.id);
     assert(h.w.chain.length === 3 && plan.pierce, `seed ${k}, ${gate}: a pierce (${h.w.chain.length})`);
     assert(gate === 'open' ? body?.outcome.plate === true : !body, `seed ${k}, ${gate}: the highlight on him (${JSON.stringify(body)})`);
-    const before = plates(h.core);
-    release(h.sim);
+    const before = plates(h.core), events: WorldEvent[] = [];
+    release(h.sim, events);
     assert(plates(h.core) === before - (gate === 'open' ? 1 : 0), `seed ${k}, ${gate}: plates ${before} → ${plates(h.core)}`);
+    // «Звон» (design 21.10.2026): charmed — the run reaches him and rings off once; out of his window — no try at all (as the Troll's).
+    const rings = [...of(events, 'warlockCharm'), ...of(events, 'warlockWindow')].filter(e => e.action === 'block' && e.source === 'pierce').length;
+    assert(rings === (gate === 'charmed' ? 1 : 0), `seed ${k}, ${gate}: «звон» ${rings}`);
     assert(replays(h.sim), `seed ${k}: replay`);
   }
 });
 
-check('«Печать» (sandbox `loopEnabled`): a ring of four links round him — charmed or out of his window the highlight has him outside the strike and he is untouched; in the window — one hit, a plate', () => {
+check('«Печать» (sandbox `loopEnabled`): a ring of four links round him — charmed or out of his window the highlight has him outside the strike and he is untouched (charmed: one «звон»); in the window — one hit, a plate', () => {
   for (const k of SEEDS) for (const gate of GATES) {
     const h = gated(k, gate, { loopEnabled: true }), c = { x: h.core.x, y: h.core.y };
     const ls = links(h, { x: c.x - 1.2, y: c.y + 0.8 }, [{ x: c.x - 0.8, y: c.y + 0.8 }, { x: c.x - 0.8, y: c.y - 0.8 }, { x: c.x + 0.8, y: c.y - 0.8 }, { x: c.x + 0.8, y: c.y + 0.8 }]);
@@ -340,9 +343,12 @@ check('«Печать» (sandbox `loopEnabled`): a ring of four links round him 
     const seal = planChain(h.w).seal;
     assert(h.w.chain.length === 4 && h.w.chainClosed && seal, `seed ${k}, ${gate}: the ring closed (${h.w.chain.length})`);
     assert(seal.inside.includes(h.core.id) === (gate === 'open'), `seed ${k}, ${gate}: the highlight's seal on him (${JSON.stringify(seal.inside)})`);
-    const before = plates(h.core);
-    release(h.sim);
-    ticks(h.sim, 1);
+    const before = plates(h.core), events: WorldEvent[] = [];
+    release(h.sim, events);
+    ticks(h.sim, 1, events);
+    // «Звон»: charmed — one, no damage; out of his window — no try (as the Troll's).
+    const rings = [...of(events, 'warlockCharm'), ...of(events, 'warlockWindow')].filter(e => e.action === 'block' && e.source === 'seal').length;
+    assert(rings === (gate === 'charmed' ? 1 : 0), `seed ${k}, ${gate}: «звон» ${rings}`);
     assert(plates(h.core) === before - (gate === 'open' ? 1 : 0) && h.core.hp === 2, `seed ${k}, ${gate}: plates ${before} → ${plates(h.core)}`);
     assert(replays(h.sim), `seed ${k}: replay`);
   }

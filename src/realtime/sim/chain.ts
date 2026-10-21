@@ -329,6 +329,11 @@ export interface PiercePreview {
   kills: number;
   /** Task 44 «Копьё»: plates a hit takes off an elite (`fusionSpearPlates`); absent — 1 (no «Копьё»). The bodies' `platesAfter` count them. */
   plates?: number;
+  /**
+   * Task 55, stage Д (design 21.10.2026, «звон»): the warlock's core charmed on the pierce's line — no outcome (not in `bodies`); the run
+   * reaches it and rings off it (`warlockCharm` `block`), nothing else. Absent — none.
+   */
+  spell?: { id: number; t: number }[];
 }
 
 /**
@@ -817,6 +822,8 @@ function planPierce(world: World, links: readonly ChainLink[], out: readonly Lin
   if (!shape) return null;
   // Task 44 «Копьё»: a hit takes this many plates (the same number `pierceHit` gives `stripPlates`).
   const plates = piercePlates(world);
+  // Task 55, stage Д: the warlock's core charmed on the line — its «звон» when the run reaches it (no outcome).
+  const spell = shape.bodies.flatMap(b => { const e = findEnemy(world, b.id); return e && warlockSpellbound(world, e) ? [{ id: b.id, t: b.t }] : []; });
   const bodies = shape.bodies.flatMap(b => {
     const e = findEnemy(world, b.id);
     // Task 48: the Troll's core closed now — the pierce passes it by.
@@ -826,7 +833,7 @@ function planPierce(world: World, links: readonly ChainLink[], out: readonly Lin
     const outcome = strike(power, e.hp, chainFactor(world, e), 0, platesOf(e));
     return [{ id: b.id, t: b.t, outcome: outcome.plate && plates > 1 ? { ...outcome, platesAfter: Math.max(0, platesOf(e) - plates) } : outcome }];
   });
-  return { from: shape.from, to: shape.to, length: shape.length, ux: shape.ux, uy: shape.uy, power, bodies, kills: bodies.filter(b => b.outcome.killed).length, ...plates > 1 ? { plates } : {} };
+  return { from: shape.from, to: shape.to, length: shape.length, ux: shape.ux, uy: shape.uy, power, bodies, kills: bodies.filter(b => b.outcome.killed).length, ...plates > 1 ? { plates } : {}, ...spell.length ? { spell } : {} };
 }
 
 // ---- Loop research, step 2: the loop («Печать», docs/realtime-loop-research.md, sections 3.1–3.4) ----
@@ -1676,7 +1683,8 @@ export function releaseChain(world: World): boolean {
 function fixPierce(world: World, move: HeroMove, pierce: PiercePreview): void {
   const brittle = pierce.bodies.flatMap(b => { const e = findEnemy(world, b.id); return e && chainFactor(world, e) > 1 ? [b.id] : []; });
   move.pierce = {
-    from: { ...pierce.from }, to: { ...pierce.to }, length: pierce.length, bodies: pierce.bodies.map(b => ({ id: b.id, t: b.t })),
+    // Task 55, stage Д: the charmed warlock's core joins the run's queue at its place — its hit rings off (`pierceHit` → `warlockWards`).
+    from: { ...pierce.from }, to: { ...pierce.to }, length: pierce.length, bodies: [...pierce.bodies.map(b => ({ id: b.id, t: b.t })), ...pierce.spell ?? []].sort((a, b) => a.t - b.t),
     ...brittle.length ? { brittle } : {}, ...world.params.eliteArmor ? { firing: nextFiring(world) } : {}, hits: 0, kills: 0,
     // Task 44 «Копьё»: the plates a hit takes, fixed with the plan (absent — 1).
     ...pierce.plates ? { plates: pierce.plates } : {},
