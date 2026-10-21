@@ -3,7 +3,7 @@ import { test, expect } from './realtimeTest';
 import { gameWait, untilFrame } from './realtimeFrames';
 import { breakCharm } from './warlockRoute';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
-import { artEllipseDepth, type ArtEllipse } from '../src/realtime/sim/bossArt';
+import { artDrawnAbove, artEllipseDepth, type ArtEllipse } from '../src/realtime/sim/bossArt';
 
 /**
  * «Зона нажатия босса по рисунку» (`Params.bossPickArt`, design 21.10.2026, docs/design-notes/task-48-troll.md §24), by real input at 1280×720: a click
@@ -20,7 +20,8 @@ interface Zone extends ArtEllipse { ring: number }
 interface Shot {
   hint: string | null; loop: { hintText: string | null }; chain: number[]; moving: string | null; time: number; arena: string; menuOpen: boolean; drawnOrder: number[];
   hero: { x: number; y: number };
-  enemies: { id: number; kind: string; x: number; y: number; hp: number }[];
+  enemies: { id: number; kind: string; x: number; y: number; hp: number; color: number; partOf: number | null; vars: Record<string, number> }[];
+  chief: { glow: number; sign: string; signProgress: number };
   castle: { things: { id: number; x: number; y: number; durability: number }[]; shoves: unknown[] };
   warlock: { state: { id: number; x: number; y: number; wardrobe: number | null; window: { open: boolean; hit: boolean } | null; phase: number } | null };
   troll: { glow: number };
@@ -195,6 +196,85 @@ test('the drawing order: bodies at one height are drawn by their ids — the lat
   const order = await untilFrame(page, (s, ids: number[], late) => ids.every(id => s.drawnOrder.includes(id)) ? s.drawnOrder.filter((id: number) => ids.includes(id)) : late ? null : undefined, ids, 4);
   expect(order, 'the bodies are drawn').not.toBeNull();
   expect(order, 'the larger id is on top at an equal y').toEqual([...ids].sort((a, b) => a - b));
+  await sameHash(page);
+  expect(errors).toEqual([]);
+});
+
+/**
+ * A point on the drawings of both bosses' bodies `lower` and `upper` (the two ellipses overlap), out of every press circle (`pickRadius` of every body, with a margin);
+ * the one deepest in both. Found on a grid round `lower`'s zone — the geometry only; the rule is what the test then plays (core's `overlapOf`).
+ */
+async function overlapPoint(page: Page, lower: number, upper: number): Promise<{ x: number; y: number }> {
+  const zl = await zoneOf(page, lower), zu = await zoneOf(page, upper);
+  const rings = await page.evaluate(() => { const rt = (window as any).__realtime; return rt.snapshot().enemies.map((e: any) => ({ x: e.x, y: e.y, r: rt.pickRadius(e.id) })); }) as { x: number; y: number; r: number }[];
+  let best: { x: number; y: number } | null = null, margin = 0;
+  for (let i = -80; i <= 80; i++) for (let j = -80; j <= 40; j++) {
+    const p = { x: zl.x + i * 0.02, y: zl.y + j * 0.02 };
+    if (rings.some(e => Math.hypot(e.x - p.x, e.y - p.y) <= e.r + 0.02)) continue;
+    const m = Math.min(1 - artEllipseDepth(zl, p), 1 - artEllipseDepth(zu, p));
+    if (m > margin) { best = p; margin = m; }
+  }
+  expect(best, 'the two drawings overlap out of every press circle').not.toBeNull();
+  return best!;
+}
+
+test('«Зона по рисунку»: the Chief — at the overlap of his and the ladle drawings the one drawn on top is taken: the ladle while the core is shut, the core when both are takeable (screenshots)', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors = collectErrors(page);
+  await page.goto('/?sandbox=1');
+  await page.evaluate(() => localStorage.clear());
+  await page.reload();
+  await expect(page.getByTestId('boss-arena-3')).toContainText('Стан Главаря');
+  await page.getByTestId('boss-arena-3').click();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
+  await expect.poll(async () => (await snap(page)).arena).toBe('chief');
+  await expect.poll(() => page.evaluate(() => (window as any).__realtime.camera().intro)).toBe(0);
+  await page.evaluate(() => {
+    const rt = (window as any).__realtime;
+    for (const [k, v] of [['enemySpeed', 0], ['speedSpread', 0], ['baseIntervalMin', 1000], ['baseIntervalMax', 1000], ['baseFloor', 0], ['contactDamage', 0]] as const) rt.setParam(k, v);
+  });
+  const s0 = await snap(page), core = s0.enemies.find(e => e.kind === 'chief')!, ladle = s0.enemies.find(e => e.kind === 'chief-ladle')!, sack = s0.enemies.find(e => e.kind === 'chief-sack')!;
+  // The parts held (no move of theirs runs); the order «on top» is the sim's `artDrawnAbove`: the core (larger y) over the ladle.
+  await page.evaluate(([a, b]) => { const rt = (window as any).__realtime; rt.chill(a, 600); rt.chill(b, 600); }, [ladle.id, sack.id] as const);
+  expect(artDrawnAbove(core, ladle), 'the core is drawn over the ladle').toBe(true);
+  await page.evaluate(() => (window as any).__realtime.teleport(12.9, 5.6));
+  await cameraSettled(page);
+  const at = await overlapPoint(page, core.id, ladle.id);
+  expect(artEllipseDepth(await zoneOf(page, core.id), at), 'the point is in the core ellipse').toBeLessThanOrEqual(1);
+  expect(artEllipseDepth(await zoneOf(page, ladle.id), at), 'the point is in the ladle ellipse').toBeLessThanOrEqual(1);
+  const screenAt = async (): Promise<{ x: number; y: number }> => page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [at.x, at.y] as const);
+  // The core shut (no feast yet), the ladle takeable as the first link: the press takes the ladle, no refusal.
+  const t0 = await screenAt();
+  await page.mouse.move(t0.x, t0.y, { steps: 4 });
+  await expect.poll(async () => (await snap(page)).hint, { message: 'a part is takeable: no refusal' }).toBeNull();
+  await page.mouse.down();
+  await expect.poll(async () => (await snap(page)).chain, { message: 'the core is shut: the ladle is taken' }).toEqual([ladle.id]);
+  await shot(page, 'chief-overlap-ladle');
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
+  // The feast: the window is lit, three eaters drawn, the pointer at the overlap — both takeable (the ladle of the brew colour) or the core alone: the core is the last link either way.
+  expect(await untilFrame(page, (s, _arg: null, late) => s.chief.sign === 'feast' && s.chief.signProgress >= 0.4 ? true : late ? false : undefined, null, 30), 'the feast windup').toBe(true);
+  expect(await untilFrame(page, (s, _arg: null, late) => s.chief.glow === 1 ? true : late ? false : undefined, null, 30), 'the window is lit').toBe(true);
+  await page.evaluate(([id]) => (window as any).__realtime.chill(id, 20), [core.id] as const);
+  const eaters = (await snap(page)).enemies.filter(e => e.vars.eat).sort((a, b) => b.x - a.x);
+  expect(eaters.length).toBeGreaterThanOrEqual(3);
+  const first = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [eaters[0].x, eaters[0].y] as const);
+  await page.mouse.move(first.x, first.y);
+  await page.mouse.down();
+  for (const e of eaters.slice(1, 3)) {
+    const t = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [e.x, e.y] as const);
+    await page.mouse.move(t.x, t.y, { steps: 6 });
+  }
+  await expect.poll(async () => (await snap(page)).chain, { message: 'three eaters drawn' }).toHaveLength(3);
+  const at2 = await overlapPoint(page, core.id, ladle.id);
+  expect(artEllipseDepth(await zoneOf(page, core.id), at2)).toBeLessThanOrEqual(1);
+  expect(artEllipseDepth(await zoneOf(page, ladle.id), at2)).toBeLessThanOrEqual(1);
+  const t2 = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [at2.x, at2.y] as const);
+  await page.mouse.move(t2.x, t2.y, { steps: 6 });
+  await expect.poll(async () => { const c = (await snap(page)).chain; return c[c.length - 1]; }, { message: 'the core, drawn on top, is the last link' }).toBe(core.id);
+  await shot(page, 'chief-overlap-core');
+  await page.keyboard.press('Escape');
+  await page.mouse.up();
   await sameHash(page);
   expect(errors).toEqual([]);
 });
