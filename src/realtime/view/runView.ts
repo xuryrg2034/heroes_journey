@@ -363,12 +363,12 @@ function habitItems(run: RtRunState, habit: RtHabitId): string[] {
 /** Task 50: the archetype row of the open gift — four cards and «Без повадки»; the chosen one stays lit, the rest wait off. */
 function habitRowHtml(habit: NonNullable<ReturnType<typeof rtGiftView>>['habit'] & object, run: RtRunState): string {
   const none = habit.chosen && habit.id === null;
-  const cards = RT_HABITS.map(def => `<button class="rt-habit-card${habit.id === def.id ? ' rt-on' : ''}" data-action="habit" data-habit="${def.id}" data-testid="habit-${def.id}" aria-pressed="${habit.id === def.id}" ${habit.chosen ? 'disabled' : ''}>`
+  const cards = RT_HABITS.map(def => `<button class="rt-habit-card${habit.chosen && habit.id === def.id ? ' rt-on' : ''}" data-action="habit" data-habit="${def.id}" data-testid="habit-${def.id}" aria-pressed="${!!habit.chosen && habit.id === def.id}">`
     + `${habitIconSvg(def.id, 34)}<b>${escapeHtml(def.name)}</b><small>${escapeHtml(def.line)}</small>`
     + `<span class="rt-habit-items" data-testid="habit-items-${def.id}">${habitItems(run, def.id).map(id => { const label = labelOf(id, !!run.forms); return `<i class="rt-habit-item" data-item="${id}" data-tip="${escapeHtml(talismanName(id, run))}" aria-label="${escapeHtml(talismanName(id, run))}">${label.svg ?? escapeHtml(label.glyph)}</i>`; }).join('')}</span></button>`).join('');
   // Design 17.10.2026 (§17): one word over the four cards, as «Сноровка» over its two.
-  return `<div class="rt-habits" data-testid="gift-habits" data-chosen="${habit.chosen}"><h3 data-testid="gift-habits-title">Повадка</h3>${habit.chosen ? '' : `<p class="rt-habit-hint" data-testid="gift-habits-hint">${HABIT_HINT}</p>`}<div class="rt-habit-cards">${cards}</div>`
-    + `<button class="rt-habit-none${none ? ' rt-on' : ''}" data-action="habit" data-habit="none" data-testid="habit-none" aria-pressed="${!!none}" ${habit.chosen ? 'disabled' : ''}>Без повадки</button></div>`;
+  return `<div class="rt-habits" data-testid="gift-habits" data-chosen="${habit.chosen}"><h3 data-testid="gift-habits-title">Повадка</h3><p class="rt-habit-hint" data-testid="gift-habits-hint">${HABIT_HINT}</p><div class="rt-habit-cards">${cards}</div>`
+    + `<button class="rt-habit-none${none ? ' rt-on' : ''}" data-action="habit" data-habit="none" data-testid="habit-none" aria-pressed="${!!none}">Без повадки</button></div>`;
 }
 
 function talismanCardLines(id: string, run?: RtRunState | null): string {
