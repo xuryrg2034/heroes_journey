@@ -45,6 +45,15 @@ check('a kind not met is a «?» with no name and no picture; a met one has the 
   assert(!unknown.includes('data-line="Рысь'), 'the strip gives nothing away for «?»');
 });
 
+check('the forest's kinds are drawn by their pictures (the shield and the archer too), the drawn SVG stays as the stand-in; a «?» has neither', () => {
+  const h = html(view('garrison'), 'bestiary');
+  for (const [id, file] of [['wolf', 'forest-wolf'], ['boar', 'forest-boar'], ['lynx', 'forest-lynx'], ['porcupine', 'forest-porcupine'], ['sapper', 'forest-sapper'], ['shaman', 'forest-shaman'], ['shield', 'forest-shield'], ['archer', 'ranged']] as const) {
+    const c = card(h, id);
+    assert(c.includes(`art/characters/${file}.png`) && c.includes('<svg') && c.includes('onerror'), `${id}: picture ${file} with the SVG as the stand-in`);
+  }
+  assert(!card(html(view('novice'), 'bestiary'), 'lynx').includes('<img'), 'a «?» kind has no picture');
+});
+
 check('the next level is one blank «…» tab with no name and no cards; the garrison kinds are not drawn at all (before the garrison)', () => {
   const v = view('novice'), h = html(v, 'bestiary');
   assert(h.includes('data-testid="chron-blank"') && h.split('data-testid="chron-blank"').length === 2, 'exactly one blank tab');
@@ -131,6 +140,11 @@ check('heroes: the cat only, then Ведунья «?» after the Jailer, then fr
   assert(card(h, 'toad').includes('Ведунья') && card(h, 'toad').includes('поход 3') && card(h, 'cat').includes('data-state="met"'), 'freed in run 3; the cat is met');
   assert(h.includes('Испытание · Кот') && card(h, 'ash:cat:5').includes('data-state="seen"') && card(h, 'ash:cat:6').includes('data-state="unknown"'), 'ladder to V');
   assert(chronicleShown(v, { page: 'heroes', selected: null, marks: [] }).cards === 2 + 16, '18 on the page: 2 heroes + 16 steps');
+});
+
+check('a step of the Испытание: the big numeral and the caption «ступень» only (no second numeral)', () => {
+  const c = card(html(view('garrison'), 'heroes'), 'ash:cat:5');
+  assert(c.includes('rt-chron-roman') && c.includes('<small>ступень</small>') && !c.includes('rt-chron-name'), c);
 });
 
 check('the camp page: the owl met; the others «?» until they come (Шиш and Евлампий have places while their camp is on)', () => {

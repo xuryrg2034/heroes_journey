@@ -135,6 +135,11 @@ test('task 58: the book after the garrison — its chapters open, the next level
   await page.getByTestId('hearth-chronicle').click();
   await expect(page.getByTestId('chron-chapter-garrison')).toBeVisible();
   await expect(page.getByTestId('chron-card-guard')).toContainText('Стражник');
+  // The forest kinds are pictures (the shield and the archer too).
+  for (const [id, file] of [['wolf', 'forest-wolf'], ['shield', 'forest-shield'], ['archer', 'ranged']] as const) {
+    expect(await page.getByTestId(`chron-card-${id}`).locator('img').evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0), `${id}: the picture loaded`).toBe(true);
+    await expect(page.getByTestId(`chron-card-${id}`).locator('img')).toHaveAttribute('src', new RegExp(`${file}\.png$`));
+  }
   await expect(page.getByTestId('chron-blank')).toHaveCount(0);
   await expect(page.getByTestId('chron-chapter-forest')).toContainText('8 / 8');
   await expect(page.getByTestId('chron-full')).toHaveCount(1);
@@ -152,6 +157,9 @@ test('task 58: the book after the garrison — its chapters open, the next level
   await page.getByTestId('chron-tab-heroes').click();
   await expect(page.getByTestId('chron-card-ash:cat:5')).toHaveAttribute('data-state', 'seen');
   await expect(page.getByTestId('chron-card-ash:cat:6')).toHaveAttribute('data-state', 'unknown');
+  // A step's card: the big numeral and the caption «ступень» only.
+  await expect(page.getByTestId('chron-card-ash:cat:5').locator('small')).toHaveText('ступень');
+  await expect(page.getByTestId('chron-card-ash:cat:5').locator('.rt-chron-name')).toHaveCount(0);
   await shot(page, 'chronicle-garrison-heroes');
   await page.keyboard.press('Escape');
   // The half recipe.
