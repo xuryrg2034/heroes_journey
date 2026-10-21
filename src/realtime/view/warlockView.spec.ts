@@ -16,7 +16,7 @@
 // Node 20 has no global navigator; pixi.js reads it on load (nodeNavigator.testkit.ts). First import.
 import './nodeNavigator.testkit';
 import { Graphics } from 'pixi.js';
-import { enemyRefusal, planChain } from '../sim/chain';
+import { enemyRefusal, hoverRefusal, nextCandidates, pickAt, planChain } from '../sim/chain';
 import { WARLOCK_ARENA, CASTLE_ARENAS } from '../sim/arenasCastle';
 import { WARDROBE } from '../sim/enemies/castle';
 import { WARLOCK, warlockState } from '../sim/enemies/warlock';
@@ -291,6 +291,35 @@ check('«Прямая» under the charm (core 21.10.2026): the run reaches him a
     release(h);
     assert(h.events.some(e => e.type === 'warlockCharm' && e.action === 'block' && e.source === 'pierce'), `seed ${k}: the sim rang off`);
     assert(h.view.shown.sparks === before + 1 && h.core.armor!.plates === plates && h.core.hp === 2, `seed ${k}: one spark (${h.view.shown.sparks - before}), unhurt`);
+  }
+});
+
+check('«Ядро в окне — первым» (core 21.10.2026): the pointer on a body standing on the core — in his window it takes the core, no refusal at the cursor, the core is a candidate; the window shut — it takes the body; the view signs agree with `pickAt`', () => {
+  for (const k of [1, 2, 3]) {
+    const h = hall(k, { shoveDistance: 6 });
+    toWindow(h);
+    h.sim.command({ t: 'chill', id: h.core.id, seconds: 60 });
+    h.sim.command({ t: 'teleport', x: h.core.x, y: h.core.y + 1.1 });
+    const bodyId = h.sim.command({ t: 'place', x: h.core.x, y: h.core.y + 0.3, color: 1, hp: 0, kind: 'basic' }) as number, body = h.w.enemies.find(e => e.id === bodyId)!;
+    const at = { x: body.x, y: body.y };
+    assert(dist(body, h.core) < 0.45, `seed ${k}: the body stands on the ring (${dist(body, h.core).toFixed(2)})`);
+    assert(h.w.params.corePickFirst && warlockState(h.w)!.window?.open, `seed ${k}: the key is on in his hall, the window is open`);
+    const pick = pickAt(h.w, at);
+    assert(pick?.kind === 'enemy' && pick.id === h.core.id, `seed ${k}: the pointer on the body takes the core (${JSON.stringify(pick)})`);
+    assert(hoverRefusal(h.w, at) === null, `seed ${k}: no refusal at the cursor (${hoverRefusal(h.w, at)})`);
+    assert(nextCandidates(h.w).some(e => e.id === h.core.id), `seed ${k}: the core's candidate ring is drawn`);
+    // The press takes the core; the dash strikes it; the window is spent.
+    draw(h.sim, [at]);
+    assert(h.w.chain.length === 1 && h.w.chain[0].id === h.core.id, `seed ${k}: the chain is [core]`);
+    release(h);
+    run(h, 0.3);
+    assert(h.core.armor!.plates === 3 && !warlockState(h.w)!.window?.open, `seed ${k}: a plate taken, the window shut (${h.core.armor!.plates})`);
+    // Shut: a new body on the core is the one the pointer takes.
+    const id2 = h.sim.command({ t: 'place', x: h.core.x, y: h.core.y + 0.3, color: 1, hp: 0, kind: 'basic' }) as number, b2 = h.w.enemies.find(e => e.id === id2)!;
+    h.sim.command({ t: 'teleport', x: h.core.x, y: h.core.y + 1.1 });
+    const p2 = { x: b2.x, y: b2.y }, pick2 = pickAt(h.w, p2);
+    assert(pick2?.kind === 'enemy' && pick2.id === id2, `seed ${k}: the window shut — the pointer takes the body (${JSON.stringify(pick2)})`);
+    assert(hoverRefusal(h.w, p2) === null && !nextCandidates(h.w).some(e => e.id === h.core.id), `seed ${k}: no refusal on the body, no ring on the shut core`);
   }
 });
 

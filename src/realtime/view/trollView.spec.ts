@@ -12,7 +12,7 @@
 // Node 20 has no global navigator; pixi.js reads it on load (nodeNavigator.testkit.ts). First import.
 import './nodeNavigator.testkit';
 import { Graphics, Text } from 'pixi.js';
-import { enemyRefusal } from '../sim/chain';
+import { enemyRefusal, hoverRefusal, nextCandidates, pickAt } from '../sim/chain';
 import { PHASE3_PLATES, TAIL_INNER, TAIL_OUTER, TROLL, TROLL_CLUB, TROLL_ROCK, TROLL_TAIL, trollMove, trollState } from '../sim/enemies/troll';
 import { defaultParams, type Params } from '../sim/params';
 import { Simulation, SIM_DT } from '../sim/simulation';
@@ -175,6 +175,34 @@ check('the node card: «Враги» counts the fight\'s start — the Troll and
   const lines = nodeDangers({ arena: 'troll', row: 10, guaranteedElite: false, garrison: { start: [TROLL, TROLL_CLUB, TROLL_ROCK, TROLL_TAIL].map(kind => ({ kind, count: 1 })), newcomers: [], knights: 0, bolts: false, deep: false } });
   const enemies = lines.find(l => l.id === 'enemies');
   assert(enemies?.text === 'Тролль, дубина, камень, хвост · подходят: обычные', `the enemies line (${enemies?.text})`);
+});
+
+check('«Ядро в окне — первым» (core 21.10.2026): a body on the Troll core — shut, the pointer on it takes the body; in the window it takes the core, no refusal at the cursor, the core is a candidate, the press starts [core]', () => {
+  for (const k of [1, 2, 3]) {
+    const d = den(k), { sim, w } = d;
+    sim.command({ t: 'chill', id: d.rock.id, seconds: 600 });
+    sim.command({ t: 'teleport', x: 11.4, y: 4.2 });
+    const put = (): { id: number; at: { x: number; y: number } } => {
+      const id = sim.command({ t: 'place', x: d.core.x, y: d.core.y + 0.3, color: 1, hp: 0, kind: 'basic' }) as number, e = w.enemies.find(x => x.id === id)!;
+      return { id, at: { x: e.x, y: e.y } };
+    };
+    assert(w.params.corePickFirst && enemyRefusal(w, d.core) === 'outOfWindow', `seed ${k}: the key is on in his den, the core is shut`);
+    const shut = put(), pickShut = pickAt(w, shut.at);
+    assert(pickShut?.kind === 'enemy' && pickShut.id === shut.id, `seed ${k}: shut — the pointer takes the body (${JSON.stringify(pickShut)})`);
+    assert(hoverRefusal(w, shut.at) === null && !nextCandidates(w).some(e => e.id === d.core.id), `seed ${k}: no refusal on the body, no ring on the shut core`);
+    // Open his window by his own club, then freeze him so the window stays.
+    sim.command({ t: 'teleport', x: 12, y: 6.5 });
+    for (let i = 0; i < 60 * 14 && !trollState(w)?.window?.open; i++) { sim.tick(); w.events.splice(0); }
+    assert(trollState(w)?.window?.open, `seed ${k}: the window opened`);
+    sim.command({ t: 'chill', id: d.core.id, seconds: 60 });
+    sim.command({ t: 'teleport', x: 11.4, y: 4.2 });
+    const fresh = put(), at = fresh.at;
+    const pick = pickAt(w, at);
+    assert(pick?.kind === 'enemy' && pick.id === d.core.id, `seed ${k}: in the window the pointer on the body takes the core (${JSON.stringify(pick)})`);
+    assert(hoverRefusal(w, at) === null && nextCandidates(w).some(e => e.id === d.core.id), `seed ${k}: no refusal, the core's ring is drawn`);
+    sim.command({ t: 'begin', x: at.x, y: at.y });
+    assert(w.chain.length === 1 && w.chain[0].id === d.core.id, `seed ${k}: the press starts [core]`);
+  }
 });
 
 console.log('trollView.spec: done');
