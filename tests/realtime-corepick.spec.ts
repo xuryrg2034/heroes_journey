@@ -131,7 +131,10 @@ test('«Ядро в окне — первым»: the Troll — in the window a p
   const errors = collectErrors(page);
   await page.goto('/?sandbox=1');
   await page.evaluate(() => localStorage.clear());
-  await page.goto('/?sandbox=1&arena=30');
+  await page.reload();
+  // The arena by its menu button (the numbers of the sandbox's arenas move): «Босс — Тролль», test id `boss-arena-2` (after the Jailer's).
+  await expect(page.getByTestId('boss-arena-2')).toContainText('Берлога тролля');
+  await page.getByTestId('boss-arena-2').click();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
   await expect.poll(async () => (await snap(page)).arena).toBe('troll');
   await expect.poll(() => page.evaluate(() => (window as any).__realtime.camera().intro)).toBe(0);
