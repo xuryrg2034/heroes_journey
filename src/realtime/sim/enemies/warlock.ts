@@ -19,7 +19,7 @@
  * **The window** (phase 2): after each arrival — `warlockWindow` s: the chain takes him (a colourless link), one hit (the first of any
  * source lands, the others in the window do not; the hit is held for the hero's chain and released move — `warlockReserve`, as the
  * Troll's). A shove's strike neither waits for a window nor spends it. Outside it the chain refuses him (`outOfWindow`). The window's
- * timer stands while a move of the hero runs; it closes once the move that struck him is over, or when its time is out — then the core
+ * timer stands while a move of the hero runs (a thing's slide does not hold it: the window is time, design 21.10.2026); it closes once the move that struck him is over, or when its time is out — then the core
  * in the drawn chain drops out of it with the links after it (event `warlockWindow` `unlink`; chain.ts `planChain(...).warlockDrop`).
  * Without the key the core takes every hit; the shifts still come (the view, the bot's comparison).
  *
@@ -204,11 +204,15 @@ function arrive(world: World, core: Enemy): void {
 
 // ---- The conductor ----
 
-/** After the hero's move and every slide: the window closes when its hit landed or its time is out; his wardrobe gone — phase 2. */
-function settle(world: World, core: Enemy): void {
+/**
+ * After the hero's move: the window closes when its hit landed or its time is out — a thing's slide does not hold it (design 21.10.2026:
+ * the window is time, only the hero's move stops its count). After the move and every slide: his wardrobe gone — phase 2.
+ */
+function settle(world: World, core: Enemy, busy: boolean): void {
   const v = core.vars;
   delete v.wr;
   if (v.wo && (v.wh || (v.wl ?? 0) <= TIME_EPS)) closeWindow(world, core);
+  if (busy) return;
   if ((v.phase ?? 1) < 2 && v.wd && !warlockWardrobe(world, core)) {
     v.phase = 2;
     if (warlockCharmOn(world)) world.events.push({ type: 'warlockCharm', action: 'broken', id: core.id, x: core.x, y: core.y });
@@ -231,7 +235,7 @@ function markWardrobe(world: World, core: Enemy): void {
 function conduct(world: World, core: Enemy, dt: number): void {
   const v = core.vars, busy = !!world.move || !!world.shoves;
   if (!v.wd) markWardrobe(world, core);
-  if (!busy) settle(world, core);
+  if (!world.move) settle(world, core, busy);
   if (world.status !== 'playing' || enemyFrozen(core)) return;
   if (v.wo && !world.move) v.wl = Math.max(0, (v.wl ?? 0) - dt);
   v.sh = Math.max(0, (v.sh ?? FIRST_SHIFT) - dt);

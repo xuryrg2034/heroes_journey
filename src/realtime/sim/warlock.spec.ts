@@ -82,6 +82,15 @@ function shoveAt(h: Hall, thing: Enemy, target: Vec, at = behind(thing, target))
   const fixed = JSON.parse(JSON.stringify(plan)) as typeof plan;
   return { plan: fixed, events: release(h.sim) };
 }
+/** As `shoveAt`, but returns as soon as the dash is over (the thing still sliding). */
+function shoveAtNoWait(h: Hall, thing: Enemy, target: Vec): void {
+  const at = behind(thing, target);
+  h.sim.command({ t: 'teleport', x: at.x, y: at.y });
+  draw(h.sim, [{ x: thing.x, y: thing.y }]);
+  assert(planChain(h.w).shove?.thing === thing.id, `a shove of ${thing.kind} planned`);
+  assert(h.sim.command({ t: 'release' }), 'released');
+  ticks(h.sim, ticksOf(2), [], w => !w.move);
+}
 /** Breaks his wardrobe at the north wall (the shove made 6 long): two shoves north; the second from right below it. */
 function breakAtWall(h: Hall, out: WorldEvent[] = []): void {
   const north = { x: h.wardrobe.x, y: -10 };
@@ -356,6 +365,29 @@ check('«Возврат»: charmed or out of his window the return run passes hi
     // The run never tries him (no «звон», no closed window's block of the return run): the run is what the highlight showed.
     const tried = [...of(events, 'warlockCharm'), ...of(events, 'warlockWindow')].filter(e => e.action === 'block' && e.source === 'hammer-return');
     assert(!tried.length, `seed ${k}, ${gate}, fixed ${fixed}: the run tried him (${tried.length})`);
+    assert(replays(h.sim), `seed ${k}: replay`);
+  }
+});
+
+check('the window is time (design 21.10.2026): it runs out while a barrel still rolls — closed at once, the chain refuses him, he drops out of the drawn chain when `warlockDrop` said; «Перенос» still waits for the roll', () => {
+  for (const k of SEEDS) {
+    // A slow roll (4 u/s): B4 west along the hall's bottom — longer than the window.
+    const h = gated(k, 'open', { shoveSpeed: 4 }), events: WorldEvent[] = [];
+    const b4 = h.barrels.find(b => b.x > 18 && b.y > 12)!;
+    shoveAtNoWait(h, b4, { x: -10, y: b4.y });
+    assert(h.w.shoves && !h.w.move, `seed ${k}: the barrel rolls`);
+    // Beside him: a chain of one link — him; the highlight says when the window ends.
+    h.sim.command({ t: 'teleport', x: h.core.x, y: h.core.y + 1 });
+    draw(h.sim, [{ x: h.core.x, y: h.core.y }]);
+    const drop = planChain(h.w).warlockDrop;
+    assert(drop && drop.index === 0 && drop.left > 0, `seed ${k}: the highlight's drop ${JSON.stringify(drop)}`);
+    const from = h.w.time;
+    ticks(h.sim, ticksOf(3), events, w => !w.chain.length);
+    const at = h.w.time - from;
+    assert(!h.w.chain.length && of(events, 'warlockWindow').some(e => e.action === 'unlink') && Math.abs(at - drop.left) <= 2 * SIM_DT + 1e-9, `seed ${k}: dropped after ${at.toFixed(3)} s, the highlight said ${drop.left.toFixed(3)}`);
+    assert(h.w.shoves && !warlockState(h.w)!.window && enemyRefusal(h.w, h.core) === 'outOfWindow', `seed ${k}: closed while the barrel still rolls (${enemyRefusal(h.w, h.core)})`);
+    // «Перенос» still waits for the roll: no arrival while it rolls.
+    for (let i = 0; i < ticksOf(6) && h.w.shoves; i++) { h.sim.tick(); for (const e of h.w.events.splice(0)) assert(!(e.type === 'warlockShift' && e.action === 'arrive') || !h.w.shoves, `seed ${k}: an arrival during the roll`); }
     assert(replays(h.sim), `seed ${k}: replay`);
   }
 });
