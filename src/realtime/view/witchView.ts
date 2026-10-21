@@ -24,6 +24,15 @@ import type { World } from '../sim/world';
 const NAVY = 0x18232d, GREY = 0x8c93a0;
 /** The dot of a rune (px) and its rim. */
 const RUNE_R = 5, RUNE_RIM = 2.5;
+/** The dashes of a contour (design 21.10.2026): 3 px of colour in a 1 px navy rim; the words stand 16 px above the contour's frame. */
+export const DASH_WIDTH = 3, DASH_RIM = 1, WORD_GAP = 16, WORD_HEIGHT = 26;
+
+/** Where the words of a contour stand (px): the middle of its frame, `WORD_GAP` above its top. */
+export function wordAnchor(points: readonly Vec[], unit: number): Vec {
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity;
+  for (const p of points) { x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x); y0 = Math.min(y0, p.y); }
+  return { x: (x0 + x1) / 2 * unit, y: y0 * unit - WORD_GAP };
+}
 /** Seconds between two flashes of a discharge, how long a flash lives, how fast the thread is laid, how long it stays. */
 export const CAST_STEP = 0.045, CAST_FLASH = 0.2, CAST_THREAD = 0.2, CAST_LIFE = 0.5;
 
@@ -67,6 +76,10 @@ export interface WitchShown {
   contour: '' | 'figure' | 'refused';
   /** The colour of the dashes of that contour (the chain's for a figure, grey for a refusal); 0 — none. */
   contourInk: number;
+  /** The dashes' width and navy rim (px; 0 — no contour). */
+  contourWidth: number; contourRim: number;
+  /** Where the word and the class word stand (px in the arena's picture; null — none). */
+  wordAt: Vec | null; classAt: Vec | null;
   /** The word at the first rune or at the pointer (figure), the sandbox's class word at the contour's centre. */
   word: string; classWord: string;
   /** Discharges seen, flashes started, the thread's strokes so far, the casts running now. */
@@ -74,7 +87,7 @@ export interface WitchShown {
 }
 
 export class WitchView {
-  readonly shown: WitchShown = { circle: 0, runes: 0, ties: 0, firstRing: 0, contour: '', contourInk: 0, word: '', classWord: '', casts: 0, flashes: 0, running: 0 };
+  readonly shown: WitchShown = { circle: 0, runes: 0, ties: 0, firstRing: 0, contour: '', contourInk: 0, contourWidth: 0, contourRim: 0, wordAt: null, classAt: null, word: '', classWord: '', casts: 0, flashes: 0, running: 0 };
   /** The sandbox's «Показать фигуру» (view only; not a Param). */
   showFigure = false;
   private readonly labels: Text[] = [];
@@ -98,13 +111,13 @@ export class WitchView {
   /** Nothing drawn this frame (no chain, or not Ведунья v2). */
   clear(): void {
     const s = this.shown;
-    s.runes = 0; s.ties = 0; s.firstRing = 0; s.contour = ''; s.contourInk = 0; s.word = ''; s.classWord = '';
+    s.runes = 0; s.ties = 0; s.firstRing = 0; s.contour = ''; s.contourInk = 0; s.contourWidth = 0; s.contourRim = 0; s.wordAt = null; s.classAt = null; s.word = ''; s.classWord = '';
     for (const label of this.labels) label.visible = false;
   }
 
   /** A dashed closed polygon (px): navy under the colour. */
   private dashedPolygon(g: Graphics, pts: readonly Vec[], color: number): void {
-    for (const [w, c, a] of [[7, NAVY, 0.5], [3.5, color, 0.95]] as const) {
+    for (const [w, c, a] of [[DASH_WIDTH + 2 * DASH_RIM, NAVY, 1], [DASH_WIDTH, color, 1]] as const) {
       for (let i = 0; i < pts.length; i++) {
         const p = pts[i], q = pts[(i + 1) % pts.length], len = Math.hypot(q.x - p.x, q.y - p.y);
         if (len < 1) continue;
@@ -156,25 +169,27 @@ export class WitchView {
       const dash = refusal ? GREY : ink;
       this.dashedPolygon(g, pts, dash);
       s.contour = refusal ? 'refused' : 'figure';
-      s.contourInk = dash;
+      s.contourInk = dash; s.contourWidth = DASH_WIDTH; s.contourRim = DASH_RIM;
     }
     const glyph = plan.glyph;
     if ((bright || closed) && glyph && 'kind' in glyph) {
       const text = this.label(0);
       text.text = GLYPH_WORD[glyph.kind];
-      text.position.set(r0.x * U, r0.y * U - ring - 4);
+      const at = wordAnchor(runes, U);
+      text.position.set(at.x, at.y);
       text.visible = true;
-      s.word = text.text;
+      s.word = text.text; s.wordAt = at;
     }
     if (this.showFigure) {
       const result = witchGlyphClass(world);
       if (!result) return;
-      let cx = 0, cy = 0;
-      for (const v of runes) { cx += v.x; cy += v.y; }
       const text = this.label(1);
       text.text = glyphCaption(result);
-      text.anchor.set(0.5, 0.5);
-      text.position.set(cx / runes.length * U, cy / runes.length * U);
+      // Over the contour like the figure's word; above it when both stand (they do not overlap).
+      const at = wordAnchor(runes, U);
+      if (s.wordAt) at.y -= WORD_HEIGHT;
+      text.position.set(at.x, at.y);
+      s.classAt = at;
       text.visible = true;
       s.classWord = text.text;
     }

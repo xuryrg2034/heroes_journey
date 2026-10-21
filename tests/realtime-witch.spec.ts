@@ -269,6 +269,10 @@ test('the camera keeps Ведунья in the centre while she draws (a glide, no
     const end = frames[frames.length - 1], travel = 12 - start.x;
     if (hero === 'toad') {
       expect(Math.abs(end - 12)).toBeLessThan(0.1);
+      // She stands in the middle of the visible field (between the HUD's bottom and the action bar's top), not of the screen: within a couple of pixels.
+      const now = await snap(page), hero = await screen(page, now.hero.x, now.hero.y);
+      expect(Math.abs(hero.y - now.witch.visibleCentre.y)).toBeLessThan(3);
+      expect(Math.abs(hero.x - now.witch.visibleCentre.x)).toBeLessThan(3);
       // No jump: no single frame covers more than half of the way; the glide is monotonic.
       let biggest = 0;
       frames.reduce((prev, x) => { biggest = Math.max(biggest, Math.abs(x - prev)); expect(x).toBeGreaterThanOrEqual(prev - 1e-9); return x; }, start.x);

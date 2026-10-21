@@ -2123,7 +2123,7 @@ async function boot(): Promise<void> {
         heroView: { id: renderer.heroArtKind, art: hasCharacterArt(renderer.heroArtKind === 'toad' ? 'toad' : 'player') },
         cage: { ...renderer.cage.shown, line: cageLeft > 0 },
         /** Task 62 «Ведунья v2»: the key and the law, the circle's radius, the last discharge's second, what the view drew (view/witchView.ts `WitchShown`). */
-        witch: { on: witchOn(w), radius: witchOn(w) ? castCircle(w).r : 0, castAt: w.castAt ?? null, runes: w.chain.flatMap(l => (l.kind === 'enemy' && l.rune ? [{ x: l.rune.x, y: l.rune.y }] : [])), shown: { ...renderer.witch.shown }, muted: [...renderer.mutedIds], layers: renderer.layerOrder() },
+        witch: { on: witchOn(w), radius: witchOn(w) ? castCircle(w).r : 0, castAt: w.castAt ?? null, runes: w.chain.flatMap(l => (l.kind === 'enemy' && l.rune ? [{ x: l.rune.x, y: l.rune.y }] : [])), shown: { ...renderer.witch.shown }, muted: [...renderer.mutedIds], visibleCentre: renderer.visibleCentre(), layers: renderer.layerOrder() },
         toad: { crack: renderer.crackShown, boost: renderer.shieldBoostShown, sign: { ...renderer.shieldSign }, hand: { ...toadHand.shown }, memory: { ring: hintStore.count('toad-ring'), bare: hintStore.count('toad-bare') } },
         onboarding: { on: hintsOn, labels: labelLayer.shown(), shown: hints.store.shownIds(), log: hints.log.map(h => ({ ...h })) },
         logsOpen: !!logsPanel?.open,

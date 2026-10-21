@@ -104,11 +104,12 @@ export class Camera {
 
   /**
    * Task 62: one frame of the hold — the camera closes the distance to the hero (clamped to the arena, `keep` as in `update`) with smoothing time
-   * `CAMERA.hold`; `dt` 0 (pause, menus) only clamps.
+   * `CAMERA.hold`; `dt` 0 (pause, menus) only clamps. `offset` (units) moves the goal off the hero: the view puts her in the middle of the visible field
+   * (between the HUD and the action bar), not of the screen.
    */
-  hold(dt: number, hero: Vec2, b: CameraBounds, keep?: CameraKeep | null): void {
+  hold(dt: number, hero: Vec2, b: CameraBounds, keep?: CameraKeep | null, offset: Vec2 = { x: 0, y: 0 }): void {
     if (dt <= 0) { this.clamp(b); return; }
-    const t = this.target(hero, b, keep), k = 1 - Math.exp(-dt / CAMERA.hold);
+    const t = this.target({ x: hero.x + offset.x, y: hero.y + offset.y }, b, keep), k = 1 - Math.exp(-dt / CAMERA.hold);
     this.x += (t.x - this.x) * k;
     this.y += (t.y - this.y) * k;
     this.clamp(b);

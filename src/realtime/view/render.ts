@@ -971,7 +971,7 @@ export class RealtimeRenderer {
       lead = { x: p.x - hero.x, y: p.y - hero.y };
     }
     // Task 62 (design 21.10.2026): while Ведунья v2 draws, the camera keeps her in the centre (a glide of CAMERA.hold s, no lead, no dead zone, no zoom out).
-    if (ui.cameraFrozen && !world.move && witchOn(world)) this.camera.hold(ui.cameraStill ? 0 : dt, hero, this.bounds(), this.bossKeep(world));
+    if (ui.cameraFrozen && !world.move && witchOn(world)) this.camera.hold(ui.cameraStill ? 0 : dt, hero, this.bounds(), this.bossKeep(world), this.visibleCentreOffset());
     else this.camera.update(ui.cameraStill ? 0 : dt, hero, lead, !!ui.cameraFrozen && !world.move, this.bounds(), this.bossKeep(world));
     this.placeRoot();
     if (ui.pointerScreen) ui.pointer = this.toArena(ui.pointerScreen.x, ui.pointerScreen.y);
@@ -1025,6 +1025,21 @@ export class RealtimeRenderer {
     const b = this.bounds();
     // `intro` — real seconds left of the boss's glide (0 — none).
     return { x: this.camera.x, y: this.camera.y, viewW: b.viewW, viewH: b.viewH, scale: this.scale, intro: this.intro ? CAMERA.bossIntro - this.intro.t : 0 };
+  }
+
+  /** The middle of the visible field in screen px (between the HUD and the action bar, `edgeInset`). */
+  visibleCentre(): { x: number; y: number } {
+    const a = this.visibleArea();
+    return { x: this.freeW / 2, y: (a.y0 + a.y1) / 2 };
+  }
+
+  /**
+   * Task 62 (design 21.10.2026): the camera's goal is moved so that Ведунья stands in the middle of the visible field, not of the screen: the
+   * distance (units) from the screen's middle to the field's, as the view counts the HUD and the action bar (`edgeInset`).
+   */
+  private visibleCentreOffset(): Vec {
+    const k = UNIT * this.scale, own = this.freeTop + (this.freeH - this.freeTop) / 2;
+    return { x: 0, y: (own - this.visibleCentre().y) / k };
   }
 
   /** The visible area of the stage in screen px: inside the HUD above, the action bar below and the sides (`edgeInset`). */

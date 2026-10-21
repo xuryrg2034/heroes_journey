@@ -16,14 +16,14 @@
 import './nodeNavigator.testkit';
 import { Container, Graphics } from 'pixi.js';
 import { registerArena } from '../sim/arenas';
-import { hoverRefusal, inCast, planChain, REFUSAL_TEXT } from '../sim/chain';
+import { chainRunes, hoverRefusal, inCast, planChain, REFUSAL_TEXT } from '../sim/chain';
 import { wall, type Vec } from '../sim/geometry';
 import type { Loadout } from '../sim/kit';
 import { defaultParams, type Params } from '../sim/params';
 import { Simulation } from '../sim/simulation';
 import type { Enemy, World, WorldEvent } from '../sim/world';
 import { Camera, CAMERA } from './camera';
-import { CAST_STEP, GLYPH_WORD, WitchView, glyphCaption, polylinePrefix, type WitchShown } from './witchView';
+import { CAST_STEP, DASH_RIM, DASH_WIDTH, GLYPH_WORD, WORD_GAP, WitchView, glyphCaption, polylinePrefix, wordAnchor, type WitchShown } from './witchView';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 function check(name: string, run: () => void): void { run(); console.log(`ok - ${name}`); }
@@ -96,6 +96,10 @@ check('the camera hold: about 63 % of the way in 0.2 s, no overshoot, lands on t
   let last = cam.x;
   for (let i = 0; i < 240; i++) { cam.hold(1 / 60, hero, b); assert(cam.x >= last - 1e-12 && cam.x <= hero.x + 1e-9, 'no overshoot'); last = cam.x; }
   assert(Math.abs(cam.x - hero.x) < 1e-3 && Math.abs(cam.y - hero.y) < 1e-3, 'on the hero');
+  const off = new Camera();
+  off.x = 12; off.y = 10;
+  for (let i = 0; i < 300; i++) off.hold(1 / 60, { x: 12, y: 10 }, b, null, { x: 0, y: -1.5 });
+  assert(Math.abs(off.y - 8.5) < 1e-3 && Math.abs(off.x - 12) < 1e-3, 'the offset moves the goal off the hero (the middle of the visible field)');
   const still = new Camera();
   still.x = 8; still.y = 8;
   still.hold(0, hero, b);
@@ -151,6 +155,10 @@ check('the first rune: dim ring from 3 runes; the pointer on it with a ring that
   assert(f.w.chainClosed === 'first', 'the pointer event on the first rune closes the ring');
   highlight(view, f.w, PENTAGON[0]);
   assert(sh(view).word === 'Кольцо' && sh(view).contour === 'figure' && sh(view).contourInk === 0xff5050 && sh(view).firstRing === 2, 'closed: the word, the lit ring and the dashed contour in the chain colour');
+  const frame = wordAnchor(chainRunes(f.w.chain), U), want = (() => { const xs = chainRunes(f.w.chain).map(p => p.x), ys = chainRunes(f.w.chain).map(p => p.y); return { x: (Math.min(...xs) + Math.max(...xs)) / 2 * U, y: Math.min(...ys) * U - 16 }; })();
+  assert(WORD_GAP === 16 && frame.x === want.x && frame.y === want.y, 'the word stands over the middle of the frame, 16 px above its top');
+  assert(JSON.stringify(sh(view).wordAt) === JSON.stringify(want), `the word is drawn there: ${JSON.stringify(sh(view).wordAt)} vs ${JSON.stringify(want)}`);
+  assert(sh(view).contourWidth === 3 && sh(view).contourRim === 1 && DASH_WIDTH === 3 && DASH_RIM === 1, 'dashes 3 px with a 1 px navy rim');
   assert(planChain(f.w).seal !== undefined && planChain(f.w).seal!.ring.length === 5, 'the seal prognosis (the marks of the bodies inside) is the plan, drawn by the loop view');
 });
 
@@ -161,7 +169,7 @@ check('a square of 4: the same contour grey at the pointer, no word, and the sim
   SQUARE.forEach(p => place(f.sim, p));
   draw(f.sim, SQUARE);
   highlight(view, f.w, SQUARE[0]);
-  assert(sh(view).contour === 'refused' && sh(view).contourInk === 0x8c93a0 && sh(view).word === '' && sh(view).firstRing === 1, `${JSON.stringify(sh(view))}`);
+  assert(sh(view).contour === 'refused' && sh(view).contourInk === 0x8c93a0 && sh(view).contourWidth === 3 && sh(view).contourRim === 1 && sh(view).word === '' && sh(view).firstRing === 1, `${JSON.stringify(sh(view))}`);
   assert(hoverRefusal(f.w, SQUARE[0], true) === 'notFigure', 'the pointer\'s hint');
   f.sim.command({ t: 'drag', x: SQUARE[0].x, y: SQUARE[0].y, mode: 'full' });
   assert(f.w.chainClosed === undefined, 'the sim refused the closing');
@@ -178,6 +186,7 @@ check('«Показать фигуру»: the class word at the contour\'s centr
   view.showFigure = true;
   highlight(view, f.w, null);
   assert(sh(view).classWord === 'Квадрат', `the square: ${sh(view).classWord}`);
+  { const r = chainRunes(f.w.chain), xs = r.map(p => p.x), ys = r.map(p => p.y); assert(JSON.stringify(sh(view).classAt) === JSON.stringify({ x: (Math.min(...xs) + Math.max(...xs)) / 2 * U, y: Math.min(...ys) * U - 16 }), 'the class word stands over the frame like the figure word'); }
   const shown = labels.children.filter(c => c.visible && 'text' in c).map(c => (c as unknown as { text: string }).text);
   assert(shown.includes('Квадрат'), 'on the screen');
   const g = fight(quiet(), 2);
