@@ -110,18 +110,19 @@ function drawDigit(g: Graphics, n: number, x: number, y: number, h: number): voi
 export function drawKey(g: Graphics, x: number, y: number, size: number, ink: number, glow = false): void {
   const bow = size * 0.3, top = y - size / 2 + bow, bottom = y + size / 2, tilt = -0.35, c = Math.cos(tilt), s = Math.sin(tilt);
   const pt = (u: number, v: number): [number, number] => [x + u * c - (v - y) * s, y + u * s + (v - y) * c];
-  if (glow) g.circle(x, y, size * 0.85).fill({ color: GOLD, alpha: 0.28 });
-  const [bx, by] = pt(0, top), [tx, ty] = pt(0, bottom), [ax, ay] = pt(-size * 0.22, bottom), [cx, cy] = pt(0, bottom - size * 0.2), [dx, dy] = pt(-size * 0.22, bottom - size * 0.2);
-  for (const [w, shaft] of [[size * 0.3, NAVY], [size * 0.14, STEEL]] as const) {
+  if (glow) g.circle(x, y, size * 0.95).fill({ color: GOLD, alpha: 0.32 });
+  const [bx, by] = pt(0, top), [tx, ty] = pt(0, bottom), [ax, ay] = pt(-size * 0.26, bottom), [cx, cy] = pt(0, bottom - size * 0.24), [dx, dy] = pt(-size * 0.26, bottom - size * 0.24);
+  // A white contour under a navy one under the metal: the key reads on the dark body and the dark floor.
+  for (const [w, shaft] of [[size * 0.5, 0xffffff], [size * 0.34, NAVY], [size * 0.16, STEEL]] as const) {
     g.moveTo(bx, by).lineTo(tx, ty).moveTo(tx, ty).lineTo(ax, ay).moveTo(cx, cy).lineTo(dx, dy);
     g.stroke({ color: shaft, width: w, cap: 'round' });
   }
-  g.circle(bx, by - bow * 0.2, bow).stroke({ color: NAVY, width: size * 0.3 });
-  g.circle(bx, by - bow * 0.2, bow).stroke({ color: ink, width: size * 0.15 });
+  // The bow: a disc in the partner's colour (a ring in the white and navy contour).
+  g.circle(bx, by, bow * 1.3).fill(0xffffff).circle(bx, by, bow * 1.12).fill(NAVY).circle(bx, by, bow * 0.9).fill(ink);
 }
 
 /** The belt key of warden `e` (body radius `r` px): where it hangs. */
-export const keyAt = (e: Enemy, unit: number, r: number): Vec => ({ x: e.x * unit + r * 0.62, y: e.y * unit + r * 0.55 });
+export const keyAt = (e: Enemy, unit: number, r: number): Vec => ({ x: e.x * unit + r * 0.8, y: e.y * unit + r * 0.7 });
 
 export class Garrison3View {
   readonly shown: Garrison3Shown = emptyShown();
@@ -303,7 +304,7 @@ export class Garrison3View {
       const partner = wardenPartner(world, e);
       if (partner) {
         const k = keyAt(e, u, r);
-        drawKey(g, k.x, k.y, r * 0.8, ink(partner.color));
+        drawKey(g, k.x, k.y, r * 1.1, ink(partner.color));
         s.wardens.keys++;
       }
       if (wardenAngry(e)) {
@@ -449,14 +450,15 @@ export class Garrison3View {
       const e = world.enemies.find(x => x.id === id);
       if (!e || !sees(e)) continue;
       s.wardens.warn++;
-      const X = e.x * u, Y = e.y * u, R = r * 1.5, flick = 0.55 + 0.45 * Math.sin(clock * 14);
-      g.circle(X, Y, R).stroke({ color: THREAT_OUTLINE, width: 7, alpha: 0.6 });
-      g.circle(X, Y, R).stroke({ color: RED, width: 3.5, alpha: flick });
+      const X = e.x * u, Y = e.y * u, R = r * 1.65, flick = 0.6 + 0.4 * Math.sin(clock * 14), HOT = 0xff5a48;
+      g.circle(X, Y, R).fill({ color: HOT, alpha: 0.16 * flick });
+      g.circle(X, Y, R).stroke({ color: 0xffffff, width: 9, alpha: 0.55 * flick });
+      g.circle(X, Y, R).stroke({ color: HOT, width: 5, alpha: flick });
       for (let i = 0; i < 8; i++) {
         const a = clock * 2.5 + (i / 8) * Math.PI * 2;
-        g.moveTo(X + Math.cos(a) * R, Y + Math.sin(a) * R).lineTo(X + Math.cos(a) * (R + r * 0.25), Y + Math.sin(a) * (R + r * 0.25));
+        g.moveTo(X + Math.cos(a) * R, Y + Math.sin(a) * R).lineTo(X + Math.cos(a) * (R + r * 0.3), Y + Math.sin(a) * (R + r * 0.3));
       }
-      g.stroke({ color: RED, width: 3, alpha: flick, cap: 'round' });
+      g.stroke({ color: HOT, width: 4, alpha: flick, cap: 'round' });
     }
     // Both of a pair in the chain, and nobody angry: the keys burn gold.
     const struck = new Set(plan.links.flatMap(l => (l.link.kind === 'enemy' ? [l.link.id] : [])));
@@ -465,7 +467,7 @@ export class Garrison3View {
       const partner = wardenPartner(world, e);
       if (!partner || !struck.has(partner.id) || angry.has(partner.id)) continue;
       const k = keyAt(e, u, r);
-      drawKey(g, k.x, k.y, r * 0.95, GOLD, true);
+      drawKey(g, k.x, k.y, r * 1.25, GOLD, true);
       s.wardens.gold++;
     }
     // The law of order refuses these bodies (the strike is out and gone): a grey ban over the plaque.
