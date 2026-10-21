@@ -71,6 +71,19 @@ async function aimOnDrawing(page: Page, id: number, u: number, v: number): Promi
   return p;
 }
 
+/**
+ * A point on a drawing above its feet circle: the first (from `vFrom` of the half-height above the ellipse's centre, in steps of 0.05) that is inside the ellipse and out of the
+ * circle of the body's feet (with a margin) — taken from the drawing's frame, not a number. The mouse goes there; returns the point.
+ */
+async function aimBeyondRing(page: Page, id: number, vFrom: number): Promise<{ x: number; y: number }> {
+  const z = await zoneOf(page, id), body = (await snap(page)).enemies.find(e => e.id === id)!;
+  for (let v = vFrom; v < 1; v += 0.05) {
+    const p = { x: z.x - (-v * z.b) * z.sin, y: z.y + (-v * z.b) * z.cos };
+    if (artEllipseDepth(z, p) <= 1 && Math.hypot(p.x - body.x, p.y - body.y) > z.ring + 0.05) return aimOnDrawing(page, id, 0, v);
+  }
+  throw new Error(`no point of ${id}'s drawing above its feet circle from ${vFrom}`);
+}
+
 const settleDash = (page: Page): Promise<boolean> => untilFrame(page, (s, _arg: null, late) => s.moving === null && s.chain.length === 0 ? true : late ? false : undefined, null, 12);
 
 /** The Troll's den by its menu button; no newcomers, nobody walks, no touch; the rock frozen. */
@@ -176,8 +189,8 @@ test('«Зона по рисунку»: the warlock — in his window the chest 
   const id = (open as { id: number }).id, c = (await snap(page)).enemies.find(e => e.id === id)!;
   await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x + 0.3, y + 1.6), [c.x, c.y] as const);
   await cameraSettled(page);
-  for (const [name, v] of [['chest', 0], ['head', 0.5]] as const) {
-    await aimOnDrawing(page, id, 0, v);
+  for (const [name, from] of [['chest', 0.1], ['head', 0.6]] as const) {
+    await aimBeyondRing(page, id, from);
     await expect.poll(async () => (await snap(page)).hint, { message: `${name}: no refusal in the window` }).toBeNull();
     await page.mouse.down();
     await expect.poll(async () => (await snap(page)).chain, { message: `the ${name} takes the core` }).toEqual([id]);
@@ -189,13 +202,24 @@ test('«Зона по рисунку»: the warlock — in his window the chest 
   expect(errors).toEqual([]);
 });
 
-test('the drawing order: bodies at one height are drawn by their ids — the later one over, whatever order the views were made in', async ({ page }) => {
+test('the drawing order: bodies at exactly one height (a tie) are drawn by their ids — the later one over, as `artDrawnAbove` says, whatever order the views were made in', async ({ page }) => {
   const errors = collectErrors(page);
   await openDen(page);
-  const ids = await page.evaluate(() => { const rt = (window as any).__realtime; return [rt.place(5, 9, 0, 0, 'basic'), rt.place(6.5, 9, 1, 0, 'basic'), rt.place(8, 9, 2, 0, 'basic')]; }) as number[];
-  const order = await untilFrame(page, (s, ids: number[], late) => ids.every(id => s.drawnOrder.includes(id)) ? s.drawnOrder.filter((id: number) => ids.includes(id)) : late ? null : undefined, ids, 4);
+  // Three bodies put at one y, frozen (they do not move: no newcomers, speed 0); the snapshot proves the tie before the order is read.
+  const ids = await page.evaluate(() => {
+    const rt = (window as any).__realtime, out = [rt.place(5, 9, 0, 0, 'basic'), rt.place(6.5, 9, 1, 0, 'basic'), rt.place(8, 9, 2, 0, 'basic')];
+    for (const id of out) rt.chill(id, 600);
+    return out;
+  }) as number[];
+  await gameWait(page, 0.5);
+  const s = await snap(page), bodies = ids.map(id => s.enemies.find(e => e.id === id)!);
+  expect(bodies.map(b => b.y), 'the three bodies stand at exactly one y (a tie)').toEqual([bodies[0].y, bodies[0].y, bodies[0].y]);
+  const order = await untilFrame(page, (sn, ids: number[], late) => ids.every(id => sn.drawnOrder.includes(id)) ? sn.drawnOrder.filter((id: number) => ids.includes(id)) : late ? null : undefined, ids, 4);
   expect(order, 'the bodies are drawn').not.toBeNull();
-  expect(order, 'the larger id is on top at an equal y').toEqual([...ids].sort((a, b) => a - b));
+  // The expectation is the sim's own comparison: sorted bottom to top by `artDrawnAbove` over the snapshot's (y, id); at a tie it is the ids ascending.
+  const byRule = [...bodies].sort((p, q) => (artDrawnAbove(p, q) ? 1 : artDrawnAbove(q, p) ? -1 : 0)).map(b => b.id);
+  expect(byRule, 'at a tie the later id is on top').toEqual([...ids].sort((p, q) => p - q));
+  expect(order, 'the view draws the bodies in the order of artDrawnAbove').toEqual(byRule);
   await sameHash(page);
   expect(errors).toEqual([]);
 });
@@ -237,7 +261,18 @@ test('«Зона по рисунку»: the Chief — at the overlap of his and 
   // The parts held (no move of theirs runs); the order «on top» is the sim's `artDrawnAbove`: the core (larger y) over the ladle.
   await page.evaluate(([a, b]) => { const rt = (window as any).__realtime; rt.chill(a, 600); rt.chill(b, 600); }, [ladle.id, sack.id] as const);
   expect(artDrawnAbove(core, ladle), 'the core is drawn over the ladle').toBe(true);
-  await page.evaluate(() => (window as any).__realtime.teleport(12.9, 5.6));
+  // The hero where the ladle is within the chain's reach while the core is shut — asked of the world (`enemyRefusal`, reach included), not guessed.
+  let placed = false;
+  const tried: string[] = [];
+  const l0 = (await snap(page)).enemies.find(e => e.id === ladle.id)!;
+  for (const [dx, dy] of [[0, 1.2], [0.6, 1.5], [-0.6, 1.5], [0, 2.0], [1.0, 1.2], [-1.0, 1.2]] as const) {
+    await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [l0.x + dx, l0.y + dy] as const);
+    const why = await page.evaluate(([id]) => (window as any).__realtime.refusalOf(id), [ladle.id] as const);
+    tried.push(`(${dx}, ${dy}): ${why}`);
+    if (why === null) { placed = true; break; }
+  }
+  expect(placed, `the ladle is within reach from some place near it (${tried.join('; ')})`).toBe(true);
+  expect(await page.evaluate(([id]) => (window as any).__realtime.refusalOf(id), [core.id] as const), 'the core is shut').not.toBeNull();
   await cameraSettled(page);
   const at = await overlapPoint(page, core.id, ladle.id);
   expect(artEllipseDepth(await zoneOf(page, core.id), at), 'the point is in the core ellipse').toBeLessThanOrEqual(1);
@@ -253,6 +288,8 @@ test('«Зона по рисунку»: the Chief — at the overlap of his and 
   await page.keyboard.press('Escape');
   await page.mouse.up();
   // The feast: the window is lit, three eaters drawn, the pointer at the overlap — both takeable (the ladle of the brew colour) or the core alone: the core is the last link either way.
+  await page.evaluate(() => (window as any).__realtime.teleport(12.9, 5.6));
+  await cameraSettled(page);
   expect(await untilFrame(page, (s, _arg: null, late) => s.chief.sign === 'feast' && s.chief.signProgress >= 0.4 ? true : late ? false : undefined, null, 30), 'the feast windup').toBe(true);
   expect(await untilFrame(page, (s, _arg: null, late) => s.chief.glow === 1 ? true : late ? false : undefined, null, 30), 'the window is lit').toBe(true);
   await page.evaluate(([id]) => (window as any).__realtime.chill(id, 20), [core.id] as const);
