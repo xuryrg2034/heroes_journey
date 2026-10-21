@@ -25,7 +25,7 @@ export const RT_CHRONICLE_PAGES: readonly RtChroniclePageId[] = ['bestiary', 'bo
 export const RT_CHRONICLE_LEVELS: readonly number[] = [1, 2];
 
 /** Bestiary: the forest's kinds (the schedule's special kinds; the weak enemy has no caption — no entry) and the garrison's. */
-export const RT_CHRONICLE_FOREST_KINDS: readonly string[] = SCHEDULE_KINDS;
+export const RT_CHRONICLE_FOREST_KINDS: readonly string[] = [...SCHEDULE_KINDS];
 export const RT_CHRONICLE_GARRISON_KINDS: readonly string[] = [GUARD, HANDLER, HOUND, KEYMASTER, CROSSBOW, KNIGHT];
 /** Every kind with an entry (what `chronicleMeet` keeps). */
 export const RT_CHRONICLE_KINDS: readonly string[] = [...RT_CHRONICLE_FOREST_KINDS, ...RT_CHRONICLE_GARRISON_KINDS];

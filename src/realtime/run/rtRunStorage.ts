@@ -12,7 +12,7 @@ import { isScheduleElement } from './schedule';
 import { parseRtMeta, rtApplyMeta, rtHearthBuy, rtHearthStartOf, rtHearthView, rtMetaLocked, rtMetaNewOffer, rtRunKey, type RtHearthBuy, type RtHearthStart, type RtHearthView, type RtMeta, type RtMetaEnd } from './rtMeta';
 // Task 49 «Второй герой»: the heroes open and chosen, Ведунья freed by the Jailer, «✦ новое» by hero.
 import { rtChooseHero, rtFreeByJailer, rtHeroChoice, rtHeroesOpen, rtHeroViews, rtMetaMarkOffered, type RtHeroView } from './rtMeta';
-import { isRtHeroId, RT_CHRONICLE_ON, RT_HEARTH_GAMBLER_ON, RT_HEARTH_MONK_ON, RT_HERO_ID, RT_HERO_IDS, type RtHearthNpc, type RtHeroId } from './metaCatalog';
+import { isRtHeroId, RT_CHRONICLE_ON, RT_TROPHIES_ON, RT_HEARTH_GAMBLER_ON, RT_HEARTH_MONK_ON, RT_HERO_ID, RT_HERO_IDS, type RtHearthNpc, type RtHeroId } from './metaCatalog';
 // Task 56 «Приметы»: the gates of the omens and the pool the profile opened (run/omens.ts).
 import { rtOmenPool, rtOmensGate, type RtOmenId } from './omens';
 import { rtWonLevelOf } from './rtMeta';
@@ -20,6 +20,7 @@ import { parseRtDailyLog, rtDailyBegin, rtDailyFinish, type RtDailyClaim, type R
 import { warmupMerge, type WarmupId, type WarmupMerge, type WarmupRecords } from './warmup';
 import { rtChronicleImport, rtChronicleMeet, rtChronicleMetaRefs, rtChronicleNote, rtChronicleRead, type RtChronicleMemory, type RtChronicleMet } from './chronicle';
 import { rtChronicleCounts, rtChronicleView, type RtChronicleView } from './chroniclePages';
+import { rtTrophiesImport, type RtTrophy } from './trophies';
 
 /**
  * Casino stage 1, item 2: `-v7` (save version 7, the oath stake: the oath stream's counter, the open battle's offer and oath).
@@ -234,6 +235,13 @@ export interface RtProfileStore {
   chronicleRead(): boolean;
   /** Task 58: the entries the run of `runKey` (`rtRunKey`) added — its end's list (after a reload too); another key — none. */
   chronicleAdded(runKey: string): string[];
+  /** Task 51е «Трофеи»: the trophies on the camp's perch, in the order they came (a copy; none — empty). */
+  trophies(): RtTrophy[];
+  /**
+   * Task 51е: the retro of an old profile, whenever the camp opens (after `chronicleImport`) — the Castellan's banner, «Чернильница
+   * Неясыти» with run 0, only those not held. False — nothing new, the trophies off, or not stored.
+   */
+  trophiesImport(): boolean;
   /**
    * Task 56 «Приметы» (spec 7.1): the pool of omens a new run of «Испытание» `ash` takes (`createRtRun(seed, { omens })`), or null — the
    * gates closed. The gates open once for good (`omensOpen`): «Расписание леса» done in the viewer's `history`, or `ash` ≥ II. A seeded run
@@ -248,11 +256,11 @@ export const rtHearthStart = (profile: RtProfile, seed: number, hero?: RtHeroId)
 export const rtIsNewOffer = (profile: RtProfile, id: string, hero?: RtHeroId): boolean => rtMetaNewOffer(profile.meta, id, heroOf(profile, hero));
 
 /** Task 51в: `gambler` — Шиш's camp on for this store (default `RT_HEARTH_GAMBLER_ON`; tests turn it on); task 51г: `monk` — Евлампий's. */
-export function createRtProfileStore(storage: RunStorage | null = browserStorage(), options: { gambler?: boolean; monk?: boolean; away?: boolean; chronicle?: boolean } = {}): RtProfileStore {
+export function createRtProfileStore(storage: RunStorage | null = browserStorage(), options: { gambler?: boolean; monk?: boolean; away?: boolean; chronicle?: boolean; trophies?: boolean } = {}): RtProfileStore {
   // Task 58: the chronicle written only while on (`RT_CHRONICLE_ON`, or the option); the camp's NPCs of its page «Очаг».
-  const chronicleOn = options.chronicle ?? RT_CHRONICLE_ON, npcs = { gambler: options.gambler ?? RT_HEARTH_GAMBLER_ON, monk: options.monk ?? RT_HEARTH_MONK_ON };
+  const chronicleOn = options.chronicle ?? RT_CHRONICLE_ON, trophiesOn = options.trophies ?? RT_TROPHIES_ON, npcs = { gambler: options.gambler ?? RT_HEARTH_GAMBLER_ON, monk: options.monk ?? RT_HEARTH_MONK_ON };
   const read = (): RtProfile => { try { return parseRtProfile(storage?.getItem(RT_PROFILE_STORAGE_KEY) ?? null); } catch { return emptyRtProfile(); } };
-  const write = (profile: RtProfile): boolean => { try { if (!storage) return false; storage.setItem(RT_PROFILE_STORAGE_KEY, JSON.stringify(profile)); return true; } catch { return false; } };
+  const write = (profile: RtProfile): boolean => { try { if (!storage) return false; storage.setItem(RT_PROFILE_STORAGE_KEY, JSON.stringify(canonical(profile))); return true; } catch { return false; } };
   return {
     load: read,
     warmup: () => read().meta?.warmup,
@@ -322,7 +330,7 @@ export function createRtProfileStore(storage: RunStorage | null = browserStorage
       if (run.seeded) return null;
       const profile = read();
       if (profile.meta?.applied?.key === rtRunKey(run)) return structuredClone(profile.meta.applied.end);
-      const { meta, end } = rtApplyMeta(profile.meta, run, { ...profile.runs !== undefined ? { viewerRun: profile.runs } : {}, ...options.gambler !== undefined ? { gambler: options.gambler } : {}, ...options.monk !== undefined ? { monk: options.monk } : {}, ...options.away !== undefined ? { away: options.away } : {}, chronicle: chronicleOn });
+      const { meta, end } = rtApplyMeta(profile.meta, run, { ...profile.runs !== undefined ? { viewerRun: profile.runs } : {}, ...options.gambler !== undefined ? { gambler: options.gambler } : {}, ...options.monk !== undefined ? { monk: options.monk } : {}, ...options.away !== undefined ? { away: options.away } : {}, chronicle: chronicleOn, trophies: trophiesOn });
       // Task 58: the pages' counts after the run (its record's telemetry).
       if (end.chronicle) {
         end.chronicle.pages = rtChronicleCounts(rtChronicleView({ ...profile, meta }, run.heroId ?? RT_HERO_ID, npcs));
@@ -380,6 +388,14 @@ export function createRtProfileStore(storage: RunStorage | null = browserStorage
       const profile = read(), done = rtChronicleRead(profile.meta?.chronicle);
       return done.changed && write({ ...profile, meta: withChronicle(profile.meta, done.chronicle) });
     },
+    trophies: () => structuredClone(read().meta?.trophies ?? []),
+    trophiesImport: () => {
+      if (!trophiesOn) return false;
+      const profile = read(), retro = rtTrophiesImport(profile.meta, profile.runs ?? 0);
+      if (!retro.changed) return false;
+      const { trophies: _old, ...meta } = profile.meta ?? { heroes: {} };
+      return write({ ...profile, meta: { ...meta, trophiesSince: retro.since, ...retro.trophies ? { trophies: retro.trophies } : {} } });
+    },
     chronicleAdded: runKey => { const applied = read().meta?.applied; return applied?.key === runKey ? [...applied.end.chronicle?.added ?? []] : []; },
     omensStart: ({ ash, history, seeded }) => {
       const profile = read();
@@ -390,10 +406,19 @@ export function createRtProfileStore(storage: RunStorage | null = browserStorage
   };
 }
 
-/** Task 58: the meta with `chronicle` (absent — removed) as its last key (the order a stored profile reads back in). */
+/**
+ * Review 21.10.2026: a meta with the chronicle or the trophies is stored in the order a stored profile reads back in (`parseRtMeta` — the
+ * canonical string). A meta without them is stored as given: an old profile reads and writes byte for byte, as before.
+ */
+function canonical(profile: RtProfile): RtProfile {
+  const meta = profile.meta;
+  if (!meta || (meta.chronicle === undefined && meta.trophies === undefined && meta.trophiesSince === undefined)) return profile;
+  return { ...profile, meta: parseRtMeta(JSON.parse(JSON.stringify(meta))) ?? meta };
+}
+/** Task 58: the meta with `chronicle` (absent — removed) after the others, before the trophies (the order a stored profile reads back in). */
 function withChronicle(meta: RtMeta | undefined, chronicle: RtMeta['chronicle']): RtMeta {
-  const { chronicle: _old, ...rest } = meta ?? { heroes: {} };
-  return { ...rest, ...chronicle ? { chronicle } : {} };
+  const { chronicle: _old, trophies, ...rest } = meta ?? { heroes: {} };
+  return { ...rest, ...chronicle ? { chronicle } : {}, ...trophies ? { trophies } : {} };
 }
 
 /**

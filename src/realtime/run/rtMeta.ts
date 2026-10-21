@@ -17,11 +17,12 @@ import { TROLL_RUN_ARENAS } from '../sim/arenasBoss';
 import { SCHEDULE_KINDS } from './schedule';
 import {
   HEARTH_GATE_SALT, HEARTH_HERB_SALT, HEARTH_MAPS_SALT, HEARTH_QUEST_SALT, isRtHearthNpc, isRtHeroId, isRtQuest, RT_HEARTH_GATED_LEVEL, RT_HEARTH_LOCKED, RT_HEARTH_MAX_LEVEL, RT_HEARTH_NPCS, RT_HEARTH_NPCS_L3, RT_HEARTH_PRICES, RT_HERO_ID, RT_HERO_IDS, RT_QUEST_NPC,
-  HEARTH_VOW_SALT, isRtHearthLeaver, RT_CHRONICLE_ON, RT_HEARTH_AWAY_ON, RT_HEARTH_GAMBLER_ON, RT_HEARTH_MONK_ON, type RtHearthLeaver, RT_META_THRESHOLDS, RT_VOW_IDS, type RtVowId, RT_TOAD_ID, rtHeroPacks, rtLockedAfter, type RtHearthGuest, type RtHearthLevel, type RtHearthNpc, type RtHeroId, type RtMetaItem, type RtQuest, type RtQuestId, type RtQuestNpc,
+  HEARTH_VOW_SALT, isRtHearthLeaver, RT_CHRONICLE_ON, RT_TROPHIES_ON, RT_HEARTH_AWAY_ON, RT_HEARTH_GAMBLER_ON, RT_HEARTH_MONK_ON, type RtHearthLeaver, RT_META_THRESHOLDS, RT_VOW_IDS, type RtVowId, RT_TOAD_ID, rtHeroPacks, rtLockedAfter, type RtHearthGuest, type RtHearthLevel, type RtHearthNpc, type RtHeroId, type RtMetaItem, type RtQuest, type RtQuestId, type RtQuestNpc,
 } from './metaCatalog';
 import { isRtAshLevel, rtCasinoResult, rtKnackShown, rtReachedJailer, type RtAshLevel } from './rtRun';
 import { parseRtChronicle, rtChronicleMetaRefs, rtChronicleRun, type RtChronicle } from './chronicle';
 import type { RtChroniclePageId } from './chronicleCatalog';
+import { parseRtTrophies, rtRunTrophies, rtTrophiesAdd, type RtTrophy, type RtTrophyEarned } from './trophies';
 import { isWarmupBest, type WarmupRecords } from './warmup';
 
 export { RT_HEARTH_PRICES, RT_META_PACKS, RT_META_THRESHOLDS } from './metaCatalog';
@@ -192,6 +193,10 @@ export interface RtMeta {
   offered?: string[];
   /** Task 58 «Летопись»: what the viewer found (run/chronicle.ts); absent — nothing written yet. */
   chronicle?: RtChronicle;
+  /** Task 51е: the retro of the trophies done — the viewer's runs then (`rtTrophiesImport`, once a profile); absent — not yet. */
+  trophiesSince?: number;
+  /** Task 51е «Трофеи»: the trophies on the camp's perch (run/trophies.ts); absent — none yet. The meta's last key. */
+  trophies?: RtTrophy[];
   /** The last run applied (its key) and its result: a second call for the same run returns it. */
   applied?: { key: string; end: RtMetaEnd };
   /** Task 51ж «Разминка»: the warmup layouts' records (run/warmup.ts `warmupMerge`); absent until the first attempt with a score. */
@@ -230,6 +235,8 @@ export interface RtMetaEnd {
    * Absent — the chronicle off.
    */
   chronicle?: { added: string[]; pages?: Partial<Record<RtChroniclePageId, [number, number]>>; seenItems?: number };
+  /** Task 51е: the trophies this run earned — new ones, and new marks of «Доска Испытания» (`mark`); the camp drops them on the perch. Absent — none. */
+  trophies?: RtTrophyEarned[];
 }
 
 /** The key of a run's end (a second call for it returns the applied result). */
@@ -372,7 +379,7 @@ export const rtQuestFor = (quest: RtQuest, record: RtDepthRecord | undefined): R
  * The meta after `run` (a run without a given seed, finished or abandoned): the new `meta` and what the end screen shows. The
  * caller checks the seed and the applied key (`RtProfileStore.endRunMeta`).
  */
-export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState, options: { viewerRun?: number; gambler?: boolean; monk?: boolean; away?: boolean; chronicle?: boolean } = {}): { meta: RtMeta; end: RtMetaEnd } {
+export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState, options: { viewerRun?: number; gambler?: boolean; monk?: boolean; away?: boolean; chronicle?: boolean; trophies?: boolean } = {}): { meta: RtMeta; end: RtMetaEnd } {
   // Task 51в: Шиш comes only while his camp is on (`RT_HEARTH_GAMBLER_ON`, or the option); task 51г: Евлампий likewise; task 51д: the leaving.
   const gambler = options.gambler ?? RT_HEARTH_GAMBLER_ON, monk = options.monk ?? RT_HEARTH_MONK_ON, leaving = options.away ?? RT_HEARTH_AWAY_ON;
   // Task 49: a run that won the Jailer frees Ведунья here too, if the view did not (`rtFreeByJailer`, the camp's fallback).
@@ -471,6 +478,14 @@ export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState, optio
     const written = rtChronicleRun(meta.chronicle, run, options.viewerRun ?? 0, rtChronicleMetaRefs(previous, meta));
     if (written.chronicle) meta.chronicle = written.chronicle; else delete meta.chronicle;
     end.chronicle = { added: written.added };
+  }
+  // Task 51е: the trophies this run earned (after the chronicle: «Чернильница Неясыти» reads its bestiary). The meta's last key.
+  if (options.trophies ?? RT_TROPHIES_ON) {
+    const { trophies, added } = rtTrophiesAdd(meta.trophies, rtRunTrophies(run, meta.chronicle), options.viewerRun ?? 0);
+    if (added.length) end.trophies = added;
+    // The last key (a chronicle written first above stays before it).
+    delete meta.trophies;
+    if (trophies) meta.trophies = trophies;
   }
   meta.applied = { key: rtRunKey(run), end };
   return { meta, end };
@@ -757,5 +772,8 @@ export function parseRtMeta(value: unknown): RtMeta | undefined {
   // Task 51ж: the warmup records — only valid ones (`isWarmupBest`); none — absent (a profile before it reads as stored).
   const warmupEntries = isPlain(value.warmup) ? Object.entries(value.warmup).filter(([id, record]) => isWarmupBest(id, record)) : [];
   const warmup = warmupEntries.length ? Object.fromEntries(warmupEntries.map(([id, record]) => [id, { best: (record as { best: number }).best }])) as WarmupRecords : undefined;
-  return { heroes, ...hero ? { hero } : {}, ...freed ? { freed } : {}, ...hearth ? { hearth } : {}, ...offered ? { offered } : {}, ...applied ? { applied } : {}, ...warmup ? { warmup } : {}, ...chronicle ? { chronicle } : {} };
+  // Task 51е: the retro's mark; the trophies (known ids, each once; malformed dropped; none — absent), the last key.
+  const trophiesSince = typeof value.trophiesSince === 'number' && Number.isInteger(value.trophiesSince) && value.trophiesSince >= 0 ? value.trophiesSince : undefined;
+  const trophies = parseRtTrophies(value.trophies);
+  return { heroes, ...hero ? { hero } : {}, ...freed ? { freed } : {}, ...hearth ? { hearth } : {}, ...offered ? { offered } : {}, ...applied ? { applied } : {}, ...warmup ? { warmup } : {}, ...chronicle ? { chronicle } : {}, ...trophiesSince !== undefined ? { trophiesSince } : {}, ...trophies ? { trophies } : {} };
 }
