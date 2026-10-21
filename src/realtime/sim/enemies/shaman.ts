@@ -20,7 +20,8 @@
 import { dist, pushOutOfObstacles } from '../geometry';
 import { enemyGroundFactor, enemySpeed, type Enemy, type World } from '../world';
 import { bodyRadiusOf, kindOf, registerBehavior, registerEnemyKind } from './kinds';
-import { BOSS_CORES } from './jailer';
+import { CHIEF } from './chief';
+import { TROLL } from './troll';
 
 /** Timers reach zero on the tick they are due (sums of 1/60 s leave a rounding crumb). */
 const TIME_EPS = 1e-9;
@@ -31,8 +32,8 @@ function pickTarget(world: World, shaman: Enemy): Enemy | null {
   let best: Enemy | null = null, bestD = Infinity;
   for (const e of world.enemies) {
     if (e === shaman || e.hp !== 0 || taken.has(e.id) || !kindOf(e).chainable || kindOf(e).immune) continue;
-    // «Дыры ядра боссов» (`coreShamanWard`): never a boss core (a core at 0 HP is not lifted).
-    if (p.coreShamanWard && p.bossFrame && BOSS_CORES.includes(e.kind)) continue;
+    // «Дыры ядра боссов» (`coreShamanWard`): never the Troll's or the Chief's core (a core at 0 HP is not lifted).
+    if (p.coreShamanWard && p.bossFrame && (e.kind === TROLL || e.kind === CHIEF)) continue;
     const d = dist(e, shaman);
     if (d <= p.shamanRadius && d < bestD - 1e-9) { best = e; bestD = d; }
   }

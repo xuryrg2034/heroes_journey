@@ -11,6 +11,8 @@
  * - the Troll's window, «Ледяная волна» and «Подрыв» at the end of one chain: with the key the highlight's plates on the core are
  *   the dash's (one); without it — the old highlight: two;
  * - the same with «Ударная волна» II in «Ледяная волна»: the end's wave and the start's both round the core — one plate shown;
+ * - the sandbox: «Берлога тролля» and «Стан Главаря» play the keys on from the panel's values (off); another arena keeps them off;
+ *   values without the keys (a journal before them) keep them absent — the old paths;
  * - every fight replays from its journal. Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import { COUNTER_TALISMANS, FUSIONS } from './buildIds';
@@ -19,7 +21,7 @@ import { CHIEF, CHIEF_LADLE, CHIEF_SACK } from './enemies/chief';
 import { TROLL, TROLL_CLUB, TROLL_ROCK } from './enemies/troll';
 import type { Vec } from './geometry';
 import type { Loadout } from './kit';
-import { defaultParams, type Params } from './params';
+import { CORE_WARD_KEYS, defaultParams, type Params } from './params';
 import { replay, Simulation, SIM_DT } from './simulation';
 import type { Enemy, World, WorldEvent } from './world';
 
@@ -182,6 +184,17 @@ check('the Troll\'s window, «Ударная волна» II in «Ледяная
       assert(replays(sim), `seed ${k}, key ${key}: replay`);
     }
   }
+});
+
+check('the sandbox: the Troll\'s and the Chief\'s arenas play the keys on from the panel\'s values (off); another arena keeps them off; values without the keys keep them absent', () => {
+  for (const arena of ['troll', 'chief']) {
+    const on = new Simulation({ arena, params: defaultParams(), seed: seedOf(1) }).world.params;
+    assert(CORE_WARD_KEYS.every(key => on[key] === true), `${arena}: the keys on`);
+    const old = new Simulation({ arena, params: quiet(undefined), seed: seedOf(1) }).world.params;
+    assert(CORE_WARD_KEYS.every(key => !(key in old)), `${arena}: a journal without the keys keeps them absent`);
+  }
+  const other = new Simulation({ arena: 'jailer', params: defaultParams(), seed: seedOf(1) }).world.params;
+  assert(CORE_WARD_KEYS.every(key => other[key] === false), 'the Jailer\'s arena: the keys as the panel has them');
 });
 
 console.log(`boss holes: ${checks} checks passed`);

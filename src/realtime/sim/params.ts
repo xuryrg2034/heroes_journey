@@ -939,7 +939,7 @@ export interface Params {
    * «Дыры ядра боссов» (task 55, stage Д, core's review 21.10.2026). `coreTrailWard`: the fire trail of an elite (elites.ts
    * `updateAffixes`) asks the boss core's rules (world.ts `bossCoreWards`: the Troll's window and its one hit, the Chief's «only the
    * chain») before it burns a core — a closed one rings (`block`), unhurt. `coreShamanWard`: the shaman's beam never takes a boss
-   * core (`BOSS_CORES` with the frame on). `trollShadowOnce`: the highlight's end shadows strike the Troll's core once a window — the
+   * core (the Troll's and the Chief's, with the frame on). `trollShadowOnce`: the highlight's end shadows strike the Troll's core once a window — the
    * end blast after a wave (chain.ts `planFusionEnd`) and the start's wave of «Ударная волна» II after the end's (talismansRt.ts)
    * showed two plates, the dash takes one. Off
    * by default and in journals without the keys: the old paths.
@@ -2213,11 +2213,11 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('trollCrowd', 'Тролль', 'Тролль: толпа', 0.25, 2, 0.05, 5, '×', 'Множитель плотности и темпа пополнения толпы. Арена «Берлога тролля» ставит 0,3, если на панели 1.'),
   // «Дыры ядра боссов» (21.10.2026).
   { kind: 'bool', key: 'coreTrailWard', group: 'Босс', label: 'Огненный след уважает ядро', stage: 5,
-    hint: 'Огненный след элиты не жжёт закрытое ядро босса (Тролль вне окна, Главарь всегда — «звон»); в окне Тролля след — его одно попадание.' },
+    hint: 'Огненный след элиты не жжёт закрытое ядро босса (Тролль вне окна, Главарь всегда — «звон»); в окне Тролля след — его одно попадание. Арены Тролля и Главаря и поход включают сами.' },
   { kind: 'bool', key: 'coreShamanWard', group: 'Босс', label: 'Шаман не трогает ядро', stage: 5,
-    hint: 'Луч шамана никогда не берёт ядро босса (ядро на 0 HP не поднимается).' },
+    hint: 'Луч шамана никогда не берёт ядро Тролля и Главаря (ядро на 0 HP не поднимается). Арены Тролля и Главаря и поход включают сами.' },
   { kind: 'bool', key: 'trollShadowOnce', group: 'Босс', label: 'Тени конца: одно попадание за окно', stage: 5,
-    hint: 'Подсветка концов прохода (волна, взрыв) бьёт ядро Тролля один раз за окно — как проход.' },
+    hint: 'Подсветка концов прохода (волна, взрыв) бьёт ядро Тролля один раз за окно — как проход. Арены Тролля и Главаря и поход включают сами.' },
   // Task 54 «Главарь с котелком» (enemies/chief.ts, docs/realtime-elite-behaviors.md, «Главарь (задача 54)»).
   { kind: 'bool', key: 'chiefFeast', group: 'Главарь', label: '«Обед!» Главаря', stage: 5,
     hint: 'Главарь закрыт вне окна «Обеда!» («вне окна»). В окне его берёт только цепь цвета варева, в которой до него не меньше трёх звеньев этого цвета («в очередь»); одно попадание за окно, другой урон его не ранит. Арена «Стан Главаря» включает правило сама.' },
@@ -2382,6 +2382,12 @@ export const RUN_FORCED: Readonly<Partial<Params>> = Object.freeze({ heroAnchor:
 export function runParams(params: Params, forced: Readonly<Partial<Params>> = {}): Params { return Object.assign(copyParams(params), RUN_FORCED, forced); }
 
 /** A deep copy (the journal keeps the values a run started with). */
+/**
+ * «Дыры ядра боссов» (21.10.2026): the keys of the boss core's wards. The Troll's and the Chief's arenas play them on (world.ts
+ * `createWorld`), a run with the flag `bossHoles` too (run/rtRun.ts `rtArenaParams`); values without them play the old paths.
+ */
+export const CORE_WARD_KEYS = ['coreTrailWard', 'coreShamanWard', 'trollShadowOnce'] as const;
+
 export function copyParams(params: Params): Params { return { ...params, phases: params.phases.map(p => ({ ...p })) }; }
 
 /** Keys of `source` in the order of `order`'s keys, then the keys `order` lacks in their given order; values as they are. */

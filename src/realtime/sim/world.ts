@@ -18,7 +18,7 @@ import type { HammerEventKind } from './buildIds';
 import type { BoarState } from './enemies/boar';
 import { behaviorOf, bodyRadiusOf, enemyKind, groupBehaviors, kindOf } from './enemies/kinds';
 import { FlowField, type Vec, blockedAt, dist, hasZone, inThorns, inWater, lineOfSight, overCliff, pushOutOfCliffs, pushOutOfObstacles } from './geometry';
-import { type Params, type Pressure, DEFAULT_PARAMS, copyParams, enemyBodyRadius, heroRadius, invulnerabilityFor, pressureAt } from './params';
+import { type Params, type Pressure, CORE_WARD_KEYS, DEFAULT_PARAMS, copyParams, enemyBodyRadius, heroRadius, invulnerabilityFor, pressureAt } from './params';
 import { hasTalisman, kitOf, type ItemKind, type Kit, type Loadout, type ResourceKind } from './kit';
 import { affixSpeedFactor, eliteDeath, makeElite, platesOf, stripPlates, touchLoot, updateAffixes, updateArmor, type AffixId, type EliteArmor, type TrailPoint } from './elites';
 import { updateBurning } from './items';
@@ -893,6 +893,12 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   // Task 54: the Chief's arena plays his feast and the boss's solid bodies (when the values have them off; a journal keeps the copy).
   if (arena.chief && params.chiefFeast === false) params = { ...copyParams(params), chiefFeast: true };
   if (arena.chief && params.trollSolid === false) params = { ...copyParams(params), trollSolid: true };
+  // «Дыры ядра боссов» (21.10.2026): the Troll's and the Chief's arenas play the core's wards (`CORE_WARD_KEYS`) when the values have
+  // them off; values without the keys (a journal before them, a run saved without `bossHoles`: run/rtRun.ts `rtArenaParams`) — the old
+  // paths. A journal keeps the copy.
+  if (arena.troll || arena.chief) {
+    for (const key of CORE_WARD_KEYS) if (params[key] === false) params = { ...copyParams(params), [key]: true };
+  }
   // Task 55а: an arena of the castle plays the law of the shove (when the values have it off; a journal keeps the copy).
   if (arena.castle && !params.shove) params = { ...copyParams(params), shove: true };
   // Task 57а: an arena of the new shooters plays its own timer when the values have none (and the archer in it; a journal keeps the copy).
