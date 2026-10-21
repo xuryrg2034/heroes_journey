@@ -1789,7 +1789,8 @@ const heroHeld = (world: World, p: Vec, mode: DragMode): boolean =>
  * for the pointer event (`full`) and the held pointer with `holdNearest` (task 39), the chain's own links. A link of the chain —
  * `full` truncates there (the step back), `append` does nothing; null — nothing. Task 34: on a colour free by «Смена цвета» a
  * sweep point and the held pointer take only the chain's colour. Task 42: with `holdHeroLink` a held or sweep point in the hero's
- * circle picks nothing, nor the pointer event there on an empty chain. The view's ring «что возьмётся» reads it (no copy of the rule).
+ * circle picks nothing, nor the pointer event there on an empty chain. `dragChain` acts on it; the view does not call it (the tests
+ * read it as the drag's own answer).
  */
 export function pickAt(world: World, p: Vec, mode: DragMode = 'full', plan: ChainPlan = planChain(world, world.chain, NO_PIERCE)): ChainLink | null {
   if (heroHeld(world, p, mode)) return null;
