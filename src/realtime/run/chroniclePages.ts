@@ -34,7 +34,7 @@ export interface RtChronicleView {
   hint?: RtChronicleHint;
 }
 /** What the book reads of the profile. */
-export type RtChronicleProfile = Pick<RtProfile, 'meta' | 'seen' | 'runs' | 'won' | 'heroAsh'>;
+export type RtChronicleProfile = Pick<RtProfile, 'meta' | 'runs' | 'won' | 'heroAsh'>;
 /** The camp's NPCs on (Шиш, Евлампий). */
 export interface RtChronicleOn { gambler: boolean; monk: boolean }
 
@@ -48,12 +48,11 @@ function factsOf(profile: RtChronicleProfile, hero: RtHeroId) {
   const levels = RT_CHRONICLE_LEVELS.filter(level => level === 1 || (level === 2 && rtChronicleGarrisonOpen(meta)));
   const next = RT_CHRONICLE_LEVELS.find(level => !levels.includes(level));
   const locked = new Set(rtLockedAfter(meta?.heroes[hero]?.packs ?? []));
-  const seen = profile.seen ?? [];
   const ladder = (id: RtHeroId): boolean => (id === 'toad' ? profile.heroAsh?.toad?.won === true : profile.won === true);
   const jailerMet = !!c.bosses?.jailer || !!meta?.freed?.toad;
   // The fusions' chapter: once a run held a pair (or made one).
   const fusionsShown = RT_CHRONICLE_ITEMS.fusions.some(id => c.items?.[id] !== undefined);
-  return { meta, c, levels, next, locked, seen, ladder, jailerMet, fusionsShown };
+  return { meta, c, levels, next, locked, ladder, jailerMet, fusionsShown };
 }
 
 /** The book for `hero` (the locks are of its packs; the hint is for it). `on` — the camp's NPCs of task 51 on. */
@@ -65,8 +64,9 @@ export function rtChronicleView(profile: RtChronicleProfile, hero: RtHeroId, on:
     [...chapters.filter(entry => f.levels.includes(entry.level)).map(entry => entry.chapter()), ...f.next !== undefined && chapters.some(entry => entry.level === f.next) ? [blank(f.next)] : []];
   const kind = (id: string): RtChronicleEntry => ({ id, state: kinds.has(id) ? 'seen' : 'unknown' });
 
-  // Бестиарий: the forest; the elites' affixes after the first elite; the garrison's kinds once a hero reached it.
-  const elites = affixes.size > 0 || f.seen.some(id => id === 'elite' || id === 'affix' || id.startsWith('affix:'));
+  // Бестиарий: the forest; the elites' affixes after the first elite (the chronicle's own fact — never `profile.seen`, which
+  // «Обучение» empties); the garrison's kinds once a hero reached it.
+  const elites = c.elites === true || affixes.size > 0;
   const bestiary = levelled([
     { level: 1, chapter: () => open('forest', 1, RT_CHRONICLE_FOREST_KINDS.map(kind)) },
     ...elites ? [{ level: 1, chapter: () => open('affixes', 1, RT_CHRONICLE_AFFIXES.map(id => ({ id, state: affixes.has(id) ? 'seen' as const : 'unknown' as const }))) }] : [],

@@ -13,7 +13,7 @@ import {
   RT_CHRONICLE_AFFIXES, RT_CHRONICLE_ASH_STEPS, RT_CHRONICLE_BOSSES, RT_CHRONICLE_CASINO, RT_CHRONICLE_EVENTS, RT_CHRONICLE_ITEMS, RT_CHRONICLE_KINDS, RT_CHRONICLE_PAGES,
   isRtChronicleBoss, isRtChronicleFusion, isRtChronicleItem, rtChronicleParts, type RtChronicleBoss,
 } from './chronicleCatalog';
-import { isRtForm } from './rtTalismans';
+import { isRtForm, rtFormField } from './rtTalismans';
 import { isScheduleElement } from './schedule';
 
 export interface RtChronicle {
@@ -21,6 +21,12 @@ export interface RtChronicle {
   kinds?: string[];
   /** The elite affixes met, sorted. */
   affixes?: string[];
+  /**
+   * An elite met (the chapter «Свойства элит» shows; design 21.10.2026, spec 3.1): the retro takes it from `profile.seen` once, then
+   * the chronicle keeps it — «Обучение» (`resetSchedule`) empties `seen`, the book stays. Absent — none met yet (or one with an affix:
+   * `affixes` shows the chapter too).
+   */
+  elites?: true;
   /** The bosses: the viewer's run (`RtProfile.runs`; 0 — unknown, the retro) of the first meeting and of the first win. */
   bosses?: Partial<Record<RtChronicleBoss, { met: number; won?: number }>>;
   /** The events entered (the forest's ids and `casino`), sorted. */
@@ -83,13 +89,15 @@ export function parseRtChronicle(value: unknown): RtChronicle | undefined {
   const items = isPlain(value.items) ? Object.fromEntries(Object.entries(value.items).filter(([id, v]) => isRtChronicleItem(id) && (v === 1 || v === 2))) as Record<string, 1 | 2> : {};
   const fusions = sortedOf(value.fusions, isRtChronicleFusion), unread = refsOf(value.unread), fresh = refsOf(value.fresh);
   const out: RtChronicle = {
-    ...kinds ? { kinds } : {}, ...affixes ? { affixes } : {}, ...Object.keys(bosses ?? {}).length ? { bosses } : {}, ...events ? { events } : {},
+    ...kinds ? { kinds } : {}, ...affixes ? { affixes } : {}, ...value.elites === true ? { elites: true as const } : {}, ...Object.keys(bosses ?? {}).length ? { bosses } : {}, ...events ? { events } : {},
     ...Object.keys(items).length ? { items } : {}, ...fusions ? { fusions } : {}, ...unread ? { unread } : {}, ...fresh ? { fresh } : {},
     ...isCount(value.since) ? { since: value.since } : {}, ...value.retro === true ? { retro: true as const } : {},
   };
   return Object.keys(out).length ? out : undefined;
 }
 
+/** A schedule element of an elite met (`elite`, `affix`, `affix:<id>`). */
+const isEliteElement = (id: string): boolean => id === 'elite' || id === 'affix' || id.startsWith('affix:');
 /** The refs `refs` join `unread` and `fresh` (each once). */
 function note(c: RtChronicle, refs: readonly string[]): void {
   if (!refs.length) return;
@@ -101,15 +109,20 @@ const addSorted = (list: string[] | undefined, ids: readonly string[]): { list: 
   return { list: added.length ? [...list ?? [], ...added].sort() : list, added };
 };
 
+/** What a fight of a meta run brought into view: the kinds, the elite affixes, an elite (with or without an affix). */
+export interface RtChronicleMet { kinds: readonly string[]; affixes: readonly string[]; elite?: boolean }
 /**
- * The view saw `kinds` and `affixes` come into view in a fight of a meta run (variant A; the caller checked: not `?seed=`, not the
- * sandbox, not the prologue): the new ones join the chronicle and its unread. `changed` false — nothing new (no write).
+ * The view saw kinds, affixes, an elite come into view in a fight of a meta run (variant A; the caller checked: not the sandbox, not the
+ * prologue; a run with a given seed is the store's to refuse): the new ones join the chronicle and its unread. `changed` false — nothing
+ * new (no write).
  */
-export function rtChronicleMeet(previous: RtChronicle | undefined, kinds: readonly string[], affixes: readonly string[]): { chronicle: RtChronicle | undefined; changed: boolean } {
+export function rtChronicleMeet(previous: RtChronicle | undefined, met: RtChronicleMet): { chronicle: RtChronicle | undefined; changed: boolean } {
   const c: RtChronicle = structuredClone(previous ?? {});
-  const k = addSorted(c.kinds, kinds.filter(id => RT_CHRONICLE_KINDS.includes(id))), a = addSorted(c.affixes, affixes.filter(id => RT_CHRONICLE_AFFIXES.includes(id)));
-  if (!k.added.length && !a.added.length) return { chronicle: previous, changed: false };
+  const k = addSorted(c.kinds, met.kinds.filter(id => RT_CHRONICLE_KINDS.includes(id))), a = addSorted(c.affixes, met.affixes.filter(id => RT_CHRONICLE_AFFIXES.includes(id)));
+  const elite = (met.elite === true || a.added.length > 0) && !c.elites;
+  if (!k.added.length && !a.added.length && !elite) return { chronicle: previous, changed: false };
   c.kinds = k.list; c.affixes = a.list;
+  if (elite) c.elites = true;
   note(c, [...k.added.map(id => `kind:${id}`), ...a.added.map(id => `affix:${id}`)]);
   return { chronicle: c, changed: true };
 }
@@ -144,11 +157,13 @@ export function rtChronicleNote(previous: RtChronicle | undefined, refs: readonl
 /**
  * The items a run took: its talismans; a form or a fusion it held and lost (a form of the same field replaced it; a fusion took its
  * parts) — every form and fusion in `talismansGone` was taken, never left on a screen (`rtChooseTalisman` and the merchant keep the
- * forms out of it); the parts of every fusion made; the hammer. The hero's innate items (Ведунья's «Печать») are not taken.
+ * forms out of it); task 58в: in a run with `chronicle`, an item of a field («Близнецы», «Якорь у героя») in `talismansGone` and not
+ * in `shown` — replaced, so taken; the parts of every fusion made; the hammer. The hero's innate items (Ведунья's «Печать») are not taken.
  */
-export function rtChronicleTaken(run: Pick<RtRunState, 'talismans' | 'talismansGone' | 'hammer' | 'heroId'>): string[] {
+export function rtChronicleTaken(run: Pick<RtRunState, 'talismans' | 'talismansGone' | 'hammer' | 'heroId' | 'chronicle' | 'shown'>): string[] {
   const innate = rtInnate(run);
-  const held = [...run.talismans, ...run.talismansGone.filter(id => isRtForm(id) || isRtChronicleFusion(id)), ...run.hammer ? [run.hammer] : []];
+  const replaced = (id: string): boolean => !!run.chronicle && rtFormField(id) !== null && !run.shown?.includes(id);
+  const held = [...run.talismans, ...run.talismansGone.filter(id => isRtForm(id) || isRtChronicleFusion(id) || replaced(id)), ...run.hammer ? [run.hammer] : []];
   const parts = held.filter(isRtChronicleFusion).flatMap(rtChronicleParts);
   return [...new Set([...held, ...parts])].filter(id => isRtChronicleItem(id) && !innate.includes(id));
 }
@@ -167,14 +182,18 @@ export function rtChronicleRun(previous: RtChronicle | undefined, run: RtRunStat
   c.events = ev.list; refs.push(...ev.added.map(id => `event:${id}`));
   // Items: taken (2) over seen (1).
   const taken = rtChronicleTaken(run), items = { ...c.items };
-  for (const id of run.talismansGone) if (isRtChronicleItem(id) && !taken.includes(id) && !items[id]) items[id] = 1;
+  // Task 58в: `shown` — the forms, the field's items, the hammers, the rerolled and the knack's refused cards a screen showed.
+  for (const id of [...run.talismansGone, ...run.shown ?? []]) if (isRtChronicleItem(id) && !taken.includes(id) && !items[id]) items[id] = 1;
+  // A fusion «seen» (spec 3.4, question 11): both parts taken in this run (a form replaced before its end too; Ведунья's innate part).
   for (const recipe of RT_CHRONICLE_ITEMS.fusions) {
     const parts = rtChronicleParts(recipe), innate = rtInnate(run);
-    if (!taken.includes(recipe) && !items[recipe] && parts.every(part => run.talismans.includes(part) || innate.includes(part))) items[recipe] = 1;
+    if (!taken.includes(recipe) && !items[recipe] && parts.every(part => taken.includes(part) || innate.includes(part))) items[recipe] = 1;
   }
   for (const id of taken) if (items[id] !== 2) { items[id] = 2; refs.push(`item:${id}`); }
   if (Object.keys(items).length) c.items = items;
   c.fusions = addSorted(c.fusions, taken.filter(isRtChronicleFusion)).list;
+  // An elite met in a fight of the run (the schedule's elements of its fights: `elite`, `affix`, `affix:<id>`).
+  if (!c.elites && run.battles.some(entry => entry.seen?.some(isEliteElement))) c.elites = true;
   // Bosses: the first meeting, the first win.
   for (const boss of RT_CHRONICLE_BOSSES) {
     const fights = run.battles.filter(entry => boss.arenas.includes(entry.arena));
@@ -203,13 +222,16 @@ export function rtChronicleImport(previous: RtChronicle | undefined, memory: RtC
   const k = addSorted(c.kinds, [...memory.kinds, ...seen].filter(id => RT_CHRONICLE_KINDS.includes(id)));
   const a = addSorted(c.affixes, [...memory.affixes, ...seen.flatMap(id => id.startsWith('affix:') ? [id.slice(6)] : [])].filter(id => RT_CHRONICLE_AFFIXES.includes(id)));
   c.kinds = k.list; c.affixes = a.list;
+  // The elite met: the history's `elite` / `affix…` or an affix of the memory — the only read of `profile.seen` (design 21.10.2026).
+  const elite = !c.elites && (seen.some(isEliteElement) || a.list !== undefined);
+  if (elite) c.elites = true;
   let bosses = 0;
   const freed = profile.meta?.freed?.toad;
   if (freed && c.bosses?.jailer?.won === undefined) { c.bosses = { ...c.bosses, jailer: { met: c.bosses?.jailer?.met ?? freed.run ?? 0, won: freed.run ?? 0 } }; bosses++; }
   const castellan = RT_HERO_IDS.some(id => profile.meta?.heroes[id]?.record?.wonLevel === 2);
   if (castellan && c.bosses?.castellan?.won === undefined) { c.bosses = { ...c.bosses, castellan: { met: c.bosses?.castellan?.met ?? 0, won: 0 } }; bosses++; }
   c.since = profile.runs ?? 0;
-  if (k.added.length || a.added.length || bosses) c.retro = true;
+  if (k.added.length || a.added.length || elite || bosses) c.retro = true;
   for (const key of Object.keys(c) as (keyof RtChronicle)[]) if (c[key] === undefined) delete c[key];
   return { chronicle: c, changed: true };
 }

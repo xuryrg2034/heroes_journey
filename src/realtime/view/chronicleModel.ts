@@ -6,7 +6,8 @@
  */
 import type { RtChronicleChapter, RtChronicleEntry, RtChronicleEntryState, RtChronicleHint, RtChroniclePage, RtChronicleView } from '../run/chroniclePages';
 import type { RtChroniclePageId } from '../run/chronicleCatalog';
-import type { RtChronicleMemory } from '../run/chronicle';
+import type { RtChronicleMemory, RtChronicleMet } from '../run/chronicle';
+import type { RtRunState } from '../run/rtRun';
 import type { RtProfileStore } from '../run/rtRunStorage';
 
 export type ChronicleEntryState = RtChronicleEntryState;
@@ -23,8 +24,8 @@ export type ChronicleMemory = RtChronicleMemory;
 export interface ChronicleSource {
   /** The book for the chosen hero. */
   view(): ChronicleView;
-  /** Kinds / affixes that came into view in a fight of a meta run (the caller has checked: not `?seed=`, not the sandbox, not the prologue). Repeats are the core's to ignore. */
-  meet(kinds: readonly string[], affixes: readonly string[]): void;
+  /** Kinds / affixes / an elite that came into view in a fight of `run` (the caller has checked: not the sandbox, not the prologue; a seeded run, the day's too, the core refuses). Repeats are the core's to ignore. */
+  meet(run: Pick<RtRunState, 'seeded'>, met: RtChronicleMet): void;
   /** The retro: the P8 memory, handed over when the camp opens (the core ignores a repeat). */
   import(memory: ChronicleMemory): void;
   /** The chronicle was opened: the unread are read. */
@@ -36,7 +37,7 @@ export interface ChronicleSource {
 /** The source over the profile store. */
 export const profileChronicle = (store: RtProfileStore): ChronicleSource => ({
   view: () => store.chronicle(),
-  meet: (kinds, affixes) => { store.chronicleMeet(kinds, affixes); },
+  meet: (run, met) => { store.chronicleMeet(run, met); },
   import: memory => { store.chronicleImport(memory); },
   read: () => { store.chronicleRead(); },
   added: runKey => store.chronicleAdded(runKey),

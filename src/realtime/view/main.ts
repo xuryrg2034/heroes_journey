@@ -889,7 +889,7 @@ async function boot(): Promise<void> {
   // Task 35, С1: a run resumed from the save keeps the level in its record too.
   recorder?.fxLevel(runView?.state ?? null, renderer.fxLevel);
   // Task 58: only a run of the meta writes the chronicle - not `?seed=` / `?hero=` (a seeded run), not the prologue, not the sandbox.
-  if (runView?.chronicle) { const chronicle = runView.chronicle; renderer.chronicle = { on: () => !prologue && runView.arenaOpen && !!runView.state && !runView.state.seeded && !!runView.hearth, meet: (kinds, affixes) => chronicle.meet(kinds, affixes) }; }
+  if (runView?.chronicle) { const chronicle = runView.chronicle; renderer.chronicle = { on: () => !prologue && runView.arenaOpen && !!runView.state && !runView.state.seeded && !!runView.hearth, meet: met => { const run = runView.state; if (run) chronicle.meet(run, met); } }; }
   if (newSeen && runView) renderer.newSeen = { store: newSeen, live: () => runView.arenaOpen, on: () => newOnMap, meet: id => recorder?.firstMeet(runView.state, id) };
   /**
    * The finished run arena goes into the run in the frame it ended (HP, kills, damage, time) and is saved at once: a

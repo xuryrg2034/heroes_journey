@@ -566,7 +566,7 @@ export class RealtimeRenderer {
    * (`meet`), whether or not the П8 memory knew it already (the chronicle is its own record). `on` is false in `?seed=`, the prologue and
    * the sandbox. Each kind and affix is reported once per page load (the chronicle ignores repeats anyway). View only: no caption, no sim.
    */
-  chronicle: { on(): boolean; meet(kinds: string[], affixes: string[]): void } | null = null;
+  chronicle: { on(): boolean; meet(met: { kinds: string[]; affixes: string[]; elite?: true }): void } | null = null;
   private readonly chronicleSent = new Set<string>();
   private readonly captionLayer = new Container();
   private readonly captions: { id: number; box: Container; until: number; slot: number }[] = [];
@@ -2140,10 +2140,13 @@ export class RealtimeRenderer {
         if (chronicle) {
           const kind = KIND_CAPTIONS[e.kind] !== undefined && !this.chronicleSent.has(e.kind) ? e.kind : null;
           const affixes = (e.affixes ?? []).filter(a => !this.chronicleSent.has(`affix:${a}`));
-          if ((kind || affixes.length) && this.sees(e, 1.5)) {
+          // An elite in view (an affix or the elite flag) opens the chapter of the elites' properties - the observation only; the rule is core's.
+          const elite = !!e.elite && !this.chronicleSent.has('elite');
+          if ((kind || affixes.length || elite) && this.sees(e, 1.5)) {
             if (kind) this.chronicleSent.add(kind);
+            if (elite) this.chronicleSent.add('elite');
             for (const a of affixes) this.chronicleSent.add(`affix:${a}`);
-            chronicle.meet(kind ? [kind] : [], affixes);
+            chronicle.meet({ kinds: kind ? [kind] : [], affixes, ...elite ? { elite: true as const } : {} });
           }
         }
         const kindDue = KIND_CAPTIONS[e.kind] !== undefined && !host.store.hasKind(e.kind);

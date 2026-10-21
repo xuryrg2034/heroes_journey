@@ -158,12 +158,17 @@ check('the source over the profile store: meet adds a kind once with the unread 
   assert(!source.view().pages[0]!.unread && source.view().pages[0]!.have === 1 && source.view().unread === 0, 'the retro is read');
   source.import({ kinds: ['boar'], affixes: [] });
   assert(source.view().pages[0]!.have === 1, 'a repeat of the import is ignored');
-  source.meet(['lynx'], ['fiery']); source.meet(['lynx'], []);
+  const run = { seeded: undefined }; source.meet(run, { kinds: ["lynx"], affixes: ["fiery"] }); source.meet(run, { kinds: ["lynx"], affixes: [] });
   const v = source.view();
   assert(v.pages[0]!.unread && v.pages[0]!.have === 3 && v.unread === 2, 'lynx and the fiery affix are new, once');
   source.read();
   assert(!source.view().pages[0]!.unread && source.view().unread === 0, 'read clears');
   assert(source.added('no-such-run').length === 0, 'a run that did not end has no list');
+  const before = JSON.stringify(source.view());
+  source.meet({ seeded: true }, { kinds: ['boar', 'wolf', 'archer'], affixes: ['swift'], elite: true });
+  assert(JSON.stringify(source.view()) === before, 'a seeded run (the day also) writes nothing');
+  source.meet(run, { kinds: [], affixes: [], elite: true });
+  assert(source.view().pages[0]!.chapters.some(c => c.id === 'affixes'), 'an elite in view opens the chapter of the properties of the elites');
 });
 
 check('the retro line: the owl has the words of the spec; the profile remembers it was said (a reload does not bring it back)', () => {
