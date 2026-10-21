@@ -24,6 +24,8 @@ import { blockedAt, dist, lineOfSight, pushOutOfObstacles, type Vec } from '../g
 import { DEFAULT_PARAMS, heroRadius, type Params } from '../params';
 import { canBeHurt, damageEnemy, enemyGroundFactor, enemySpeed, hurtHero, noteBlock, type Enemy, type World } from '../world';
 import { bodyRadiusOf, registerBehavior, registerEnemyKind } from './kinds';
+import { volleyGapOf, volleyIdle, volleyReady } from '../shots';
+import { registerShooter } from '../shooterRegistry';
 
 /** Step of the march that finds where a wall or a tree cuts the line (units). */
 const LINE_STEP = 0.05;
@@ -96,6 +98,22 @@ function shootLine(world: World, e: Enemy): void {
   for (const t of struck) damageEnemy(world, t, p.archerHit, { source: 'arrow', credited: false, firing: e.id });
 }
 
+/** The aim begins: the point (or the line) is fixed now, the archer stands for its windup. */
+function beginAim(world: World, e: Enemy): void {
+  const { hero, params: p } = world, d = dist(e, hero);
+  e.vars.aim = 1; e.vars.timer = p.archerWindup;
+  if (p.archerPoint) {
+    // The point: the hero's centre now, fixed (no lead).
+    e.vars.pt = 1; e.vars.ax = hero.x; e.vars.ay = hero.y;
+  } else {
+    // A journal before phase A has no `pt`: the line path leaves the vars as they were.
+    if ('pt' in e.vars) delete e.vars.pt;
+    const dx = (hero.x - e.x) / d, dy = (hero.y - e.y) / d;
+    e.vars.dx = dx; e.vars.dy = dy;
+    e.vars.len = lineLength(world, e, dx, dy, p.archerRange);
+  }
+}
+
 /**
  * The archer's step (game time). Aiming: stands, the point (or the line) is fixed; when the time is up the arrow flies.
  * Otherwise: the cooldown runs; with the hero in range and in sight it aims; nearer than `archerNear` it backs away from
@@ -115,19 +133,10 @@ function stepArcher(world: World, e: Enemy, dt: number): boolean {
   e.vars.timer = Math.max(0, (e.vars.timer ?? 0) - dt);
   const d = dist(e, hero);
   if (e.vars.timer <= TIME_EPS && d > 1e-6 && d <= p.archerRange && world.status === 'playing' && lineOfSight(e, hero, arena, 0.05)) {
-    e.vars.aim = 1; e.vars.timer = p.archerWindup;
-    if (p.archerPoint) {
-      // The point: the hero's centre now, fixed (no lead).
-      e.vars.pt = 1; e.vars.ax = hero.x; e.vars.ay = hero.y;
-    } else {
-      // A journal before phase A has no `pt`: the line path leaves the vars as they were.
-      if ('pt' in e.vars) delete e.vars.pt;
-      const dx = (hero.x - e.x) / d, dy = (hero.y - e.y) / d;
-      e.vars.dx = dx; e.vars.dy = dy;
-      e.vars.len = lineLength(world, e, dx, dy, p.archerRange);
-    }
-    return true;
-  }
+    // Task 57а (`volleyArcher`): the archer waits for the arena's shooters' timer (shots.ts starts its aim); without the key — as before.
+    if (!(p.volleyArcher && volleyGapOf(world) > 0)) { beginAim(world, e); return true; }
+    volleyReady(world, e, 0);
+  } else if (p.volleyArcher) volleyIdle(e);
   if (d < p.archerNear && d > 1e-6) {
     // Backs away straight from the hero at its walking speed; walls and trees push it aside (it slides along them).
     const step = enemySpeed(world, e) * enemyGroundFactor(world, e) * dt;
@@ -144,6 +153,8 @@ registerBehavior({
   onSpawn(world, e) { e.vars.aim = 0; e.vars.timer = world.params.archerFirstDelay; },
   step: stepArcher,
 });
+// Task 57а: with `volleyArcher` the arena's shooters' timer starts its aim (no shot of the layer: its volley is 0).
+registerShooter('archer', { size: () => 0, begin: beginAim });
 
 registerEnemyKind({
   id: 'archer',

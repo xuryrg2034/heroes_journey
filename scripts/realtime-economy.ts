@@ -74,6 +74,7 @@ import { defaultParams, heroRadius } from '../src/realtime/sim/params';
 import { Simulation } from '../src/realtime/sim/simulation';
 import type { ArenaObject, ChainLink, Enemy, World } from '../src/realtime/sim/world';
 import { botFight } from './garrisonBot';
+import { shotDodge } from './shotDodge';
 
 // ---------- Arguments ----------
 
@@ -288,6 +289,9 @@ function playFight(run: RtRunState): FightResult {
 
   const walkTo = (target: Vec | null, stop: number): void => {
     const hero = w.hero;
+    // Task 57а: a shot about to touch the hero — a step aside first (nothing while no shot flies).
+    const aside = shotDodge(w);
+    if (aside) { sim.command({ t: 'walk', x: aside.x, y: aside.y }); return; }
     if (!target) { sim.command({ t: 'walk', x: 0, y: 0 }); return; }
     if (dist(target, hero) <= stop) { sim.command({ t: 'walk', x: 0, y: 0 }); return; }
     field.setTarget(target);
