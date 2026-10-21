@@ -13,11 +13,11 @@ import { Application, Container, Graphics, GraphicsContext, Particle, ParticleCo
 import { COLORS, PALE, drawTerrain, makePlayer, type HeroArtId } from '../art/art';
 import { characterSprite, hasCharacterArt, type CharacterArtId } from '../art/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
-import { OBJECT_RADIUS, armedDamage, canJump, castCircle, castRefusal, chainAnchor, chainAnchors, chainColor, colorGroups, colorJoin, colorShiftIds, colorShiftLeft, colorlessLink, enemyAnchors, forkAnchorOf, heroAnchorOn, jumpLanding, linkPoint, loopCandidates, loopOn, nextCandidates, nextObjectCandidates, planChain, sameColor, twinsNextColor, type ChainPlan } from '../sim/chain';
+import { OBJECT_RADIUS, armedDamage, canJump, castCircle, chainAnchor, chainAnchors, chainColor, colorGroups, colorJoin, colorShiftIds, colorShiftLeft, colorlessLink, enemyAnchors, forkAnchorOf, heroAnchorOn, inCast, jumpLanding, linkPoint, loopCandidates, loopOn, nextCandidates, nextObjectCandidates, planChain, sameColor, twinsNextColor, type ChainPlan } from '../sim/chain';
 import { forkAnchorNow } from '../sim/forms';
 import { FROST_PASS_LIFE, FROST_PASS_RADIUS, frostPassPoints, frostPassPreview } from '../sim/frostPass';
 import { drawAlienRing, drawForkMark, drawFrostPoint, drawFrostPreview, drawIceMark, drawReturnPower, drawReturnRoute, drawTwinLine } from './formsView';
-import { enemyArtRadius, enemyArtScale } from '../sim/enemies/kinds';
+import { enemyArtScale } from '../sim/enemies/kinds';
 import { BOAR_ART_SCALE, archerLine, archerMark, lynxLine, lynxStunned, quillsUp, quillsWarning, sapperFuse, shamanBeam, shieldUp, wolfHowl, wolfRushLine } from '../sim/enemies/index';
 import { brittleNow } from '../sim/items';
 import { chameleonWarn, eliteAffixes, eliteArmorView, type AffixId } from '../sim/elites';
@@ -542,6 +542,9 @@ export class RealtimeRenderer {
   private readonly bustMask = new Graphics();
   /** Task 23в (design 15.10.2026): the hero's reach ring, clipped to the arena's field like the bust circle (`reachMask`, the same rectangle). */
   private readonly reachLayer = new Graphics();
+  /** Task 62 (design 21.10.2026): Ведунья v2's circle of casting is floor marking — under the bodies, the runes and the thread; clipped to the field like `reachLayer`. */
+  private readonly castLayer = new Graphics();
+  private readonly castMask = new Graphics();
   private readonly reachMask = new Graphics();
   /** Phase A (Т3): the badge strip under bodies — the role on the left, room for elite affixes on the right (over the signals). */
   private readonly badgeLayer = new Graphics();
@@ -825,7 +828,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.cage.layer, this.objectLayer, this.markerLayer, this.trailLayer, this.chief.floor, this.warlock.floor, this.laneLayer, this.rippleLayer, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.omenLayer, this.troll.layer, this.chief.layer, this.warlock.layer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.shooters.layer, this.overlay, this.prologueLayer, this.fxLayer, this.omenFlash, this.snapLayer, this.shardLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.cage.layer, this.objectLayer, this.markerLayer, this.trailLayer, this.chief.floor, this.warlock.floor, this.laneLayer, this.rippleLayer, this.castLayer, this.castMask, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.omenLayer, this.troll.layer, this.chief.layer, this.warlock.layer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.shooters.layer, this.overlay, this.prologueLayer, this.fxLayer, this.omenFlash, this.snapLayer, this.shardLayer, this.flash);
     this.heroRoot.addChild(this.reachLayer, this.reachMask, this.heroLayer);
     this.app.stage.addChild(this.root, this.viewBorder, this.heroRoot, this.edgeLayer);
     this.initShards();
@@ -1135,6 +1138,8 @@ export class RealtimeRenderer {
     this.bustLayer.mask = this.bustMask;
     this.reachMask.clear().rect(0, 0, w, h).fill(0xffffff);
     this.reachLayer.mask = this.reachMask;
+    this.castMask.clear().rect(0, 0, w, h).fill(0xffffff);
+    this.castLayer.mask = this.castMask;
     const t = this.terrain.clear();
     for (const o of arena.obstacles) {
       if (o.shape === 'rect' && castle) {
@@ -1510,9 +1515,9 @@ export class RealtimeRenderer {
       view.root.visible = this.sees(e, 1.5);
       // Task 29 «Близнецы»: the pair of the chain's colour is the chain's colour — not muted (`sameColor`, the chain's own rule).
       // Task 32: a colourless link joins a chain of any colour — never muted.
-      // Task 62: with Ведунья v2 a body out of her circle (or behind a wall from her) is muted too, once — the sim's own reach (`castRefusal`).
+      // Task 62: with Ведунья v2 a body out of her circle (or behind a wall from her) is muted too, once — the sim's own reach (`inCast`).
       const foreign = color !== null && !colorless && !sameColor(world, e.color, color);
-      const away = witch && view.root.visible && castRefusal(world, e, enemyArtRadius(world.params, e)) !== null;
+      const away = witch && view.root.visible && !inCast(world, e);
       const dim = foreign || away ? strength : 0;
       if (dim > 0 && view.root.visible) dimmed++;
       if (colorless && view.root.visible) colorlessShown++;
@@ -3561,14 +3566,16 @@ export class RealtimeRenderer {
     this.juiceShown.armBright = arm > 0 ? 1 : 0;
     const castInk = witch && world.chain.length ? chainColor(world) : null;
     this.witch.shown.circle = 0;
+    const cg = this.castLayer.clear();
     if (this.heroReachShown) {
+      // Task 62: a solid line in the ground layer (no navy under it, no dashes: a dashed line is a figure's contour).
       if (witch && world.chain.length) {
-        rg.circle(hero.x * UNIT, hero.y * UNIT, this.heroReachRadius * UNIT).stroke({ color: castInk === null ? 0xffffff : chainInk(castInk), width: 2.25, alpha: 0.9 });
+        cg.circle(hero.x * UNIT, hero.y * UNIT, this.heroReachRadius * UNIT).stroke({ color: castInk === null ? 0xffffff : chainInk(castInk), width: 2.25, alpha: 0.9 });
         this.witch.shown.circle = 2;
-      } else {
-        rg.circle(hero.x * UNIT, hero.y * UNIT, this.heroReachRadius * UNIT).stroke({ color: 0xffffff, width: 1.25 + 2 * arm, alpha: 0.22 + 0.6 * arm });
-        if (witch) this.witch.shown.circle = 1;
-      }
+      } else if (witch) {
+        cg.circle(hero.x * UNIT, hero.y * UNIT, this.heroReachRadius * UNIT).stroke({ color: 0xffffff, width: 1.25, alpha: 0.22 });
+        this.witch.shown.circle = 1;
+      } else rg.circle(hero.x * UNIT, hero.y * UNIT, this.heroReachRadius * UNIT).stroke({ color: 0xffffff, width: 1.25 + 2 * arm, alpha: 0.22 + 0.6 * arm });
       reach++;
     }
     this.visibleReachCircles = reach;
