@@ -72,21 +72,25 @@ async function aimOnDrawing(page: Page, id: number, u: number, v: number, steps 
 }
 
 /**
- * A point on a drawing above its feet circle: the first (from `vFrom` of the half-height above the ellipse's centre, in steps of 0.05) that is inside the ellipse and out of the
- * circle of the body's feet (with a margin) — taken from the drawing's frame, not a number. The mouse goes there; returns the point.
+ * A point on a drawing above its feet circle and free of every other body's press circle: the first (from `vFrom` of the half-height above the ellipse's centre, in steps of 0.05,
+ * and across the drawing by 0, ±0.25, ±0.5 of the half-width) that is inside the ellipse, out of the circle of the body's feet and out of the circle of every other body
+ * (with a margin) — taken from the drawing's frame, not a number; a held pointer takes a body whose circle lies under it, so none does. The mouse goes there; returns the point.
  */
 async function aimBeyondRing(page: Page, id: number, vFrom: number): Promise<{ x: number; y: number }> {
-  const z = await zoneOf(page, id), body = (await snap(page)).enemies.find(e => e.id === id)!;
+  const z = await zoneOf(page, id), s = await snap(page), body = s.enemies.find(e => e.id === id)!;
+  const others = await page.evaluate(([id]) => { const rt = (window as any).__realtime; return rt.snapshot().enemies.filter((e: any) => e.id !== id).map((e: any) => ({ x: e.x, y: e.y, r: rt.pickRadius(e.id) })); }, [id] as const) as { x: number; y: number; r: number }[];
   for (let v = vFrom; v < 1; v += 0.05) {
-    const p = { x: z.x - (-v * z.b) * z.sin, y: z.y + (-v * z.b) * z.cos };
-    if (artEllipseDepth(z, p) <= 1 && Math.hypot(p.x - body.x, p.y - body.y) > z.ring + 0.05) return aimOnDrawing(page, id, 0, v);
+    for (const u of [0, 0.25, -0.25, 0.5, -0.5]) {
+      const p = { x: z.x + (u * z.a) * z.cos - (-v * z.b) * z.sin, y: z.y + (u * z.a) * z.sin + (-v * z.b) * z.cos };
+      if (artEllipseDepth(z, p) <= 1 && Math.hypot(p.x - body.x, p.y - body.y) > z.ring + 0.05 && !others.some(e => Math.hypot(e.x - p.x, e.y - p.y) <= e.r + 0.05)) return aimOnDrawing(page, id, u, v);
+    }
   }
-  throw new Error(`no point of ${id}'s drawing above its feet circle from ${vFrom}`);
+  throw new Error(`no point of ${id}'s drawing above its feet circle and free of every other press circle from ${vFrom}`);
 }
 
-/** A body put (frozen) at (x, y); the mouse presses on it: the chain is [body] and goes on (the button stays down). */
-async function startChainOn(page: Page, x: number, y: number): Promise<number> {
-  const id = await page.evaluate(([x, y]) => { const rt = (window as any).__realtime, id = rt.place(x, y, 0, 0, 'basic'); rt.chill(id, 600); return id; }, [x, y] as const) as number;
+/** A body of `color` put (frozen) at (x, y); the mouse presses on it: the chain is [body] and goes on (the button stays down). */
+async function startChainOn(page: Page, x: number, y: number, color: number): Promise<number> {
+  const id = await page.evaluate(([x, y, color]) => { const rt = (window as any).__realtime, id = rt.place(x, y, color, 0, 'basic'); rt.chill(id, 600); return id; }, [x, y, color] as const) as number;
   const t = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [x, y] as const);
   await page.mouse.move(t.x, t.y, { steps: 2 });
   await page.mouse.down();
@@ -141,7 +145,7 @@ test('«Зона по рисунку»: the Troll — the head in the window tak
   await page.mouse.up();
   // Rule (d): with the button down (a chain going) the drawing works only for a core in its open window: the club's picture out of its circle takes nothing, its circle takes it.
   const clubAt = (await snap(page)).enemies.find(e => e.id === club)!;
-  const b1 = await startChainOn(page, clubAt.x + 0.6, clubAt.y + 1.0);
+  const b1 = await startChainOn(page, clubAt.x + 0.6, clubAt.y + 1.0, clubAt.color);
   expect(await page.evaluate(([id]) => (window as any).__realtime.refusalOf(id), [club] as const), 'the club is within the chain reach from the body').toBeNull();
   await aimOnDrawing(page, club, 0, 0, 1);
   await gameWait(page, 0.2);
@@ -169,7 +173,8 @@ test('«Зона по рисунку»: the Troll — the head in the window tak
   await page.keyboard.press('Escape');
   await page.mouse.up();
   // Rule (d): a chain going, the core's window open — the pointer standing on the core's drawing out of its circle takes the core.
-  const b2 = await startChainOn(page, c1.x + 1.6, c1.y + 1.6);
+  const b2 = await startChainOn(page, c1.x + 1.6, c1.y + 1.6, c1.color);
+  expect(await page.evaluate(([id]) => (window as any).__realtime.refusalOf(id), [core] as const), 'the core is within the chain reach in its window').toBeNull();
   await aimOnDrawing(page, core, 0, 0.55, 1);
   await expect.poll(async () => (await snap(page)).chain, { message: 'a chain going, the window open: the core drawing takes the core' }).toEqual([b2, core]);
   await shot(page, 'troll-drag-head');
