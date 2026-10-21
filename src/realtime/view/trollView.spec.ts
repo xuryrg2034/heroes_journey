@@ -13,6 +13,7 @@
 import './nodeNavigator.testkit';
 import { Graphics, Text } from 'pixi.js';
 import { enemyRefusal, hoverRefusal, nextCandidates, pickAt, pickRadius } from '../sim/chain';
+import { bossArtEllipse, rockInFlight } from '../sim/bossArt';
 import { PHASE3_PLATES, TAIL_INNER, TAIL_OUTER, TROLL, TROLL_CLUB, TROLL_ROCK, TROLL_TAIL, trollMove, trollState } from '../sim/enemies/troll';
 import { defaultParams, type Params } from '../sim/params';
 import { Simulation, SIM_DT } from '../sim/simulation';
@@ -218,6 +219,25 @@ check('«Ядро в окне — первым» (core 21.10.2026): a body on th
     assert(off?.kind === 'enemy' && off.id === fresh.id, `seed ${k}: key off — the body (${JSON.stringify(off)})`);
     sim.command({ t: 'begin', x: at.x, y: at.y });
     assert(w.chain.length === 1 && w.chain[0].id === d.core.id, `seed ${k}: the press starts [core]`);
+  }
+});
+
+check('«Бросок камня»: in the ticks of the rock flight the view hides its drawing (`rockInAir`) and the sim has no press zone for it (`bossArtEllipse` null, `rockInFlight`); out of the flight both are there', () => {
+  for (const k of [1, 2, 3]) {
+    const d = den(k), { sim, w } = d, view = new TrollView(U, c => c);
+    sim.command({ t: 'chill', id: d.club.id, seconds: 600 });
+    sim.command({ t: 'teleport', x: 12, y: 6.5 });
+    let air = 0, ground = 0;
+    for (let i = 0; i < 60 * 20 && (air < 6 || ground < 6); i++) {
+      sim.tick(); w.events.splice(0);
+      const rock = w.enemies.find(e => e.kind === TROLL_ROCK);
+      if (!rock) continue;
+      const flying = rockInFlight(w, rock), drawn = view.rockInAir(w) !== null, zone = bossArtEllipse(w, rock);
+      assert(flying === drawn, `seed ${k}, t ${w.time.toFixed(2)}: the sim says flight ${flying}, the view hides ${drawn}`);
+      assert((zone === null) === flying, `seed ${k}, t ${w.time.toFixed(2)}: the press zone is ${zone ? 'there' : 'null'} in flight ${flying}`);
+      if (flying) air++; else ground++;
+    }
+    assert(air >= 6 && ground >= 6, `seed ${k}: both seen (air ${air}, ground ${ground})`);
   }
 });
 

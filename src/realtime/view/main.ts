@@ -48,6 +48,7 @@ import { replay, Simulation, type Journal } from '../sim/simulation';
 import { crowdFactor, focusGuarded, goalLamps, goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World, type WorldEvent } from '../sim/world';
 import { liveShots } from '../sim/shots';
 import { castCircle, linkPoint, pickRadius } from '../sim/chain';
+import { bossArtEllipse } from '../sim/bossArt';
 import { ChainAudio } from './audio';
 import { chainFeel, QUIET_GAIN } from './chainFeel';
 import { FX_LEVELS, HEAVY_SEMIS, fxLevelOf, waveStrength, type FxLevel } from './juice';
@@ -2108,6 +2109,8 @@ async function boot(): Promise<void> {
         /** The sound now (the gear's setting outside the sandbox, the panel's in it) and the tones asked for so far (`ChainAudio.requested`). */
         sound: { on: soundOn(), volume: soundVolume(), tones: audio.requested, asked: { ...soundGate.asked }, played: { ...soundGate.played } },
         /** Task 12: the marked view this frame — the horde ring and its members, the reticles, the leaders' crowns; the arena's horde (sim). */
+        /** Task 55 (design 21.10.2026): the bodies' ids in the order the enemy layer draws them, bottom to top (`artDrawnAbove`). */
+        drawnOrder: renderer.drawnOrder(),
         markedView: { ...renderer.markedShown, horde: w.arena.horde ? { ...w.arena.horde } : null },
         /** «Смена цвета»: N of the sim (`colorShiftOf`), links left now, the pointer's line, the link with the rainbow ring (0 — none). */
         colorShift: { every: colorShiftOf(w), left: shiftLeft, text: shiftHint.hidden ? null : shiftHint.textContent, rainbow: renderer.colorShiftShown, mark: renderer.colorShiftMarkShown, freedBy: renderer.colorShiftFreedBy, sounds: shiftSounds, dimmed: renderer.dimmedShown },
@@ -2195,6 +2198,8 @@ async function boot(): Promise<void> {
     /** Test setup: move the hero. */
     teleport: (x: number, y: number) => command({ t: 'teleport', x, y }),
     /** The press ring of an enemy (`pickRadius`: the sim's number; the tests aim the pointer by it), null — no such enemy. */
+    /** The press zone of a boss body's drawing (`bossArtEllipse`: the centre, half-axes, turn) with its press ring (`pickRadius`); null — no such body or no large drawing. */
+    bossArt: (id: number): { x: number; y: number; a: number; b: number; cos: number; sin: number; ring: number } | null => { const w = world(), e = w.enemies.find(x => x.id === id), z = e ? bossArtEllipse(w, e) : null; return e && z ? { ...z, ring: pickRadius(w, e) } : null; },
     pickRadius: (id: number): number | null => { const w = world(), e = w.enemies.find(x => x.id === id); return e ? pickRadius(w, e) : null; },
     /** Test setup: set the jump energy. */
     setEnergy: (value: number) => command({ t: 'energy', value }),

@@ -69,6 +69,8 @@ import { cutTethers, dashPathPoints, dropShackleOf, planTetherCuts, settleTether
 import { behindGrate, gateLever, grateLinkDrop, jumpDownFree, onGallery } from './enemies/garrison';
 // Task 48: the Troll's window (the refusal, one hit per window, the drop from the drawn chain).
 import { TROLL, trollLinkDrop, trollReserve, trollShut, trollWards, trollWindowOn } from './enemies/troll';
+// «Зона нажатия босса по рисунку»: the drawing's ellipse of a boss body (`Params.bossPickArt`).
+import { artPick } from './bossArt';
 import { WARLOCK, warlockCharmOn, warlockClosed, warlockLinkDrop, warlockReserve, warlockShut, warlockSpellbound, warlockWards } from './enemies/warlock';
 // Task 57а «Лес: стрелки»: the dash puts out the light shots it touches (`Params.snuffShots`).
 import { snuffAlong, snuffing } from './shots';
@@ -1083,7 +1085,7 @@ function loopGesture(world: World, p: Vec): boolean {
     const kind = world.chainClosed;
     // The nearest link of the chain under the pointer must be the last one: with the first and the last close together the
     // pointer between them does not flip the loop on every event.
-    const under = pick(world, p, e => inChain(world, e) >= 0, o => linkIndex(world, { kind: 'object', id: o.id }) >= 0);
+    const under = pick(world, p, e => inChain(world, e) >= 0, o => linkIndex(world, { kind: 'object', id: o.id }) >= 0, false, true);
     if (under && under.kind === last.kind && under.id === last.id) { delete world.chainClosed; world.events.push({ type: 'loop', action: 'open', kind }); }
     return true;
   }
@@ -1656,11 +1658,12 @@ const coreWindowOpen = (world: World, e: Enemy): boolean =>
   || (e.kind === WARLOCK && warlockCharmOn(world) && !warlockClosed(world, e));
 
 /**
- * The link under the pointer — an enemy or an object — among those that pass the checks, nearest to the pointer. `coreFirst` — a pick
+ * The link under the pointer — an enemy or an object — among those that pass the checks, nearest to the pointer; `art` (with
+ * `Params.bossPickArt`) — then, nothing in its circle, a boss body whose drawing holds it. `coreFirst` — a pick
  * of what the pointer takes (the press, the drag, the hint's «возьмётся», the loop's closing): with `Params.corePickFirst` a boss core in
  * its open window that passes the checks and has the pointer in its circle wins over any nearer body or object (the nearest such core).
  */
-function pick(world: World, p: Vec, acceptEnemy: (e: Enemy) => boolean, acceptObject: (o: ArenaObject) => boolean, coreFirst = false): ChainLink | null {
+function pick(world: World, p: Vec, acceptEnemy: (e: Enemy) => boolean, acceptObject: (o: ArenaObject) => boolean, coreFirst = false, art = coreFirst): ChainLink | null {
   // Buttons, the door and crystals keep their press circle of before (× 1.3): only the enemy one grew back to 0.59.
   const ro = OBJECT_RADIUS * 1.3;
   let best: ChainLink | null = null, bestD = Infinity;
@@ -1678,6 +1681,12 @@ function pick(world: World, p: Vec, acceptEnemy: (e: Enemy) => boolean, acceptOb
   for (const o of world.objects) {
     const d = dist(o, p);
     if (d <= ro && d < bestD && acceptObject(o)) { best = { kind: 'object', id: o.id }; bestD = d; }
+  }
+  // «Зона нажатия босса по рисунку» (`Params.bossPickArt`, design 21.10.2026): no body or object in its circle — a boss body (a core or
+  // a part) whose drawing's ellipse holds the pointer, by the overlap rule (bossArt.ts `artPick`: the takeable one drawn on top).
+  if (!best && art && world.params.bossPickArt) {
+    const drawn = artPick(world, p, acceptEnemy);
+    if (drawn) best = { kind: 'enemy', id: drawn.id };
   }
   return best;
 }
@@ -1789,7 +1798,8 @@ export function dragChain(world: World, p: Vec, mode: DragMode = 'full'): void {
  */
 function leaveForkAnchor(world: World, p: Vec): void {
   const fa = world.forkAnchor!;
-  const on = pick(world, p, e => fa.kind === 'enemy' && e.id === fa.id, o => fa.kind === 'object' && o.id === fa.id);
+  // A boss part's drawing is its link as everywhere (`Params.bossPickArt`): a jitter over it does not leave it.
+  const on = pick(world, p, e => fa.kind === 'enemy' && e.id === fa.id, o => fa.kind === 'object' && o.id === fa.id, false, true);
   if (on) return;
   if (!fa.ready && forkAnchorNow(world)) fa.ready = true;
   else if (!fa.ready || !forkAnchorNow(world)) delete world.forkAnchor;
@@ -1814,7 +1824,8 @@ const heroHeld = (world: World, p: Vec, mode: DragMode): boolean =>
  * for the pointer event (`full`) and the held pointer with `holdNearest` (task 39), the chain's own links. A link of the chain —
  * `full` truncates there (the step back), `append` does nothing; null — nothing. Task 34: on a colour free by «Смена цвета» a
  * sweep point and the held pointer take only the chain's colour. Task 42: with `holdHeroLink` a held or sweep point in the hero's
- * circle picks nothing, nor the pointer event there on an empty chain. The view's ring «что возьмётся» reads it (no copy of the rule).
+ * circle picks nothing, nor the pointer event there on an empty chain. `dragChain` acts on it; the view does not call it (the tests
+ * read it as the drag's own answer).
  */
 export function pickAt(world: World, p: Vec, mode: DragMode = 'full', plan: ChainPlan = planChain(world, world.chain, NO_PIERCE)): ChainLink | null {
   if (heroHeld(world, p, mode)) return null;
@@ -1854,7 +1865,7 @@ export function hoverRefusal(world: World, p: Vec, held = false): Refusal | null
   if (pick(world, p,
     e => inChain(world, e) >= 0 || canLink(world, e, plan),
     o => linkIndex(world, { kind: 'object', id: o.id }) >= 0 || canLinkObject(world, o, plan), true)) return null;
-  const under = pick(world, p, () => true, () => true);
+  const under = pick(world, p, () => true, () => true, false, true);
   if (!under) return null;
   if (under.kind === 'enemy') { const e = findEnemy(world, under.id); return e ? enemyRefusal(world, e, plan) : null; }
   const o = findObject(world, under.id);

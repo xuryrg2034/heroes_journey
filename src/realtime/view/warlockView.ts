@@ -15,6 +15,7 @@
  *   the window's last second (the sim's `warlockLinkDrop`, the same as `planChain(...).warlockDrop`) those links blink.
  * Coordinates are arena pixels (`unit` per arena unit); `r` is the drawing radius of a body in px.
  */
+import { BOSS_ART } from '../sim/bossArt';
 import { countPlace, type VisibleArea } from './edgeMarkers';
 import { ColorMatrixFilter, Container, Graphics, Text } from 'pixi.js';
 import { characterSprite, hasCharacterArt } from '../art/characterAssets';
@@ -34,8 +35,8 @@ const FLAME = 0xffd36a, WAX = 0xe9e2cc, STONE = 0x6c6558;
 const ROBE = 0x4a3563, HAT = 0x2c2748, SKIN = 0xd9d2a8, STAFF = 0x7a5a3f;
 
 /** The core's drawing: its box side in body radii (about 2 heroes tall), the feet's place. */
-export const WARLOCK_ART = 5.0;
-export const WARLOCK_FEET = 1.0;
+export const WARLOCK_ART = BOSS_ART.warlock.side;
+export const WARLOCK_FEET = BOSS_ART.warlock.feet ?? 0;
 /** Real seconds the effects last. */
 export const SPARK_LIFE = 0.25, HIT_LIFE = 0.35, UNLINK_LIFE = 0.3, SNAP_LIFE = 0.6, SMOKE_LIFE = 0.9, ARRIVE_LIFE = 0.5;
 /** Arena units: the beam's ends over the floor (the core's middle, the wardrobe's top). */
