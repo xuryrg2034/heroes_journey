@@ -471,7 +471,7 @@ test(`task 43 Г view: a garrison node's card on the map — «Враги:» nam
   const errors = collectErrors(page);
   // A walk to a map with an available garrison node whose fight has a knight and crossbowmen («Галерея» of the «Бойницы» branch).
   let at: { run: RtRunState; node: string } | null = null;
-  for (let k = 1; k <= 12 && !at; k++) walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true }, each: state => {
+  for (let k = 1; k <= 40 && !at; k++) walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true }, each: state => {
     if (at || state.pending) return;
     for (const node of rtAvailableNodes(state)) { const g = rtNodeEnemies(state, node); if (g && g.knights > 0 && g.bolts) { at = { run: structuredClone(state), node: node.id }; return; } }
   } });

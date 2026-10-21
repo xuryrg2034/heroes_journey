@@ -177,8 +177,9 @@ export class Garrison3View {
       } else if (ev.action === 'unlink') {
         s.recruits.unlinks++;
         this.fx.push({ kind: 'ring', x: ev.x * u, y: ev.y * u, r, born: clock, life: SPARK_LIFE, color: THREAT });
-      } else {
+      } else if (ev.action === 'drill') {
         // The whole line fell by one pass (`id` — the group): a flash over the last one that fell, «+N ⚡» over the hero (as the Призма's).
+        // (`order` — task 59б's telemetry of an out-of-order press — draws nothing: the refusal already shows it.)
         s.recruits.drills++;
         const at = { x: (ev.lx ?? ev.x) * u, y: (ev.ly ?? ev.y) * u };
         this.fx.push({ kind: 'flash', x: at.x, y: at.y, r: r * 1.5, born: clock, life: FLASH_LIFE, color: GOLD });
