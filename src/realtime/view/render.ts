@@ -27,7 +27,7 @@ import { ELITE_LEMON, PLAQUE_FADE, PLAQUE_LIFE, drawPlatePips, drawWindowPulse, 
 import type { ItemKind } from '../sim/kit';
 import { areaContains, inWater, type Area, type TerrainZone, type Vec } from '../sim/geometry';
 import { Camera, CAMERA, placeEdgeArrows, type CameraBounds, type CameraKeep, type PlacedArrow } from './camera';
-import { collectEdgeMarkers } from './edgeMarkers';
+import { collectEdgeMarkers, seesUnderHud } from './edgeMarkers';
 import { drawRoleGlyph, roleOf, type EnemyRole } from './roles';
 import { DEFAULT_PARAMS, enemyBodyRadius, enemyDrawRadius, heroRadius, type EnemyLook } from '../sim/params';
 import { shieldFails } from '../sim/guard';
@@ -71,7 +71,7 @@ import { TROLL, TROLL_ROCK, trollCore } from '../sim/enemies/troll';
 import { ShooterView, hiveMarks, slingerMarks, wispMarks } from './shooterView';
 import { CHIEF, chiefCore } from '../sim/enemies/chief';
 import { WARLOCK, warlockCore } from '../sim/enemies/warlock';
-import { WARLOCK_ART, WARLOCK_FEET, WarlockView, buildWarlock, warlockBadgeAt, type WarlockArt } from './warlockView';
+import { WARLOCK_ART, WARLOCK_FEET, WarlockView, buildWarlock, reticleInk, warlockBadgeAt, type WarlockArt } from './warlockView';
 import { CHIEF_ART, CHIEF_FEET, ChiefView, buildChief, buildChiefPart, chiefBadgeAt, chiefPartBadgeAt, eaterSits, isChiefKind, type ChiefArt } from './chiefView';
 import { TROLL_ART, TROLL_ART_ASPECT, TROLL_FEET, TrollView, buildCore, buildPartArt, coreBadgeAt, corePips, isTrollKind, partBadgeAt, partOutward, posePartArt, type CoreArt, type SignTools } from './trollView';
 
@@ -1006,6 +1006,16 @@ export class RealtimeRenderer {
   }
 
   /**
+   * Task 55 Д (design 21.10.2026): a boss core's drawing is cut off by the HUD above or the action bar below (`edgeInset`) — the head's point
+   * under the top band, the feet under the bar, or the middle outside the sides. The camera is not touched: only the pointer and the window's count.
+   */
+  private bossCoreHidden(e: Enemy, world: World): boolean {
+    const r = enemyDrawRadius(world.params), up = e.kind === TROLL ? r * (TROLL_ART * TROLL_ART_ASPECT - TROLL_FEET) : e.kind === CHIEF ? r * (CHIEF_ART - CHIEF_FEET) : r * (WARLOCK_ART - WARLOCK_FEET);
+    const head = this.toScreen(e.x, e.y - up * 0.85), feet = this.toScreen(e.x, e.y + r), ins = this.edgeInset;
+    return head.y < ins.top || feet.y > this.freeH - ins.bottom || head.x < ins.left || head.x > this.freeW - ins.right;
+  }
+
+  /**
    * Pointers on the border of the view to dangers aimed at the hero and to the goals of the arena that are off screen
    * (edgeMarkers.ts): a white arrow with a dark outline for a danger (blinks), a gold one for a goal.
    */
@@ -1014,7 +1024,7 @@ export class RealtimeRenderer {
     const cx = this.freeW / 2, cy = this.freeTop + (this.freeH - this.freeTop) / 2;
     // Phase A (Т5, design answer 9): pointers to spawn markers only on an arena larger than the view.
     const large = b.arenaW > b.viewW + 1e-6 || b.arenaH > b.viewH + 1e-6;
-    const items = collectEdgeMarkers(world, (p, margin) => this.camera.sees(p, b, margin), large).map(m => {
+    const items = collectEdgeMarkers(world, seesUnderHud((p, margin) => this.camera.sees(p, b, margin), e => this.bossCoreHidden(e, world)), large).map(m => {
       const at = this.toScreen(m.x, m.y);
       return { dx: at.x - cx, dy: at.y - cy, kind: m.kind };
     });
@@ -1040,13 +1050,13 @@ export class RealtimeRenderer {
     const grate = castellanGrate(world), goal = this.edgeArrows.find(a => a.kind === 'goal');
     // Task 48: the Troll's window by the core's goal arrow while the core is off screen.
     const tc = trollCore(world);
-    this.troll.drawEdge(world, goal, !tc || this.camera.sees({ x: tc.x, y: tc.y }, b, 0.5), this.app.stage);
+    this.troll.drawEdge(world, goal, !tc || (this.camera.sees({ x: tc.x, y: tc.y }, b, 0.5) && !this.bossCoreHidden(tc, world)), this.app.stage);
     // Task 54a: the Chief's window by the core's goal arrow while the core is off screen.
     const cc = chiefCore(world);
-    this.chief.drawEdge(world, goal, !cc || this.camera.sees({ x: cc.x, y: cc.y }, b, 0.5), this.app.stage);
+    this.chief.drawEdge(world, goal, !cc || (this.camera.sees({ x: cc.x, y: cc.y }, b, 0.5) && !this.bossCoreHidden(cc, world)), this.app.stage);
     // Task 55 Д: the warlock's window by the core's goal arrow while the core is off screen.
     const wc = warlockCore(world);
-    this.warlock.drawEdge(world, goal, !wc || this.camera.sees({ x: wc.x, y: wc.y }, b, 0.5), this.app.stage);
+    this.warlock.drawEdge(world, goal, !wc || (this.camera.sees({ x: wc.x, y: wc.y }, b, 0.5) && !this.bossCoreHidden(wc, world)), this.app.stage);
     this.courtShown.edgeCount = '';
     if (this.edgeCountLabel) this.edgeCountLabel.visible = false;
     if (grate?.open && goal && !this.camera.sees({ x: grate.x, y: grate.y }, b, 0.5)) {
@@ -2291,7 +2301,7 @@ export class RealtimeRenderer {
   }
 
   /** Task 12: what the marked view drew in the last frame — the horde ring (its members), the reticles, the leaders' crowns (tests read it). */
-  readonly markedShown = { hordeRing: false, hordeMembers: 0, reticles: 0, crowns: 0 };
+  readonly markedShown = { hordeRing: false, hordeMembers: 0, reticles: 0, crowns: 0, charmed: 0 };
 
   /**
    * Marked enemies: a rotating gold reticle and a star badge — the goal of the third arena. Task 12 (design 13.10.2026): on an
@@ -2301,7 +2311,7 @@ export class RealtimeRenderer {
    */
   private drawTargets(world: World): void {
     const g = this.targetLayer.clear(), r = enemyDrawRadius(world.params) * UNIT, shown = this.markedShown;
-    shown.hordeRing = false; shown.hordeMembers = 0; shown.reticles = 0; shown.crowns = 0;
+    shown.hordeRing = false; shown.hordeMembers = 0; shown.reticles = 0; shown.crowns = 0; shown.charmed = 0;
     const horde = world.arena.horde ? hordeGroup(world.enemies.filter(e => e.marked).map(e => ({ id: e.id, x: e.x, y: e.y }))) : null;
     if (horde) {
       shown.hordeRing = true; shown.hordeMembers = horde.members.size;
@@ -2326,13 +2336,16 @@ export class RealtimeRenderer {
       }
       if (horde?.members.has(e.id)) { g.poly(pts).fill(TARGET).stroke({ color: THREAT_OUTLINE, width: 2 }); continue; }
       shown.reticles++;
-      g.circle(x, y, R).stroke({ color: THREAT_OUTLINE, width: 6, alpha: 0.6 }).circle(x, y, R).stroke({ color: TARGET, width: 3 });
+      // Task 55 Д (design): the warlock under his charm is not to be struck — his sign is the charm's violet, the lemon is for the window (the sim's `spellbound`).
+      const charm = reticleInk(world, e), ink = charm ?? TARGET;
+      if (charm !== null) shown.charmed++;
+      g.circle(x, y, R).stroke({ color: THREAT_OUTLINE, width: 6, alpha: 0.6 }).circle(x, y, R).stroke({ color: ink, width: 3 });
       for (let i = 0; i < 4; i++) {
         const a = a0 + i * Math.PI / 2, c = Math.cos(a), s = Math.sin(a);
         g.moveTo(x + c * R * 0.82, y + s * R * 0.82).lineTo(x + c * R * 1.25, y + s * R * 1.25);
       }
-      g.stroke({ color: TARGET, width: 4, cap: 'round' });
-      g.poly(pts).fill(TARGET).stroke({ color: THREAT_OUTLINE, width: 2 });
+      g.stroke({ color: ink, width: 4, cap: 'round' });
+      g.poly(pts).fill(ink).stroke({ color: THREAT_OUTLINE, width: 2 });
     }
   }
 

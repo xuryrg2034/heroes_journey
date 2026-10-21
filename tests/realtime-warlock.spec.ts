@@ -29,7 +29,9 @@ interface Snap {
   castle: { things: { id: number; kind: string; x: number; y: number; durability: number }[]; shoves: unknown[] };
   bossBar: { visible: boolean; cells: number; filled: number; hp: number; plates: number; phaseAt: number };
   bossNames: string[];
-  warlock: { state: WarlockState | null; shown: WarlockShown };
+  warlock: { state: WarlockState | null; shown: WarlockShown; sounds: number };
+  markedView: { reticles: number; charmed: number };
+  eliteView: { edgeArrows: number };
 }
 const snap = (page: Page): Promise<Snap> => page.evaluate(() => (window as any).__realtime.snapshot());
 const shot = async (page: Page, name: string): Promise<void> => { if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/warlock-${name}.png` }); };
@@ -145,6 +147,9 @@ test('task 55 Д: the fourth button of the castle group opens «Зал колд�
   expect(s.warlock.shown.beamTo, 'to the sim\'s wardrobe').toBe(st.wardrobe);
   expect(s.castle.things.filter(t => t.kind === 'wardrobe').map(t => t.id)).toContain(st.wardrobe);
   expect(s.bossBar).toMatchObject({ visible: true, cells: 6, hp: 2, plates: 4, phaseAt: 0 });
+  // Design 21.10.2026: under the charm his reticle is the charm's violet (the lemon is for the window).
+  expect(s.markedView.reticles).toBeGreaterThan(0);
+  expect(s.markedView.charmed, 'violet reticle under the charm').toBe(1);
   await shot(page, 'charm');
   // The cursor on him: the sim's refusal, in its words.
   await mouseTo(page, coreAt(page), 4);
@@ -262,5 +267,25 @@ test('task 55 Д: a window that runs out with him in the drawn chain — the lin
   expect((await snap(page)).bossBar.plates, 'no plate was lost').toBe(4);
   await shot(page, 'unlink');
   await sameHash(page);
+  expect(errors).toEqual([]);
+});
+
+test('task 55 Д: the window opens with one bell; the hero far south — his drawing is under the HUD or out of the frame: the goal pointer stands and his window's count is by it; the lemon returns to the reticle (screenshot)', async ({ page }) => {
+  test.setTimeout(150_000);
+  const errors = collectErrors(page);
+  await openHall(page);
+  await quiet(page);
+  await cameraSettled(page);
+  await breakCharm(page);
+  const sounds0 = (await snap(page)).warlock.sounds;
+  // The hero far south through the sign: the next candle's head is under the top band or out of the frame.
+  await untilFrame(page, (sn, _arg: null, late) => sn.warlock.state?.shift ? true : late ? false : undefined, null, 4);
+  await page.evaluate(() => (window as any).__realtime.teleport(12, 14.3));
+  const edge = await untilFrame(page, (sn, _arg: null, late) => sn.warlock.state?.window?.open && sn.warlock.shown.edgeCount !== '' ? sn : late ? null : undefined, null, 4);
+  expect(edge, 'the count stands by the core's pointer').not.toBeNull();
+  expect(edge!.eliteView.edgeArrows, 'a goal pointer').toBeGreaterThanOrEqual(1);
+  expect(edge!.warlock.sounds, 'one bell for the window').toBe(sounds0 + 1);
+  expect(edge!.markedView.charmed, 'no violet reticle in phase 2').toBe(0);
+  await shot(page, 'window-pointer');
   expect(errors).toEqual([]);
 });

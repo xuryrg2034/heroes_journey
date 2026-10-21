@@ -26,8 +26,9 @@ import { durabilityOf } from '../sim/shove';
 import { Simulation, SIM_DT } from '../sim/simulation';
 import type { Enemy, World, WorldEvent } from '../sim/world';
 import { bossBarState, goalLabelOf } from './bossBar';
+import { collectEdgeMarkers, hudBossCore, seesUnderHud } from './edgeMarkers';
 import { bossMoveLabels, WARLOCK_MOVE_TEXT } from './worldLabels';
-import { WarlockView, buildWarlock, type WarlockArt } from './warlockView';
+import { MAGIC, WarlockView, buildWarlock, reticleInk, type WarlockArt } from './warlockView';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 function check(name: string, run: () => void): void { run(); console.log(`ok - ${name}`); }
@@ -218,6 +219,31 @@ check('the boss bar: the hall\'s core has `warlockHp` and `warlockPlates` cells 
   assert(bar.hpMax === 2 && bar.platesMax === 4 && bar.hp === 2 && bar.plates === 4 && bar.phaseAt === 0 && !bar.phase2, `the bar ${JSON.stringify(bar)}`);
   assert(goalLabelOf(h.w, 'Цель') === 'Колдун', 'the goal\'s name');
   assert(h.art.art.visible && !h.art.dazed.visible && !h.art.glow.visible, 'the stand-in: the normal drawing, the dazed one and the glow hidden');
+});
+
+check('under the HUD (design 21.10.2026, variant B): a boss core hidden by the top band or the bar gets the goal pointer; an ordinary marked enemy at the same place does not; the other pointers stay', () => {
+  const h = hall(1, {}, { x: 12, y: 7 }), w = h.w;
+  assert(h.core.marked && hudBossCore(h.core) && !hudBossCore({ kind: 'basic', partOf: undefined }), 'the core is a boss core and marked');
+  const seesAll = (): boolean => true;
+  assert(collectEdgeMarkers(w, seesAll).length === 0, 'seen everywhere: no pointers');
+  const hiddenCore = (e: Enemy): boolean => e === h.core;
+  const under = collectEdgeMarkers(w, seesUnderHud(seesAll, hiddenCore));
+  assert(under.length === 1 && under[0].kind === 'goal' && under[0].x === h.core.x && under[0].y === h.core.y, `the core under the HUD gets a goal pointer (${JSON.stringify(under)})`);
+  assert(collectEdgeMarkers(w, seesUnderHud(seesAll, () => false)).length === 0, 'the core in the clear: none');
+  // An ordinary marked enemy "under the HUD": the hidden test says so, but it is no boss core — no pointer, as before.
+  const id = h.sim.command({ t: 'place', x: 5, y: 5, color: 0, hp: 1, kind: 'basic' }) as number, plain = w.enemies.find(e => e.id === id)!;
+  plain.marked = true;
+  const both = collectEdgeMarkers(w, seesUnderHud(seesAll, () => true));
+  assert(both.length === 1 && both[0].x === h.core.x, `only the core is pointed at (${JSON.stringify(both)})`);
+  assert(collectEdgeMarkers(w, seesUnderHud(() => false, () => false)).length === 2, 'off screen by the camera: both pointed at, as before');
+});
+
+check('«под чарами» is the violet sign, the lemon only in the window: the reticle ink follows warlockState (spellbound)', () => {
+  const h = hall(1, { shoveDistance: 6 });
+  assert(warlockState(h.w)!.spellbound && reticleInk(h.w, h.core) === MAGIC, 'charmed at the start: violet');
+  assert(reticleInk(h.w, { kind: 'basic' }) === null, 'any other marked enemy: the common lemon');
+  toWindow(h);
+  assert(!warlockState(h.w)!.spellbound && warlockState(h.w)!.window?.open && reticleInk(h.w, h.core) === null, 'charm gone, window open: lemon'); 
 });
 
 console.log('warlockView: all checks passed');

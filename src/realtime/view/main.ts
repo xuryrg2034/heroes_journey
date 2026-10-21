@@ -620,6 +620,8 @@ async function boot(): Promise<void> {
   let shiftSounds = 0;
   /** Task 16: the feat chimes sounded so far (the snapshot's `feat.sounds`). */
   let featSounds = 0;
+  /** Task 55 Д: bells rung for the warlock's windows (tests read it). */
+  let warlockSounds = 0;
 
   /**
    * Iteration 2.1 (interface): seconds left of each slot's blink and of the item hint (real time while the arena runs),
@@ -1496,6 +1498,8 @@ async function boot(): Promise<void> {
         else if (ev.type === 'tether' && ev.action === 'cut') audio.snap(soundVolume());
         // Task 48: the Troll's club falls — a dull thud (the one tone of his fight; no sound for «звон» — a dash strikes many bodies).
         else if (ev.type === 'bossMove' && ev.move === 'club' && ev.stage === 'hit') audio.thud(soundVolume());
+        // Task 55 Д: the warlock's window opens (phase 2) — one bell, the only sound of his fight.
+        else if (ev.type === 'warlockWindow' && ev.action === 'open') { audio.bell(soundVolume()); warlockSounds++; }
         // Task 47, С4: the hammers — the fire's crackle, the end's pop, the cut's swish (one a frame: a dash cuts many), the bell
         // backwards of «Возврат».
         else if (ev.type === 'hammer') {
@@ -2031,7 +2035,7 @@ async function boot(): Promise<void> {
          * `beamTo` — the wardrobe's id), `candles` drawn, `target` (the lit candle) with its `flame` (units) and `signProgress`, `haze`, `dropping`;
          * since the fight began — `sparks` («звон»), `hits`, `opens`, `unlinks`, `snaps` (the charm's end), `marks`, `arrivals`.
          */
-        warlock: { state: warlockState(w), shown: { ...renderer.warlockShown } },
+        warlock: { state: warlockState(w), shown: { ...renderer.warlockShown }, sounds: warlockSounds },
         /** Task 28: the boss bar of the HUD (`BossBar.shown`) and the names of the boss's moves on screen now. */
         bossBar: bossBar.shown(),
         bossNames: bossLabels.map(l => l.spec.text),

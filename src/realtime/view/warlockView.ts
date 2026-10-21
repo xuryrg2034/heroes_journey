@@ -20,7 +20,7 @@ import { characterSprite, hasCharacterArt } from '../art/characterAssets';
 import { eliteArmorView } from '../sim/elites';
 import { WARLOCK, warlockCore, warlockLinkDrop, warlockState } from '../sim/enemies/warlock';
 import type { Vec } from '../sim/geometry';
-import type { World, WorldEvent } from '../sim/world';
+import type { Enemy, World, WorldEvent } from '../sim/world';
 import { drawPlatePips, ELITE_LEMON } from './eliteView';
 import { corePips, windowCount } from './trollView';
 
@@ -39,6 +39,9 @@ export const WARLOCK_FEET = 1.0;
 export const SPARK_LIFE = 0.25, HIT_LIFE = 0.35, UNLINK_LIFE = 0.3, SNAP_LIFE = 0.6, SMOKE_LIFE = 0.9, ARRIVE_LIFE = 0.5;
 /** Arena units: the beam's ends over the floor (the core's middle, the wardrobe's top). */
 const BEAM_FROM_LIFT = 0.55, BEAM_TO_LIFT = 0.35;
+
+/** The ink of a marked enemy's reticle: the charm's violet on the warlock while he is `spellbound` (not to be struck), null — the common lemon. */
+export const reticleInk = (world: World, e: Pick<Enemy, 'kind'>): number | null => e.kind === WARLOCK && warlockState(world)?.spellbound ? MAGIC : null;
 
 export const isWarlockKind = (kind: string): boolean => kind === WARLOCK;
 /** The core's HP plaque: by the drawing's head, on the right (body-local px). */
@@ -232,16 +235,16 @@ export class WarlockView {
 
   /** A wavy violet beam with beads running to the wardrobe; `k` fades it. */
   private beam(g: Graphics, x0: number, y0: number, x1: number, y1: number, clock: number, k: number): void {
-    const N = 16, dx = x1 - x0, dy = y1 - y0, len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len, amp = 0.1 * this.unit;
+    const N = 16, dx = x1 - x0, dy = y1 - y0, len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len, amp = 0.12 * this.unit;
     const at = (t: number): { x: number; y: number } => { const w = Math.sin(t * Math.PI) * Math.sin(t * 14 - clock * 7) * amp; return { x: x0 + dx * t + nx * w, y: y0 + dy * t + ny * w }; };
-    for (const [width, color, alpha] of [[8, NAVY, 0.5], [4, MAGIC, 0.9], [1.5, 0xffffff, 0.6]] as const) {
+    for (const [width, color, alpha] of [[22, MAGIC, 0.16], [13, NAVY, 0.6], [8, MAGIC, 1], [3, 0xe9dcff, 0.95]] as const) {
       const a = at(0); g.moveTo(a.x, a.y);
       for (let i = 1; i <= N; i++) { const p = at(i / N); g.lineTo(p.x, p.y); }
       g.stroke({ color, width, alpha: alpha * k, cap: 'round', join: 'round' });
     }
     for (let i = 0; i < 3; i++) {
       const t = (clock * 0.7 + i / 3) % 1, p = at(t);
-      g.circle(p.x, p.y, 0.07 * this.unit).fill({ color: 0xffffff, alpha: 0.85 * k }).stroke({ color: MAGIC_DARK, width: 1.5, alpha: k });
+      g.circle(p.x, p.y, 0.11 * this.unit).fill({ color: 0xffffff, alpha: 0.95 * k }).stroke({ color: MAGIC_DARK, width: 2.5, alpha: k });
     }
   }
 

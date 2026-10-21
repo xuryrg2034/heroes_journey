@@ -15,7 +15,10 @@ import { archerLine, archerMark } from '../sim/enemies/archer';
 import { sapperFuse } from '../sim/enemies/sapper';
 import { shamanBeam } from '../sim/enemies/shaman';
 import { wolfRushLine } from '../sim/enemies/wolf';
-import { doorOpen, type World } from '../sim/world';
+import { CHIEF } from '../sim/enemies/chief';
+import { TROLL } from '../sim/enemies/troll';
+import { WARLOCK } from '../sim/enemies/warlock';
+import { doorOpen, type Enemy, type World } from '../sim/world';
 
 export type EdgeKind = 'threat' | 'goal' | 'spawn';
 export interface EdgeMarker { x: number; y: number; kind: EdgeKind }
@@ -24,6 +27,17 @@ export interface EdgeMarker { x: number; y: number; kind: EdgeKind }
 const BEAM_NEAR_HERO = 4;
 /** A source counts as off screen when its centre is outside the view (a half-visible body still gets the pointer: its line is the danger). */
 const SEEN_MARGIN = 0;
+
+/** The cores whose window is the fight (task 55 Д, design 21.10.2026): the Troll's, the Chief's and the warlock's. */
+export const hudBossCore = (e: Pick<Enemy, 'kind' | 'partOf'>): boolean => (e.kind === TROLL || e.kind === CHIEF || e.kind === WARLOCK) && e.partOf === undefined;
+
+/**
+ * `base` with one exception: a boss core (`hudBossCore`) that `hidden` says is under the HUD or the action bar is not seen — it gets the goal
+ * pointer and its window's count by the pointer, as off screen. Any other point is seen as `base` says (the camera and the other pointers stay).
+ */
+export function seesUnderHud<P extends { x: number; y: number }>(base: (p: P, margin: number) => boolean, hidden: (e: Enemy) => boolean): (p: P, margin: number) => boolean {
+  return (p, margin) => base(p, margin) && !(hudBossCore(p as unknown as Enemy) && hidden(p as unknown as Enemy));
+}
 
 /** `sees(point, margin)` — the point is inside the view grown by `margin` units; `spawns` — pointers to spawn markers too. */
 export function collectEdgeMarkers(world: World, sees: (p: { x: number; y: number }, margin: number) => boolean, spawns = false): EdgeMarker[] {
