@@ -169,7 +169,7 @@ check('his wardrobe broken at a wall twice: the charm falls, his plates stay; at
   }
 });
 
-check('his charm gone: a shove strike in the window takes a plate and leaves the window hit to the chain; the next «Перенос» 5 s after the arrival', () => {
+check('his charm gone: a shove strike in the window takes a plate and leaves the window hit to the chain (two plates in one window); the next «Перенос» 5 s after the arrival', () => {
   for (const k of SEEDS) {
     const h = hall(k, { shoveDistance: 6 }), events: WorldEvent[] = [];
     breakAtWall(h, events);
@@ -181,6 +181,10 @@ check('his charm gone: a shove strike in the window takes a plate and leaves the
     assert(plates(h.core) === 3 && warlockState(h.w)!.window?.open && !warlockState(h.w)!.window!.hit, `seed ${k}: a plate, the window still open (${JSON.stringify(warlockState(h.w)!.window)})`);
     h.sim.command({ t: 'teleport', x: h.core.x, y: h.core.y + 1 });
     assert(enemyRefusal(h.w, h.core) === null, `seed ${k}: the chain may still take him (${enemyRefusal(h.w, h.core)})`);
+    // The shove and the chain in one window — two plates (design 21.10.2026: the shove never spends the window's hit).
+    draw(h.sim, [{ x: h.core.x, y: h.core.y }]);
+    release(h.sim, events);
+    assert(plates(h.core) === 2 && of(events, 'warlockWindow').filter(e => e.action === 'hit').length === 1, `seed ${k}: two plates in one window (${plates(h.core)})`);
     // Out of the way, the next arrival: 5 s after the first.
     h.sim.command({ t: 'teleport', x: 12, y: 14 });
     let next = 0;
@@ -277,6 +281,17 @@ check('the fight\'s summary (`FightSummary.boss.warlock`): the barrel at him, hi
     const t = analyzeJournal(JSON.parse(JSON.stringify(h.sim.exportJournal()!)) as Journal).summary.boss?.warlock;
     assert(t && t.hits.shove === 1 && t.barrels === 1 && t.hits.chain === 1 && t.wardrobeBy === 'wall' && t.phase === 2, `seed ${k}: ${JSON.stringify(t)}`);
     assert(t.charmBrokenAt !== null && Math.abs(t.charmBrokenAt - brokeAt) < 0.2 && t.windows.opened === 1 && t.windows.hit === 1 && t.shifts === 1 && (t.blocks.bomb ?? 0) >= 1, `seed ${k}: ${JSON.stringify(t)}`);
+  }
+});
+
+registerArena({ ...WARLOCK_ARENA, id: 'warlock-two', name: 'Колдун, две свечи', warlock: { candles: [{ x: 12, y: 3.2 }, { x: 4.5, y: 7 }] } });
+check('no candle fits (the other one is by the hero and the nearest to him): «Перенос» goes to another candle all the same (design 21.10.2026)', () => {
+  for (const k of SEEDS) {
+    const h = hall(k, {}, { x: 4.5, y: 7.4 }, 'warlock-two'), events: WorldEvent[] = [];
+    ticks(h.sim, ticksOf(6.5), events);
+    const arrive = of(events, 'warlockShift').find(e => e.action === 'arrive');
+    assert(arrive && arrive.candle === 1 && warlockState(h.w)!.candle === 1, `seed ${k}: arrived at C2 (${arrive?.candle})`);
+    assert(replays(h.sim), `seed ${k}: replay`);
   }
 });
 
