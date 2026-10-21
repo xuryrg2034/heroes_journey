@@ -16,6 +16,7 @@
 import { registerArena } from './arenas';
 import { enemyRefusal, planChain, REFUSAL_TEXT } from './chain';
 import { BOLT_SOURCE, CROSSBOW } from './enemies/crossbow';
+import { HAMMERS } from './buildIds';
 import { RECRUIT } from './enemies/recruit';
 import type { Vec } from './geometry';
 import { worldState } from './hash';
@@ -269,6 +270,40 @@ check('design 21.10.2026: no numbers during the hero\u2019s move — the formati
     assert(members.every(e => e.vars.rn), `seed ${k}: the numbers after the pass`);
     assert(replays(sim), `seed ${k}: replay`);
   }
+});
+
+check('the fire of «Огненный проход» is no hit of the pass (design 21.10.2026, variant б): the chain 1 → 3 lights its path, a link past #3 leads it over #4 — the fire finishes #4 in the pass, no bonus; the highlight promises none (3 seeds)', () => {
+  let seen = 0;
+  for (let k = 1; k <= 40 && seen < 3; k++) {
+    const sim = new Simulation({ arena: 'recruit-yard', params: quiet({ maxEnemies: 1 }), seed: seedOf(k), record: true, loadout: { talismans: [], hammer: HAMMERS.fire } });
+    sim.tick();
+    const w = sim.world, line = byNumber(w), slot = (e: Enemy): number => LINE.findIndex(x => Math.abs(x - e.x) < 0.05);
+    // #4 next to #3 in the line: the way on from #3 to a weak link past #4 runs over #4 (0.25 off its centre, within the fire's 0.4) —
+    // the path is lit since #3 (the threshold 3), #4 is the current one then.
+    if (Math.abs(slot(line[2]) - slot(line[3])) !== 1) continue;
+    seen++;
+    const three = line[2], four = line[3];
+    const past = place(sim, { x: 2 * four.x - three.x, y: 4.5 }, 0);
+    draw(sim, [...line.slice(0, 3), past]);
+    assert(w.chain.length === 4, `seed ${k}: 1 → 3 and the link past #4 drawn`);
+    const plan = planChain(w);
+    assert(plan.fire?.lit && plan.links.every(l => l.outcome?.killed), `seed ${k}: the highlight — the path lights, all links fall`);
+    assert(!('drill' in plan), `seed ${k}: the highlight promises no bonus`);
+    sim.command({ t: 'release' });
+    const events: WorldEvent[] = [];
+    let inPass = false;
+    for (let i = 0; i < 240 && (w.move || i === 0); i++) {
+      sim.tick();
+      const now = w.events.splice(0);
+      events.push(...now);
+      if (now.some(e => e.type === 'kill' && e.enemyId === four.id) && w.move) inPass = true;
+    }
+    const fire = of(events, 'kill').find(e => e.enemyId === four.id);
+    assert(fire?.source === 'hammer-fire' && inPass && byNumber(w).length === 0, `seed ${k}: the fire finished #4 in the pass (${fire?.source}, in the pass ${inPass})`);
+    assert(!of(events, 'recruit').some(e => e.action === 'drill'), `seed ${k}: no bonus`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+  assert(seen === 3, `seeds with #4 next to #1: ${seen}`);
 });
 
 check('out of order nothing hurts a recruit: the bomb on #3 with #1 alive — no damage, event `recruit` `refused`; the bomb on #1 — it dies (3 seeds)', () => {
