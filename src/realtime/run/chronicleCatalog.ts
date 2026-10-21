@@ -29,7 +29,7 @@ export const RT_CHRONICLE_LEVELS: readonly number[] = [1, 2];
  * task 57а (design 21.10.2026) — the same source as the schedule, `scheduleKinds(shooters)`: with the flag `forestShooters` on
  * (`RT_FOREST_SHOOTERS_ON`) the slinger, the hive and the wisp join the chapter by themselves (8 → 11 entries).
  */
-export const chronicleForestKinds = (shooters: boolean = RT_FOREST_SHOOTERS_ON): readonly string[] => scheduleKinds(shooters);
+export const chronicleForestKinds = (shooters: boolean = RT_FOREST_SHOOTERS_ON): readonly string[] => [...scheduleKinds(shooters)];
 export const RT_CHRONICLE_FOREST_KINDS: readonly string[] = chronicleForestKinds();
 export const RT_CHRONICLE_GARRISON_KINDS: readonly string[] = [GUARD, HANDLER, HOUND, KEYMASTER, CROSSBOW, KNIGHT];
 /**
