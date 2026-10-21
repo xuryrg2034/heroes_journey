@@ -164,7 +164,7 @@ check('the first rune: dim ring from 3 runes; the pointer on it with a ring that
   f.sim.command({ t: 'drag', x: PENTAGON[0].x, y: PENTAGON[0].y, mode: 'full' });
   assert(f.w.chainClosed === 'first', 'the pointer event on the first rune closes the ring');
   highlight(view, f.w, PENTAGON[0]);
-  assert(sh(view).word === 'Кольцо' && sh(view).contour === 'figure' && sh(view).firstRing === 2, 'closed: the word, the lit ring and the dashed contour in the chain colour');
+  assert(sh(view).word === 'Кольцо' && sh(view).contour === 'figure' && sh(view).contourInk === 0xff5050 && sh(view).firstRing === 2, 'closed: the word, the lit ring and the dashed contour in the chain colour');
   assert(planChain(f.w).seal !== undefined && planChain(f.w).seal!.ring.length === 5, 'the seal prognosis (the marks of the bodies inside) is the plan, drawn by the loop view');
 });
 
@@ -175,7 +175,7 @@ check('a square of 4: the same contour grey at the pointer, no word, and the sim
   SQUARE.forEach(p => place(f.sim, p));
   draw(f.sim, SQUARE);
   highlight(view, f.w, SQUARE[0]);
-  assert(sh(view).contour === 'refused' && sh(view).word === '' && sh(view).firstRing === 1, `${JSON.stringify(sh(view))}`);
+  assert(sh(view).contour === 'refused' && sh(view).contourInk === 0x8c93a0 && sh(view).word === '' && sh(view).firstRing === 1, `${JSON.stringify(sh(view))}`);
   assert(hoverRefusal(f.w, SQUARE[0], true) === 'notFigure', 'the pointer\'s hint');
   f.sim.command({ t: 'drag', x: SQUARE[0].x, y: SQUARE[0].y, mode: 'full' });
   assert(f.w.chainClosed === undefined, 'the sim refused the closing');

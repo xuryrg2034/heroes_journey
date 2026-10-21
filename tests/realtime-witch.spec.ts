@@ -28,10 +28,16 @@ function collectErrors(page: Page): string[] {
 }
 
 /** The sandbox, quiet (only what the test places acts); Ведунья v2 (or the cat) in the next fight; the hero at (8, 5.5) of a 16×10 arena. */
-async function openWitch(page: Page, hero: 'toad' | null = 'toad', query = 'arena=1'): Promise<void> {
-  await page.goto(`/?sandbox=1&${query}`);
+async function openWitch(page: Page, hero: 'toad' | null = 'toad', menuArena?: { testId: string; name: string }): Promise<void> {
+  await page.goto(menuArena ? '/?sandbox=1&seed=77' : '/?sandbox=1&arena=1');
   await page.evaluate(() => localStorage.clear());
   await page.reload();
+  // An arena by its menu button and name, not by its number (the numbers shift).
+  if (menuArena) {
+    const button = page.getByTestId(menuArena.testId);
+    await expect(button).toContainText(menuArena.name);
+    await button.click();
+  }
   await expect(page.locator('#rt-app canvas')).toBeVisible();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
   await page.evaluate(h => (window as any).__realtime.useHero(h, 1), hero);
@@ -232,7 +238,7 @@ test('«Показать фигуру» (the sandbox panel): the class word at t
 test('the camera keeps Ведунья in the centre while she draws (a glide, no jump); the cat\'s camera stands still', async ({ page }) => {
   const errors = collectErrors(page);
   for (const hero of ['toad', null] as const) {
-    await openWitch(page, hero, 'arena=18&seed=77');
+    await openWitch(page, hero, { testId: 'camera-arena-1', name: 'Большая поляна' });
     await page.evaluate(() => { const rt = (window as any).__realtime; rt.teleport(8, 7.5); });
     await page.waitForTimeout(1500);
     await place(page, 9.6, 7.5, 0, 3);

@@ -65,6 +65,8 @@ export interface WitchShown {
   firstRing: 0 | 1 | 2;
   /** The contour at the pointer: '' — none, 'figure' — dashed in the chain's colour, 'refused' — grey. */
   contour: '' | 'figure' | 'refused';
+  /** The colour of the dashes of that contour (the chain's for a figure, grey for a refusal); 0 — none. */
+  contourInk: number;
   /** The word at the first rune or at the pointer (figure), the sandbox's class word at the contour's centre. */
   word: string; classWord: string;
   /** Discharges seen, flashes started, the thread's strokes so far, the casts running now. */
@@ -72,7 +74,7 @@ export interface WitchShown {
 }
 
 export class WitchView {
-  readonly shown: WitchShown = { circle: 0, runes: 0, ties: 0, firstRing: 0, contour: '', word: '', classWord: '', casts: 0, flashes: 0, running: 0 };
+  readonly shown: WitchShown = { circle: 0, runes: 0, ties: 0, firstRing: 0, contour: '', contourInk: 0, word: '', classWord: '', casts: 0, flashes: 0, running: 0 };
   /** The sandbox's «Показать фигуру» (view only; not a Param). */
   showFigure = false;
   private readonly labels: Text[] = [];
@@ -96,7 +98,7 @@ export class WitchView {
   /** Nothing drawn this frame (no chain, or not Ведунья v2). */
   clear(): void {
     const s = this.shown;
-    s.runes = 0; s.ties = 0; s.firstRing = 0; s.contour = ''; s.word = ''; s.classWord = '';
+    s.runes = 0; s.ties = 0; s.firstRing = 0; s.contour = ''; s.contourInk = 0; s.word = ''; s.classWord = '';
     for (const label of this.labels) label.visible = false;
   }
 
@@ -151,8 +153,10 @@ export class WitchView {
     // Design 21.10.2026: no preview before the touch. A closed chain (the figure taken) — the contour dashed in the chain's colour, no fill; a refusal — grey.
     if (on || closed) {
       const pts = runes.map(v => ({ x: v.x * U, y: v.y * U }));
-      this.dashedPolygon(g, pts, refusal ? GREY : ink);
+      const dash = refusal ? GREY : ink;
+      this.dashedPolygon(g, pts, dash);
       s.contour = refusal ? 'refused' : 'figure';
+      s.contourInk = dash;
     }
     const glyph = plan.glyph;
     if ((bright || closed) && glyph && 'kind' in glyph) {
