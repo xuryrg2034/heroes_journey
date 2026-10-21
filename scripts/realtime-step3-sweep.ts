@@ -8,10 +8,14 @@
  *    (scripts/realtime-garrison-curve.ts: the forest walked, the garrison's fights real from «Предместье») with the run's flag `step3`
  *    and the planner bot; at each battle on a step-3 arena or a reference arena («Ристалище», «Бойницы», «Ров») the run as it stands
  *    (HP, loadout, row) is saved to FILE.
- * 2. `npx tsx scripts/realtime-step3-sweep.ts --entries FILE --arena ID [--fights 300] [--limit 240]` — the arena's fights: `--fights`
+ * 2. `npx tsx scripts/realtime-step3-sweep.ts --entries FILE --arena ID [--fights 300] [--limit 240] [--save OUT]` — the arena's fights: `--fights`
  *    seeds per variant of the share (0 / the hypothesis / ×2; a reference arena — as it is), the entries taken in a cycle, the same
  *    entry and seed `Math.imul(i, 2654435761) >>> 0` for every variant (a paired comparison). «Барбакан» — each variant twice: the
- *    «careless» bot and the «planner». «Смолокурня» and «Бойницы» also play the hero who stands 6 s (criterion 4).
+ *    «careless» bot and the «planner». «Смолокурня» and «Бойницы» also play the hero who stands 6 s (criterion 4). `--save OUT` keeps each
+ *    variant's fights (row, death) for step 3.
+ * 3. `npx tsx scripts/realtime-step3-sweep.ts --compare A B` — criterion 1 (design 21.10.2026: «Казарма» within ±5 p. p. of «Ристалище»,
+ *    by the same entry rows, weighted): each variant of A against the first variant of B, row by row, weighted by A's rows —
+ *    Σ w·(pA − pB) ± √Σ w²(seA² + seB²); a row B never played is left out (its weight named).
  *
  * The share is put on by the SCRIPT into the registered template it plays (the game keeps its numbers; such a fight does not replay from
  * a journal of the real template), and set back after. Every rate with its standard error; the difference of a variant from the
@@ -181,7 +185,7 @@ const pct = (xs: readonly number[]): string => `${f1(100 * mean(xs))} ± ${f1(10
 const pairedPct = (xs: readonly number[], base: readonly number[]): string => { const d = xs.map((x, i) => x - base[i]); return `${mean(d) >= 0 ? '+' : ''}${f1(100 * mean(d))} ± ${f1(100 * se(d))}`; };
 const avg = (xs: readonly number[]): string => `${f2(mean(xs))} ± ${f2(se(xs))}`;
 
-function sweep(file: string, arena: string, fights: number): void {
+function sweep(file: string, arena: string, fights: number, save: string): void {
   const started = Date.now(), data = JSON.parse(readFileSync(file, 'utf8')) as { date: string; head: string; runs: number; entries: Entry[] };
   const entries = data.entries.filter(e => e.arena === arena);
   if (!entries.length) throw new Error(`no entries of ${arena} in ${file}`);
@@ -228,6 +232,7 @@ function sweep(file: string, arena: string, fights: number): void {
   } else if (standToo) {
     console.log(`Простой герой 6 с: урон ${avg(results[0].map(x => x.stand ?? 0))}.`);
   }
+  if (save) writeFileSync(save, JSON.stringify({ arena, date: today(), head: head(), variants: vs.map((v, i) => ({ title: v.title, fights: results[i].map(x => ({ row: x.row, death: x.death })) })) }));
   // Deaths by the entry's row (criterion 1: «Казарма» on its rows 3–4 against «Ристалище»; an own arena may come later by «не позже»).
   console.log('');
   const entryRows = [...rows.keys()].sort((a, b) => a - b);
@@ -245,7 +250,36 @@ function sweep(file: string, arena: string, fights: number): void {
   console.log('');
 }
 
-const collectFile = option('--collect', ''), entriesFile = option('--entries', ''), arena = option('--arena', '');
+/** A saved arena run (`--save`). */
+interface Saved { arena: string; date: string; head: string; variants: { title: string; fights: { row: number; death: number }[] }[] }
+
+/** Criterion 1: A's variants against B's first, by the entry rows, weighted by A's (see the file's comment). */
+function compare(fileA: string, fileB: string): void {
+  const a = JSON.parse(readFileSync(fileA, 'utf8')) as Saved, b = JSON.parse(readFileSync(fileB, 'utf8')) as Saved;
+  const ref = b.variants[0].fights, byRow = (xs: { row: number; death: number }[], row: number): number[] => xs.filter(x => x.row === row).map(x => x.death);
+  console.log(`### ${arenaTemplate(a.arena).name} против «${arenaTemplate(b.arena).name}» (${b.variants[0].title}) по рядам входа, веса — ряды «${arenaTemplate(a.arena).name}»\n`);
+  console.log(`${today()}; файлы ${a.date} HEAD ${a.head} и ${b.date} HEAD ${b.head}. Эвристика.\n`);
+  console.log('| Вариант | Δ смертей, п. п. (взвешенно) | Ряды: вес, A − B |');
+  console.log('| --- | --- | --- |');
+  for (const v of a.variants) {
+    const rows = [...new Set(v.fights.map(x => x.row))].sort((x, y) => x - y), total = v.fights.length;
+    let d = 0, var2 = 0, left = 0;
+    const parts: string[] = [];
+    for (const row of rows) {
+      const xa = byRow(v.fights, row), xb = byRow(ref, row), w = xa.length / total;
+      if (!xb.length) { left += w; parts.push(`г${row}: ${f2(w)}, у B нет боёв`); continue; }
+      d += w * (mean(xa) - mean(xb)); var2 += w * w * (se(xa) ** 2 + se(xb) ** 2);
+      parts.push(`г${row}: ${f2(w)}, ${f1(100 * mean(xa))} − ${f1(100 * mean(xb))}`);
+    }
+    // Over the rows both played: the weights renormalised.
+    const k = 1 / Math.max(1e-9, 1 - left);
+    console.log(`| ${v.title} | ${d * k >= 0 ? '+' : ''}${f1(100 * d * k)} ± ${f1(100 * Math.sqrt(var2) * k)}${left ? ` (без рядов весом ${f2(left)})` : ''} | ${parts.join('; ')} |`);
+  }
+  console.log('');
+}
+
+const collectFile = option('--collect', ''), entriesFile = option('--entries', ''), arena = option('--arena', ''), compareAt = args.indexOf('--compare');
 if (collectFile) collect(collectFile, Number(option('--runs', '300')));
-else if (entriesFile && arena) sweep(entriesFile, arena, Number(option('--fights', '300')));
-else { console.log('usage: --collect FILE [--runs N] | --entries FILE --arena ID [--fights N]'); process.exit(1); }
+else if (entriesFile && arena) sweep(entriesFile, arena, Number(option('--fights', '300')), option('--save', ''));
+else if (compareAt >= 0 && args[compareAt + 2]) compare(args[compareAt + 1], args[compareAt + 2]);
+else { console.log('usage: --collect FILE [--runs N] | --entries FILE --arena ID [--fights N] [--save OUT] | --compare A B'); process.exit(1); }
