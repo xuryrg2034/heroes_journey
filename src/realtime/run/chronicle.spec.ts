@@ -2,6 +2,7 @@
  * Task 58 «Летопись», core 58а (docs/design-notes/task-58-discovery.md, sections 4, 6.1, 7, 8, 10 and 11). Node only:
  * `npm run test:realtime-chronicle`. Whole runs walked by the run's own commands (metaWalk.testkit.ts), the profile as the view keeps it
  * (`createRtProfileStore` with the chronicle on):
+ * - «видел» never lowers «взял» (an item taken, then seen in a later run, stays taken);
  * - a meta run's end writes what it did: the events entered (the circle), the items taken and seen, the fusions made, the bosses met and
  *   won with the viewer's run, the hero freed, the garrison's chapter; the run's list (`chronicleAdded`) holds its fights' kinds too;
  * - a run with a given seed writes nothing; an abandoned run writes; a second end of the same run writes nothing twice; «Обучение»
@@ -81,6 +82,21 @@ await check('a meta run\'s end writes what the run did (events, items taken and 
   const c = chronicleOf(store);
   assert(c.bosses?.jailer?.won !== undefined && c.bosses?.castellan?.won !== undefined, `the Jailer and the Castellan won: ${JSON.stringify(c.bosses)}`);
   assert(c.unread?.includes('hero:toad') && c.unread.includes('chapter:garrison'), 'Ведунья freed, the garrison\'s chapter');
+});
+
+await check('«видел» never lowers «взял»: an item taken in one run and only seen in a later one stays taken', () => {
+  const store = createRtProfileStore(memoryStorage(), { chronicle: true });
+  let kept = 0;
+  for (let k = 1; k <= 16; k++) {
+    const { walk } = metaRun(store, k, { garrison: false }, { circle: true });
+    const before = chronicleOf(store).items ?? {};
+    store.endRunMeta(walk.run);
+    const after = chronicleOf(store).items ?? {};
+    for (const [id, state] of Object.entries(before)) assert((after[id] ?? 0) >= state, `seed ${k}: ${id} ${state} → ${after[id]}`);
+    // The case asked: taken before, shown and not taken in this run.
+    for (const id of walk.run.talismansGone) if (before[id] === 2 && !walk.run.talismans.includes(id) && !isRtForm(id)) { assert(after[id] === 2, `seed ${k}: ${id} stays taken`); kept++; }
+  }
+  assert(kept >= 2, `covered: ${kept} items taken earlier and seen later`);
 });
 
 await check('the fights\' kinds (`chronicleMeet`) join the run\'s list; repeats and unknown ids write nothing; the list stays the run\'s after a reload', () => {
