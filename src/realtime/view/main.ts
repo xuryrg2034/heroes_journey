@@ -46,7 +46,7 @@ import { isRtDailyDate, rtArenaParams, rtPageParams } from '../run/rtRun';
 import { replay, Simulation, type Journal } from '../sim/simulation';
 import { focusGuarded, goalLamps, goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World, type WorldEvent } from '../sim/world';
 import { liveShots } from '../sim/shots';
-import { linkPoint } from '../sim/chain';
+import { linkPoint, pickRadius } from '../sim/chain';
 import { ChainAudio } from './audio';
 import { chainFeel, QUIET_GAIN } from './chainFeel';
 import { FX_LEVELS, HEAVY_SEMIS, fxLevelOf, waveStrength, type FxLevel } from './juice';
@@ -2181,6 +2181,8 @@ async function boot(): Promise<void> {
     place: (x: number, y: number, color: number, hp = 0, kind: EnemyKind = 'basic', elite: boolean | 'random' = false, affixes?: string[]) => command({ t: 'place', x, y, color, hp, kind, ...elite ? { elite } : {}, ...elite && affixes ? { affixes } : {} }),
     /** Test setup: move the hero. */
     teleport: (x: number, y: number) => command({ t: 'teleport', x, y }),
+    /** The press ring of an enemy (`pickRadius`: the sim's number; the tests aim the pointer by it), null — no such enemy. */
+    pickRadius: (id: number): number | null => { const w = world(), e = w.enemies.find(x => x.id === id); return e ? pickRadius(w, e) : null; },
     /** Test setup: set the jump energy. */
     setEnergy: (value: number) => command({ t: 'energy', value }),
     /** Test setup: put a crystal worth `value` kills at an arena point (a fixed spot instead of the random drop); returns its id. */
