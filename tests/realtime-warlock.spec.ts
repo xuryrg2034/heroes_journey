@@ -1,7 +1,7 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
 import { gameWait, untilFrame } from './realtimeFrames';
-import { breakCharm } from './warlockRoute';
+import { breakCharm, wardrobeRoute } from './warlockRoute';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
 
 /**
@@ -308,5 +308,24 @@ test('task 55 Д (design rule): the ring in view with the head cut off by the HU
   const ring = await page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [s.warlock.state!.x, s.warlock.state!.y] as const);
   expect(Math.hypot(at.x - ring.x, at.y - ring.y), 'the count is off the ring').toBeGreaterThan(30);
   await shot(page, 'window-ring-in-view');
+  expect(errors).toEqual([]);
+});
+
+test('the shared route: a body put on the wardrobe lane — the plan says «body» with it as the target and kills it, the shove is made again and reaches the wall (the branch of warlockRoute.ts a crowd body takes)', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = collectErrors(page);
+  await openHall(page);
+  await quiet(page);
+  await cameraSettled(page);
+  const wardrobe = (await snap(page)).warlock.state!.wardrobe!, w = (await snap(page)).castle.things.find(t => t.id === wardrobe)!;
+  // A body with 1 HP between the wardrobe and the north wall, on its lane (the journal's `place`): a thing stops at a tough body and strikes it.
+  const body = await page.evaluate(([x, y]) => (window as any).__realtime.place(x, y - 1.8, 1, 1, 'basic'), [w.x, w.y] as const) as number;
+  const { result, plans } = await wardrobeRoute(page, wardrobe);
+  expect(plans[0], 'the first plan: a stop at the body I put').toMatchObject({ stop: 'body', target: body, impact: { killed: true } });
+  expect(result, 'the repeat reached the wall').toBe('wall');
+  expect(plans[plans.length - 1].stop).toBe('wall');
+  expect(plans.length, 'a stop at the body, then the wall (a crowd body of the lane may add a stop, three shoves at most)').toBeGreaterThanOrEqual(2);
+  expect((await snap(page)).enemies.some(e => e.id === body), 'the body is dead').toBe(false);
+  await sameHash(page);
   expect(errors).toEqual([]);
 });

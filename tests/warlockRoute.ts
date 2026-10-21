@@ -13,7 +13,7 @@ import { untilFrame } from './realtimeFrames';
  * the plan's `wear` — the highlight is the execution.
  */
 interface Thing { id: number; kind: string; x: number; y: number; durability: number }
-interface Plan { thing: number; to: { x: number; y: number }; stop: string; target: number | null; impact: { killed: boolean } | null; wear: { id: number; left: number }[]; breaks: number[] }
+export interface Plan { thing: number; to: { x: number; y: number }; stop: string; target: number | null; impact: { killed: boolean } | null; wear: { id: number; left: number }[]; breaks: number[] }
 interface RouteSnap { chain: number[]; moving: string | null; castle: { things: Thing[]; shoves: unknown[]; preview: Plan | null }; enemies: { id: number; kind: string; hp: number }[]; warlock: { state: { wardrobe: number | null; phase: number } | null } }
 
 const snap = (page: Page): Promise<RouteSnap> => page.evaluate(() => (window as any).__realtime.snapshot());
@@ -50,24 +50,26 @@ async function shoveOnce(page: Page, id: number): Promise<{ before: Thing; plan:
 }
 
 /**
- * The wardrobe shoved north until the wall has worn it (`'wall'`: its durability fell) or broken it (`'broke'`: it is gone), at most `ATTEMPTS` shoves; a stop at a body is let go
- * as the file's note says, any other stop fails.
+ * The wardrobe shoved north until the wall has worn it (`result` 'wall': its durability fell) or broken it ('broke': it is gone), at most `ATTEMPTS` shoves; a stop at a body is let go
+ * as the file's note says, any other stop fails. `plans` — the plan of every shove made, in order (a test that puts a body on the lane reads the body stop there).
  */
-export async function wardrobeToWall(page: Page, id: number): Promise<'wall' | 'broke'> {
+export async function wardrobeRoute(page: Page, id: number): Promise<{ result: 'wall' | 'broke'; plans: Plan[] }> {
+  const plans: Plan[] = [];
   for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
     const { before, plan } = await shoveOnce(page, id);
+    plans.push(plan);
     const now = await snap(page), after = now.castle.things.find(t => t.id === id), said = `the plan ${JSON.stringify(plan)}`;
     if (plan.stop !== 'wall' && !(plan.stop === 'body' && plan.target !== null)) throw new Error(`the wardrobe ${id} was to stop neither at the wall nor at a body: ${said}`);
     // The highlight is the execution: the thing is where the plan said, its durability is the plan's.
     const left = plan.wear.find(w => w.id === id)?.left;
     if (plan.breaks.includes(id)) {
       expect(after, `the plan broke the wardrobe, it is gone (${said})`).toBeUndefined();
-      return 'broke';
+      return { result: 'broke', plans };
     }
     expect(after, `the wardrobe stands (${said})`).toBeDefined();
     expect(Math.hypot(after!.x - plan.to.x, after!.y - plan.to.y), `the wardrobe stands where the plan said (${said})`).toBeLessThan(PLACE_TOL);
     expect(after!.durability, `its durability is the plan's (${said})`).toBe(left);
-    if (plan.stop === 'wall') { expect(after!.durability, `the wall wore it (${said})`).toBeLessThan(before.durability); return 'wall'; }
+    if (plan.stop === 'wall') { expect(after!.durability, `the wall wore it (${said})`).toBeLessThan(before.durability); return { result: 'wall', plans }; }
     // A stop at a body: the durability stays, the target is dead, the same shove is made again.
     expect(after!.durability, `the body did not wear it (${said})`).toBe(before.durability);
     expect(plan.impact?.killed, `the plan says the body is killed (${said})`).toBe(true);
@@ -76,6 +78,9 @@ export async function wardrobeToWall(page: Page, id: number): Promise<'wall' | '
   }
   throw new Error(`the wardrobe ${id} did not reach the wall in ${ATTEMPTS} shoves (bodies stopped it every time)`);
 }
+
+/** `wardrobeRoute`'s result only. */
+export const wardrobeToWall = async (page: Page, id: number): Promise<'wall' | 'broke'> => (await wardrobeRoute(page, id)).result;
 
 /** Breaks his wardrobe at the north wall (the wall wears it, then breaks it) and waits for the charm to fall. */
 export async function breakCharm(page: Page): Promise<void> {
