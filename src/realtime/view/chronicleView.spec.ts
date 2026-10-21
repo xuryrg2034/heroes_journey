@@ -45,7 +45,7 @@ check('a kind not met is a «?» with no name and no picture; a met one has the 
   assert(!unknown.includes('data-line="Рысь'), 'the strip gives nothing away for «?»');
 });
 
-check('the forest's kinds are drawn by their pictures (the shield and the archer too), the drawn SVG stays as the stand-in; a «?» has neither', () => {
+check('the kinds of the forest are drawn by their pictures (the shield and the archer too), the drawn SVG stays as the stand-in; a «?» has neither', () => {
   const h = html(view('garrison'), 'bestiary');
   for (const [id, file] of [['wolf', 'forest-wolf'], ['boar', 'forest-boar'], ['lynx', 'forest-lynx'], ['porcupine', 'forest-porcupine'], ['sapper', 'forest-sapper'], ['shaman', 'forest-shaman'], ['shield', 'forest-shield'], ['archer', 'ranged']] as const) {
     const c = card(h, id);
