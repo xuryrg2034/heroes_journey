@@ -1,0 +1,107 @@
+/**
+ * Task 57а «Лес: стрелки» (level design 21.10.2026; docs/realtime-slice.md, «Лес: стрелки в походе»): the arcs of the new shooters
+ * through a viewer's runs — a heuristic for the design, not a test (no assertion of a victory or a defeat):
+ * `npx tsx scripts/realtime-shooters-arcs.ts` (`--viewers N`, default 300; `--runs R` — runs of each viewer, default 4; `--start none|all`
+ * — the viewer's history before run 1: a new viewer, or one who met every arc of the first runs; `--limit S` — game seconds of a fight,
+ * default 240).
+ *
+ * Each viewer (seed `Math.imul(k, 2654435761) >>> 0`, then the next runs mixed by the run number) plays `R` forest runs in a row with
+ * the flag `forestShooters`: every fight real (scripts/garrisonBot.ts, the curve's bot; the run's params and loadout), its kinds — those
+ * that stood on the arena — feed the run; the viewer's history before the next run — the history before plus every element the run's
+ * fights showed (`RtBattleRecord.seen`), as the profile keeps it. It prints:
+ * 1. the run row of each new arc's first meeting (`slinger`, `hive`, `wisp`) — none past the arc's last row (`maxRow`);
+ * 2. deaths in a fight of a first meeting against the other fights of the same row (design's guide §16: not above +5 p. p.);
+ * 3. by the run's number 1…R: how many new kinds of task 57 the viewer met in it (expected 0–1 a run), the viewers whose run began
+ *    with an arc of task 57 open (not met, its needs met: the archer for the slinger, the slinger for the hive, the water for the wisp),
+ *    and two «empty» runs in a row — runs with none of the new kinds though an arc was open at their start.
+ */
+import { execSync } from 'node:child_process';
+import { defaultParams } from '../src/realtime/sim/params';
+import { mixSeed } from '../src/realtime/forest/items';
+import { runRow } from '../src/realtime/run/arenaPools';
+import { walkRun } from '../src/realtime/run/metaWalk.testkit';
+import { outcomeOf } from '../src/realtime/run/runFight.testkit';
+import { rtArenaLoadout, rtArenaParams, rtNode, rtRunParams, type RtArenaOutcome, type RtRunState } from '../src/realtime/run/rtRun';
+import { SCHEDULE_SHOOTER_ARCS, SCHEDULE_SHOOTER_KINDS } from '../src/realtime/run/schedule';
+import { botFight } from './garrisonBot';
+import type { World } from '../src/realtime/sim/world';
+
+const args = process.argv.slice(2);
+const option = (name: string, fallback: string): string => { const at = args.indexOf(name); return at >= 0 ? args[at + 1] : fallback; };
+const VIEWERS = Number(option('--viewers', '300')), RUNS = Number(option('--runs', '4')), START = option('--start', 'none'), LIMIT = Number(option('--limit', '240'));
+const ALL_ARCS = ['bust', 'wolf', 'elite', 'brazier', 'cliff', 'boar', 'water', 'shield', 'buttons', 'archer', 'sapper', 'leader', 'lynx', 'affix', 'thorns', 'porcupine', 'shaman', 'horde', 'part', 'chest'];
+const ARC_IDS = SCHEDULE_SHOOTER_ARCS.map(arc => arc.id);
+const RUN_PARAMS = rtRunParams(defaultParams());
+
+/** A first meeting of a new arc: its row and how the fight went. */
+interface First { arc: string; row: number; died: boolean; run: number }
+/** Every fight: its row, whether the hero died, whether it was a new arc's fight. */
+interface Fought { row: number; died: boolean; arc: string | null }
+
+/** The open battle of `run` played by the bot; the outcome as main.ts reads it, with the kinds that stood on the arena. */
+function fight(run: RtRunState, fought: Fought[]): RtArenaOutcome {
+  const pending = run.pending;
+  if (pending?.kind !== 'battle') throw new Error('no battle');
+  const kinds = new Set<string>();
+  const played = botFight(run, { params: rtArenaParams(run, RUN_PARAMS), loadout: rtArenaLoadout(run), limit: LIMIT, seen: (w: World) => { for (const e of w.enemies) kinds.add(e.kind); } });
+  const w = played.sim.world, arc = run.picks.find(pick => pick.nodeId === pending.nodeId)?.arc ?? null;
+  fought.push({ row: runRow(rtNode(run, pending.nodeId)!.row), died: w.status !== 'victory', arc });
+  return outcomeOf(run, w, {}, null, [...kinds]);
+}
+
+const firsts: First[] = [], fights: Fought[] = [];
+/** [run number][new kinds met in that run] → viewers. */
+const perRun: Map<number, number>[] = Array.from({ length: RUNS }, () => new Map()), openAtStart: number[] = Array.from({ length: RUNS }, () => 0);
+/** An arc of task 57 is open before a run: its kind not met, its needs met. */
+const arcOpen = (history: readonly string[]): boolean => SCHEDULE_SHOOTER_ARCS.some(arc => !history.includes(arc.id) && (arc.needs ?? []).every(n => history.includes(n)));
+let emptyPairs = 0, viewersLeft = 0;
+const started = Date.now();
+for (let k = 1; k <= VIEWERS; k++) {
+  let history = START === 'all' ? [...ALL_ARCS] : [];
+  let previousEmpty = false;
+  for (let r = 1; r <= RUNS; r++) {
+    const seed = r === 1 ? Math.imul(k, 2654435761) >>> 0 : mixSeed(Math.imul(k, 2654435761) >>> 0, r);
+    const fought: Fought[] = [], open = arcOpen(history);
+    if (open) openAtStart[r - 1]++;
+    const run = walkRun({ k, seed, create: { gift: k % 2 ? 'full' : 'mini', garrison: false, forestShooters: true, schedule: history }, fight: state => fight(state, fought) }).run;
+    fights.push(...fought);
+    const seen = new Set(run.battles.flatMap(record => record.seen ?? []));
+    const fresh = SCHEDULE_SHOOTER_KINDS.filter(kind => seen.has(kind) && !history.includes(kind));
+    perRun[r - 1].set(fresh.length, (perRun[r - 1].get(fresh.length) ?? 0) + 1);
+    for (const f of fought) if (f.arc && ARC_IDS.includes(f.arc) && fresh.includes(f.arc)) firsts.push({ arc: f.arc, row: f.row, died: f.died, run: r });
+    if (!fresh.length && previousEmpty && open) emptyPairs++;
+    previousEmpty = !fresh.length && open;
+    history = [...new Set([...history, ...seen])].sort();
+  }
+  if (SCHEDULE_SHOOTER_KINDS.some(kind => !history.includes(kind))) viewersLeft++;
+}
+
+const head = (() => { try { return execSync('git rev-parse --short HEAD').toString().trim(); } catch { return '?'; } })();
+const pct = (n: number, of: number): string => (of ? `${Math.round(100 * n / of)}%` : '—');
+console.log(`Задача 57а: дуги новых стрелков по походам зрителя, ${VIEWERS} зрителей × ${RUNS} походов, история до похода 1 — ${START === 'all' ? 'встречены все дуги первых походов' : 'пусто (новый зритель)'}, предел боя ${LIMIT} с, ${new Date().toISOString().slice(0, 10)}, HEAD ${head}, ${Math.round((Date.now() - started) / 1000)} с (эвристика, жадный бот).\n`);
+
+console.log('### 1. Ряд первой встречи (потолок — `maxRow`)\n');
+console.log('| Дуга | Потолок | Встреч | Ряды (число) | Позже потолка |');
+console.log('| --- | --- | --- | --- | --- |');
+for (const arc of SCHEDULE_SHOOTER_ARCS) {
+  const list = firsts.filter(f => f.arc === arc.id), rows = new Map<number, number>();
+  for (const f of list) rows.set(f.row, (rows.get(f.row) ?? 0) + 1);
+  console.log(`| ${arc.id} | ${arc.maxRow} | ${list.length} | ${[...rows].sort((a, b) => a[0] - b[0]).map(([row, n]) => `${row}: ${n}`).join(', ') || '—'} | ${list.filter(f => f.row > (arc.maxRow ?? Infinity)).length} |`);
+}
+
+console.log('\n### 2. Смерти в бою первой встречи против других боёв того же ряда (ориентир §16: не больше +5 п. п.)\n');
+console.log('| Ряд | Первые встречи: смертей / боёв | Другие бои ряда: смертей / боёв | Разница, п. п. |');
+console.log('| --- | --- | --- | --- |');
+for (let row = 1; row <= 9; row++) {
+  const mine = firsts.filter(f => f.row === row);
+  if (!mine.length) continue;
+  const others = fights.filter(f => f.row === row && !(f.arc && ARC_IDS.includes(f.arc)));
+  const a = mine.filter(f => f.died).length / mine.length, b = others.length ? others.filter(f => f.died).length / others.length : 0;
+  console.log(`| ${row} | ${mine.filter(f => f.died).length} / ${mine.length} (${pct(mine.filter(f => f.died).length, mine.length)}) | ${others.filter(f => f.died).length} / ${others.length} (${pct(others.filter(f => f.died).length, others.length)}) | ${(100 * (a - b)).toFixed(1).replace('.', ',')} |`);
+}
+
+console.log('\n### 3. Новых видов задачи 57 за поход (ожидание — 0–1, без двух «пустых» походов подряд, пока дуги остались)\n');
+console.log(`| Поход | Дуга 57 открыта на старте | ${[0, 1, 2, 3].map(n => `${n} новых`).join(' | ')} |`);
+console.log(`| --- | --- | ${[0, 1, 2, 3].map(() => '---').join(' | ')} |`);
+for (let r = 1; r <= RUNS; r++) console.log(`| ${r} | ${openAtStart[r - 1]} | ${[0, 1, 2, 3].map(n => perRun[r - 1].get(n) ?? 0).join(' | ')} |`);
+console.log(`\nДва «пустых» похода подряд при открытой дуге: ${emptyPairs}. Зрителей, у которых после ${RUNS} походов осталась дуга: ${viewersLeft} из ${VIEWERS}.`);
