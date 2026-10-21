@@ -15,6 +15,7 @@
  *   a white ring on each link that dropped out.
  * Coordinates are arena pixels (`unit` per arena unit); `r` is the drawing radius of a body in px.
  */
+import { countPlace, type VisibleArea } from './edgeMarkers';
 import { ColorMatrixFilter, Container, Graphics, Text } from 'pixi.js';
 import { characterSprite, hasCharacterArt } from '../art/characterAssets';
 import type { Vec } from '../sim/geometry';
@@ -250,6 +251,8 @@ export class TrollView {
   private seenParts = new Map<number, { kind: string; x: number; y: number; rot: number; r: number }>();
   private countLabel: Text | null = null;
   private edgeLabel: Text | null = null;
+  /** The dark plate under the count by the goal pointer (as under «далеко»): the count never lies on a body's disc. */
+  private edgeBack: Graphics | null = null;
   private rockFlight: Container | null = null;
   private plates = new Map<number, number>();
 
@@ -269,6 +272,7 @@ export class TrollView {
     this.fxG.clear();
     if (this.countLabel) this.countLabel.visible = false;
     if (this.edgeLabel) this.edgeLabel.visible = false;
+    if (this.edgeBack) this.edgeBack.visible = false;
     if (this.rockFlight) this.rockFlight.visible = false;
     Object.assign(this.shown, { hits: 0, sparks: 0, severed: 0, tailFalls: 0, unlinks: 0, crumbles: 0, regrows: 0, opens: 0 });
   }
@@ -459,7 +463,7 @@ export class TrollView {
    * the head thrown back while he roars, the whole-second count over the head. `art` — the core's drawing (`buildCore`), null when
    * the body is not drawn. `r` — the body's drawing radius in px.
    */
-  syncCore(art: CoreArt | null, world: World, clock: number, r: number, visible: boolean): void {
+  syncCore(art: CoreArt | null, world: World, clock: number, r: number, visible: boolean, area?: VisibleArea): void {
     const st = trollState(world), s = this.shown;
     if (this.countLabel) this.countLabel.visible = false;
     if (!art || !st) return;
@@ -487,7 +491,9 @@ export class TrollView {
     label.text = s.count;
     label.style.fill = win.left <= 1 ? 0xff8a6a : 0xfff2c4;
     // Right of the head, below the snore arc's right end and the HP plaque (design 17.10.2026, task 48 §24.15: it sat on both).
-    label.position.set(st.x * U + r * TROLL_ART * 0.48, st.y * U - r * TROLL_ART * TROLL_ART_ASPECT * 0.45);
+    const at = { x: st.x * U + r * TROLL_ART * 0.48, y: st.y * U - r * TROLL_ART * TROLL_ART_ASPECT * 0.45 };
+    const put = area ? countPlace(at, { x: st.x * U, y: st.y * U }, r * 1.4, area, 18) : at;
+    label.position.set(put.x, put.y);
     label.visible = true;
   }
 
@@ -496,6 +502,7 @@ export class TrollView {
     const st = trollState(world), s = this.shown, win = st?.window;
     s.edgeCount = '';
     if (this.edgeLabel) this.edgeLabel.visible = false;
+    if (this.edgeBack) this.edgeBack.visible = false;
     if (!win || !win.open || win.hit || !goal || coreSeen) return;
     const label = this.edgeLabel ??= (() => {
       const text = new Text({ text: '', style: { fontFamily: 'Georgia, serif', fontSize: 24, fontWeight: 'bold', fill: 0xfff2c4, stroke: { color: NAVY, width: 5 } } });
@@ -507,6 +514,9 @@ export class TrollView {
     label.text = s.edgeCount;
     label.style.fill = win.left <= 1 ? 0xff8a6a : 0xfff2c4;
     label.position.set(goal.x - Math.cos(goal.angle) * 30, goal.y - Math.sin(goal.angle) * 30);
+    const back = this.edgeBack ??= (() => { const g = new Graphics(); parent.addChildAt(g, Math.max(0, parent.getChildIndex(label))); return g; })();
+    back.clear().roundRect(label.position.x - 17, label.position.y - 17, 34, 34, 8).fill({ color: 0x0f1720, alpha: 0.88 }).stroke({ color: 0x55616e, width: 2 });
+    back.visible = true;
     label.visible = true;
   }
 

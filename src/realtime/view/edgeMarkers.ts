@@ -15,7 +15,10 @@ import { archerLine, archerMark } from '../sim/enemies/archer';
 import { sapperFuse } from '../sim/enemies/sapper';
 import { shamanBeam } from '../sim/enemies/shaman';
 import { wolfRushLine } from '../sim/enemies/wolf';
-import { doorOpen, type World } from '../sim/world';
+import { CHIEF } from '../sim/enemies/chief';
+import { TROLL } from '../sim/enemies/troll';
+import { WARLOCK } from '../sim/enemies/warlock';
+import { doorOpen, type Enemy, type World } from '../sim/world';
 
 export type EdgeKind = 'threat' | 'goal' | 'spawn';
 export interface EdgeMarker { x: number; y: number; kind: EdgeKind }
@@ -24,6 +27,37 @@ export interface EdgeMarker { x: number; y: number; kind: EdgeKind }
 const BEAM_NEAR_HERO = 4;
 /** A source counts as off screen when its centre is outside the view (a half-visible body still gets the pointer: its line is the danger). */
 const SEEN_MARGIN = 0;
+
+/** The cores whose window is the fight (task 55 Д, design 21.10.2026): the Troll's, the Chief's and the warlock's. */
+export const hudBossCore = (e: Pick<Enemy, 'kind' | 'partOf'>): boolean => (e.kind === TROLL || e.kind === CHIEF || e.kind === WARLOCK) && e.partOf === undefined;
+
+/** The visible area of the stage in px: inside the HUD above, the action bar below and the sides (`edgeInset`). */
+export interface VisibleArea { x0: number; y0: number; x1: number; y1: number }
+
+/**
+ * The boss core cannot be taken (design 21.10.2026): the centre of his ring — the point the player clicks — is outside the visible area
+ * (under the HUD or the bar, or off the sides). A drawing cut by the HUD whose ring is in view is no reason for a pointer.
+ */
+export const coreCentreHidden = (centre: { x: number; y: number }, area: VisibleArea): boolean => centre.x < area.x0 || centre.x > area.x1 || centre.y < area.y0 || centre.y > area.y1;
+
+/**
+ * Where a boss window's count stands: at `head` while that is in the visible area; else pushed inside it and, where it would sit on the ring,
+ * moved beside the ring (left of it, right when the left is off the area) — so the count is always in view and never on the ring.
+ * `ring` — the ring's radius, `pad` — the count's half size (same units as the points).
+ */
+export function countPlace(head: { x: number; y: number }, core: { x: number; y: number }, ring: number, area: VisibleArea, pad: number): { x: number; y: number } {
+  if (head.x >= area.x0 + pad && head.x <= area.x1 - pad && head.y >= area.y0 + pad && head.y <= area.y1 - pad) return { x: head.x, y: head.y };
+  const y = Math.min(area.y1 - pad, Math.max(area.y0 + pad, core.y)), left = core.x - ring - pad * 1.4, right = core.x + ring + pad * 1.4;
+  return { x: left >= area.x0 + pad ? left : right, y };
+}
+
+/**
+ * `base` with one exception: a boss core (`hudBossCore`) that `hidden` says is under the HUD or the action bar is not seen — it gets the goal
+ * pointer and its window's count by the pointer, as off screen. Any other point is seen as `base` says (the camera and the other pointers stay).
+ */
+export function seesUnderHud<P extends { x: number; y: number }>(base: (p: P, margin: number) => boolean, hidden: (e: Enemy) => boolean): (p: P, margin: number) => boolean {
+  return (p, margin) => base(p, margin) && !(hudBossCore(p as unknown as Enemy) && hidden(p as unknown as Enemy));
+}
 
 /** `sees(point, margin)` — the point is inside the view grown by `margin` units; `spawns` — pointers to spawn markers too. */
 export function collectEdgeMarkers(world: World, sees: (p: { x: number; y: number }, margin: number) => boolean, spawns = false): EdgeMarker[] {

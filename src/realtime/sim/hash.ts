@@ -91,6 +91,8 @@ export function worldState(world: World): unknown {
     ...world.pitch ? { pitch: world.pitch } : {},
     // Task 59а: where the formations' latest recruits fell (absent until a recruit dies under the law).
     ...world.recruitFell ? { recruitFell: world.recruitFell } : {},
+    // Task 62 «Ведунья v2» (chain.ts): the game second of the last discharge (absent until one — worlds hash as before).
+    ...world.castAt !== undefined ? { castAt: world.castAt } : {},
     // Task 55а «Замок: толчок» (shove.ts): the things sliding now (absent while none — worlds without a shove hash as before).
     ...world.shoves ? { shoves: world.shoves } : {},
     // Task 56 «Приметы» (omens.ts): the storm, the sleep, the pools, the roll call (each absent until its rule acts — worlds hash as before).

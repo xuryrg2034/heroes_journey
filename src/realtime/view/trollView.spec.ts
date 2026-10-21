@@ -12,7 +12,7 @@
 // Node 20 has no global navigator; pixi.js reads it on load (nodeNavigator.testkit.ts). First import.
 import './nodeNavigator.testkit';
 import { Graphics, Text } from 'pixi.js';
-import { enemyRefusal } from '../sim/chain';
+import { enemyRefusal, hoverRefusal, nextCandidates, pickAt, pickRadius } from '../sim/chain';
 import { PHASE3_PLATES, TAIL_INNER, TAIL_OUTER, TROLL, TROLL_CLUB, TROLL_ROCK, TROLL_TAIL, trollMove, trollState } from '../sim/enemies/troll';
 import { defaultParams, type Params } from '../sim/params';
 import { Simulation, SIM_DT } from '../sim/simulation';
@@ -175,6 +175,50 @@ check('the node card: «Враги» counts the fight\'s start — the Troll and
   const lines = nodeDangers({ arena: 'troll', row: 10, guaranteedElite: false, garrison: { start: [TROLL, TROLL_CLUB, TROLL_ROCK, TROLL_TAIL].map(kind => ({ kind, count: 1 })), newcomers: [], knights: 0, bolts: false, deep: false } });
   const enemies = lines.find(l => l.id === 'enemies');
   assert(enemies?.text === 'Тролль, дубина, камень, хвост · подходят: обычные', `the enemies line (${enemies?.text})`);
+});
+
+/** The pointer for which the rule and the nearest pick differ: inside the core's press ring (`pickRadius`), on the line to the body, nearer to the body than to the core. */
+function ringPointer(w: World, core: Enemy, body: Enemy): { x: number; y: number } {
+  const ring = pickRadius(w, core), d = Math.hypot(body.x - core.x, body.y - core.y);
+  assert(d / 2 < ring, `the contact distance ${d.toFixed(2)} leaves room inside the ring ${ring.toFixed(2)}`);
+  const t = Math.min((d / 2 + ring) / 2, d), at = { x: core.x + (body.x - core.x) / d * t, y: core.y + (body.y - core.y) / d * t };
+  assert(Math.hypot(at.x - core.x, at.y - core.y) < ring && Math.hypot(at.x - body.x, at.y - body.y) < Math.hypot(at.x - core.x, at.y - core.y), 'the pointer is in the ring and nearer to the body');
+  return at;
+}
+
+check('«Ядро в окне — первым» (core 21.10.2026): a body on the Troll core — shut, the pointer on it takes the body; in the window it takes the core, no refusal at the cursor, the core is a candidate, the press starts [core]', () => {
+  for (const k of [1, 2, 3]) {
+    const d = den(k), { sim, w } = d;
+    sim.command({ t: 'chill', id: d.rock.id, seconds: 600 });
+    sim.command({ t: 'teleport', x: 11.4, y: 4.2 });
+    const put = (): { id: number; at: { x: number; y: number } } => {
+      const id = sim.command({ t: 'place', x: d.core.x, y: d.core.y + 0.5, color: 1, hp: 0, kind: 'basic' }) as number, e = w.enemies.find(x => x.id === id)!;
+      sim.command({ t: 'chill', id, seconds: 60 });
+      for (let i = 0; i < 30; i++) { sim.tick(); w.events.splice(0); }
+      return { id, at: ringPointer(w, d.core, e) };
+    };
+    assert(w.params.corePickFirst && enemyRefusal(w, d.core) === 'outOfWindow', `seed ${k}: the key is on in his den, the core is shut`);
+    const shut = put(), pickShut = pickAt(w, shut.at);
+    assert(pickShut?.kind === 'enemy' && pickShut.id === shut.id, `seed ${k}: shut — the pointer takes the body (${JSON.stringify(pickShut)})`);
+    assert(hoverRefusal(w, shut.at) === null && !nextCandidates(w).some(e => e.id === d.core.id), `seed ${k}: no refusal on the body, no ring on the shut core`);
+    // Open his window by his own club, then freeze him so the window stays.
+    sim.command({ t: 'teleport', x: 12, y: 6.5 });
+    for (let i = 0; i < 60 * 14 && !trollState(w)?.window?.open; i++) { sim.tick(); w.events.splice(0); }
+    assert(trollState(w)?.window?.open, `seed ${k}: the window opened`);
+    sim.command({ t: 'chill', id: d.core.id, seconds: 60 });
+    sim.command({ t: 'teleport', x: 11.4, y: 4.2 });
+    const fresh = put(), at = fresh.at;
+    const pick = pickAt(w, at);
+    assert(pick?.kind === 'enemy' && pick.id === d.core.id, `seed ${k}: in the window the pointer on the body takes the core (${JSON.stringify(pick)})`);
+    assert(hoverRefusal(w, at) === null && nextCandidates(w).some(e => e.id === d.core.id), `seed ${k}: no refusal, the core's ring is drawn`);
+    // The negative check: with the key off the same pointer takes the nearest — the body.
+    w.params.corePickFirst = false;
+    const off = pickAt(w, at);
+    w.params.corePickFirst = true;
+    assert(off?.kind === 'enemy' && off.id === fresh.id, `seed ${k}: key off — the body (${JSON.stringify(off)})`);
+    sim.command({ t: 'begin', x: at.x, y: at.y });
+    assert(w.chain.length === 1 && w.chain[0].id === d.core.id, `seed ${k}: the press starts [core]`);
+  }
 });
 
 console.log('trollView.spec: done');

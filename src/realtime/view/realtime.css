@@ -109,6 +109,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-focus.rt-focus-on .rt-focus-fill { background: #bfe3ff; box-shadow: 0 0 8px #9ad1ff; }
 .rt-energy { font-family: Georgia, serif; font-size: 15px; color: #8e947b; }
 .rt-energy.rt-ready { color: #9ad1ff; }
+/* Task 59а: the whole line of recruits fell by one pass: the energy readout flashes once. */
+.rt-energy.rt-energy-gain { animation: rt-energy-gain 0.5s ease-out; }
+@keyframes rt-energy-gain { 0% { color: #fff2c4; text-shadow: 0 0 10px #ffd36b; } 100% { text-shadow: none; } }
 .rt-kills { font-family: Georgia, serif; font-size: 15px; color: #e5c8a8; }
 .rt-score { font-family: Georgia, serif; font-size: 15px; color: #fff2c4; }
 /* Task 16: the feat line by the timer; done — gold; an «after the goals» feat before the goals — dim. */

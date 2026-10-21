@@ -7,6 +7,7 @@
 import { registerArena, type ArenaTemplate, type Pace, type StartEnemy } from './arenas';
 import { wall } from './geometry';
 import { BARREL, ROOK, WARDROBE } from './enemies/castle';
+import { WARLOCK } from './enemies/warlock';
 
 const NO_PACKS: Partial<Pace> = { wolfShare: 0, boarShare: 0 };
 /** A wall of `w` × `h` centred at (`x`, `y`) (a column, a pillar). */
@@ -84,5 +85,41 @@ export const BALLROOM_ARENA: ArenaTemplate = registerArena({
   castle: true,
 });
 
-/** The castle's arenas of step 1а (the sandbox's group «Замок»; the view orders the menu). */
-export const CASTLE_ARENAS: readonly ArenaTemplate[] = [HALL_ARENA, ENFILADE_ARENA, BALLROOM_ARENA];
+/** The warlock's candles (spec 6.6): C1 — his start, C2 west, C3 east, C4 — the nearest to the hero's start. */
+const CANDLES = [{ x: 12, y: 3.2 }, { x: 4.5, y: 7 }, { x: 19.5, y: 7 }, { x: 12, y: 9.6 }];
+
+/**
+ * «Зал колдуна» (`c-warlock`, 24 × 15; task 55, stage Д, spec 6.6): the castle's final — the warlock (enemies/warlock.ts) at candle C1,
+ * his wardrobe by him (a shove from the south-east drives it into C1), four barrels on the candles' rows and columns (B1, B2 — C1's row
+ * from the west and the east; B3, B4 — C2's and C3's columns from the south), four pillars off the barrels' lanes. The door opens with
+ * his death (`bossClears`). The layout is the spec's (the pillars — their centres); level design checks the barrels' lanes.
+ */
+export const WARLOCK_ARENA: ArenaTemplate = registerArena({
+  id: 'c-warlock',
+  name: 'Зал колдуна',
+  summary: 'Колдун: финал. Пока цел его шкаф — бей Колдуна его вещами.',
+  goal: 'marked',
+  width: 24,
+  height: 15,
+  heroStart: { x: 12, y: 13 },
+  obstacles: [centred(8.5, 5.5), centred(15.5, 5.5), centred(8.5, 10.5), centred(15.5, 10.5)],
+  buttons: [],
+  door: { x: 12, y: 0.8 },
+  enemies: [
+    { x: CANDLES[0].x, y: CANDLES[0].y, color: 0, kind: WARLOCK, marked: true },
+    thing(WARDROBE, 14.4, 4.6),
+    thing(BARREL, 2.4, 3.2), thing(BARREL, 21.6, 3.2), thing(BARREL, 4.5, 13.2), thing(BARREL, 19.5, 13.2),
+  ],
+  phaseOverride: NO_PACKS,
+  bossFrame: true,
+  bossClears: true,
+  jailerColorless: true,
+  castle: true,
+  warlock: { candles: CANDLES },
+});
+
+/**
+ * The castle's arenas (the sandbox's group «Замок»; the view orders the menu). Task 55, stage Д: «Зал колдуна» (`WARLOCK_ARENA`) joins
+ * the menu with its view (ui, view/warlockView.ts: the warlock, his candles and his window).
+ */
+export const CASTLE_ARENAS: readonly ArenaTemplate[] = [HALL_ARENA, ENFILADE_ARENA, BALLROOM_ARENA, WARLOCK_ARENA];

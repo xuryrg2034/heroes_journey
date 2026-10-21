@@ -18,7 +18,7 @@
 import { dcos, dhypot } from './detMath';
 import { kindOf } from './enemies/kinds';
 import { FORMS } from './buildIds';
-import { hasTalisman } from './kit';
+import { hasTalisman, witchOn } from './kit';
 import { pierceLengthFactor } from './fusions';
 import { blockedAt, type ArenaShape, type Vec } from './geometry';
 import { heroRadius, type Params } from './params';
@@ -43,7 +43,7 @@ export const PIERCE_TAIL_LINKS = 3;
  * The pierce is on in this world: the sandbox toggle (journals without the key: off) or «Прямая» as a form in the kit (task 29,
  * buildIds.ts `FORMS.pierce`; a kit without the id — the old path).
  */
-export function pierceOn(world: World): boolean { return !!world.params.pierceEnabled || hasTalisman(world, FORMS.pierce); }
+export function pierceOn(world: World): boolean { return (!!world.params.pierceEnabled || hasTalisman(world, FORMS.pierce)) && !witchOn(world); }
 
 /** A corner of the chain's polyline: its point and whether it is an enemy link. */
 export interface PierceCorner { x: number; y: number; enemy: boolean }

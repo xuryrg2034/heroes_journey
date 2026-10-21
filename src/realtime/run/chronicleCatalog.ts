@@ -16,11 +16,11 @@ import { PITCHER } from '../sim/enemies/pitcher';
 import { RECRUIT } from '../sim/enemies/recruit';
 import { WARDEN } from '../sim/enemies/warden';
 import { JAILER_RUN_ARENAS, TROLL_RUN_ARENAS } from '../sim/arenasBoss';
-import { SCHEDULE_KINDS } from './schedule';
-import { GARRISON_FINAL_ARENA } from './garrison';
+import { scheduleKinds } from './schedule';
+import { GARRISON_FINAL_ARENA, RT_GARRISON_STEP3_ON } from './garrison';
 import { RT_FORMS, RT_FUSIONS, RT_OPENERS, RT_RELICS, RT_TALISMANS } from './rtTalismans';
 import { RT_HERO_IDS, type RtHearthNpc, type RtHeroId } from './metaCatalog';
-import { RT_ASH_MAX } from './rtRun';
+import { RT_ASH_MAX, RT_FOREST_SHOOTERS_ON } from './rtRun';
 
 /** The six pages, in the book's order (the view's tabs). */
 export type RtChroniclePageId = 'bestiary' | 'bosses' | 'events' | 'items' | 'heroes' | 'hearth';
@@ -28,12 +28,24 @@ export const RT_CHRONICLE_PAGES: readonly RtChroniclePageId[] = ['bestiary', 'bo
 /** The levels of this build (1 — the forest, 2 — the garrison); task 55 adds the castle (3). A chapter of a level not reached is hidden. */
 export const RT_CHRONICLE_LEVELS: readonly number[] = [1, 2];
 
-/** Bestiary: the forest's kinds (the schedule's special kinds; the weak enemy has no caption — no entry) and the garrison's. */
-export const RT_CHRONICLE_FOREST_KINDS: readonly string[] = [...SCHEDULE_KINDS];
-/** Task 59б (spec 10): the step 3's three join the garrison's chapter — 6 → 9 (the page 18 → 21). */
-export const RT_CHRONICLE_GARRISON_KINDS: readonly string[] = [GUARD, HANDLER, HOUND, KEYMASTER, CROSSBOW, KNIGHT, PITCHER, RECRUIT, WARDEN];
-/** Every kind with an entry (what `chronicleMeet` keeps). */
-export const RT_CHRONICLE_KINDS: readonly string[] = [...RT_CHRONICLE_FOREST_KINDS, ...RT_CHRONICLE_GARRISON_KINDS];
+/**
+ * Bestiary: the forest's kinds — the schedule's special kinds the run of this build may give (the weak enemy has no caption — no entry):
+ * task 57а (design 21.10.2026) — the same source as the schedule, `scheduleKinds(shooters)`: with the flag `forestShooters` on
+ * (`RT_FOREST_SHOOTERS_ON`) the slinger, the hive and the wisp join the chapter by themselves (8 → 11 entries).
+ */
+export const chronicleForestKinds = (shooters: boolean = RT_FOREST_SHOOTERS_ON): readonly string[] => [...scheduleKinds(shooters)];
+export const RT_CHRONICLE_FOREST_KINDS: readonly string[] = chronicleForestKinds();
+/**
+ * Task 59б (spec 10; review 21.10.2026 — only what this build gives): the garrison’s kinds — with the flag of step 3 (`RT_GARRISON_STEP3_ON`)
+ * the pitcher, the recruit and the warden join the chapter (6 → 9 entries), as the forest’s shooters do by theirs.
+ */
+export const chronicleGarrisonKinds = (step3: boolean = RT_GARRISON_STEP3_ON): readonly string[] => [GUARD, HANDLER, HOUND, KEYMASTER, CROSSBOW, KNIGHT, ...step3 ? [PITCHER, RECRUIT, WARDEN] : []];
+export const RT_CHRONICLE_GARRISON_KINDS: readonly string[] = chronicleGarrisonKinds();
+/**
+ * Every kind with an entry (what `chronicleMeet` keeps): the forest’s of either value of the flag (task 57а: a shooter met in a run with
+ * `forestShooters` stays in the profile whatever this build’s flag says) and the garrison’s of either value of step 3’s flag (task 59б).
+ */
+export const RT_CHRONICLE_KINDS: readonly string[] = [...scheduleKinds(true), ...chronicleGarrisonKinds(true)];
 export const RT_CHRONICLE_AFFIXES: readonly string[] = AFFIX_IDS;
 
 /** The bosses of this build: the level of each, the arenas of its fight (a won fight there — «побеждён»). */

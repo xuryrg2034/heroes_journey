@@ -10,8 +10,8 @@
  *   `shoveDistance`; the barrel — `barrelRoll` at most). The weak (HP 0, no plates) the lane meets before the stop are **crushed**, in
  *   the order of the path. The hero is neither a stop nor a target.
  * - **The strike at the stop:** a tough body — `shoveImpact` (the wardrobe) or `barrelImpact` (the barrel) HP, an armoured one loses a
- *   plate (the law of the elites' armour, `damageEnemy`); a boss core — the same hit (`damageEnemy` decides, task 55б will add the
- *   warlock's rule); another thing — both lose 1 of their durability; a wall — the wardrobe loses 1. The barrel breaks at any stop; a
+ *   plate (the law of the elites' armour, `damageEnemy`); a boss core — the same hit (`damageEnemy` decides); the warlock's core (task 55,
+ *   stage Д) — `WARLOCK_IMPACT` from any thing, charmed or not, in a window or out of one; a wardrobe at him wears 1, his own breaks; another thing — both lose 1 of their durability; a wall — the wardrobe loses 1. The barrel breaks at any stop; a
  *   thing whose durability reached 0 breaks (it leaves the arena, event `thing` `break` — not a kill).
  * - **The plan is fixed** (the pattern of the garrison's `cuts`): the release fixes the preview (chain.ts, task 55а, its last step) and
  *   the dash's end runs exactly it (`startShove`): the thing slides to the fixed stop at `shoveSpeed` (`world.shoves`, present only while
@@ -65,8 +65,11 @@ export interface Shove extends ShovePlan { run: number; met: number }
 
 /** Step of the march along the path (units; as the crossbow's line). */
 export const PATH_STEP = 0.05;
-/** The barrel and the wardrobe (enemies/castle.ts; no import: the kinds register after). */
+/** The barrel and the wardrobe (enemies/castle.ts; no import: the kinds register after); the warlock's core (enemies/warlock.ts). */
 const BARREL = 'barrel';
+const WARLOCK = 'warlock';
+/** Task 55, stage Д: a thing's strike at the warlock's core (spec 2.3, 6.2): a plate, none — 1 HP. */
+export const WARLOCK_IMPACT = 1;
 // ---- Баланс (journals without the keys play these) ----
 export const SHOVE_DISTANCE = 3;
 export const SHOVE_SPEED = 12;
@@ -135,8 +138,11 @@ export function shovePath(world: World, thing: Enemy, dir: Vec, gone?: ReadonlyS
   const hit = target !== undefined ? world.enemies.find(e => e.id === target)! : null;
   if (stop === 'wall') ownLeft = barrel ? 0 : own - 1;
   if ((stop === 'body' || stop === 'core') && hit && !kindOf(hit).immune && hit.id !== refused) {
-    const damage = impactOf(world, thing.kind), plate = platesOf(hit) > 0;
+    // Task 55, stage Д: the warlock's core takes 1 (a plate, none — 1 HP) from any thing (spec 2.3, «то же» for the barrel).
+    const damage = hit.kind === WARLOCK ? WARLOCK_IMPACT : impactOf(world, thing.kind), plate = platesOf(hit) > 0;
     if (damage > 0) impact = { id: hit.id, damage, plate, killed: !plate && damage >= hit.hp };
+    // Task 55, stage Д: a wardrobe at the warlock's core wears 1 (design 21.10.2026); his own wardrobe breaks on him (spec 6.2).
+    if (hit.kind === WARLOCK && !barrel) ownLeft = thing.vars.wl === hit.id ? 0 : own - 1;
   }
   if (stop === 'thing' && hit) {
     if (!barrel) ownLeft = own - 1;

@@ -34,6 +34,8 @@ import './warden';
 import './pitcher';
 // Task 55а «Замок: толчок»: the barrel, the wardrobe and the rook.
 import './castle';
+// Task 55, stage Д «Колдун v0»: the castle's final boss (`Params.bossFrame`, his charm and windows `Params.warlockCharm`).
+import './warlock';
 // Task 57а «Лес: стрелки»: the slinger, the hive and the wisp («Светляк») — the layer of shots (sim/shots.ts).
 import './slinger';
 import './hive';

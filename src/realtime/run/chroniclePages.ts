@@ -12,7 +12,7 @@ import { isRtForm } from './rtTalismans';
 import { rtInnate } from './rtRun';
 import { rtChronicleGarrisonOpen, rtChronicleRefPage, type RtChronicle } from './chronicle';
 import {
-  RT_CHRONICLE_AFFIXES, RT_CHRONICLE_ASH_STEPS, RT_CHRONICLE_BOSSES, RT_CHRONICLE_EVENTS, RT_CHRONICLE_FOREST_KINDS, RT_CHRONICLE_GARRISON_KINDS, RT_CHRONICLE_HEROES,
+  RT_CHRONICLE_AFFIXES, RT_CHRONICLE_ASH_STEPS, RT_CHRONICLE_BOSSES, RT_CHRONICLE_EVENTS, RT_CHRONICLE_FOREST_KINDS, chronicleForestKinds, RT_CHRONICLE_GARRISON_KINDS, chronicleGarrisonKinds, RT_CHRONICLE_HEROES,
   RT_CHRONICLE_ITEMS, RT_CHRONICLE_LEVELS, RT_CHRONICLE_PAGES, rtChronicleNpcs, rtChronicleParts, type RtChroniclePageId,
 } from './chronicleCatalog';
 
@@ -36,7 +36,13 @@ export interface RtChronicleView {
 /** What the book reads of the profile. */
 export type RtChronicleProfile = Pick<RtProfile, 'meta' | 'runs' | 'won' | 'heroAsh'>;
 /** The camp's NPCs on (Шиш, Евлампий). */
-export interface RtChronicleOn { gambler: boolean; monk: boolean }
+/**
+ * The build's content the book shows: the camp's new NPCs; task 57а — the forest's new shooters (absent — `RT_FOREST_SHOOTERS_ON`); task 59б —
+ * the garrison's kinds of step 3 (absent — `RT_GARRISON_STEP3_ON`).
+ */
+export interface RtChronicleOn { gambler: boolean; monk: boolean; shooters?: boolean; step3?: boolean }
+/** Task 59б: the garrison's kinds the book shows by `on` (absent — the build's flag). */
+const garrisonKindsOf = (on: RtChronicleOn): readonly string[] => (on.step3 === undefined ? RT_CHRONICLE_GARRISON_KINDS : chronicleGarrisonKinds(on.step3));
 
 /** What counts as written: a kind or an event seen, an item or a fusion taken, a boss met or won, a hero or an NPC met, a step climbed. */
 const written = (page: RtChroniclePageId, state: RtChronicleEntryState): boolean =>
@@ -68,9 +74,9 @@ export function rtChronicleView(profile: RtChronicleProfile, hero: RtHeroId, on:
   // «Обучение» empties); the garrison's kinds once a hero reached it.
   const elites = c.elites === true || affixes.size > 0;
   const bestiary = levelled([
-    { level: 1, chapter: () => open('forest', 1, RT_CHRONICLE_FOREST_KINDS.map(kind)) },
+    { level: 1, chapter: () => open('forest', 1, (on.shooters === undefined ? RT_CHRONICLE_FOREST_KINDS : chronicleForestKinds(on.shooters)).map(kind)) },
     ...elites ? [{ level: 1, chapter: () => open('affixes', 1, RT_CHRONICLE_AFFIXES.map(id => ({ id, state: affixes.has(id) ? 'seen' as const : 'unknown' as const }))) }] : [],
-    { level: 2, chapter: () => open('garrison', 2, RT_CHRONICLE_GARRISON_KINDS.map(kind)) },
+    { level: 2, chapter: () => open('garrison', 2, garrisonKindsOf(on).map(kind)) },
   ]);
   // Боссы: by level.
   const boss = (id: (typeof RT_CHRONICLE_BOSSES)[number]['id']): RtChronicleEntry => {
@@ -129,7 +135,8 @@ export function rtChronicleHint(profile: RtChronicleProfile, hero: RtHeroId, on:
   const f = factsOf(profile, hero), c = f.c, out: RtChronicleHint[] = [];
   for (const { id, branch } of RT_CHRONICLE_EVENTS) if (!c.events?.includes(id) && !f.locked.has(id)) out.push({ key: `hint_event_${branch}`, target: `event:${id}` });
   for (const boss of RT_CHRONICLE_BOSSES) if (f.levels.includes(boss.level) && !c.bosses?.[boss.id]) out.push({ key: `hint_boss_${boss.id}`, target: `boss:${boss.id}` });
-  if (f.levels.includes(2)) for (const id of RT_CHRONICLE_GARRISON_KINDS) if (!c.kinds?.includes(id)) out.push({ key: 'hint_garrison', target: `kind:${id}` });
+  // Task 59б: only the kinds this build gives (a kind of step 3 with its flag off is no obtainable target).
+  if (f.levels.includes(2)) for (const id of garrisonKindsOf(on)) if (!c.kinds?.includes(id)) out.push({ key: 'hint_garrison', target: `kind:${id}` });
   const innate = rtInnate({ heroId: hero });
   for (const fusion of f.fusionsShown ? RT_CHRONICLE_ITEMS.fusions : []) {
     const parts = rtChronicleParts(fusion);

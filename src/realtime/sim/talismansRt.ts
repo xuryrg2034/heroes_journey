@@ -19,6 +19,7 @@ import { addCounter, buildStateOf, chainEnemyLinks, chainShieldMinKillsOf, color
 import { BUILD_SOURCES, COUNTER_TALISMANS, FUSIONS, RELICS } from './buildIds';
 import { kindOf } from './enemies/kinds';
 import { TROLL, trollWindowOn } from './enemies/troll';
+import { WARLOCK, warlockCharmOn } from './enemies/warlock';
 import { frostWaveCold } from './fusions';
 import { buildHitAll, enemiesInCircle, shadowHitAll } from './buildHits';
 import { platesOf } from './elites';
@@ -265,8 +266,10 @@ registerBuildModule({
     const targets = enemiesInCircle({ ...w, enemies: [...enemies] }, end.at, SHOCKWAVE_RADIUS);
     const after = shadowHitAll(enemies, targets, SHOCKWAVE_DAMAGE, BUILD_SOURCES.wave), struck = targets.map(e => e.id);
     if (!end.start || !honedOn(w, COUNTER_TALISMANS.shockwave)) return { enemies: after, struck };
-    // «Дыры ядра боссов» (`trollShadowOnce`): the Troll's core the first wave struck in its window is not the second's (one hit a window).
-    const spent = w.params.trollShadowOnce && trollWindowOn(w) ? new Set(targets.filter(e => e.kind === TROLL).map(e => e.id)) : null;
+    // «Дыры ядра боссов» (`trollShadowOnce`; the warlock's — `warlockHoles`): the core the first wave struck in its window is not the
+    // second's (one hit a window).
+    const onceTroll = !!w.params.trollShadowOnce && trollWindowOn(w), onceWarlock = !!w.params.warlockHoles && warlockCharmOn(w);
+    const spent = onceTroll || onceWarlock ? new Set(targets.filter(e => (onceTroll && e.kind === TROLL) || (onceWarlock && e.kind === WARLOCK)).map(e => e.id)) : null;
     const second = enemiesInCircle({ ...w, enemies: [...after] }, end.start, honeWaveStartOf(w)).filter(e => !spent?.has(e.id));
     return { enemies: shadowHitAll(after, second, SHOCKWAVE_DAMAGE, BUILD_SOURCES.wave), struck, second: second.map(e => e.id) };
   },

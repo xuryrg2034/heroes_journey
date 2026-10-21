@@ -22,7 +22,8 @@
 import type { FusionRelease, ReturnPreview, StrikeOutcome } from './chain';
 import type { Vec } from './geometry';
 import { COLOR_RULE_RANK, COUNTER_TALISMANS, HAMMER_IDS, OATH_HUNGER, RELIC_IDS } from './buildIds';
-import { MILLSTONE_STEP, NIMBLE_PAWS_DISCOUNT, hasTalisman } from './kit';
+import { MILLSTONE_STEP, NIMBLE_PAWS_DISCOUNT, WITCH_PATH_ITEMS, hasTalisman, witchOn } from './kit';
+export { WITCH_PATH_ITEMS, witchOn } from './kit';
 import type { ChainLink, Enemy, HeroMove, World } from './world';
 
 /** A link of the chain as the power hooks see it (the same in the plan and in the dash). */
@@ -258,8 +259,11 @@ export const buildModules = (): readonly BuildModule[] => MODULES;
 export function moduleActive(world: World, module: BuildModule): boolean {
   const kit = world.kit;
   if (!kit) return false;
+  // Task 62: the items of the dash's path do nothing for Ведунья v2 (no dash; stage A, design 20.10.2026).
+  if (WITCH_PATH_ITEMS.includes(module.id) && witchOn(world)) return false;
   return module.active ? module.active(world) : kit.talismans.includes(module.id) || kit.hammer === module.id;
 }
+
 
 /** Some module acts in this world: the layer counts chains and dashes only then. */
 export function buildActive(world: World): boolean {
@@ -302,12 +306,12 @@ export function endShadowOf(world: World, end: ChainEndShadow, enemies: readonly
 /** Some active module has the hook (skip work the hook would need: e.g. collecting the dash path). */
 export const hasHook = (world: World, key: keyof BuildModule): boolean => withHook(world, key).length > 0;
 
-function modded(world: World, stat: BuildStat, base: number, end: ChainEnd | null = null): number {
+function modded(world: World, stat: BuildStat, base: number, end: ChainEnd | null = null, skip?: string): number {
   if (!world.kit) return base;
   let value = base;
   for (const m of MODULES) {
     const f = m.modify?.[stat];
-    if (f && moduleActive(world, m)) value = (f as (w: World, v: number, e: ChainEnd | null) => number)(world, value, end);
+    if (f && m.id !== skip && moduleActive(world, m)) value = (f as (w: World, v: number, e: ChainEnd | null) => number)(world, value, end);
   }
   return value;
 }
@@ -316,6 +320,8 @@ function modded(world: World, stat: BuildStat, base: number, end: ChainEnd | nul
 
 /** Link radius R (chain.ts `reachRefusal`; the view draws the circle with it). */
 export const linkRadiusOf = (world: World): number => modded(world, 'linkRadius', world.params.linkRadius);
+/** Task 62 (Ведунья v2): R of the build without «Длинная рука» — the circle of casting is fixed, the ×1.5 of a far link does not grow it. */
+export const linkRadiusBaseOf = (world: World): number => modded(world, 'linkRadius', world.params.linkRadius, null, COUNTER_TALISMANS.longArm);
 /** Focus reserve (chain.ts focus, world.ts start focus; the view's focus bar). */
 export const focusMaxOf = (world: World): number => {
   // Task 45 «Испытание VI»: the run's factor after the build's (`Kit.focusScale`; absent — the reserve as before).

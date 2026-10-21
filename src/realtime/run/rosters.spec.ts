@@ -103,7 +103,8 @@ const walks = Array.from({ length: RUNS }, (_, n) => walk(seedOf(n + 1), n + 1))
 
 check('rosters are data apart from the layout: known kinds and roles; the arenas that take rosters have no start enemies outside their goal (except the anchor lynxes); every arena of the run is fixed, pool or anchor', () => {
   for (const def of [...POOL_ROSTERS, ...ANCHOR_ROLES]) {
-    for (const kind of rosterKinds(def)) { assert(enemyKind(kind) && KIND_ROLE[kind], `${def.id}: kind ${kind}`); }
+    // Task 57а: the wisp has no role (design 17.10.2026: no badge) — every other kind has one.
+    for (const kind of rosterKinds(def)) { assert(enemyKind(kind) && (KIND_ROLE[kind] || kind === 'wisp'), `${def.id}: kind ${kind}`); }
     assert(rosterKinds(def).length > 0 && rosterDef(def.id) === def, `${def.id}: registered`);
   }
   for (const arena of [...POOL_ROSTER_ARENAS, ...Object.keys(MIXED_ROSTER_ARENAS)]) assert(arenaTemplate(arena).enemies.every(e => e.marked || e.elite), `${arena}: a start enemy outside the goal`);
@@ -199,7 +200,8 @@ check(`roster mix, ${RUNS} runs: «Застава» and «Брод» keep their 
   // «Шаманский щит» is the recorded exception (design 11.10.2026): with «Логово» on rows 6–8 the shaman is met too late for
   // «Застава» (never on «Брод»), so it almost never comes — not required here.
   console.log(`   runs with each pool roster: ${POOL_ROSTERS.map(def => `${def.id} ${runsWith.get(def.id) ?? 0}`).join(', ')}`);
-  for (const def of POOL_ROSTERS) if (def.id !== 'shaman-shield') assert((runsWith.get(def.id) ?? 0) > 0, `${def.id}: in no run`);
+  // Task 57а: «Светляки» (`wisps`) is the schedule's lesson of the wisp in a run with `forestShooters` — never in these pool runs.
+  for (const def of POOL_ROSTERS) if (def.id !== 'shaman-shield' && def.id !== 'wisps') assert((runsWith.get(def.id) ?? 0) > 0, `${def.id}: in no run`);
 });
 
 check(`roster mix off: the arenas and rosters of ${RUNS} runs are those before 11.10.2026 (the fingerprint of the walks at 99af5fb), «Застава» and «Брод» keep their own composition`, () => {
