@@ -81,6 +81,9 @@ for (const pair of SHARES ? SHARES.split(',') : []) {
     entry.share = share;
   }
 }
+/** The shares as the templates hold them after `--shares` (read back for the header: the proof they are on). */
+const APPLIED = SHARES ? SHARES.split(',').map(pair => { const id = pair.split('=')[0], t = arenaTemplate(id) as { newcomers?: { kind: string; share: number }[]; pairShare?: number };
+  return id === 'g-barbican' ? `${id} pairShare ${t.pairShare}` : `${id} ${t.newcomers?.find(n => n.kind === (id === 'g-tarworks' ? 'pitcher' : 'recruit'))?.share}`; }).join(', ') : '';
 
 /**
  * Task 40, pass 3: the Castellan's sets of the sweep — the knobs that matter most, put on by the script only. `plates` — the core's
@@ -342,7 +345,7 @@ if (SET) {
 const whole = GARRISON_ONLY ? null : pass(() => true), garrison = FOREST_ONLY ? null : pass(run => !!run.garrisonLevel);
 if (BOSS_AIM) console.log(`Бот целит в ядро босса (--boss-aim): Тюремщик, Кастелян${TROLL_FIGHT ? ', Тролль (финал леса — «Берлога тролля», --troll)' : '; у финала леса ядра нет'}.\n`);
 const head = (() => { try { return execSync('git rev-parse --short HEAD').toString().trim(); } catch { return '?'; } })();
-console.log(`Задача 40, часть Е: кривая выживания бота через лес и гарнизон, ${SEEDS} seed, предел боя ${LIMIT} с, «Ров» ${MOAT ? 'вкл.' : 'по флагу игры'}, шаг 2 ${STEP2_OFF ? 'выкл.' : 'по флагу игры'}, шаг 3 ${STEP3 ? 'вкл.' : 'по флагу игры'}${PLANNER ? ', пары — планировщик' : ''}${SHARES ? `, доли ${SHARES}` : ''} (эвристика, жадный бот), ${new Date().toISOString().slice(0, 10)}, HEAD ${head}, ${Math.round((Date.now() - started) / 1000)} с.\n`);
+console.log(`Задача 40, часть Е: кривая выживания бота через лес и гарнизон, ${SEEDS} seed, предел боя ${LIMIT} с, «Ров» ${MOAT ? 'вкл.' : 'по флагу игры'}, шаг 2 ${STEP2_OFF ? 'выкл.' : 'по флагу игры'}, шаг 3 ${STEP3 ? 'вкл.' : 'по флагу игры'}${PLANNER ? ', пары — планировщик' : ''}${SHARES ? `, доли в шаблонах: ${APPLIED} (ставит скрипт; у «Барбакана» поле pairShare стоит и при 0 — rollColor делает лишний бросок spawnRoll, как в варианте 0 замера долей)` : ''} (эвристика, жадный бот), ${new Date().toISOString().slice(0, 10)}, HEAD ${head}, ${Math.round((Date.now() - started) / 1000)} с.\n`);
 if (whole) print('Весь поход: все бои настоящие', whole, ['л', 'г']);
 if (garrison) print('Гарнизон от «Предместья»: бои леса выиграны обходом, бои гарнизона настоящие', garrison, ['г']);
 // Task 43: the Jailer's fights of both passes (the second plays the forest by the walk: only the first's count).
