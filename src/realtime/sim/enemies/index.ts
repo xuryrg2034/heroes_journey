@@ -28,6 +28,10 @@ import './troll';
 import './chief';
 // Task 55а «Замок: толчок»: the barrel, the wardrobe and the rook.
 import './castle';
+// Task 57а «Лес: стрелки»: the slinger, the hive and the wisp («Светляк») — the layer of shots (sim/shots.ts).
+import './slinger';
+import './hive';
+import './wisp';
 
 export { BOAR_ART_SCALE, type BoarState } from './boar';
 export { packmates, wolfHowl, wolfRushLine, wolfState, WOLF_RUSH } from './wolf';
@@ -47,4 +51,8 @@ export { TROLL, TROLL_CLUB, TROLL_MOVES, TROLL_ROCK, TROLL_TAIL, trollCore, trol
 export { CHIEF, CHIEF_LADLE, CHIEF_MOVES, CHIEF_SACK, chiefCore, chiefMove, chiefState, whistleColors, type ChiefMoveId } from './chief';
 // Task 55а: the castle's things and the rook for the view.
 export { BARREL, ROOK, WARDROBE, rookLine, wardrobeLying, wardrobeTopple } from './castle';
+// Task 57а: the forest shooters for the view.
+export { SLINGER, slingerLines } from './slinger';
+export { HIVE, hiveSwell } from './hive';
+export { WISP, wispState } from './wisp';
 export * from './kinds';

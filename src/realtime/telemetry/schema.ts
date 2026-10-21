@@ -459,6 +459,17 @@ export interface RunRecord extends RtHeader {
   /** Task 51д (from 17.10.2026): the NPC away of this run — met at a rest of its zone (its node, the deal) or not («не дождался»). */
   npcMeet?: { npc: string; met: boolean; nodeId?: string; deal?: string };
   /**
+   * Task 58 «Летопись» (from 20.10.2026): the entries the run added (refs `kind:lynx`, `item:prism` …), the pages' counts after it
+   * (`[have, known]`, the visible chapters) and the items seen and not taken; absent — the chronicle off (or a run with a given seed).
+   */
+  chronicle?: { added: string[]; pages: Record<string, [number, number]>; seenItems?: number };
+  /** Task 58: the window «Летопись» opened in the camp after this run, each time — the pages looked at, the seconds open, «✦» on it. */
+  chronicleOpen?: { pages: string[]; seconds: number; unread: boolean }[];
+  /** Task 58: the owl's hint shown in the camp after this run (`rtChronicleHint`: the line's key, the target's ref). */
+  hint?: { key: string; target: string };
+  /** Task 51е «Трофеи» (from 21.10.2026): the trophies the run earned — ids, a new mark of «Доска Испытания» as `ash:<step>`; absent — none. */
+  trophies?: string[];
+  /**
    * Task 44 «Сплавы» (from 16.10.2026): the run has fusions (`RtRunState.fusions`) and what happened to them — the halves taken (their
    * row), the pairs collected, the fusions made at a rest and the rests closed by the heal or the craft with a pair ready. Absent — a
    * run without the flag (older records too).
@@ -716,6 +727,14 @@ function runMetaOk(r: Record<string, unknown>): boolean {
     && (hearth.garrisonRerolls === undefined || whole(hearth.garrisonRerolls, 1))
     && (hearth.shopRerolls === undefined || whole(hearth.shopRerolls, 1)) && (hearth.swap === undefined || hearth.swap === true)
     && (hearth.vows === undefined || (Array.isArray(hearth.vows) && hearth.vows.every(id => typeof id === 'string'))) && (hearth.away === undefined || typeof hearth.away === 'string'))) return false;
+  // Task 58: the chronicle's counts, openings and hint.
+  const chronicle = r.chronicle as Record<string, unknown> | undefined;
+  if (chronicle !== undefined && !(plain(chronicle) && Array.isArray(chronicle.added) && chronicle.added.every(id => typeof id === 'string') && plain(chronicle.pages)
+    && Object.values(chronicle.pages).every(p => Array.isArray(p) && p.length === 2 && whole(p[0]) && whole(p[1]) && (p[0] as number) <= (p[1] as number)) && (chronicle.seenItems === undefined || whole(chronicle.seenItems)))) return false;
+  if (r.chronicleOpen !== undefined && !(Array.isArray(r.chronicleOpen) && r.chronicleOpen.every(o => plain(o) && Array.isArray(o.pages) && o.pages.every(p => typeof p === 'string') && typeof o.seconds === 'number' && o.seconds >= 0 && typeof o.unread === 'boolean'))) return false;
+  if (r.hint !== undefined && !(plain(r.hint) && typeof r.hint.key === 'string' && typeof r.hint.target === 'string')) return false;
+  // Task 51е: the trophies earned.
+  if (r.trophies !== undefined && !(Array.isArray(r.trophies) && r.trophies.length && r.trophies.every(id => typeof id === 'string' && id.length > 0))) return false;
   if (r.npcMeet !== undefined && !(plain(r.npcMeet) && typeof r.npcMeet.npc === 'string' && typeof r.npcMeet.met === 'boolean' && (r.npcMeet.nodeId === undefined || typeof r.npcMeet.nodeId === 'string') && (r.npcMeet.deal === undefined || typeof r.npcMeet.deal === 'string'))) return false;
   if (r.vows !== undefined && !(Array.isArray(r.vows) && r.vows.every(v => plain(v) && typeof v.id === 'string' && typeof v.kept === 'boolean'))) return false;
   if (r.arrive !== undefined && !(Array.isArray(r.arrive) && r.arrive.every(a => plain(a) && typeof a.npc === 'string' && (a.path === 'deed' || a.path === 'self') && (a.viewerRun === undefined || whole(a.viewerRun, 1))))) return false;
@@ -1087,6 +1106,11 @@ export interface FightSummary {
    */
   garrison: GarrisonSummary;
   /**
+   * Task 57а «Лес: стрелки» (from 17.10.2026; absent in older records — `withSummaryDefaults` reads 0 and empty maps): the new forest
+   * shooters' numbers of the fight (`ForestSummary`).
+   */
+  forest: ForestSummary;
+  /**
    * Task 16 telemetry (from 14.10.2026): the viewer's first meetings during the fight (`RtRecorder.firstMeet`), counted by the view —
    * a replay cannot see them (not compared by `summaryDiff`). Absent — not counted (the sandbox, older records).
    */
@@ -1097,6 +1121,18 @@ export interface FightSummary {
    * water (`flood:wet`) and of the colour on the roll call (`rollcall:link`).
    */
   omenFired?: Record<string, number>;
+}
+
+/**
+ * Task 57а (observe.ts): the forest shooters of a fight — windups begun by the shooter's kind (`shooter` `aim`: `slinger`, `hive`); shots
+ * that hit the hero and those a shield took, by the shot's kind (`stone`, `wasp`; `shot` `hit` / `block`); shots put out by the dash and
+ * by a bomb (`shot` `snuff`, `snuffShots`); wisps («Светляк») — seen on the arena, killed by the chain, gone out on the hero (`touch` —
+ * hurt, `blocked` — a shield took it), gone out by their flight's end (`faded`).
+ */
+export interface ForestSummary {
+  volleys: Record<string, number>;
+  shots: { hit: Record<string, number>; block: Record<string, number>; snuffDash: number; snuffBomb: number };
+  wisps: { appeared: number; chainKills: number; touched: number; blocked: number; faded: number };
 }
 
 /** Task 40: the garrison's numbers of a fight (`FightSummary.garrison`). */
@@ -1447,6 +1483,7 @@ export function emptyFightSummary(): FightSummary {
     death: null,
     boss: null,
     garrison: { shackles: 0, shackleCuts: 0, firstShackleCut: null, frenzyHits: 0, frenzyDamage: 0, riots: 0, riotKills: 0, riotDamage: 0, knights: 0, knightSheds: 0, knightKills: 0, knightChains: 0 },
+    forest: { volleys: {}, shots: { hit: {}, block: {}, snuffDash: 0, snuffBomb: 0 }, wisps: { appeared: 0, chainKills: 0, touched: 0, blocked: 0, faded: 0 } },
   };
 }
 

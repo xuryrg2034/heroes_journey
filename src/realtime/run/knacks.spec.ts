@@ -44,7 +44,9 @@ const readsBack = (state: RtRunState, label: string): void => { assert(serialize
 // Task 50: a walk is of a run without the knack screen unless its `create` says `knacks: true` (RT_KNACKS_ON turned on at the view's step, 16.10.2026).
 const walk = (k: number, create: WalkOptions['create'], extra: Partial<WalkOptions> = {}): Walk => walkRun({ k, create: { knacks: false, ...create }, ...extra });
 /** The run's state without the task-50 fields (to compare with a run without the flags). */
-const plain = (run: RtRunState): string => { const copy = structuredClone(run) as Partial<RtRunState>; delete copy.knacks; delete copy.honed; delete copy.habits; delete copy.habit; return JSON.stringify(copy); };
+const plain = (run: RtRunState): string => { const copy = structuredClone(run) as Partial<RtRunState>; delete copy.knacks; delete copy.honed; delete copy.habits; delete copy.habit;
+  // Task 58в: the chronicle notes a refused screen's items (`shown`) — the run's other state is the comparison's.
+  delete copy.chronicle; delete copy.shown; return JSON.stringify(copy); };
 /** The states of a walk without the task-50 fields, the knack screens left out, a repeat of the same state (the archetype's step) once. */
 function plainStates(k: number, create: WalkOptions['create'], extra: Partial<WalkOptions> = {}): string[] {
   const out: string[] = [];
@@ -297,13 +299,31 @@ await check('«Без повадки» is the run without the flag, state for st
   }
 });
 
-await check('the archetype row: before the gift\'s buttons, once; the gift\'s buttons are the same; the archetype stays to the end', () => {
+await check('the archetype row: before the gift\'s buttons; the choice changes until the gift\'s button (§19); the gift\'s buttons are the same; the archetype stays to the end', () => {
   for (let k = 1; k <= 10; k++) {
     const run = createRtRun(seedOf(k), { gift: 'full', habits: true }), view = rtGiftView(run)!;
     assert(view.habit && !view.habit.chosen, 'the row is open');
     assert(!rtChooseGift(run, view.options.findIndex(o => o.available)).ok, 'a button before the archetype is refused');
     const chosen = ok(rtChooseHabit(run, 'cold'), 'habit');
-    assert(!rtChooseHabit(chosen, 'flame').ok, 'once');
+    // §19 (the v75 playtest): a second click changes the choice while the gift is open; the gift's button makes it final.
+    const changed = ok(rtChooseHabit(chosen, 'flame'), 'a change');
+    assert(changed.habit === 'flame' && rtGiftView(changed)!.habit!.id === 'flame' && rtGiftView(changed)!.habit!.chosen, 'the choice changed');
+    const button = rtGiftView(run)!.options.findIndex(o => o.available && o.option.kind !== 'pick-item');
+    const given = ok(rtChooseGift(changed, button), 'the gift');
+    assert(given.habit === 'flame' && !rtChooseHabit(given, 'cold').ok, 'final after the gift\'s button');
+    // «Без повадки» → «Пламя» → the gift: 'flame'; «Пламя» → «Без повадки» → the gift: no field.
+    const noneThenFlame = ok(rtChooseGift(ok(rtChooseHabit(ok(rtChooseHabit(run, null), 'none'), 'flame'), 'flame'), button), 'gift');
+    assert(noneThenFlame.habit === 'flame', `«Без повадки» → «Пламя»: ${noneThenFlame.habit}`);
+    const flameThenNone = ok(rtChooseGift(ok(rtChooseHabit(ok(rtChooseHabit(run, 'flame'), 'flame'), null), 'none'), button), 'gift');
+    assert(!('habit' in flameThenNone), '«Пламя» → «Без повадки»: no field');
+    // One change before the gift gives the save of one choice, byte for byte.
+    const once = ok(rtChooseGift(ok(rtChooseHabit(run, 'flame'), 'flame'), button), 'gift');
+    assert(serializeRtRun(noneThenFlame) === serializeRtRun(once), 'a change = one choice (flame)');
+    const onceNone = ok(rtChooseGift(ok(rtChooseHabit(run, null), 'none'), button), 'gift');
+    assert(serializeRtRun(flameThenNone) === serializeRtRun(onceNone), 'a change = one choice (none)');
+    // The save with the gift open keeps the last choice (null — «Без повадки»).
+    const open = parseRtRun(serializeRtRun(ok(rtChooseHabit(ok(rtChooseHabit(run, 'shift'), 'shift'), null), 'none')))!;
+    assert(open.habit === null && rtGiftView(open)!.habit!.chosen && rtGiftView(open)!.habit!.id === null, 'the open gift keeps the last choice');
     const flagless = createRtRun(seedOf(k), { gift: 'full' });
     assert(JSON.stringify(rtGiftView(chosen)!.options) === JSON.stringify(rtGiftView(flagless)!.options), 'the buttons are the same');
     const end = walk(k, { gift: 'full', habits: true, garrison: true }, { habit: 'shift' }).run;
@@ -393,7 +413,9 @@ await check('a save of the open gift with «Без повадки» (`habit: nul
     const after = ok(rtChooseHabit(createRtRun(seedOf(k), { gift: 'full', habits: true }), null), 'none'), loaded = parseRtRun(serializeRtRun(after));
     assert(loaded && serializeRtRun(loaded) === serializeRtRun(after) && loaded.habit === null, `seed ${k}: the same state`);
     assert(JSON.stringify(rtGiftView(loaded)) === JSON.stringify(rtGiftView(after)) && rtGiftView(loaded)!.habit?.chosen === true, `seed ${k}: the same view, the archetype decided`);
-    assert(!rtChooseHabit(loaded, 'cold').ok && !rtChooseHabit(after, 'cold').ok, `seed ${k}: no second choice`);
+    // §19: the loaded open gift still takes a change, the same as the state before the save.
+    const fromLoaded = rtChooseHabit(loaded, 'cold'), fromAfter = rtChooseHabit(after, 'cold');
+    assert(fromLoaded.ok && fromAfter.ok && serializeRtRun(fromLoaded.run) === serializeRtRun(fromAfter.run) && fromLoaded.run.habit === 'cold', `seed ${k}: a change after the load`);
     const view = rtGiftView(after)!, at = view.options.find(o => o.available)?.index ?? null;
     const a = rtChooseGift(after, at), b = rtChooseGift(loaded, at);
     assert(a.ok && b.ok && serializeRtRun(a.run) === serializeRtRun(b.run) && JSON.stringify(a.events) === JSON.stringify(b.events), `seed ${k}: the gift's button gives the same step`);

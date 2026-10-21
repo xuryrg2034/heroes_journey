@@ -459,6 +459,19 @@ async function main(): Promise<void> {
     const ended = await latest(1002);
     assert(ended.outcome === 'defeat' && typeof ended.endedAt === 'string' && Date.parse(ended.endedAt) >= before - 1000 && Date.parse(ended.endedAt) <= Date.now() + 1000, `ended: ${ended.outcome} ${ended.endedAt}`);
     rec.dispose();
+    // A click on an NPC in the camp in a later session of another build writes the ended run again: its header keeps the build the run
+    // ended on (the design's review of the v75 playtest, 21.10.2026).
+    const globals = globalThis as { __RT_BUILD__?: string };
+    globals.__RT_BUILD__ = 'later-build';
+    try {
+      const later = new RtRecorder({ sandbox: false, paramsStorage: 'p', params: copyParams(browserJournal.journal.params as unknown as Journal['params']), local, sessionStore: sessionFake(), channel: null, sinkPollMs: 0, buffer: { storage: local, journals: memoryJournalStore() } });
+      assert(later.build === 'later-build' && later.build !== rec.build, `the later build ${later.build} ${rec.build}`);
+      later.hearthClick(lost.run, 'herb');
+      await new Promise(r => setTimeout(r, 10));
+      const again = (await later.buffer.all()).filter((r): r is RunRecord => r.kind === 'run' && r.seed === 1002).pop()!;
+      assert(again.session === later.session && again.npcClicks?.herb === 1 && again.build === rec.build, `rewritten: ${again.session} ${JSON.stringify(again.npcClicks)} ${again.build}`);
+      later.dispose();
+    } finally { delete globals.__RT_BUILD__; }
   });
 
   await check('task 35 С1: the level of «Тряска и вспышки» in the run record — at the start, changes on the gear, nothing after the end, junk ignored', async () => {
