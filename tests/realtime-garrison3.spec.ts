@@ -20,7 +20,7 @@ interface G3 {
   recruits: { numbers: number; current: number; dim: number; bans: number; currentNumber: number; refused: number; drills: number; unlinks: number };
   wardens: { keys: number; gold: number; warn: number; anger: number; swings: number; starts: number; ends: number; hits: number };
   sounds: { throws: number; lands: number; ignites: number; keys: number };
-  worldParams: { pitch?: boolean; pitchHeroSlow?: number; crowdSlow?: number; heroThroughEnemies?: boolean; pitchLife?: number }; heroFactor: number;
+  worldParams: { pitch?: boolean; pitchHeroSlow?: number; pitchEnemySlow?: number; crowdSlow?: number; heroThroughEnemies?: boolean; pitchLife?: number }; heroFactor: number;
 }
 interface Snap {
   hint: string | null; chain: number[]; arena: string; status: string; time: number; menuOpen: boolean; energy: number;
@@ -213,6 +213,9 @@ in the pool ${JSON.stringify(inPool)}, on the ground at the same spot ${JSON.str
 ${frameTable(inFrames)}
 -- on the ground, frames:
 ${frameTable(outFrames)}`;
+  // The same lines go to the plain log of a passing run too (the numbers of the walk, the world's pitch numbers).
+  console.log(`garrison3 pool walk: ${report.split('\n')[0]}
+in the pool ${JSON.stringify(inPool)}, on the ground ${JSON.stringify(onGround)}`);
   expect(inPool.pairs, `the hero walked in the pool on some frames
 ${report}`).toBeGreaterThan(2);
   expect(onGround.pairs, `the control walked out of the pool on some frames
