@@ -86,7 +86,7 @@ const replays = (sim: Simulation): boolean => replay(JSON.parse(JSON.stringify(s
 /** Ticks until the charge's run is over (its `hit`), at most `seconds`. */
 const untilCharged = (sim: Simulation, out: WorldEvent[] = [], seconds = 8): WorldEvent[] => ticks(sim, ticksOf(seconds), out, (_w, ev) => moves(ev, 'charge', 'hit').length > 0);
 
-check('the hero standing on the lane of «Рывок» takes −2 from `troll-charge`, once; the lane ends in the open (10 units) — no window, the Troll ends past the hero', () => {
+check('the hero standing on the lane of «Рывок» takes −2 from `troll-charge`, once; the lane ends in the open (10 units) — no window, the Troll ends past the hero; no new charge in the cooldown (6 s)', () => {
   for (const k of SEEDS) {
     const { sim, w, core } = fight('troll', k, { x: 12, y: 8 });
     const events = untilCharged(sim);
@@ -95,6 +95,10 @@ check('the hero standing on the lane of «Рывок» takes −2 from `troll-ch
     assert(hits.length === 1 && hits[0].damage === 2 && w.hero.hp === 997, `seed ${k}: −2 once (${JSON.stringify(hits)}, HP ${w.hero.hp})`);
     assert(!trollState(w)!.window && !of(events, 'trollWindow').some(e => e.action === 'open'), `seed ${k}: no window`);
     assert(Math.abs(core.x - 12) < 1e-6 && Math.abs(core.y - 12.2) < 1e-6, `seed ${k}: the run ran its 10 units (${core.x}, ${core.y})`);
+    // The cooldown: the hero back in its sight (8.2 away, a free line) — no new charge for `trollChargeCd` 6 s after the run's end.
+    sim.command({ t: 'teleport', x: 12, y: 4 });
+    const after = ticks(sim, ticksOf(5.9));
+    assert(!moves(after, 'charge', 'start').length, `seed ${k}: no charge in the cooldown`);
     assert(replays(sim), `seed ${k}: replay`);
   }
 });
@@ -105,8 +109,9 @@ check('the hero who walks aside during the windup is not hurt; the lane stays wh
     const events = ticks(sim, ticksOf(4), [], (_w, ev) => moves(ev, 'charge', 'start').length > 0);
     const lane = trollMove(w)!;
     assert(lane?.move === 'charge' && !lane.running && lane.width === CHARGE_WIDTH && Math.abs(lane.to!.x - 12) < 1e-6, `seed ${k}: the lane south (${JSON.stringify(lane)})`);
+    // A short step: 0.3 s × 4 = 1.2 units off the axis — out of the hit's reach 0.8 + 0.28 by 0.12.
     sim.command({ t: 'walk', x: 1, y: 0 });
-    ticks(sim, ticksOf(0.5), events);
+    ticks(sim, ticksOf(0.3), events);
     sim.command({ t: 'walk', x: 0, y: 0 });
     assert(Math.abs(w.hero.x - 12) > CHARGE_WIDTH / 2 + 0.28, `seed ${k}: the hero off the lane (${w.hero.x})`);
     untilCharged(sim, events);
@@ -164,10 +169,12 @@ check('a wall between the Troll and the hero: no charge while it stands between 
     const { sim, w, core } = fight('troll-field', k, { x: 14, y: 16 });
     let blocked = 0;
     for (let i = 0; i < ticksOf(5) && w.status === 'playing'; i++) {
-      const sees = lineOfSight(core, w.hero, w.arena, bodyRadiusOf(w.params, core)), idle = w.time >= 2 && !core.vars.mv && !core.vars.kr;
+      // The conductor may choose in this tick (its first move is due at the 2nd second) and nothing winds up or runs.
+      const sees = lineOfSight(core, w.hero, w.arena, bodyRadiusOf(w.params, core)), idle = w.time >= 2 - 1.5 * SIM_DT && !core.vars.mv && !core.vars.kr;
       sim.tick();
       const ev = w.events.splice(0);
-      if (!sees && idle) { blocked++; assert(!moves(ev, 'charge', 'start').length, `seed ${k}: a charge through the wall at ${w.time.toFixed(2)}`); }
+      if (!sees && idle) blocked++;
+      assert(sees || !moves(ev, 'charge', 'start').length, `seed ${k}: a charge through the wall at ${w.time.toFixed(2)}`);
     }
     assert(blocked > ticksOf(0.5), `seed ${k}: the wall stood between them long enough (${blocked} ticks)`);
     assert(replays(sim), `seed ${k}: replay`);
