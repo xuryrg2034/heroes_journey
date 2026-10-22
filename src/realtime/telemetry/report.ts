@@ -264,7 +264,7 @@ const SOURCE_TITLES: Record<string, string> = {
   // Task 43: the knight's touch and moves.
   knight: 'касание рыцаря', 'knight-charge': 'рывок рыцаря', 'knight-swing': 'размах рыцаря',
   // Task 48: the Troll's moves.
-  'troll-club': '«Удар дубиной»', 'troll-rock': '«Бросок камня»', 'troll-tail': '«Хвост метёт»',
+  'troll-club': '«Удар дубиной»', 'troll-rock': '«Бросок камня»', 'troll-tail': '«Хвост метёт»', 'troll-charge': '«Рывок» Тролля',
   // Task 57а «Лес: стрелки».
   stone: 'камень пращника', wasp: 'оса улья', wisp: 'светляк', slinger: 'касание пращника',
   // Task 55а: the castle's moves and the rook's touch; the shove's kills (the player's).
@@ -1504,11 +1504,11 @@ const BOSS_MOVES: readonly [string, string][] = [['flail', 'кистень'], ['
   // Task 43: the full Castellan's moves.
   ['lunge', 'спустить пса'], ['bolt', 'болт'], ['guard', 'караул'],
   // Task 48: the Troll's moves.
-  ['club', 'удар дубиной'], ['rock', 'бросок камня'], ['tail', 'хвост метёт'], ['roar', 'рык'], ['snore', 'храп']];
+  ['club', 'удар дубиной'], ['rock', 'бросок камня'], ['tail', 'хвост метёт'], ['roar', 'рык'], ['snore', 'храп'], ['charge', 'рывок']];
 /** The damage sources of the boss's moves (`hit.source`). */
 const BOSS_HIT_SOURCES: readonly string[] = ['flail', 'throw', 'lunge', 'castellan-bolt'];
 /** Task 48: the damage sources of the Troll's moves (his rows list these). */
-const TROLL_HIT_SOURCES: readonly string[] = ['troll-club', 'troll-rock', 'troll-tail'];
+const TROLL_HIT_SOURCES: readonly string[] = ['troll-club', 'troll-rock', 'troll-tail', 'troll-charge'];
 
 /** One boss fight of the report: its entry and the boss summary (the replay's, else the browser's). */
 export interface BossEntry { entry: FightEntry; summary: FightSummary; row: number | null }

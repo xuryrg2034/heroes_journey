@@ -100,7 +100,7 @@ import { RECRUIT, recruitGroup } from '../sim/enemies/recruit';
 import { WARDEN, wardenAngry } from '../sim/enemies/warden';
 import { inPitch, PITCH_FIRE_SOURCE, POT_SOURCE } from '../sim/pitch';
 import type { GarrisonStep3Summary } from './schema';
-import { TROLL, TROLL_CLUB, TROLL_CLUB_SOURCE, TROLL_ROCK, TROLL_ROCK_SOURCE, TROLL_TAIL, TROLL_TAIL_SOURCE } from '../sim/enemies/troll';
+import { TROLL, TROLL_CHARGE_SOURCE, TROLL_CLUB, TROLL_CLUB_SOURCE, TROLL_ROCK, TROLL_ROCK_SOURCE, TROLL_TAIL, TROLL_TAIL_SOURCE } from '../sim/enemies/troll';
 import { WARLOCK } from '../sim/enemies/warlock';
 import { kindOf } from '../sim/enemies/kinds';
 import { dist, inThorns, inWater } from '../sim/geometry';
@@ -116,7 +116,7 @@ import {
 } from './schema';
 
 /** Task 48 (design 17.10.2026): the group of a hit on the hero in the Troll's fight — his moves by source, his core's and parts' touch by the striker. */
-const TROLL_MOVE_SOURCES: readonly string[] = [TROLL_CLUB_SOURCE, TROLL_ROCK_SOURCE, TROLL_TAIL_SOURCE], TROLL_PART_KINDS: readonly string[] = [TROLL_CLUB, TROLL_ROCK, TROLL_TAIL];
+const TROLL_MOVE_SOURCES: readonly string[] = [TROLL_CLUB_SOURCE, TROLL_ROCK_SOURCE, TROLL_TAIL_SOURCE, TROLL_CHARGE_SOURCE], TROLL_PART_KINDS: readonly string[] = [TROLL_CLUB, TROLL_ROCK, TROLL_TAIL];
 function trollGroup(source: string, striker: string | undefined): keyof TrollDamage {
   if (TROLL_MOVE_SOURCES.includes(source)) return 'moves';
   if (striker === TROLL) return 'core';

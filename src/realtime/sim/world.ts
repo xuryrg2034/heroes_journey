@@ -564,7 +564,7 @@ export type WorldEvent =
    * a part died (`partSevered`: its id and spot; only while its core lives); after the dash the core lost plates to severed parts
    * (`bossPlate`: plates left) or entered a phase (`bossPhase`). The rules never read them.
    */
-  | { type: 'bossMove'; id: number; move: 'flail' | 'throw' | 'whistle' | 'club' | 'rock' | 'tail' | 'roar' | 'snore' | 'swing' | 'pepper' | 'feast' | 'season'; stage: 'start' | 'hit' }
+  | { type: 'bossMove'; id: number; move: 'flail' | 'throw' | 'whistle' | 'club' | 'rock' | 'tail' | 'roar' | 'snore' | 'charge' | 'swing' | 'pepper' | 'feast' | 'season'; stage: 'start' | 'hit' }
   | { type: 'partSevered'; id: number; x: number; y: number }
   | { type: 'bossPlate'; id: number; plates: number }
   | { type: 'bossPhase'; id: number; phase: number }
@@ -597,6 +597,13 @@ export type WorldEvent =
    * `dropped`, left the chain). The rules never read them.
    */
   | { type: 'trollWindow'; action: 'open' | 'hit' | 'block' | 'close' | 'unlink'; id: number; source: string; x: number; y: number; dropped?: number[] }
+  /**
+   * Task 48, section 25 (`Params.trollMove`, enemies/troll.ts): `trollPush` — «Рывок» threw enemy `id` aside off its lane (from `fromX`,
+   * `fromY` to `x`, `y`; no damage, not the player's); `trollLinkFar` — a part of the Troll in the drawn chain was carried beyond the
+   * reach of its anchor (the walk or the charge): it and the links after it (`dropped`) left the chain (the refusal `far`).
+   */
+  | { type: 'trollPush'; id: number; x: number; y: number; fromX: number; fromY: number }
+  | { type: 'trollLinkFar'; id: number; x: number; y: number; dropped: number[] }
   /**
    * Task 54 «Главарь с котелком» (enemies/chief.ts): the window of the Chief's core — `open` («Обед!» struck; `colour` — the brew's),
    * `hit` / `big` (the chain's hit landed, one plate / two; `links` — its queue), `block` (any other hit, or one outside the window or
@@ -947,6 +954,9 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   // Task 48: the Troll's arena plays his window and his crowd (when the values hold the old ones; a journal keeps the copy).
   if (arena.troll && params.trollWindow === false) params = { ...copyParams(params), trollWindow: true };
   if (arena.troll && params.trollCrowd === DEFAULT_PARAMS.trollCrowd) params = { ...copyParams(params), trollCrowd: TROLL_CROWD };
+  // Task 48, section 25: the Troll's arena plays his walk and charge when the values have it off; values without the key (a journal
+  // before it, a run saved without the flag `trollMove`: run/rtRun.ts `rtArenaParams`) — the sitting Troll. A journal keeps the copy.
+  if (arena.troll && params.trollMove === false) params = { ...copyParams(params), trollMove: true };
   // Task 54: the Chief's arena plays his feast and the boss's solid bodies (when the values have them off; a journal keeps the copy).
   if (arena.chief && params.chiefFeast === false) params = { ...copyParams(params), chiefFeast: true };
   if (arena.chief && params.trollSolid === false) params = { ...copyParams(params), trollSolid: true };

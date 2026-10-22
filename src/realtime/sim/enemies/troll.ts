@@ -43,35 +43,58 @@
  * The cold: the frozen core's timers wait (the windups, the rest, the window, «Храп»); a frozen part's windup waits. Numbers are
  * hypotheses of the spec: the tests check the rules.
  *
+ * **The walk and «Рывок»** (`Params.trollMove`; user's decision 22.10.2026, spec section 25; without the key the Troll sits as above,
+ * byte for byte). Between his moves (from the fight's `FIRST_MOVE_DELAY`-th second; not in a windup, a run, a window, «Рык» or «Храп»;
+ * frozen — not; while a move of the hero runs — not) the core walks to the hero at `trollWalk` (× the kit's walk, × the ground): straight
+ * when it sees him, else along the arena's flow field, sliding along obstacles; it stops `WALK_GAP` from the hero, edge to edge (its
+ * parts in hand too). The parts keep their offsets from the core (taken on the first step: `ox`, `oy`), put off walls; a lying part
+ * stays where it lies. A part of the drawn chain carried beyond the reach of its anchor (the previous link, the hero for the first;
+ * the hero too with «Якорь у героя») leaves it with the links after it in the same tick (event `trollLinkFar`, the refusal `far`).
+ * - «Рывок» (`charge`, the core's move, weight 1 beside the parts' moves): the hero `CHARGE_MIN`…`CHARGE_MAX` from the core's centre, the
+ *   line to him free of walls, trees and rocks by the core's body (geometry, no stream), `trollChargeCd` s since the last run ended, no
+ *   window open. A lane `CHARGE_WIDTH` wide from the core through the hero's point to the first obstacle the body meets or `trollChargeLen`
+ *   (fixed at the windup's start); windup `CHARGE_WINDUP` (the first ×`FIRST_WINDUP_FACTOR`), then the run at `CHARGE_SPEED` (it waits
+ *   while a move of the hero runs; the cold does not stop it). The hero whose body touches the stretch run in a tick: −`CHARGE_DAMAGE`
+ *   (`troll-charge`), once a run; the enemies on it are thrown `CHARGE_PUSH` aside off the axis (no damage, not the player's; event
+ *   `trollPush`); the bodies of the Troll touch nobody while running. Its end at an obstacle — stuck: the window `trollWindowCharge`
+ *   (source `charge`); at the lane's end — the rest only.
+ *
  * State in `vars`. The core: `hx`, `hy` (its spot), `born`, `cd` (rest left), `phase`, `mv` (move winding up: 1 club, 2 rock, 3 tail,
  * 4 roar), `t` / `w` (windup left / whole), `ax`, `ay`, `bx`, `by` (the club's lane, the rock's mark), `c1`…`c3` (the parts' colours),
  * `wo` (the window is open), `wl` (its seconds left), `ws` (its source: 1 club, 2 tail, 3 snore), `wh` (its hit landed), `wr` (the
  * running move holds its hit), `wb` (the tick of the last `block`), `ro` (to the next roar), `sn` (to the next snore), `sever`
  * (parts severed, not settled), `lost` (parts severed), `rc`/`mc`, `rr`/`mr`, `ra`/`ma` (in a row / missed of club, rock, tail),
  * `uc`, `ur`, `ut` (the move was used). A part: `hx`, `hy` (its spot), `lie`, `lx`, `ly` (lying: seconds left, the spot).
+ * With `trollMove` (absent without it): the core's `kc` (the charge's cooldown left), `rk`, `mk`, `uk` (the charge in a row / missed /
+ * used), `ws` 4 (the window of a charge stuck), during a charge `kl` (the lane's length), `ks` (it ends at an obstacle), `kr` (running),
+ * `kd` (run so far), `kh` (the hero struck); a part's `ox`, `oy` (its offset from the core).
  */
 import { datan2, dcos, dhypot, dsin } from '../detMath';
 import { dropArmorLoot } from '../elites';
-import { dist, lineOfSight, pushOutOfObstacles, type Vec } from '../geometry';
+import { blockedAt, dist, lineOfSight, pushOutOfObstacles, type Vec } from '../geometry';
 import { heroRadius, type Params } from '../params';
 import { Rng, hashString } from '../rng';
 import { palette, type SpawnMarker } from '../spawn';
-import { canBeHurt, damageEnemy, dropIntoCliffs, enemyFrozen, hurtHero, killEnemy, noteBlock, type Enemy, type World } from '../world';
+import { enemyWalkFactorOf, linkRadiusOf } from '../build';
+import { hasTalisman } from '../kit';
+import { canBeHurt, damageEnemy, dropIntoCliffs, enemyFrozen, enemyGroundFactor, findObject, hurtHero, killEnemy, noteBlock, pushOutOfSolids, type Enemy, type World } from '../world';
 import { bossClear, bossClearsOn } from './jailer';
-import { bodyRadiusOf, kindOf, registerBehavior, registerEnemyKind } from './kinds';
+import { bodyRadiusOf, enemyArtRadius, kindOf, registerBehavior, registerEnemyKind } from './kinds';
 
 /** The kinds of the Troll: his core and his three parts. */
 export const TROLL = 'troll';
 export const TROLL_CLUB = 'troll-club';
 export const TROLL_ROCK = 'troll-rock';
 export const TROLL_TAIL = 'troll-tail';
-export type TrollMoveId = 'club' | 'rock' | 'tail' | 'roar' | 'snore';
+export type TrollMoveId = 'club' | 'rock' | 'tail' | 'roar' | 'snore' | 'charge';
 /** Every move of the Troll (telegraphWindow.spec.ts checks each has a window record). */
-export const TROLL_MOVES: readonly TrollMoveId[] = ['club', 'rock', 'tail', 'roar', 'snore'];
+export const TROLL_MOVES: readonly TrollMoveId[] = ['club', 'rock', 'tail', 'roar', 'snore', 'charge'];
 /** The hero's damage sources of the Troll's strikes (the touch of his body — `touch`). */
 export const TROLL_CLUB_SOURCE = 'troll-club';
 export const TROLL_ROCK_SOURCE = 'troll-rock';
 export const TROLL_TAIL_SOURCE = 'troll-tail';
+/** Task 48, section 25: «Рывок» (the core's move, `Params.trollMove`). */
+export const TROLL_CHARGE_SOURCE = 'troll-charge';
 
 // ---- Баланс (гипотезы спеки задачи 48, 16.10.2026; тесты проверяют правила, не числа) ----
 /** The defaults of the Troll's keys (journals without them). */
@@ -133,7 +156,25 @@ export const PHASE3_PLATES = 2;
 export const PHASE3_WINDUP = 0.8;
 export const EVENT_MAX = 2;
 export const MISSED_MAX = 4;
-export const MOVE_WEIGHTS: Readonly<Record<PartMove, number>> = { club: 1, rock: 1, tail: 1 };
+export const MOVE_WEIGHTS: Readonly<Record<MovePick, number>> = { club: 1, rock: 1, tail: 1, charge: 1 };
+// ---- Task 48, section 25 «Тролль ходит и делает рывок» (user's decision 22.10.2026; hypotheses of the spec) ----
+/** The defaults of the keys `trollWalk`, `trollChargeCd`, `trollChargeLen`, `trollWindowCharge` (journals without them). */
+export const TROLL_WALK = 1.2;
+export const CHARGE_COOLDOWN = 6;
+export const CHARGE_LENGTH = 10;
+export const TROLL_WINDOW_CHARGE = 1.5;
+/** «Рывок» sees the hero this far from the core's centre, units. */
+export const CHARGE_MIN = 3.5;
+export const CHARGE_MAX = 9;
+export const CHARGE_WIDTH = 1.6;
+export const CHARGE_WINDUP = 0.9;
+export const CHARGE_SPEED = 12;
+export const CHARGE_DAMAGE = 2;
+export const CHARGE_PUSH = 1.8;
+/** The walk stops this far from the hero, body edge to body edge: it never presses on him (close up the club and the tail strike). */
+export const WALK_GAP = 0.3;
+/** The step of the lane's march to its first obstacle (the run stops at the same point). */
+const LANE_STEP = 0.02;
 
 /** Timers reach zero on the tick they are due (sums of 1/60 s leave a rounding crumb). */
 const TIME_EPS = 1e-9;
@@ -144,18 +185,20 @@ const COLOR_SALT = 'troll:colors';
 const OWN_SOURCES: readonly string[] = ['chain', 'pierce', 'hammer-return', 'seal'];
 
 type PartMove = 'club' | 'rock' | 'tail';
-const POOL: readonly PartMove[] = ['club', 'rock', 'tail'];
-const CODE: Readonly<Record<Exclude<TrollMoveId, 'snore'>, number>> = { club: 1, rock: 2, tail: 3, roar: 4 };
-const MOVE_OF: readonly (TrollMoveId | null)[] = [null, 'club', 'rock', 'tail', 'roar'];
+/** The moves of the conductor's pick: the parts' and «Рывок» (`trollMove` only). */
+type MovePick = PartMove | 'charge';
+const POOL: readonly MovePick[] = ['club', 'rock', 'tail', 'charge'];
+const CODE: Readonly<Record<Exclude<TrollMoveId, 'snore'>, number>> = { club: 1, rock: 2, tail: 3, roar: 4, charge: 5 };
+const MOVE_OF: readonly (TrollMoveId | null)[] = [null, 'club', 'rock', 'tail', 'roar', 'charge'];
 const PART_OF: Readonly<Record<PartMove, string>> = { club: TROLL_CLUB, rock: TROLL_ROCK, tail: TROLL_TAIL };
-const USED: Readonly<Record<PartMove, string>> = { club: 'uc', rock: 'ur', tail: 'ut' };
-const ROW: Readonly<Record<PartMove, string>> = { club: 'rc', rock: 'rr', tail: 'ra' };
-const MISSED: Readonly<Record<PartMove, string>> = { club: 'mc', rock: 'mr', tail: 'ma' };
+const USED: Readonly<Record<MovePick, string>> = { club: 'uc', rock: 'ur', tail: 'ut', charge: 'uk' };
+const ROW: Readonly<Record<MovePick, string>> = { club: 'rc', rock: 'rr', tail: 'ra', charge: 'rk' };
+const MISSED: Readonly<Record<MovePick, string>> = { club: 'mc', rock: 'mr', tail: 'ma', charge: 'mk' };
 /** The colour var of each part on its core. */
 const COLOR_VAR: Readonly<Record<string, string>> = { [TROLL_CLUB]: 'c1', [TROLL_ROCK]: 'c2', [TROLL_TAIL]: 'c3' };
 /** The window's sources (`vars.ws`). */
-export type TrollWindowSource = 'club' | 'tail' | 'snore';
-const WINDOW_SOURCES: readonly (TrollWindowSource | null)[] = [null, 'club', 'tail', 'snore'];
+export type TrollWindowSource = 'club' | 'tail' | 'snore' | 'charge';
+const WINDOW_SOURCES: readonly (TrollWindowSource | null)[] = [null, 'club', 'tail', 'snore', 'charge'];
 const SNORE_CODE = 3;
 
 const frameOn = (world: World): boolean => !!world.params.bossFrame;
@@ -167,6 +210,12 @@ const snoreOf = (world: World): number => Math.max(0.05, world.params.trollSnore
 const regrowOf = (world: World): number => Math.max(0, Math.round(world.params.trollSnoreRegrow ?? TROLL_SNORE_REGROW));
 const roarPeriodOf = (world: World): number => Math.max(1, world.params.trollRoarPeriod ?? TROLL_ROAR_PERIOD);
 const angleTo = (from: Vec, to: Vec): number => datan2(to.y - from.y, to.x - from.x);
+/** Task 48, section 25: the Troll walks and charges (the frame and `Params.trollMove` on). */
+const moveOn = (world: World): boolean => frameOn(world) && !!world.params.trollMove;
+const walkOf = (world: World): number => Math.max(0, world.params.trollWalk ?? TROLL_WALK);
+const chargeCdOf = (world: World): number => Math.max(0, world.params.trollChargeCd ?? CHARGE_COOLDOWN);
+const chargeLenOf = (world: World): number => Math.max(LANE_STEP, world.params.trollChargeLen ?? CHARGE_LENGTH);
+const windowChargeOf = (world: World): number => Math.max(0.05, world.params.trollWindowCharge ?? TROLL_WINDOW_CHARGE);
 
 /** The Troll's core on the arena (the first). */
 export const trollCore = (world: World): Enemy | undefined => world.enemies.find(e => e.kind === TROLL);
@@ -269,11 +318,11 @@ function closeWindow(world: World, core: Enemy): void {
 const coreRadius = (world: World, core: Enemy): number => bodyRadiusOf(world.params, core);
 
 /** The conductor's pick among the open moves of the parts (as the Jailer's: `EVENT_MAX`, `MISSED_MAX`, one draw when two or more stay). */
-function pickMove(world: World, v: Record<string, number>, open: readonly PartMove[]): PartMove {
+function pickMove(world: World, v: Record<string, number>, open: readonly MovePick[]): MovePick {
   let cands = open.filter(m => (v[ROW[m]] ?? 0) < EVENT_MAX);
   if (!cands.length) cands = [...open];
   const forced = cands.find(m => (v[MISSED[m]] ?? 0) >= MISSED_MAX);
-  let chosen: PartMove = forced ?? cands[0];
+  let chosen: MovePick = forced ?? cands[0];
   if (!forced && cands.length > 1) {
     const total = cands.reduce((s, m) => s + MOVE_WEIGHTS[m], 0);
     let r = world.rng.stream(STREAM).next() * total;
@@ -290,7 +339,14 @@ function pickMove(world: World, v: Record<string, number>, open: readonly PartMo
 function beginMove(world: World, core: Enemy, move: Exclude<TrollMoveId, 'snore'>): void {
   const v = core.vars, hero = world.hero;
   let windup = ROAR_WINDUP;
-  if (move !== 'roar') {
+  if (move === 'charge') {
+    // Task 48, section 25: the first charge of a fight ×1.5; phase 3 does not speed it up (the spec names the club and the rock only).
+    windup = CHARGE_WINDUP * (v[USED.charge] ? 1 : FIRST_WINDUP_FACTOR);
+    v[USED.charge] = 1;
+    const lane = chargeLane(world, core);
+    v.ax = core.x; v.ay = core.y; v.bx = core.x + lane.ux * lane.len; v.by = core.y + lane.uy * lane.len; v.kl = lane.len;
+    if (lane.stuck) v.ks = 1;
+  } else if (move !== 'roar') {
     const first = !v[USED[move]];
     v[USED[move]] = 1;
     // Phase 3 speeds the club and the rock up, never the tail (its ring's worst point — a landing on a severed part — needs the time).
@@ -307,6 +363,8 @@ function beginMove(world: World, core: Enemy, move: Exclude<TrollMoveId, 'snore'
 
 function endMove(v: Record<string, number>): void {
   delete v.mv; delete v.t; delete v.w; delete v.ax; delete v.ay; delete v.bx; delete v.by;
+  // Task 48, section 25: the charge's lane and run (absent without `trollMove`).
+  delete v.kl; delete v.ks; delete v.kr; delete v.kd; delete v.kh;
   v.cd = MOVE_GAP;
 }
 
@@ -414,12 +472,14 @@ function settle(world: World, core: Enemy): void {
 
 /** The windup of the move running: a severed (or lying) part drops it, a frozen part's waits; the strike waits for the hero's move. */
 function windupStep(world: World, core: Enemy, dt: number): void {
-  const v = core.vars, move = MOVE_OF[v.mv] ?? null;
-  const part = move && move !== 'roar' && move !== 'snore' ? partOfKind(world, core, PART_OF[move]) : undefined;
-  if (move !== 'roar' && !inHand(part)) { endMove(v); return; }
+  const v = core.vars, move = MOVE_OF[v.mv] ?? null, own = move === 'roar' || move === 'charge';
+  const part = move && !own && move !== 'snore' ? partOfKind(world, core, PART_OF[move]) : undefined;
+  if (!own && !inHand(part)) { endMove(v); return; }
   if (part && enemyFrozen(part)) return;
   v.t = Math.max(0, v.t - dt);
   if (v.t > TIME_EPS || world.move) return;
+  // Task 48, section 25: the charge's windup is over — the run begins (its strike is the run's, `chargeStep`).
+  if (move === 'charge') { v.kr = 1; v.kd = 0; return; }
   if (move === 'club') clubHit(world, core, part!);
   else if (move === 'rock') rockHit(world, core, part!);
   else if (move === 'tail') tailHit(world, core);
@@ -428,18 +488,170 @@ function windupStep(world: World, core: Enemy, dt: number): void {
   endMove(v);
 }
 
+// ---- Task 48, section 25: the walk and «Рывок» (`Params.trollMove`) ----
+
+/** The parts of `core` on the arena (in the arena's order). */
+const partsOf = (world: World, core: Enemy): Enemy[] => world.enemies.filter(p => p.partOf === core.id);
+
+/** The parts' offsets from the core, taken once (on the first step with the key: the template's spots). */
+function keepOffsets(world: World, core: Enemy): void {
+  for (const part of partsOf(world, core)) {
+    if (part.vars.ox !== undefined) continue;
+    part.vars.ox = (part.vars.hx ?? part.x) - (core.vars.hx ?? core.x);
+    part.vars.oy = (part.vars.hy ?? part.y) - (core.vars.hy ?? core.y);
+  }
+}
+
+/** A part's spot with the core at `at`: its offset, put off walls, trees and rocks (the nearest free point by the core). */
+function partSpot(world: World, part: Enemy, at: Vec): Vec {
+  const spot = { x: at.x + (part.vars.ox ?? 0), y: at.y + (part.vars.oy ?? 0) };
+  pushOutOfObstacles(spot, bodyRadiusOf(world.params, part), world.arena);
+  return spot;
+}
+
+/**
+ * The core moves to `at` (its spot too) and its parts with it — a lying part only gets its new spot (it comes back to it). Walking, the
+ * hero is put out of the solid bodies (`trollSolid`; a run passes through him and puts him out at its end); a part of the drawn chain
+ * carried beyond its anchor's reach leaves the chain.
+ */
+function moveTroll(world: World, core: Enemy, at: Vec): void {
+  core.x = at.x; core.y = at.y; core.vars.hx = at.x; core.vars.hy = at.y; core.knock = 0;
+  for (const part of partsOf(world, core)) {
+    const spot = partSpot(world, part, at);
+    part.vars.hx = spot.x; part.vars.hy = spot.y;
+    if (part.vars.lie === undefined) { part.x = spot.x; part.y = spot.y; part.knock = 0; }
+  }
+  if (!core.vars.kr) pushOutOfSolids(world, world.hero);
+  dropFarParts(world, core);
+}
+
+/**
+ * Highlight = the result (spec 25.4): a part of the drawn chain beyond the reach of its anchor — the previous link (the hero for the
+ * first), with «Якорь у героя» the hero too (as chain.ts `farLinkIds`, with R of now) — leaves the chain with the links after it.
+ */
+function dropFarParts(world: World, core: Enemy): void {
+  if (!world.chain.length || world.move) return;
+  const p = world.params, r = linkRadiusOf(world), hero = { x: world.hero.x, y: world.hero.y }, both = p.heroAnchor || hasTalisman(world, 'hero-anchor');
+  let prev: Vec = hero;
+  for (let i = 0; i < world.chain.length; i++) {
+    const link = world.chain[i];
+    const enemy = link.kind === 'enemy' ? world.enemies.find(e => e.id === link.id) : undefined;
+    const at: Vec | undefined = link.kind === 'enemy' ? enemy : findObject(world, link.id);
+    if (!at) continue;
+    if (enemy && enemy.partOf === core.id) {
+      const reach = r + (p.linkToEdge ? enemyArtRadius(p, enemy) : 0);
+      if (dist(prev, enemy) > reach && !(both && dist(hero, enemy) <= reach)) {
+        const dropped = world.chain.slice(i).map(l => l.id);
+        world.chain = world.chain.slice(0, i);
+        delete world.chainClosed;
+        world.events.push({ type: 'trollLinkFar', id: enemy.id, x: enemy.x, y: enemy.y, dropped });
+        return;
+      }
+    }
+    prev = { x: at.x, y: at.y };
+  }
+}
+
+/** Scratch vector of the flow field's direction. */
+const FLOW_DIR: Vec = { x: 0, y: 0 };
+
+/** The core (or a part in hand) at `at` would come nearer than `WALK_GAP` to the hero, edge to edge, and nearer than now. */
+function pressesHero(world: World, core: Enemy, at: Vec): boolean {
+  const hero = world.hero, hr = heroRadius(world.params);
+  const near = (now: Vec, next: Vec, r: number): boolean => { const d = dist(next, hero); return d < r + hr + WALK_GAP && d < dist(now, hero) - 1e-9; };
+  if (near(core, at, coreRadius(world, core))) return true;
+  return partsOf(world, core).some(part => part.vars.lie === undefined && near(part, partSpot(world, part, at), bodyRadiusOf(world.params, part)));
+}
+
+/** The walk between the moves: towards the hero (straight in sight, else the flow field), sliding along obstacles. */
+function walkStep(world: World, core: Enemy, dt: number): void {
+  const hero = world.hero, p = world.params, r = coreRadius(world, core), d = dist(core, hero);
+  if (d < 1e-6) return;
+  let dx = (hero.x - core.x) / d, dy = (hero.y - core.y) / d;
+  if (p.pathfinding && !lineOfSight(core, hero, world.arena, r * 0.9, true) && world.flow.direction(core, FLOW_DIR)) { dx = FLOW_DIR.x; dy = FLOW_DIR.y; }
+  const step = walkOf(world) * enemyWalkFactorOf(world) * enemyGroundFactor(world, core) * dt;
+  if (step <= 0) return;
+  const at = { x: core.x + dx * step, y: core.y + dy * step };
+  pushOutOfObstacles(at, r, world.arena);
+  if (pressesHero(world, core, at)) return;
+  moveTroll(world, core, at);
+}
+
+/** The lane of a charge from the core now: through the hero's point to the first obstacle the body meets, or `trollChargeLen`. */
+function chargeLane(world: World, core: Enemy): { ux: number; uy: number; len: number; stuck: boolean } {
+  const hero = world.hero, d = Math.max(1e-6, dist(core, hero)), ux = (hero.x - core.x) / d, uy = (hero.y - core.y) / d;
+  const r = coreRadius(world, core), max = chargeLenOf(world);
+  let len = 0;
+  while (len < max) {
+    const next = Math.min(max, len + LANE_STEP);
+    if (blockedAt({ x: core.x + ux * next, y: core.y + uy * next }, r, world.arena)) return { ux, uy, len, stuck: true };
+    len = next;
+  }
+  return { ux, uy, len: max, stuck: false };
+}
+
+/** «Рывок» may start now («видит возможность»): geometry only — the hero's distance, the line free by the body, the cooldown, no window. */
+function chargeOpen(world: World, core: Enemy): boolean {
+  const v = core.vars, hero = world.hero, d = dist(core, hero);
+  return !v.wo && (v.kc ?? 0) <= TIME_EPS && d >= CHARGE_MIN && d <= CHARGE_MAX && lineOfSight(core, hero, world.arena, coreRadius(world, core));
+}
+
+/** The enemies on the stretch `from` → `to` of the lane are thrown aside off its axis (no damage, not the player's). */
+function pushAside(world: World, core: Enemy, from: Vec, to: Vec, ux: number, uy: number): void {
+  const p = world.params, axis = { x: core.vars.ax, y: core.vars.ay };
+  const struck = world.enemies.filter(e => !ownBody(core, e) && !kindOf(e).immune && !kindOf(e).thing && segmentDistance(from, to, e) <= CHARGE_WIDTH / 2 + bodyRadiusOf(p, e));
+  for (const e of struck) {
+    const side = (e.x - axis.x) * -uy + (e.y - axis.y) * ux, sign = Math.abs(side) > 1e-9 ? Math.sign(side) : (e.id % 2 ? 1 : -1);
+    const fromX = e.x, fromY = e.y;
+    e.x += -uy * sign * CHARGE_PUSH; e.y += ux * sign * CHARGE_PUSH;
+    pushOutOfObstacles(e, bodyRadiusOf(p, e), world.arena, false);
+    world.events.push({ type: 'trollPush', id: e.id, x: e.x, y: e.y, fromX, fromY });
+  }
+  if (struck.length) dropIntoCliffs(world, null, { source: TROLL_CHARGE_SOURCE, credited: false, fall: true });
+}
+
+/** The run of «Рывок» along its lane: the hero on the stretch run is struck once, the enemies on it thrown aside; its end — stuck or rest. */
+function chargeStep(world: World, core: Enemy, dt: number): void {
+  const v = core.vars, len = v.kl ?? 0, ux = len > 0 ? (v.bx - v.ax) / len : 0, uy = len > 0 ? (v.by - v.ay) / len : 0;
+  const from = { x: core.x, y: core.y }, ran = Math.min(len, (v.kd ?? 0) + CHARGE_SPEED * dt);
+  v.kd = ran;
+  const at = { x: v.ax + ux * ran, y: v.ay + uy * ran };
+  if (!v.kh && segmentDistance(from, at, world.hero) <= CHARGE_WIDTH / 2 + heroRadius(world.params)) {
+    v.kh = 1;
+    strikeHero(world, core, CHARGE_DAMAGE, TROLL_CHARGE_SOURCE, world.hero);
+    if (world.status !== 'playing') return;
+  }
+  pushAside(world, core, from, at, ux, uy);
+  if (world.status !== 'playing') return;
+  moveTroll(world, core, at);
+  if (ran < len - 1e-9) return;
+  const stuck = !!v.ks;
+  endMove(v);
+  pushOutOfSolids(world, world.hero);
+  v.kc = chargeCdOf(world);
+  if (stuck) openWindow(world, core, 'charge', windowChargeOf(world));
+  world.events.push({ type: 'bossMove', id: core.id, move: 'charge', stage: 'hit' });
+}
+
+/** The core walks now: its move is not winding up or running, no window, not asleep, the fight past its first move's second. */
+const walks = (world: World, core: Enemy): boolean => !core.vars.mv && !core.vars.wo && world.time - (core.vars.born ?? 0) >= FIRST_MOVE_DELAY - TIME_EPS;
+
 /** The conductor of the core (the group step, before anyone moves). */
 function conduct(world: World, core: Enemy, dt: number): void {
-  const v = core.vars;
+  const v = core.vars, move = moveOn(world);
   if (!world.move) settle(world, core);
+  if (move) keepOffsets(world, core);
+  // Task 48, section 25: a run once begun goes on in the cold; it waits while a move of the hero runs (the timers wait for its end).
+  if (move && v.kr) { if (world.status === 'playing' && !world.move) chargeStep(world, core, dt); return; }
   if (world.status !== 'playing' || enemyFrozen(core)) return;
   if (v.wo) v.wl = Math.max(0, (v.wl ?? 0) - dt);
   if ((v.phase ?? 1) >= 2) v.ro = Math.max(0, (v.ro ?? 0) - dt);
   if ((v.phase ?? 1) >= 3) v.sn = Math.max(0, (v.sn ?? 0) - dt);
+  if (move && v.kc !== undefined) v.kc = Math.max(0, v.kc - dt);
   if (v.mv) { windupStep(world, core, dt); return; }
   if (sleeping(v)) return;
   v.cd = Math.max(0, (v.cd ?? 0) - dt);
-  if (v.cd > TIME_EPS || world.move) return;
+  if (v.cd > TIME_EPS || world.move) { if (move && !world.move && walks(world, core)) walkStep(world, core, dt); return; }
   if ((v.phase ?? 1) >= 2 && v.ro <= TIME_EPS) {
     if (world.arena.gates?.length) { beginMove(world, core, 'roar'); return; }
     v.ro = roarPeriodOf(world);
@@ -450,12 +662,13 @@ function conduct(world: World, core: Enemy, dt: number): void {
     world.events.push({ type: 'bossMove', id: core.id, move: 'snore', stage: 'start' });
     return;
   }
-  const hero = world.hero, d = dist(core, hero), open: PartMove[] = [];
+  const hero = world.hero, d = dist(core, hero), open: MovePick[] = [];
   const ready = (kind: string): boolean => { const part = partOfKind(world, core, kind); return inHand(part) && !enemyFrozen(part); };
   if (d <= CLUB_REACH && ready(TROLL_CLUB)) open.push('club');
   if (d <= ROCK_RANGE && ready(TROLL_ROCK) && lineOfSight(core, hero, world.arena, 0.05)) open.push('rock');
   if ((v.phase ?? 1) >= 2 && d <= TAIL_REACH && ready(TROLL_TAIL)) open.push('tail');
-  if (!open.length) return;
+  if (move && chargeOpen(world, core)) open.push('charge');
+  if (!open.length) { if (move && walks(world, core)) walkStep(world, core, dt); return; }
   beginMove(world, core, pickMove(world, v, open));
 }
 
@@ -508,6 +721,12 @@ registerBehavior({
   },
   // Task 48, design 24.10 (`Params.trollSolid`): the core and the parts are solid for the hero — he is put out of them, they never move.
   solid: (world, e) => frameOn(world) && !!world.params.trollSolid && (e.kind === TROLL || e.partOf !== undefined),
+  // Task 48, section 25: the bodies of a running Troll touch nobody (his strike is the lane's, once a run).
+  touches(world, e) {
+    if (!moveOn(world)) return true;
+    const core = e.kind === TROLL ? e : e.partOf !== undefined ? world.enemies.find(c => c.id === e.partOf) : undefined;
+    return !core?.vars.kr;
+  },
   onDeath(world, e, cause) {
     if (!frameOn(world)) return;
     if (e.kind === TROLL) { if (bossClearsOn(world) && !world.bossCleared) bossClear(world); return; }
@@ -558,6 +777,7 @@ for (const id of [TROLL, TROLL_CLUB, TROLL_ROCK, TROLL_TAIL]) {
  */
 export function trollMove(world: World): {
   move: Exclude<TrollMoveId, 'snore'>; progress: number; at: Vec; r: number; from?: Vec; to?: Vec; width?: number; inner?: number; gates?: Vec[];
+  running?: boolean; stuck?: boolean;
 } | null {
   const core = trollCore(world);
   if (!frameOn(world) || world.status !== 'playing' || !core) return null;
@@ -567,23 +787,29 @@ export function trollMove(world: World): {
   if (move === 'club') return { move, progress, at: { x: core.x, y: core.y }, r: CLUB_LENGTH, from: { x: v.ax, y: v.ay }, to: { x: v.bx, y: v.by }, width: CLUB_WIDTH };
   if (move === 'rock') return { move, progress, at: { x: v.ax, y: v.ay }, r: ROCK_RADIUS };
   if (move === 'tail') return { move, progress, at: { x: core.x, y: core.y }, r: TAIL_OUTER, inner: TAIL_INNER };
+  // Task 48, section 25: «Рывок» — its lane `from` → `to` (fixed at the windup's start), `width`; `running` — the run, `stuck` — the lane
+  // ends at an obstacle (the run will stick there: a window).
+  if (move === 'charge') {
+    return { move, progress: v.kr ? 1 : progress, at: { x: core.x, y: core.y }, r: CHARGE_WIDTH / 2, from: { x: v.ax, y: v.ay }, to: { x: v.bx, y: v.by }, width: CHARGE_WIDTH, running: !!v.kr, stuck: !!v.ks };
+  }
   return { move, progress, at: { x: core.x, y: core.y }, r: ROAR_RADIUS, gates: (world.arena.gates ?? []).map(g => ({ x: g.x, y: g.y })) };
 }
 
 /**
  * The Troll now: his core (`id`, `x`, `y`), the phase, asleep («Храп»: `snore` — its share gone 0…1), and his window: `open` (a hit
  * lands now), `left` — its seconds left, `source` — what opened it, `hit` — its hit landed (it closes after the hero's move), `rule` —
- * the window rules this world (`trollWindow`). Null — no Troll on the arena or the frame is off.
+ * the window rules this world (`trollWindow`). Task 48, section 25: `stuck` — the window of a charge that struck an obstacle is open
+ * (the view's stars). Null — no Troll on the arena or the frame is off.
  */
 export function trollState(world: World): {
-  id: number; x: number; y: number; phase: number; snore: number | null; rule: boolean;
+  id: number; x: number; y: number; phase: number; snore: number | null; rule: boolean; stuck: boolean;
   window: { open: boolean; left: number; source: TrollWindowSource; hit: boolean } | null;
 } | null {
   const core = trollCore(world);
   if (!core || !frameOn(world)) return null;
   const v = core.vars, source = WINDOW_SOURCES[v.ws ?? 0] ?? null;
   return {
-    id: core.id, x: core.x, y: core.y, phase: v.phase ?? 1, rule: trollWindowOn(world),
+    id: core.id, x: core.x, y: core.y, phase: v.phase ?? 1, rule: trollWindowOn(world), stuck: !!v.wo && source === 'charge',
     snore: sleeping(v) ? Math.max(0, Math.min(1, 1 - (v.wl ?? 0) / snoreOf(world))) : null,
     window: v.wo && source ? { open: windowOpen(v), left: Math.max(0, v.wl ?? 0), source, hit: !!v.wh } : null,
   };

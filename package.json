@@ -120,6 +120,7 @@
     "test:realtime-draw-order": "tsx src/realtime/view/drawOrder.spec.ts",
     "test:realtime-boss-pick-art": "tsx src/realtime/sim/bossPickArt.spec.ts && tsx src/realtime/sim/bossArtView.spec.ts",
     "test:realtime-troll-combos": "tsx src/realtime/sim/trollCombos.spec.ts",
+    "test:realtime-troll-move": "tsx src/realtime/sim/trollMove.spec.ts",
     "test:realtime-troll-view": "tsx src/realtime/view/trollView.spec.ts",
     "test:realtime-shooters-view": "tsx src/realtime/view/shooterView.spec.ts",
     "test:realtime-garrison3-view": "tsx src/realtime/view/garrison3View.spec.ts",
