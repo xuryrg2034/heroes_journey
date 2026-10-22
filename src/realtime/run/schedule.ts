@@ -198,10 +198,17 @@ export interface ScheduleContext {
 
 /** The elite arcs need a guaranteed elite: not on the Jailer's node (it has none). Task 28 gives the Jailer's node its own arc (`jailerPlan`). */
 const takesEliteArc = (node: ScheduleNode): boolean => node === 'battle' || node === 'event' || node === 'breakthrough' || node === 'hard';
+/**
+ * Task 57б (design 22.10.2026, option «б»: with the mechanics the hive met 44 of 100 new viewers by run 6 against 75 without them): with
+ * the flag `forestTricks` the hive's arc goes before the mechanics' — no arc of the mechanics is ready until the hive is met. The narrower
+ * gate (only while the slinger is met and the hive not) left the hive at 52 of 100: the mechanics' new turns slowed the old arcs, so the
+ * archer and the slinger came later. Without the flag nothing.
+ */
+const hiveFirst = (ctx: Pick<ScheduleContext, 'met' | 'tricks'>, a: Arc): boolean => !!ctx.tricks && SCHEDULE_TRICK_ARCS.includes(a) && !ctx.met.has('hive');
 /** The first arc ready for this fight (null — none: a practice fight). The Jailer's fight of task 28 has its own (`jailerPlan`). */
 export function readyArc(ctx: Pick<ScheduleContext, 'node' | 'row' | 'fight' | 'met' | 'shooters' | 'alternate' | 'arcs' | 'tricks'>): string | null {
   const ready = (a: Arc): boolean => !ctx.met.has(a.id) && (a.needs ?? []).every(n => ctx.met.has(n)) && ctx.row >= (a.minRow ?? 0) && ctx.row <= (a.maxRow ?? Infinity) && ctx.fight >= (a.minFight ?? 0)
-    && (!ELITE_ARCS.includes(a.id) || takesEliteArc(ctx.node));
+    && (!ELITE_ARCS.includes(a.id) || takesEliteArc(ctx.node)) && !hiveFirst(ctx, a);
   // Task 57а (review 21.10.2026): the alternation only among the arcs the node teaches — a hard node teaches only the elite's arc
   // (`schedulePlan`: «Застава» or practice), so there the first ready arc of the list as before (the turn does not move).
   if (!ctx.alternate || !ctx.shooters || ctx.node === 'hard') return scheduleArcs(ctx.shooters, ctx.tricks).find(ready)?.id ?? null;

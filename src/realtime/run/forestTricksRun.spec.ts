@@ -9,7 +9,8 @@
  *   node path unchanged (only the arenas and rosters of fights differ);
  * - level design 22.10.2026: the arcs of the rootling («Корневики» on «Прогалина», after the water, rows 2–5), the slime («Трясина», after
  *   the water, rows 3–5) and the firebrand («Головешки» on «Жаровни», after the braziers and the water, rows 3–5) — at the end of the list,
- *   never past «С ряда» + 2, on the new side of the alternation; one novelty a fight; a new viewer meets none in the first run (П6);
+ *   never past max(«С ряда» + 2, 5), on the new side of the alternation, after the hive is met (design «б»); one novelty a fight; a new
+ *   viewer meets none in the first run (П6) and meets the hive by run 6 in at least 70 of 100;
  * - the pools of «Испытание II»: «Трясина» rows 3–7 by the own-arena rule (no overdue rule), rows 8–9 keep their variety;
  * - the fights of the new arenas and rosters, built as the run builds them and played by journal commands: rootlings come in groups of
  *   one colour, at most 2 groups; a firebrand only where braziers stand; each fight replays from its journal.
@@ -123,7 +124,8 @@ check('with the flag the forest\'s outputs stay: the map, the streams and the no
 // ---------- The schedule (level design 22.10.2026) ----------
 
 /** The histories of the schedule's walks: every first-run arc met (with and without the shooters), all but the water, the first ten. */
-const HISTORIES: readonly (readonly string[])[] = [ALL_ARCS, [...ALL_ARCS, 'slinger', 'hive', 'wisp'], [...ALL_ARCS, 'slinger', 'hive', 'wisp', 'rootling'], ALL_ARCS.slice(0, 10), [...ALL_ARCS, 'slinger', 'hive', 'wisp', 'rootling', 'slime']];
+// Design 22.10.2026 («б»): the mechanics come after the hive — every history here has met it (a history without it plays no mechanics' arc).
+const HISTORIES: readonly (readonly string[])[] = [[...ALL_ARCS, 'slinger', 'hive'], [...ALL_ARCS, 'slinger', 'hive', 'wisp'], [...ALL_ARCS, 'slinger', 'hive', 'wisp', 'rootling'], [...ALL_ARCS.slice(0, 10), 'slinger', 'hive'], [...ALL_ARCS, 'slinger', 'hive', 'wisp', 'rootling', 'slime']];
 const SCHEDULED = Array.from({ length: 60 }, (_, i) => ({ k: i + 1, history: HISTORIES[i % HISTORIES.length], fights: planned(i + 1, HISTORIES[i % HISTORIES.length]) }));
 const POOLED = Array.from({ length: 30 }, (_, i) => ({ k: i + 1, fights: planned(i + 1, undefined) }));
 
@@ -139,12 +141,15 @@ check('the arcs\' rows (readyArc): the rootling rows 2–5 after the water, the 
   assert(at(3, new Set([...met(['rootling', 'slime'])].filter(id => id !== 'brazier'))) === 'brazier', 'the firebrand after the braziers');
   // The shooters' arcs come first in the list: a viewer of every first-run arc meets the slinger before the rootling on row 3.
   assert(readyArc({ node: 'battle', row: 3, fight: 4, met: new Set(ALL_ARCS), shooters: true, tricks: true }) === 'slinger', 'the shooters first');
+  // Design 22.10.2026 («б»): no mechanics' arc until the hive is met — the slinger met, row 2: nothing new (the hive waits for row 4); row 4: the hive.
+  const noHive = new Set([...ALL_ARCS, 'slinger', 'wisp']);
+  assert(at(2, noHive) === null && at(3, noHive) === null && at(4, noHive) === 'hive' && at(2, noHive, false) === null, `the hive first: ${at(2, noHive)} ${at(4, noHive)}`);
 });
 
 check('the alternation (the key `arcsAlternate`): the mechanics\' arcs are on the new side — an old arc and a new one both ready: by turns; without the key the old list first', () => {
-  const m = new Set(['bust', 'wolf', 'elite', 'brazier', 'cliff', 'boar', 'water', 'shield', 'buttons', 'archer', 'slinger']);
+  const m = new Set(['bust', 'wolf', 'elite', 'brazier', 'cliff', 'boar', 'water', 'shield', 'buttons', 'archer', 'slinger', 'hive']);
   const ctx = (arcs: string[], alternate = true) => ({ node: 'battle' as const, row: 2, fight: 5, met: m, shooters: true, tricks: true, alternate, arcs });
-  // Row 2: the old arc is the sapper's (needs the cliff), the new one the rootling's (the slinger is met, the hive waits for row 4).
+  // Row 2: the old arc is the sapper's (needs the cliff), the new one the rootling's (the slinger and the hive are met).
   assert(readyArc(ctx([])) === 'sapper' && readyArc(ctx(['wolf'])) === 'rootling' && readyArc(ctx(['wolf', 'rootling'])) === 'sapper' && readyArc(ctx(['slinger', 'sapper'])) === 'rootling', 'by turns');
   assert(readyArc(ctx(['wolf', 'slinger'])) === 'sapper', 'a shooter\'s arc counts as a new one');
   assert(readyArc(ctx(['wolf'], false)) === 'sapper' && readyArc({ ...ctx(['wolf']), tricks: false }) === 'sapper', 'without the key — the old list first; without the flag — no rootling');
@@ -176,22 +181,28 @@ check('the schedule (60 runs, 5 histories): the rootling first on «Прогал
   assert(SCHEDULE_TRICK_KINDS.every(kind => (rows[kind]?.size ?? 0) >= 2) && partners >= 3, `rows ${JSON.stringify(Object.fromEntries(Object.entries(rows).map(([kind, set]) => [kind, [...set]])))}, partners ${partners}`);
 });
 
-check('a new viewer (60 viewers, 6 runs each, every history carried over): no kind of the mechanics in the first run (П6: the new kinds from the second); each of them met by some viewer within six runs', () => {
-  const firstRun: Record<string, number> = {}, later: Record<string, number> = {};
-  for (let v = 1; v <= 60; v++) {
+/**
+ * Design 22.10.2026 («б», the hive before the mechanics): 100 new viewers × 6 runs, the history carried over, fights counted as won (the
+ * deterministic walk, not the bot) — no mechanics' kind in the first run (П6), the hive met by run 6 by at least 70 of 100 (75 without the
+ * mechanics' flag, 44 with the mechanics before the rule).
+ */
+check('a new viewer (100 viewers, 6 runs each, the history carried over): no kind of the mechanics in the first run (П6); the hive met by run 6 by at least 70 of 100 (the hive before the mechanics)', () => {
+  const kinds = [...SCHEDULE_SHOOTER_KINDS, ...SCHEDULE_TRICK_KINDS], byRun: Record<string, number[]> = Object.fromEntries(kinds.map(kind => [kind, [0, 0, 0, 0, 0, 0]]));
+  for (let v = 1; v <= 100; v++) {
     let history: string[] = [];
     for (let r = 1; r <= 6; r++) {
       const k = v * 100 + r;
       let last: RtRunState | undefined;
       walkRun({ k, seed: seedOf(k), create: { gift: k % 2 ? 'full' : 'mini', schedule: history, garrison: false, forestTricks: true }, fight: madeUp, each: s => { last = s; } });
       const met = rtScheduleMet(last!);
-      for (const kind of SCHEDULE_TRICK_KINDS) if (met.has(kind) && !history.includes(kind)) (r === 1 ? firstRun : later)[kind] = ((r === 1 ? firstRun : later)[kind] ?? 0) + 1;
+      for (const kind of kinds) if (met.has(kind) && !history.includes(kind)) byRun[kind][r - 1]++;
       history = [...met].sort();
     }
   }
-  console.log(`   first met in run 1: ${JSON.stringify(firstRun)}; in runs 2–6: ${JSON.stringify(later)}`);
-  assert(Object.keys(firstRun).length === 0, `in the first run: ${JSON.stringify(firstRun)}`);
-  assert(SCHEDULE_TRICK_KINDS.every(kind => (later[kind] ?? 0) >= 1), `runs 2–6: ${JSON.stringify(later)}`);
+  console.log(`   first met in runs 1…6: ${kinds.map(kind => `${kind} ${byRun[kind].join('/')}`).join('; ')}`);
+  assert(SCHEDULE_TRICK_KINDS.every(kind => byRun[kind][0] === 0), 'a kind of the mechanics in the first run');
+  const hive = byRun.hive.reduce((a, b) => a + b, 0);
+  assert(hive >= 70, `the hive met by run 6: ${hive} of 100`);
 });
 
 // ---------- The pools of «Испытание II» ----------
