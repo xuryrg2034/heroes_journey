@@ -37,6 +37,10 @@ export const KIND_ROLE: Readonly<Record<string, EnemyRole>> = {
   // Task 57а «Лес: стрелки» (design 17.10.2026): the slinger and the hive shoot. The wisp has no role (design 17.10.2026: it does not shoot,
   // it is a homing body; no role «flies after the hero» exists — no badge).
   slinger: 'shooter', hive: 'shooter',
+  // Task 57б «Лес: механики» (spec 10.2): the rootling and the slime press, the firebrand punishes (its fire trail).
+  rootling: 'presser', slime: 'presser', firebrand: 'punisher',
+  // Task 57б-2: the centipede rushes in (its lunge).
+  centipede: 'diver',
 };
 /** Kinds every run has met from its start: no roster waits for them. */
 export const ALWAYS_MET: readonly string[] = ['basic', 'wolf', 'boar'];
@@ -60,6 +64,11 @@ export interface RosterDef {
   boarMax?: number;
   /** Task 57а: caps of kinds on the arena for this roster over the kinds' own (`ArenaTemplate.kindCaps`); absent — the kinds' own. */
   caps?: Readonly<Record<string, number>>;
+  /**
+   * Task 57б: kinds of the roster that come in a formation of this many of one colour (`NewcomerShare.group`: the rootlings' group of 4);
+   * absent — one.
+   */
+  groups?: Readonly<Record<string, number>>;
 }
 
 /**
@@ -77,6 +86,12 @@ export const POOL_ROSTERS: readonly RosterDef[] = [
   // Task 57а (level design 20.10.2026): the wisp's first meeting on «Излучина» (the schedule's arc `wisp`): wisps over the water, held
   // by their own cap (2 living). Needs a met wisp anywhere else (`rosterChoices`): a run without the flag `forestShooters` never meets one.
   { id: 'wisps', title: 'Светляки', mode: 'replace', kinds: [['wisp', 0.12]] },
+  // Task 57б (level design 22.10.2026): the schedule's first meetings of the rootling on «Прогалина» (a group of 4 of one colour; groups on
+  // the arena — the kind's cap 2) and of the firebrand on «Жаровни» (only an arena with braziers). Need a met kind (`rosterChoices`): a
+  // pool run never meets them (no own arena), a run without the flag `forestTricks` never at all.
+  { id: 'rootlings', title: 'Корневики', mode: 'replace', kinds: [['rootling', 0.12]], groups: { rootling: 4 } },
+  // Design 22.10.2026: at most one firebrand on the lesson (bodies, markers and the queue; `kindCaps`, as the wisps' cap).
+  { id: 'firebrands', title: 'Головешки', mode: 'replace', kinds: [['firebrand', 0.1]], caps: { firebrand: 1 } },
 ];
 
 /** Баланс: the roles an anchor arena may add — one kind each, a little below a pool roster's share. */
@@ -92,6 +107,13 @@ export const ANCHOR_ROLES: readonly RosterDef[] = [
   // Task 57а (level design 20.10.2026): the partner roles of the new shooters (a met kind only: old choices stay as they were).
   { id: '+slinger', title: 'пращники', mode: 'add', kinds: [['slinger', 0.06]] },
   { id: '+wisp', title: 'светляки', mode: 'add', kinds: [['wisp', 0.08]] },
+  // Task 57б (level design 22.10.2026): the partner roles of the forest's mechanics (a met kind only; the firebrand only where braziers
+  // stand — the schedule's `partnerRoster`).
+  { id: '+rootling', title: 'корневики', mode: 'add', kinds: [['rootling', 0.06]], groups: { rootling: 4 } },
+  { id: '+slime', title: 'слизни', mode: 'add', kinds: [['slime', 0.1]] },
+  { id: '+firebrand', title: 'головешки', mode: 'add', kinds: [['firebrand', 0.06]] },
+  // Task 57б-2 (level design 22.10.2026): the centipede as a partner role (a body of 5; the kind's cap holds 2 heads coming).
+  { id: '+centipede', title: 'сороконожки', mode: 'add', kinds: [['centipede', 0.04]] },
 ];
 
 /**
@@ -166,22 +188,22 @@ export function rosterTitle(arena: string, id: string): string {
   return def.mode === 'add' && anchor ? `${anchor.title} + ${def.title}` : def.title;
 }
 
-/** Per-roll shares of spawn.ts (each kind rolled in order) from shares of all single newcomers; the `hp` of an entry stays. */
-function rollShares(entries: readonly { kind: string; ofAll: number; hp?: number }[]): NewcomerShare[] {
+/** Per-roll shares of spawn.ts (each kind rolled in order) from shares of all single newcomers; the `hp` and `group` of an entry stay. */
+function rollShares(entries: readonly { kind: string; ofAll: number; hp?: number; group?: number }[]): NewcomerShare[] {
   let left = 1;
-  return entries.map(({ kind, ofAll, hp }) => {
+  return entries.map(({ kind, ofAll, hp, group }) => {
     const share = left > 0 ? Math.min(1, ofAll / left) : 0;
     left -= ofAll;
-    return { kind, share, ...hp !== undefined ? { hp } : {} };
+    return { kind, share, ...hp !== undefined ? { hp } : {}, ...group !== undefined ? { group } : {} };
   });
 }
 /** The inverse: shares of all single newcomers of a template's per-roll list. */
-function ofAllShares(newcomers: readonly NewcomerShare[]): { kind: string; ofAll: number; hp?: number }[] {
+function ofAllShares(newcomers: readonly NewcomerShare[]): { kind: string; ofAll: number; hp?: number; group?: number }[] {
   let left = 1;
-  return newcomers.map(({ kind, share, hp }) => {
+  return newcomers.map(({ kind, share, hp, group }) => {
     const ofAll = share * left;
     left -= ofAll;
-    return { kind, ofAll, ...hp !== undefined ? { hp } : {} };
+    return { kind, ofAll, ...hp !== undefined ? { hp } : {}, ...group !== undefined ? { group } : {} };
   });
 }
 
@@ -222,7 +244,7 @@ export function withRoster(template: ArenaTemplate, id: string): RosterArena {
   const def = rosterDef(id);
   if (!def) throw new Error(`unknown roster «${id}»`);
   if ((template as RosterArena).roster !== undefined) throw new Error(`arena «${template.id}» already has roster «${(template as RosterArena).roster}»`);
-  const added = def.kinds.map(([kind, ofAll]) => ({ kind, ofAll }));
+  const added = def.kinds.map(([kind, ofAll]) => ({ kind, ofAll, ...def.groups?.[kind] !== undefined ? { group: def.groups[kind] } : {} }));
   const newcomers = rollShares(def.mode === 'replace' ? added : [...ofAllShares(template.newcomers ?? []), ...added]);
   const shares = def.mode === 'replace'
     ? { wolfShare: def.wolfShare ?? 0, boarShare: def.boarShare ?? 0 }

@@ -8,7 +8,7 @@
  * end near the hero and how many stand still far from him (flow field with and without
  * the density penalty). Last — the cost per step with 60 enemies.
  *
- * Run: `npm run realtime:pockets` (add `--straight` to see the old straight-line walk too; `--garrison` — the garrison's arenas; `--warmup` — the camp's warmup layouts; `--shooters` — the forest shooters' arenas).
+ * Run: `npm run realtime:pockets` (add `--straight` to see the old straight-line walk too; `--garrison` — the garrison's arenas; `--warmup` — the camp's warmup layouts; `--shooters` — the forest shooters' arenas; `--tricks` — the forest mechanics' arenas).
  * Uses the real simulation step `update` of src/realtime/sim/world.ts with fixed seeds (the crowd runs use seeds 1–3,
  * so the report repeats exactly); the last table times a whole tick (`Simulation.tick`: the hero step and `update`).
  */
@@ -19,6 +19,7 @@ import { GARRISON_ARENAS } from '../src/realtime/sim/arenasGarrison';
 import { STEP3_RUN_ARENAS } from '../src/realtime/sim/arenasStep3';
 import { WARMUP_ARENAS } from '../src/realtime/sim/arenasWarmup';
 import { SHOOTERS_ARENAS } from '../src/realtime/sim/arenasShooters';
+import { TRICKS_ARENAS } from '../src/realtime/sim/arenasTricks';
 // The prototype arenas 1–3, the slice arenas 4–10 (stage 2 of the transition, steps 2 and 4) and the terrain samples of
 // stage 3a, step 1 (river, cliff, thorns, braziers, gorge).
 const LAYOUTS: readonly ArenaLayout[] = [...PROTOTYPE_ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS, ...BEHAVIOR_ARENAS, ...CAMERA_ARENAS];
@@ -34,7 +35,9 @@ const WARMUP = process.argv.includes('--warmup');
 const STEP3 = process.argv.includes('--step3');
 // Task 57а: `--shooters` — the arenas of the forest's new shooters (the sandbox probe, «Осыпь», «Пасека»).
 const SHOOTERS = process.argv.includes('--shooters');
-const ARENAS: readonly ArenaLayout[] = WARMUP ? WARMUP_ARENAS.filter(a => !a.calm) : STEP3 ? STEP3_RUN_ARENAS : SHOOTERS ? SHOOTERS_ARENAS : GARRISON ? GARRISON_ARENAS.filter(a => !a.castellanFull)
+// Task 57б: `--tricks` — the arenas of the forest's mechanics (the sandbox probe, «Трясина», «Бурелом»).
+const TRICKS = process.argv.includes('--tricks');
+const ARENAS: readonly ArenaLayout[] = WARMUP ? WARMUP_ARENAS.filter(a => !a.calm) : STEP3 ? STEP3_RUN_ARENAS : SHOOTERS ? SHOOTERS_ARENAS : TRICKS ? TRICKS_ARENAS : GARRISON ? GARRISON_ARENAS.filter(a => !a.castellanFull)
   : [...LAYOUTS, ...LAYOUTS.filter(a => a.markedGoal).map(a => ({ ...markedGoalArena(a, true), name: `${a.name} (атаман или орда)` }))];
 import { type Vec, blockedAt, dist, setFlowClock } from '../src/realtime/sim/geometry';
 import { defaultParams, enemyBodyRadius, heroRadius, type Params } from '../src/realtime/sim/params';
