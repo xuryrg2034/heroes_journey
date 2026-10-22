@@ -48,8 +48,8 @@
  * frozen — not; while a move of the hero runs — not) the core walks to the hero at `trollWalk` (× the kit's walk, × the ground): straight
  * when it sees him, else along the arena's flow field, sliding along obstacles; it stops `WALK_GAP` from the hero, edge to edge (its
  * parts in hand too). The parts keep their offsets from the core (taken on the first step: `ox`, `oy`), put off walls; a lying part
- * stays where it lies. A part of the drawn chain carried beyond the reach of its anchor (the previous link, the hero for the first;
- * the hero too with «Якорь у героя») leaves it with the links after it in the same tick (event `trollLinkFar`, the refusal `far`).
+ * stays where it lies. A part of the drawn chain no anchor reaches any more (the drawing's rule: chain.ts `dropFarTrollParts`, after the
+ * world's step) leaves it with the links after it in the same tick (event `trollLinkFar`, the refusal `far` or `sight`).
  * - «Рывок» (`charge`, the core's move, weight 1 beside the parts' moves): the hero `CHARGE_MIN`…`CHARGE_MAX` from the core's centre, the
  *   line to him free of walls, trees and rocks by the core's body (geometry, no stream), `trollChargeCd` s since the last run ended, no
  *   window open. A lane `CHARGE_WIDTH` wide from the core through the hero's point to the first obstacle the body meets or `trollChargeLen`
@@ -67,7 +67,8 @@
  * `uc`, `ur`, `ut` (the move was used). A part: `hx`, `hy` (its spot), `lie`, `lx`, `ly` (lying: seconds left, the spot).
  * With `trollMove` (absent without it): the core's `kc` (the charge's cooldown left), `rk`, `mk`, `uk` (the charge in a row / missed /
  * used), `ws` 4 (the window of a charge stuck), during a charge `kl` (the lane's length), `ks` (it ends at an obstacle), `kr` (running),
- * `kd` (run so far), `kh` (the hero struck); a part's `ox`, `oy` (its offset from the core).
+ * `kd` (run so far), `kh` (the hero struck); a part's `ox`, `oy` (its offset from the core). `ks` names what the lane ends at:
+ * 1 a wall or a rock, 2 a tree, 3 the arena's edge, 4 a cliff (`STUCK_ON`; event `trollStuck` with it when the run sticks).
  */
 import { datan2, dcos, dhypot, dsin } from '../detMath';
 import { dropArmorLoot } from '../elites';
@@ -75,11 +76,10 @@ import { blockedAt, dist, lineOfSight, pushOutOfObstacles, type Vec } from '../g
 import { heroRadius, type Params } from '../params';
 import { Rng, hashString } from '../rng';
 import { palette, type SpawnMarker } from '../spawn';
-import { enemyWalkFactorOf, linkRadiusOf } from '../build';
-import { hasTalisman } from '../kit';
-import { canBeHurt, damageEnemy, dropIntoCliffs, enemyFrozen, enemyGroundFactor, findObject, hurtHero, killEnemy, noteBlock, pushOutOfSolids, type Enemy, type World } from '../world';
+import { enemyWalkFactorOf } from '../build';
+import { canBeHurt, damageEnemy, dropIntoCliffs, enemyFrozen, enemyGroundFactor, hurtHero, killEnemy, noteBlock, pushOutOfSolids, type Enemy, type World } from '../world';
 import { bossClear, bossClearsOn } from './jailer';
-import { bodyRadiusOf, enemyArtRadius, kindOf, registerBehavior, registerEnemyKind } from './kinds';
+import { bodyRadiusOf, kindOf, registerBehavior, registerEnemyKind } from './kinds';
 
 /** The kinds of the Troll: his core and his three parts. */
 export const TROLL = 'troll';
@@ -175,6 +175,9 @@ export const CHARGE_PUSH = 1.8;
 export const WALK_GAP = 0.3;
 /** The step of the lane's march to its first obstacle (the run stops at the same point). */
 const LANE_STEP = 0.02;
+/** What a charge sticks in (`vars.ks` − 1; design 22.10.2026: telemetry compares the edge with the cover on human data). */
+export type TrollStuckOn = 'wall' | 'tree' | 'edge' | 'cliff';
+const STUCK_ON: readonly TrollStuckOn[] = ['wall', 'tree', 'edge', 'cliff'];
 
 /** Timers reach zero on the tick they are due (sums of 1/60 s leave a rounding crumb). */
 const TIME_EPS = 1e-9;
@@ -345,7 +348,7 @@ function beginMove(world: World, core: Enemy, move: Exclude<TrollMoveId, 'snore'
     v[USED.charge] = 1;
     const lane = chargeLane(world, core);
     v.ax = core.x; v.ay = core.y; v.bx = core.x + lane.ux * lane.len; v.by = core.y + lane.uy * lane.len; v.kl = lane.len;
-    if (lane.stuck) v.ks = 1;
+    if (lane.stuck) v.ks = STUCK_ON.indexOf(lane.stuck) + 1;
   } else if (move !== 'roar') {
     const first = !v[USED[move]];
     v[USED[move]] = 1;
@@ -511,8 +514,7 @@ function partSpot(world: World, part: Enemy, at: Vec): Vec {
 
 /**
  * The core moves to `at` (its spot too) and its parts with it — a lying part only gets its new spot (it comes back to it). Walking, the
- * hero is put out of the solid bodies (`trollSolid`; a run passes through him and puts him out at its end); a part of the drawn chain
- * carried beyond its anchor's reach leaves the chain.
+ * hero is put out of the solid bodies (`trollSolid`; a run passes through him and puts him out at its end).
  */
 function moveTroll(world: World, core: Enemy, at: Vec): void {
   core.x = at.x; core.y = at.y; core.vars.hx = at.x; core.vars.hy = at.y; core.knock = 0;
@@ -522,35 +524,10 @@ function moveTroll(world: World, core: Enemy, at: Vec): void {
     if (part.vars.lie === undefined) { part.x = spot.x; part.y = spot.y; part.knock = 0; }
   }
   if (!core.vars.kr) pushOutOfSolids(world, world.hero);
-  dropFarParts(world, core);
 }
 
-/**
- * Highlight = the result (spec 25.4): a part of the drawn chain beyond the reach of its anchor — the previous link (the hero for the
- * first), with «Якорь у героя» the hero too (as chain.ts `farLinkIds`, with R of now) — leaves the chain with the links after it.
- */
-function dropFarParts(world: World, core: Enemy): void {
-  if (!world.chain.length || world.move) return;
-  const p = world.params, r = linkRadiusOf(world), hero = { x: world.hero.x, y: world.hero.y }, both = p.heroAnchor || hasTalisman(world, 'hero-anchor');
-  let prev: Vec = hero;
-  for (let i = 0; i < world.chain.length; i++) {
-    const link = world.chain[i];
-    const enemy = link.kind === 'enemy' ? world.enemies.find(e => e.id === link.id) : undefined;
-    const at: Vec | undefined = link.kind === 'enemy' ? enemy : findObject(world, link.id);
-    if (!at) continue;
-    if (enemy && enemy.partOf === core.id) {
-      const reach = r + (p.linkToEdge ? enemyArtRadius(p, enemy) : 0);
-      if (dist(prev, enemy) > reach && !(both && dist(hero, enemy) <= reach)) {
-        const dropped = world.chain.slice(i).map(l => l.id);
-        world.chain = world.chain.slice(0, i);
-        delete world.chainClosed;
-        world.events.push({ type: 'trollLinkFar', id: enemy.id, x: enemy.x, y: enemy.y, dropped });
-        return;
-      }
-    }
-    prev = { x: at.x, y: at.y };
-  }
-}
+/** Task 48, section 25: `e` is a part of the walking Troll (`trollMove`): the drawn chain lets it go when no anchor reaches it (chain.ts). */
+export const trollPartMoves = (world: World, e: Enemy): boolean => moveOn(world) && e.partOf !== undefined && world.enemies.some(c => c.id === e.partOf && c.kind === TROLL);
 
 /** Scratch vector of the flow field's direction. */
 const FLOW_DIR: Vec = { x: 0, y: 0 };
@@ -577,17 +554,28 @@ function walkStep(world: World, core: Enemy, dt: number): void {
   moveTroll(world, core, at);
 }
 
-/** The lane of a charge from the core now: through the hero's point to the first obstacle the body meets, or `trollChargeLen`. */
-function chargeLane(world: World, core: Enemy): { ux: number; uy: number; len: number; stuck: boolean } {
+/** What the core's body at `p` (radius `r`) meets: the arena's edge, else the first solid obstacle's kind, else a cliff. */
+function stuckOn(world: World, p: Vec, r: number): TrollStuckOn {
+  const a = world.arena;
+  if (p.x < r || p.y < r || p.x > a.width - r || p.y > a.height - r) return 'edge';
+  const o = a.obstacles.find(x => blockedAt(p, r, { ...a, obstacles: [x] }, false));
+  return o?.kind === 'tree' ? 'tree' : o ? 'wall' : 'cliff';
+}
+
+/**
+ * The lane of a charge from the core now: through the hero's point to the first obstacle the core's body (r 0.32, design 22.10.2026:
+ * the band's 1.6 is the strike's, not the stop's) meets — `stuck` names it — or `trollChargeLen`.
+ */
+function chargeLane(world: World, core: Enemy): { ux: number; uy: number; len: number; stuck: TrollStuckOn | null } {
   const hero = world.hero, d = Math.max(1e-6, dist(core, hero)), ux = (hero.x - core.x) / d, uy = (hero.y - core.y) / d;
   const r = coreRadius(world, core), max = chargeLenOf(world);
   let len = 0;
   while (len < max) {
-    const next = Math.min(max, len + LANE_STEP);
-    if (blockedAt({ x: core.x + ux * next, y: core.y + uy * next }, r, world.arena)) return { ux, uy, len, stuck: true };
+    const next = Math.min(max, len + LANE_STEP), p = { x: core.x + ux * next, y: core.y + uy * next };
+    if (blockedAt(p, r, world.arena)) return { ux, uy, len, stuck: stuckOn(world, p, r) };
     len = next;
   }
-  return { ux, uy, len: max, stuck: false };
+  return { ux, uy, len: max, stuck: null };
 }
 
 /** «Рывок» may start now («видит возможность»): geometry only — the hero's distance, the line free by the body, the cooldown, no window. */
@@ -625,11 +613,14 @@ function chargeStep(world: World, core: Enemy, dt: number): void {
   if (world.status !== 'playing') return;
   moveTroll(world, core, at);
   if (ran < len - 1e-9) return;
-  const stuck = !!v.ks;
+  const stuck = STUCK_ON[(v.ks ?? 0) - 1];
   endMove(v);
   pushOutOfSolids(world, world.hero);
   v.kc = chargeCdOf(world);
-  if (stuck) openWindow(world, core, 'charge', windowChargeOf(world));
+  if (stuck) {
+    openWindow(world, core, 'charge', windowChargeOf(world));
+    world.events.push({ type: 'trollStuck', id: core.id, on: stuck, x: core.x, y: core.y });
+  }
   world.events.push({ type: 'bossMove', id: core.id, move: 'charge', stage: 'hit' });
 }
 

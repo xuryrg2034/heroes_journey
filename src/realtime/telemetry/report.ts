@@ -1590,8 +1590,16 @@ function trollLines(list: readonly BossEntry[]): string[] {
   }
   const all = own.filter(b => t(b).parts.length >= 3).length, sum = (f: (x: TrollBossSummary) => number): number => own.reduce((a, b) => a + f(t(b)), 0);
   const list2 = (r: Record<string, number>): string => Object.entries(r).sort((a, b) => b[1] - a[1]).map(([s, n]) => `${sourceTitle(s)} ${n}`).join(', ') || 'нет';
-  return ['', `Тролль (задача 48): боёв ${own.length}, побед с первой попытки ${won} (${pct(won, own.length)}); длина боя мед. ${n1(median(times))} с; смерти: ${list2(deaths)}; все три части отрублены — ${all} (${pct(all, own.length)}); окна (открыто / с попаданием): ${Object.entries(windows).map(([s, w]) => `${s} ${w.opened} / ${w.hit}`).join(', ') || 'нет'}; «звон» вне окна: ${list2(blocks)}; «Храп» — выспался ${sum(x => x.snores.slept)}, прерван ${sum(x => x.snores.woken)}; волков «Рыка» ${sum(x => x.wolves)}; ядро выпало из цепи ${sum(x => x.unlinks)} раз.`,
+  return ['', `Тролль (задача 48): боёв ${own.length}, побед с первой попытки ${won} (${pct(won, own.length)}); длина боя мед. ${n1(median(times))} с; смерти: ${list2(deaths)}; все три части отрублены — ${all} (${pct(all, own.length)}); окна (открыто / с попаданием): ${Object.entries(windows).map(([s, w]) => `${s} ${w.opened} / ${w.hit}`).join(', ') || 'нет'}; «звон» вне окна: ${list2(blocks)}; «Храп» — выспался ${sum(x => x.snores.slept)}, прерван ${sum(x => x.snores.woken)}; волков «Рыка» ${sum(x => x.wolves)}; ядро выпало из цепи ${sum(x => x.unlinks)} раз${stuckLine(own.map(t))}.`,
     ...trollDamageLine(own.map(t))];
+}
+/** Task 48, section 25: «; рывок застрял: стена N, дерево M, край K» — the fights whose summary has `stuck` (the walking Troll); none — nothing. */
+function stuckLine(list: readonly TrollBossSummary[]): string {
+  const all: Record<string, number> = {};
+  for (const x of list) for (const [on, n] of Object.entries(x.stuck ?? {})) all[on] = (all[on] ?? 0) + n;
+  const names: Record<string, string> = { wall: 'стена или скала', tree: 'дерево', edge: 'край арены', cliff: 'обрыв' };
+  const parts = Object.entries(all).sort((a, b) => b[1] - a[1]).map(([on, n]) => `${names[on] ?? on} ${n}`);
+  return parts.length ? `; рывок застрял: ${parts.join(', ')}` : '';
 }
 /** Task 48 (design 17.10.2026): the hero's damage in the Troll's fights by group — the fights whose summary has it (from 17.10.2026). */
 function trollDamageLine(own: readonly TrollBossSummary[]): string[] {

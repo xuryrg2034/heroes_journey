@@ -406,6 +406,8 @@ export function createFightObserver(start: World): FightObserver {
           if (b) b.phase = Math.max(b.phase, ev.phase);
           return;
         }
+        // Task 48, section 25: a charge stuck, by what it stuck in (the field appears with the first).
+        case 'trollStuck': { const t = s.boss?.troll; if (t) bump(t.stuck ??= {}, ev.on); return; }
         // Task 48: the Troll's window — opened, its hit, the hits blocked, its end (a «Храп» slept through or woken), the core's drop-out.
         case 'trollWindow': {
           const t = s.boss?.troll;

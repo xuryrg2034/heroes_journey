@@ -600,10 +600,13 @@ export type WorldEvent =
   /**
    * Task 48, section 25 (`Params.trollMove`, enemies/troll.ts): `trollPush` — «Рывок» threw enemy `id` aside off its lane (from `fromX`,
    * `fromY` to `x`, `y`; no damage, not the player's); `trollLinkFar` — a part of the Troll in the drawn chain was carried beyond the
-   * reach of its anchor (the walk or the charge): it and the links after it (`dropped`) left the chain (the refusal `far`).
+   * reach of its anchors by the drawing's rule (chain.ts `dropFarTrollParts`): it and the links after it (`dropped`) left the chain
+   * (`refusal` — `far` or `sight`).
    */
   | { type: 'trollPush'; id: number; x: number; y: number; fromX: number; fromY: number }
-  | { type: 'trollLinkFar'; id: number; x: number; y: number; dropped: number[] }
+  | { type: 'trollLinkFar'; id: number; x: number; y: number; dropped: number[]; refusal: string }
+  /** Task 48, section 25: the charge stuck (its window opens): `on` — a wall or a rock, a tree, the arena's edge, a cliff. */
+  | { type: 'trollStuck'; id: number; on: 'wall' | 'tree' | 'edge' | 'cliff'; x: number; y: number }
   /**
    * Task 54 «Главарь с котелком» (enemies/chief.ts): the window of the Chief's core — `open` («Обед!» struck; `colour` — the brew's),
    * `hit` / `big` (the chain's hit landed, one plate / two; `links` — its queue), `block` (any other hit, or one outside the window or
