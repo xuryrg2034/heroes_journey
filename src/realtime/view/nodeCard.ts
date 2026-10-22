@@ -59,7 +59,7 @@ export const KIND_PLURAL: Readonly<Record<string, string>> = {
   // Task 57а (spec 12): the forest shooters.
   slinger: 'пращники', hive: 'ульи', wisp: 'светляки',
   // Task 57б (spec 12): the forest's tricksters.
-  rootling: 'корневики', slime: 'слизни', firebrand: 'головешки',
+  rootling: 'корневики', slime: 'слизни', firebrand: 'головешки', centipede: 'сороконожки',
   // Task 54a (the Chief's fight at its start: the core and his two parts).
   chief: 'Главарь', 'chief-ladle': 'половники', 'chief-sack': 'мешки',
   // Task 59а: the garrison's step 3.
@@ -70,7 +70,7 @@ export const KIND_ONE: Readonly<Record<string, string>> = {
   basic: 'обычный', guard: 'стражник', handler: 'псарь', hound: 'пёс', keymaster: 'ключник', crossbow: 'арбалетчик', knight: 'рыцарь', castellan: 'Кастелян', 'castellan-crossbow': 'арбалет на станке',
   troll: 'Тролль', 'troll-club': 'дубина', 'troll-rock': 'камень', 'troll-tail': 'хвост',
   slinger: 'пращник', hive: 'улей', wisp: 'светляк',
-  rootling: 'корневик', slime: 'слизень', firebrand: 'головешка',
+  rootling: 'корневик', slime: 'слизень', firebrand: 'головешка', centipede: 'сороконожка',
   chief: 'Главарь', 'chief-ladle': 'половник', 'chief-sack': 'мешок',
   pitcher: 'смолокур', recruit: 'новобранец', warden: 'привратник',
 };

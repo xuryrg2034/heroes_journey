@@ -46,6 +46,7 @@ export const KIND_CAPTIONS: Readonly<Record<string, string>> = {
   rootling: 'Корневик — встаёт из пня: руби всю группу разом',
   slime: 'Слизень — двое сливаются в большого: руби, пока малы',
   firebrand: 'Головешка — звено её гасит; у жаровни разгорится снова',
+  centipede: 'Сороконожка — руби с конца: середина делит её надвое',
   // Task 55а (design 17.10.2026, spec 11): the castle's kinds — the barrel is a thing, no kind of the bestiary.
   wardrobe: 'Шкаф — кончи цепь на нём: толкнёшь',
   rook: 'Ладья — бьёт по прямой первое тело',

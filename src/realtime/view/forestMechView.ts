@@ -10,13 +10,20 @@
  *   falling under it — static, no ring (white rings are the Warlock's dropped links), no crack (a crack is the centipede's split);
  * - a pair of slimes: one glow under both and a thin pale bridge over their heads, both filling as the merge's clock runs; the merge — a pop;
  * - the firebrand: a flame crest while it burns (the art has its own), smoke while it is out, a flame growing at the brazier, a flash
- *   when it lights; in the plan «погаснет» (`StrikeOutcome.douse`) is the survivor's sign (render.ts) with smoke over the link.
- * View only: it reads the world through the sim's helpers (`stumpState`, `rootGroup`, `slimePairs`, `slimeBig`, `brandState`) and the
+ *   when it lights; in the plan «погаснет» (`StrikeOutcome.douse`) is the survivor's sign (render.ts) with smoke over the link;
+ * - task 57б-2, the centipede («Сороконожка»): the head's art and the parts' art (the head's is rebuilt on a promoted part: render.ts
+ *   `artOf`), dark chitin joints between the parts of a body on the floor (one body reads as one, and not as the player's chain),
+ *   «Рывок» — the boar's strip (the sim's `centipedeLane`, the lane's width plus the hero's body), a new head's stun — three stars;
+ *   in the plan (`ChainPlan.splits`) a white zigzag crack across the body at the break and the «новая голова» sign (two antennae)
+ *   over the part that will lead the piece behind; a division or a new head — a burst of the crack where it broke.
+ * View only: it reads the world through the sim's helpers (`stumpState`, `rootGroup`, `slimePairs`, `slimeBig`, `brandState`,
+ * `centipedeBodies`, `centipedeHead`, `centipedeStunned`, `centipedeLane`) and the
  * plan, never writes the world, never rolls a die.
  */
 import { Container, Graphics, Sprite, type GraphicsContext } from 'pixi.js';
 import { characterSprite, hasCharacterArt } from '../art/characterAssets';
 import type { ChainPlan } from '../sim/chain';
+import { CENTIPEDE, CENTI_LANE_WIDTH, centipedeBodies, centipedeHead, centipedeLane, centipedeStunned } from '../sim/enemies/centipede';
 import { FIREBRAND, brandState } from '../sim/enemies/firebrand';
 import { ROOTLING, rootGroup, stumpState } from '../sim/enemies/rootling';
 import { kindOf } from '../sim/enemies/kinds';
@@ -54,17 +61,25 @@ export interface ForestMechShown {
   /** In the drawn chain's plan this frame: stumps and links marked «рассыплются», links marked «погаснет». */
   planCrumbleStumps: number; planCrumbleLinks: number; planDouses: number;
   /**
+   * The centipede this frame: bodies drawn, the joints between their parts, «Рывок» lanes drawn and the fullest windup (0…1), stunned
+   * heads (stars); in the plan — cracks at the breaks, «новая голова» signs.
+   */
+  centiBodies: number; centiJoints: number; centiLanes: number; centiLaneFill: number; centiStunned: number; planCracks: number; planNewHeads: number;
+  /**
    * Since the fight began: stumps laid, risen, crumbled (stumps), burnt; merges; firebrands put out, lit again; links dropped when Fire lit
    * a firebrand of the drawn chain (render.ts says «после выжившего» over it).
    */
   lies: number; rises: number; crumbled: number; burns: number; merges: number; outs: number; lits: number; dropped: number;
+  /** Since the fight began: the centipede's divisions, new heads of a headless piece, pieces closed up past the cap, lunges begun. */
+  splits: number; heads: number; joins: number; lunges: number;
 }
 
 const emptyShown = (): ForestMechShown => ({
   stumps: 0, stumpArcs: 0, stumpCold: 0, stumpHero: 0, stumpMove: 0, stumpFill: 0, stumpArt: 0, leaves: 0, groups: 0, patterns: 0,
   pairs: 0, pairFill: 0, bigSlimes: 0, brandsBurning: 0, brandsOut: 0, brandsRelighting: 0, relightFill: 0,
   planCrumbleStumps: 0, planCrumbleLinks: 0, planDouses: 0,
-  lies: 0, rises: 0, crumbled: 0, burns: 0, merges: 0, outs: 0, lits: 0, dropped: 0,
+  centiBodies: 0, centiJoints: 0, centiLanes: 0, centiLaneFill: 0, centiStunned: 0, planCracks: 0, planNewHeads: 0,
+  lies: 0, rises: 0, crumbled: 0, burns: 0, merges: 0, outs: 0, lits: 0, dropped: 0, splits: 0, heads: 0, joins: 0, lunges: 0,
 });
 
 const mix = (a: number, b: number, k: number): number => {
@@ -209,11 +224,17 @@ export function drawSmoke(g: Graphics, x: number, y: number, s: number, clock: n
   }
 }
 
-type Burst = 'crumble' | 'burn' | 'lie' | 'rise' | 'merge' | 'out' | 'cold' | 'water' | 'lit';
+type Burst = 'crumble' | 'burn' | 'lie' | 'rise' | 'merge' | 'out' | 'cold' | 'water' | 'lit' | 'split';
 
 /** A short burst (px of the arena, its own origin): splinters, ash, dust, earth, a pop of slime, smoke, a fire's flash. */
 function burstOf(kind: Burst, unit: number, ink: number): { g: Graphics; life: number; fall: boolean } {
   const g = new Graphics(), u = unit;
+  if (kind === 'split') {
+    // The body broke here: the crack's zigzag flies apart and a pale flash.
+    g.circle(0, 0, u * 0.35).fill({ color: THREAT, alpha: 0.35 });
+    drawCrack(g, 0, 0, 1, 0, u * 0.7);
+    return { g, life: 0.45, fall: false };
+  }
   if (kind === 'crumble') {
     for (let i = 0; i < 7; i++) {
       const a = i * Math.PI * 2 / 7 + 0.3, r0 = u * 0.1, r1 = u * (0.32 + (i % 3) * 0.06), c = Math.cos(a), s = Math.sin(a);
@@ -264,6 +285,54 @@ function burstOf(kind: Burst, unit: number, ink: number): { g: Graphics; life: n
 }
 
 /** The view of the forest's tricksters: stumps, leaves, slime pairs, the firebrands' fire and smoke, the plan's signs, the bursts. */
+/** The centipede's chitin (its joints): a dark brown outside the chain palette. */
+const CHITIN = 0x3b2a1e, CHITIN_LIGHT = 0x6e5236;
+
+/** The centipede's stand-in: three pairs of short legs out of the disc (the head's mandibles are drawn per frame — the context is per kind). */
+export function centipedeMarks(ctx: Draw, r: number): void {
+  for (const sx of [-1, 1]) for (const y of [-0.45, 0, 0.45]) {
+    ctx.moveTo(sx * r * 0.75, r * y).lineTo(sx * r * 1.35, r * (y + 0.25)).stroke({ color: NAVY, width: 5, cap: 'round' });
+    ctx.moveTo(sx * r * 0.75, r * y).lineTo(sx * r * 1.35, r * (y + 0.25)).stroke({ color: CHITIN_LIGHT, width: 2.5, cap: 'round' });
+  }
+}
+
+/** A crack (px): a white zigzag with a navy edge across `(ux, uy)`'s normal at `(x, y)`, `len` long — the plan's break, the burst's shape. */
+export function drawCrack(g: Graphics, x: number, y: number, ux: number, uy: number, len: number): void {
+  const nx = -uy, ny = ux, pts: number[] = [], n = 6;
+  for (let i = 0; i <= n; i++) {
+    const t = (i / n - 0.5) * len, side = (i % 2 ? 1 : -1) * len * 0.12;
+    pts.push(x + nx * t + ux * side, y + ny * t + uy * side);
+  }
+  const path = (): void => { g.moveTo(pts[0], pts[1]); for (let i = 2; i < pts.length; i += 2) g.lineTo(pts[i], pts[i + 1]); };
+  path(); g.stroke({ color: NAVY, width: 9, cap: 'round', join: 'round' });
+  path(); g.stroke({ color: THREAT, width: 4.5, cap: 'round', join: 'round' });
+}
+
+/** «Новая голова» (px): two curved antennae and a small dot over the part (`R` — its drawing radius) — white with a navy edge. */
+export function drawNewHead(g: Graphics, x: number, y: number, R: number): void {
+  const top = y - R * 1.15;
+  for (const [color, width] of [[NAVY, 6], [THREAT, 3]] as const) {
+    for (const sx of [-1, 1]) g.moveTo(x + sx * R * 0.15, top + R * 0.35).quadraticCurveTo(x + sx * R * 0.25, top - R * 0.25, x + sx * R * 0.6, top - R * 0.35);
+    g.stroke({ color, width, cap: 'round' });
+  }
+  for (const sx of [-1, 1]) g.circle(x + sx * R * 0.6, top - R * 0.35, R * 0.11).fill(THREAT).stroke({ color: NAVY, width: 2 });
+}
+
+/** Three pale stars turning over a stunned head (px; the lynx's stun, larger: the centipede's art is busy). */
+function stunStars(g: Graphics, X: number, Y: number, r: number, clock: number): void {
+  for (let i = 0; i < 3; i++) {
+    const a = clock * 5 + i * Math.PI * 2 / 3, sx = X + Math.cos(a) * r * 0.85, sy = Y + Math.sin(a) * r * 0.3, pts: number[] = [];
+    for (let j = 0; j < 10; j++) { const b = -Math.PI / 2 + j * Math.PI / 5, rr = j % 2 ? r * 0.13 : r * 0.32; pts.push(sx + Math.cos(b) * rr, sy + Math.sin(b) * rr); }
+    g.poly(pts).fill(0xfff2a0).stroke({ color: THREAT_OUTLINE, width: 2.5, join: 'round' });
+  }
+}
+
+/** The tools the renderer draws its announced strips with (render.ts `threatStrip`, `stripHead`). */
+export interface StripTools {
+  strip: (g: Graphics, ox: number, oy: number, ux: number, uy: number, len: number, half: number, progress: number, fade: number) => void;
+  head: (g: Graphics, ox: number, oy: number, ux: number, uy: number, t: number, half: number, fade: number) => void;
+}
+
 export class ForestMechView {
   /** On the floor, under the bodies: the stumps (their art or the drawn stump) and the slime pairs. */
   readonly floor = new Container();
@@ -321,7 +390,7 @@ export class ForestMechView {
     const g = this.floorG.clear(), sh = this.shown, stumps = stumpState(world), live = new Set<number>();
     sh.stumps = 0; sh.stumpArt = 0; sh.pairs = 0; sh.pairFill = 0;
     // The plan's signs are drawn later in the frame, only while a chain is drawn (`drawPlan`).
-    sh.planCrumbleStumps = 0; sh.planCrumbleLinks = 0; sh.planDouses = 0;
+    sh.planCrumbleStumps = 0; sh.planCrumbleLinks = 0; sh.planDouses = 0; sh.planCracks = 0; sh.planNewHeads = 0;
     this.stumpsAt.clear();
     const art = hasCharacterArt(STUMP_ART.id);
     for (const s of stumps) {
@@ -340,6 +409,20 @@ export class ForestMechView {
       else drawStump(g, s.x * unit, s.y * unit, R);
     }
     for (const [id, sprite] of this.stumpSprites) if (!live.has(id)) { sprite.destroy(); this.stumpSprites.delete(id); }
+    // The centipede's bodies: a dark chitin joint between each two parts (under the bodies; not the player's chain line).
+    sh.centiBodies = 0; sh.centiJoints = 0;
+    const seg = new Map(world.enemies.map(e => [e.id, e] as const));
+    for (const body of centipedeBodies(world)) {
+      let drawn = false;
+      for (let i = 1; i < body.parts.length; i++) {
+        const a = seg.get(body.parts[i - 1]), b = seg.get(body.parts[i]);
+        if (!a || !b || (!sees(a, 1.5) && !sees(b, 1.5))) continue;
+        g.moveTo(a.x * unit, a.y * unit).lineTo(b.x * unit, b.y * unit).stroke({ color: NAVY, width: R * 0.75, cap: 'round' });
+        g.moveTo(a.x * unit, a.y * unit).lineTo(b.x * unit, b.y * unit).stroke({ color: CHITIN, width: R * 0.55, cap: 'round' });
+        sh.centiJoints++; drawn = true;
+      }
+      if (drawn || body.parts.some(id => { const e = seg.get(id); return !!e && sees(e, 1.5); })) sh.centiBodies++;
+    }
     const byId = new Map(world.enemies.map(e => [e.id, e] as const));
     for (const p of slimePairs(world)) {
       const a = byId.get(p.a), b = byId.get(p.b);
@@ -410,6 +493,18 @@ export class ForestMechView {
       }
     }
     sh.groups = marked.size;
+    // The centipede: a new head's stun — stars over it; the drawn stand-in's head gets mandibles (the art has its own).
+    sh.centiStunned = 0;
+    const headArt = hasCharacterArt('forest-centipede-head');
+    for (const e of world.enemies) {
+      if (e.kind !== CENTIPEDE || !centipedeHead(e) || !sees(e, 1.5)) continue;
+      const X = e.x * unit, Y = e.y * unit;
+      if (!headArt) {
+        for (const sx of [-1, 1]) g.moveTo(X + sx * R * 0.35, Y - R * 0.7).quadraticCurveTo(X + sx * R * 0.7, Y - R * 1.2, X + sx * R * 0.2, Y - R * 1.35);
+        g.stroke({ color: NAVY, width: 5, cap: 'round' });
+      }
+      if (centipedeStunned(e)) { sh.centiStunned++; stunStars(g, X, Y - R * 1.3, R, clock); }
+    }
     // The slime pairs' bridges over the heads (their glow is on the floor).
     const byId = new Map(world.enemies.map(e => [e.id, e] as const));
     for (const p of slimePairs(world)) {
@@ -423,9 +518,17 @@ export class ForestMechView {
    * The drawn chain's signs (`g` — the chain layer; px): «рассыплются» — the light leaf with splinters on the group's stumps and on those
    * links; «погаснет» — smoke over the link the plan puts out (render.ts draws its survivor sign).
    */
-  drawPlan(g: Graphics, world: World, plan: Pick<ChainPlan, 'crumble' | 'links'>, clock: number, unit: number, R: number): void {
+  drawPlan(g: Graphics, world: World, plan: Pick<ChainPlan, 'crumble' | 'links' | 'splits'>, clock: number, unit: number, R: number): void {
     const sh = this.shown;
-    sh.planCrumbleStumps = 0; sh.planCrumbleLinks = 0; sh.planDouses = 0;
+    sh.planCrumbleStumps = 0; sh.planCrumbleLinks = 0; sh.planDouses = 0; sh.planCracks = 0; sh.planNewHeads = 0;
+    // The centipede (`ChainPlan.splits`): the crack at each break, across the body (from the new head to the break), and «новая голова».
+    for (const s of plan.splits ?? []) {
+      const head = world.enemies.find(x => x.id === s.newHead);
+      const dx = head ? s.x - head.x : 1, dy = head ? s.y - head.y : 0, d = Math.hypot(dx, dy) || 1;
+      drawCrack(g, s.x * unit, s.y * unit, dx / d, dy / d, R * 2.3);
+      sh.planCracks++;
+      if (head) { drawNewHead(g, head.x * unit, head.y * unit, R); sh.planNewHeads++; }
+    }
     const stumps = new Map(stumpState(world).map(s => [s.id, s] as const)), groups = new Set<number>([...stumps.values()].map(s => s.group));
     for (const e of world.enemies) if (e.kind === ROOTLING) groups.add(rootGroup(e));
     for (const c of plan.crumble ?? []) {
@@ -454,7 +557,27 @@ export class ForestMechView {
     }
   }
 
-  /** One world event: the stumps', the slimes' and the firebrands' bursts (everything else is not ours). Returns true when it was ours. */
+  /**
+   * The centipede's «Рывок» under the crowd (`g` — the lane layer; px): the boar's strip from the head along the sim's lane
+   * (`centipedeLane`), as wide as the lane plus the hero's body (`heroR`, units: where the run strikes him), filling through the windup,
+   * dim while it runs.
+   */
+  drawLanes(g: Graphics, world: World, tools: StripTools, unit: number, heroR: number, sees: (p: { x: number; y: number }, margin: number) => boolean): void {
+    const sh = this.shown;
+    sh.centiLanes = 0; sh.centiLaneFill = 0;
+    const half = (CENTI_LANE_WIDTH / 2 + heroR) * unit;
+    for (const e of world.enemies) {
+      const lane = e.kind === CENTIPEDE ? centipedeLane(world, e) : null;
+      if (!lane || lane.len <= 1e-6 || !sees(e, 4)) continue;
+      const len = lane.len * unit, fade = lane.charging ? 0.5 : 1;
+      tools.strip(g, e.x * unit, e.y * unit, lane.dx, lane.dy, len, half, lane.progress, fade);
+      tools.head(g, e.x * unit, e.y * unit, lane.dx, lane.dy, len, half, fade);
+      sh.centiLanes++;
+      if (!lane.charging) sh.centiLaneFill = Math.max(sh.centiLaneFill, lane.progress);
+    }
+  }
+
+  /** One world event: the stumps', the slimes', the firebrands' and the centipede's bursts (everything else is not ours). Returns true when it was ours. */
   onEvent(ev: WorldEvent, world: World, unit: number): boolean {
     if (ev.type === 'stump') {
       if (ev.action === 'crumble') {
@@ -469,6 +592,12 @@ export class ForestMechView {
       this.shown.merges++;
       const e = world.enemies.find(x => x.id === ev.id);
       this.burst('merge', ev.x, ev.y, unit, e ? this.ink(e.color) : SLIME_PALE);
+      return true;
+    }
+    if (ev.type === 'centipede') {
+      if (ev.action === 'split' || ev.action === 'head') { if (ev.action === 'split') this.shown.splits++; else this.shown.heads++; this.burst('split', ev.x, ev.y, unit); }
+      else if (ev.action === 'join') this.shown.joins++;
+      else if (ev.action === 'lunge' && ev.stage === 'start') this.shown.lunges++;
       return true;
     }
     if (ev.type === 'firebrand') {

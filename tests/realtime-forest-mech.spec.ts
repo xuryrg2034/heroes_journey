@@ -19,6 +19,7 @@ import { replay, type Journal } from '../src/realtime/sim/simulation';
 const ROOTLING_CAPTION = 'Корневик — встаёт из пня: руби всю группу разом';
 const SLIME_CAPTION = 'Слизень — двое сливаются в большого: руби, пока малы';
 const FIREBRAND_CAPTION = 'Головешка — звено её гасит; у жаровни разгорится снова';
+const CENTIPEDE_CAPTION = 'Сороконожка — руби с конца: середина делит её надвое';
 
 interface Shown {
   stumps: number; stumpArcs: number; stumpCold: number; stumpHero: number; stumpMove: number; stumpFill: number; stumpArt: number;
@@ -26,6 +27,8 @@ interface Shown {
   brandsBurning: number; brandsOut: number; brandsRelighting: number; relightFill: number;
   planCrumbleStumps: number; planCrumbleLinks: number; planDouses: number;
   lies: number; rises: number; crumbled: number; burns: number; merges: number; outs: number; lits: number; dropped: number;
+  centiBodies: number; centiJoints: number; centiLanes: number; centiLaneFill: number; centiStunned: number; planCracks: number; planNewHeads: number;
+  splits: number; heads: number; joins: number; lunges: number;
 }
 interface Snap {
   status: string; time: number; chain: number[]; moving: string | null; kills: number;
@@ -217,6 +220,43 @@ async function freshRun(page: Page): Promise<void> {
   await expect(page.getByTestId('node-r6c0')).toHaveAttribute('data-status', 'available');
 }
 
+test('task 57б-2 view: the centipede — its body with joints, «Рывок» strip through the windup; a chain drawn with the mouse into its middle shows the crack and «новая голова», the release divides it, the new head\'s stun stars; the journal replays', async ({ page }) => {
+  test.setTimeout(90_000);
+  const errors = collectErrors(page);
+  await openSandbox(page);
+  const hero = await quiet(page, [['focusSlow', 0.1]]);
+  const head = await place(page, hero.x + 3.6, hero.y, 2, 1, 'centipede');
+  await untilFrame(page, (s, _a: number, late) => s.forest.centiJoints === 4 || late ? true : undefined, 0, 1);
+  expect((await snap(page)).forest.centiBodies).toBe(1);
+  // The first lunge 2 s after it came: the strip fills.
+  await untilFrame(page, (s, _a: number, late) => (s.forest.centiLanes === 1 && s.forest.centiLaneFill > 0.5) || late ? true : undefined, 0, 4);
+  expect((await snap(page)).forest.centiLanes).toBe(1);
+  await shot(page, 'centipede-lane');
+  await untilFrame(page, (s, _a: number, late) => (s.forest.lunges === 1 && s.forest.centiLanes === 0) || late ? true : undefined, 0, 3);
+  // The hero beside the middle part; the chain of one into it with the real mouse (held: the focus slows the world).
+  expect((await snap(page)).enemies.filter(e => e.kind === 'centipede')).toHaveLength(5);
+  const order: { id: number; x: number; y: number; ca: number | null }[] = await page.evaluate(() => { const s = (window as any).__realtime.snapshot(); return s.enemies.filter((e: any) => e.kind === 'centipede').map((e: any) => ({ id: e.id, x: e.x, y: e.y, ca: e.vars.ca ?? null })); });
+  // The parts in body order from the head (each knows the one ahead).
+  const chainOrder: number[] = [head];
+  while (chainOrder.length < order.length) { const next = order.find(p => p.ca === chainOrder[chainOrder.length - 1]); if (!next) break; chainOrder.push(next.id); }
+  const middle = order.find(p => p.id === chainOrder[2])!;
+  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [middle.x, middle.y + 1.2] as const);
+  await holdChain(page, [middle.id]);
+  const plan = await snap(page);
+  expect(plan.forest.planCracks).toBe(1);
+  expect(plan.forest.planNewHeads).toBe(1);
+  await shot(page, 'centipede-split-plan');
+  await releaseChain(page);
+  await untilFrame(page, (s, _a: number, late) => (s.forest.splits === 1 && s.forest.centiStunned === 1) || late ? true : undefined, 0, 1);
+  const split = await snap(page);
+  expect(split.forest.splits).toBe(1);
+  expect(split.forest.centiStunned).toBe(1);
+  expect(split.forest.centiBodies).toBe(2);
+  await shot(page, 'centipede-split-stun');
+  await sameHash(page);
+  expect(errors).toEqual([]);
+});
+
 test('task 57б view: the first meeting of each kind in a run fight gets its caption (П8), once', async ({ page }) => {
   test.setTimeout(150_000);
   const errors = collectErrors(page);
@@ -226,7 +266,7 @@ test('task 57б view: the first meeting of each kind in a run fight gets its cap
   await expect(page.getByTestId('run')).toBeHidden();
   const placeKind = (kind: string): Promise<void> => page.evaluate(k => { const rt = (window as any).__realtime, h = rt.snapshot().hero; rt.place(h.x + 2.5, h.y, 1, 0, k); }, kind);
   const captions = async (): Promise<string[]> => (await snap(page)).captions.texts;
-  for (const [kind, text] of [['rootling', ROOTLING_CAPTION], ['slime', SLIME_CAPTION], ['firebrand', FIREBRAND_CAPTION]] as const) {
+  for (const [kind, text] of [['rootling', ROOTLING_CAPTION], ['slime', SLIME_CAPTION], ['firebrand', FIREBRAND_CAPTION], ['centipede', CENTIPEDE_CAPTION]] as const) {
     await placeKind(kind);
     await expect.poll(captions).toContain(text);
     await shot(page, `caption-${kind}`);

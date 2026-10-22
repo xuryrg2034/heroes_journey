@@ -9,6 +9,9 @@
  * - the slime: a pair is drawn while its clock runs (its fill grows), the merge pops, the big one is drawn at its kind's scale;
  * - the firebrand: burning; a lethal link in the drawn chain shows «погаснет»; put out — out, then relighting at the brazier (its fill
  *   grows), lit again (a burst);
+ * - the centipede (57б-2): a body drawn with its joints; «Рывок» — the boar's strip filling through the windup, dim while it runs; the
+ *   drawn chain through the middle shows the crack at the break and «новая голова» (the plan's `splits`), the release divides the body
+ *   (a burst), the new head's stars for its stun; a chain from end to end — no crack;
  * - the names: the captions, the card's plurals, the silhouettes and the drawn stump build.
  */
 // Node 20 has no global navigator; pixi.js reads it on load (nodeNavigator.testkit.ts). First import.
@@ -16,6 +19,7 @@ import './nodeNavigator.testkit';
 import { Graphics } from 'pixi.js';
 import { registerArena } from '../sim/arenas';
 import { planChain } from '../sim/chain';
+import { CENTIPEDE, CENTI_STUN, centipedeBodies } from '../sim/enemies/centipede';
 import { FIREBRAND, brandLit } from '../sim/enemies/firebrand';
 import { enemyArtRadius } from '../sim/enemies/kinds';
 import { ROOTLING } from '../sim/enemies/rootling';
@@ -23,7 +27,7 @@ import { SLIME, slimeBig } from '../sim/enemies/slime';
 import { defaultParams, enemyDrawRadius, type Params } from '../sim/params';
 import { Simulation, SIM_DT, replay } from '../sim/simulation';
 import type { Enemy, World, WorldEvent } from '../sim/world';
-import { ForestMechView, drawStump, type ForestMechShown, firebrandMarks, rootlingMarks, slimeMarks } from './forestMechView';
+import { ForestMechView, centipedeMarks, drawStump, type ForestMechShown, firebrandMarks, rootlingMarks, slimeMarks } from './forestMechView';
 import { KIND_CAPTIONS } from './newSeen';
 import { KIND_ONE, KIND_PLURAL } from './nodeCard';
 
@@ -65,6 +69,10 @@ class Rig {
   readonly view = new ForestMechView(ink);
   readonly g = new Graphics();
   readonly chainG = new Graphics();
+  readonly laneG = new Graphics();
+  /** The strip tools' calls (render.ts draws with `threatStrip`, `stripHead`). */
+  readonly calls = { strip: 0, head: 0 };
+  readonly tools = { strip: () => { this.calls.strip++; }, head: () => { this.calls.head++; } };
   clock = 0;
   readonly events: WorldEvent[] = [];
   constructor(readonly sim: Simulation) {}
@@ -75,6 +83,8 @@ class Rig {
     for (const ev of this.w.events) { this.view.onEvent(ev, this.w, U); this.events.push(ev); }
     this.w.events.length = 0;
     this.view.drawFloor(this.w, this.clock, U, R, () => true);
+    this.laneG.clear();
+    this.view.drawLanes(this.laneG, this.w, this.tools, U, 0.28, () => true);
     this.g.clear();
     this.view.draw(this.g, this.w, this.clock, U, R, () => true);
     this.chainG.clear();
@@ -234,13 +244,64 @@ check('the firebrand: no brazier burns — put out, it waits (drawn as out); Fir
   }
 });
 
+check('the centipede: a body of five drawn with four joints; «Рывок» — the strip fills through the windup and dims while it runs (3 seeds)', () => {
+  for (const k of [1, 2, 3]) {
+    const rig = new Rig(field(k));
+    rig.sim.command({ t: 'teleport', x: 6, y: 7 });
+    place(rig.sim, 9, 7, CENTIPEDE, 1, 1);
+    rig.frame();
+    assert(rig.shown().centiBodies === 1 && rig.shown().centiJoints === 4, `seed ${k}: one body, four joints (${rig.shown().centiBodies}, ${rig.shown().centiJoints})`);
+    let lanes = 0, last = 0, monotone = true, ran = false;
+    rig.run(4, r => {
+      const sh = r.shown();
+      if (sh.centiLanes === 1 && sh.centiLaneFill > 0) { lanes++; if (sh.centiLaneFill < last - 1e-9) monotone = false; last = sh.centiLaneFill; }
+      if (sh.centiLanes === 1 && sh.centiLaneFill === 0 && lanes > 0) ran = true;
+      return ran && sh.centiLanes === 0;
+    });
+    assert(lanes >= 40 && monotone && last > 0.95 && ran && rig.calls.strip > 0 && rig.calls.head > 0, `seed ${k}: the lane through the windup (${lanes} frames, fill ${last.toFixed(2)}), then the run (${ran})`);
+    assert(rig.shown().lunges === 1, `seed ${k}: one lunge (${rig.shown().lunges})`);
+    assert(replays(rig.sim), `seed ${k}: replay`);
+  }
+});
+
+check('the centipede: a chain through the middle — the crack and «новая голова» in the highlight; the release divides the body (a burst), the new head is stunned (stars) for its 1 s; from end to end — no crack (3 seeds)', () => {
+  for (const k of [1, 2, 3]) {
+    const rig = new Rig(field(k));
+    rig.sim.command({ t: 'teleport', x: 6, y: 7 });
+    place(rig.sim, 9, 7, CENTIPEDE, 1, 1);
+    rig.frame();
+    const parts = centipedeBodies(rig.w)[0].parts.map(id => rig.w.enemies.find(e => e.id === id)!);
+    // The middle part: the hero beside it, a chain of one.
+    rig.sim.command({ t: 'teleport', x: parts[2].x, y: parts[2].y + 1.2 });
+    draw(rig.sim, [parts[2]]);
+    rig.frame(false);
+    assert(rig.w.chain.length === 1 && rig.shown().planCracks === 1 && rig.shown().planNewHeads === 1, `seed ${k}: the crack and the new head in the highlight (${rig.shown().planCracks}, ${rig.shown().planNewHeads})`);
+    rig.release();
+    assert(rig.shown().splits === 1 && rig.bursts() >= 1 && centipedeBodies(rig.w).length === 2, `seed ${k}: divided (${rig.shown().splits}), two bodies`);
+    rig.frame();
+    assert(rig.shown().centiStunned === 1 && rig.shown().planCracks === 0, `seed ${k}: the new head stunned (stars), no plan signs (${rig.shown().centiStunned}, ${rig.shown().planCracks})`);
+    rig.run(CENTI_STUN + 0.1);
+    assert(rig.shown().centiStunned === 0, `seed ${k}: the stun is over — no stars`);
+    // A whole body from end to end: no crack.
+    const whole = new Rig(field(k));
+    whole.sim.command({ t: 'teleport', x: 6, y: 7 });
+    place(whole.sim, 7.6, 7, CENTIPEDE, 1, 1);
+    whole.frame();
+    const body = centipedeBodies(whole.w)[0].parts.map(id => whole.w.enemies.find(e => e.id === id)!);
+    draw(whole.sim, body);
+    whole.frame(false);
+    assert(whole.w.chain.length === body.length && whole.shown().planCracks === 0 && whole.shown().planNewHeads === 0, `seed ${k}: end to end — no crack (chain ${whole.w.chain.length}, cracks ${whole.shown().planCracks})`);
+  }
+});
+
 check('the names and the silhouettes: the captions, the card\'s plurals, the stand-in drawings and the drawn stump build', () => {
   assert(KIND_CAPTIONS.rootling === 'Корневик — встаёт из пня: руби всю группу разом', 'rootling caption');
   assert(KIND_CAPTIONS.slime === 'Слизень — двое сливаются в большого: руби, пока малы', 'slime caption');
   assert(KIND_CAPTIONS.firebrand === 'Головешка — звено её гасит; у жаровни разгорится снова', 'firebrand caption');
-  assert(KIND_PLURAL.rootling === 'корневики' && KIND_PLURAL.slime === 'слизни' && KIND_PLURAL.firebrand === 'головешки', 'card plurals (spec 12)');
+  assert(KIND_PLURAL.rootling === 'корневики' && KIND_PLURAL.slime === 'слизни' && KIND_PLURAL.firebrand === 'головешки' && KIND_PLURAL.centipede === 'сороконожки', 'card plurals (spec 12)');
+  assert(KIND_CAPTIONS.centipede === 'Сороконожка — руби с конца: середина делит её надвое' && KIND_ONE.centipede === 'сороконожка', 'centipede caption, singular');
   assert(KIND_ONE.rootling === 'корневик' && KIND_ONE.slime === 'слизень' && KIND_ONE.firebrand === 'головешка', 'card singular');
-  for (const draw of [rootlingMarks, slimeMarks, firebrandMarks]) { const g = new Graphics(); draw(g, R); assert(g.getLocalBounds().width > R, `${draw.name} draws`); }
+  for (const draw of [rootlingMarks, slimeMarks, firebrandMarks, centipedeMarks]) { const g = new Graphics(); draw(g, R); assert(g.getLocalBounds().width > R, `${draw.name} draws`); }
   const g = new Graphics();
   drawStump(g, 0, 0, R);
   assert(g.getLocalBounds().width > R, 'the drawn stump');

@@ -76,7 +76,8 @@ import { FLAIL_RADIUS, JAILER, JAILER_WEIGHT, jailerCore, jailerMove, jailerShie
 import { CHAIN_BREAK_LIFE, drawFlailArc, drawFlailChain, drawSeverPip, drawWeight, drawWhistleMark } from './jailerView';
 import { TROLL, TROLL_ROCK, trollCore } from '../sim/enemies/troll';
 import { ShooterView, hiveMarks, slingerMarks, wispMarks } from './shooterView';
-import { ForestMechView, drawFlame, firebrandMarks, rootlingMarks, slimeMarks } from './forestMechView';
+import { ForestMechView, centipedeMarks, drawFlame, firebrandMarks, rootlingMarks, slimeMarks } from './forestMechView';
+import { CENTIPEDE, centipedeHead } from '../sim/enemies/centipede';
 import { FIREBRAND, brandLit } from '../sim/enemies/firebrand';
 import { CHIEF, chiefCore } from '../sim/enemies/chief';
 import { WARLOCK, warlockCore } from '../sim/enemies/warlock';
@@ -187,13 +188,18 @@ const GARRISON_ART: Readonly<Record<string, { id: CharacterArtId; size: number }
   slinger: { id: 'forest-slinger', size: 3.4 }, hive: { id: 'forest-hive', size: 3.1 }, wisp: { id: 'forest-wisp', size: 3.0 },
   // Task 57б: the forest's tricksters (the slime's box is its small one's: the big one is the same art ×1.4, `ForestMechView.slimeScale`).
   rootling: { id: 'forest-rootling', size: 3.2 }, slime: { id: 'forest-slime', size: 2.6 }, [FIREBRAND]: { id: 'forest-firebrand', size: 3.0 },
+  // Task 57б-2: a centipede's part (its head — `CENTIPEDE_HEAD_ART`).
+  [CENTIPEDE]: { id: 'forest-centipede-part', size: 2.6 },
   // Task 55а: the castle's art (a thing has no colour plaque; the rook keeps its colour's plaque and disc).
   [WARDROBE]: { id: 'castle-wardrobe', size: 3.1 }, [ROOK]: { id: 'castle-rook', size: 3.9 }, [BARREL]: { id: 'castle-barrel', size: 2 },
 };
 /** Task 57б: the put-out firebrand's art (the burning one's is in `GARRISON_ART`). */
 const FIREBRAND_OUT_ART: { id: CharacterArtId; size: number } = { id: 'forest-firebrand-out', size: 3.0 };
 /** The art of this body now: its kind's; a put-out firebrand — its own (task 57б: the body is rebuilt when it changes). */
-const artOf = (e: Enemy): { id: CharacterArtId; size: number } | undefined => (e.kind === FIREBRAND && !brandLit(e) ? FIREBRAND_OUT_ART : GARRISON_ART[e.kind]);
+/** Task 57б-2: the centipede's head (a promoted part is rebuilt with it). */
+const CENTIPEDE_HEAD_ART: { id: CharacterArtId; size: number } = { id: 'forest-centipede-head', size: 3.0 };
+const artOf = (e: Enemy): { id: CharacterArtId; size: number } | undefined =>
+  (e.kind === FIREBRAND && !brandLit(e) ? FIREBRAND_OUT_ART : e.kind === CENTIPEDE && centipedeHead(e) ? CENTIPEDE_HEAD_ART : GARRISON_ART[e.kind]);
 /** Task 40: the prisoner's padlock — its width (body radii) and its gap over the drawing's top (radii). */
 const LOCK_SIZE = 0.95, LOCK_GAP = 0.15;
 /** Task 40: the prisoner's padlock over its drawing (its art's top, or the disc's) — its centre y and width, arena px (`r` — the body's radius, px). */
@@ -1325,6 +1331,7 @@ export class RealtimeRenderer {
       if (kind === 'rootling') rootlingMarks(ctx, r);
       if (kind === 'slime') slimeMarks(ctx, r);
       if (kind === FIREBRAND) firebrandMarks(ctx, r);
+      if (kind === CENTIPEDE) centipedeMarks(ctx, r);
     }
     // Porcupine (iteration 2.1): its quills go up and down — drawn per frame over the texture (`quillGraphics`).
     if (kind === 'sapper') {
@@ -1676,6 +1683,8 @@ export class RealtimeRenderer {
     // Task 55а: the wardrobe's topple strip, the rook's line, the running shoves.
     this.castle.beginFrame();
     this.castle.drawLanes(g, world, this.signTools, p => this.sees(p, 6));
+    // Task 57б-2: the centipede's «Рывок» — the boar's strip (forestMechView.ts).
+    this.forestMech.drawLanes(g, world, this.signTools, UNIT, heroRadius(p), (pt, margin) => this.sees(pt, margin));
     // Task 48: the Troll's signs — the club's strip, the rock's circle, the tail's ring, the lairs' circles (the sim's `trollMove`).
     this.troll.drawSigns(g, world, this.signTools, p => this.sees(p, 6));
     // Task 54a: the Chief's signs - the ladle's half-disc, the pepper's circles, the feast's dashed circle and seat marks, the whistle.
