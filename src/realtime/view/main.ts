@@ -367,9 +367,9 @@ async function boot(): Promise<void> {
     if (i === step30) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Гарнизон, шаг 3 — пробы: смолокур, новобранцы, привратники (только песочница)'));
     // Task 59б: the full arenas of step 3 after the probes, test id `step3-run-arena-N`.
     if (i === step3run0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Гарнизон, шаг 3 — арены'));
-    // Task 57б: the forest's mechanics at the very end (the numbers before stay), test id `tricks-arena-N`. «Только песочница» while the
-    // run's flag `RT_FOREST_TRICKS_ON` is off («Трясина» is a run arena with it; «Бурелом» waits for the centipede).
-    if (i === tricks0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Лес: механики — корневик, слизень, головешка (только песочница)'));
+    // Task 57б: the forest's mechanics at the very end (the numbers before stay), test id `tricks-arena-N`. No «только песочница»: with
+    // `RT_FOREST_TRICKS_ON` (on since 22.10.2026) «Трясина» and «Бурелом» are run arenas; the probe says «(проба)» in its own name.
+    if (i === tricks0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Лес: механики — корневик, слизень, головешка, сороконожка'));
     const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span data-summary="${i}">${markedGoalArena(arena, params.markedGoals).summary}</span>`, i >= tricks0 ? `tricks-arena-${i - tricks0 + 1}` : i >= step3run0 ? `step3-run-arena-${i - step3run0 + 1}` : i >= step30 ? `step3-arena-${i - step30 + 1}` : i >= shooters0 ? `shooters-arena-${i - shooters0 + 1}` : i >= castle0 ? `castle-arena-${i - castle0 + 1}` : i >= forest0 ? `boss-arena-${BOSS_ARENAS.length + i - forest0 + 1}` : i >= garrison0 ? `garrison-arena-${i - garrison0 + 1}` : i >= boss0 ? `boss-arena-${i - boss0 + 1}` : i >= camera0 ? `camera-arena-${i - camera0 + 1}` : `arena-${i + 1}`);
     b.addEventListener('click', () => pick(i));
     arenaList.appendChild(b);

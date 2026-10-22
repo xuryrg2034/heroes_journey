@@ -57,12 +57,18 @@ function planned(k: number, schedule: readonly string[] | undefined, forestTrick
   return out;
 }
 
-check('the flag is off by default; with the option it comes only with the shooters; the save keeps it; without the shooters, or broken, it is no run', () => {
-  assert(RT_FOREST_TRICKS_ON === false, 'RT_FOREST_TRICKS_ON is off');
+check('the flag is on by default (design 22.10.2026); it comes only with the shooters; the save keeps it; a save made before (no field) reads back without it at every step of its walk; without the shooters, or broken, it is no run', () => {
+  assert(RT_FOREST_TRICKS_ON === true, 'RT_FOREST_TRICKS_ON is on');
   for (const k of [1, 2, 3]) {
-    const run = createRtRun(seedOf(k)), text = serializeRtRun(run);
-    assert(run.forestTricks === undefined && !text.includes('forestTricks') && serializeRtRun(parseRtRun(text)!) === text, `seed ${k}: no field by default`);
-    const on = createRtRun(seedOf(k), { forestTricks: true }), onText = serializeRtRun(on), back = parseRtRun(onText);
+    const old = createRtRun(seedOf(k), { forestTricks: false }), text = serializeRtRun(old);
+    assert(old.forestTricks === undefined && !text.includes('forestTricks') && serializeRtRun(parseRtRun(text)!) === text, `seed ${k}: no field in the old save`);
+    // The old save walked to its end, saved and read back at every step: never the field, the same state (its fights are the old
+    // schedule's and pools' — the digest of the base below).
+    for (const create of [{ schedule: ['wolf', 'elite', 'brazier', 'cliff', 'boar', 'water'] }, { ash: 2 as const }]) walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', forestTricks: false, ...create }, fight: madeUp, each: state => {
+      const saved = serializeRtRun(state);
+      assert(state.forestTricks === undefined && state.poolSeen === undefined && !saved.includes('forestTricks') && serializeRtRun(parseRtRun(saved)!) === saved, `seed ${k}: an old save at ${state.pending?.kind ?? 'map'}`);
+    } });
+    const on = createRtRun(seedOf(k)), onText = serializeRtRun(on), back = parseRtRun(onText);
     assert(on.forestShooters === true && on.forestTricks === true && back?.forestTricks === true && serializeRtRun(back) === onText, `seed ${k}: the flag kept by the save`);
     assert(createRtRun(seedOf(k), { forestTricks: true, forestShooters: false }).forestTricks === undefined, `seed ${k}: no flag without the shooters`);
     const raw = JSON.parse(onText) as Record<string, unknown>;
@@ -76,7 +82,7 @@ check('the history accepts the new ids always; the kinds of the schedule and the
   assert(SCHEDULE_TRICK_KINDS.join() === 'rootling,slime,firebrand,centipede' && SCHEDULE_TRICK_KINDS.every(isScheduleElement) && !isScheduleElement('rootlings'), 'the ids');
   assert(scheduleKinds(true, false).join() === [...SCHEDULE_KINDS, ...SCHEDULE_SHOOTER_KINDS].join() && scheduleKinds(false, true) === SCHEDULE_KINDS, 'no flag — the kinds of before');
   assert(scheduleKinds(true, true).join() === [...SCHEDULE_KINDS, ...SCHEDULE_SHOOTER_KINDS, ...SCHEDULE_TRICK_KINDS].join(), 'the kinds with the flag');
-  assert(chronicleForestKinds(true, false).length === 11 && chronicleForestKinds(true, true).length === 15 && chronicleForestKinds().length === 11, 'the chapter: 11, 15 with the flag');
+  assert(chronicleForestKinds(true, false).length === 11 && chronicleForestKinds(true, true).length === 15 && chronicleForestKinds().length === 15, 'the chapter: 11, 15 with the flag (the build since 22.10.2026)');
 });
 
 // ---------- Without the flag: byte for byte; with it: the forest's own outputs ----------
@@ -282,7 +288,7 @@ function pooled(k: number, schedule: readonly string[], forestTricks = true): Pl
 check('the pools’ profile rule (design 22.10.2026, «а»): a pools run with the flag snapshots the profile’s firebrand, rootling and wisp (`poolSeen`, sorted); not without the flag, not in a scheduled run, not when empty; a broken field is no run', () => {
   const at2 = createRtRun(seedOf(7), { ash: 2, forestTricks: true, schedule: VETERAN });
   assert(JSON.stringify(at2.poolSeen) === '["firebrand","rootling","wisp"]' && at2.schedule === undefined, `snapshot ${JSON.stringify(at2.poolSeen)}`);
-  assert(createRtRun(seedOf(7), { ash: 2, schedule: VETERAN }).poolSeen === undefined, 'no flag — no field');
+  assert(createRtRun(seedOf(7), { ash: 2, forestTricks: false, schedule: VETERAN }).poolSeen === undefined, 'no flag — no field');
   assert(createRtRun(seedOf(7), { ash: 0, forestTricks: true, schedule: VETERAN }).poolSeen === undefined, 'a scheduled run — no field');
   assert(createRtRun(seedOf(7), { ash: 2, forestTricks: true, schedule: ALL_ARCS }).poolSeen === undefined, 'none of the three met — no field');
   const text = serializeRtRun(at2), raw = JSON.parse(text) as Record<string, unknown>;
