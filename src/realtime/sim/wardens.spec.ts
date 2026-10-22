@@ -283,7 +283,9 @@ check('task 59б «Барбакан»: `pairShare` 0.3 — the newcomers take A 
 check('task 59б: an arena without `pairTint` and `pairShare` draws as before — 30 s of «Привратники (проба)» with its newcomers on 3 seeds, the hashes of the base (main 4b1534a8, before 59б)', () => {
   // The base: main 4b1534a8 (v78, with 59а, before 59б), the same probe run there. Before: on main 15d09001 — 52b223fb…, 887be2dd…, 35770c47…
   // (main fe7b62dc moved them: the new key `bossPickArt: false` in defaultParams, the params are hashed; the fight is the same); on 8afcb20d before the merge of main — 1f69cda4…, 515505ba…, 448f69c0….
-  const want = ['135b38fdd454a158', '0eac450fddf55549', 'afc5696997d52a6b'];
+  // Task 48 §25 (core/troll-move 276b8520) moved them: the new keys `trollMove`, `trollWalk`, `trollChargeCd`, `trollChargeLen`,
+  // `trollWindowCharge` in defaultParams (hashed); the same run without them gives 135b38fd…, 0eac450f…, afc56969… (checked 22.10.2026).
+  const want = ['23e118c9ed713588', 'd1540a5b1fbe62fd', '56698c7dc5f14c0f'];
   [1, 2, 3].forEach((k, i) => {
     const p = defaultParams(); p.contactDamage = 0; p.heroHp = 99; p.hitstop = false;
     const sim = new Simulation({ arena: 'g-warden-test', params: p, seed: seedOf(k), record: true });
