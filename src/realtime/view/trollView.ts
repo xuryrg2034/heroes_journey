@@ -65,7 +65,8 @@ export const TROLL_FAR_WORDS = REFUSAL_TEXT.far;
 const CHARGE_TINT = 0xffbf6b;
 const DUST = 0xc8b48c;
 export const DUST_LIFE = 0.5;
-export const PUSH_LIFE = 0.35;
+/** Design 22.10.2026: the streak lasts 0.5 s and is bright — the player reads «the Troll threw it», not the enemy's own step. */
+export const PUSH_LIFE = 0.5;
 export const IMPACT_LIFE = 0.45;
 const DUST_EVERY = 0.05;
 
@@ -627,7 +628,7 @@ export class TrollView {
       } else if (f.kind === 'push') {
         // Three speed lines from where it stood to just behind it, shrinking towards the body.
         const fx0 = f.fromX ?? f.x, fy0 = f.fromY ?? f.y, dx = f.x - fx0, dy = f.y - fy0, d = Math.hypot(dx, dy) || 1, nx = -dy / d, ny = dx / d, tail = 1 - k;
-        for (const [color, width, alpha] of [[NAVY, 6, 0.5 * k], [DUST, 3, 0.9 * k]] as const) {
+        for (const [color, width, alpha] of [[NAVY, 8, 0.65 * k], [0xf2e2b8, 4, k]] as const) {
           for (const o of [-0.45, 0, 0.45]) {
             fxG.moveTo(fx0 + dx * tail + nx * o * f.r, fy0 + dy * tail + ny * o * f.r).lineTo(f.x - dx / d * f.r * 0.8 + nx * o * f.r, f.y - dy / d * f.r * 0.8 + ny * o * f.r);
           }
