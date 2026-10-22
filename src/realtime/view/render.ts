@@ -397,6 +397,8 @@ interface EnemyView {
   warlockArt?: WarlockArt;
   /** Task 57б: the art the body was built with (`artOf`: a firebrand burning or put out) — another one rebuilds the body. */
   art?: CharacterArtId;
+  /** Task 57б: the slime's drawing scale it was built with (`ForestMechView.slimeScale`; a merge — another one rebuilds the body). */
+  size: number;
 }
 
 /** A killed enemy: spins and shrinks for `deathDuration` (design answer 22); one that fell into a cliff also darkens. */
@@ -1467,6 +1469,10 @@ export class RealtimeRenderer {
       body.addChild(exclaim);
     }
     if (e.kind === 'boar') body.scale.set(BOAR_SCALE);
+    // Task 57б: a slime's body is drawn at its kind's own art scale (small ×0.85, big ×1.4: `enemyArtRadius`, the radius of its press
+    // circle and reach — the boar's way); a merge rebuilds the body (`EnemyView.size`), so the scale is set once here.
+    const slime = this.forestMech.slimeScale(e);
+    if (slime !== 1) body.scale.set(slime);
     return { body, grey, hpLabel, exclaim, quills, ...trollArt ? { trollArt } : {}, ...weapon ? { weapon } : {}, ...chiefArt ? { chiefArt } : {}, ...warlockArt ? { warlockArt } : {} };
   }
 
@@ -1486,7 +1492,7 @@ export class RealtimeRenderer {
       seen.add(e.id);
       let view = this.enemyViews.get(e.id);
       const colorless = colorlessBody(world, e);
-      if (view && (view.look !== look || view.color !== e.color || view.colorless !== colorless || (view.hp > 0) !== (e.hp > 0) || view.art !== artOf(e)?.id)) {
+      if (view && (view.look !== look || view.color !== e.color || view.colorless !== colorless || (view.hp > 0) !== (e.hp > 0) || view.art !== artOf(e)?.id || view.size !== this.forestMech.slimeScale(e))) {
         // Task 46 «Клеймо»: a painted body's old drawing stays as a ghost and fades out while the new one fades in (`PAINT_FADE`).
         if (view.look === look && view.color !== e.color && this.clock - (this.paintAt.get(e.id) ?? -9) < PAINT_FADE) this.ghosts.push({ root: view.root, life: PAINT_FADE });
         else view.root.destroy({ children: true });
@@ -1495,7 +1501,7 @@ export class RealtimeRenderer {
       if (!view) {
         const root = new Container(), { body, grey, hpLabel, exclaim, quills, trollArt, weapon, chiefArt, warlockArt } = this.buildEnemyBody(e, look, colorless);
         root.addChild(body); this.enemyLayer.addChild(root);
-        view = { root, body, grey, hpLabel, exclaim, hp: e.hp, look, color: e.color, colorless, quills, art: artOf(e)?.id, ...trollArt ? { trollArt } : {}, ...weapon ? { weapon } : {}, ...chiefArt ? { chiefArt } : {}, ...warlockArt ? { warlockArt } : {} };
+        view = { root, body, grey, hpLabel, exclaim, hp: e.hp, look, color: e.color, colorless, quills, art: artOf(e)?.id, size: this.forestMech.slimeScale(e), ...trollArt ? { trollArt } : {}, ...weapon ? { weapon } : {}, ...chiefArt ? { chiefArt } : {}, ...warlockArt ? { warlockArt } : {} };
         this.enemyViews.set(e.id, view);
       }
       if (view.hpLabel && view.hp !== e.hp) { view.hpLabel.text = String(e.hp); view.hp = e.hp; }
@@ -1552,7 +1558,7 @@ export class RealtimeRenderer {
       const pop = this.openedOnBoss && e.age >= world.time - 1e-9 ? 1 : Math.min(1, 0.35 + e.age / 0.2 * 0.65);
       // Stage 2, step 3: an elite is drawn larger (its body stays); task 12 — a leader too (`enemyArtScale`, the sim's own scale).
       // The picture's radius is the sim's (`bossArtRadius`: the draw radius × the elite's or leader's scale) — the press zone of the boss drawings reads the same.
-      view.root.scale.set(pop * bossArtRadius(world.params, e) / BASE_ENEMY_RADIUS * this.forestMech.slimeScale(e));
+      view.root.scale.set(pop * bossArtRadius(world.params, e) / BASE_ENEMY_RADIUS);
       // Task 55 (design 21.10.2026): the drawing order is the sim's comparison, `artDrawnAbove` (the larger y; at an equal y the larger id) — an explicit rank, not the history of a stable sort.
       view.root.zIndex = ranks.get(e.id) ?? e.y;
       // Camera: bodies off screen are not drawn (a margin keeps a body half in view and its strike lunge).
