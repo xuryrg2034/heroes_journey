@@ -135,7 +135,8 @@ function fight(run: RtRunState, extra: Partial<Params> = {}): Fight {
 const median = (xs: number[]): number => { if (!xs.length) return NaN; const s = [...xs].sort((a, b) => a - b); return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2; };
 const f1 = (x: number): string => (Number.isFinite(x) ? x.toFixed(1).replace('.', ',') : '—');
 const pct = (a: number, b: number): string => (b ? `${Math.round(a / b * 100)} %` : '—');
-const MOVE_SOURCES = ['troll-club', 'troll-rock', 'troll-tail'];
+// Task 48, section 25: «Рывок» (`troll-charge`, with the key `trollMove`: `--keys trollMove=1`) is a move too.
+const MOVE_SOURCES = ['troll-club', 'troll-rock', 'troll-tail', 'troll-charge'];
 const PART_TITLES: Record<string, string> = { 'troll-club': 'дубина', 'troll-rock': 'камень', 'troll-tail': 'хвост' };
 
 let head = '?';
