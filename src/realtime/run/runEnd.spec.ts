@@ -187,6 +187,9 @@ check('every enemy kind whose touch hurts has a killer line: its hit source is a
   const lineOf = (id: string): string | null => rtDeathLine({ source: enemyKind(id).hitSource, enemy: id });
   const expected: Record<string, string> = { warlock: 'Колдун', chief: 'Главарь', 'chief-ladle': 'половник Главаря', 'chief-sack': 'мешок Главаря', 'castellan-crossbow': 'арбалет Кастеляна' };
   for (const [id, name] of Object.entries(expected)) assert(lineOf(id) === `Сразил: ${name}`, `${id}: ${lineOf(id)}`);
+  // The moves without a striker kind in the line (22.10.2026): the Chief's ladle and pepper, the omen «Гроза».
+  const moves: Record<string, string> = { 'chief-ladle': 'взмах половником Главаря', 'chief-pepper': 'горсть перца Главаря', storm: 'удар грозы' };
+  for (const [source, text] of Object.entries(moves)) assert(rtDeathLine({ source }) === `Сразил: ${text}`, `${source}: ${rtDeathLine({ source })}`);
 });
 
 check('task 40: a death by the Castellan\'s «Спустить пса» — «Сразил: рывок пса Кастеляна» (a real fight on «Двор кастеляна»)', () => {

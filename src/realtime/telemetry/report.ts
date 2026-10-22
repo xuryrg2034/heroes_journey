@@ -271,6 +271,8 @@ const SOURCE_TITLES: Record<string, string> = {
   rootling: 'касание корневика', slime: 'касание слизня', firebrand: 'касание головешки',
   // Design 22.10.2026: the Warlock's touch and the Castellan's crossbow's (the Chief's parts touch as `touch`).
   warlock: 'касание Колдуна', 'castellan-crossbow': 'касание арбалета Кастеляна',
+  // Task 54: the Chief's moves (his and his parts' touches come as `touch` — «касание»); task 56: the omen «Гроза».
+  'chief-ladle': '«Взмах половником»', 'chief-pepper': '«Горсть перца»', storm: 'удар грозы',
   // Task 55а: the castle's moves and the rook's touch; the shove's kills (the player's).
   'wardrobe-topple': '«Падение шкафа»', 'rook-strike': '«Удар ладьи»', rook: 'касание ладьи', shove: 'толчок',
 };

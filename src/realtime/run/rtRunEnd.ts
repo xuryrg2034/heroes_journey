@@ -80,6 +80,9 @@ export const RT_DEATH_ABILITY: Readonly<Record<string, string>> = {
   'wardrobe-topple': 'падение шкафа', 'rook-strike': 'удар ладьи',
   // Task 57а (spec 5): the slinger's stone («камень пращника», not «камень» — the Troll's), the hive's wasp, the wisp's own touch.
   stone: 'камень пращника', wasp: 'оса улья', wisp: 'светляк',
+  // 22.10.2026 (design asked for the report's names; the same hits had no killer line): task 54's Chief's moves (the pattern of
+  // «удар дубиной Тролля») and task 56's omen «Гроза» (its strike in the mark hurts the hero too).
+  'chief-ladle': 'взмах половником Главаря', 'chief-pepper': 'горсть перца Главаря', storm: 'удар грозы',
 };
 /**
  * The touch sources (each kind's `hitSource`): the line names the striker's kind, its elite mark, armour and affixes. Task 40 (design
