@@ -82,7 +82,7 @@ import { CHIEF, chiefCore } from '../sim/enemies/chief';
 import { WARLOCK, warlockCore } from '../sim/enemies/warlock';
 import { WARLOCK_ART, WARLOCK_FEET, WarlockView, buildWarlock, reticleInk, warlockBadgeAt, type WarlockArt } from './warlockView';
 import { CHIEF_ART, CHIEF_FEET, ChiefView, buildChief, buildChiefPart, chiefBadgeAt, chiefPartBadgeAt, eaterSits, isChiefKind, type ChiefArt } from './chiefView';
-import { TROLL_ART, TROLL_ART_ASPECT, TROLL_FEET, TrollView, buildCore, buildPartArt, coreBadgeAt, corePips, isTrollKind, partBadgeAt, partOutward, posePartArt, type CoreArt, type SignTools } from './trollView';
+import { TROLL_ART, TROLL_ART_ASPECT, TROLL_FAR_WORDS, TROLL_FEET, TrollView, buildCore, buildPartArt, coreBadgeAt, corePips, isTrollKind, partBadgeAt, partOutward, posePartArt, type CoreArt, type SignTools } from './trollView';
 
 /**
  * Phase B (Т5, design 10.10.2026): the chain colours of the real-time view. Red, green and blue are those of the turn-based
@@ -3120,7 +3120,9 @@ export class RealtimeRenderer {
       if ((ev.type === 'bossMove' || ev.type === 'chiefFeast' || ev.type === 'chiefBrew' || ev.type === 'partSevered' || ev.type === 'enemySignal') && this.chief.onEvent(ev, world, this.clock, enemyDrawRadius(world.params) * UNIT)) continue;
       // Task 55 Д: the warlock's events (the charm's «звон» and end, the window's hit and the links dropped, the shift's arrival) - the rest go on.
       if ((ev.type === 'warlockCharm' || ev.type === 'warlockWindow' || ev.type === 'warlockShift') && this.warlock.onEvent(ev, world, this.clock, enemyDrawRadius(world.params) * UNIT)) continue;
-      if ((ev.type === 'bossMove' || ev.type === 'trollWindow' || ev.type === 'partSevered' || ev.type === 'bossPlate') && this.troll.onEvent(ev, world, this.clock, enemyDrawRadius(world.params) * UNIT)) continue;
+      // Task 48 §25: a part of the drawn chain carried out of reach — the refusal's words over it (the rings are the Troll view's).
+      if (ev.type === 'trollLinkFar') this.notice(TROLL_FAR_WORDS, ev.x, ev.y);
+      if ((ev.type === 'bossMove' || ev.type === 'trollWindow' || ev.type === 'partSevered' || ev.type === 'bossPlate' || ev.type === 'trollPush' || ev.type === 'trollLinkFar') && this.troll.onEvent(ev, world, this.clock, enemyDrawRadius(world.params) * UNIT)) continue;
       // Task 57а: the sparks of the shots (put out, taken by a shield, a hit, an end of flight), a wisp going out, a hive's ring leaving.
       if (this.shooters.onEvent(ev, UNIT)) continue;
       // Task 57б: Fire lit a firebrand of the drawn chain — the links after it dropped: the refusal's words over it («после выжившего»).

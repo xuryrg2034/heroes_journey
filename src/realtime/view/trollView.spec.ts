@@ -22,6 +22,8 @@ import { bossBarState, goalLabelOf } from './bossBar';
 import { nodeDangers } from './nodeCard';
 import { bossMoveLabels, BOSS_MOVE_TEXT } from './worldLabels';
 import { TrollView, buildCore, partOutward, ringSpans, subtractInterval, wallsOf, windowCount, type SignTools } from './trollView';
+import { registerArena } from '../sim/arenas';
+import { tree } from '../sim/geometry';
 
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new Error(message); }
 function check(name: string, run: () => void): void { run(); console.log(`ok - ${name}`); }
@@ -241,6 +243,95 @@ check('«Бросок камня»: in the ticks of the rock flight the view hid
     }
     assert(air >= 6 && ground >= 6, `seed ${k}: both seen (air ${air}, ground ${ground})`);
   }
+});
+
+// ---- Task 48 §25 «Рывок» (`Params.trollMove`) ----
+
+/** An open field (30 × 20): the Troll at (8, 10), a tree east of him on his row — a charge east sticks in it (the core's own test field). */
+registerArena({
+  id: 'tv-charge-field', name: 'Поле рывка (вид)', summary: 'Тест вида рывка', goal: 'marked', width: 30, height: 20,
+  heroStart: { x: 27, y: 10 }, obstacles: [tree(18, 10)], buttons: [], door: { x: 29.3, y: 1 },
+  enemies: [
+    { x: 8, y: 10, color: 1, kind: TROLL, marked: true },
+    { x: 6.5, y: 10.4, color: 0, kind: TROLL_CLUB },
+    { x: 9.5, y: 10.4, color: 1, kind: TROLL_ROCK },
+    { x: 8, y: 11.7, color: 2, kind: TROLL_TAIL },
+  ],
+  phaseOverride: { wolfShare: 0, boarShare: 0 }, bossFrame: true, bossClears: true, jailerColorless: true, troll: true,
+});
+
+/** A fight with the walk and the charge on; the club and the rock frozen (their moves never open: «Рывок» alone). */
+function charging(arena: string, k: number, hero: { x: number; y: number }): Den {
+  const p = quiet();
+  p.trollMove = true; p.trollHp = 4; p.trollPlates = 5;
+  const sim = new Simulation({ arena, params: p, seed: seedOf(k), record: true }), w = sim.world;
+  sim.command({ t: 'teleport', x: hero.x, y: hero.y });
+  const kind = (id: string): Enemy => w.enemies.find(e => e.kind === id)!;
+  const d = { sim, w, core: kind(TROLL), club: kind(TROLL_CLUB), rock: kind(TROLL_ROCK), tail: kind(TROLL_TAIL) };
+  for (const e of [d.club, d.rock]) sim.command({ t: 'chill', id: e.id, seconds: 600 });
+  return d;
+}
+
+check('«Рывок» in the open: its lane fills through the windup to the stop point (the sim\'s `to`) with its stop mark; running — dust at the feet; enemies on it thrown aside — a streak per push; the end flashes the lane (3 seeds)', () => {
+  for (const k of [1, 2, 3]) {
+    const d = charging('troll', k, { x: 12, y: 9 }), { sim, w } = d, view = new TrollView(U, c => c), g = new Graphics(), tl = tools(), art = buildCore(R);
+    const place = (x: number, y: number): number => sim.command({ t: 'place', x, y, color: 0, hp: 1, kind: 'basic' }) as number;
+    const placed = [place(12.3, 6.5), place(11.7, 5.2)];
+    let clock = 0, lanes = 0, last = -1, monotone = true, ran = false, ended = false, stopSeen = false, toSeen = false;
+    const pushed: number[] = [];
+    for (let i = 0; i < 60 * 10 && !ended; i++) {
+      sim.tick(); clock += SIM_DT;
+      const events = w.events.splice(0);
+      frame(view, w, g, tl, art, clock, events);
+      for (const e of events) if (e.type === 'trollPush') pushed.push(e.id);
+      const m = trollMove(w);
+      if (m?.move === 'charge' && !m.running) {
+        lanes += view.shown.chargeLanes;
+        if (view.shown.signProgress < last - 1e-9) monotone = false;
+        last = view.shown.signProgress;
+        stopSeen ||= view.shown.chargeStops === 1;
+        toSeen ||= !!m.to && Math.abs(Math.hypot(m.to.x - m.from!.x, m.to.y - m.from!.y) - 10) < 1e-6;
+      }
+      if (m?.move === 'charge' && m.running) ran ||= view.shown.chargeRun === 1 && view.shown.chargeLanes === 1;
+      ended = events.some(e => e.type === 'bossMove' && e.move === 'charge' && e.stage === 'hit');
+    }
+    assert(lanes >= 30 && monotone && last > 0.95 && stopSeen && toSeen, `seed ${k}: the lane through the windup (${lanes} frames, fill ${last.toFixed(2)}, stop ${stopSeen}, to ${toSeen})`);
+    assert(ran && view.shown.dusts > 3, `seed ${k}: the run drawn, dust ${view.shown.dusts}`);
+    // A body thrown aside may be met again further along the run (the sim's events): a streak per event.
+    assert(placed.every(id => pushed.includes(id)) && view.shown.pushes === pushed.length && ended && view.shown.hits >= 1, `seed ${k}: both placed thrown aside (${JSON.stringify(pushed)}), a streak per push (${view.shown.pushes} of ${pushed.length}), the lane flashed at the end (${view.shown.hits})`);
+    assert(view.shown.chargeStuck === 0 && view.shown.impacts === 0 && view.shown.stuckStars === 0, `seed ${k}: in the open — no impact, no stars`);
+  }
+});
+
+check('«Рывок» into a tree: the lane shows the impact mark from the windup; the run sticks — sparks at the front, stars over the head while the window is open, then none (3 seeds)', () => {
+  for (const k of [1, 2, 3]) {
+    const d = charging('tv-charge-field', k, { x: 14, y: 10 }), { sim, w } = d, view = new TrollView(U, c => c), g = new Graphics(), tl = tools(), art = buildCore(R);
+    let clock = 0, stuckLane = 0, stars = 0, walked = false, closed = false;
+    for (let i = 0; i < 60 * 10 && !closed; i++) {
+      sim.tick(); clock += SIM_DT;
+      const events = w.events.splice(0);
+      frame(view, w, g, tl, art, clock, events);
+      const m = trollMove(w);
+      if (m?.move === 'charge' && !m.running) {
+        stuckLane += view.shown.chargeStuck;
+        // The hero steps off the lane during the windup (the run must not strike him).
+        if (!walked) { sim.command({ t: 'walk', x: 0, y: -1 }); walked = true; }
+      } else if (walked && w.hero.y < 8) sim.command({ t: 'walk', x: 0, y: 0 });
+      stars += view.shown.stuckStars;
+      if (view.shown.stuckStars) assert(trollState(w)?.stuck === true, `seed ${k}: stars only while stuck`);
+      closed = view.shown.opens === 1 && !trollState(w)?.window;
+    }
+    assert(stuckLane >= 30, `seed ${k}: the impact mark on the lane (${stuckLane} frames)`);
+    assert(view.shown.impacts === 1 && view.shown.opens === 1 && stars >= 60, `seed ${k}: sparks ${view.shown.impacts}, the window ${view.shown.opens}, stars ${stars} frames`);
+    assert(closed && view.shown.stuckStars === 0, `seed ${k}: the window closed — no stars`);
+  }
+});
+
+check('a part carried out of reach (`trollLinkFar`): a white ring on each link that dropped out', () => {
+  const d = den(1), { w } = d, view = new TrollView(U, c => c);
+  assert(view.onEvent({ type: 'trollLinkFar', id: d.club.id, x: d.club.x, y: d.club.y, dropped: [d.club.id, d.rock.id] }, w, 0, R), 'the Troll\'s event');
+  assert(view.onEvent({ type: 'trollPush', id: d.tail.id, x: 3, y: 3, fromX: 1, fromY: 3 }, w, 0, R), 'the push is the Troll\'s too');
+  assert(view.shown.farDrops === 2 && view.shown.pushes === 1, `rings ${view.shown.farDrops}, pushes ${view.shown.pushes}`);
 });
 
 console.log('trollView.spec: done');

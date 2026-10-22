@@ -13,6 +13,11 @@
  *   filling for the whole snore, crumbling when the Troll is struck;
  * - «звон» (a hit outside the window): a short grey spark at the hide, no text; a window ending with the core in the drawn chain —
  *   a white ring on each link that dropped out.
+ * - task 48 §25 «Рывок» (`Params.trollMove`, design 22.10.2026): the lane — the club's strip, wider (the sim's `width`) and of a warm
+ *   amber, drawn to the stop point (`to`: where the core will stand), filling through the windup, an arrow and a bar at the stop; a lane
+ *   that ends at an obstacle (`stuck`) has a jagged impact mark there; running — the lane dims, dust puffs at the feet; stuck — a
+ *   burst of sparks at the front and stars turning over the head while its window is open; enemies thrown aside (`trollPush`) — a
+ *   short streak behind each; a part carried out of reach (`trollLinkFar`) — a white ring on each link that dropped out.
  * Coordinates are arena pixels (`unit` per arena unit); `r` is the drawing radius of a body in px.
  */
 import { BOSS_ART, CLUB_AXIS, CLUB_GRIP, CLUB_HAND, rockInFlight } from '../sim/bossArt';
@@ -27,6 +32,7 @@ import {
 import type { Enemy, World, WorldEvent } from '../sim/world';
 import { ELITE_LEMON } from './eliteView';
 import { drawWhistleMark } from './jailerView';
+import { REFUSAL_TEXT } from '../sim/chain';
 
 const NAVY = 0x18232d;
 const THREAT = 0xffffff;
@@ -53,6 +59,16 @@ export const FALL_LIFE = 0.5;
 export const CRUMBLE_LIFE = 0.6;
 export const REGROW_LIFE = 0.5;
 export const UNLINK_LIFE = 0.3;
+/** Task 48 §25: the words over a part carried out of reach (`trollLinkFar`): the sim's refusal `far` (render.ts says them). */
+export const TROLL_FAR_WORDS = REFUSAL_TEXT.far;
+/** Task 48 §25: «Рывок» — the lane's warm amber (a threat, not a chain colour; the club's strip stays white), the effects' lives, the dust's beat. */
+const CHARGE_TINT = 0xffbf6b;
+const DUST = 0xc8b48c;
+export const DUST_LIFE = 0.5;
+/** Design 22.10.2026: the streak lasts 0.5 s and is bright — the player reads «the Troll threw it», not the enemy's own step. */
+export const PUSH_LIFE = 0.5;
+export const IMPACT_LIFE = 0.45;
+const DUST_EVERY = 0.05;
 
 export const isTrollKind = (kind: string): boolean => kind === TROLL || kind === TROLL_CLUB || kind === TROLL_ROCK || kind === TROLL_TAIL;
 
@@ -217,10 +233,10 @@ export interface SignTools {
   hatchCircle: (g: Graphics, X: number, Y: number, R: number, step: number) => void;
 }
 
-interface Fx { kind: 'spark' | 'ring' | 'flash' | 'crumble' | 'regrow'; x: number; y: number; r: number; born: number; life: number; ux?: number; uy?: number; progress?: number; sign?: SignGeometry }
+interface Fx { kind: 'spark' | 'ring' | 'flash' | 'crumble' | 'regrow' | 'dust' | 'push' | 'impact'; x: number; y: number; r: number; born: number; life: number; ux?: number; uy?: number; progress?: number; sign?: SignGeometry; fromX?: number; fromY?: number }
 
 /** A sign's geometry as it was drawn last (a hit flashes it where it stood). */
-interface SignGeometry { move: Exclude<TrollMoveId, 'snore'>; x: number; y: number; r: number; ux: number; uy: number; len: number; half: number; inner: number; gates: Vec[]; ink: number[] }
+interface SignGeometry { move: Exclude<TrollMoveId, 'snore'>; x: number; y: number; r: number; ux: number; uy: number; len: number; half: number; inner: number; gates: Vec[]; ink: number[]; stuck?: boolean }
 
 interface Piece { node: Container; x: number; y: number; vx: number; spin: number; born: number; life: number }
 
@@ -235,6 +251,11 @@ export class TrollView {
     tail: 0, weapons: 0, flight: 0,
     /** Seen so far: signs flashed at a hit, sparks of «звон», parts that fell off, the tail line that fell, white rings of dropped links, crumbled snore arcs, regrown plates, windows opened. */
     hits: 0, sparks: 0, severed: 0, tailFalls: 0, unlinks: 0, crumbles: 0, regrows: 0, opens: 0,
+    /**
+     * Task 48 §25 «Рывок»: this frame — its lane drawn (0/1), the lane's stop marks, the impact mark of a lane into an obstacle, the run
+     * (0/1), the stars over a stuck head; seen so far — dust puffs, impact bursts, enemies thrown aside, links dropped carried out of reach.
+     */
+    chargeLanes: 0, chargeStops: 0, chargeStuck: 0, chargeRun: 0, stuckStars: 0, dusts: 0, impacts: 0, pushes: 0, farDrops: 0,
   };
   /** The layer over the enemies: the effects, the count, the rock in the air, the pieces that fell off. */
   readonly layer = new Container();
@@ -251,6 +272,8 @@ export class TrollView {
   private edgeBack: Graphics | null = null;
   private rockFlight: Container | null = null;
   private plates = new Map<number, number>();
+  /** Task 48 §25: the clock of the last dust puff of a run. */
+  private dustAt = -1;
 
   /** `unit` — arena pixels per unit (render.ts `UNIT`); `ink` — a sim colour index as the view's colour (render.ts `chainInk`). */
   constructor(private readonly unit: number, private readonly ink: (color: number) => number) { this.layer.addChild(this.fxG); }
@@ -259,6 +282,7 @@ export class TrollView {
   beginFrame(): void {
     const s = this.shown;
     s.core = 0; s.asleep = 0; s.glow = 0; s.count = ''; s.sign = ''; s.signProgress = 0; s.strips = 0; s.circles = 0; s.rings = 0; s.gateMarks = 0; s.snoreArc = 0; s.tail = 0; s.weapons = 0; s.flight = 0;
+    s.chargeLanes = 0; s.chargeStops = 0; s.chargeStuck = 0; s.chargeRun = 0; s.stuckStars = 0;
   }
 
   /** The new fight: no effects, no memory. */
@@ -270,7 +294,8 @@ export class TrollView {
     if (this.edgeLabel) this.edgeLabel.visible = false;
     if (this.edgeBack) this.edgeBack.visible = false;
     if (this.rockFlight) this.rockFlight.visible = false;
-    Object.assign(this.shown, { hits: 0, sparks: 0, severed: 0, tailFalls: 0, unlinks: 0, crumbles: 0, regrows: 0, opens: 0 });
+    Object.assign(this.shown, { hits: 0, sparks: 0, severed: 0, tailFalls: 0, unlinks: 0, crumbles: 0, regrows: 0, opens: 0, dusts: 0, impacts: 0, pushes: 0, farDrops: 0 });
+    this.dustAt = -1;
   }
 
   /**
@@ -291,7 +316,15 @@ export class TrollView {
       return true;
     }
     if (ev.type === 'trollWindow') {
-      if (ev.action === 'open') this.shown.opens++;
+      if (ev.action === 'open') {
+        this.shown.opens++;
+        // Task 48 §25: a run struck an obstacle — a burst of sparks at the front, along the lane.
+        const core = trollCore(world), lane = this.lastSign;
+        if (ev.source === 'charge' && core && lane?.move === 'charge') {
+          this.fx.push({ kind: 'impact', x: core.x * U + lane.ux * r * 1.3, y: core.y * U + lane.uy * r * 1.3 - r * 0.6, r, born: clock, life: IMPACT_LIFE, ux: lane.ux, uy: lane.uy });
+          this.shown.impacts++;
+        }
+      }
       else if (ev.action === 'block') {
         // A hit outside the window: a spark at the hide on the side of the hero (a small star of four grey strokes).
         const hero = world.hero, dx = hero.x - ev.x, dy = hero.y - ev.y, d = Math.hypot(dx, dy) || 1;
@@ -307,6 +340,20 @@ export class TrollView {
         const slept = world.events.some(e => e.type === 'bossMove' && e.move === 'snore' && e.stage === 'hit');
         const core = trollCore(world);
         if (!slept && core) { this.fx.push({ kind: 'crumble', x: core.x * U, y: core.y * U, r, born: clock, life: CRUMBLE_LIFE }); this.shown.crumbles++; }
+      }
+      return true;
+    }
+    if (ev.type === 'trollPush') {
+      // Task 48 §25: «Рывок» threw an enemy aside — a short streak from where it stood.
+      this.fx.push({ kind: 'push', x: ev.x * U, y: ev.y * U, r, born: clock, life: PUSH_LIFE, fromX: ev.fromX * U, fromY: ev.fromY * U });
+      this.shown.pushes++;
+      return true;
+    }
+    if (ev.type === 'trollLinkFar') {
+      // Task 48 §25: a part carried out of reach left the drawn chain with the links after it — a white ring on each (the window's way).
+      for (const id of ev.dropped) {
+        const e = world.enemies.find(x => x.id === id);
+        if (e) { this.fx.push({ kind: 'ring', x: e.x * U, y: e.y * U, r: r + 6, born: clock, life: UNLINK_LIFE }); this.shown.farDrops++; }
       }
       return true;
     }
@@ -379,6 +426,17 @@ export class TrollView {
       tools.strip(g, m.from.x * U, m.from.y * U, ux, uy, len, half, m.progress, 1);
       tools.head(g, m.from.x * U, m.from.y * U, ux, uy, len, half, 1);
       s.strips++;
+    } else if (m.move === 'charge' && m.from && m.to) {
+      // Task 48 §25 «Рывок»: the lane to the stop point (the sim's `to`), its own width; running — it dims (the dust is `drawOver`'s).
+      const dx = m.to.x - m.from.x, dy = m.to.y - m.from.y, lenU = Math.hypot(dx, dy), half = (m.width ?? 1.6) / 2 * U;
+      if (lenU < 1e-6) return;
+      const ux = dx / lenU, uy = dy / lenU, len = lenU * U;
+      this.lastSign = { move: 'charge', x: m.from.x * U, y: m.from.y * U, r: 0, ux, uy, len, half, inner: 0, gates: [], ink: [], stuck: !!m.stuck };
+      if (!sees(m.from) && !sees(m.to)) return;
+      chargeLane(g, m.from.x * U, m.from.y * U, ux, uy, len, half, m.running ? 1 : m.progress, m.running ? 0.45 : 1, !!m.stuck, this.unit);
+      s.chargeLanes++; s.chargeStops++;
+      if (m.stuck) s.chargeStuck++;
+      if (m.running) s.chargeRun = 1;
     } else if (m.move === 'rock') {
       this.lastSign = { move: 'rock', x: m.at.x * U, y: m.at.y * U, r: m.r * U, ux: 0, uy: 0, len: 0, half: 0, inner: 0, gates: [], ink: [] };
       if (!sees(m.at)) return;
@@ -535,6 +593,19 @@ export class TrollView {
       sprite.position.set(x, y - h); sprite.rotation = air.f * 7; sprite.visible = true;
       fxG.ellipse(x, y + r * 0.4, r * 1.1 * (1 - h / (3.5 * U)), r * 0.4 * (1 - h / (3.5 * U))).fill({ color: 0x050a07, alpha: 0.4 });
     } else if (this.rockFlight) this.rockFlight.visible = false;
+    // Task 48 §25: the run raises dust at the feet (a puff each `DUST_EVERY` real s, behind the body); stuck — stars over the head.
+    const m = trollMove(world);
+    if (st && m?.move === 'charge' && m.running && clock - this.dustAt >= DUST_EVERY) {
+      this.dustAt = clock;
+      const side = (s.dusts % 3) - 1, lane = this.lastSign, bx = lane?.move === 'charge' ? -lane.ux : 0, by = lane?.move === 'charge' ? -lane.uy : 0;
+      this.fx.push({ kind: 'dust', x: st.x * U + bx * r * 0.9 + side * r * 0.5, y: st.y * U + r * 0.85 + by * r * 0.5, r, born: clock, life: DUST_LIFE });
+      s.dusts++;
+    }
+    if (st?.stuck) {
+      s.stuckStars = 1;
+      const cx = st.x * U, cy = st.y * U + r * TROLL_FEET - r * TROLL_ART * TROLL_ART_ASPECT * 0.92;
+      stuckStars(g, cx, cy, r * TROLL_ART * 0.24, clock);
+    }
     // Effects.
     this.fx = this.fx.filter(f => clock - f.born < f.life);
     for (const f of this.fx) {
@@ -551,6 +622,29 @@ export class TrollView {
           fxG.moveTo(f.x + c * R * 0.3, f.y + sn * R * 0.3).lineTo(f.x + c * R, f.y + sn * R);
         }
         fxG.stroke({ color: SPARK_GREY, width: 3, alpha: k, cap: 'round' });
+      } else if (f.kind === 'dust') {
+        const R = f.r * (0.5 + 0.8 * (1 - k));
+        fxG.circle(f.x, f.y - f.r * 0.3 * (1 - k), R).fill({ color: DUST, alpha: 0.7 * k });
+      } else if (f.kind === 'push') {
+        // Three speed lines from where it stood to just behind it, shrinking towards the body.
+        const fx0 = f.fromX ?? f.x, fy0 = f.fromY ?? f.y, dx = f.x - fx0, dy = f.y - fy0, d = Math.hypot(dx, dy) || 1, nx = -dy / d, ny = dx / d, tail = 1 - k;
+        for (const [color, width, alpha] of [[NAVY, 8, 0.65 * k], [0xf2e2b8, 4, k]] as const) {
+          for (const o of [-0.45, 0, 0.45]) {
+            fxG.moveTo(fx0 + dx * tail + nx * o * f.r, fy0 + dy * tail + ny * o * f.r).lineTo(f.x - dx / d * f.r * 0.8 + nx * o * f.r, f.y - dy / d * f.r * 0.8 + ny * o * f.r);
+          }
+          fxG.stroke({ color, width, alpha, cap: 'round' });
+        }
+      } else if (f.kind === 'impact') {
+        // Sparks flying back from the obstacle and a grey puff.
+        const R = f.r * (0.6 + 1.2 * (1 - k)), back = Math.atan2(-(f.uy ?? 0), -(f.ux ?? 1));
+        fxG.circle(f.x, f.y, f.r * (0.5 + 0.6 * (1 - k))).fill({ color: SPARK_GREY, alpha: 0.35 * k });
+        for (const [color, width] of [[NAVY, 6], [0xfff2a0, 3]] as const) {
+          for (let i = 0; i < 7; i++) {
+            const a = back + (i - 3) * 0.42, c = Math.cos(a), sn = Math.sin(a);
+            fxG.moveTo(f.x + c * R * 0.35, f.y + sn * R * 0.35).lineTo(f.x + c * R, f.y + sn * R);
+          }
+          fxG.stroke({ color, width, alpha: k, cap: 'round' });
+        }
       } else if (f.kind === 'ring') {
         fxG.circle(f.x, f.y, f.r * (1 + 0.5 * (1 - k))).stroke({ color: 0xffffff, width: 5, alpha: 0.9 * k });
       } else if (f.kind === 'regrow') {
@@ -604,6 +698,7 @@ export class TrollView {
       tools.strip(g, s.x, s.y, s.ux, s.uy, s.len, s.half, 1, k);
       return;
     }
+    if (s.move === 'charge') { chargeLane(g, s.x, s.y, s.ux, s.uy, s.len, s.half, 1, k, !!s.stuck, this.unit, k); return; }
     if (s.move === 'rock') { this.circleSign(g, tools, s.x, s.y, s.r, 1, k); return; }
     if (s.move === 'tail') { this.drawRing(g, world, { x: s.x / this.unit, y: s.y / this.unit }, s.inner / this.unit, s.r / this.unit, 1, k); return; }
     for (const p of s.gates) g.circle(p.x, p.y, s.r).fill({ color: THREAT, alpha: 0.4 * k }).stroke({ color: THREAT_OUTLINE, width: 4, alpha: k });
@@ -634,5 +729,50 @@ export class TrollView {
       const x = l.x0 + (l.x1 - l.x0) * t + nx * wob + (i - N / 2) * drop * 5, y = l.y0 + (l.y1 - l.y0) * t + ny * wob + drop * drop * 30;
       g.circle(x, y, rad).fill({ color: i % 2 ? SKIN : SKIN_DARK, alpha: alpha * (1 - drop) }).stroke({ color: NAVY, width: 3, alpha: alpha * (1 - drop) });
     }
+  }
+}
+
+/**
+ * Task 48 §25 «Рывок»: its lane (px) from (ox, oy) along (ux, uy), `len` to the stop point, `2·half` wide — the threat strip's look in a
+ * warm amber (the club's strip is white): a faint fill, a stronger one up to `progress`, hatching, a dark outline; at the stop an arrow and
+ * a bar across; `stuck` — a jagged impact mark just past the stop (the obstacle it will strike). `fade` dims it (running); `flash` (0…1) —
+ * the run's end: the whole lane lights and fades.
+ */
+export function chargeLane(g: Graphics, ox: number, oy: number, ux: number, uy: number, len: number, half: number, progress: number, fade: number, stuck: boolean, unit: number, flash = 0): void {
+  const nx = -uy, ny = ux;
+  const at = (t: number, s: number): [number, number] => [ox + ux * t + nx * s, oy + uy * t + ny * s];
+  const quad = (t0: number, t1: number): number[] => [...at(t0, -half), ...at(t1, -half), ...at(t1, half), ...at(t0, half)];
+  if (flash > 0) {
+    g.poly(quad(0, len)).fill({ color: CHARGE_TINT, alpha: 0.5 * flash }).stroke({ color: THREAT_OUTLINE, width: 4, alpha: flash });
+    return;
+  }
+  g.poly(quad(0, len)).fill({ color: CHARGE_TINT, alpha: 0.14 * fade });
+  if (progress > 0) g.poly(quad(0, len * Math.min(1, progress))).fill({ color: CHARGE_TINT, alpha: 0.3 * fade });
+  const step = 0.32 * unit;
+  for (let t = 0; t < len - step * 0.5; t += step) {
+    const [x0, y0] = at(t, -half), [x1, y1] = at(Math.min(len, t + step), half);
+    g.moveTo(x0, y0).lineTo(x1, y1);
+  }
+  g.stroke({ color: CHARGE_TINT, width: 3, alpha: 0.7 * fade });
+  g.poly(quad(0, len)).stroke({ color: THREAT_OUTLINE, width: 5, alpha: 0.8 * fade }).poly(quad(0, len)).stroke({ color: CHARGE_TINT, width: 2.5, alpha: 0.95 * fade });
+  // The stop: an arrow pointing at it and a bar across the lane where the core will stand.
+  const tip = Math.max(0, len - half * 0.25), base = Math.max(0, tip - half * 0.9);
+  g.poly([...at(base, -half * 0.75), ...at(tip, 0), ...at(base, half * 0.75)]).fill({ color: CHARGE_TINT, alpha: 0.9 * fade }).stroke({ color: THREAT_OUTLINE, width: 2.5, alpha: fade });
+  const [b0x, b0y] = at(len, -half * 1.2), [b1x, b1y] = at(len, half * 1.2);
+  g.moveTo(b0x, b0y).lineTo(b1x, b1y).stroke({ color: THREAT_OUTLINE, width: 10, alpha: 0.85 * fade, cap: 'round' });
+  g.moveTo(b0x, b0y).lineTo(b1x, b1y).stroke({ color: CHARGE_TINT, width: 5, alpha: fade, cap: 'round' });
+  if (!stuck) return;
+  // Into an obstacle: a jagged impact mark past the bar (the run will stick there — a window).
+  const [cx, cy] = at(len + half * 0.6, 0), R = half * 0.62, pts: number[] = [];
+  for (let i = 0; i < 16; i++) { const a = i * Math.PI / 8, rr = i % 2 ? R * 0.45 : R; pts.push(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr); }
+  g.poly(pts).fill({ color: 0xfff2a0, alpha: 0.95 * fade }).stroke({ color: THREAT_OUTLINE, width: 3, alpha: fade, join: 'round' });
+}
+
+/** Task 48 §25: «застрял» — three pale stars turning over the head (px; the lynx's stun, larger) and a grey spark between them. */
+export function stuckStars(g: Graphics, cx: number, cy: number, R: number, clock: number): void {
+  for (let i = 0; i < 3; i++) {
+    const a = clock * 4 + i * Math.PI * 2 / 3, sx = cx + Math.cos(a) * R, sy = cy + Math.sin(a) * R * 0.32, s = R * 0.5, pts: number[] = [];
+    for (let j = 0; j < 10; j++) { const b = -Math.PI / 2 + j * Math.PI / 5, rr = j % 2 ? s * 0.42 : s; pts.push(sx + Math.cos(b) * rr, sy + Math.sin(b) * rr); }
+    g.poly(pts).fill(0xfff2a0).stroke({ color: THREAT_OUTLINE, width: 3.5, join: 'round' });
   }
 }
