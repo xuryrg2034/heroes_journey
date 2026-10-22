@@ -7,7 +7,7 @@
  * - the flag is off by default (`RT_FOREST_TRICKS_ON`), comes only with the shooters, the save keeps it, a broken value is no run;
  * - without it the schedule and the pools byte for byte (80 walks, the digest of the base 5c8b6398), with it the forest's map, streams and
  *   node path unchanged (only the arenas and rosters of fights differ);
- * - level design 22.10.2026: the arcs of the rootling («Корневики» on «Прогалина», after the water, rows 2–4), the slime («Трясина», after
+ * - level design 22.10.2026: the arcs of the rootling («Корневики» on «Прогалина», after the water, rows 2–5), the slime («Трясина», after
  *   the water, rows 3–5) and the firebrand («Головешки» on «Жаровни», after the braziers and the water, rows 3–5) — at the end of the list,
  *   never past «С ряда» + 2, on the new side of the alternation; one novelty a fight; a new viewer meets none in the first run (П6);
  * - the pools of «Испытание II»: «Трясина» rows 3–7 by the own-arena rule (no overdue rule), rows 8–9 keep their variety;
@@ -127,10 +127,10 @@ const HISTORIES: readonly (readonly string[])[] = [ALL_ARCS, [...ALL_ARCS, 'slin
 const SCHEDULED = Array.from({ length: 60 }, (_, i) => ({ k: i + 1, history: HISTORIES[i % HISTORIES.length], fights: planned(i + 1, HISTORIES[i % HISTORIES.length]) }));
 const POOLED = Array.from({ length: 30 }, (_, i) => ({ k: i + 1, fights: planned(i + 1, undefined) }));
 
-check('the arcs\' rows (readyArc): the rootling rows 2–4 after the water, the slime and the firebrand rows 3–5 (the firebrand after the braziers and the water) — never past «С ряда» + 2; after the shooters\' arcs; none without the flag', () => {
+check('the arcs\' rows (readyArc): the rootling rows 2–5 after the water, the slime and the firebrand rows 3–5 (the firebrand after the braziers and the water) — never past max(«С ряда» + 2, 5); after the shooters\' arcs; none without the flag', () => {
   const met = (extra: string[] = []) => new Set([...ALL_ARCS, 'slinger', 'hive', 'wisp', ...extra]);
   const at = (row: number, m: Set<string>, tricks = true) => readyArc({ node: 'battle', row, fight: 4, met: m, shooters: true, tricks });
-  assert(at(1, met()) === null && at(2, met()) === 'rootling' && at(4, met()) === 'rootling' && at(5, met()) === 'slime', `rootling ${at(1, met())} ${at(2, met())} ${at(4, met())} ${at(5, met())}`);
+  assert(at(1, met()) === null && at(2, met()) === 'rootling' && at(5, met()) === 'rootling' && at(6, met()) === null, `rootling ${at(1, met())} ${at(2, met())} ${at(5, met())} ${at(6, met())}`);
   assert(at(2, met(), false) === null && at(4, met(), false) === null, 'without the flag no arc of the mechanics');
   const noWater = new Set([...met()].filter(id => id !== 'water'));
   assert(at(3, noWater) === 'water', `no water — the water's own arc, none of the mechanics: ${at(3, noWater)}`);
@@ -161,7 +161,7 @@ check('the schedule (60 runs, 5 histories): the rootling first on «Прогал
       if (f.kinds.includes(FIREBRAND)) assert(!!arenaTemplate(f.arena).braziers?.length, `run ${k}: a firebrand on ${f.arena} (no braziers)`);
       if (/^\+(rootling|slime|firebrand)$/.test(f.roster ?? '')) { partners++; assert(met.has(f.roster!.slice(1)), `run ${k}: ${f.roster} before its meeting`); }
       for (const kind of fresh) {
-        if (kind === ROOTLING) assert(f.arena === 'p-yard' && f.roster === 'rootlings' && f.arc === 'rootling' && f.row >= 2 && f.row <= 4 && met.has('water'), `run ${k}: the rootling first on ${f.arena}/${f.roster} row ${f.row} arc ${f.arc}`);
+        if (kind === ROOTLING) assert(f.arena === 'p-yard' && f.roster === 'rootlings' && f.arc === 'rootling' && f.row >= 2 && f.row <= 5 && met.has('water'), `run ${k}: the rootling first on ${f.arena}/${f.roster} row ${f.row} arc ${f.arc}`);
         if (kind === SLIME) assert(f.arena === 'f-bog' && f.roster === undefined && f.arc === 'slime' && f.row >= 3 && f.row <= 5 && met.has('water'), `run ${k}: the slime first on ${f.arena} row ${f.row} arc ${f.arc}`);
         if (kind === FIREBRAND) assert(f.arena === 'p-braziers' && f.roster === 'firebrands' && f.arc === 'firebrand' && f.row >= 3 && f.row <= 5 && met.has('brazier') && met.has('water'), `run ${k}: the firebrand first on ${f.arena}/${f.roster} row ${f.row}`);
         if (SCHEDULE_TRICK_KINDS.includes(kind)) { firsts[kind] = (firsts[kind] ?? 0) + 1; (rows[kind] ??= new Set()).add(f.row); }

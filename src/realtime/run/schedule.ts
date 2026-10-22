@@ -85,12 +85,11 @@ export const SCHEDULE_SHOOTER_ARCS: readonly Arc[] = [
 /**
  * Task 57б (level design 22.10.2026, spec 10.2): the arcs of the forest's mechanics, after the shooters' — the rootling from run row 2
  * (needs nothing), the slime after the water from row 3, the firebrand after the braziers from row 3. The first meeting no later than
- * its first row + 2 (design 21.10.2026, the rule of every arc of task 57 — an acceptance condition of 57б): `maxRow` 4, 5, 5 (the
- * spec's table lists the rootling under row 5 — asked to design 22.10.2026; the formula's 4 until the answer). Only a run with the flag
- * `forestTricks` (`scheduleArcs`).
+ * max(its first row + 2, 5) (design 21.10.2026, the rule of every arc of task 57, the formula fixed by design 22.10.2026): `maxRow` 5, 5,
+ * 5. Only a run with the flag `forestTricks` (`scheduleArcs`).
  */
 export const SCHEDULE_TRICK_ARCS: readonly Arc[] = [
-  { id: 'rootling', needs: ['water'], minRow: 2, maxRow: 4 }, { id: 'slime', needs: ['water'], minRow: 3, maxRow: 5 }, { id: 'firebrand', needs: ['brazier', 'water'], minRow: 3, maxRow: 5 },
+  { id: 'rootling', needs: ['water'], minRow: 2, maxRow: 5 }, { id: 'slime', needs: ['water'], minRow: 3, maxRow: 5 }, { id: 'firebrand', needs: ['brazier', 'water'], minRow: 3, maxRow: 5 },
 ];
 /** The arcs of task 57 of a run (the shooters', then the mechanics' with `tricks`): the «new» side of the alternation. */
 const freshArcs = (tricks = false): readonly Arc[] => (tricks ? [...SCHEDULE_SHOOTER_ARCS, ...SCHEDULE_TRICK_ARCS] : SCHEDULE_SHOOTER_ARCS);

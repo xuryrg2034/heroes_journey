@@ -78,25 +78,26 @@ export const BOG_ARENA: ArenaTemplate = registerArena({
 });
 
 /**
- * Task 57б «Бурелом» (`f-windfall`; level design 22.10.2026, spec 10.2): kill 25 — the field of the centipede (step 57б-2): three
- * fallen logs (walls) lie across it and leave long passages between them, the full width of the arena — the body walks them in a file
- * and the chain takes it end to end. Gaps: the edges and the middle of the top log (under the door), the edges of the lower one. A mixed
- * start group; basic newcomers (no packs, no boars). Sandbox only until the centipede: its roster, arc and pool come with 57б-2.
+ * Task 57б «Бурелом» (`f-windfall`; level design 22.10.2026, spec 10.2): kill 25 — the field of the centipede (step 57б-2): one long
+ * fallen trunk (a wall, 10 × 0.6) lies across the middle and leaves two long passages along it, 4.7 wide, joined round its ends by
+ * gaps 4 wide (design 22.10.2026: the parts follow «on a rope», no passage under 4) — the body walks a passage in a file and the chain
+ * takes it end to end. A mixed start group; basic newcomers (no packs, no boars). Sandbox only until the centipede: its roster, arc and
+ * pool come with 57б-2.
  */
 export const WINDFALL_ARENA: ArenaTemplate = registerArena({
   id: 'f-windfall',
   name: 'Бурелом',
-  summary: 'Убей цепью 25 врагов. Поваленные стволы делят поляну на длинные проходы: враги идут по ним цепочкой. Дверь сверху.',
+  summary: 'Убей цепью 25 врагов. Поваленный ствол делит поляну на два длинных прохода: враги идут по ним цепочкой. Дверь сверху.',
   goal: 'kills',
   killGoal: 25,
   width: 18,
   height: 10,
   heroStart: { x: 9, y: 8.8 },
-  obstacles: [wall(2.4, 2.6, 5.4, 0.6), wall(10.2, 2.6, 5.4, 0.6), wall(4.6, 5.8, 8.8, 0.6)],
+  obstacles: [wall(4, 4.7, 10, 0.6)],
   buttons: [],
   door: { x: 9, y: 0.7 },
   enemies: [
-    weak(3.0, 4.2, 1), weak(4.2, 4.6, 1), weak(5.4, 4.2, 1), weak(12.6, 4.4, 2), weak(14.0, 4.2, 0), weak(9.0, 1.6, 3),
+    weak(5.0, 2.6, 1), weak(6.2, 3.0, 1), weak(7.4, 2.6, 1), weak(11.6, 2.8, 2), weak(13.0, 2.4, 0), weak(9.0, 1.4, 3),
   ],
   phaseOverride: { wolfShare: 0, boarShare: 0 },
 });
