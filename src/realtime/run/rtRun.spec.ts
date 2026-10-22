@@ -37,7 +37,7 @@ import { RT_TASK17_OFF,
   arenaPreview, arenaSeed, createRtRun, nodeArenas, GIFT_POOL, rtMapNodes, parseRtRun, resolveArena, rtArenaLoadout, RT_MILLSTONE_MAX_HP_PRICE, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtItemRefusal, rtChooseGift, rtChooseGiftPick, rtChooseHabit,
   rtChooseHammer, rtChooseTalisman, rtEnterNode, rtHammerOptions, rtEventView, rtGiftOptions, rtGiftView, rtNode, rtRestCraft, rtRestFinish, rtRestHeal, rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun, rtItemHintDue, rtRunParams,
   type RtRunState, type RtRunStep,
-  rtTrollNode,
+  rtTrollNode, RT_WARLOCK_V1_ON, rtArenaParams,
 } from './rtRun';
 import type { ItemKind } from '../sim/kit';
 import { ITEM_KINDS } from '../forest/items';
@@ -1594,6 +1594,20 @@ check('the measure of phase B (300 runs, the full gift, a bot taking options): e
     assert(c.offered / screens[category(id)] >= 0.03, `${id}: offered on ${pct(c.offered, screens[category(id)])} of the ${category(id)} screens`);
   }
   assert(screens.hammer === 300, `a hammer screen in every run: ${screens.hammer}`);
+});
+
+check('task 55 §23: the flag `warlockV1` — a new run takes it by `RT_WARLOCK_V1_ON` (on since 23.10.2026) and its fights play `Params.warlockV1`; a run created with `warlockV1: false` and a save made before it (no field) read back without it — the values without the key (Колдун v0 to the end); a malformed flag — no run', () => {
+  assert(RT_WARLOCK_V1_ON === true, 'the flag is on (23.10.2026)');
+  for (let k = 1; k <= 6; k++) {
+    const on = createRtRun(seedOf32(k), { gift: 'mini' }), off = createRtRun(seedOf32(k), { gift: 'mini', warlockV1: false });
+    assert(on.warlockV1 === true && rtArenaParams(on, rtRunParams(defaultParams())).warlockV1 === true, `seed ${k}: the flag and the key by default`);
+    assert(off.warlockV1 === undefined && !serializeRtRun(off).includes('warlockV1') && !('warlockV1' in rtArenaParams(off, rtRunParams(defaultParams()))), `seed ${k}: asked off — no field, no key`);
+    const old = JSON.parse(serializeRtRun(on)) as Record<string, unknown>;
+    delete old.warlockV1;
+    const back = parseRtRun(JSON.stringify(old));
+    assert(back && back.warlockV1 === undefined && !('warlockV1' in rtArenaParams(back, rtRunParams(defaultParams()))), `seed ${k}: the old save stays without the flag`);
+    assert(parseRtRun(serializeRtRun({ ...on, warlockV1: 'yes' as unknown as true })) === null, `seed ${k}: a malformed flag`);
+  }
 });
 
 console.log(`realtime-run: ${checks} checks passed`);
