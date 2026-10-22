@@ -346,10 +346,10 @@ export const RT_CORE_PICK_FIRST_ON = true;
 export const RT_BOSS_PICK_ART_ON = true;
 /**
  * Task 48, section 25 «Тролль ходит и делает рывок» (user's decision 22.10.2026): a new run keeps the flag `trollMove` and its Troll's
- * fight plays the walk and «Рывок» (`Params.trollMove`, `rtArenaParams`). Off until design accepts the measure (the bot, the playtest);
- * a save without the flag plays the sitting Troll to its end.
+ * fight plays the walk and «Рывок» (`Params.trollMove`, `rtArenaParams`). On since 22.10.2026 — design, after the bot's measure and the
+ * rules review; a save without the flag plays the sitting Troll to its end.
  */
-export const RT_TROLL_MOVE_ON = false;
+export const RT_TROLL_MOVE_ON = true;
 /**
  * Task 57а (design 21.10.2026, after the arcs measure: a new viewer met no new shooter in 4 runs — the old arcs took every fight): a new run
  * with the shooters takes the key `arcsAlternate` (the arcs of task 26 and of the new shooters alternate, run/schedule.ts `readyArc`).
