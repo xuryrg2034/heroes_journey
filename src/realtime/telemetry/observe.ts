@@ -549,6 +549,7 @@ export function createFightObserver(start: World): FightObserver {
           const c = s.forest.centipedes;
           if (ev.action === 'lunge') { if (ev.stage === 'start') c.lunges++; }
           else if (ev.action === 'join') c.joins++;
+          else if (ev.action === 'stuck') c.stuck++;
           else { c.heads++; if (ev.action === 'split') c.splits++; }
           return;
         }

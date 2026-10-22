@@ -7,7 +7,9 @@
  * - a chain from the tail to the head (and from the head to the tail) kills the whole body — no division;
  * - a chain that kills a middle part divides the body: two bodies, the new head the part nearest the break, stunned 1 s (it stands, then
  *   walks); the highlight's `splits` is the outcome — the chain's links and every pass off the links («Прямая», «Возврат», «Печать»,
- *   «Режущий проход», the end blast, «Огненный проход»), several seeds; past 4 bodies a break closes up;
+ *   «Режущий проход», the end blast, «Огненный проход» — its first burn before the breaks settle), several seeds; past 4 bodies a break
+ *   closes up (the highlight shows none there), a head killed alone at the cap still gets a new head; the new head's first lunge 2 s on;
+ * - stuck (the measure of the rope): a part farther than 1.2 behind for 2 s;
  * - «Рывок»: the hero in the lane −1; the hero who steps out during the 1 s windup is untouched; the first lunge 2 s after it appeared;
  * - at most 2 heads come by a roster; the telemetry counts lunges, divisions and heads and the threat `centipede-lunge`; a journal
  *   without the new keys plays the same world.
@@ -18,9 +20,9 @@ import { HAMMERS } from './buildIds';
 import { planChain } from './chain';
 import {
   CENTIPEDE, CENTI_BODIES_MAX, CENTI_FIRST_LUNGE, CENTI_LUNGE_SOURCE, CENTI_STEP, CENTI_STUN, centipedeBodies, centipedeBody, centipedeHead,
-  centipedeLane, centipedeStunned,
+  CENTI_CATCH_GAP, CENTI_STUCK, centipedeLane, centipedeStuck, centipedeStunned,
 } from './enemies/centipede';
-import type { Vec } from './geometry';
+import { wall, type Vec } from './geometry';
 import { worldState } from './hash';
 import { defaultParams, type Params } from './params';
 import { Simulation, SIM_DT, replay, type Journal } from './simulation';
@@ -41,6 +43,8 @@ registerArena({
   ...base, id: 'fc-come', name: 'Сороконожки идут', width: 26, height: 16, heroStart: { x: 13, y: 8 }, obstacles: [], door: { x: 25.3, y: 8 },
   newcomers: [{ kind: CENTIPEDE, share: 1 }], phaseOverride: { wolfShare: 0, boarShare: 0 },
 });
+// A wall from the top down to y 9 at x 9.6–10: a body walking west with its tail east of the wall drags the tail into it.
+registerArena({ ...base, id: 'fc-wall', name: 'Стена', width: 26, height: 16, heroStart: { x: 3, y: 4 }, obstacles: [wall(9.6, 0, 0.4, 9)], door: { x: 25.3, y: 8 } });
 
 /** Nothing comes, nobody walks (unless `enemySpeed` is given); the hero has 99 HP and no grace window to blur the count. */
 function quiet(extra: Partial<Params> = {}): Params {
@@ -126,7 +130,7 @@ check('a chain from the tail to the head and from the head to the tail kills the
   }
 });
 
-check('a chain that kills the middle part divides the body: two bodies, the new head the part behind the break, HP 1, stunned 1 s — it stands, no lunge, then walks; the highlight `splits` is the outcome (4 seeds)', () => {
+check('a chain that kills the middle part divides the body: two bodies, the new head the part behind the break (its own id), HP 1, stunned 1 s — it stands, no lunge, then walks; its first lunge 2 s after the division; the highlight `splits` is the outcome (4 seeds)', () => {
   for (const k of [1, 2, 3, 4]) {
     const sim = field(k, { enemySpeed: 1.2 }), w = sim.world;
     sim.command({ t: 'teleport', x: 3, y: 8 });
@@ -137,6 +141,7 @@ check('a chain that kills the middle part divides the body: two bodies, the new 
     const plan = planChain(w);
     assert(splitKey(plan.splits ?? []) === `${after.id}<${head.id}/${mid.id}`, `seed ${k}: the highlight — «трещина» at the middle, «новая голова» behind it (${JSON.stringify(plan.splits)})`);
     const events = release(sim);
+    const split = w.time;
     assert(doneKey(events) === splitKey(plan.splits!), `seed ${k}: the outcome is the highlight's (${doneKey(events)})`);
     const bodies = centipedeBodies(w);
     assert(bodies.length === 2 && bodies.map(b => b.parts.join()).join(' | ') === `${head.id},${parts[1].id} | ${after.id},${parts[4].id}`, `seed ${k}: two bodies (${JSON.stringify(bodies)})`);
@@ -148,6 +153,8 @@ check('a chain that kills the middle part divides the body: two bodies, the new 
     assert(dist(after, at) < 1e-9 && centipedeStunned(after) && !centi(stunned).some(e => e.action === 'lunge' && e.id === after.id), `seed ${k}: stunned 1 s — it stood`);
     ticks(sim, ticksOf(0.5));
     assert(!centipedeStunned(after) && dist(after, at) > 0.1, `seed ${k}: then it walks (${dist(after, at).toFixed(2)})`);
+    const later = ticks(sim, ticksOf(2), [], (_w, out) => lunges(out, 'start').some(e => e.id === after.id));
+    assert(lunges(later, 'start').some(e => e.id === after.id) && Math.abs(w.time - split - CENTI_FIRST_LUNGE) < 0.05, `seed ${k}: its first lunge ${(w.time - split).toFixed(2)} s after the division`);
     assert(replays(sim), `seed ${k}: replay`);
   }
 });
@@ -175,7 +182,7 @@ check('the head killed alone: the next part becomes the head (event `head`, stun
   }
 });
 
-check(`past ${CENTI_BODIES_MAX} bodies a break closes up: two bodies, one chain kills parts 1 and 3 of the first and part 2 of the second — two divisions (4 bodies), the third closes up (\`join\`); the highlight shows the two (3 seeds)`, () => {
+check(`past ${CENTI_BODIES_MAX} bodies a break closes up: two bodies, one chain kills parts 1 and 3 of the first and part 2 of the second — two divisions (4 bodies), the third closes up (\`join\`); the highlight shows exactly the two, no «трещина» at the third; then a head killed alone at the cap still gets a new head (the cap does not count it) (3 seeds)`, () => {
   for (const k of [1, 2, 3]) {
     const sim = field(k), w = sim.world;
     sim.command({ t: 'teleport', x: 2, y: 8 });
@@ -189,7 +196,34 @@ check(`past ${CENTI_BODIES_MAX} bodies a break closes up: two bodies, one chain 
     assert(doneKey(events) === splitKey(plan.splits!), `seed ${k}: the outcome is the highlight's (${doneKey(events)})`);
     const join = centi(events).find(e => e.action === 'join');
     assert(join?.id === b[3].id && join.front === b[1].id && centipedeBodies(w).length === CENTI_BODIES_MAX, `seed ${k}: the third closed up — ${centipedeBodies(w).length} bodies`);
+    assert(!plan.splits!.some(x => x.newHead === b[3].id || x.cut === b[2].id), `seed ${k}: no «трещина» or new head at the third break`);
     assert(centipedeBody(w, b[0].id).join() === [b[0], b[1], b[3], b[4]].map(e => e.id).join(), `seed ${k}: the second body closed up in order`);
+    // At the cap: the second body's head killed alone — its next part leads (the body count stays 4).
+    ticks(sim, ticksOf(CENTI_STUN) + 2);
+    sim.command({ t: 'teleport', x: b[0].x - 0.9, y: b[0].y + 0.6 });
+    draw(sim, [b[0]]);
+    const lone = planChain(w);
+    assert((w.chain.length as number) === 1 && splitKey(lone.splits ?? []) === `${b[1].id}<-/${b[0].id}`, `seed ${k}: the highlight at the cap — a new head (${JSON.stringify(lone.splits)})`);
+    const headEvents = release(sim);
+    assert(doneKey(headEvents) === splitKey(lone.splits!) && centipedeBodies(w).length === CENTI_BODIES_MAX && centipedeHead(b[1]) && b[1].hp === 1, `seed ${k}: the new head at the cap (${doneKey(headEvents)})`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
+check(`at the cap the piece whose head died is not counted: 4 bodies, one chain kills the head of the second and a middle part of the first (lower ids: the division comes first in id order) — the second gets its new head, the first's break closes up (\`join\`), still ${CENTI_BODIES_MAX} bodies; the highlight is the outcome (3 seeds)`, () => {
+  for (const k of [1, 2, 3]) {
+    const sim = field(k), w = sim.world;
+    sim.command({ t: 'teleport', x: 2, y: 8 });
+    const a = body(sim, { x: 8, y: 7.5 }, { x: 2, y: 8 }), b = body(sim, { x: 8, y: 8.5 }, { x: 2, y: 8 });
+    body(sim, { x: 8, y: 13 }, { x: 2, y: 13 }); body(sim, { x: 8, y: 3 }, { x: 2, y: 3 });
+    sim.command({ t: 'teleport', x: b[0].x - 1, y: b[0].y + 0.5 });
+    draw(sim, [b[0], a[1]]);
+    assert(w.chain.length === 2 && centipedeBodies(w).length === CENTI_BODIES_MAX, `seed ${k}: the chain, 4 bodies`);
+    const plan = planChain(w);
+    assert(splitKey(plan.splits ?? []) === `${b[1].id}<-/${b[0].id}`, `seed ${k}: the highlight — the new head only (${JSON.stringify(plan.splits)})`);
+    const events = release(sim);
+    const join = centi(events).find(e => e.action === 'join');
+    assert(doneKey(events) === splitKey(plan.splits!) && join?.id === a[2].id && centipedeBodies(w).length === CENTI_BODIES_MAX, `seed ${k}: the new head, the break closed up, 4 bodies (${doneKey(events)}, ${centipedeBodies(w).length})`);
     assert(replays(sim), `seed ${k}: replay`);
   }
 });
@@ -220,8 +254,33 @@ check('off the links — «Прямая», «Возврат», «Печать»,
     offLink(k, { name: 'return', hammer: HAMMERS.return, hero: { x: 6, y: 8 }, links: row, at: { x: 8.1, y: 8.3 } });
     offLink(k, { name: 'seal', params: { loopEnabled: true }, hero: { x: 4.5, y: 8 }, links: [{ x: 6, y: 7 }, { x: 8, y: 7 }, { x: 8, y: 9 }, { x: 6, y: 9 }], at: { x: 7, y: 8 }, close: true });
     offLink(k, { name: HAMMERS.cut, hammer: HAMMERS.cut, hero: { x: 6, y: 8 }, links: row, at: { x: 9.5, y: 8.5 } });
+    // «Огненный проход»: its first burn of the last points comes in the tick the dash ends, after the move — the breaks settle after
+    // it (a settle before it would promote a part the burn then kills: the highlight would differ; checked by mutation 22.10.2026).
     offLink(k, { name: HAMMERS.fire, hammer: HAMMERS.fire, hero: { x: 6, y: 8 }, links: row, at: { x: 9.5, y: 8.3 } });
     offLink(k, { name: 'blast', hammer: HAMMERS.blast, hero: { x: 6, y: 8 }, links: row, at: { x: 10.2, y: 9.2 } });
+  }
+});
+
+// ---- The measure of the rope ----
+
+check(`stuck (the measure of the rope): a tail dragged into a wall stays farther than ${CENTI_CATCH_GAP} behind — after ${CENTI_STUCK} s it is stuck (\`centipedeStuck\`, event \`stuck\` once); on the open field and in a lunge none is (2 seeds)`, () => {
+  for (const k of [1, 2]) {
+    const sim = new Simulation({ arena: 'fc-wall', params: quiet({ enemySpeed: 1.2 }), seed: seedOf(k), record: true }), w = sim.world;
+    sim.command({ t: 'clear', keepMarked: false });
+    sim.command({ t: 'teleport', x: 3, y: 4 });
+    const parts = body(sim, { x: 8.6, y: 4 }, { x: 3, y: 4 });
+    sim.command({ t: 'teleport', x: 1, y: 4 });
+    const events = ticks(sim, ticksOf(5));
+    const stuck = centi(events).filter(e => e.action === 'stuck');
+    assert(stuck.length >= 1 && centipedeStuck(w).length >= 1 && stuck.every(e => parts.some(p => p.id === e.id)), `seed ${k}: stuck at the wall (${stuck.length}, now ${centipedeStuck(w)})`);
+    assert(new Set(stuck.map(e => e.id)).size === stuck.length, `seed ${k}: one event per part`);
+    // The open field, with a lunge (the hero near): none.
+    const open = field(k, { enemySpeed: 1.2 }), ow = open.world;
+    open.command({ t: 'teleport', x: 6, y: 8 });
+    body(open, { x: 9.5, y: 8 }, { x: 6, y: 8 });
+    const free = ticks(open, ticksOf(6));
+    assert(lunges(free, 'start').length >= 1 && !centi(free).some(e => e.action === 'stuck') && !centipedeStuck(ow).length, `seed ${k}: none stuck on the open field`);
+    assert(replays(sim) && replays(open), `seed ${k}: replay`);
   }
 });
 
@@ -302,7 +361,7 @@ check('the telemetry counts the lunges, the divisions and the new heads; the thr
     tick(ticksOf(1));
     threats.finish(w);
     const s = observer.summary().forest.centipedes, t = threats.tally()['centipede-lunge'];
-    assert(s.lunges >= 2 && s.splits === 1 && s.heads === 1 && s.joins === 0, `seed ${k}: the telemetry (${JSON.stringify(s)})`);
+    assert(s.lunges >= 2 && s.splits === 1 && s.heads === 1 && s.joins === 0 && s.stuck === 0, `seed ${k}: the telemetry (${JSON.stringify(s)})`);
     assert(t && t.hit >= 1 && t.dodged >= 1, `seed ${k}: the threats (${JSON.stringify(t)})`);
     const journal = sim.exportJournal()! as Journal & { params: Partial<Params> };
     for (const key of ['centiParts', 'centiLungeWindup'] as const) delete journal.params[key];

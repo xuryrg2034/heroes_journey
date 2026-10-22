@@ -708,7 +708,9 @@ export type WorldEvent =
    */
   | { type: 'centipede'; action: 'split' | 'head'; id: number; front?: number; cut: number; x: number; y: number; stun: number }
   /** Task 57б-2: a division past the bodies' cap — the piece behind closed up to the part `front` ahead of the break (no new head). */
-  | { type: 'centipede'; action: 'join'; id: number; front: number; x: number; y: number };
+  | { type: 'centipede'; action: 'join'; id: number; front: number; x: number; y: number }
+  /** Task 57б-2: a part has been farther than 1.2 behind the part ahead for 2 s (the measure of the rope; the rules never read it). */
+  | { type: 'centipede'; action: 'stuck'; id: number; x: number; y: number };
 
 export interface World {
   arena: ArenaTemplate;

@@ -77,5 +77,5 @@ export { WISP, wispState } from './wisp';
 export { ROOTLING, rootGroup, stumpState, type Stump } from './rootling';
 export { SLIME, slimeBig, slimePairs } from './slime';
 export { FIREBRAND, brandLit, brandState } from './firebrand';
-export { CENTIPEDE, CENTI_LUNGE_SOURCE, centipedeBodies, centipedeBody, centipedeHead, centipedeLane, centipedeStunned, type CentipedeSplit } from './centipede';
+export { CENTIPEDE, CENTI_LUNGE_SOURCE, centipedeBodies, centipedeBody, centipedeHead, centipedeLane, centipedeStuck, centipedeStunned, type CentipedeSplit } from './centipede';
 export * from './kinds';

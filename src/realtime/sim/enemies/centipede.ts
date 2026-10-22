@@ -27,7 +27,8 @@
  * A chain from end to end kills the whole body: no break. The highlight (chain.ts `ChainPlan.splits`) resolves the pass's kills by the same
  * function (`resolveBreaks`): highlight = the pass.
  *
- * State in `enemy.vars`: `ca` — the part ahead; `cx`, `bx`, `by` — a break waiting; `cs` — stun left (game s); `cm` 1 — the run passed
+ * State in `enemy.vars`: `ca` — the part ahead; `cx`, `bx`, `by` — a break waiting; `cs` — stun left (game s); `cg` — game s a part has been
+ * farther than `CENTI_CATCH_GAP` behind (stuck past `CENTI_STUCK`); `cm` 1 — the run passed
  * the hero during his move. The head's lunge in the boar's fields: `boar` `walk` / `windup` / `charge`, `boarTimer` (the pause, the
  * windup), `dirX`/`dirY` (the lane), `charged` (run so far).
  */
@@ -63,6 +64,8 @@ export const CENTI_STUN = 1;
 /** Heads on the arena at the start of their coming (`capped`), and at most after divisions. */
 export const CENTI_START_MAX = 2;
 export const CENTI_BODIES_MAX = 4;
+/** A part farther than `CENTI_CATCH_GAP` behind the one ahead this long (game s) is stuck (the measure, `centipedeStuck`). */
+export const CENTI_STUCK = 2;
 const BODY_SCALE = 0.9;
 const TIME_EPS = 1e-9;
 
@@ -105,6 +108,14 @@ export function centipedeLane(world: World, e: Enemy): { dx: number; dy: number;
   if (e.boar === 'charge') return { dx: e.dirX, dy: e.dirY, len: Math.max(0, CENTI_LANE_LEN - e.charged), progress: 1, charging: true, second: false };
   const total = windupOf(world);
   return { dx: e.dirX, dy: e.dirY, len: CENTI_LANE_LEN, progress: total > 0 ? Math.max(0, Math.min(1, 1 - Math.max(0, e.boarTimer) / total)) : 1, charging: false, second: false };
+}
+
+/**
+ * The parts stuck now (the measure of the rope; design 22.10.2026, checked on «Бурелом»): farther than `CENTI_CATCH_GAP` from the part
+ * ahead for at least `CENTI_STUCK` game seconds (`vars.cg`). Read only.
+ */
+export function centipedeStuck(world: World): number[] {
+  return world.enemies.filter(e => e.kind === CENTIPEDE && (e.vars.cg ?? 0) >= CENTI_STUCK - TIME_EPS).map(e => e.id);
 }
 
 /** One break of a pass (`resolveBreaks`): the part that becomes a head or closes up, the killed part nearest it and its place. */
@@ -184,7 +195,7 @@ export function settleCentipedes(world: World): void {
   const { promote, join } = resolveBreaks(world, new Set());
   for (const s of promote) {
     const e = findSegment(world, s.newHead)!, v = e.vars;
-    delete v.ca; delete v.cx; delete v.bx; delete v.by; delete v.cm;
+    delete v.ca; delete v.cx; delete v.bx; delete v.by; delete v.cm; delete v.cg;
     e.hp = Math.max(e.hp, CENTI_HEAD_HP);
     v.cs = CENTI_STUN;
     e.boar = 'walk'; e.boarTimer = CENTI_FIRST_LUNGE; e.charged = 0;
@@ -261,10 +272,18 @@ function stepHead(world: World, e: Enemy, dt: number): boolean {
 
 /** A part: toward the part ahead, keeping `CENTI_STEP`; a part waiting on a break stands. */
 function stepPart(world: World, e: Enemy, dt: number): boolean {
-  if (e.vars.cx !== undefined) return true;
-  const ahead = e.vars.ca !== undefined ? findSegment(world, e.vars.ca) : undefined;
-  if (!ahead) return true;
+  const v = e.vars;
+  if (v.cx !== undefined) { delete v.cg; return true; }
+  const ahead = v.ca !== undefined ? findSegment(world, v.ca) : undefined;
+  if (!ahead) { delete v.cg; return true; }
   const d = dist(e, ahead);
+  // Stuck (the measure of the rope, design 22.10.2026): game seconds it has been farther than `CENTI_CATCH_GAP` behind; past
+  // `CENTI_STUCK` once — event `centipede` `stuck`.
+  if (d > CENTI_CATCH_GAP + 1e-9) {
+    const was = v.cg ?? 0;
+    v.cg = was + dt;
+    if (was < CENTI_STUCK - TIME_EPS && v.cg >= CENTI_STUCK - TIME_EPS) world.events.push({ type: 'centipede', action: 'stuck', id: e.id, x: e.x, y: e.y });
+  } else delete v.cg;
   if (d <= CENTI_STEP + 1e-9) return true;
   const speed = d > CENTI_CATCH_GAP ? CENTI_CATCH_SPEED : enemySpeed(world, e) * enemyGroundFactor(world, e);
   const step = Math.min(speed * dt, d - CENTI_STEP);

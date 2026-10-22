@@ -45,6 +45,8 @@ export const RT_KIND_TITLES: Readonly<Record<string, string>> = {
   rook: 'ладья', wardrobe: 'шкаф', barrel: 'бочка',
   // Task 57а «Лес: стрелки» (the user's name «Светляк», 17.10.2026; not «Огонёк»).
   slinger: 'пращник', hive: 'улей', wisp: 'светляк',
+  // Task 57б-2 «Сороконожка» (its head and parts are one kind).
+  centipede: 'сороконожка',
 };
 
 /**
@@ -75,13 +77,15 @@ export const RT_DEATH_ABILITY: Readonly<Record<string, string>> = {
   'wardrobe-topple': 'падение шкафа', 'rook-strike': 'удар ладьи',
   // Task 57а (spec 5): the slinger's stone («камень пращника», not «камень» — the Troll's), the hive's wasp, the wisp's own touch.
   stone: 'камень пращника', wasp: 'оса улья', wisp: 'светляк',
+  // Task 57б-2 (spec 6.3, «кто убил»): the centipede's «Рывок» (its touch — «сороконожка»).
+  'centipede-lunge': 'рывок сороконожки',
 };
 /**
  * The touch sources (each kind's `hitSource`): the line names the striker's kind, its elite mark, armour and affixes. Task 40 (design
  * 16.10.2026, spec section 10): the garrison's touches too — the guard, the dog handler, the hound (on its leash or in its frenzy: the
  * same body, «пёс»), the keymaster, the Castellan.
  */
-export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper', 'guard', 'handler', 'hound', 'keymaster', 'castellan', 'crossbow', 'knight', 'rook', 'slinger', 'recruit', 'warden', 'pitcher'];
+export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper', 'guard', 'handler', 'hound', 'keymaster', 'castellan', 'crossbow', 'knight', 'rook', 'slinger', 'recruit', 'warden', 'pitcher', 'centipede'];
 
 /** Drafts sent to design 12.10.2026 (pending approval). */
 export const RT_RUN_END_TEXT = {
