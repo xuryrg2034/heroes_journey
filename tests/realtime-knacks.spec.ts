@@ -15,6 +15,16 @@ import { replay, type Journal } from '../src/realtime/sim/simulation';
  * replays in Node to the hash of the page. The rules themselves are checked in Node (`npm run test:realtime-honed`, `-knacks-run`).
  */
 const snap = (page: Page): Promise<any> => page.evaluate(() => (window as any).__realtime.snapshot());
+/**
+ * The snapshot after a drawn frame. The pointer handler runs the chain's command at once, so the snapshot has the chain before
+ * the highlight is drawn; `honedShown` (and the notches) are written by the next frame's render (traces of v78/v79: the read
+ * 20 ms after the press had the chain and game time unchanged, the mark 0). The game time moves only in a frame, and the
+ * frame's render follows its ticks.
+ */
+const drawn = async (page: Page): Promise<any> => {
+  const t0 = await page.evaluate(() => (window as any).__realtime.snapshot().time as number);
+  return untilFrame(page, (s, t: number, late) => (s.time > t || late ? s : undefined), t0, 2);
+};
 const knack = (page: Page): Promise<any> => page.evaluate(() => (window as any).__realtime.run.knack());
 const runState = (page: Page): Promise<RtRunState> => page.evaluate(() => (window as any).__realtime.run.state());
 const screen = (page: Page, x: number, y: number): Promise<{ x: number; y: number }> => page.evaluate(([x, y]) => (window as any).__realtime.toScreen(x, y), [x, y] as const);
@@ -251,7 +261,7 @@ test('task 50: «Острие» II — a second notch on every 3rd link (3, 6), 
   let pts = await row(page, 6);
   await drag(page, pts);
   await expect.poll(async () => (await snap(page)).chain.length).toBe(6);
-  let s = await snap(page);
+  let s = await drawn(page);
   expect(s.juice.notches).toEqual([3]);
   expect(s.honedShown.edge).toBe(0);
   await page.mouse.up();
@@ -261,7 +271,7 @@ test('task 50: «Острие» II — a second notch on every 3rd link (3, 6), 
   pts = await row(page, 6);
   await drag(page, pts);
   await expect.poll(async () => (await snap(page)).chain.length).toBe(6);
-  s = await snap(page);
+  s = await drawn(page);
   expect(s.juice.notches).toEqual([3, 6]);
   expect(s.honedShown.edge, 'the 6th link wears the second notch (rank II)').toBe(1);
   expect(s.buildItems.find((i: any) => i.id === 'fifth-link')).toMatchObject({ honed: true, marks: 2 });
@@ -285,7 +295,7 @@ test('task 50: «Ударная волна» II — two circles (round the end a
     const pts = await row(page, 4);
     await drag(page, pts);
     await expect.poll(async () => (await snap(page)).chain.length).toBe(4);
-    const s = await snap(page);
+    const s = await drawn(page);
     expect(s.honedShown.waves, honed ? 'two circles' : 'no rank II circle').toBe(honed ? 2 : 0);
     if (honed) {
       expect(s.honedShown.waveBodies, 'the body by the start has its ring').toBeGreaterThanOrEqual(1);
@@ -312,7 +322,7 @@ test('task 50: «Иней на клинке» II — snowflakes on the survivor 
     const near = await place(page, 9.6, 6.7, 1, 6);
     await drag(page, pts);
     await expect.poll(async () => (await snap(page)).chain.length).toBe(4);
-    const s = await snap(page);
+    const s = await drawn(page);
     expect(s.honedShown.frost, honed ? 'the survivor and its neighbour' : 'no rank II mark').toBe(honed ? 2 : 0);
     if (honed) await page.screenshot({ path: 'artifacts/realtime-knack-frost.png' });
     await page.mouse.up();
@@ -338,7 +348,7 @@ test('task 50: «Охотник на элит» II — one word «−2 плас�
   await drag(page, [[5.4, 5.5]]);
   await expect.poll(async () => (await snap(page)).chain).toEqual([elite]);
   expect((await snap(page)).enemies.find((e: any) => e.id === elite).armor?.plates, 'the elite wears plates').toBeGreaterThan(0);
-  expect((await snap(page)).honedShown).toMatchObject({ hunter: 1, hunterText: '−2 пластины' });
+  expect((await drawn(page)).honedShown).toMatchObject({ hunter: 1, hunterText: '−2 пластины' });
   await page.screenshot({ path: 'artifacts/realtime-knack-hunter.png' });
   await page.mouse.up();
   await gameWait(page, 1.5);
@@ -348,7 +358,7 @@ test('task 50: «Охотник на элит» II — one word «−2 плас�
   await place(page, 10.8, 5.5, 0, 1);
   await drag(page, [...pts, [10.8, 5.5]]);
   await expect.poll(async () => (await snap(page)).chain.length).toBe(4);
-  expect((await snap(page)).honedShown.arm, 'only the far link wears «+1»').toBe(1);
+  expect((await drawn(page)).honedShown.arm, 'only the far link wears «+1»').toBe(1);
   await page.screenshot({ path: 'artifacts/realtime-knack-arm.png' });
   await page.mouse.up();
   expect(await dashDone(page)).toBe(true);
@@ -360,7 +370,7 @@ test('task 50: «Охотник на элит» II — one word «−2 плас�
     await place(page, 5.4, 5.5, 0, 1);
     await drag(page, [[5.4, 5.5]]);
     await expect.poll(async () => (await snap(page)).chain.length).toBe(1);
-    expect((await snap(page)).honedShown.shield, honed ? 'the ring' : 'no ring on rank I').toBe(honed ? 1 : 0);
+    expect((await drawn(page)).honedShown.shield, honed ? 'the ring' : 'no ring on rank I').toBe(honed ? 1 : 0);
     if (honed) await page.screenshot({ path: 'artifacts/realtime-knack-shield.png' });
     await page.mouse.up();
     await untilFrame(page, (sn, _a: number, late) => (!sn.moving ? true : late ? false : undefined), 0, 8);
@@ -399,9 +409,10 @@ test('task 50: «Улов» II — a free jump charges the next chain: «+2» un
   const body = await place(page, h.x + 1.3, h.y, 0, 3);
   await drag(page, [[h.x + 1.3, h.y]]);
   await expect.poll(async () => (await snap(page)).chain).toEqual([body]);
-  expect((await snap(page)).honedShown.catch, 'the first link wears «+2»').toBe(1);
-  expect((await snap(page)).enemies.length).toBeGreaterThan(0);
-  expect((await snap(page)).honedShown.prism, '«Призма» II: no mark').toBe(0);
+  const charged = await drawn(page);
+  expect(charged.honedShown.catch, 'the first link wears «+2»').toBe(1);
+  expect(charged.enemies.length).toBeGreaterThan(0);
+  expect(charged.honedShown.prism, '«Призма» II: no mark').toBe(0);
   await page.screenshot({ path: 'artifacts/realtime-knack-catch.png' });
   await page.mouse.up();
   await untilFrame(page, (sn, _a: number, late) => (!sn.moving ? true : late ? false : undefined), 0, 8);
