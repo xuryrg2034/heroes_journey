@@ -27,6 +27,7 @@
  * shadows of the dash's end, the return run) shows «рассыплются» on the group's stumps and those links (chain.ts `ChainPlan.crumble`).
  */
 import { bagKill } from '../bag';
+import { runHook } from '../build';
 import { curseKill } from '../chest';
 import { dist, overCliff } from '../geometry';
 import { enemyBodyRadius, heroRadius } from '../params';
@@ -103,6 +104,11 @@ function payStump(world: World, s: Stump): void {
   }
   if (outside) purseKill(world, { source: c.source, credited: !!c.credited });
   if (c.marked) world.stats.markedKills++;
+  // The chain's kill counters that outlive the chain (build.ts `ChainKill`): a link the chain killed, or a credited link it passed fallen.
+  if (c.credited && (c.chain || c.link)) {
+    const kill = { id: s.id, x: s.x, y: s.y, elite: false, fallen: !c.chain, kills: world.move?.kills ?? 0 };
+    runHook(world, 'onChainKill', m => m.onChainKill!(world, kill));
+  }
 }
 
 /** The kill a stump pays (the telemetry counts it then): its source and whether it was the player's. */
@@ -163,6 +169,9 @@ function rise(world: World, s: Stump): void {
  */
 export function updateStumps(world: World, dt: number): void {
   if (!world.stumps || world.status !== 'playing') return;
+  // A group lying whole crumbles before any of its stumps could rise in this tick.
+  settleStumps(world);
+  if (!world.stumps) return;
   for (const s of [...world.stumps]) {
     if (s.chill !== undefined) { s.chill -= dt; if (s.chill <= TIME_EPS) delete s.chill; }
     if (world.move || s.chill !== undefined) continue;

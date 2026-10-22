@@ -17,6 +17,8 @@
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import { registerArena } from './arenas';
+import { counterOf } from './build';
+import { HAMMERS, RELICS } from './buildIds';
 import { planChain } from './chain';
 import { BRAND_RELIGHT, FIREBRAND, brandLit } from './enemies/firebrand';
 import { bodyRadiusOf } from './enemies/kinds';
@@ -475,6 +477,147 @@ check('the firebrand: its trail burns the hero on foot (source `fire-trail`), ne
     items.command({ t: 'item', kind: 'bomb', x: lit.x, y: lit.y });
     assert(!iw.enemies.includes(lit) && kills(iw) === 1, `seed ${k}: the second bomb killed it`);
     assert(replays(items), `seed ${k}: replay (items)`);
+  }
+});
+
+// ---- The fix package (design 22.10.2026, review) ----
+
+check('the firebrand: the chain takes the only brazier and puts it out — no brazier burns: it walks out, unlit, until the brazier burns again; then it runs and lights 1 s after it reached it (3 seeds)', () => {
+  for (const k of [1, 2, 3]) {
+    const sim = field(k, { enemySpeed: 1.2 }, 'ft-brazier'), w = sim.world;
+    const brazier = w.objects.find(o => o.kind === 'brazier')!;
+    const brand = place(sim, { x: brazier.x + 1.3, y: brazier.y - 0.3 }, FIREBRAND, 1);
+    sim.command({ t: 'teleport', x: brazier.x - 1.2, y: brazier.y });
+    draw(sim, [brazier, brand]);
+    assert(w.chain.length === 2 && planChain(w).links[1].outcome?.douse === true, `seed ${k}: the chain — the brazier, then the firebrand («погаснет»)`);
+    const dash = release(sim);
+    assert(brazier.out !== undefined && !brandLit(brand) && of(dash, 'firebrand').some(e => e.action === 'out'), `seed ${k}: the brazier out, the firebrand out`);
+    // The hero stands near the brazier: the waiting firebrand walks to him and stays near.
+    sim.command({ t: 'teleport', x: brazier.x + 2.5, y: brazier.y - 2 });
+    const wait = ticks(sim, ticksOf(brazier.out! - 0.1));
+    assert(!of(wait, 'firebrand').some(e => e.action === 'lit') && !brandLit(brand), `seed ${k}: no brazier burns — it stays out`);
+    const t0 = w.time;
+    const lit = ticks(sim, ticksOf(0.2 + 4 + BRAND_RELIGHT), [], (_w, out) => of(out, 'firebrand').some(e => e.action === 'lit'));
+    assert(of(lit, 'brazier').some(e => e.lit) && of(lit, 'firebrand').some(e => e.action === 'lit' && e.why === 'brazier') && brandLit(brand), `seed ${k}: the brazier burns again, it ran and lit (${(w.time - t0).toFixed(2)} s)`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
+check('the consumables on a link of the drawn chain: the cold puts a burning firebrand-link out at once — «погаснет» leaves the plan and the dash kills it; fire lights a put-out one — the chain ends on it, the links after it drop («после выжившего»), the dash stops on it as the plan says (3 seeds)', () => {
+  for (const k of [1, 2, 3]) {
+    const sim = field(k), w = sim.world;
+    const weak = place(sim, { x: 7.5, y: 7 }, 'basic', 1), brand = place(sim, { x: 9, y: 7 }, FIREBRAND, 1);
+    draw(sim, [weak, brand]);
+    assert(planChain(w).links[1].outcome?.douse === true, `seed ${k}: «погаснет» while it burns`);
+    sim.command({ t: 'items', kind: 'frost', count: 1 });
+    assert(sim.command({ t: 'item', kind: 'frost', x: brand.x, y: brand.y }) === true && !brandLit(brand) && w.chain.length === 2, `seed ${k}: the cold put the link out at once`);
+    const plan = planChain(w);
+    assert(!plan.links[1].outcome?.douse && plan.links[1].outcome?.killed && !plan.endsOnSurvivor, `seed ${k}: «погаснет» left the plan — it dies`);
+    release(sim);
+    assert(!w.enemies.includes(brand) && !w.enemies.includes(weak), `seed ${k}: the dash killed it, as the plan says`);
+    // Fire on a put-out link.
+    const fire = field(k), fw = fire.world;
+    const out = place(fire, { x: 9, y: 7 }, FIREBRAND, 1);
+    fire.command({ t: 'items', kind: 'frost', count: 1 });
+    fire.command({ t: 'item', kind: 'frost', x: 9, y: 7 });
+    fire.command({ t: 'chill', id: out.id, seconds: 0 });
+    const a = place(fire, { x: 7.5, y: 7 }, 'basic', 1), b = place(fire, { x: 10.5, y: 7 }, 'basic', 1);
+    draw(fire, [a, out, b]);
+    assert(fw.chain.length === 3 && !brandLit(out) && planChain(fw).links.every(l => l.outcome?.killed), `seed ${k}: a chain of 3 through the put-out one — all die`);
+    fire.command({ t: 'items', kind: 'fire', count: 1 });
+    assert(fire.command({ t: 'item', kind: 'fire', x: out.x, y: out.y }) === true, `seed ${k}: fire on the link`);
+    const lit = of(fw.events, 'firebrand').find(e => e.action === 'lit');
+    fw.events.length = 0;
+    assert(brandLit(out) && !out.burn && lit?.why === 'fire' && lit.dropped?.join() === String(b.id) && lit.refusal === 'afterSurvivor' && (fw.chain.length as number) === 2, `seed ${k}: it lights, the link after it drops (${JSON.stringify(lit)})`);
+    const fp = planChain(fw);
+    assert(fp.endsOnSurvivor && fp.links[1].outcome?.douse === true, `seed ${k}: the chain ends on it — «погаснет»`);
+    release(fire);
+    assert(fw.enemies.includes(out) && !brandLit(out) && !fw.enemies.includes(a) && fw.enemies.includes(b), `seed ${k}: the dash stopped on it — put out, alive; the dropped link lives`);
+    assert(replays(sim) && replays(fire), `seed ${k}: replay`);
+  }
+});
+
+check('the relics\' kill counters («Кровавая клятва») count a rootling at its crumble: two chains 6 s apart on an incomplete group leave the counter; the chain through the whole group moves it by the group (2 seeds)', () => {
+  for (const k of [1, 2]) {
+    const sim = new Simulation({ arena: 'ft-field', params: quiet(), seed: seedOf(k), record: true, loadout: { talismans: [RELICS.bloodOath] } }), w = sim.world;
+    sim.command({ t: 'clear', keepMarked: false });
+    const row = rootRow(sim);
+    draw(sim, row.slice(0, 2));
+    release(sim);
+    sim.command({ t: 'teleport', x: 6, y: 7 });
+    ticks(sim, ticksOf(6));
+    draw(sim, w.enemies.filter(e => e.kind === ROOTLING && e.x < 10).sort((p, q) => p.x - q.x).slice(0, 2));
+    release(sim);
+    assert(counterOf(w, RELICS.bloodOath) === 0 && kills(w) === 0, `seed ${k}: two chains on an incomplete group — the counter stays (${counterOf(w, RELICS.bloodOath)})`);
+    sim.command({ t: 'teleport', x: 6, y: 7 });
+    ticks(sim, ticksOf(6));
+    const all = w.enemies.filter(e => e.kind === ROOTLING).sort((p, q) => p.x - q.x);
+    draw(sim, all);
+    assert(w.chain.length === 4, `seed ${k}: the whole group`);
+    release(sim);
+    assert(counterOf(w, RELICS.bloodOath) === 4 && kills(w) === 4, `seed ${k}: the crumble moves the counter by 4 (${counterOf(w, RELICS.bloodOath)})`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
+/**
+ * A pass whose rule strikes off the chain's links: a group of two rootlings — one a link, the other struck by the rule — and a burning
+ * firebrand struck by it. The highlight's «рассыплются» is the pass's crumble; the firebrand goes out, not dies.
+ */
+function offLink(k: number, setup: { name: string; params?: Partial<Params>; hammer?: string; hero: Vec; links: { at: Vec; root?: true }[]; root: Vec; brand: Vec; close?: true }): { plan: ReturnType<typeof planChain>; brand: Enemy } {
+  const sim = new Simulation({ arena: 'ft-field', params: quiet(setup.params), seed: seedOf(k), record: true, loadout: { talismans: [], ...setup.hammer ? { hammer: setup.hammer as never } : {} } }), w = sim.world;
+  sim.command({ t: 'clear', keepMarked: false });
+  sim.command({ t: 'teleport', x: setup.hero.x, y: setup.hero.y });
+  const links = setup.links.map(l => (l.root ? place(sim, l.at, ROOTLING, 1, 0, 1) : place(sim, l.at, 'basic', 1)));
+  const root = place(sim, setup.root, ROOTLING, 1, 0, 1), brand = place(sim, setup.brand, FIREBRAND, 2);
+  draw(sim, links);
+  if (setup.close) sim.command({ t: 'drag', x: links[0].x, y: links[0].y, mode: 'full' });
+  assert(w.chain.length === links.length, `${setup.name} seed ${k}: the chain (${w.chain.length})`);
+  const plan = planChain(w);
+  const events = release(sim);
+  ticks(sim, ticksOf(1), events);
+  const planned = (plan.crumble ?? []).map(c => c.group).join(), done = stumpEvents(events, 'crumble').map(c => c.group).join();
+  assert(planned === done && planned === '-1', `${setup.name} seed ${k}: «рассыплются» ${planned} = the pass's crumble ${done}`);
+  const out = events.findIndex(e => e.type === 'firebrand' && e.id === brand.id && e.action === 'out' && e.why === 'hit');
+  assert(!w.enemies.includes(root) && out >= 0 && !events.slice(0, out).some(e => e.type === 'kill' && e.enemyId === brand.id), `${setup.name} seed ${k}: the firebrand went out at the first hit`);
+  // «Огненный проход» burns on (its points live 2 s): the next burn is a hit on a put-out one — it dies then (design 22.10.2026, (d)).
+  if (setup.name !== HAMMERS.fire) assert(w.enemies.includes(brand) && !brandLit(brand), `${setup.name} seed ${k}: the firebrand alive, put out`);
+  assert(replays(sim), `${setup.name} seed ${k}: replay`);
+  return { plan, brand };
+}
+
+check('off the links — «Прямая», «Возврат», «Печать», «Режущий проход», the end blast, «Огненный проход»: «рассыплются» in the highlight = the pass\'s crumble; a burning firebrand they strike goes out, not dies (the pierce\'s and the return run\'s plans say «погаснет») (3 seeds each)', () => {
+  for (const k of [1, 2, 3]) {
+    const pierce = offLink(k, { name: 'pierce', params: { pierceEnabled: true }, hero: { x: 6, y: 7 }, links: [{ at: { x: 7.4, y: 7 } }, { at: { x: 8.8, y: 7 } }, { at: { x: 10.2, y: 7 }, root: true }], root: { x: 11.1, y: 7 }, brand: { x: 11.9, y: 7 } });
+    assert(pierce.plan.pierce?.bodies.find(b => b.id === pierce.brand.id)?.outcome.douse === true, `seed ${k}: the pierce's plan — «погаснет»`);
+    const back = offLink(k, { name: 'return', hammer: HAMMERS.return, hero: { x: 6, y: 7 }, links: [{ at: { x: 7.4, y: 7 }, root: true }, { at: { x: 8.8, y: 7 } }, { at: { x: 10.2, y: 7 } }], root: { x: 9.5, y: 7.55 }, brand: { x: 8.1, y: 6.45 } });
+    assert(back.plan.back?.hits.find(h => h.id === back.brand.id)?.outcome.douse === true, `seed ${k}: the return run's plan — «погаснет» (${JSON.stringify(back.plan.back?.hits)})`);
+    offLink(k, { name: 'seal', params: { loopEnabled: true }, hero: { x: 4.5, y: 7 }, links: [{ at: { x: 6, y: 6 }, root: true }, { at: { x: 8, y: 6 } }, { at: { x: 8, y: 8 } }, { at: { x: 6, y: 8 } }], root: { x: 6.8, y: 7 }, brand: { x: 7.4, y: 7.2 }, close: true });
+    // The cut reaches 0.5 off the path; the fire's points burn 0.4 round them (the rootling and the firebrand nearer the path).
+    for (const [hammer, off] of [[HAMMERS.cut, 0.55], [HAMMERS.fire, 0.3]] as const) {
+      offLink(k, { name: hammer, hammer, hero: { x: 6, y: 7 }, links: [{ at: { x: 7.4, y: 7 }, root: true }, { at: { x: 8.8, y: 7 } }, { at: { x: 10.2, y: 7 } }], root: { x: 9.5, y: 7 + off }, brand: { x: 8.1, y: 7 - off } });
+    }
+    offLink(k, { name: 'blast', hammer: HAMMERS.blast, hero: { x: 6, y: 7 }, links: [{ at: { x: 7.4, y: 7 } }, { at: { x: 8.8, y: 7 } }, { at: { x: 10.2, y: 7 }, root: true }], root: { x: 10.2, y: 8.2 }, brand: { x: 11.2, y: 7.8 } });
+  }
+});
+
+check('the rootling: a group whose last living member burns to death (no stump) in the tick a stump is due crumbles then, the stump never rises (2 seeds)', () => {
+  for (const k of [1, 2]) {
+    const sim = field(k), w = sim.world;
+    const row = rootRow(sim);
+    draw(sim, row.slice(0, 3));
+    release(sim);
+    sim.command({ t: 'teleport', x: 3, y: 3 });
+    // Fire when the first stump has `fireInterval` left: the burning kills the last one in the very tick that stump is due.
+    const first = (): number => Math.min(...w.stumps!.map(x => x.left));
+    ticks(sim, 600, [], () => first() <= w.params.fireInterval + 1e-6);
+    sim.command({ t: 'items', kind: 'fire', count: 1 });
+    sim.command({ t: 'item', kind: 'fire', x: row[3].x, y: row[3].y });
+    const events = ticks(sim, ticksOf(4.9), [], (_w, out) => out.some(e => e.type === 'kill' && e.enemyId === row[3].id));
+    assert(events.some(e => e.type === 'kill' && e.enemyId === row[3].id && e.source === 'fire'), `seed ${k}: burnt to death`);
+    const crumble = stumpEvents(events, 'crumble');
+    assert(crumble.length === 1 && crumble[0].ids.length === 3 && !stumpEvents(events, 'rise').length && kills(w) === 4, `seed ${k}: the 3 stumps crumbled at once, 4 kills (${kills(w)})`);
+    assert(replays(sim), `seed ${k}: replay`);
   }
 });
 

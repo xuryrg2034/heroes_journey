@@ -12,17 +12,21 @@
  * (`brandShadow`) and every hit outside the chain (world.ts `damageEnemy`: a bomb, «Режущий проход», a blast). Fire (the consumable)
  * does not take it. The cold (frozen) and water put it out with no hit.
  *
- * **Put out** (`vars.fb` 0). No trail. It runs straight to the nearest burning brazier, sliding along walls (as the archer backs off),
- * at most `brandSeek` s; there it stands `BRAND_RELIGHT` s and burns again. A brazier the chain takes goes out — it runs to another
- * burning one, if any, with the time it has left. None reached in time, or none burning — it stays out and walks to the hero. Fire on a
- * put-out one lights it again (Д12; no burning). A put-out firebrand is a plain link of HP 0: the chain kills it.
+ * **Put out** (`vars.fb` 0). No trail. One putting-out — one run (design 22.10.2026): it runs straight to the nearest burning brazier,
+ * sliding along walls (as the archer backs off), at most `brandSeek` s; there it stands `BRAND_RELIGHT` s and burns again. No brazier
+ * burns when it goes out — it walks to the hero and starts its run once any brazier burns again. A brazier the chain takes during the
+ * run goes out — it runs to another burning one with the time it has left; none — the run is over. Not reached — it stays out (walks
+ * to the hero) until Fire: on a put-out one Fire lights it again (Д12; no burning). A put-out firebrand is a plain link of HP 0.
  *
  * **Highlight = the pass.** It changes itself only when no hero's move runs and it is not a link of the drawn chain or of the dash
- * (shots.ts `linkedNow`): it never lights at the brazier then, and the cold or water put it out only after (its outcome in the
- * highlight stays the dash's).
+ * (shots.ts `linkedNow`): it never lights at the brazier then, and the cold of a wave or water put it out only after (its outcome in the
+ * highlight stays the dash's). The player's consumables act on a link of the drawn chain (design 22.10.2026): the cold consumable puts a
+ * burning one out at once (items.ts; «погаснет» leaves the plan); Fire lights a put-out one — the chain then ends on it (a survivor) and
+ * the links after it drop with the refusal «после выжившего» (event `firebrand` `lit` with `dropped`).
  *
- * State in `enemy.vars`: `fb` 1 burning / 0 out; out — `fp` 1 runs, 2 stands at the brazier, 3 gave up (walks); `ft` — seconds of the run
- * left; `fs` — seconds at the brazier left; `fo` — the brazier's id; `tx`, `ty` — its last trail point.
+ * State in `enemy.vars`: `fb` 1 burning / 0 out; out — `fp` 1 runs, 2 stands at the brazier, 3 gave up (walks), 4 waits for a brazier to
+ * burn (walks); `ft` — seconds of the run left; `fs` — seconds at the brazier left; `fo` — the brazier's id; `tx`, `ty` — its last trail
+ * point.
  */
 import type { StrikeOutcome } from '../chain';
 import { dist, hasZone, inWater, pushOutOfCliffs, pushOutOfObstacles } from '../geometry';
@@ -66,28 +70,40 @@ export function brandShadow(e: Enemy): Enemy | null {
   return brandLit(e) ? { ...e, vars: { ...e.vars, fb: 0 } } : null;
 }
 
-/** It goes out (event `firebrand` `out`): it runs to a brazier (the step picks it). */
+/** Its run starts now, to `brazier`: `brandSeek` s. */
+function startRun(world: World, e: Enemy, brazier: ArenaObject): void {
+  const v = e.vars;
+  v.fp = 1; v.ft = seekOf(world); v.fo = brazier.id;
+}
+
+/** It goes out (event `firebrand` `out`): it runs to the nearest burning brazier, or (none burns) waits for one, walking. */
 export function douse(world: World, e: Enemy, why: 'hit' | 'cold' | 'water'): void {
   const v = e.vars;
-  v.fb = 0; v.fp = 1; v.ft = seekOf(world);
-  delete v.fs; delete v.fo; delete v.tx; delete v.ty;
+  v.fb = 0;
+  delete v.fs; delete v.fo; delete v.ft; delete v.tx; delete v.ty;
+  const brazier = nearestBrazier(world, e);
+  if (brazier) startRun(world, e, brazier); else v.fp = 4;
   world.events.push({ type: 'firebrand', action: 'out', id: e.id, x: e.x, y: e.y, why });
 }
 
-function relight(world: World, e: Enemy, why: 'brazier' | 'fire'): void {
+function relight(world: World, e: Enemy, why: 'brazier' | 'fire', dropped: number[] = []): void {
   const v = e.vars;
   v.fb = 1; v.tx = e.x; v.ty = e.y;
   delete v.fp; delete v.ft; delete v.fs; delete v.fo;
-  world.events.push({ type: 'firebrand', action: 'lit', id: e.id, x: e.x, y: e.y, why });
+  world.events.push({ type: 'firebrand', action: 'lit', id: e.id, x: e.x, y: e.y, why, ...dropped.length ? { dropped, refusal: 'afterSurvivor' as const } : {} });
 }
 
 /**
- * Fire on `e` (the consumable): true — a firebrand, and fire does not hurt it: a burning one stays as it is, a
- * put-out one lights again (once it may change itself). False — not a firebrand: the fire acts as usual.
+ * Fire on `e` (the consumable): true — a firebrand, and fire does not hurt it: a burning one stays as it is, a put-out one lights again
+ * (no move runs: a consumable is never used during one). A link of the drawn chain lights too (design 22.10.2026): a survivor now, the
+ * chain ends on it — the links after it drop. False — not a firebrand: the fire acts as usual.
  */
 export function brandFire(world: World, e: Enemy): boolean {
   if (e.kind !== FIREBRAND) return false;
-  if (!brandLit(e) && free(world, e)) relight(world, e, 'fire');
+  if (brandLit(e) || world.move) return true;
+  const at = world.chain.findIndex(l => l.kind === 'enemy' && l.id === e.id), dropped = at >= 0 ? world.chain.slice(at + 1).map(l => l.id) : [];
+  if (dropped.length) { world.chain = world.chain.slice(0, at + 1); delete world.chainClosed; }
+  relight(world, e, 'fire', dropped);
   return true;
 }
 
@@ -111,10 +127,16 @@ function giveUp(e: Enemy): false {
   return false;
 }
 
-/** Put out: the run to a brazier and the stand at it (own movement); gave up — the common walk to the hero. */
+/** Put out: the run to a brazier and the stand at it (own movement); waiting for a brazier or gave up — the common walk to the hero. */
 function stepBrand(world: World, e: Enemy, dt: number): boolean {
   const v = e.vars;
   if (brandLit(e) || v.fp === 3) return false;
+  if (v.fp === 4) {
+    // No brazier burned when it went out: its run starts once one burns again.
+    const brazier = nearestBrazier(world, e);
+    if (!brazier) return false;
+    startRun(world, e, brazier);
+  }
   // The brazier it goes to burns still — or the nearest burning one (the chain took its own); none — it gives up.
   let target = v.fo !== undefined ? world.objects.find(o => o.id === v.fo && burningBrazier(o)) : undefined;
   if (!target) {
@@ -164,15 +186,16 @@ function beforeBrands(world: World, members: readonly Enemy[]): void {
 
 /**
  * The firebrand now (the view): `burning`; `running` to the brazier `brazier` (`share` — the run's time left, 1…0); `relighting` at it
- * (`share` — its fire, 0…1); `unlit` — gave up, walks. `held` — it may not change itself now (a move, a link). Null — not a firebrand.
+ * (`share` — its fire, 0…1); `waiting` — out, no brazier burns, walks (its run starts when one burns); `unlit` — its run is over, out
+ * until Fire. `held` — it may not change itself now (a move, a link). Null — not a firebrand.
  */
-export function brandState(world: World, e: Enemy): { phase: 'burning' | 'running' | 'relighting' | 'unlit'; share: number; brazier?: number; held: boolean } | null {
+export function brandState(world: World, e: Enemy): { phase: 'burning' | 'running' | 'relighting' | 'waiting' | 'unlit'; share: number; brazier?: number; held: boolean } | null {
   if (e.kind !== FIREBRAND) return null;
   const v = e.vars, held = !free(world, e);
   if (brandLit(e)) return { phase: 'burning', share: 1, held };
   if (v.fp === 2) return { phase: 'relighting', share: Math.max(0, Math.min(1, 1 - (v.fs ?? BRAND_RELIGHT) / BRAND_RELIGHT)), ...v.fo !== undefined ? { brazier: v.fo } : {}, held };
   if (v.fp === 1) return { phase: 'running', share: Math.max(0, Math.min(1, (v.ft ?? 0) / Math.max(1e-9, seekOf(world)))), ...v.fo !== undefined ? { brazier: v.fo } : {}, held };
-  return { phase: 'unlit', share: 0, held };
+  return { phase: v.fp === 4 ? 'waiting' : 'unlit', share: 0, held };
 }
 
 registerBehavior({

@@ -238,6 +238,8 @@ export interface FallenLink {
   embers?: number;
   /** Phase B: it was an elite — noted only on a dash the build layer counts (`HeroMove.build`), so older dashes hash as before. */
   elite?: true;
+  /** Task 57б: a rootling that lay as a stump — its `onChainKill` comes at the crumble (enemies/rootling.ts). Absent otherwise. */
+  stump?: true;
 }
 
 /** A hero move without contact damage: the dash along the chain or a jump. */
@@ -692,7 +694,7 @@ export type WorldEvent =
    * Task 57б (enemies/firebrand.ts, «Головешка»): it went out (`out`: a lethal `hit`, the `cold`, `water`) or burns again (`lit`: at a
    * `brazier`, by `fire`). The rules never read it.
    */
-  | { type: 'firebrand'; action: 'out' | 'lit'; id: number; x: number; y: number; why: 'hit' | 'cold' | 'water' | 'brazier' | 'fire' };
+  | { type: 'firebrand'; action: 'out' | 'lit'; id: number; x: number; y: number; why: 'hit' | 'cold' | 'water' | 'brazier' | 'fire'; dropped?: number[]; refusal?: 'afterSurvivor' };
 
 export interface World {
   arena: ArenaTemplate;
@@ -1702,7 +1704,7 @@ export function killEnemy(world: World, e: Enemy, cause: KillCause): void {
   const stump = e.kind === ROOTLING && lieDown(world, e, cause, { link });
   world.events.push({ type: 'kill', enemyId: e.id, x: e.x, y: e.y, color: e.color, source: cause.source, credited: cause.credited, ...cause.fall ? { fall: true } : {}, ...stump ? { stump: true as const } : {} });
   // Casino «Котёл»: a link the player's tool killed keeps its embers for the chain's cheque (only while the cauldron is on).
-  if (link) (move.fallen ??= []).push({ id: e.id, x: e.x, y: e.y, credited: cause.credited, ...e.elite && move.build ? { elite: true as const } : {}, ...cause.credited && move.purse ? { embers: fallenEmbers(e) } : {} });
+  if (link) (move.fallen ??= []).push({ id: e.id, x: e.x, y: e.y, credited: cause.credited, ...e.elite && move.build ? { elite: true as const } : {}, ...cause.credited && move.purse ? { embers: fallenEmbers(e) } : {}, ...stump ? { stump: true as const } : {} });
   if (cause.credited && !stump) { world.stats.kills++; if (!link) world.stats.score += world.params.scorePerKill; }
   // Task 14 «Котомка у двери» (bag.ts): a credited kill after the goals fills the bag (nothing without one).
   if (cause.credited && world.bag && !stump) bagKill(world);
@@ -1711,7 +1713,8 @@ export function killEnemy(world: World, e: Enemy, cause: KillCause): void {
   if (!link && !stump) purseKill(world, cause);
   if (e.marked && !stump) world.stats.markedKills++;
   checkGoals(world);
-  if (stump) settleStumps(world);
+  // Task 57б: any rootling's death may leave its group lying whole (a stump, or none: fire, a fall).
+  if (e.kind === ROOTLING) settleStumps(world);
   // Task 40: a prisoner's shackle goes with it (nothing while no shackle holds it).
   if (world.tethers) dropShackleOf(world, e);
   behaviorOf(e).onDeath?.(world, e, cause);

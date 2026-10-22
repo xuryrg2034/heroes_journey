@@ -35,7 +35,7 @@ import { dist, type Vec } from './geometry';
 import { completeGoals, damageEnemy, enemyFrozen, type Enemy, type World } from './world';
 import type { ItemKind } from './kit';
 import { snuffAround } from './shots';
-import { brandFire } from './enemies/firebrand';
+import { brandFire, brandLit, douse } from './enemies/firebrand';
 import { burnStump, chillStump, stumpAt, type Stump } from './enemies/rootling';
 
 /** Why the consumable cannot be used at `p` now (the view shows it); null — it can. */
@@ -113,7 +113,8 @@ export function useItem(world: World, kind: ItemKind, p: Vec): boolean {
   }
   if (kind === 'frost') {
     world.events.push({ type: 'item', kind, x: p.x, y: p.y, radius: params.frostRadius, targets: targets.length + stumps.length });
-    for (const e of targets) { e.chill = Math.max(e.chill ?? 0, params.frostTime); e.brittle = true; }
+    // Task 57б: a burning firebrand goes out at once — a link of the drawn chain too (design 22.10.2026).
+    for (const e of targets) { e.chill = Math.max(e.chill ?? 0, params.frostTime); e.brittle = true; if (brandLit(e)) douse(world, e, 'cold'); }
     for (const s of stumps) chillStump(s, params.frostTime);
     usedForGoal(world);
     return true;
@@ -128,8 +129,8 @@ export function useItem(world: World, kind: ItemKind, p: Vec): boolean {
     usedForGoal(world);
     return true;
   }
-  // Fire: a new burning replaces what is left of an old one (ticks from the start). Task 57б: its target may be a stump.
-  const at: Vec = targets[0] ?? stumpAt(world, p)!;
+  // Fire: a new burning replaces what is left of an old one (ticks from the start). Task 57б: its target may be a stump (the centre).
+  const at: Vec = stumps[0] ?? targets[0];
   world.events.push({ type: 'item', kind, x: at.x, y: at.y, radius: params.fireRadius, targets: targets.length + stumps.length });
   for (const e of targets) if (!brandFire(world, e)) e.burn = { left: Math.max(1, Math.round(params.fireTicks)), timer: params.fireInterval };
   for (const s of stumps) burnStump(world, s);

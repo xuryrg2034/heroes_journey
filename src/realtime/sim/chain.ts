@@ -2368,7 +2368,7 @@ function hitEnemy(world: World, enemy: Enemy): void {
     if (world.curse && !stump) curseKill(world);
     if (enemy.marked && !stump) world.stats.markedKills++;
     world.events.push({ type: 'kill', enemyId: enemy.id, x: enemy.x, y: enemy.y, color: enemy.color, source: 'chain', credited: true, ...stump ? { stump: true as const } : {} });
-    if (stump) settleStumps(world);
+    if (enemy.kind === ROOTLING) settleStumps(world);
     // Task 40: a prisoner's shackle goes with it (nothing while no shackle holds it).
     if (world.tethers) dropShackleOf(world, enemy);
     // Stage 2 of the transition: the kind's own reaction to its death (the sapper lights its fuse); an elite's loot (step 3).
@@ -2382,7 +2382,8 @@ function hitEnemy(world: World, enemy: Enemy): void {
       noteLink(move, enemy, true, colorlessLink(world, enemy));
       runHook(world, 'onLink', m => m.onLink!(world, ctx, outcome));
       const kill = { id: enemy.id, x: enemy.x, y: enemy.y, elite: !!enemy.elite, fallen: false, kills: move.kills };
-      runHook(world, 'onChainKill', m => m.onChainKill!(world, kill));
+      // Task 57б: the counters that outlive the chain («Кровавая клятва», «Клятва голода») count a stump at its crumble.
+      if (!stump) runHook(world, 'onChainKill', m => m.onChainKill!(world, kill));
       if (world.status !== 'playing') return;
     }
     // A crystal at every N-th kill of this chain (main game: 6th, 12th…), off the rest of its path.
@@ -2430,7 +2431,8 @@ function passFallen(world: World, fallen: FallenLink): void {
   if (move.shifts) reachShift(world, move, fallen);
   if (!fallen.credited) return;
   move.kills++;
-  if (ctx) {
+  // Task 57б: a rootling that lay — its `onChainKill` comes at the crumble.
+  if (ctx && !fallen.stump) {
     const kill = { id: fallen.id, x: fallen.x, y: fallen.y, elite: !!fallen.elite, fallen: true, kills: move.kills };
     runHook(world, 'onChainKill', m => m.onChainKill!(world, kill));
   }

@@ -125,7 +125,11 @@ export interface HonedRelease { far?: number[]; frost?: { survivor: number; near
 /** Task 50: the key of a module's second hit in `endShadowOf`'s `struck` (and `ReturnPreview.ends`). */
 export const secondKey = (id: string): string => `${id}:2`;
 
-/** A kill of the chain (`onChainKill`): an enemy struck dead by the dash, or a fallen credited link it passed. */
+/**
+ * A kill of the chain (`onChainKill`): an enemy struck dead by the dash, or a fallen credited link it passed. Task 57б (design 22.10.2026):
+ * the hook is the counters' that outlive the chain («Кровавая клятва», «Клятва голода») — a rootling that lies as a stump calls it at its
+ * crumble or burning (`kills` — the running dash's, 0 without one); an effect of one chain reads `onLink` or the chain's end instead.
+ */
 export interface ChainKill { id: number; x: number; y: number; elite: boolean; fallen: boolean; /** Kills of this chain so far. */ kills: number }
 
 /** The hero's path in one tick of a dash or a return run (`onDashStep`): points in order, from where he stood. */

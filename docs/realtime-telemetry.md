@@ -886,7 +886,7 @@ API записи (вызывает вид): `runStarted` читает `locked`, 
 
 ### Лес: механики — `forest.rootlings`, `forest.merges`, `forest.brands` (22.10.2026, задача 57б-1)
 
-Спека — [task-57-forest-enemies.md](design-notes/task-57-forest-enemies.md), раздел 15; правила — [realtime-elite-behaviors.md](realtime-elite-behaviors.md), «Лес: механики». Версия схемы не растёт; поля — с 22.10.2026, старые записи читают 0 и пустые словари.
+Спека — [task-57-forest-enemies.md](design-notes/task-57-forest-enemies.md), раздел 15; правила — [realtime-elite-behaviors.md](realtime-elite-behaviors.md), «Лес: механики». Версия схемы не растёт; поля — с 22.10.2026. В записях до этой даты полей `rootlings`, `merges`, `brands` нет: чтение старой записи их не дополняет, код отчёта должен считать их отсутствие нулём.
 
 - **Бой** (`FightSummary.forest`, наблюдатель `observe.ts`): `rootlings` — корневики: `lie` (легли пнём), `rise` (встали), `crumble` (рассыпалось групп), `burn` (сожжено пней) — события `stump`; `merges` — слияний слизней (`slime` `merge`); `brands.out` — головешка погасла по причине (`hit` — смертельное попадание, `cold`, `water`), `brands.lit` — разгорелась (`brazier`, `fire`) — события `firebrand`.
 - Убийство корневика, легшего пнём (событие `kill` с `stump`), в `kills` сводки не считается сразу: оно приходит с событием `stump` `crumble` или `burn` (поле `paid` — источник и зачёт каждого пня), как мировой зачёт (`world.stats.kills`). Вставший пень убийства не даёт. Угроз-знаков у трёх видов нет (касание, след — статичная зона). Раздела отчёта пока нет — с аренами первой встречи (level design).
