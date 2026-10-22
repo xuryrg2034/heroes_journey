@@ -357,8 +357,9 @@ async function boot(): Promise<void> {
     if (i === forest0 + 1) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Босс — Главарь (только песочница)'));
     // Task 55а: the castle's arenas of step 1а at the very end, test ids `castle-arena-N`.
     if (i === castle0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Замок — толчок, шкафы, ладьи (только песочница)'));
-    // Task 57а: the forest shooters after the castle (the numbers before stay), test id `shooters-arena-N`.
-    if (i === shooters0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Лес: стрелки (только песочница)'));
+    // Task 57а: the forest shooters after the castle (the numbers before stay), test id `shooters-arena-N`. No «только песочница»:
+    // with `RT_FOREST_SHOOTERS_ON` «Осыпь» and «Пасека» are run arenas too; the probe says «(проба)» in its own name.
+    if (i === shooters0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Лес: стрелки'));
     // Task 59а: the probes of the garrison's step 3 at the very end (the numbers before stay), test id `step3-arena-N`.
     if (i === step30) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Гарнизон, шаг 3 — пробы: смолокур, новобранцы, привратники (только песочница)'));
     // Task 59б: the full arenas of step 3 after the probes, test id `step3-run-arena-N`.
