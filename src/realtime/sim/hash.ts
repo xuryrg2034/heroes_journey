@@ -103,6 +103,8 @@ export function worldState(world: World): unknown {
     // Task 57а «Лес: стрелки» (shots.ts): the shots and the shooters' timer (absent until used — worlds without shooters hash as before).
     ...world.shots ? { shots: world.shots } : {},
     ...world.volley !== undefined ? { volley: world.volley } : {},
+    // Task 57б «Корневик» (enemies/rootling.ts): the stumps (absent until the first rootling lies — worlds without rootlings hash as before).
+    ...world.stumps ? { stumps: world.stumps } : {},
   };
 }
 

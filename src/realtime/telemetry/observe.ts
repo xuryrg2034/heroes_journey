@@ -528,6 +528,10 @@ export function createFightObserver(start: World): FightObserver {
           if (ev.action !== 'out') return;
           if (ev.why === 'touch') s.forest.wisps.touched++; else if (ev.why === 'block') s.forest.wisps.blocked++; else s.forest.wisps.faded++;
           return;
+        // Task 57б «Лес: механики»: the stumps, the merges, the firebrands' fire.
+        case 'stump': s.forest.rootlings[ev.action]++; return;
+        case 'slime': s.forest.merges++; return;
+        case 'firebrand': bump(ev.action === 'out' ? s.forest.brands.out : s.forest.brands.lit, ev.why); return;
         case 'tether':
           if (ev.action === 'cut') s.chain.cuts++;
           // Task 40: the keymaster's shackles — put on, cut (the game second of the first cut).

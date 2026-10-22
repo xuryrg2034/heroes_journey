@@ -74,6 +74,9 @@ import { artPick } from './bossArt';
 import { WARLOCK, warlockCharmOn, warlockClosed, warlockLinkDrop, warlockReserve, warlockShut, warlockSpellbound, warlockWards } from './enemies/warlock';
 // Task 57а «Лес: стрелки»: the dash puts out the light shots it touches (`Params.snuffShots`).
 import { snuffAlong, snuffing } from './shots';
+// Task 57б «Лес: механики»: the firebrand's survivor and the rootlings' stumps and crumble.
+import { brandOutcome, brandShadow } from './enemies/firebrand';
+import { ROOTLING, lieDown, planCrumble, settleStumps } from './enemies/rootling';
 import { CHIEF, chiefFeastOn, chiefGuarded, chiefHitOutcome, chiefLinkDrop, chiefQueue, chiefQueueShort, chiefRelease, chiefShut, chiefWards } from './enemies/chief';
 import { NO_COLOR, OBJECT_RADIUS, checkGoals, damageEnemy, doorOf, doorOpen, pushOutOfSolids, enemyFrozen, findObject, nextFiring, startShieldWindow, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World, type WorldEvent } from './world';
 // Task 56 «Приметы» (omens.ts): the marks of a link taken in water or of the colour on the roll call.
@@ -110,6 +113,11 @@ export interface StrikeOutcome {
   order?: true;
   /** Task 55а: the link is a thing (`Params.shove`): no strike, no power — the dash stops at it and shoves it at its end. */
   thing?: true;
+  /**
+   * Task 57б «Головешка» (enemies/firebrand.ts `brandOutcome`): the lethal hit on a burning firebrand puts it out — no kill, HP kept, the
+   * power spent: a survivor («погаснет»). Absent on every other hit.
+   */
+  douse?: true;
 }
 
 /** Power a chain hit on a plate spends (4.3, rule 1: as a weak enemy's +1 taken back). */
@@ -135,14 +143,24 @@ export function strike(power: number, hp: number, factor = 1, gain = 1, plates =
 }
 
 /**
- * Task 59а: the wardens whose partner the pass kills and who live. The pass's kills come from the same shadows the highlight plays
+ * Task 59а: the wardens whose partner the pass kills (`killed` — `passKills`) and who live. Pure.
+ */
+function planAnger(world: World, killed: ReadonlySet<number>): number[] {
+  const angry: number[] = [];
+  for (const id of killed) {
+    const e = findEnemy(world, id), partner = e ? wardenPartner(world, e) : undefined;
+    if (partner && !killed.has(partner.id)) angry.push(partner.id);
+  }
+  return angry.sort((a, b) => a - b);
+}
+
+/**
+ * Task 59а (task 57б: for the rootlings' crumble too): the enemies the pass of the plan kills — from the same shadows the highlight plays
  * for the dash's end: the first pass (`planDashEnd`: links, pierce, seal), the hammer's hits on the way («Режущий проход»; the lit
  * «Огненный проход» — its first burn), the build modules' end (`endShadowOf`: «Ударная волна», «Ледяная волна»), the end blast
  * (`planEndBlast`, as «Подрыв»'s), then the return run (`planReturn`'s hits). Pure.
  */
-function planAnger(world: World, out: readonly LinkPlan[], pierce: PiercePreview | null, seal: SealPreview | null, back: ReturnPreview | null, fireLit: boolean): number[] {
-  const pairs = world.enemies.filter(e => wardenPartner(world, e));
-  if (!pairs.length) return [];
+function passKills(world: World, out: readonly LinkPlan[], pierce: PiercePreview | null, seal: SealPreview | null, back: ReturnPreview | null, fireLit: boolean): Set<number> {
   const killed = new Set<number>();
   for (const h of back?.hits ?? []) if (h.outcome.killed) killed.add(h.id);
   const dash = planDashEnd(world, out, pierce, seal);
@@ -161,18 +179,13 @@ function planAnger(world: World, out: readonly LinkPlan[], pierce: PiercePreview
     const ended = endShadowOf(world, { links: dash.links, at: dash.end, start: { x: world.hero.x, y: world.hero.y } }, shadow);
     shadow = planEndBlast(world, out, pierce, seal, dash.links, ended.enemies, spentCores(world, ended.struck))?.after ?? ended.enemies;
     const alive = new Set(shadow.map(e => e.id));
-    for (const e of pairs) if (!alive.has(e.id)) killed.add(e.id);
+    for (const e of world.enemies) if (!alive.has(e.id)) killed.add(e.id);
   } else {
     // The dash ends the fight (the door): its own kills only.
     for (const l of out) if (l.link.kind === 'enemy' && l.outcome?.killed) killed.add(l.link.id);
     for (const b of pierce?.bodies ?? []) if (b.outcome.killed) killed.add(b.id);
   }
-  const angry: number[] = [];
-  for (const id of killed) {
-    const e = findEnemy(world, id), partner = e ? wardenPartner(world, e) : undefined;
-    if (partner && !killed.has(partner.id)) angry.push(partner.id);
-  }
-  return angry.sort((a, b) => a - b);
+  return killed;
 }
 
 /** Task 59а: a preview's body the law of order refuses — nothing struck, the power passes. */
@@ -255,6 +268,12 @@ export interface ChainPlan {
    * its seal, its return run) and they do not. Absent — none.
    */
   anger?: number[];
+  /**
+   * Task 57б «Корневик» (enemies/rootling.ts `planCrumble`): the groups of rootlings every living member of which this pass kills (none to
+   * come) — they crumble for good: the group, its stumps now (ids) and the members the pass kills («рассыплются»). The drawn chain only;
+   * absent — none.
+   */
+  crumble?: { group: number; stumps: number[]; links: number[] }[];
   /**
    * Loop research, step 2: the drawn chain is closed — its ring and who is inside now (the release fixes the same set).
    * Absent while open.
@@ -504,6 +523,8 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
     let outcome = strike((ctx ? power + linkPowerOf(world, ctx) : power) + wetHit(world, link.kind === 'enemy' && !!link.wet), enemy.hp, chainFactor(world, enemy), gain, platesOf(enemy) - pre);
     // Task 54: the Chief's core — a queue of `chiefFeastBig` links takes two plates (the dash reads the same, `dashStrike`).
     if (enemy.kind === CHIEF) outcome = chiefHitOutcome(world, enemy, outcome, chiefQueue(world, enemy, links, linkIndex));
+    // Task 57б: a burning firebrand — the lethal hit puts it out, a survivor (the dash reads the same, `dashStrike`).
+    outcome = brandOutcome(enemy, outcome);
     power = outcome.powerAfter;
     // The package: a plate pass is the elite's link too — «Охотник на элит» gives the tail its power (4.3, «Связь с силой цепи»).
     if (ctx) { if (outcome.killed || outcome.plate) power += afterLinkPowerOf(world, ctx, outcome); if (enemy.elite) elites++; if (colorlessLink(world, enemy)) colorless++; }
@@ -575,13 +596,18 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   const warlockDrop = links === world.chain && !world.move ? warlockLinkDrop(world, links) : null;
   // Task 50: the counters' rank II at the end of the dash (the drawn chain only, not after a chain that ends the fight).
   const honed = honedKit ? planHoned(world, out, pierce, seal, far, options.back !== false && links === world.chain && !over) : null;
-  // Task 59а: the wardens angry after this pass — a partner dies by it, they do not.
-  const anger = wardensOn(world) ? planAnger(world, out, pierce, seal, back, !!fire?.lit) : [];
+  // Task 59а: the wardens angry after this pass — a partner dies by it, they do not. Task 57б: the groups of rootlings that lie whole
+  // after it crumble (the drawn chain only).
+  const pairs = wardensOn(world) && world.enemies.some(e => wardenPartner(world, e));
+  const roots = links === world.chain && options.back !== false && world.enemies.some(e => e.kind === ROOTLING);
+  const killed = pairs || roots ? passKills(world, out, pierce, seal, back, !!fire?.lit) : null;
+  const anger = pairs ? planAnger(world, killed!) : [];
+  const crumble = roots ? planCrumble(world, killed!) : [];
   // Task 49: the law of Ведунья — the drawn open chain gives no after-chain shield (the dash: heroLaw.ts, `ChainEnd.endForm`).
   const noShield = links === world.chain && !seal && sealOnlyShield(world);
   // Task 62: Ведунья v2 — her circle and the figure the drawn chain would make if closed now.
   const cast = witch ? castCircle(world) : null, glyph = witch && links === world.chain ? glyphOf(world, links) : null;
-  return { ...cast ? { cast } : {}, ...glyph ? { glyph } : {}, ...grate ? { grate } : {}, ...trollDrop ? { trollDrop } : {}, ...chiefDrop ? { chiefDrop } : {}, ...warlockDrop ? { warlockDrop } : {}, links: out, endsOnSurvivor, endsOnObject, ...endsOnThing ? { endsOnThing: true as const } : {}, ...shove ? { shove } : {}, power, kills, ...anger.length ? { anger } : {}, ...seal ? { seal } : {}, ...noShield ? { noShield: true as const } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {}, ...cuts.length ? { cuts } : {}, ...fused?.blast ? { blast: fused.blast } : {}, ...fused?.wave ? { wave: fused.wave } : {}, ...honed && Object.keys(honed).length ? { honed } : {} };
+  return { ...cast ? { cast } : {}, ...glyph ? { glyph } : {}, ...grate ? { grate } : {}, ...trollDrop ? { trollDrop } : {}, ...chiefDrop ? { chiefDrop } : {}, ...warlockDrop ? { warlockDrop } : {}, links: out, endsOnSurvivor, endsOnObject, ...endsOnThing ? { endsOnThing: true as const } : {}, ...shove ? { shove } : {}, power, kills, ...anger.length ? { anger } : {}, ...crumble.length ? { crumble } : {}, ...seal ? { seal } : {}, ...noShield ? { noShield: true as const } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {}, ...cuts.length ? { cuts } : {}, ...fused?.blast ? { blast: fused.blast } : {}, ...fused?.wave ? { wave: fused.wave } : {}, ...honed && Object.keys(honed).length ? { honed } : {} };
 }
 
 /**
@@ -750,7 +776,9 @@ function planEndBlast(world: World, out: readonly LinkPlan[], pierce: PiercePrev
     if (!targets.has(e.id) || refused.has(e.id)) return [e];
     const plates = platesOf(e);
     if (plates > 0) return [{ ...e, armor: { ...e.armor!, plates: plates - Math.min(plates, blastPlatesOn(blast, e)) } }];
-    return blast.damage >= e.hp ? [] : [{ ...e, hp: e.hp - blast.damage }];
+    // Task 57б: a burning firebrand goes out (`damageEnemy` the same).
+    if (blast.damage >= e.hp) { const doused = brandShadow(e); return doused ? [doused] : []; }
+    return [{ ...e, hp: e.hp - blast.damage }];
   });
   return { at, blast, targets: [...targets], after };
 }
@@ -829,7 +857,7 @@ export const returnOn = (world: World): boolean => world.kit?.hammer === HAMMERS
 export const returnFixedOn = (world: World): boolean => !!world.params.returnFixed && returnOn(world);
 
 /** A hit of the return run on `e` with `power` (hammers.ts): `strike` without +1 and without the cold's ×2, plates as a chain hit's. */
-export function returnStrike(power: number, e: Enemy): StrikeOutcome { return strike(power, e.hp, 1, 0, platesOf(e)); }
+export function returnStrike(power: number, e: Enemy): StrikeOutcome { return brandOutcome(e, strike(power, e.hp, 1, 0, platesOf(e))); }
 
 /**
  * The fight ends before the return run of the planned dash (pure): the dash enters the open door (`door`) — the arena is won,
@@ -897,12 +925,14 @@ function planDashEnd(world: World, out: readonly LinkPlan[], pierce: PiercePrevi
     // Task 55, stage Д: the warlock's core — closed now (charmed, out of his window), or struck by the first pass in his window: no hit.
     if (warlockClosed(world, e) || (e.kind === WARLOCK && warlockCharmOn(world) && (o || (seal && seal.damage > 0 && seal.inside.includes(e.id))))) continue;
     let hp = o ? o.hpAfter : e.hp, plates = o?.plate ? o.platesAfter ?? 0 : platesOf(e);
+    // Task 57б: a firebrand the first pass put out is out for the end's shadows (a lethal hit then kills it).
+    let body = o?.douse ? brandShadow(e)! : e;
     if (seal && seal.damage > 0 && seal.inside.includes(e.id)) {
       if (plates > 0) plates--;
-      else if (seal.damage >= hp) continue;
+      else if (seal.damage >= hp) { const doused = brandShadow(body); if (!doused) continue; body = doused; }
       else hp -= seal.damage;
     }
-    enemies.push(hp === e.hp && plates === platesOf(e) ? e : { ...e, hp, ...e.armor ? { armor: { ...e.armor, plates } } : {} });
+    enemies.push(hp === e.hp && plates === platesOf(e) && body === e ? e : { ...body, hp, ...e.armor ? { armor: { ...e.armor, plates } } : {} });
   }
   return { trace, end, links: struck.size, enemies };
 }
@@ -961,7 +991,8 @@ function planPierce(world: World, links: readonly ChainLink[], out: readonly Lin
     // Task 55, stage Д: the warlock's core closed (charmed, out of his window) — the pierce passes it by.
     if (!e || trollShut(world, e) || chiefGuarded(world, e) || warlockClosed(world, e)) return [];
     if (refused.has(e.id)) return [{ id: b.id, t: b.t, outcome: orderOutcome(power, e.hp) }];
-    const outcome = strike(power, e.hp, chainFactor(world, e), 0, platesOf(e));
+    // Task 57б: a burning firebrand on the line goes out (`pierceHit` the same).
+    const outcome = brandOutcome(e, strike(power, e.hp, chainFactor(world, e), 0, platesOf(e)));
     return [{ id: b.id, t: b.t, outcome: outcome.plate && plates > 1 ? { ...outcome, platesAfter: Math.max(0, platesOf(e) - plates) } : outcome }];
   });
   return { from: shape.from, to: shape.to, length: shape.length, ux: shape.ux, uy: shape.uy, power, bodies, kills: bodies.filter(b => b.outcome.killed).length, ...plates > 1 ? { plates } : {}, ...spell.length ? { spell } : {} };
@@ -2077,7 +2108,7 @@ function pierceHit(world: World, move: HeroMove, id: number): void {
   // Task 59а: a recruit out of order — the run passes it, the hit goes out (the plan marks the same).
   if (!recruitInOrder(world, enemy)) { noteRefused(world, enemy, PIERCE_SOURCE); return; }
   const factor = pierce.brittle?.includes(id) ? Math.max(1, world.params.frostFactor) : 1;
-  const outcome = strike(move.power, enemy.hp, factor, 0, platesOf(enemy));
+  const outcome = brandOutcome(enemy, strike(move.power, enemy.hp, factor, 0, platesOf(enemy)));
   if (move.purse) move.purse.embers += linkEmbers(enemy, outcome);
   // The ×2 of the cold is spent by the hit (as a link's).
   delete enemy.brittle;
@@ -2267,7 +2298,8 @@ function dashStrike(world: World, move: HeroMove, enemy: Enemy): { ctx: LinkCont
   const wet = wetHit(world, !!move.wet?.includes(enemy.id));
   const outcome = strike((ctx ? move.power + linkPowerOf(world, ctx) : move.power) + wet, enemy.hp, dashFactor(world, enemy), linkGainOf(world), platesOf(enemy) - pre);
   // Task 54: the Chief's core — the queue fixed at the release (`chiefRelease`) takes two plates when long (the plan's rule).
-  return { ctx, pre, marks: honed ? rank2LinksOf(world, ctx!) : [], outcome: enemy.kind === CHIEF ? chiefHitOutcome(world, enemy, outcome, enemy.vars.wq ?? 0) : outcome };
+  // Task 57б: a burning firebrand — the lethal hit puts it out (the plan's `brandOutcome`).
+  return { ctx, pre, marks: honed ? rank2LinksOf(world, ctx!) : [], outcome: brandOutcome(enemy, enemy.kind === CHIEF ? chiefHitOutcome(world, enemy, outcome, enemy.vars.wq ?? 0) : outcome) };
 }
 
 /** Phase B: the layer notes an enemy link the dash reached (struck or passed fallen). */
@@ -2326,14 +2358,17 @@ function hitEnemy(world: World, enemy: Enemy): void {
   if (outcome.killed) {
     landAt(move, enemy);
     world.enemies.splice(world.enemies.indexOf(enemy), 1);
-    world.stats.kills++;
+    // Task 57б «Корневик»: a rootling lies as a stump — the world's credit waits for its group's crumble; the chain's count is now.
+    const stump = enemy.kind === ROOTLING && lieDown(world, enemy, { source: 'chain', credited: true }, { chain: true });
+    if (!stump) world.stats.kills++;
     move.kills++;
     // Task 14 «Котомка у двери» (bag.ts): a chain kill after the goals fills the bag (nothing without one).
-    if (world.bag) bagKill(world);
+    if (world.bag && !stump) bagKill(world);
     // К7 «Проклятый сундук»: a kill of the dash counts toward lifting the curse (nothing without it).
-    if (world.curse) curseKill(world);
-    if (enemy.marked) world.stats.markedKills++;
+    if (world.curse && !stump) curseKill(world);
+    if (enemy.marked && !stump) world.stats.markedKills++;
     world.events.push({ type: 'kill', enemyId: enemy.id, x: enemy.x, y: enemy.y, color: enemy.color, source: 'chain', credited: true });
+    if (stump) settleStumps(world);
     // Task 40: a prisoner's shackle goes with it (nothing while no shackle holds it).
     if (world.tethers) dropShackleOf(world, enemy);
     // Stage 2 of the transition: the kind's own reaction to its death (the sapper lights its fuse); an elite's loot (step 3).

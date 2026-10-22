@@ -24,6 +24,9 @@
  * - the reaper (`immune`) is not a target: a bomb does not hurt it, cold and fire do not take it;
  * - the cold does not stop the fuse of a dead sapper (a blast of the world, design answer 5 to step 2): only the living
  *   one's fuse waits; a burning enemy burns on while frozen (burning is not its mechanic).
+ * - task 57б: the cold and fire act on the rootlings' stumps (enemies/rootling.ts): the cold's circle holds a stump's countdown
+ *   `frostTime`; fire burns the stumps in its circle for good — its target is the enemy under the pointer, else the stump there. Fire
+ *   never burns a firebrand: a put-out one lights again (enemies/firebrand.ts `brandFire`).
  */
 import { itemHealOf } from './build';
 import { bodyRadiusOf, enemyArtRadius, kindOf } from './enemies/kinds';
@@ -31,6 +34,8 @@ import { dist, type Vec } from './geometry';
 import { completeGoals, damageEnemy, enemyFrozen, type Enemy, type World } from './world';
 import type { ItemKind } from './kit';
 import { snuffAround } from './shots';
+import { brandFire } from './enemies/firebrand';
+import { burnStump, chillStump, stumpsIn, type Stump } from './enemies/rootling';
 
 /** Why the consumable cannot be used at `p` now (the view shows it); null — it can. */
 export type ItemRefusal = 'over' | 'none' | 'move' | 'target' | 'far' | 'full';
@@ -61,15 +66,34 @@ function bodiesInCircle(world: World, p: Vec, radius: number): Enemy[] {
   return world.enemies.filter(e => affectable(e) && dist(e, p) <= radius + bodyRadiusOf(world.params, e));
 }
 
+/** Task 57б: the stump under the pointer (within its radius, the nearest); null — none. */
+function stumpAt(world: World, p: Vec): Stump | null {
+  let best: Stump | null = null;
+  for (const s of stumpsIn(world, p, 0)) if (!best || dist(s, p) < dist(best, p)) best = s;
+  return best;
+}
+
 /** What the consumable would act on at `p`: the enemies it takes (cold, bomb, fire) — empty for healing. */
 export function itemTargets(world: World, kind: ItemKind, p: Vec): Enemy[] {
   const params = world.params;
   if (kind === 'frost') return bodiesInCircle(world, p, params.frostRadius);
   if (kind === 'healing') return [];
   const target = enemyAt(world, p);
-  if (!target) return [];
-  if (kind === 'bomb') return dist(target, world.hero) <= params.bombRange ? [target] : [];
-  return [target, ...bodiesInCircle(world, target, params.fireRadius).filter(e => e !== target)];
+  if (kind === 'bomb') return target && dist(target, world.hero) <= params.bombRange ? [target] : [];
+  // Task 57б: no enemy under the pointer — fire may take the stump there (its circle round the stump).
+  const center = target ?? (world.stumps?.length ? stumpAt(world, p) : null);
+  if (!center) return [];
+  const around = bodiesInCircle(world, center, params.fireRadius);
+  return target ? [target, ...around.filter(e => e !== target)] : around;
+}
+
+/** Task 57б: the rootlings' stumps the consumable would act on at `p` — the cold's circle, fire's circle round its target. */
+export function itemStumps(world: World, kind: ItemKind, p: Vec): Stump[] {
+  if (!world.stumps?.length) return [];
+  if (kind === 'frost') return stumpsIn(world, p, world.params.frostRadius);
+  if (kind !== 'fire') return [];
+  const center = enemyAt(world, p) ?? stumpAt(world, p);
+  return center ? stumpsIn(world, center, world.params.fireRadius) : [];
 }
 
 /** Why `kind` cannot be used at `p` now; null — it can (playing, not moving, one in hand, something to act on). */
@@ -78,7 +102,7 @@ export function itemRefusal(world: World, kind: ItemKind, p: Vec): ItemRefusal |
   if ((world.kit?.items[kind] ?? 0) < 1) return 'none';
   if (world.move) return 'move';
   if (kind === 'healing') return world.hero.hp >= world.hero.maxHp ? 'full' : null;
-  if (itemTargets(world, kind, p).length) return null;
+  if (itemTargets(world, kind, p).length || itemStumps(world, kind, p).length) return null;
   // A bomb on an enemy out of its range: «далеко»; otherwise nothing to act on.
   return kind === 'bomb' && enemyAt(world, p) ? 'far' : 'target';
 }
@@ -86,7 +110,7 @@ export function itemRefusal(world: World, kind: ItemKind, p: Vec): ItemRefusal |
 /** Uses the consumable `kind` aimed at `p`. False — refused (`itemRefusal`), nothing spent. */
 export function useItem(world: World, kind: ItemKind, p: Vec): boolean {
   if (itemRefusal(world, kind, p)) return false;
-  const params = world.params, hero = world.hero, targets = itemTargets(world, kind, p);
+  const params = world.params, hero = world.hero, targets = itemTargets(world, kind, p), stumps = itemStumps(world, kind, p);
   world.kit!.items[kind]--;
   if (kind === 'healing') {
     // Phase B (build.ts `itemHealOf`): «Кровавая клятва» weakens it; without a build module — `itemHeal`.
@@ -96,13 +120,14 @@ export function useItem(world: World, kind: ItemKind, p: Vec): boolean {
     return true;
   }
   if (kind === 'frost') {
-    world.events.push({ type: 'item', kind, x: p.x, y: p.y, radius: params.frostRadius, targets: targets.length });
+    world.events.push({ type: 'item', kind, x: p.x, y: p.y, radius: params.frostRadius, targets: targets.length + stumps.length });
     for (const e of targets) { e.chill = Math.max(e.chill ?? 0, params.frostTime); e.brittle = true; }
+    for (const s of stumps) chillStump(s, params.frostTime);
     usedForGoal(world);
     return true;
   }
-  const at = targets[0];
   if (kind === 'bomb') {
+    const at = targets[0];
     world.events.push({ type: 'item', kind, x: at.x, y: at.y, radius: 0, targets: 1 });
     // The bombs left tell this use from another one in the same tick (elites.ts `stripPlates`: one firing, one strip).
     damageEnemy(world, at, params.bombDamage, { source: 'bomb', credited: true, firing: world.kit!.items.bomb });
@@ -111,9 +136,11 @@ export function useItem(world: World, kind: ItemKind, p: Vec): boolean {
     usedForGoal(world);
     return true;
   }
-  // Fire: a new burning replaces what is left of an old one (ticks from the start).
-  world.events.push({ type: 'item', kind, x: at.x, y: at.y, radius: params.fireRadius, targets: targets.length });
-  for (const e of targets) e.burn = { left: Math.max(1, Math.round(params.fireTicks)), timer: params.fireInterval };
+  // Fire: a new burning replaces what is left of an old one (ticks from the start). Task 57б: its target may be a stump.
+  const at: Vec = targets[0] ?? stumpAt(world, p)!;
+  world.events.push({ type: 'item', kind, x: at.x, y: at.y, radius: params.fireRadius, targets: targets.length + stumps.length });
+  for (const e of targets) if (!brandFire(world, e)) e.burn = { left: Math.max(1, Math.round(params.fireTicks)), timer: params.fireInterval };
+  for (const s of stumps) burnStump(world, s);
   usedForGoal(world);
   return true;
 }

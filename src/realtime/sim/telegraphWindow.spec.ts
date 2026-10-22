@@ -34,6 +34,9 @@ import { WARLOCK } from './enemies/warlock';
 import { SLINGER, SLING_MIN, SLING_WINDUP, STONE_RADIUS } from './enemies/slinger';
 import { HIVE, HIVE_NEAR, HIVE_RING, HIVE_SPEED, RING_RADIUS, WASP_HANG, WASP_RADIUS } from './enemies/hive';
 import { WISP, WISP_LIGHT, WISP_SPEED } from './enemies/wisp';
+import { ROOTLING } from './enemies/rootling';
+import { SLIME } from './enemies/slime';
+import { FIREBRAND } from './enemies/firebrand';
 import { registerArena, registeredArenas, type ArenaTemplate } from './arenas';
 import './arenasStep3';
 import { defaultParams, heroRadius, type Params } from './params';
@@ -157,6 +160,10 @@ const OUTSIDE: Readonly<Record<string, string>> = {
   [WARLOCK]: 'касание, без телеграфа («Перенос» героя не бьёт; удар — падение его шкафа)',
   // Task 57а: the wisp is a living shot — no zone and moment; it lights 1.6 s from its marker and is slower than the hero (checked below).
   [WISP]: 'живой снаряд: метка и зажигание 1,6 с до полёта, летит медленнее героя — догнать не может (проверка ниже)',
+  // Task 57б «Лес: механики» (spec 7): no zone-and-moment threat.
+  [ROOTLING]: 'касание, без телеграфа (встаёт из пня — угрозы-зоны нет)',
+  [SLIME]: 'касание, без телеграфа (слияние — линия и свечение, урона не наносит)',
+  [FIREBRAND]: 'касание; след огня — статичная зона без момента удара (как терновник)',
 };
 
 /** A run battle's params (the run's numbers, the short fuse of task 19). */

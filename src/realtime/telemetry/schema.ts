@@ -1134,11 +1134,17 @@ export interface FightSummary {
  * that hit the hero and those a shield took, by the shot's kind (`stone`, `wasp`; `shot` `hit` / `block`); shots put out by the dash and
  * by a bomb (`shot` `snuff`, `snuffShots`); wisps («Светляк») — seen on the arena, killed by the chain, gone out on the hero (`touch` —
  * hurt, `blocked` — a shield took it), gone out by their flight's end (`faded`).
+ * Task 57б «Лес: механики» (from 22.10.2026; absent in older records — 0 and empty maps): rootlings laid as stumps, stumps risen, groups
+ * crumbled, stumps burnt (`stump` `lie` / `rise` / `crumble` / `burn`); slimes merged (`slime` `merge`); firebrands put out by the
+ * cause (`firebrand` `out`: `hit`, `cold`, `water`) and lit again (`lit`: `brazier`, `fire`).
  */
 export interface ForestSummary {
   volleys: Record<string, number>;
   shots: { hit: Record<string, number>; block: Record<string, number>; snuffDash: number; snuffBomb: number };
   wisps: { appeared: number; chainKills: number; touched: number; blocked: number; faded: number };
+  rootlings: { lie: number; rise: number; crumble: number; burn: number };
+  merges: number;
+  brands: { out: Record<string, number>; lit: Record<string, number> };
 }
 
 /** Task 40: the garrison's numbers of a fight (`FightSummary.garrison`). */
@@ -1547,7 +1553,10 @@ export function emptyFightSummary(): FightSummary {
     death: null,
     boss: null,
     garrison: { shackles: 0, shackleCuts: 0, firstShackleCut: null, frenzyHits: 0, frenzyDamage: 0, riots: 0, riotKills: 0, riotDamage: 0, knights: 0, knightSheds: 0, knightKills: 0, knightChains: 0 },
-    forest: { volleys: {}, shots: { hit: {}, block: {}, snuffDash: 0, snuffBomb: 0 }, wisps: { appeared: 0, chainKills: 0, touched: 0, blocked: 0, faded: 0 } },
+    forest: {
+      volleys: {}, shots: { hit: {}, block: {}, snuffDash: 0, snuffBomb: 0 }, wisps: { appeared: 0, chainKills: 0, touched: 0, blocked: 0, faded: 0 },
+      rootlings: { lie: 0, rise: 0, crumble: 0, burn: 0 }, merges: 0, brands: { out: {}, lit: {} },
+    },
   };
 }
 

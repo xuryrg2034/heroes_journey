@@ -1337,6 +1337,17 @@ export interface Params {
   wispTurn: number;
   /** Task 57а: its flight before it fades (game s; 6). */
   wispLife: number;
+  // ---- Task 57б «Лес: механики» (enemies/rootling.ts, slime.ts, firebrand.ts; docs/realtime-elite-behaviors.md, «Лес: механики»). ----
+  // The rootling, the slime and the firebrand come only by an arena's template or roster; journals without a key play the default
+  // below (the kinds' numbers: `params.x ?? CONST`).
+  /** Task 57б «Корневик»: the stump's countdown before it rises (game s; 5). */
+  rootRise: number;
+  /** Task 57б «Слизень»: two small slimes of one colour touching this long merge into a big one (game s; 1). */
+  slimeMerge: number;
+  /** Task 57б: the big slime's HP (2). */
+  slimeBigHp: number;
+  /** Task 57б «Головешка»: how long the put-out firebrand runs to a burning brazier (game s; 4). */
+  brandSeek: number;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -1916,6 +1927,11 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   wispSpeed: 2,
   wispTurn: 90,
   wispLife: 6,
+  // Task 57б «Лес: механики» (the kinds come only by a template or a roster).
+  rootRise: 5,
+  slimeMerge: 1,
+  slimeBigHp: 2,
+  brandSeek: 4,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -2557,6 +2573,11 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('wispSpeed', 'Стрелки леса', 'Светляк: скорость', 0.5, 5, 0.25, 5, 'ед/с'),
   n('wispTurn', 'Стрелки леса', 'Светляк: поворот', 15, 360, 5, 5, '°/с'),
   n('wispLife', 'Стрелки леса', 'Светляк: жизнь', 1, 15, 0.5, 5, 'с'),
+  // Task 57б «Лес: механики» (enemies/rootling.ts, slime.ts, firebrand.ts).
+  n('rootRise', 'Механики леса', 'Корневик: пень встаёт через', 1, 15, 0.5, 5, 'с', 'Убитый корневик ложится пнём и встаёт. Лягут все корневики группы разом — пни рассыпаются.'),
+  n('slimeMerge', 'Механики леса', 'Слизни сливаются за', 0.25, 5, 0.25, 5, 'с', 'Два малых слизня одного цвета касаются столько — сливаются в большого.'),
+  n('slimeBigHp', 'Механики леса', 'Большой слизень: HP', 1, 5, 1, 5),
+  n('brandSeek', 'Механики леса', 'Головешка: бежит к жаровне', 1, 10, 0.5, 5, 'с', 'Погасшая головешка бежит к горящей жаровне и разгорается у неё.'),
 ];
 
 const MAX_PHASES = 8;

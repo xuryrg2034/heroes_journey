@@ -183,8 +183,11 @@ export const AFFIX_TITLES: Readonly<Record<AffixId, string>> = { fiery: 'Огн�
 /** Pairs that never come together (design answer 5). */
 const INCOMPATIBLE: readonly (readonly [AffixId, AffixId])[] = [['swift', 'fat']];
 
-/** One point of a fire trail: where, game seconds it still burns, the elite that dropped it (the id in the hit event). */
-export interface TrailPoint { x: number; y: number; life: number; ownerId: number }
+/**
+ * One point of a fire trail: where, game seconds it still burns, the elite that dropped it (the id in the hit event). Task 57б: `brand` —
+ * a burning firebrand's point (enemies/firebrand.ts): it burns the hero as any, never an enemy. Absent on an elite's point.
+ */
+export interface TrailPoint { x: number; y: number; life: number; ownerId: number; brand?: true }
 
 /** The affix may go on an elite of `kind`: «Стремительный» not on a fast kind, «Толстый» not on a slow one (design answer 5). */
 export function affixAllowed(kind: string, id: AffixId): boolean {
@@ -291,11 +294,14 @@ export function adoptChainColor(world: World, e: Enemy, color: number | null): v
   e.chameleon = Math.max(0.05, world.params.chameleonPeriod);
 }
 
-/** The fire trail point a point stands in (its center within a point's radius); undefined — none. */
-export function trailAt(world: World, at: Vec): TrailPoint | undefined {
+/**
+ * The fire trail point a point stands in (its center within a point's radius); undefined — none. `enemy` — for an enemy: the
+ * firebrand's points (task 57б) never burn one.
+ */
+export function trailAt(world: World, at: Vec, enemy = false): TrailPoint | undefined {
   if (!world.trails.length) return undefined;
   const r = world.params.trailRadius;
-  return world.trails.find(t => dist(t, at) <= r);
+  return world.trails.find(t => dist(t, at) <= r && !(enemy && t.brand));
 }
 
 /**
@@ -327,7 +333,7 @@ export function updateAffixes(world: World, dt: number): void {
   for (const e of world.enemies) {
     // The package: plates keep the trail off an armoured elite (the trail is no hit: it takes no plate either).
     if (e.singed !== undefined || e.hp <= 0 || kindOf(e).immune || hasAffix(e, 'fiery') || platesOf(e) > 0) continue;
-    if (!trailAt(world, e)) continue;
+    if (!trailAt(world, e, true)) continue;
     // Never below 0 HP: the trail weakens, it never kills (so it credits nobody, design answer 4).
     const damage = Math.min(e.hp, Math.max(0, p.trailEnemyDamage));
     if (damage <= 0) continue;

@@ -14,6 +14,7 @@ import { bodyRadiusOf, kindOf } from './enemies/kinds';
 import { dist, type Vec } from './geometry';
 import { damageEnemy, type Enemy, type World } from './world';
 import { orderRecruits, recruitGateList } from './enemies/recruit';
+import { brandShadow } from './enemies/firebrand';
 import type { BuildSource } from './buildIds';
 
 /** Distance from `p` to the segment a–b. */
@@ -64,7 +65,9 @@ export function shadowHitAll(enemies: readonly Enemy[], targets: readonly Enemy[
     if (!hit.has(e.id) || kindOf(e).immune || refused.has(e.id)) return [e];
     const plates = platesOf(e);
     if (plates > 0) return [{ ...e, armor: { ...e.armor!, plates: plates - Math.min(plates, Math.max(1, PLATES_BY_SOURCE[source] ?? 1)) } }];
-    return damage >= e.hp ? [] : [{ ...e, hp: e.hp - damage }];
+    // Task 57б: a burning firebrand goes out (`damageEnemy` the same).
+    if (damage >= e.hp) { const doused = brandShadow(e); return doused ? [doused] : []; }
+    return [{ ...e, hp: e.hp - damage }];
   });
 }
 
