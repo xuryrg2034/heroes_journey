@@ -115,6 +115,11 @@ export const RT_RUN_END_TEXT = {
   jailerPassed: 'Тюремщик пройден',
   jailerNotPassed: 'Тюремщик не пройден',
   peak: (kills: number, row: number): string => `Лучшая цепь похода: ${kills} ${killsWord(kills)} · ряд ${row}`,
+  /**
+   * Task 61б (docs/design-notes/task-61-return-and-beyond.md, Б.2, Д11): the one line under the record of the run that opened the layer
+   * «после первой победы», once a profile (`rtAfterWinLineDue`, `markAfterWinLine`); the meta block, above «В летописи: +N».
+   */
+  afterWin: 'Летопись не дописана',
 } as const;
 
 function killsWord(n: number): string {

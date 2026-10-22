@@ -52,6 +52,13 @@ export const TOAD_LINES_BY_NPC: Readonly<Record<NpcId, Partial<Record<LineKey, r
     death_troll: [
       'Тролль. Ты отдыхала, он храпел и отращивал шкуру — записала обоих.',
     ],
+    // Task 61 (docs/design-notes/task-61-return-and-beyond.md, А.4, Б.3; the spec's drafts): the first return, the first win over the castle.
+    revive_first: [
+      'Смерть на странице не считается, ведунья, — я зачеркнула. Не привыкай.',
+    ],
+    win_castle_first: [
+      'Глава колдуна кончилась, а страница осталась. Кто её пишет, ведунья?',
+    ],
   },
   herb: {
     win: [
@@ -109,6 +116,10 @@ export const TOAD_LINES_BY_NPC: Readonly<Record<NpcId, Partial<Record<LineKey, r
     meet_hello: [
       'Ох, дошла-таки, жабонька. Садись, у меня травы на привале сохнут.',
     ],
+    // Task 61 (spec А.4).
+    revive_2: [
+      'Из золы тебя достала, жабонька. Отряхнись, шаль потом выбью.',
+    ],
   },
   smith: {
     win: [
@@ -165,6 +176,10 @@ export const TOAD_LINES_BY_NPC: Readonly<Record<NpcId, Partial<Record<LineKey, r
     ],
     meet_hello: [
       'Ведунья. Садись, пока точу.',
+    ],
+    // Task 61 (spec А.4).
+    revive_3: [
+      'Огонь тебя вернул, ведунья. И посох с угольком цел.',
     ],
   },
   // Task 51в: Шиш's variants (the table «Варианты для Ведуньи»).

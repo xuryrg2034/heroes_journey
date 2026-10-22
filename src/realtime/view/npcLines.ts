@@ -12,7 +12,17 @@ export type LineKey = 'first' | 'first_self' | 'win_first' | 'win' | `death_${De
   | 'quest_give' | 'quest_give_final' | 'quest_done' | 'quest_fail' | 'idle' | 'about_owl' | 'about_herb' | 'about_smith' | 'about_gambler' | 'about_monk' | 'locked3' | 'pack'
   | 'win_garrison_first' | 'meet_hello' | 'back_met' | 'first_won' | 'first_lost' | 'casino_won' | 'casino_lost'
   | 'habit_first' | 'knack_first' | 'vow_kept' | 'vow_broken' | 'memory_cuts' | 'memory_castellan'
-  | 'leave' | 'back_missed' | 'meet_deal' | 'meet_no' | 'trace_herb' | 'trace_smith' | 'trace_gambler' | 'warmup_record' | 'chronicle_retro' | 'trophy';
+  | 'leave' | 'back_missed' | 'meet_deal' | 'meet_no' | 'trace_herb' | 'trace_smith' | 'trace_gambler' | 'warmup_record' | 'chronicle_retro' | 'trophy'
+  | ReturnKey;
+/**
+ * Task 61 (spec docs/design-notes/task-61-return-and-beyond.md, А.4, А.5, Б.3; the texts are the spec's drafts, design 17.10.2026): the
+ * return lines `revive_*` by the profile's return N, Неясыть's `scorch_retro`, the first win over the castle `win_castle_first` (Неясыть,
+ * Евлампий — the camp's scene) and Евлампий's meeting at the fire `first_fire`.
+ */
+export type ReturnKey = 'revive_first' | 'revive_2' | 'revive_3' | 'revive_4' | 'revive_5' | 'revive_after' | 'scorch_retro' | 'win_castle_first' | 'first_fire';
+export const RETURN_KEYS: readonly ReturnKey[] = ['revive_first', 'revive_2', 'revive_3', 'revive_4', 'revive_5', 'revive_after', 'scorch_retro', 'win_castle_first', 'first_fire'];
+/** Task 61а: the key of the profile's return `n` (1 — `revive_first`; past the pool — none). */
+export const reviveKey = (n: number): LineKey | null => (n === 1 ? 'revive_first' : n >= 2 && n <= 5 ? `revive_${n}` as LineKey : null);
 
 export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly string[]>>>> = {
   owl: {
@@ -57,6 +67,11 @@ export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly 
     pack: ['В лесу появилось новое. Я внесла в опись три строки.'],
     // Task 50 §18 (design 20.10.2026): once a profile, after the first run that offered the archetype (`LineContext.last.habitOffered`).
     habit_first: ['Повадку я записала. Теперь такие вещи тебе будут чаще попадаться на глаза'],
+    // Task 61 (spec А.4, А.5, Б.3): the returns, the scorches of an old profile, the first win over the castle.
+    revive_first: ['Смерть на странице не считается, кот, — я зачеркнула. Не привыкай.'],
+    revive_after: ['Глава колдуна дописана, а ты опять из золы. Кто пишет дальше?'],
+    scorch_retro: ['Старые подпалины смыло дождём. Новые я сосчитаю сама.'],
+    win_castle_first: ['Глава колдуна кончилась, а страница осталась. Кто её пишет, кот?'],
   },
   herb: {
     first: ['Ты волчонка перевязал? Криво, зато от сердца — садись, котище.', 'Я Марфа, травница. Шла за волчонком, а вышла к твоему костру.'],
@@ -94,6 +109,8 @@ export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly 
     meet_no: ['Не надо — и не надо. Иди, только не хромай.'],
     locked3: ['Этот отвар — как дойдёшь до гарнизона. Там травы другие, злые.'],
     pack: ['В лесу новое завелось. Принюхайся, прежде чем хватать.'],
+    // Task 61 (spec А.4).
+    revive_2: ['Из золы тебя собрала, котище. Чихай на здоровье, только не на травы.'],
   },
   smith: {
     first: ['Ты у меня заточку брал. Помню топор — зазубрина на зазубрине.', 'Ерофей я. Точу, не торгуюсь — давай топор.'],
@@ -135,6 +152,8 @@ export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly 
     pack: ['Новое железо в лесу. Бери, да проверь кромку.'],
     // Task 50 §18: once a profile, after the first run that offered the knack (`LineContext.last.knackOffered`).
     knack_first: ['Сноровка — это точить то, что уже в руке. Новое бери, когда старое тупится'],
+    // Task 61 (spec А.4).
+    revive_3: ['Огонь тебя вернул. Топор тоже — кромка даже цела.'],
   },
   // Task 51в: Шиш (docs/design-notes/npc-lines-v2.md, «Шиш, гоблин-шулер»; `leave`, `back_*`, `meet_*` wait for 51д).
   gambler: {
@@ -191,6 +210,8 @@ export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly 
     meet_deal: ['Одну склянку — за два ресурса. «Скупка» честная, я сам считал.'],
     meet_no: ['Не хочешь — и ладно. Я тебя тут не видел, партнёр.'],
     locked3: ['«Лавка в гарнизоне» — как дойдёшь до гарнизона. Раньше там меня не знают.'],
+    // Task 61 (spec А.4).
+    revive_4: ['Опять из золы, партнёр! Огонь у нас — единственный, кто не проигрывает.'],
   },
   // Task 51г: Евлампий (docs/design-notes/npc-lines-v2.md, «Евлампий, расстрига»).
   monk: {
@@ -253,6 +274,11 @@ export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly 
       'Знак колдуна я с рясы содрал, а дыра осталась — сквозит.',
       'Книгу мою не открывай. Там мои проповеди, и они до сих пор светятся.',
     ],
+    // Task 61 (spec А.4, Б.3): the returns, the first win over the castle, his coming to the fire with its scene (Д8).
+    revive_5: ['Огонь отдаёт тебя назад, чадо. Я знаю этот огонь — и молчу.'],
+    revive_after: ['Колдун мёртв, а огонь всё возвращает тебя. Кто же его держит, чадо?'],
+    win_castle_first: ['Колдун не хозяин этого огня, чадо. Он был сторож.'],
+    first_fire: ['Я пришёл на этот огонь. Он горит, как горел на моей службе.'],
   },
 };
 
@@ -263,9 +289,9 @@ export const NPC_LINES: Readonly<Record<NpcId, Partial<Record<LineKey, readonly 
  * occasion, at last `idle`. After the cat's run, or with no run, every line is said.
  */
 export const CAT_MARKED: Readonly<Record<NpcId, Partial<Record<LineKey, readonly number[]>>>> = {
-  owl: { first: [1], win: [1, 2], death_crowd: [1, 2], death_archer: [1, 2], death_sapper: [1, 2], death_fire: [1, 2], quest_fail: [1], idle: [4] },
-  herb: { win_garrison_first: [1], back_met: [1], meet_hello: [1], first: [1], first_self: [1], win_first: [1], win: [1, 2], death_crowd: [1], death_sapper: [1, 2], death_final: [1], death_fire: [2], record: [1], buy_2: [1], quest_done: [2], quest_fail: [1], idle: [2, 3, 4] },
-  smith: { win_garrison_first: [1], meet_hello: [1], first: [1, 2], first_self: [1], win_first: [1], win: [1, 2, 3], death_crowd: [1], death_archer: [1], death_sapper: [2], death_jailer: [2], death_final: [1], death_fire: [1, 2], death_other: [2], record: [1, 2], quest_done: [1, 2], quest_fail: [2], idle: [1, 2, 4] },
+  owl: { revive_first: [1], win_castle_first: [1], first: [1], win: [1, 2], death_crowd: [1, 2], death_archer: [1, 2], death_sapper: [1, 2], death_fire: [1, 2], quest_fail: [1], idle: [4] },
+  herb: { revive_2: [1], win_garrison_first: [1], back_met: [1], meet_hello: [1], first: [1], first_self: [1], win_first: [1], win: [1, 2], death_crowd: [1], death_sapper: [1, 2], death_final: [1], death_fire: [2], record: [1], buy_2: [1], quest_done: [2], quest_fail: [1], idle: [2, 3, 4] },
+  smith: { revive_3: [1], win_garrison_first: [1], meet_hello: [1], first: [1, 2], first_self: [1], win_first: [1], win: [1, 2, 3], death_crowd: [1], death_archer: [1], death_sapper: [2], death_jailer: [2], death_final: [1], death_fire: [1, 2], death_other: [2], record: [1, 2], quest_done: [1, 2], quest_fail: [2], idle: [1, 2, 4] },
   // Task 51в, design table «Метка `cat`» (Шиш, v2): the lines that put a verb about the hero in the masculine.
   gambler: { first_won: [1], first_lost: [1], first_self: [1], win: [1, 2], win_garrison_first: [1], death_fire: [1], death_troll: [1], quest_fail: [1], casino_won: [1], casino_lost: [1] },
   // Task 51г, design table «Метка `cat`» (Евлампий, v2).
@@ -278,8 +304,16 @@ export interface LineContext {
   hero?: 'toad';
   /** The NPC came by itself (the fallback way) — its meeting line is `first_self`. */
   self?: boolean;
+  /** Task 61б (spec Б.3, Д8): Евлампий came to the fire with the camp's scene of the first win — his meeting line is `first_fire`. */
+  fire?: boolean;
   /** The occasions of the last run (said once per camp visit). */
-  last?: { won: boolean; habitOffered?: true; knackOffered?: true; firstWin?: boolean; cause?: DeathCause; record?: boolean; questDone?: boolean; questFail?: boolean; pack?: boolean; casino?: 'won' | 'lost'; cuts?: number; vows?: 'kept' | 'broken'; castellan?: boolean; garrisonWon?: boolean; away?: 'met' | 'missed' };
+  last?: { won: boolean; habitOffered?: true; knackOffered?: true; firstWin?: boolean; cause?: DeathCause; record?: boolean; questDone?: boolean; questFail?: boolean; pack?: boolean; casino?: 'won' | 'lost'; cuts?: number; vows?: 'kept' | 'broken'; castellan?: boolean; garrisonWon?: boolean; away?: 'met' | 'missed';
+    /**
+     * Task 61а (spec А.4; run/rtMeta.ts `rtReviveOccasion`): the last run was a death the fire brought back — `revive` the profile's return N
+     * (`revive_N`), `reviveAfter` the first death after the first win over the castle (`revive_after`). Task 61б: `castleFirst` — the run
+     * opened the layer «после первой победы» (`win_castle_first`).
+     */
+    revive?: number; reviveAfter?: boolean; castleFirst?: boolean };
   /** Just bought this level. */
   bought?: 1 | 2 | 3;
   /** The other NPC in the camp (for `about_*`). */
@@ -303,7 +337,7 @@ export function pickLine(npc: NpcId, ctx: LineContext, memory: LineMemory): { ke
   const L = NPC_LINES[npc];
   // Task 51в: Шиш's first meeting is `first_won` / `first_lost` (by the last game of the goblins' circle) - one count `npc:first` with `first`.
   // Task 50 §18: `habit_first` / `knack_first` are said once a profile, whoever the hero (one count, like the meeting).
-  const meeting = (key: LineKey): boolean => key === 'first' || key === 'first_self' || key === 'first_won' || key === 'first_lost' || key === 'habit_first' || key === 'knack_first';
+  const meeting = (key: LineKey): boolean => key === 'first' || key === 'first_self' || key === 'first_won' || key === 'first_lost' || key === 'habit_first' || key === 'knack_first' || key === 'first_fire';
   const memoryKey = (key: LineKey): LineKey => (key === 'first_won' || key === 'first_lost' ? 'first' : key);
   const firstWin = (key: LineKey): boolean => key === 'win_first' || key === 'win_garrison_first';
   const mark = (key: LineKey): string => (meeting(key) ? '' : tail);
@@ -317,8 +351,14 @@ export function pickLine(npc: NpcId, ctx: LineContext, memory: LineMemory): { ke
     if (once && n >= (meeting(key) ? Math.max(L[key]?.length ?? 0, 1) : list.length)) return null;
     return { key, text: list[n % list.length], id: `${npc}:${memoryKey(key)}${mark(key)}` };
   };
-  const meet = ctx.self ? line('first_self', true) : null;
-  const first = meet ?? (count('first_self') ? null : line(npc === 'gambler' ? (ctx.last?.casino === 'won' ? 'first_won' : 'first_lost') : 'first', true));
+  // Task 61а (spec А.4): a return line outranks the death's cause and the meeting (the scene's «…» names the NPC who has one; the meeting
+  // comes on the next click) — `revive_after` above `revive_N`, each once. A purchase answers first; an NPC without the key goes on as before.
+  const back = ctx.bought ? undefined : ctx.last, key = back?.revive ? reviveKey(back.revive) : null;
+  const revive = (back?.reviveAfter && line('revive_after', true)) || (key && line(key, true));
+  if (revive) return revive;
+  // Task 61б (Д8): Евлампий come to the fire says `first_fire` (not `first_self`); after it no other meeting.
+  const meet = ctx.fire ? line('first_fire', true) : ctx.self ? line('first_self', true) : null;
+  const first = meet ?? (count('first_self') || count('first_fire') ? null : line(npc === 'gambler' ? (ctx.last?.casino === 'won' ? 'first_won' : 'first_lost') : 'first', true));
   if (first) return first;
   // A purchase line the mark skips (after her run) gives way to the next occasion.
   const buy = ctx.bought ? line(`buy_${ctx.bought}` as LineKey) : null;
@@ -326,7 +366,8 @@ export function pickLine(npc: NpcId, ctx: LineContext, memory: LineMemory): { ke
   const last = ctx.last;
   if (last) {
     // Task 51д: the NPC came back from the road — `back_met` (met on a rest) or `back_missed`.
-    const occasion = (last.away && line(last.away === 'met' ? 'back_met' : 'back_missed')) || (last.questDone && line('quest_done')) || (last.questFail && line('quest_fail')) || (npc === 'owl' && last.habitOffered && line('habit_first', true)) || (npc === 'smith' && last.knackOffered && line('knack_first', true)) || (last.firstWin && line('win_first', true))
+    // Task 61б (spec Б.3): the first win over the castle — Неясыть's and Евлампий's lines of the camp's scene stand as the visit's occasion.
+    const occasion = (last.away && line(last.away === 'met' ? 'back_met' : 'back_missed')) || (last.castleFirst && line('win_castle_first', true)) || (last.questDone && line('quest_done')) || (last.questFail && line('quest_fail')) || (npc === 'owl' && last.habitOffered && line('habit_first', true)) || (npc === 'smith' && last.knackOffered && line('knack_first', true)) || (last.firstWin && line('win_first', true))
       // Task 51: the garrison passed - the first time for the hero is `win_garrison_first` (the three of v1, said once by hero like `win_first`), then the ordinary occasion.
       || (last.garrisonWon && (npc === 'owl' || npc === 'herb' || npc === 'smith') && line('win_garrison_first', true))
       || (last.record && line('record')) || (last.pack && line('pack')) || (last.casino && line(last.casino === 'won' ? 'casino_won' : 'casino_lost'))
