@@ -13,6 +13,7 @@ import type { ResourceKind } from '../forest/types';
 import type { GiftOption } from '../forest/runGift';
 import { arenaTitle, runRow } from '../run/arenaPools';
 import { GARRISON_TITLE, rtGarrisonNodeId } from '../run/garrison';
+import { CASTLE_ARENA_TITLES, CASTLE_BOSS_NAME, CASTLE_CHECKPOINT_NAME, CASTLE_HARD_ARENA, CASTLE_TITLE, rtCastleNodeId } from '../run/castle';
 import { rosterTitle } from '../sim/rosters';
 import { rtHp } from '../run/hpScale';
 import {
@@ -21,7 +22,7 @@ import {
   rtOathPreview, rtOathStakeOn, rtArenaRules, RT_SECOND_WIND_LAST_ROW, rtDieChoose, rtDieView, rtLuckReport, DIE_LOW_FACES,
   rtCasinoView, rtCasinoPlay, rtCasinoLeave, rtCasinoNode, CASINO_WHEEL_EVENT, RT_CASINO_CHANCE, RT_CASINO_GAMES, RT_CASINO_TITLE,
   healOffer, healOnMap, healVisible, rtResourceTotal, rtNodeFeat, RT_HEAL_MAP_GAIN, rtAsh, rtAshOptions, rtAshTitle, rtRunWon, isRtAshLevel, type RtAshLevel, rtScheduleMet, RT_JAILER_SEVERED_SLOTS, RT_TROLL_ALL_PARTS_SLOTS, rtTrollNode, rtFormReplaces, rtFormSlotField,
-  rtCrossroadsHidden, rtFightOmens, rtNodeOmen, rtEnterGarrison, rtLevel, rtCartView, rtGateView, rtChooseKnack, type RtCartView, type RtGateView,
+  rtCrossroadsHidden, rtFightOmens, rtNodeOmen, rtEnterGarrison, rtEnterCastle, rtLevel, rtCartView, rtGateView, rtChooseKnack, type RtCartView, type RtGateView,
   type RtArenaOutcome, type RtArenaRules, type RtCasinoTable, type RtLoadoutOptions, type RtRunEvent, type RtRunState, type RtRunStep,
 } from '../run/rtRun';
 import { ITEM_TITLES, SLOT_ITEMS, type ItemKind, type Loadout } from '../sim/kit';
@@ -274,7 +275,8 @@ const RESOURCE_ICON = '<svg viewBox="0 0 20 20" width="16" height="16" aria-hidd
   + '<path d="M10 2 L17 7 L14.5 17 L5.5 17 L3 7 Z" fill="#e3b45a" stroke="#1a2330" stroke-width="1.6" stroke-linejoin="round"/>'
   + '<path d="M3 7 L10 9 L17 7 M10 9 L10 17" fill="none" stroke="#1a2330" stroke-width="1.2" stroke-linejoin="round"/></svg>';
 /** Task 38: the run's level by one word — «Лес» and «Гарнизон» for a run that goes on into the garrison; «Поход» for one that does not. */
-const levelWord = (run: RtRunState): string => (rtLevel(run) === 2 ? GARRISON_TITLE : run.garrison ? 'Лес' : 'Поход');
+/** The header's word of the level: «Лес», «Гарнизон», «Замок» (task 55в); a run without the garrison — «Поход». */
+const levelWord = (run: RtRunState): string => { const level = rtLevel(run); return level === 3 ? CASTLE_TITLE : level === 2 ? GARRISON_TITLE : run.garrison ? 'Лес' : 'Поход'; };
 
 /** Tasks 36–37 «✦ новое» (as on the map): an opened item offered for the first time. */
 const newSign = (fresh: ReadonlySet<string>, id: string): string => fresh.has(id) ? ' <span class="rt-new-sign" data-testid="offer-new">✦ новое</span>' : '';
@@ -292,22 +294,29 @@ export const dieRollText = (low: number, high: number): string => `Бросит�
 /** «Холод (клавиша 1 в бою)»: a consumable with the key it is used with on the arena. */
 export const itemWithKey = (item: ItemKind): string => `${ITEM_TITLES[item]} (клавиша ${SLOT_ITEMS.indexOf(item) + 1} в бою)`;
 
+/** Task 55в: an arena's name on the run's screens — the castle's from `CASTLE_ARENA_TITLES` (core's seam), the rest `arenaTitle`. */
+const runArenaTitle = (arena: string): string => CASTLE_ARENA_TITLES[arena] ?? arenaTitle(arena);
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch] as string));
 const STATUS_LABEL = { visited: 'Пройден', current: 'Текущий', open: 'Открыт', available: 'Доступен', locked: 'Закрыт', lost: 'Поражение' } as const;
 /**
  * What the node card says about the node (the rules of this run). An ordinary battle and the breakthrough say nothing here (design
  * 13.10.2026): the card's head already says «Бой · ряд похода N» and its lines the arena.
  */
-const nodeHint = (node: ForestMapNode, run: Pick<RtRunState, 'jailer' | 'forms' | 'talismans' | 'garrison' | 'troll'>): string | undefined => {
+const nodeHint = (node: ForestMapNode, run: Pick<RtRunState, 'jailer' | 'forms' | 'talismans' | 'garrison' | 'troll' | 'castle'>): string | undefined => {
   // Task 30: a run with forms — the form of the other field in the rare place of «Застава» (`rtFormSlotField`).
   const formField = rtFormSlotField(run);
   // Task 48 «Тролль» (design 16.10.2026, spec 16): the den branch's boss of a run with the Troll — what the fight asks (the window opens after his blows).
   if (rtTrollNode(run, node)) return 'Тролль: бой с боссом. Отруби лапы и хвост; бей в окно после удара.';
   // Task 38: the garrison's nodes, and the forest final of a run that goes on into the garrison (placeholder lines).
-  if (rtGarrisonNodeId(node.id)) {
+  // Task 55в (spec 4.5; placeholder lines, the texts are design's): the castle's nodes; the Castellan of a run that goes on into the castle.
+  if (rtCastleNodeId(node.id)) {
+    if (node.type === 'hard') return `Трудный бой: арена «${CASTLE_ARENA_TITLES[CASTLE_HARD_ARENA]}». Победа: +${rtHp(FOREST_HARD_HEAL)} HP и талисман на выбор из трёх (один всегда редкий).`;
+    if (node.type === 'checkpoint') return `${CASTLE_CHECKPOINT_NAME}: трудный бой. Победа: клятва или реликвия на выбор.`;
+    if (node.type === 'boss') return `${CASTLE_BOSS_NAME}: бой с боссом. Победа завершает поход.`;
+  } else if (rtGarrisonNodeId(node.id)) {
     if (node.type === 'hard') return `Трудный бой: арена «Караульня». Победа: +${rtHp(FOREST_HARD_HEAL)} HP и талисман на выбор из трёх (один всегда редкий).`;
     if (node.type === 'checkpoint') return 'Караульня: трудный бой. Победа: клятва или реликвия на выбор.';
-    if (node.type === 'boss') return 'Кастелян: бой с боссом. Победа завершает поход.';
+    if (node.type === 'boss') return run.castle ? 'Кастелян: бой с боссом. Победа: реликвия на выбор, затем замок.' : 'Кастелян: бой с боссом. Победа завершает поход.';
   } else if (node.type === 'boss' && run.garrison) return 'Последний рубеж: финал леса. Победа: реликвия на выбор, затем гарнизон.';
   switch (node.type) {
     case 'find': return 'Находка: один из трёх расходников.';
@@ -761,7 +770,9 @@ export class RunView {
     this.store.save(this.run);
     this.notice = this.describe(step.events);
     // Task 38: the forest final's relic taken — «Предместье» heals to full: its bar fills from the HP before (the step's `healed`).
-    if (this.run.pending?.kind === 'outskirts' && before?.pending?.kind !== 'outskirts') {
+    // Task 55в: «Подножие» (the Castellan's relic taken) heals the same way.
+    const quiet = this.run.pending?.kind === 'outskirts' || this.run.pending?.kind === 'foothill';
+    if (quiet && before?.pending?.kind !== this.run.pending?.kind) {
       const healed = step.events.find(ev => ev.type === 'healed');
       this.outskirtsFrom = healed && healed.type === 'healed' ? Math.max(0, this.run.hp - healed.amount) : null;
       this.cartN = null; this.gateMap = null; this.gateItem = null;
@@ -927,7 +938,7 @@ export class RunView {
     this.el.hidden = true;
     this.host.onScreenChange(false);
     // Task 28: the Jailer's node plays the arena «Тюремщик» — one name, not «Тюремщик · Тюремщик».
-    const title = rtNodeTitle(this.run, node), arenaName = arenaTitle(pending.arena), label = title === arenaName ? title : `${title} · ${arenaName}`;
+    const title = rtNodeTitle(this.run, node), arenaName = runArenaTitle(pending.arena), label = title === arenaName ? title : `${title} · ${arenaName}`;
     this.host.startArena(pending.arena, pending.seed, { hp: this.run.hp, maxHp: this.run.maxHp }, label, rtArenaLoadout(this.run, this.host.loadoutOptions), { blink: arenaBlink(this.run), hint: rtItemHintDue(this.run) }, pending.roster, rtArenaRules(this.run));
   }
 
@@ -1205,6 +1216,8 @@ export class RunView {
     // Task 38: «В гарнизон» from «Предместье». Task 40: with the cart, the deposit «−» and «+» chose goes with it.
     // Task 51б: the garrison map and the consumable chosen on «Предместье» (the level 3 of the camp) go with it.
     if (action === 'garrison') { const cart = rtCartView(run), gate = rtGateView(run), deposit = cart ? this.cartValue(cart) : undefined, choice = gate ? this.gateChoice(gate) : undefined; this.apply(this.go(run, 'rtEnterGarrison', deposit === undefined ? [] : [deposit], () => rtEnterGarrison(run, deposit, choice))); return; }
+    // Task 55в: «В замок» from «Подножие» (no cart, no choice of map).
+    if (action === 'castle') { this.apply(this.go(run, 'rtEnterCastle', [], () => rtEnterCastle(run))); return; }
     if (action === 'gate-map') { this.gateMap = target.dataset.index === '1' ? 1 : 0; this.redrawGate(run); return; }
     if (action === 'gate-item') { this.gateItem = target.dataset.item as ItemKind; this.redrawGate(run); return; }
     if (action === 'cart-minus' || action === 'cart-plus') { this.stepCart(run, action === 'cart-plus' ? 1 : -1); return; }
@@ -1375,7 +1388,7 @@ export class RunView {
     this.stageScreens(run);
     this.flashHabit(run);
     // Task 38: «Предместье»'s bar fills to the HP after the heal (once: then it is drawn full).
-    const heal = this.el.querySelector<HTMLElement>('[data-testid="outskirts-bar"] i');
+    const heal = this.el.querySelector<HTMLElement>('[data-testid="outskirts-bar"] i, [data-testid="foothill-bar"] i');
     if (heal && heal.dataset.to && heal.style.width !== heal.dataset.to) { const to = heal.dataset.to; requestAnimationFrame(() => requestAnimationFrame(() => { heal.style.width = to; })); this.outskirtsFrom = null; }
     // Tasks 36–37: the ended run's meta block keeps its element (and its animation) over redraws.
     const slot = this.el.querySelector('[data-meta-slot]');
@@ -1779,9 +1792,9 @@ export class RunView {
       return `<g class="rt-node rt-${status}${hidden ? ' rt-hidden' : ''}${this.selected === node.id ? ' rt-selected' : ''}" data-node="${node.id}" data-testid="node-${node.id}" data-status="${status}" data-type="${hidden ? 'hidden' : node.type}"${omen ? ` data-omen="${omen}"` : ''} transform="translate(${x(node)},${y(node)})">`
         + `<circle r="17"/><text dy="6">${icon}</text><title>${hidden ? 'Тип узла скрыт «Перепутьем»' : escapeHtml(rtNodeTitle(run, node))}</title>${omen ? omenBadge(omen) : ''}`
         // Task 38: the garrison's exams seen from the start — «Караульня» (row 5) and «Кастелян» (row 10) under their circles.
-        + (!hidden && rtLevel(run) === 2 && (node.type === 'checkpoint' || node.type === 'boss') ? `<text class="rt-node-cap" dy="36" data-testid="map-cap-${node.type}">${escapeHtml(rtNodeTitle(run, node))}</text>` : '') + '</g>';
+        + (!hidden && rtLevel(run) >= 2 && (node.type === 'checkpoint' || node.type === 'boss') ? `<text class="rt-node-cap" dy="36" data-testid="map-cap-${node.type}">${escapeHtml(rtNodeTitle(run, node))}</text>` : '') + '</g>';
     }).join('');
-    return `<svg class="rt-run-map${rtLevel(run) === 2 ? ' rt-map-garrison' : ''}" viewBox="0 0 ${W} ${H}" data-testid="run-map" data-level="${rtLevel(run)}">${edges}${circles}</svg>`;
+    return `<svg class="rt-run-map${rtLevel(run) === 3 ? ' rt-map-castle' : rtLevel(run) === 2 ? ' rt-map-garrison' : ''}" viewBox="0 0 ${W} ${H}" data-testid="run-map" data-level="${rtLevel(run)}">${edges}${circles}</svg>`;
   }
 
   /**
@@ -1813,7 +1826,7 @@ export class RunView {
   /** The arena's name and roster (the card's subtitle). */
   private arenaHead(arena: string, roster?: string): string {
     const line = roster !== undefined ? ` · <span class="rt-run-roster" data-testid="run-roster">Состав: ${escapeHtml(rosterTitle(arena, roster))}</span>` : '';
-    return `<p class="rt-run-arena"><b>Арена «${escapeHtml(arenaTitle(arena))}»</b>${line}</p>`;
+    return `<p class="rt-run-arena"><b>Арена «${escapeHtml(runArenaTitle(arena))}»</b>${line}</p>`;
   }
 
   /** Task 8c: the chosen node's card in the middle of the map (all node types; the header stays usable); a click beside it or Esc closes it. */
@@ -1978,8 +1991,16 @@ export class RunView {
         + (gate ? this.gateHtml(gate) : '')
         + `<button class="rt-again" data-action="garrison" data-testid="run-garrison">В гарнизон</button></div></div>`;
     }
-    // Task 55в: «Подножие» (`rtEnterCastle`) — the ui session's screen; the run reaches it only with `RT_CASTLE_ON` (off).
-    if (pending.kind === 'foothill') return '';
+    if (pending.kind === 'foothill') {
+      // Task 55в «Подножие» (spec 4.1, the screen of «Предместье»): a quiet place under the castle's walls — its picture
+      // (public/art/camp/foothill.png; a violet dusk without it), the hero's HP bar filling to full (the heal's sound), «В замок».
+      // No cart and no choice of map (the castle's map is the run's own); no text plate.
+      const from = this.outskirtsFrom ?? run.hp, k = (hp: number): string => `${(100 * hp / Math.max(1, run.maxHp)).toFixed(1)}%`;
+      return `<div class="rt-overlay rt-outskirts rt-foothill" data-testid="run-foothill" style="background-image:url('${new URL('art/camp/foothill.png', document.baseURI).href}'), linear-gradient(#2a2238, #120f1a)">`
+        + `<div class="rt-outskirts-panel"><h2>Подножие</h2><div class="rt-outskirts-bar" data-testid="foothill-bar"><i style="width:${k(from)}" data-to="${k(run.hp)}"></i></div>`
+        + `<p class="rt-outskirts-hp" data-testid="foothill-hp">HP ${run.hp} / ${run.maxHp}</p>`
+        + `<button class="rt-again" data-action="castle" data-testid="run-castle">В замок</button></div></div>`;
+    }
     if (pending.kind === 'hammer') {
       // Phase B (Т2): the Jailer's first screen — a hammer 3 of 4; one hammer a run, it acts on every later arena.
       const fresh = this.newOffers(`hammer:${pending.nodeId}:${pending.options.join(',')}`, pending.options);

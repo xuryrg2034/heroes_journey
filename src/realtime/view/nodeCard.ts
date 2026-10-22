@@ -64,6 +64,8 @@ export const KIND_PLURAL: Readonly<Record<string, string>> = {
   chief: 'Главарь', 'chief-ladle': 'половники', 'chief-sack': 'мешки',
   // Task 59а: the garrison's step 3.
   pitcher: 'смолокуры', recruit: 'новобранцы', warden: 'привратники',
+  // Task 55в: the castle's kinds (the things are counted too: the card says what stands on the floor), the Warlock is a name.
+  barrel: 'бочки', wardrobe: 'шкафы', rook: 'ладьи', warlock: 'Колдун',
 };
 /** Task 43: a garrison kind standing once at the fight's start (the card counts the start: «псарь, псы ×2»). */
 export const KIND_ONE: Readonly<Record<string, string>> = {
@@ -73,6 +75,7 @@ export const KIND_ONE: Readonly<Record<string, string>> = {
   rootling: 'корневик', slime: 'слизень', firebrand: 'головешка', centipede: 'сороконожка',
   chief: 'Главарь', 'chief-ladle': 'половник', 'chief-sack': 'мешок',
   pitcher: 'смолокур', recruit: 'новобранец', warden: 'привратник',
+  barrel: 'бочка', wardrobe: 'шкаф', rook: 'ладья', warlock: 'Колдун',
 };
 
 /**
