@@ -137,12 +137,23 @@ check('the rootling: two chains 6 s apart — the first two rose (no kill counte
   }
 });
 
-check('the rootling: the cold on a stump holds its countdown (it rises 3 s late); fire on a stump burns it for good (its kill counts) and the group crumbles without it; killed by fire — no stump, the kill counts at once (2 seeds)', () => {
+check('the rootling: the cold and fire take a stump only with no enemy under the pointer (one rule); the cold on a stump holds its countdown (it rises 3 s late); fire on a stump burns it for good (its kill counts) and the group crumbles without it; killed by fire — no stump, the kill counts at once (2 seeds)', () => {
   for (const k of [1, 2]) {
     // The cold.
     const sim = field(k), w = sim.world;
     const row = rootRow(sim);
     draw(sim, [row[0]]);
+    release(sim);
+    sim.command({ t: 'teleport', x: 3, y: 3 });
+    sim.command({ t: 'items', kind: 'frost', count: 1 });
+    // One rule of the target for the cold and fire: an enemy under the pointer on the stump — the stump is not the target.
+    const over = place(sim, { x: 7.4, y: 7 }, 'basic', 2);
+    sim.command({ t: 'items', kind: 'fire', count: 1 });
+    assert(sim.command({ t: 'item', kind: 'fire', x: 7.4, y: 7 }) === true && w.stumps!.length === 1 && !!over.burn, `seed ${k}: fire on the enemy over the stump — the stump stays`);
+    assert(sim.command({ t: 'item', kind: 'frost', x: 7.4, y: 7 }) === true && w.stumps![0].chill === undefined && (over.chill ?? 0) > 0, `seed ${k}: the cold on the enemy over the stump — the stump's countdown runs`);
+    sim.command({ t: 'clear', keepMarked: false });
+    sim.command({ t: 'teleport', x: 6, y: 7 });
+    draw(sim, [rootRow(sim, 2)[0]]);
     release(sim);
     sim.command({ t: 'teleport', x: 3, y: 3 });
     sim.command({ t: 'items', kind: 'frost', count: 1 });
@@ -490,8 +501,16 @@ check('a journal without the new keys plays the same world (rootlings, slimes, f
     tick(ticksOf(0.5));
     cmd({ t: 'teleport', x: 20, y: 12 });
     tick(ticksOf(7));
+    // The stump that rose paid nothing: no chain kill counted yet. A lone rootling (a group of one) crumbles at once: one kill then.
+    assert(observer.summary().kills.chain === 0, `seed ${k}: a stump's kill waits (${observer.summary().kills.chain})`);
+    const lone = cmd({ t: 'place', x: 20, y: 10.5, color: 4, hp: 0, kind: ROOTLING }) as number;
+    cmd({ t: 'begin', x: 20, y: 10.5 });
+    assert(w.chain.length === 1 && w.chain[0].id === lone, `seed ${k}: the chain takes the lone one`);
+    cmd({ t: 'release' });
+    tick(ticksOf(0.5));
     const s = observer.summary().forest;
-    assert(s.rootlings.lie >= 1 && s.rootlings.rise >= 1 && s.merges === 1 && (s.brands.out.hit ?? 0) === 1 && (s.brands.lit.brazier ?? 0) === 1, `seed ${k}: the telemetry (${JSON.stringify(s)})`);
+    assert(s.rootlings.lie >= 2 && s.rootlings.rise >= 1 && s.rootlings.crumble === 1 && s.merges === 1 && (s.brands.out.hit ?? 0) === 1 && (s.brands.lit.brazier ?? 0) === 1, `seed ${k}: the telemetry (${JSON.stringify(s)})`);
+    assert(observer.summary().kills.chain === 1, `seed ${k}: the crumbled stump's kill counted (${observer.summary().kills.chain})`);
     const journal = sim.exportJournal()! as Journal & { params: Partial<Params> };
     for (const key of ['rootRise', 'slimeMerge', 'slimeBigHp', 'brandSeek'] as const) delete journal.params[key];
     const again = replay(JSON.parse(JSON.stringify(journal)));

@@ -24,9 +24,10 @@
  * - the reaper (`immune`) is not a target: a bomb does not hurt it, cold and fire do not take it;
  * - the cold does not stop the fuse of a dead sapper (a blast of the world, design answer 5 to step 2): only the living
  *   one's fuse waits; a burning enemy burns on while frozen (burning is not its mechanic).
- * - task 57б: the cold and fire act on the rootlings' stumps (enemies/rootling.ts): the cold's circle holds a stump's countdown
- *   `frostTime`; fire burns the stumps in its circle for good — its target is the enemy under the pointer, else the stump there. Fire
- *   never burns a firebrand: a put-out one lights again (enemies/firebrand.ts `brandFire`).
+ * - task 57б: the cold and fire act on a rootling's stump (enemies/rootling.ts) by one rule of the target (design 22.10.2026): the
+ *   stump under the pointer, within its radius, when no enemy is there. The cold holds its countdown `frostTime`; fire burns it for good
+ *   (and the enemies in the fire's circle round it burn). Fire never burns a firebrand: a put-out one lights again
+ *   (enemies/firebrand.ts `brandFire`).
  */
 import { itemHealOf } from './build';
 import { bodyRadiusOf, enemyArtRadius, kindOf } from './enemies/kinds';
@@ -35,7 +36,7 @@ import { completeGoals, damageEnemy, enemyFrozen, type Enemy, type World } from 
 import type { ItemKind } from './kit';
 import { snuffAround } from './shots';
 import { brandFire } from './enemies/firebrand';
-import { burnStump, chillStump, stumpsIn, type Stump } from './enemies/rootling';
+import { burnStump, chillStump, stumpAt, type Stump } from './enemies/rootling';
 
 /** Why the consumable cannot be used at `p` now (the view shows it); null — it can. */
 export type ItemRefusal = 'over' | 'none' | 'move' | 'target' | 'far' | 'full';
@@ -66,13 +67,6 @@ function bodiesInCircle(world: World, p: Vec, radius: number): Enemy[] {
   return world.enemies.filter(e => affectable(e) && dist(e, p) <= radius + bodyRadiusOf(world.params, e));
 }
 
-/** Task 57б: the stump under the pointer (within its radius, the nearest); null — none. */
-function stumpAt(world: World, p: Vec): Stump | null {
-  let best: Stump | null = null;
-  for (const s of stumpsIn(world, p, 0)) if (!best || dist(s, p) < dist(best, p)) best = s;
-  return best;
-}
-
 /** What the consumable would act on at `p`: the enemies it takes (cold, bomb, fire) — empty for healing. */
 export function itemTargets(world: World, kind: ItemKind, p: Vec): Enemy[] {
   const params = world.params;
@@ -87,13 +81,11 @@ export function itemTargets(world: World, kind: ItemKind, p: Vec): Enemy[] {
   return target ? [target, ...around.filter(e => e !== target)] : around;
 }
 
-/** Task 57б: the rootlings' stumps the consumable would act on at `p` — the cold's circle, fire's circle round its target. */
+/** Task 57б: the stump the cold or fire would act on at `p` — under the pointer, when no enemy is there (one rule for both). */
 export function itemStumps(world: World, kind: ItemKind, p: Vec): Stump[] {
-  if (!world.stumps?.length) return [];
-  if (kind === 'frost') return stumpsIn(world, p, world.params.frostRadius);
-  if (kind !== 'fire') return [];
-  const center = enemyAt(world, p) ?? stumpAt(world, p);
-  return center ? stumpsIn(world, center, world.params.fireRadius) : [];
+  if (!world.stumps?.length || (kind !== 'frost' && kind !== 'fire') || enemyAt(world, p)) return [];
+  const s = stumpAt(world, p);
+  return s ? [s] : [];
 }
 
 /** Why `kind` cannot be used at `p` now; null — it can (playing, not moving, one in hand, something to act on). */

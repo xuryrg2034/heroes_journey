@@ -444,7 +444,7 @@ export type WorldEvent =
   | { type: 'pierce'; phase: 'end'; hits: number; kills: number; x: number; y: number }
   | { type: 'pierce'; phase: 'cancel' }
   | { type: 'chainEnd'; kills: number; score: number }
-  | { type: 'kill'; enemyId: number; x: number; y: number; color: number; source?: string; credited?: boolean; fall?: boolean }
+  | { type: 'kill'; enemyId: number; x: number; y: number; color: number; source?: string; credited?: boolean; fall?: boolean; stump?: true }
   /** Stage 3a (М4): the dash took a brazier (`lit` false — it went out) or it burns again (`lit` true). */
   | { type: 'brazier'; objectId: number; x: number; y: number; lit: boolean }
   | { type: 'jump' }
@@ -684,8 +684,8 @@ export type WorldEvent =
    * — the new rootling), a whole group's stumps crumbled for good (`crumble`: `ids`), fire burnt a stump for good (`burn`). The rules never
    * read it.
    */
-  | { type: 'stump'; action: 'lie' | 'rise' | 'burn'; id: number; x: number; y: number; group: number; riseId?: number }
-  | { type: 'stump'; action: 'crumble'; group: number; ids: number[]; x: number; y: number }
+  | { type: 'stump'; action: 'lie' | 'rise' | 'burn'; id: number; x: number; y: number; group: number; riseId?: number; paid?: { source: string; credited: boolean }[] }
+  | { type: 'stump'; action: 'crumble'; group: number; ids: number[]; paid: { source: string; credited: boolean }[]; x: number; y: number }
   /** Task 57б (enemies/slime.ts, «Слизень»): two small slimes merged — `id` stays and is big, `goneId` left the arena (no kill). */
   | { type: 'slime'; action: 'merge'; id: number; goneId: number; x: number; y: number }
   /**
@@ -1696,13 +1696,13 @@ export function killEnemy(world: World, e: Enemy, cause: KillCause): void {
   const index = world.enemies.indexOf(e);
   if (index < 0) return;
   world.enemies.splice(index, 1);
-  world.events.push({ type: 'kill', enemyId: e.id, x: e.x, y: e.y, color: e.color, source: cause.source, credited: cause.credited, ...cause.fall ? { fall: true } : {} });
   // A link of the dash ahead of the hero stays a link (chain.ts, `passFallen`): its score comes with the chain's.
   const move = world.move, link = move?.kind === 'dash' && move.links.some(l => l.kind === 'enemy' && l.id === e.id);
-  // Casino «Котёл»: a link the player's tool killed keeps its embers for the chain's cheque (only while the cauldron is on).
-  if (link) (move.fallen ??= []).push({ id: e.id, x: e.x, y: e.y, credited: cause.credited, ...e.elite && move.build ? { elite: true as const } : {}, ...cause.credited && move.purse ? { embers: fallenEmbers(e) } : {} });
   // Task 57б «Корневик»: a rootling lies as a stump — the world's credit below waits for its group's crumble (enemies/rootling.ts).
   const stump = e.kind === ROOTLING && lieDown(world, e, cause, { link });
+  world.events.push({ type: 'kill', enemyId: e.id, x: e.x, y: e.y, color: e.color, source: cause.source, credited: cause.credited, ...cause.fall ? { fall: true } : {}, ...stump ? { stump: true as const } : {} });
+  // Casino «Котёл»: a link the player's tool killed keeps its embers for the chain's cheque (only while the cauldron is on).
+  if (link) (move.fallen ??= []).push({ id: e.id, x: e.x, y: e.y, credited: cause.credited, ...e.elite && move.build ? { elite: true as const } : {}, ...cause.credited && move.purse ? { embers: fallenEmbers(e) } : {} });
   if (cause.credited && !stump) { world.stats.kills++; if (!link) world.stats.score += world.params.scorePerKill; }
   // Task 14 «Котомка у двери» (bag.ts): a credited kill after the goals fills the bag (nothing without one).
   if (cause.credited && world.bag && !stump) bagKill(world);

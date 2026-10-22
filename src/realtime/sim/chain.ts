@@ -2367,7 +2367,7 @@ function hitEnemy(world: World, enemy: Enemy): void {
     // К7 «Проклятый сундук»: a kill of the dash counts toward lifting the curse (nothing without it).
     if (world.curse && !stump) curseKill(world);
     if (enemy.marked && !stump) world.stats.markedKills++;
-    world.events.push({ type: 'kill', enemyId: enemy.id, x: enemy.x, y: enemy.y, color: enemy.color, source: 'chain', credited: true });
+    world.events.push({ type: 'kill', enemyId: enemy.id, x: enemy.x, y: enemy.y, color: enemy.color, source: 'chain', credited: true, ...stump ? { stump: true as const } : {} });
     if (stump) settleStumps(world);
     // Task 40: a prisoner's shackle goes with it (nothing while no shackle holds it).
     if (world.tethers) dropShackleOf(world, enemy);

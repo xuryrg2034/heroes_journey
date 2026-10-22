@@ -9,8 +9,8 @@
  * `trailStep`, `trailRadius`, `trailLife`, the hero on foot −`trailHeroDamage`; no point in water); its points never hurt an enemy
  * (`TrailPoint.brand`, elites.ts). **The first lethal hit puts it out instead** (Д11): its HP stays, it is a survivor and ends the chain —
  * the chain's `strike` through `brandOutcome` (the highlight and the dash), the pierce, the return run, the shadows of the highlight
- * (`brandShadow`) and every hit outside the chain (world.ts `damageEnemy`: a bomb, «Режущий проход», a blast). Fire (the consumable,
- * a burning pool of pitch) does not take it. The cold (frozen) and water put it out with no hit.
+ * (`brandShadow`) and every hit outside the chain (world.ts `damageEnemy`: a bomb, «Режущий проход», a blast). Fire (the consumable)
+ * does not take it. The cold (frozen) and water put it out with no hit.
  *
  * **Put out** (`vars.fb` 0). No trail. It runs straight to the nearest burning brazier, sliding along walls (as the archer backs off),
  * at most `brandSeek` s; there it stands `BRAND_RELIGHT` s and burns again. A brazier the chain takes goes out — it runs to another
@@ -26,7 +26,6 @@
  */
 import type { StrikeOutcome } from '../chain';
 import { dist, hasZone, inWater, pushOutOfCliffs, pushOutOfObstacles } from '../geometry';
-import { PITCH_FIRE_SOURCE } from '../pitch';
 import { linkedNow } from '../shots';
 import { OBJECT_RADIUS, enemyGroundFactor, enemySpeed, type ArenaObject, type Enemy, type World } from '../world';
 import { bodyRadiusOf, registerBehavior, registerEnemyKind } from './kinds';
@@ -45,8 +44,11 @@ const seekOf = (world: World): number => Math.max(0, world.params.brandSeek ?? B
 /** The firebrand burns now. */
 export const brandLit = (e: Pick<Enemy, 'kind' | 'vars'>): boolean => e.kind === FIREBRAND && e.vars.fb === 1;
 
-/** A fire's hit (the fire consumable's burning, a burning pool of pitch) — the firebrand's rule of fire. */
-export const fireSource = (source: string): boolean => source === 'fire' || source === PITCH_FIRE_SOURCE;
+/**
+ * A fire's hit — the fire consumable's burning (design 22.10.2026: no burning ground in the forest; a pool of pitch is no fire for the
+ * forest's kinds, the trails burn no enemy).
+ */
+export const fireSource = (source: string): boolean => source === 'fire';
 
 /** It may change itself now: no hero's move, not a link of the drawn chain or of the dash. */
 const free = (world: World, e: Enemy): boolean => !world.move && !linkedNow(world, e);
@@ -80,7 +82,7 @@ function relight(world: World, e: Enemy, why: 'brazier' | 'fire'): void {
 }
 
 /**
- * Fire on `e` (the consumable, a burning pool of pitch): true — a firebrand, and fire does not hurt it: a burning one stays as it is, a
+ * Fire on `e` (the consumable): true — a firebrand, and fire does not hurt it: a burning one stays as it is, a
  * put-out one lights again (once it may change itself). False — not a firebrand: the fire acts as usual.
  */
 export function brandFire(world: World, e: Enemy): boolean {

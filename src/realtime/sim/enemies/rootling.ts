@@ -6,17 +6,22 @@
  * `StartEnemy.formation`, a roster's `NewcomerShare.group` of one colour), kept as `vars.rg` by a risen one; none — it is a group of one.
  * At most `ROOT_GROUPS_MAX` groups on the arena (alive, lying, at markers, in the queue).
  *
- * **Stump.** Killed by anything but fire (the fire consumable's burning, a burning pool of pitch) or a fall, it lies as a stump where it
+ * **Stump.** Killed by anything but fire (the fire consumable's burning) or a fall, it lies as a stump where it
  * died (`world.stumps`, event `stump` `lie`): no link, no wall, no body; the cold and fire act on it. After `rootRise` s (5) it rises —
  * a new enemy (a new id, no spawn, no draw) of its group and colour, HP 0, where the stump lay (event `rise`). The countdown waits while
  * the stump is frozen (the cold consumable aimed at it: `frostTime`) and while the hero's move runs (highlight = the pass); the hero on
  * the stump keeps it down until he steps off. **Every rootling of a group lies at once** (none alive, none at a marker or in the queue)
- * — every stump of the group crumbles for good (event `crumble`). Fire on a stump (the consumable aimed at it, a burning pool of pitch
- * under it) burns it for good (event `burn`): the group needs it no more. Killed by fire, it lies for good with no stump.
+ * — every stump of the group crumbles for good (event `crumble`). Fire aimed at a stump burns it for good (event `burn`): the group
+ * needs it no more. Killed by fire, it lies for good with no stump.
  *
  * **Credit** (Д7): the world's credit of a kill — the kill counter, the score of a kill outside the chain, the bag, the cauldron, the
- * curse, the marked — waits on the stump and comes when it crumbles or burns; a stump that rises drops it (rising gives no endless kills).
- * The chain's own count is at once: the link's power, the dash's kills, the chain's score, the cheque.
+ * curse, the marked, the telemetry's kill (the `kill` event carries `stump`; `crumble` and `burn` carry `paid`) — waits on the stump and
+ * comes when it crumbles or burns; a stump that rises drops it (rising gives no endless kills). The chain's own count is at once: the
+ * link's power, the dash's kills (length, combo, the counters' chain rules, the chain shield), the energy of the hit, the chain's score,
+ * the cheque. A rise is no refill: no marker, no draw, the arena's limit does not hold it (the stump's place is a member's).
+ *
+ * **The cold and fire on a stump** — one rule of the target (items.ts): the stump under the pointer, within its radius, when no enemy
+ * is there.
  *
  * **Highlight.** The drawn chain after which every living rootling of a group lies (its pass's kills: the links, the pierce, the
  * shadows of the dash's end, the return run) shows «рассыплются» on the group's stumps and those links (chain.ts `ChainPlan.crumble`).
@@ -25,7 +30,6 @@ import { bagKill } from '../bag';
 import { curseKill } from '../chest';
 import { dist, overCliff } from '../geometry';
 import { enemyBodyRadius, heroRadius } from '../params';
-import { pitchPoolRadiusOf } from '../pitch';
 import { purseKill } from '../purse';
 import { checkGoals, type Enemy, type KillCause, type World } from '../world';
 import { fireSource } from './firebrand';
@@ -101,6 +105,9 @@ function payStump(world: World, s: Stump): void {
   if (c.marked) world.stats.markedKills++;
 }
 
+/** The kill a stump pays (the telemetry counts it then): its source and whether it was the player's. */
+const paidOf = (s: Stump): { source: string; credited: boolean } => ({ source: s.credit.source, credited: !!s.credit.credited });
+
 /** Every group that lies whole now (no rootling of it alive or to come) crumbles: its stumps go, their credit comes. */
 export function settleStumps(world: World): void {
   const stumps = world.stumps;
@@ -112,7 +119,7 @@ export function settleStumps(world: World): void {
     const gone = stumps.filter(s => s.group === g);
     world.stumps = world.stumps!.filter(s => s.group !== g);
     for (const s of gone) payStump(world, s);
-    world.events.push({ type: 'stump', action: 'crumble', group: g, ids: gone.map(s => s.id), x: gone[0].x, y: gone[0].y });
+    world.events.push({ type: 'stump', action: 'crumble', group: g, ids: gone.map(s => s.id), paid: gone.map(paidOf), x: gone[0].x, y: gone[0].y });
   }
   checkGoals(world);
 }
@@ -122,7 +129,7 @@ export function burnStump(world: World, s: Stump): void {
   if (!world.stumps?.includes(s)) return;
   world.stumps = world.stumps.filter(x => x !== s);
   payStump(world, s);
-  world.events.push({ type: 'stump', action: 'burn', id: s.id, x: s.x, y: s.y, group: s.group });
+  world.events.push({ type: 'stump', action: 'burn', id: s.id, x: s.x, y: s.y, group: s.group, paid: [paidOf(s)] });
   checkGoals(world);
   settleStumps(world);
 }
@@ -130,10 +137,12 @@ export function burnStump(world: World, s: Stump): void {
 /** The cold on the stump: its countdown waits `seconds` (the longer cold stays). */
 export function chillStump(s: Stump, seconds: number): void { s.chill = Math.max(s.chill ?? 0, seconds); }
 
-/** Stumps whose radius meets the circle of `radius` at `p` (the cold's circle; 0 — the stump under the point). */
-export function stumpsIn(world: World, p: { x: number; y: number }, radius: number): Stump[] {
+/** The stump under the point `p` (within its radius; the nearest, the first of equals); null — none. */
+export function stumpAt(world: World, p: { x: number; y: number }): Stump | null {
   const r = stumpRadius(world);
-  return (world.stumps ?? []).filter(s => dist(s, p) <= radius + r);
+  let best: Stump | null = null;
+  for (const s of world.stumps ?? []) if (dist(s, p) <= r && (!best || dist(s, p) < dist(best, p))) best = s;
+  return best;
 }
 
 const heroOn = (world: World, s: Stump): boolean => dist(world.hero, s) < stumpRadius(world) + heroRadius(world.params);
@@ -150,15 +159,12 @@ function rise(world: World, s: Stump): void {
 }
 
 /**
- * The stumps' step (world.ts `update`, after the burning and the pitch): the cold thaws; a burning pool of pitch burns a stump; the
- * countdown runs (not while frozen, not while the hero's move runs); a stump at 0 rises once the hero is off it; whole groups crumble.
+ * The stumps' step (world.ts `update`, after the burning and the pitch): the cold thaws; the countdown runs (not while frozen, not while the hero's move runs); a stump at 0 rises once the hero is off it; whole groups crumble.
  */
 export function updateStumps(world: World, dt: number): void {
   if (!world.stumps || world.status !== 'playing') return;
-  const pools = (world.pitch?.pools ?? []).filter(q => q.burn !== undefined), poolR = pools.length ? pitchPoolRadiusOf(world) : 0;
   for (const s of [...world.stumps]) {
     if (s.chill !== undefined) { s.chill -= dt; if (s.chill <= TIME_EPS) delete s.chill; }
-    if (pools.some(q => dist(q, s) <= poolR)) { burnStump(world, s); continue; }
     if (world.move || s.chill !== undefined) continue;
     if (s.left > TIME_EPS) { s.left = Math.max(0, s.left - dt); if (s.left > TIME_EPS) continue; }
     if (!heroOn(world, s)) rise(world, s);
