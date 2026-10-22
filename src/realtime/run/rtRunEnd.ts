@@ -71,6 +71,8 @@ export const RT_DEATH_ABILITY: Readonly<Record<string, string>> = {
   pot: 'горшок смолокура',
   // Task 48: the Troll's moves (their touches — the kinds above).
   'troll-club': 'удар дубиной Тролля', 'troll-rock': 'бросок камня Тролля', 'troll-tail': 'удар хвостом Тролля',
+  // Task 48, section 25: «Рывок» (the walking Troll, `Params.trollMove`).
+  'troll-charge': 'рывок Тролля',
   // Task 55а: «Падение шкафа», «Удар ладьи».
   'wardrobe-topple': 'падение шкафа', 'rook-strike': 'удар ладьи',
   // Task 57а (spec 5): the slinger's stone («камень пращника», not «камень» — the Troll's), the hive's wasp, the wisp's own touch.

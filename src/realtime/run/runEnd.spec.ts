@@ -156,6 +156,23 @@ check('task 40: a death by the Castellan\'s «Спустить пса» — «С
   assert(serializeRtRun(parseRtRun(serializeRtRun(after))!) === serializeRtRun(after), 'the save with the death reads back');
 });
 
+check('task 48, section 25: a death by the walking Troll\'s «Рывок» — «Сразил: рывок Тролля» (a real fight on «Берлога тролля» with `trollMove`, the hero on the lane with 2 HP, no second wind)', () => {
+  const run = newRun(30), pending = run.pending;
+  assert(pending?.kind === 'battle', 'an open battle');
+  const watch = new RtDeathWatch();
+  const sim = new Simulation({ arena: 'troll', params: { ...rtRunParams(quiet()), trollMove: true }, seed: seedOf(30), hero: { hp: 2, maxHp: run.maxHp }, loadout: { ...rtArenaLoadout(run), secondWind: false }, beforeTick: w => watch.seen(w) });
+  sim.tick(); watch.read(sim.world, sim.world.events); sim.world.events.length = 0;
+  // The club and the rock frozen: «Рывок» alone (phase 1 has no tail); the hero on its lane, 5.8 from the core.
+  for (const kind of ['troll-club', 'troll-rock']) sim.command({ t: 'chill', id: sim.world.enemies.find(e => e.kind === kind)!.id, seconds: 600 });
+  sim.command({ t: 'teleport', x: 12, y: 8 });
+  const sources = new Set<string>();
+  ticks(sim, 60 * 30, w => { watch.read(w, w.events); for (const ev of w.events) if (ev.type === 'hit') sources.add(ev.source); });
+  assert(sim.world.status === 'defeat' && [...sources].join() === 'troll-charge', `the charge took him (${sim.world.status}, ${[...sources]})`);
+  const outcome = outcomeOf(run, sim.world, {}, watch.death);
+  assert(same(outcome.death, { source: 'troll-charge', enemy: 'troll' }), JSON.stringify(outcome.death));
+  assert(lines(ok(resolveArena(run, outcome), 'lost'))[0] === 'Сразил: рывок Тролля', lines(ok(resolveArena(run, outcome), 'lost'))[0]);
+});
+
 check('task 43: a death by the full Castellan\'s «Болт» — «Сразил: болт Кастеляна» (the run\'s «Двор кастеляна», the hero out of the hounds\' reach)', () => {
   const run = newRun(29), pending = run.pending;
   assert(pending?.kind === 'battle', 'an open battle');
