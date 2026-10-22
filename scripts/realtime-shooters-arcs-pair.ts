@@ -95,5 +95,10 @@ if (off.viewersRuns.every(v => v.left) && on.viewersRuns.every(v => v.left)) {
     console.log(`| ${r} | ${spread([...lo.values()].map(v => v[r - 1]))} | ${spread([...ln.values()].map(v => v[r - 1]))} | ${sign(quantile(x, 0.5))} | ${sign(quantile(x, 0.75))} | ${sign(quantile(x, 0.9))} | ${open} |`);
   }
   const f50 = quantile(final, 0.5), f75 = quantile(final, 0.75);
+  /** Design 22.10.2026: the old arcs left after the last run in both variants and their paired difference (with − without the key). */
+  const lastOff = [...lo.values()].map(v => v[RUNS - 1]).sort((p, q) => p - q), lastOn = [...ln.values()].map(v => v[RUNS - 1]).sort((p, q) => p - q);
+  const lastDiff = [...lo].map(([k, v]) => ln.get(k)![RUNS - 1] - v[RUNS - 1]).sort((p, q) => p - q);
+  console.log(`\nСтарых дуг осталось после похода ${RUNS}: выкл. — медиана ${quantile(lastOff, 0.5)}, 75-я ${quantile(lastOff, 0.75)}; вкл. — медиана ${quantile(lastOn, 0.5)}, 75-я ${quantile(lastOn, 0.75)}; парная разность вкл. − выкл. — медиана ${sign(quantile(lastDiff, 0.5))}, 75-я ${sign(quantile(lastDiff, 0.75))}, 90-я ${sign(quantile(lastDiff, 0.9))}, от ${sign(lastDiff[0])} до ${sign(lastDiff[lastDiff.length - 1])}.`);
+  console.log(`Пар, упёршихся в нижнюю границу после похода ${RUNS} (с ключом не догнали за ${RUNS} походов): ${[...lo].filter(([k, v]) => !ln.get(k)!.some(n => n <= v[RUNS - 1])).length} из ${final.length}.`);
   console.log(`\n**Критерий дизайна на прогрессе** (после похода ${RUNS}: медиана и 75-я перцентиль отставания ≤ 1): ${f50 <= 1 && f75 <= 1 ? 'выполнен' : 'не выполнен'} — медиана ${sign(f50)}, 75-я ${sign(f75)}. Отставание пары без догона — нижняя граница (${RUNS + 1} − r).`);
 }
