@@ -358,11 +358,11 @@ export const RT_TROLL_MOVE_ON = false;
 export const RT_ARCS_ALTERNATE_ON = true;
 /**
  * Task 57б «Лес: механики» (level design 22.10.2026, docs/design-notes/task-57-forest-enemies.md, 10.1–10.3): a new run with the forest's
- * shooters keeps the flag `forestTricks` — the arcs, the practice, the rosters and the pools of «Корневик», «Слизень», «Головешка»
- * («Корневики» on «Прогалина», «Трясина», «Головешки» on «Жаровни»). Off until design accepts the bot's curve and the view: a run
- * without the field plays the forest of the shooters to its end.
+ * shooters keeps the flag `forestTricks` — the arcs, the practice, the rosters and the pools of «Корневик», «Слизень», «Головешка»,
+ * «Сороконожка» («Корневики» on «Прогалина», «Трясина», «Головешки» on «Жаровни», «Бурелом»). On since 22.10.2026 — design, after the
+ * bot's forest curve, the pools' measures and the view; a run saved before (no field) plays the forest of the shooters to its end.
  */
-export const RT_FOREST_TRICKS_ON = false;
+export const RT_FOREST_TRICKS_ON = true;
 /**
  * Hygiene of task 17 (design answer 1, 13.10.2026): the values the page plays with — the sandbox its saved panel (`panel`),
  * the run (and its prologue) the defaults with the run's own numbers (`rtRunParams`). The sandbox panel changes only the

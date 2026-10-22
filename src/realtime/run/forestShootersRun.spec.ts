@@ -68,7 +68,8 @@ check('a run with the flag: its forest fights play the timer 2.5 and the snuffin
   const shooterFight = (f: Fight): boolean => SHOOTER_POOLS.some(e => e.arena === f.arena) || /slinger|wisp/.test(f.roster ?? '');
   for (let k = 1; k <= 10; k++) {
     const create = { garrison: k % 2 === 0, gift: k % 2 ? 'full' as const : 'mini' as const };
-    const on = fights(k, { ...create, forestShooters: true }), off = fights(k, { ...create, forestShooters: false });
+    // Task 57б (RT_FOREST_TRICKS_ON on 22.10.2026): the shooters' path — the mechanics off on both sides (their own: forestTricksRun.spec.ts).
+    const on = fights(k, { ...create, forestShooters: true, forestTricks: false }), off = fights(k, { ...create, forestShooters: false });
     const key = (f: Fight): string => `${f.arena}|${f.roster ?? ''}|${f.seed}`;
     const first = on.list.findIndex((f, i) => key(f) !== (off.list[i] ? key(off.list[i]) : ''));
     if (first >= 0) { diverged++; assert(shooterFight(on.list[first]), `seed ${k}: the first different fight is a new shooter's (${key(on.list[first])})`); }
@@ -110,7 +111,8 @@ interface Planned { nodeId: string; row: number; arena: string; roster?: string;
 /** The forest fights of a walk with the flag (`schedule` — the viewer's history; absent — the pools of «Испытание II»). */
 function planned(k: number, schedule?: readonly string[], arcsAlternate = true, forestShooters = true): Planned[] {
   const out: Planned[] = [];
-  walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', forestShooters, ...forestShooters ? { arcsAlternate } : {}, ...schedule ? { schedule } : { ash: 2 } }, fight: madeUp, each: state => {
+  // Task 57б: the shooters' path, the mechanics off (RT_FOREST_TRICKS_ON on since 22.10.2026; theirs — forestTricksRun.spec.ts).
+  walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', forestShooters, forestTricks: false, ...forestShooters ? { arcsAlternate } : {}, ...schedule ? { schedule } : { ash: 2 } }, fight: madeUp, each: state => {
     const p = state.pending;
     if (p?.kind !== 'battle' || out.some(f => f.nodeId === p.nodeId) || rtGarrisonNodeId(p.nodeId)) return;
     const gone = rtArenaLoadout(state).withoutKinds ?? [], arc = state.picks.find(pick => pick.nodeId === p.nodeId)?.arc;

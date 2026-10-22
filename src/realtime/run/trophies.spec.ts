@@ -14,7 +14,7 @@
 import { seedOf, walkRun, type Walk, type WalkOptions } from './metaWalk.testkit';
 import { createRtProfileStore, parseRtProfile, RT_PROFILE_STORAGE_KEY, type RtProfileStore, type RunStorage } from './rtRunStorage';
 import { parseRtMeta } from './rtMeta';
-import { createRtRun, RT_FOREST_SHOOTERS_ON, type RtArenaOutcome, type RtRunState } from './rtRun';
+import { createRtRun, RT_FOREST_SHOOTERS_ON, RT_FOREST_TRICKS_ON, type RtArenaOutcome, type RtRunState } from './rtRun';
 import { RT_DAILY_PRESET } from './rtDaily';
 import { FINAL_ARENA } from './arenaPools';
 import { garrisonArenaKinds, garrisonStep2Mode, rtGarrisonNodeId } from './garrison';
@@ -116,23 +116,24 @@ await check('«Чернильница Неясыти» stays when the forest gai
 });
 
 await check('task 57а: with the flag of the shooters on (the build since 22.10.2026) the eight kinds of before and a wisp met earlier do not fill the chapter — it shows eleven, «Чернильница» needs them all and comes in the run that meets the last; with the flag off the eight are enough (design 21.10.2026)', () => {
-  assert(RT_FOREST_SHOOTERS_ON && RT_CHRONICLE_FOREST_KINDS.length === 11, 'the build: the eleven forest kinds');
+  // Task 57б (RT_FOREST_TRICKS_ON on since 22.10.2026): the build's chapter — fifteen with the mechanics.
+  assert(RT_FOREST_SHOOTERS_ON && RT_FOREST_TRICKS_ON && RT_CHRONICLE_FOREST_KINDS.length === 15, 'the build: the fifteen forest kinds');
   const storage = memoryStorage(), s = store(storage);
   const { walk } = metaRun(s, 1);
   // The viewer met every forest kind of before and a wisp.
   s.chronicleMeet(walk.run, { kinds: [...SCHEDULE_KINDS, 'wisp'], affixes: [] });
   s.endRunMeta(walk.run);
-  assert(!held(s, 'bestiary'), `nine of eleven: no trophy (${JSON.stringify(s.trophies())})`);
+  assert(!held(s, 'bestiary'), `nine of fifteen: no trophy (${JSON.stringify(s.trophies())})`);
   const kinds = () => createRtProfileStore(storage, { trophies: true, chronicle: true }).chronicle().pages.find(p => p.id === 'bestiary')!.chapters.find(ch => ch.id === 'forest')!.entries;
   assert(JSON.parse(text(storage)).meta.chronicle.kinds.includes('wisp'), 'the wisp stays in the profile (read back from storage)');
-  assert(kinds().length === 11 && kinds().find(e => e.id === 'wisp')?.state === 'seen' && kinds().find(e => e.id === 'slinger')?.state === 'unknown', 'the chapter of this build: eleven, the wisp met, the slinger «?»');
+  assert(kinds().length === 15 && kinds().find(e => e.id === 'wisp')?.state === 'seen' && kinds().find(e => e.id === 'slinger')?.state === 'unknown', 'the chapter of this build: fifteen, the wisp met, the slinger «?»');
   const profile = parseRtProfile(text(storage));
-  assert(rtBestiaryFull({ kinds: profile.meta?.chronicle?.kinds }, chronicleForestKinds(false)) && !rtBestiaryFull({ kinds: profile.meta?.chronicle?.kinds }), 'the flag off: the eight are enough; the build needs the eleven');
+  assert(rtBestiaryFull({ kinds: profile.meta?.chronicle?.kinds }, chronicleForestKinds(false)) && !rtBestiaryFull({ kinds: profile.meta?.chronicle?.kinds }), 'the flag off: the eight are enough; the build needs the fifteen');
   const next = metaRun(s, 2);
-  s.chronicleMeet(next.walk.run, { kinds: ['slinger', 'hive'], affixes: [] });
+  s.chronicleMeet(next.walk.run, { kinds: ['slinger', 'hive', 'rootling', 'slime', 'firebrand', 'centipede'], affixes: [] });
   s.endRunMeta(next.walk.run);
   const ink = held(s, 'bestiary');
-  assert(ink && ink.run === 2 && kinds().every(e => e.state === 'seen'), `the eleven met: the trophy in run 2 (${JSON.stringify(s.trophies())})`);
+  assert(ink && ink.run === 2 && kinds().every(e => e.state === 'seen'), `the fifteen met: the trophy in run 2 (${JSON.stringify(s.trophies())})`);
 });
 
 await check('a run with a given seed and «Поход дня» earn nothing; the trophies off — no field ever', () => {

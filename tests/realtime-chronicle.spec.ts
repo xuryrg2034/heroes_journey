@@ -141,7 +141,7 @@ test('task 58: the book after the garrison — its chapters open, the next level
     await expect(page.getByTestId(`chron-card-${id}`).locator('img')).toHaveAttribute('src', new RegExp(`${file}\.png$`));
   }
   await expect(page.getByTestId('chron-blank')).toHaveCount(0);
-  await expect(page.getByTestId('chron-chapter-forest')).toContainText('11 / 11');
+  await expect(page.getByTestId('chron-chapter-forest')).toContainText('15 / 15');
   await expect(page.getByTestId('chron-full')).toHaveCount(1);
   await shot(page, 'chronicle-garrison-bestiary');
   await page.getByTestId('chron-tab-bosses').click();
