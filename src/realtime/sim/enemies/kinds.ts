@@ -77,7 +77,7 @@ export interface EnemyBehavior {
    * the others yield (the hive); `ghost`: it takes no part at all — no push either way, no obstacle, no cliff (the flying wisp).
    * Absent — an ordinary body.
    */
-  crowd?(world: World, enemy: Enemy): 'anchored' | 'ghost';
+  crowd?(world: World, enemy: Enemy): 'anchored' | 'ghost' | undefined;
   /**
    * Task 57б-2 (world.ts `separate`): two overlapping anchored bodies, both of this behaviour — `kin`: parts of one creature, no push
    * either way (as any two anchored ones); `apart`: they part as ordinary bodies, by mass (two centipedes). Absent — as two anchored ones.

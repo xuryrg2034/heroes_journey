@@ -107,6 +107,8 @@ export function worldState(world: World): unknown {
     ...world.stumps ? { stumps: world.stumps } : {},
     // Task 57б-2 «Сороконожка» (`centiTrail`): the bodies' trails (absent until a centipede appears with the key — worlds without hash as before).
     ...world.centiTrails ? { centiTrails: world.centiTrails } : {},
+    // Task 60а «Замок: гости» (enemies/castleGuests.ts): the chandelier (absent while none hangs — worlds without a butler hash as before).
+    ...world.chandelier ? { chandelier: world.chandelier } : {},
   };
 }
 
