@@ -58,7 +58,12 @@ const MARKERS_OFF = option('--markers', 'on') === 'off';
  */
 const SHOOTERS = args.includes('--shooters'), HISTORY = option('--history', 'none');
 const ALL_ARCS = ['bust', 'wolf', 'elite', 'brazier', 'cliff', 'boar', 'water', 'shield', 'buttons', 'archer', 'sapper', 'leader', 'lynx', 'affix', 'thorns', 'porcupine', 'shaman', 'horde', 'part', 'chest'];
-const SCHEDULE = HISTORY === 'first' ? { schedule: [] as string[] } : HISTORY === 'all' ? { schedule: ALL_ARCS } : {};
+/**
+ * Design 22.10.2026 (before `RT_FOREST_SHOOTERS_ON`): `--seen k1,k2` — kinds the viewer met besides the history (with `first` or `all`):
+ * the run plays the arc that comes next — `--history all --seen slinger` the hive's «Пасека», `--seen slinger,hive` the wisp's «Излучина».
+ */
+const SEEN = option('--seen', '') ? option('--seen', '').split(',') : [];
+const SCHEDULE = HISTORY === 'first' ? { schedule: [...SEEN] } : HISTORY === 'all' ? { schedule: [...ALL_ARCS, ...SEEN] } : {};
 /**
  * Task 59б: `--step3` — the runs take the garrison's step 3 (`step3: true`: «Казарма» or «Ристалище» by the drill, «Смолокурня», «Барбакан»)
  * whatever `RT_GARRISON_STEP3_ON` says; `--planner` — the bot plays the wardens' pair as the «planner» (scripts/step3Bot.ts; spec 13: the
@@ -345,7 +350,7 @@ if (SET) {
 const whole = GARRISON_ONLY ? null : pass(() => true), garrison = FOREST_ONLY ? null : pass(run => !!run.garrisonLevel);
 if (BOSS_AIM) console.log(`Бот целит в ядро босса (--boss-aim): Тюремщик, Кастелян${TROLL_FIGHT ? ', Тролль (финал леса — «Берлога тролля», --troll)' : '; у финала леса ядра нет'}.\n`);
 const head = (() => { try { return execSync('git rev-parse --short HEAD').toString().trim(); } catch { return '?'; } })();
-console.log(`Задача 40, часть Е: кривая выживания бота через лес и гарнизон, ${SEEDS} seed, предел боя ${LIMIT} с, «Ров» ${MOAT ? 'вкл.' : 'по флагу игры'}, шаг 2 ${STEP2_OFF ? 'выкл.' : 'по флагу игры'}, шаг 3 ${STEP3 ? 'вкл.' : 'по флагу игры'}${PLANNER ? ', пары — планировщик' : ''}${SHARES ? `, доли в шаблонах: ${APPLIED} (ставит скрипт; у «Барбакана» поле pairShare стоит и при 0 — rollColor делает лишний бросок spawnRoll, как в варианте 0 замера долей)` : ''} (эвристика, жадный бот), ${new Date().toISOString().slice(0, 10)}, HEAD ${head}, ${Math.round((Date.now() - started) / 1000)} с.\n`);
+console.log(`Задача 40, часть Е: кривая выживания бота через лес и гарнизон, ${SEEDS} seed, предел боя ${LIMIT} с, «Ров» ${MOAT ? 'вкл.' : 'по флагу игры'}, шаг 2 ${STEP2_OFF ? 'выкл.' : 'по флагу игры'}, шаг 3 ${STEP3 ? 'вкл.' : 'по флагу игры'}${PLANNER ? ', пары — планировщик' : ''}${SHOOTERS ? ', стрелки леса вкл.' : ''}${HISTORY !== 'none' ? `, история ${HISTORY}${SEEN.length ? ` + ${SEEN.join(', ')}` : ''}` : ''}${SHARES ? `, доли в шаблонах: ${APPLIED} (ставит скрипт; у «Барбакана» поле pairShare стоит и при 0 — rollColor делает лишний бросок spawnRoll, как в варианте 0 замера долей)` : ''} (эвристика, жадный бот), ${new Date().toISOString().slice(0, 10)}, HEAD ${head}, ${Math.round((Date.now() - started) / 1000)} с.\n`);
 if (whole) print('Весь поход: все бои настоящие', whole, ['л', 'г']);
 if (garrison) print('Гарнизон от «Предместья»: бои леса выиграны обходом, бои гарнизона настоящие', garrison, ['г']);
 // Task 43: the Jailer's fights of both passes (the second plays the forest by the walk: only the first's count).
