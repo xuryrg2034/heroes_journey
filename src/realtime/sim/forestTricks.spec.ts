@@ -621,6 +621,52 @@ check('the rootling: a group whose last living member burns to death (no stump) 
   }
 });
 
+// Design 22.10.2026 (before the merge): its answers (а) and (б) — each through journal commands.
+check('the rootling: one shoved into a cliff (the boar\'s charge on the built-in «cliff» arena) leaves no stump, its death counts at once (as a fall: the boar\'s, not the player\'s); the group crumbles without it when the other 3 lie (2 seeds)', () => {
+  for (const k of [1, 2]) {
+    const sim = field(k, { boarFirstDelay: 0 } as Partial<Params>, 'cliff'), w = sim.world;
+    sim.command({ t: 'teleport', x: 10.6, y: 4.4 });
+    place(sim, { x: 5.9, y: 4.4 }, 'boar', 1, 2);
+    const victim = place(sim, { x: 6.6, y: 4.4 }, ROOTLING, 2, 0, 1);
+    const rest = [11.4, 12.6, 13.8].map(x => place(sim, { x, y: 7 }, ROOTLING, 2, 0, 1));
+    const fallEvents = ticks(sim, 240, [], () => !w.enemies.includes(victim));
+    const fell = fallEvents.find(e => e.type === 'kill' && e.enemyId === victim.id);
+    assert(fell?.type === 'kill' && fell.fall === true && !fell.stump && fell.source === 'boar', `seed ${k}: it fell (${JSON.stringify(fell)})`);
+    assert(!stumpEvents(fallEvents, 'lie').length && !(w.stumps ?? []).length && kills(w) === 0, `seed ${k}: no stump; not the player's kill`);
+    sim.command({ t: 'teleport', x: 10.2, y: 7 });
+    draw(sim, rest);
+    assert(w.chain.length === 3, `seed ${k}: the chain takes the other 3 (${w.chain.length})`);
+    const plan = planChain(w);
+    assert(plan.crumble?.length === 1 && plan.crumble[0].links.slice().sort().join() === ids(rest).sort().join(), `seed ${k}: the highlight — the 3 crumble (${JSON.stringify(plan.crumble)})`);
+    const events = release(sim);
+    const crumble = stumpEvents(events, 'crumble');
+    assert(crumble.length === 1 && crumble[0].ids.slice().sort().join() === ids(rest).sort().join() && kills(w) === 3, `seed ${k}: the 3 crumbled, 3 kills (${JSON.stringify(crumble)}, ${kills(w)})`);
+    ticks(sim, ticksOf(6));
+    assert(!w.enemies.some(e => e.kind === ROOTLING), `seed ${k}: nobody rises`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
+registerArena({ ...base, id: 'ft-marked', name: 'Отмеченный слизень', width: 24, height: 14, heroStart: { x: 6, y: 7 }, obstacles: [], door: { x: 23.3, y: 7 }, enemies: [{ x: 12, y: 7, color: 1, hp: 0, kind: SLIME, marked: true }] });
+check('the slime: one marked by the chief never merges — the small one of its colour touching it merges with another free one instead (3 seeds)', () => {
+  for (const k of [1, 2, 3]) {
+    const sim = new Simulation({ arena: 'ft-marked', params: quiet(), seed: seedOf(k), record: true }), w = sim.world;
+    sim.command({ t: 'clear', keepMarked: true });
+    const marked = w.enemies.find(e => e.marked)!;
+    assert(marked?.kind === SLIME && w.enemies.length === 1, `seed ${k}: the marked slime stands`);
+    // Its neighbour is nearer to it (0.4) than to the free one (0.45): only the mark keeps them apart.
+    const b = place(sim, { x: 12.4, y: 7 }, SLIME, 1), c = place(sim, { x: 12.85, y: 7 }, SLIME, 1);
+    const early = ticks(sim, ticksOf(0.5));
+    assert(!slimePairs(w).some(q => q.a === marked.id || q.b === marked.id) && slimePairs(w).some(q => (q.a === b.id && q.b === c.id) || (q.a === c.id && q.b === b.id)), `seed ${k}: the pair is the two free ones (${JSON.stringify(slimePairs(w))})`);
+    const merged = of(ticks(sim, ticksOf(0.7), early), 'slime');
+    assert(merged.length === 1 && merged[0].id === b.id && merged[0].goneId === c.id, `seed ${k}: the two free ones merged (${JSON.stringify(merged)})`);
+    assert(w.enemies.includes(marked) && !slimeBig(marked) && marked.marked === true && slimeBig(b), `seed ${k}: the marked one stays small and marked`);
+    ticks(sim, ticksOf(3));
+    assert(w.enemies.includes(marked) && !slimeBig(marked), `seed ${k}: it never merges`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
 // ---- The keys, the telemetry ----
 
 check('a journal without the new keys plays the same world (rootlings, slimes, firebrands); the telemetry counts the stumps, the merges and the firebrands\' fire (2 seeds)', () => {
