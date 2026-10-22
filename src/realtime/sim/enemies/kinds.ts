@@ -122,6 +122,11 @@ export interface EnemyKindDef {
    * kind). `count` — bodies of these kinds on the arena, at markers and in the queue. Absent — no cap (every kind before).
    */
   capped?(world: World, count: (kinds: readonly string[]) => number): boolean;
+  /**
+   * Task 57б-2 (design 22.10.2026): the bodies one newcomer of this kind brings — the centipede its `centiParts`. The floor, the live
+   * limit and the queue's cap (spawn.ts) count a queued or marked one so, as the landed bodies count. Absent — 1 (every kind before).
+   */
+  bodies?(world: World): number;
   /** Body (pushing, touch zone, obstacles) and art (drawing, link reach edge, press circle) as a share of the common size. */
   bodyScale: number;
   artScale: number;

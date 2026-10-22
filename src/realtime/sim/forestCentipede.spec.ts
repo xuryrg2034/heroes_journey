@@ -26,6 +26,7 @@ import { tree, wall, type Vec } from './geometry';
 import { bodyRadiusOf } from './enemies/kinds';
 import { worldState } from './hash';
 import { defaultParams, type Params } from './params';
+import { enemyLimit, floorWithScale } from './spawn';
 import { Simulation, SIM_DT, replay, type Journal } from './simulation';
 import type { Enemy, World, WorldEvent } from './world';
 import { createFightObserver } from '../telemetry/observe';
@@ -429,6 +430,44 @@ check('«Рывок»: the first windup 2 s after it appeared, the lane fixed to
 });
 
 // ---- The roster, the telemetry, the keys ----
+
+/** The roster's arena: its floor (`baseFloor`), no timed groups (only the floor tops up) unless `interval` is given. */
+function rosterSim(k: number, floor: number, extra: Partial<Params> = {}, interval = 1e6): Simulation {
+  const p = defaultParams();
+  p.heroHp = 999; p.contactDamage = 0; p.hitstop = false; p.enemySpeed = 0;
+  p.baseFloor = floor; p.baseIntervalMin = interval; p.baseIntervalMax = interval;
+  return new Simulation({ arena: 'fc-come', params: Object.assign(p, extra), seed: seedOf(k), record: true });
+}
+const partsIn = (_w: World, list: readonly { kind: string }[]): number => list.reduce((n, m) => n + (m.kind === CENTIPEDE ? 5 : 1), 0);
+
+check('the floor and the live limit count a centipede by its 5 parts, queued, marked or landed (design 22.10.2026): on a roster of centipedes the bodies never pass the floor (but by one newcomer\'s parts) nor the limit; «Врагов пришло» counts the parts (5 seeds)', () => {
+  for (const k of [1, 2, 3, 4, 5]) {
+    // The floor alone (no timed groups): the queue fills to it, then the markers open, then they land.
+    const sim = rosterSim(k, 12), w = sim.world;
+    const floor = Math.min(floorWithScale(w.pressure.phase.floor, w.arena), enemyLimit(w.params, w.arena));
+    let worst = 0, landedMost = 0;
+    for (let i = 0; i < ticksOf(20) && w.status === 'playing'; i++) {
+      sim.tick(); w.events.length = 0;
+      sim.command({ t: 'teleport', x: 13, y: 8 });
+      const present = w.enemies.length + partsIn(w, w.markers) + partsIn(w, w.queue);
+      worst = Math.max(worst, present); landedMost = Math.max(landedMost, w.enemies.length);
+    }
+    const heads = w.enemies.filter(e => e.kind === CENTIPEDE && e.vars.ca === undefined).length;
+    assert(heads >= 1 && worst <= floor + 4 && landedMost <= floor + 4, `seed ${k}: the floor ${floor} — at most ${worst} counted, ${landedMost} landed (${heads} centipedes)`);
+    assert(w.stats.spawned === w.enemies.length, `seed ${k}: «Врагов пришло» counts the parts (${w.stats.spawned} of ${w.enemies.length})`);
+    // The live limit: a small one, the groups come often.
+    const lim = rosterSim(k, 40, { maxEnemies: 14 }, 0.5), lw = lim.world;
+    const max = enemyLimit(lw.params, lw.arena);
+    let most = 0;
+    for (let i = 0; i < ticksOf(20) && lw.status === 'playing'; i++) {
+      lim.tick(); lw.events.length = 0;
+      lim.command({ t: 'teleport', x: 13, y: 8 });
+      most = Math.max(most, lw.enemies.length + partsIn(lw, lw.markers));
+    }
+    assert(most <= max && lw.enemies.some(e => e.kind === CENTIPEDE), `seed ${k}: the limit ${max} — at most ${most} on the arena and at the markers`);
+    assert(replays(sim) && replays(lim), `seed ${k}: replay`);
+  }
+});
 
 check('a roster of centipedes brings at most 2 heads at a time (bodies of 5), several seeds', () => {
   for (const k of [1, 2, 3]) {

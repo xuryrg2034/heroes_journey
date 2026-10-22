@@ -346,6 +346,8 @@ function layParts(world: World, head: Enemy): void {
     world.enemies.push(e);
     ahead = e;
   }
+  // Design 22.10.2026: «Врагов пришло» counts the parts (5 credited kills a body: kills / spawned stays true); one `spawn` event a body.
+  world.stats.spawned += n;
 }
 
 /** Heads on the arena, at markers and in the queue. */
@@ -375,4 +377,6 @@ registerEnemyKind({
   bodyScale: BODY_SCALE, artScale: 1, touchDamage: world => world.params.contactDamage, mass: () => 1, spread: true, chainable: true, hitSource: CENTIPEDE,
   noElite: true,
   capped: world => headsNow(world) >= (world.arena.kindCaps?.[CENTIPEDE] ?? CENTI_START_MAX),
+  // Design 22.10.2026: a queued or marked centipede counts as its parts in the floor and the limit (spawn.ts), as a landed one.
+  bodies: partsOf,
 });

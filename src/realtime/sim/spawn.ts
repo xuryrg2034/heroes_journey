@@ -298,6 +298,12 @@ function pairColorA(world: World): number | null {
   return first ? first.color : null;
 }
 
+/** Task 57б-2: the bodies one newcomer of `kind` brings (`EnemyKindDef.bodies`; 1 — every kind but the centipede). */
+const bodiesOf = (world: World, kind: string): number => enemyKind(kind).bodies?.(world) ?? 1;
+/** Task 57б-2: the bodies waiting at the markers and in the queue (each newcomer by its `bodiesOf`; no centipede — their counts). */
+function markedBodies(world: World): number { let n = 0; for (const m of world.markers) n += bodiesOf(world, m.kind); return n; }
+function queuedBodies(world: World): number { let n = 0; for (const q of world.queue) n += bodiesOf(world, q.kind); return n; }
+
 /** Task 55а: the enemies of the crowd — the things (the barrel, the wardrobe) are not in its density or its limit (no thing — every enemy). */
 function crowdOf(world: World): number {
   let n = 0;
@@ -376,7 +382,8 @@ function rollGroup(world: World, forceSingle = false): void {
   const anchor = forceSingle ? null : findAnchor(world);
   for (let i = 0; i < size; i++) {
     // Waiting enemies are capped by the arena limit: an endless stand would otherwise grow the queue forever.
-    if (world.queue.length >= enemyLimit(p, world.arena)) break;
+    // Task 57б-2: by the bodies they bring (a centipede — its parts).
+    if (queuedBodies(world) >= enemyLimit(p, world.arena)) break;
     const sameColor = pack ? p.wolfPackMono || p.groupColor === 'mono' : p.groupColor === 'mono';
     const color = sameColor ? monoColor : rollColor(world);
     const q: QueuedSpawn = pack ? { kind: 'wolf', color, hp: rollHp(world), anchor } : rollSingle(world, color, anchor);
@@ -435,7 +442,8 @@ function heldPoint(world: World, q: QueuedSpawn, dt: number): Vec | null {
 function placeQueued(world: World, dt: number): void {
   const max = enemyLimit(world.params, world.arena), delay = world.params.markerDelay;
   const hold = world.params.spawnGroupHold === true;
-  while (world.queue.length && crowdOf(world) + world.markers.length < max) {
+  // Task 57б-2: a newcomer opens when its bodies fit under the limit (one body: the old `crowd + markers < max`).
+  while (world.queue.length && crowdOf(world) + markedBodies(world) + bodiesOf(world, world.queue[0].kind) <= max) {
     const q = world.queue[0];
     if (hold) {
       const p = heldPoint(world, q, dt);
@@ -534,7 +542,8 @@ function topUpToFloor(world: World): void {
   // Task 43: the full Castellan's yard crowd (`Params.castellanCrowd`; 1 — no factor, the path of before).
   const crowd = crowdFactorOf(world), k = crowd === 1 ? world.kit?.floorScale : (world.kit?.floorScale ?? 1) * crowd;
   const floor = Math.min(floorWithScale(world.pressure.phase.floor, world.arena, k), enemyLimit(world.params, world.arena));
-  const present = (): number => world.enemies.filter(e => e.kind !== 'reaper' && !enemyKind(e.kind).thing).length + world.markers.length + world.queue.length;
+  // Task 57б-2: the markers and the queue by the bodies they bring (a centipede — its parts), as the landed ones count.
+  const present = (): number => world.enemies.filter(e => e.kind !== 'reaper' && !enemyKind(e.kind).thing).length + markedBodies(world) + queuedBodies(world);
   for (let guard = 0; guard < 200 && present() < floor; guard++) {
     const before = world.queue.length;
     rollGroup(world, rollRng(world).next() >= world.pressure.phase.wolfShare);
@@ -607,12 +616,16 @@ export function spawnEnemy(world: World, at: Vec, color: number, hp: number, kin
 
 /** Debug: drop up to `count` enemies on free edge points immediately, skipping markers (limit still applies). */
 export function spawnBurst(world: World, count: number): void {
-  const room = Math.max(0, enemyLimit(world.params, world.arena) - crowdOf(world) - world.markers.length);
-  for (let i = 0; i < Math.min(count, room); i++) {
+  let room = Math.max(0, enemyLimit(world.params, world.arena) - crowdOf(world) - markedBodies(world));
+  for (let i = 0, tries = Math.min(count, room); i < tries; i++) {
     const anchor = findAnchor(world);
     const p = anchor ? pointNear(world, anchor) : null;
     if (!p) continue;
     const q = rollSingle(world, rollColor(world), null);
+    // Task 57б-2: a newcomer of several bodies takes their room (no room — none).
+    const bodies = bodiesOf(world, q.kind);
+    if (bodies > room) break;
+    room -= bodies;
     spawnEnemy(world, p, q.color, q.hp, q.kind);
   }
 }
