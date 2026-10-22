@@ -1,7 +1,7 @@
 import { type Page } from '@playwright/test';
 import { test, expect } from './realtimeTest';
 import { gameWait, untilFrame } from './realtimeFrames';
-import { breakCharm, wardrobeRoute } from './warlockRoute';
+import { breakCharm, wardrobeRoute, wardrobeToWall } from './warlockRoute';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
 
 /**
@@ -26,7 +26,13 @@ interface Snap {
   hint: string | null; chain: number[]; moving: string | null; loop: { hintText: string | null };
   arena: string; status: string; time: number; menuOpen: boolean;
   hero: { x: number; y: number; hp: number };
-  enemies: { id: number; kind: string; x: number; y: number; hp: number; marked?: boolean }[];
+  enemies: { id: number; kind: string; x: number; y: number; hp: number; color: number; marked?: boolean; vars: Record<string, number>; armor: { plates: number } | null }[];
+  markers: number;
+  warlockV1: {
+    rugs: number; rugWave: number; rugArrows: number; rugPull: number; guides: number; guideFill: number; ring: number; guideColor: number; orbs: number;
+    rune: number; runeFill: number; flash: number; flashFill: number; summon: number; summonFill: number; rage: number; flames: number;
+    orbOuts: number; orbHits: number; pulls: number; rugDrops: number; rages: number; moves: number;
+  };
   castle: { things: { id: number; kind: string; x: number; y: number; durability: number }[]; shoves: unknown[] };
   bossBar: { visible: boolean; cells: number; filled: number; hp: number; plates: number; phaseAt: number };
   bossNames: string[];
@@ -329,6 +335,109 @@ test('the shared route: a body put on the wardrobe lane — the plan says «body
   expect(plans[plans.length - 1].stop).toBe('wall');
   expect(plans.length, 'a stop at the body, then the wall (a crowd body of the lane may add a stop, three shoves at most)').toBeGreaterThanOrEqual(2);
   expect((await snap(page)).enemies.some(e => e.id === body), 'the body is dead').toBe(false);
+  await sameHash(page);
+  expect(errors).toEqual([]);
+});
+
+// ---- Task 55 §23 «Колдун v1» (the hall plays v1 by itself: `warlockV1` is not turned off here) ----
+
+/**
+ * v1's route: a new fight of the hall with these values from its first tick (the journal keeps them): nobody walks or hurts, no crowd
+ * (`baseFloor` 0 before the first tick — the press over an orb takes the orb, not a crowd body of its colour standing by it), the hall's
+ * wardrobe stands; the v1 moves off until a test turns one on.
+ */
+async function quietV1(page: Page, more: [string, unknown][] = []): Promise<void> {
+  await page.evaluate(extra => {
+    const rt = (window as any).__realtime;
+    for (const [k, v] of [['enemySpeed', 0], ['speedSpread', 0], ['baseIntervalMin', 1000], ['baseIntervalMax', 1000], ['baseFloor', 0], ['contactDamage', 0], ['wardrobePeriod', 1000], ['shoveDistance', 6],
+      ['warlockOrbPeriod', 1e6], ['warlockRugPeriod', 1e6], ['warlockSummonPeriod', 1e6], ...extra] as [string, unknown][]) rt.params[k] = v;
+    rt.restart();
+  }, more);
+  await expect.poll(async () => (await snap(page)).status).toBe('playing');
+}
+const setParams = (page: Page, pairs: [string, unknown][]): Promise<void> => page.evaluate(ps => { const rt = (window as any).__realtime; for (const [k, v] of ps) rt.setParam(k, v); }, pairs);
+
+test('task 55 §23 (v1): a chain drawn with the mouse through a volley of three orbs of one colour into his window — the orbs die, he loses a plate; the guides of the volley before it; the journal replays (screenshots)', async ({ page }) => {
+  test.setTimeout(150_000);
+  const errors = collectErrors(page);
+  await openHall(page);
+  // Volleys every 0.5 s from the fight's first tick (a period changed in the fight waits for the running one to end); the orbs hit the hero
+  // while the charm is broken — 999 HP.
+  await quietV1(page, [['warlockOrbPeriod', 0.5], ['heroHp', 999]]);
+  await cameraSettled(page);
+  await breakCharm(page);
+  // Phase 2: the hero in sight of the candles, farther than 3 from each.
+  await page.evaluate(() => (window as any).__realtime.teleport(12, 6.5));
+  const guides = await untilFrame(page, (s, _a: null, late) => s.warlockV1.guides === 3 && s.warlockV1.guideFill > 0.5 ? true : late ? false : undefined, null, 20);
+  expect(guides, 'a volley winds up: three guides').toBe(true);
+  await shot(page, 'v1-guides');
+  // A volley that left while his window is open, 0.2 s into its flight: the core and the three orbs frozen in that very frame (the window holds,
+  // the orbs stand) — journalled commands.
+  const caught = await untilFrame(page, (s, _a: null, late, rt) => {
+    const st = s.warlock.state, orbs = s.enemies.filter((e: any) => e.kind === 'warlock-orb');
+    if (st?.window?.open && !st.window.hit && orbs.length === 3 && new Set(orbs.map((o: any) => o.color)).size === 1 && orbs.every((o: any) => o.vars.ol <= 2.8)) {
+      rt.chill(st.id, 60);
+      for (const o of orbs) rt.chill(o.id, 60);
+      return { core: st.id, orbs: orbs.map((o: any) => o.id) };
+    }
+    return late ? null : undefined;
+  }, null, 40);
+  expect(caught, 'a volley in his window').not.toBeNull();
+  const { core, orbs } = caught as { core: number; orbs: number[] };
+  const s0 = await snap(page), c = s0.enemies.find(e => e.id === core)!, fan = orbs.map(id => s0.enemies.find(e => e.id === id)!), plates0 = c.armor!.plates;
+  // The hero on the middle line 3.5 from him; the orbs from one side to the other, then the core.
+  const mid = fan.reduce((a, b) => (Math.hypot(a.x - s0.hero.x, a.y - s0.hero.y) < Math.hypot(b.x - s0.hero.x, b.y - s0.hero.y) ? a : b)), d = Math.hypot(mid.x - c.x, mid.y - c.y);
+  const ux = (mid.x - c.x) / d, uy = (mid.y - c.y) / d, side = (o: { x: number; y: number }): number => (o.x - c.x) * -uy + (o.y - c.y) * ux;
+  await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x, y), [c.x + ux * 3.5, c.y + uy * 3.5] as const);
+  await cameraSettled(page);
+  const order = [...fan].sort((a, b) => side(a) - side(b)).map(o => o.id);
+  await mouseTo(page, async () => s0.enemies.find(e => e.id === order[0])!, 4);
+  await page.mouse.down();
+  for (const id of [...order.slice(1), core]) await mouseTo(page, async () => (await snap(page)).enemies.find(e => e.id === id)!, 6);
+  await expect.poll(async () => (await snap(page)).chain).toEqual([...order, core]);
+  await shot(page, 'v1-chain-volley');
+  await page.mouse.up();
+  const done = await untilFrame(page, (s, _a: null, late) => !s.moving && s.chain.length === 0 ? true : late ? false : undefined, null, 8);
+  expect(done, 'the dash is over').toBe(true);
+  const after = await snap(page);
+  expect(after.enemies.some(e => orbs.includes(e.id)), 'the orbs died').toBe(false);
+  expect(after.enemies.find(e => e.id === core)!.armor!.plates, 'he lost a plate in his window').toBe(plates0 - 1);
+  await sameHash(page);
+  expect(errors).toEqual([]);
+});
+
+test("task 55 §23 (v1): the signs — the call's circle and its four markers, the rugs with the edge's wave and the chevrons, then the rage (staff and hat burn, the bar's line lit), the rune, the flash's ring and the ring of 8 orbs (screenshots)", async ({ page }) => {
+  test.setTimeout(150_000);
+  const errors = collectErrors(page);
+  await openHall(page);
+  // Phase 1: the call on its 15th s (the hero in the hall's middle); then the charm broken; phase 3 at 2 plates — `warlockPlates` 2.
+  await quietV1(page, [['warlockSummonPeriod', 15], ['warlockPlates', 2]]);
+  await cameraSettled(page);
+  expect((await snap(page)).warlockV1.rugs, 'two rugs').toBe(2);
+  expect(await untilFrame(page, (s, _a: null, late) => s.warlockV1.summon === 1 && s.warlockV1.summonFill > 0.6 ? true : late ? false : undefined, null, 20), 'the call').toBe(true);
+  await shot(page, 'v1-summon');
+  expect(await untilFrame(page, (s, _a: null, late) => s.markers === 4 ? true : late ? false : undefined, null, 3), 'four markers of the call').toBe(true);
+  await shot(page, 'v1-summon-markers');
+  // His wardrobe into the wall twice (the shared route); at 2 plates the rage comes in the very tick the charm falls (no phase 2 to see).
+  const ward = (await snap(page)).warlock.state!.wardrobe!;
+  expect(await wardrobeToWall(page, ward), 'the first stop at the wall wears the wardrobe').toBe('wall');
+  expect(await wardrobeToWall(page, ward), 'the second stop at the wall breaks it').toBe('broke');
+  // Rage at once (2 plates): the staff and the hat burn; the boss bar's line lit.
+  expect(await untilFrame(page, (s, _a: null, late) => s.warlockV1.rage === 1 ? true : late ? false : undefined, null, 4), 'rage').toBe(true);
+  const rage = await snap(page);
+  expect(rage.warlockV1.flames).toBe(3);
+  expect(rage.bossBar.phaseAt).toBeGreaterThan(0);
+  // The hero on a rug: the rug's windup (the wave, the chevrons) every 6 s in rage.
+  await setParams(page, [['warlockRugPeriod', 6]]);
+  await page.evaluate(() => (window as any).__realtime.teleport(7.9, 8.8));
+  expect(await untilFrame(page, (s, _a: null, late) => s.warlockV1.rugWave > 0.5 ? true : late ? false : undefined, null, 12), "the rug's wave").toBe(true);
+  await shot(page, 'v1-rug-wave');
+  expect(await untilFrame(page, (s, _a: null, late) => s.warlockV1.rune === 1 && s.warlockV1.runeFill > 0.5 ? true : late ? false : undefined, null, 12), 'the rune').toBe(true);
+  await shot(page, 'v1-rune');
+  expect(await untilFrame(page, (s, _a: null, late) => s.warlockV1.flash === 1 && s.warlockV1.flashFill > 0.4 ? true : late ? false : undefined, null, 4), "the flash's ring").toBe(true);
+  await shot(page, 'v1-flash');
+  expect(await untilFrame(page, (s, _a: null, late) => s.warlockV1.ring === 1 && s.warlockV1.guides === 8 ? true : late ? false : undefined, null, 12), 'the ring of 8').toBe(true);
+  await shot(page, 'v1-ring');
   await sameHash(page);
   expect(errors).toEqual([]);
 });

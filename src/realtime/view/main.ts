@@ -2058,6 +2058,7 @@ async function boot(): Promise<void> {
         /** Task 57а: the forest shooters — the slinger's lines, the hive's dots, the shots and the wisps' light drawn in the frame; the sparks shown (shooterView.ts). */
         shooters: { ...renderer.shooters.shown },
         forest: { ...renderer.forestMech.shown },
+        warlockV1: { ...renderer.warlockV1.shown },
         /** Task 43: the knight — plate pips, «Рывок» lanes and «Размах» circles drawn in the frame; the sheds and swing hits seen. */
         knight: { ...renderer.knightShown },
         /**

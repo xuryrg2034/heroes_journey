@@ -82,6 +82,9 @@ import { FIREBRAND, brandLit } from '../sim/enemies/firebrand';
 import { CHIEF, chiefCore } from '../sim/enemies/chief';
 import { WARLOCK, warlockCore } from '../sim/enemies/warlock';
 import { WARLOCK_ART, WARLOCK_FEET, WarlockView, buildWarlock, reticleInk, warlockBadgeAt, type WarlockArt } from './warlockView';
+import { WarlockV1View, orbMarks } from './warlockV1View';
+import { WARLOCK_ORB } from '../sim/enemies/warlock';
+import { kindOf } from '../sim/enemies/kinds';
 import { CHIEF_ART, CHIEF_FEET, ChiefView, buildChief, buildChiefPart, chiefBadgeAt, chiefPartBadgeAt, eaterSits, isChiefKind, type ChiefArt } from './chiefView';
 import { TROLL_ART, TROLL_ART_ASPECT, TROLL_FAR_WORDS, TROLL_FEET, TrollView, buildCore, buildPartArt, coreBadgeAt, corePips, isTrollKind, partBadgeAt, partOutward, posePartArt, type CoreArt, type SignTools } from './trollView';
 
@@ -509,6 +512,8 @@ export class RealtimeRenderer {
   get chiefShown(): ChiefView['shown'] { return this.chief.shown; }
   /** Task 55 Д: the warlock's view - his drawing, window, charm's beam, candles and effects (warlockView.ts). */
   private readonly warlock = new WarlockView(UNIT);
+  /** Task 55 §23: Колдун v1's moves — the rugs, the volley's guides, the rune, the flash's ring, the call, the rage (warlockV1View.ts). */
+  readonly warlockV1 = new WarlockV1View(UNIT, chainInk);
   get warlockShown(): WarlockView['shown'] { return this.warlock.shown; }
   /** Task 48 (tests read it): the Troll's frame — the glow, the count, the sign and its fill, the tail, the severed parts, the sparks of «звон». */
   get trollShown(): TrollView['shown'] { return this.troll.shown; }
@@ -855,7 +860,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.cage.layer, this.objectLayer, this.markerLayer, this.trailLayer, this.forestMech.floor, this.chief.floor, this.warlock.floor, this.laneLayer, this.rippleLayer, this.castLayer, this.castMask, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.omenLayer, this.troll.layer, this.chief.layer, this.warlock.layer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.shooters.layer, this.forestMech.layer, this.overlay, this.prologueLayer, this.fxLayer, this.omenFlash, this.snapLayer, this.shardLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.cage.layer, this.objectLayer, this.markerLayer, this.trailLayer, this.forestMech.floor, this.chief.floor, this.warlock.floor, this.warlockV1.floor, this.laneLayer, this.rippleLayer, this.castLayer, this.castMask, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.omenLayer, this.troll.layer, this.chief.layer, this.warlock.layer, this.warlockV1.layer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.shooters.layer, this.forestMech.layer, this.overlay, this.prologueLayer, this.fxLayer, this.omenFlash, this.snapLayer, this.shardLayer, this.flash);
     this.heroRoot.addChild(this.reachLayer, this.reachMask, this.heroLayer);
     this.app.stage.addChild(this.root, this.viewBorder, this.heroRoot, this.edgeLayer);
     this.initShards();
@@ -1332,6 +1337,8 @@ export class RealtimeRenderer {
       if (kind === 'slime') slimeMarks(ctx, r);
       if (kind === FIREBRAND) firebrandMarks(ctx, r);
       if (kind === CENTIPEDE) centipedeMarks(ctx, r);
+      // Task 55 §23: the warlock's orb — a gloss and a spark of magic over its colour disc (no art yet).
+      if (kind === WARLOCK_ORB) orbMarks(ctx, r);
     }
     // Porcupine (iteration 2.1): its quills go up and down — drawn per frame over the texture (`quillGraphics`).
     if (kind === 'sapper') {
@@ -1395,6 +1402,12 @@ export class RealtimeRenderer {
   private tusks(ctx: GraphicsContext, r: number): void {
     for (const sx of [-1, 1]) ctx.poly([sx * r * 0.32, r * 0.55, sx * r * 0.72, r * 0.98, sx * r * 0.78, r * 0.42, sx * r * 0.52, r * 0.5]).fill(BONE).stroke({ color: NAVY, width: 2.5, join: 'round' });
   }
+
+  /**
+   * The body's drawing scale against the common one: a slime's (its kind's `artScaleOf`, forestMechView.ts) and the warlock's orb's (task 55
+   * §23: its kind's `artScale` 0.7 — the radius of its press circle); 1 — every other kind (the common drawing).
+   */
+  private bodyScale(e: Enemy): number { return e.kind === WARLOCK_ORB ? kindOf(e).artScale : this.forestMech.slimeScale(e); }
 
   private buildEnemyBody(e: Enemy, look: EnemyLook, colorless: boolean): { body: Container; grey: Sprite | null; hpLabel: Text | null; exclaim: Text | null; quills: { up: Graphics; down: Graphics } | null; trollArt?: CoreArt; weapon?: Container; chiefArt?: ChiefArt; warlockArt?: WarlockArt } {
     const body = new Container();
@@ -1477,9 +1490,10 @@ export class RealtimeRenderer {
     }
     if (e.kind === 'boar') body.scale.set(BOAR_SCALE);
     // Task 57б: a slime's body is drawn at its kind's own art scale (small ×0.85, big ×1.4: `enemyArtRadius`, the radius of its press
-    // circle and reach — the boar's way); a merge rebuilds the body (`EnemyView.size`), so the scale is set once here.
-    const slime = this.forestMech.slimeScale(e);
-    if (slime !== 1) body.scale.set(slime);
+    // circle and reach — the boar's way); a merge rebuilds the body (`EnemyView.size`), so the scale is set once here. Task 55 §23: the
+    // warlock's orb the same way (×0.7).
+    const own = this.bodyScale(e);
+    if (own !== 1) body.scale.set(own);
     return { body, grey, hpLabel, exclaim, quills, ...trollArt ? { trollArt } : {}, ...weapon ? { weapon } : {}, ...chiefArt ? { chiefArt } : {}, ...warlockArt ? { warlockArt } : {} };
   }
 
@@ -1499,7 +1513,7 @@ export class RealtimeRenderer {
       seen.add(e.id);
       let view = this.enemyViews.get(e.id);
       const colorless = colorlessBody(world, e);
-      if (view && (view.look !== look || view.color !== e.color || view.colorless !== colorless || (view.hp > 0) !== (e.hp > 0) || view.art !== artOf(e)?.id || view.size !== this.forestMech.slimeScale(e))) {
+      if (view && (view.look !== look || view.color !== e.color || view.colorless !== colorless || (view.hp > 0) !== (e.hp > 0) || view.art !== artOf(e)?.id || view.size !== this.bodyScale(e))) {
         // Task 46 «Клеймо»: a painted body's old drawing stays as a ghost and fades out while the new one fades in (`PAINT_FADE`).
         if (view.look === look && view.color !== e.color && this.clock - (this.paintAt.get(e.id) ?? -9) < PAINT_FADE) this.ghosts.push({ root: view.root, life: PAINT_FADE });
         else view.root.destroy({ children: true });
@@ -1508,7 +1522,7 @@ export class RealtimeRenderer {
       if (!view) {
         const root = new Container(), { body, grey, hpLabel, exclaim, quills, trollArt, weapon, chiefArt, warlockArt } = this.buildEnemyBody(e, look, colorless);
         root.addChild(body); this.enemyLayer.addChild(root);
-        view = { root, body, grey, hpLabel, exclaim, hp: e.hp, look, color: e.color, colorless, quills, art: artOf(e)?.id, size: this.forestMech.slimeScale(e), ...trollArt ? { trollArt } : {}, ...weapon ? { weapon } : {}, ...chiefArt ? { chiefArt } : {}, ...warlockArt ? { warlockArt } : {} };
+        view = { root, body, grey, hpLabel, exclaim, hp: e.hp, look, color: e.color, colorless, quills, art: artOf(e)?.id, size: this.bodyScale(e), ...trollArt ? { trollArt } : {}, ...weapon ? { weapon } : {}, ...chiefArt ? { chiefArt } : {}, ...warlockArt ? { warlockArt } : {} };
         this.enemyViews.set(e.id, view);
       }
       if (view.hpLabel && view.hp !== e.hp) { view.hpLabel.text = String(e.hp); view.hp = e.hp; }
@@ -1694,6 +1708,7 @@ export class RealtimeRenderer {
     // Task 55 Д: the warlock's candles (the target blooms) and the charm's beam to his wardrobe - under the crowd.
     this.warlock.beginFrame();
     this.warlock.drawFloor(world, this.clock);
+    this.warlockV1.drawFloor(world, this.clock, enemyDrawRadius(p) * UNIT, (pt, margin) => this.sees(pt, margin));
     this.garrisonShown.lunges = 0;
     for (const e of world.enemies) {
       if (e.kind !== CASTELLAN) continue;
@@ -2013,6 +2028,7 @@ export class RealtimeRenderer {
     this.drawTroll(world, g);
     this.chief.drawOver(g, world, this.clock, this.frameDt, enemyDrawRadius(world.params) * UNIT, 1 / Math.max(0.1, this.scale), e => this.sees(e, 1.5));
     this.warlock.drawOver(g, world, this.clock, enemyDrawRadius(world.params) * UNIT, 1 / Math.max(0.1, this.scale), e => this.sees(e, 1.5));
+    this.warlockV1.drawOver(g, world, this.clock, enemyDrawRadius(world.params) * UNIT, (pt, margin) => this.sees(pt, margin));
     Object.assign(this.signals, counts);
     // Casino stage 1 («Однорукий гоблин»): the arrows of the rain and the volley — the archer's mark (a hatched threat circle
     // filling until the arrow falls); the fall flashes on its `land` event (`handleEvents`).
@@ -3129,6 +3145,9 @@ export class RealtimeRenderer {
       if ((ev.type === 'bossMove' || ev.type === 'chiefFeast' || ev.type === 'chiefBrew' || ev.type === 'partSevered' || ev.type === 'enemySignal') && this.chief.onEvent(ev, world, this.clock, enemyDrawRadius(world.params) * UNIT)) continue;
       // Task 55 Д: the warlock's events (the charm's «звон» and end, the window's hit and the links dropped, the shift's arrival) - the rest go on.
       if ((ev.type === 'warlockCharm' || ev.type === 'warlockWindow' || ev.type === 'warlockShift') && this.warlock.onEvent(ev, world, this.clock, enemyDrawRadius(world.params) * UNIT)) continue;
+      // Task 55 §23: Колдун v1 — orbs gone, a rug's pull and its dropped links (the refusal's words over the first), phase 3, his moves.
+      if (ev.type === 'warlockRug' && ev.dropped.length) this.notice(REFUSAL_TEXT[ev.refusal], ev.x, ev.y);
+      if ((ev.type === 'warlockOrb' || ev.type === 'warlockRug' || ev.type === 'bossPhase' || ev.type === 'bossMove') && this.warlockV1.onEvent(ev, world, this.clock, enemyDrawRadius(world.params) * UNIT)) continue;
       // Task 48 §25: a part of the drawn chain carried out of reach — the refusal's words over it (the rings are the Troll view's).
       if (ev.type === 'trollLinkFar') this.notice(TROLL_FAR_WORDS, ev.x, ev.y);
       if ((ev.type === 'bossMove' || ev.type === 'trollWindow' || ev.type === 'partSevered' || ev.type === 'bossPlate' || ev.type === 'trollPush' || ev.type === 'trollLinkFar') && this.troll.onEvent(ev, world, this.clock, enemyDrawRadius(world.params) * UNIT)) continue;
@@ -4735,7 +4754,7 @@ export class RealtimeRenderer {
   resetEffects(): void {
     this.crackLeft = 0; this.crackShown = false; this.shieldBoost = false; this.shieldBoostShown = false;
     this.snaps = []; this.drops = []; this.snapLayer.clear(); this.houndAt.clear();
-    this.troll.reset(); this.chief.reset(); this.warlock.reset(); this.castle.reset();
+    this.troll.reset(); this.chief.reset(); this.warlock.reset(); this.warlockV1.reset(); this.castle.reset();
     this.intro = null; this.openedOnBoss = false;
     this.shakeLeft = 0;
     this.flashLeft = 0;
