@@ -128,6 +128,7 @@
     "test:realtime-chief-view": "tsx src/realtime/view/chiefView.spec.ts",
     "test:realtime-garrison": "tsx src/realtime/sim/garrison.spec.ts",
     "test:realtime-garrison-run": "tsx src/realtime/run/garrisonRun.spec.ts",
+    "test:realtime-castle-run": "tsx src/realtime/run/castleRun.spec.ts",
     "test:realtime-keymaster": "tsx src/realtime/sim/keymaster.spec.ts",
     "test:realtime-crossbow": "tsx src/realtime/sim/crossbow.spec.ts",
     "test:realtime-recruits": "tsx src/realtime/sim/recruits.spec.ts",
