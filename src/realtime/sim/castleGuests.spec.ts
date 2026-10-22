@@ -18,6 +18,7 @@ import { wall, type Vec } from './geometry';
 import { worldState } from './hash';
 import { enemyRefusal, planChain } from './chain';
 import { DEFAULT_PARAMS, defaultParams, type Params } from './params';
+import { FROST_PASS, FUSIONS } from './buildIds';
 import { durabilityOf, shovePath } from './shove';
 import { Simulation, SIM_DT, replay } from './simulation';
 import type { Enemy, World, WorldEvent } from './world';
@@ -303,42 +304,73 @@ check('butler: the chandelier hangs over the hero after the bow and floats after
   }
 });
 
-check('butler: a chain kills it — the highlight shows «упадёт»; 0.8 s later the chandelier falls: the weak in its circle die as the player\'s kills, the tough loses 1, the hero in it −2; killed by the rook\'s strike — the same fall, not the player\'s (4 seeds)', () => {
-  for (let k = 1; k <= 4; k++) {
+check('butler: a chain [weak, butler] kills it — the highlight\'s «упадёт» is where it falls (the chandelier stands while the dash runs; its own speed); 0.8 s later the weak in its circle die as the player\'s kills, the tough loses 1, the hero in it −2; killed by the rook\'s strike — the same fall, not the player\'s (6 seeds)', () => {
+  for (let k = 1; k <= 6; k++) {
     for (const by of ['chain', 'rook'] as const) {
-      const sim = field(k, { chandelierSpeed: 0.01 }), w = sim.world;
+      // No newcomers (the rook's wait is long; they would stand under the chandelier that follows the hero).
+      const sim = field(k, { maxEnemies: 0 }), w = sim.world;
       const butler = place(sim, { x: 7, y: 3 }, 1, BUTLER, 2);
       if (by === 'rook') place(sim, { x: 3, y: 3 }, 2, ROOK, 1);
       sim.command({ t: 'teleport', x: 13, y: 9 + 0.2 * (k % 2) });
       untilHang(sim);
-      const c = { x: w.chandelier!.x, y: w.chandelier!.y };
-      const weak = [place(sim, { x: c.x + 0.6, y: c.y }, 0, 'basic', 1), place(sim, { x: c.x - 0.3, y: c.y + 0.7 }, 0, 'basic', 3)];
-      const tough = place(sim, { x: c.x, y: c.y - 0.8 }, 2, 'basic', 0), outside = place(sim, { x: c.x + 2, y: c.y }, 0, 'basic', 1);
       const kills = w.stats.kills, events: WorldEvent[] = [];
+      let shown: { x: number; y: number } | null = null;
       if (by === 'chain') {
-        sim.command({ t: 'teleport', x: butler.x + 1.2, y: butler.y + 0.6 });
-        draw(sim, [butler]);
+        // The hero 3.2 from the butler, a weak link half way: the dash runs ~0.2 s while the chandelier would follow him.
+        const hx = butler.x + 3.2 * Math.cos(0.3 * k), hy = butler.y + 3.2 * Math.sin(0.3 * k);
+        sim.command({ t: 'teleport', x: hx, y: hy });
+        const weak = place(sim, { x: (hx + butler.x) / 2, y: (hy + butler.y) / 2 }, 0, 'basic', 2);
+        draw(sim, [weak, butler]);
         const plan = planChain(w);
-        assert(plan.chandelierFall && Math.abs(plan.chandelierFall.x - w.chandelier!.x) < 1e-9 && plan.chandelierFall.radius === 1, `seed ${k}: «упадёт» in the highlight`);
+        assert(plan.chandelierFall && plan.chandelierFall.radius === 1, `seed ${k}: «упадёт» in the highlight`);
+        shown = { x: plan.chandelierFall.x, y: plan.chandelierFall.y };
         release(sim, events);
-        sim.command({ t: 'teleport', x: c.x + 0.3, y: c.y + 0.2 });
       } else {
         // The hero by the rook's row: it strikes the row, the butler is its first body.
         sim.command({ t: 'teleport', x: 13, y: 4.6 });
-        ticks(sim, ticksOf(4), events, x => !x.enemies.includes(butler));
+        ticks(sim, ticksOf(6), events, x => !x.enemies.includes(butler));
         assert(!alive(sim, butler) && of(events, 'kill').some(e => e.enemyId === butler.id && e.source === 'rook-strike' && !e.credited), `seed ${k}: the rook killed it`);
-        sim.command({ t: 'teleport', x: c.x + 0.3, y: c.y + 0.2 });
       }
       const fall = of(events, 'chandelier').find(e => e.action === 'fall');
       assert(fall && w.chandelier?.fall, `seed ${k}, ${by}: the fall began`);
-      const hp = w.hero.hp, crash = ticks(sim, ticksOf(1), [], (_w, now) => now.some(e => e.type === 'chandelier' && e.action === 'crash'));
+      if (shown) assert(Math.abs(shown.x - fall.x) < 1e-9 && Math.abs(shown.y - fall.y) < 1e-9, `seed ${k}: shown (${shown.x.toFixed(2)}; ${shown.y.toFixed(2)}), fell at (${fall.x.toFixed(2)}; ${fall.y.toFixed(2)})`);
+      // The bodies under the falling chandelier (it stands now), the hero in its circle.
+      const c = { x: fall.x, y: fall.y };
+      const weak = [place(sim, { x: c.x + 0.6, y: c.y }, 0, 'basic', 1), place(sim, { x: c.x - 0.3, y: c.y + 0.7 }, 0, 'basic', 3)];
+      const tough = place(sim, { x: c.x, y: c.y - 0.8 }, 2, 'basic', 0), outside = place(sim, { x: c.x + 2, y: c.y }, 0, 'basic', 1);
+      sim.command({ t: 'teleport', x: c.x + 0.3, y: c.y + 0.2 });
+      const before = w.stats.kills, hp = w.hero.hp, crash = ticks(sim, ticksOf(1), [], (_w, now) => now.some(e => e.type === 'chandelier' && e.action === 'crash'));
+      const at = of(crash, 'chandelier').find(e => e.action === 'crash')!;
+      assert(at && at.x === c.x && at.y === c.y, `seed ${k}, ${by}: it fell where the sign stood`);
       assert(!w.chandelier && weak.every(e => !alive(sim, e)) && alive(sim, outside) && tough.hp === 1 && alive(sim, tough), `seed ${k}, ${by}: the weak in the circle died, the tough lost 1`);
       assert(heroHits(crash, FALL_SOURCE) === 1 && w.hero.hp === hp - 2, `seed ${k}, ${by}: the hero in the circle −2`);
       const fallKills = of(crash, 'kill').filter(e => e.source === FALL_SOURCE);
       assert(fallKills.length === 2 && fallKills.every(e => e.credited === (by === 'chain')), `seed ${k}, ${by}: credited ${fallKills.map(e => e.credited)}`);
-      assert(w.stats.kills === kills + (by === 'chain' ? 3 : 0), `seed ${k}, ${by}: kills ${w.stats.kills - kills}`);
+      assert(w.stats.kills === before + (by === 'chain' ? 2 : 0) && w.stats.kills - kills === (by === 'chain' ? 4 : 0), `seed ${k}, ${by}: kills ${w.stats.kills - kills}`);
       assert(replays(sim), `seed ${k}: replay`);
     }
+  }
+});
+
+check('butler: «Подрыв» at the chain\'s end kills it — the highlight shows «упадёт» and the chandelier falls there (3 seeds)', () => {
+  for (const k of [1, 2, 3]) {
+    const sim = new Simulation({ arena: 'guests-field', params: quiet({ eliteArmor: true }), seed: seedOf(k), record: true, loadout: { talismans: [FUSIONS.hunterBlast] } }), w = sim.world;
+    sim.command({ t: 'clear', keepMarked: false });
+    const butler = place(sim, { x: 9.5, y: 8.9 + 0.05 * k }, 1, BUTLER, 2);
+    sim.command({ t: 'teleport', x: 13, y: 11 });
+    untilHang(sim);
+    sim.command({ t: 'teleport', x: 5, y: 7 });
+    const a = place(sim, { x: 6.5, y: 7 }, 0), b = place(sim, { x: 8, y: 7 }, 0);
+    const eliteId = sim.command({ t: 'place', x: 9.5, y: 7, color: 0, hp: 0, kind: 'basic', elite: true }) as number;
+    const elite = w.enemies.find(e => e.id === eliteId)!;
+    draw(sim, [a, b, elite]);
+    const plan = planChain(w);
+    assert(plan.blast?.detonate && plan.blast.bodies.some(x => x.id === butler.id && x.killed) && !plan.links.some(l => l.link.id === butler.id), `seed ${k}: «Подрыв» kills the butler (${JSON.stringify(plan.blast?.bodies)})`);
+    assert(plan.chandelierFall, `seed ${k}: «упадёт» in the highlight`);
+    const events = release(sim);
+    const fall = of(events, 'chandelier').find(e => e.action === 'fall');
+    assert(!alive(sim, butler) && fall && fall.x === plan.chandelierFall.x && fall.y === plan.chandelierFall.y, `seed ${k}: it falls where shown`);
+    assert(replays(sim), `seed ${k}: replay`);
   }
 });
 
@@ -483,6 +515,74 @@ check('jester: the ball flies through enemies; a thing on its way puts it out (w
     const hp = jester.hp, back = release(sim);
     ticks(sim, ticksOf(3), back, (_w, now) => now.some(e => e.type === 'jester' && (e.action === 'catch' || e.action === 'miss')));
     assert(of(back, 'jester').some(e => e.action === 'miss') && jester.hp === hp - 1, `seed ${k}: frozen — the miss`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
+check('jester: the pass that freezes him («Наледь» along its path) — the highlight shows the miss and he misses (−1, «оглушён»); without «Наледь» the same pass is a catch (4 seeds)', () => {
+  for (let k = 1; k <= 4; k++) {
+    for (const frost of [true, false]) {
+      const sim = new Simulation({ arena: 'guests-field', params: quiet(), seed: seedOf(k), record: true, loadout: { talismans: frost ? [FROST_PASS] : [] } }), w = sim.world;
+      sim.command({ t: 'clear', keepMarked: false });
+      const jester = place(sim, { x: 7, y: 7.15 }, 2, JESTER, 2);
+      sim.command({ t: 'teleport', x: 12.5, y: 7 });
+      untilBallNear(sim, 1.3);
+      const ball = w.shots!.find(s => s.kind === 'ball')!;
+      // The pass runs by the jester (0.15 aside): «Наледь» lays a frost point next to him.
+      const links = [place(sim, { x: 10.75, y: 7.05 }, 0), place(sim, { x: 9.2, y: 7 }, 0), place(sim, { x: 7.65, y: 7 - 0.02 * k }, 0), place(sim, { x: 6, y: 7 }, 0)];
+      draw(sim, links);
+      const plan = planChain(w);
+      assert(plan.reflects?.length === 1 && plan.reflects[0].ball === ball.id && plan.reflects[0].miss === frost && !jesterStunned(jester) && !jester.chill, `seed ${k}, frost ${frost}: the highlight ${JSON.stringify(plan.reflects)}`);
+      const hp = jester.hp, events = release(sim);
+      ticks(sim, ticksOf(3), events, () => of(events, 'jester').some(e => e.action === 'catch' || e.action === 'miss'));
+      const outcome = of(events, 'jester').find(e => e.action === 'catch' || e.action === 'miss')!;
+      assert(outcome && outcome.action === (frost ? 'miss' : 'catch') && jester.hp === hp - (frost ? 1 : 0), `seed ${k}, frost ${frost}: ${outcome?.action}`);
+      assert(replays(sim), `seed ${k}: replay`);
+    }
+  }
+});
+
+check('jester: a pass that kills him reflects nothing — no return line in the highlight, his ball flies on; one that leaves him alive reflects it (3 seeds)', () => {
+  for (const k of [1, 2, 3]) {
+    for (const hp of [0, 9]) {
+      const sim = field(k), w = sim.world;
+      const jester = place(sim, { x: 9.5, y: 7 }, hp, JESTER, 2);
+      sim.command({ t: 'teleport', x: 12.5, y: 7 + 0.1 * k });
+      untilBallNear(sim, 1.3);
+      const ball = w.shots!.find(s => s.kind === 'ball')!, d = dist(ball, w.hero);
+      const link = place(sim, { x: w.hero.x + (ball.x - w.hero.x) / d * 1.75, y: w.hero.y + (ball.y - w.hero.y) / d * 1.75 }, 0, 'basic', 2);
+      draw(sim, [link, jester]);
+      const plan = planChain(w);
+      const killed = plan.links.some(l => l.link.id === jester.id && l.outcome?.killed);
+      assert(killed === (hp === 0), `seed ${k}, hp ${hp}: the pass ${killed ? 'kills' : 'spares'} him`);
+      assert(hp === 0 ? !plan.reflects : plan.reflects?.[0]?.ball === ball.id, `seed ${k}, hp ${hp}: the highlight ${JSON.stringify(plan.reflects)}`);
+      const events = release(sim);
+      assert(of(events, 'jester').some(e => e.action === 'reflect') === (hp !== 0), `seed ${k}, hp ${hp}: reflected as shown`);
+      assert(replays(sim), `seed ${k}: replay`);
+    }
+  }
+});
+
+check('poltergeist: its lift during a dash leaves the barrel of the dash\'s fixed shove alone — the shove runs as planned; it lifts another (3 seeds)', () => {
+  for (const k of [1, 2, 3]) {
+    const sim = field(k, { poltergeistPeriod: 1 }), w = sim.world;
+    sim.command({ t: 'teleport', x: 3, y: 7 });
+    // Off the barrel's lane (it rolls east and would crush it).
+    place(sim, { x: 10, y: 4.6 }, 0, POLTERGEIST, 3);
+    const a = place(sim, { x: 4.6, y: 7 }, 0), b = place(sim, { x: 6.2, y: 7 }, 0), barrel = place(sim, { x: 7.8, y: 7 }, 0, BARREL), other = place(sim, { x: 11.5, y: 5.4 - 0.1 * k }, 0, BARREL);
+    // Its rest ends (1 s) after the hero reached the barrel (~0.35 s into the dash) and before the dash's end (the way back to b).
+    ticks(sim, ticksOf(0.6));
+    draw(sim, [a, b, barrel]);
+    const plan = planChain(w).shove!;
+    assert(plan.thing === barrel.id, `seed ${k}: the chain ends on the barrel`);
+    assert(sim.command({ t: 'release' }), 'released');
+    let liftedInDash = false, lifts = 0;
+    for (let i = 0; i < ticksOf(3) && (w.move || w.shoves || i < 2); i++) {
+      for (const e of ticks(sim, 1)) if (e.type === 'poltergeist' && e.action === 'lift') lifts++;
+      if (barrel.vars.lf !== undefined) liftedInDash = true;
+    }
+    assert(lifts >= 1 && !liftedInDash && other.vars.lf !== undefined, `seed ${k}: the shoved barrel stayed down, the other one lifted`);
+    assert(!alive(sim, barrel) || dist(barrel, { x: 7.8, y: 7 }) > 0.5, `seed ${k}: the shove ran`);
     assert(replays(sim), `seed ${k}: replay`);
   }
 });

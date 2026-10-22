@@ -461,8 +461,9 @@ function updateChandelier(world: World, dt: number): void {
   const owner = world.enemies.find(e => e.id === c.owner);
   // Its butler left the arena some other way (no death hook ran): it falls, not the player's.
   if (!owner) { startFall(world, c, false); return; }
-  // Cold on the butler: the chandelier stands, its drops wait.
-  if (enemyFrozen(owner)) return;
+  // Cold on the butler: the chandelier stands, its drops wait. So while a hero's move runs (the timers of a kind wait for it): the
+  // highlight's circle (`chandelierFallPlan`, read at the release) is where it falls when the pass kills the butler.
+  if (enemyFrozen(owner) || world.move) return;
   const hero = world.hero, dx = hero.x - c.x, dy = hero.y - c.y, d = dhypot(dx, dy), step = num(world, 'chandelierSpeed', CHANDELIER_SPEED) * dt;
   if (d <= step) { c.x = hero.x; c.y = hero.y; } else { c.x += dx / d * step; c.y += dy / d * step; }
   if (c.drop) {
@@ -520,11 +521,17 @@ export function thingFlight(world: World, t: Enemy): { from: Vec; to: Vec; radiu
   return { from: { x: v.pfx, y: v.pfy }, to: { x: v.ptx, y: v.pty }, radius: num(world, 'poltergeistMark', POLTERGEIST_MARK), progress: Math.max(0, Math.min(1, 1 - v.pfl / Math.max(1e-6, v.pft))), by: v.lf };
 }
 
+/** The thing is the shoved one, the stop or the struck candelabra of the shove the running dash fixed (it waits for the dash's end). */
+function inFixedShove(world: World, t: Enemy): boolean {
+  const s = world.move?.shove;
+  return !!s && (s.thing === t.id || s.target === t.id || s.topple?.id === t.id);
+}
+
 /** The light things it may lift now: within its reach, not sliding, not linked, not held — the nearest first (then the smaller id). */
 function liftable(world: World, e: Enemy): Enemy[] {
   const reach = num(world, 'poltergeistReach', POLTERGEIST_REACH), carry = Math.floor(num(world, 'poltergeistCarry', POLTERGEIST_CARRY));
   return world.enemies
-    .filter(t => LIGHT_THINGS.includes(t.kind) && !thingLifted(t) && t.vars.wl === undefined && dist(e, t) <= reach && !sliding(world, t.id) && !linkedNow(world, t))
+    .filter(t => LIGHT_THINGS.includes(t.kind) && !thingLifted(t) && t.vars.wl === undefined && dist(e, t) <= reach && !sliding(world, t.id) && !linkedNow(world, t) && !inFixedShove(world, t))
     .sort((a, b) => dist(e, a) - dist(e, b) || a.id - b.id)
     .slice(0, carry);
 }
@@ -679,9 +686,9 @@ function stepJester(world: World, e: Enemy, dt: number): boolean {
  * The reflected ball reached its jester (shots.ts): a catch while the count allows it and the jester is free (not frozen, not stunned) —
  * the next throw comes at once with the short windup; else the miss — −1 HP to it (the player's, `reflect`) and the stun.
  */
-function caught(world: World, e: Enemy): void {
+function caught(world: World, e: Enemy, shot: Shot): void {
   const v = e.vars;
-  if (jesterCatches(world, e) < Math.floor(num(world, 'jesterCatches', JESTER_CATCHES)) && !enemyFrozen(e) && v.js !== 3) {
+  if (!shot.miss && jesterCatches(world, e) < Math.floor(num(world, 'jesterCatches', JESTER_CATCHES)) && !enemyFrozen(e) && v.js !== 3) {
     v.jc = jesterCatches(world, e) + 1; v.js = 0; v.jt = 0; v.jq = 1;
     world.events.push({ type: 'jester', action: 'catch', id: e.id, x: e.x, y: e.y, catches: v.jc });
     return;
@@ -723,12 +730,15 @@ export function planReflects(world: World, path: readonly Vec[]): BallReflect[] 
   return out;
 }
 
-/** The release reflects a ball of its plan: it turns to its jester at `jesterReturn` (it no longer hurts the hero). */
-export function reflectBall(world: World, id: number): void {
+/**
+ * The release reflects a ball of its plan: it turns to its jester at `jesterReturn` (it no longer hurts the hero); `miss` — the plan's
+ * miss is fixed on it (the pass froze him, his count is out): he will not catch it.
+ */
+export function reflectBall(world: World, id: number, miss = false): void {
   const s = world.shots?.find(x => x.id === id), owner = s && world.enemies.find(e => e.id === s.owner);
   if (!s || !owner || !freeBall(s)) return;
   const speed = num(world, 'jesterReturn', JESTER_RETURN, 0.1), d = dhypot(owner.x - s.x, owner.y - s.y) || 1;
-  s.back = 1; s.vx = (owner.x - s.x) / d * speed; s.vy = (owner.y - s.y) / d * speed; s.life = SHOT_RANGE / speed;
+  s.back = 1; if (miss) s.miss = 1; s.vx = (owner.x - s.x) / d * speed; s.vy = (owner.y - s.y) / d * speed; s.life = SHOT_RANGE / speed;
   owner.vars.jl = world.time;
   world.events.push({ type: 'jester', action: 'reflect', id: owner.id, x: s.x, y: s.y, ball: s.id });
 }

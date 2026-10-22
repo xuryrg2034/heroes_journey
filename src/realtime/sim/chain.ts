@@ -76,6 +76,8 @@ import { WARLOCK, warlockCharmOn, warlockClosed, warlockLinkDrop, warlockReserve
 import { snuffAlong, snuffing } from './shots';
 // Task 60а «Замок: гости»: the pass reflects the jester's ball; the butler's death drops the chandelier.
 import { chandelierFallPlan, freeBall, planReflects, reflectBall, type BallReflect } from './enemies/castleGuests';
+import { FROST_PASS } from './buildIds';
+import { FROST_PASS_RADIUS, frostPointsAlong } from './frostPass';
 // Task 57б «Лес: механики»: the firebrand's survivor and the rootlings' stumps and crumble.
 import { brandOutcome, brandShadow } from './enemies/firebrand';
 import { ROOTLING, lieDown, planCrumble, settleStumps } from './enemies/rootling';
@@ -358,7 +360,8 @@ export interface ChainPlan {
   cuts?: number[];
   /**
    * Task 60а «Замок: гости» (enemies/castleGuests.ts `planReflects`): the jester's balls the dash's path crosses — each turns back to its
-   * jester (`miss` — his count is out: −1 and «оглушён»). The release fixes and reflects exactly these. Absent when none.
+   * jester (`miss` — his count is out, he is frozen or stunned now or this pass freezes him: −1 and «оглушён»). A ball whose jester
+   * this pass kills is not reflected. The release fixes and reflects exactly these (with their `miss`). Absent when none.
    */
   reflects?: BallReflect[];
   /** Task 60а: the drawn chain's pass kills the chandelier's butler — «Падение люстры» in this circle (0.8 s later). Absent otherwise. */
@@ -562,7 +565,7 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
     ? planTetherCuts(world, dashPathPoints(world.hero, links, reachedLinks, l => linkPoint(world, l)),
       new Set(out.slice(0, reachedLinks).flatMap(l => l.outcome?.killed && l.link.kind === 'enemy' ? [l.link.id] : []))) : [];
   // Task 60а: the jester's balls the same path crosses (only while one flies at the hero).
-  const reflects = !witch && world.shots?.some(freeBall) ? planReflects(world, dashPathPoints(world.hero, links, reachedLinks, l => linkPoint(world, l))) : [];
+  const crossed = !witch && world.shots?.some(freeBall) ? planReflects(world, dashPathPoints(world.hero, links, reachedLinks, l => linkPoint(world, l))) : [];
   const last = links[links.length - 1];
   const endsOnObject = endsOnThing || (!!last && last.kind === 'object' && !passObject(world, last));
   let seal = links === world.chain && loopClosed(world) ? sealPreview(world, world.chainClosed!) : null;
@@ -624,16 +627,34 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   const centi = links === world.chain && options.back !== false && world.enemies.some(e => e.kind === CENTIPEDE);
   // Task 60а: the chandelier's butler — its death by the pass (or by the shove at its end) drops the chandelier (the drawn chain only).
   const butler = links === world.chain && options.back !== false && !!world.chandelier && !world.chandelier.fall;
-  const killed = pairs || roots || centi || butler ? passKills(world, out, pierce, seal, back, !!fire?.lit) : null;
+  const killed = pairs || roots || centi || butler || crossed.length ? passKills(world, out, pierce, seal, back, !!fire?.lit) : null;
   const anger = pairs ? planAnger(world, killed!) : [];
   const crumble = roots ? planCrumble(world, killed!) : [];
   const splits = centi ? planSplits(world, killed!) : [];
-  const chandelierFall = butler ? chandelierFallPlan(world, new Set([...killed!, ...shove ? [...shove.crushed.map(x => x.id), ...shove.impact?.killed ? [shove.impact.id] : [], ...shove.topple?.crushed ?? []] : []])) : null;
+  // Task 60а: the pass's kills (`passKills`: the links, the hammers, the end's waves and blasts — «Подрыв» too) with the shove's at its end.
+  const endKills = butler || crossed.length ? new Set([...killed!, ...shove ? [...shove.crushed.map(x => x.id), ...shove.impact?.killed ? [shove.impact.id] : [], ...shove.topple?.crushed ?? []] : []]) : null;
+  const chandelierFall = butler ? chandelierFallPlan(world, endKills!) : null;
+  // Task 60а: a ball whose jester this pass kills is not reflected; a jester this pass freezes misses (`passCold`).
+  const cold = crossed.length ? passCold(world, out, pierce, seal, fused, honed) : null;
+  const reflects = crossed.filter(r => !endKills!.has(r.jester)).map(r => (r.miss || !cold!.has(r.jester) ? r : { ...r, miss: true }));
   // Task 49: the law of Ведунья — the drawn open chain gives no after-chain shield (the dash: heroLaw.ts, `ChainEnd.endForm`).
   const noShield = links === world.chain && !seal && sealOnlyShield(world);
   // Task 62: Ведунья v2 — her circle and the figure the drawn chain would make if closed now.
   const cast = witch ? castCircle(world) : null, glyph = witch && links === world.chain ? glyphOf(world, links) : null;
   return { ...cast ? { cast } : {}, ...glyph ? { glyph } : {}, ...grate ? { grate } : {}, ...trollDrop ? { trollDrop } : {}, ...chiefDrop ? { chiefDrop } : {}, ...warlockDrop ? { warlockDrop } : {}, links: out, endsOnSurvivor, endsOnObject, ...endsOnThing ? { endsOnThing: true as const } : {}, ...shove ? { shove } : {}, power, kills, ...anger.length ? { anger } : {}, ...crumble.length ? { crumble } : {}, ...splits.length ? { splits } : {}, ...seal ? { seal } : {}, ...noShield ? { noShield: true as const } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {}, ...cuts.length ? { cuts } : {}, ...reflects.length ? { reflects } : {}, ...chandelierFall ? { chandelierFall } : {}, ...fused?.blast ? { blast: fused.blast } : {}, ...fused?.wave ? { wave: fused.wave } : {}, ...honed && Object.keys(honed).length ? { honed } : {} };
+}
+
+/**
+ * Task 60а (the jester's catch): the enemies the pass of the plan freezes — the seal's hold on those inside, «Ледяная волна»'s ice,
+ * «Иней на клинке» II's survivor and its neighbour, the frost points of «Наледь» along the dash's path (the dash's own sampling). Pure.
+ */
+function passCold(world: World, out: readonly LinkPlan[], pierce: PiercePreview | null, seal: SealPreview | null, fused: FusionRelease | null, honed: HonedPlan | null): Set<number> {
+  const cold = new Set<number>([...seal && seal.hold > 0 ? seal.inside : [], ...fused?.wave?.ice.ids ?? [], ...honed?.frost ? [honed.frost.survivor, honed.frost.near] : []]);
+  if (hasTalisman(world, FROST_PASS)) {
+    const points = frostPointsAlong(world, planDashPath(world, { links: out, pierce }));
+    for (const e of world.enemies) if (!kindOf(e).immune && points.some(p => dist(e, p) <= FROST_PASS_RADIUS)) cold.add(e.id);
+  }
+  return cold;
 }
 
 /**
@@ -2035,7 +2056,7 @@ export function releaseChain(world: World): boolean {
   const lastDrawn = world.chain[world.chain.length - 1], lastThing = lastDrawn?.kind === 'enemy' ? findEnemy(world, lastDrawn.id) : undefined;
   const shoveFix = live && lastThing && isThing(lastThing) && shoveOn(world) ? (full ?? planChain(world, world.chain, NO_PIERCE)).shove : undefined;
   // Task 60а: the jester's balls the player saw reflected — fixed and reflected now (only while one flies at the hero).
-  const reflects = live && world.shots?.some(freeBall) ? (full ?? planChain(world, world.chain, NO_PIERCE)).reflects : undefined;
+  const reflects = live && world.shots?.some(freeBall) ? (full ?? planChain(world)).reflects : undefined;
   const links = world.chain.filter(l => linkPoint(world, l));
   world.chain = [];
   delete world.chainClosed;
@@ -2054,7 +2075,7 @@ export function releaseChain(world: World): boolean {
   if (drill.length) world.move.drill = drill;
   // Task 55а: the shove the player saw — fixed now, run when the dash ends if it reached the thing.
   if (shoveFix) world.move.shove = JSON.parse(JSON.stringify(shoveFix)) as ShovePlan;
-  for (const r of reflects ?? []) reflectBall(world, r.ball);
+  for (const r of reflects ?? []) reflectBall(world, r.ball, r.miss);
   // Task 48: a move whose plan strikes the Troll's core holds his window's hit for itself until it is over.
   // Task 54: the queue of a chain that strikes the Chief's core (its hit takes two plates with a long one).
   chiefRelease(world, links);

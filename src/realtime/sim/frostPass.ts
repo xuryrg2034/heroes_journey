@@ -81,6 +81,13 @@ export function frostPassPath(world: World): Vec[] {
   return planDashPath(world, planChain(world));
 }
 
+/** Task 60а (chain.ts, the jester the pass freezes): the frost points a dash along `path` would lay — the dash's sampling. Pure. */
+export function frostPointsAlong(world: World, path: readonly Vec[]): FrostPoint[] {
+  const out: FrostPoint[] = [];
+  if (path.length > 1) frostAlong(world, path, 0, out);
+  return out;
+}
+
 /** The highlight: the frost points the drawn chain's dash would lay now (`frostPassPath`, the dash's sampling); none without «Наледь» in the kit. Pure. */
 export function frostPassPreview(world: World): FrostPoint[] {
   const out: FrostPoint[] = [];

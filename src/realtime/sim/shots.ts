@@ -61,6 +61,8 @@ export interface Shot {
   owner: number;
   /** Task 60а: the jester's ball reflected by a pass — it flies back at its owner (absent on every other shot). */
   back?: 1;
+  /** Task 60а: the release fixed the jester's miss of this reflected ball (the plan's `miss`; absent — he may catch it). */
+  miss?: 1;
 }
 
 /** The hit source of a shot on the hero (the run-end line, the telemetry): the slinger's stone, the hive's wasp. */
