@@ -35,7 +35,7 @@ import './arenasStep3';
 // known to a bare `replay`; sim/arenaRegistry.spec.ts checks the list).
 import './arenasWarmup';
 import { withRoster, withoutKinds, type RosterArena } from './rosters';
-import { stepHero, tickScale } from './chain';
+import { dropFarTrollParts, stepHero, tickScale } from './chain';
 import { applyCommand, type Command, type CommandResult } from './commands';
 import { hashWorld } from './hash';
 import { copyParams, type Params } from './params';
@@ -155,6 +155,8 @@ export class Simulation {
       // `finishMove`), the tick's time counts (`update` adds it no more). Nothing without a feat.
       if (playing && world.status === 'victory') featExit(world, SIM_DT);
       update(world, SIM_DT, realDt);
+      // Task 48, section 25: a part of the walking Troll the drawn chain no longer reaches leaves it in this tick (nothing without the key).
+      dropFarTrollParts(world);
     }
     world.tick++;
   }

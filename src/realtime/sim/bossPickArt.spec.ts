@@ -54,6 +54,8 @@ const replays = (sim: Simulation): boolean => replay(JSON.parse(JSON.stringify(s
 function quiet(key: true | undefined, extra: Partial<Params> = {}): Params {
   const p: Partial<Params> = { ...defaultParams(), baseFloor: 0, baseIntervalMin: 1e6, baseIntervalMax: 1e6, speedSpread: 0, enemySpeed: 0, contactDamage: 0, heroHp: 999, hitstop: false, ...extra };
   if (key) p.bossPickArt = true; else delete p.bossPickArt;
+  // Task 48, section 25: the sitting Troll — the values without `trollMove` (a journal before it; his arena turns it on only when it is off).
+  delete p.trollMove;
   return p as Params;
 }
 function ticks(sim: Simulation, n: number, out: WorldEvent[] = [], until: (w: World, events: readonly WorldEvent[]) => boolean = () => false): WorldEvent[] {

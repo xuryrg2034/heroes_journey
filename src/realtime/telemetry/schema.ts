@@ -1258,6 +1258,11 @@ export interface TrollBossSummary {
    * камня», «Хвост метёт». Their sum is `damage.total`. Absent in records before 17.10.2026.
    */
   damage?: TrollDamage;
+  /**
+   * Task 48, section 25 (design 22.10.2026): the charges of the walking Troll that stuck, by what they stuck in (`wall`, `tree`,
+   * `edge`, `cliff`; event `trollStuck`). Absent while none stuck (every fight before it, every fight of the sitting Troll).
+   */
+  stuck?: Record<string, number>;
 }
 export interface TrollDamage { crowd: number; core: number; parts: number; moves: number }
 /**

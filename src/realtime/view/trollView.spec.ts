@@ -32,6 +32,8 @@ const U = 72, R = 28.8;
 function quiet(): Params {
   const p = defaultParams();
   p.baseFloor = 0; p.baseIntervalMin = 1e6; p.baseIntervalMax = 1e6; p.speedSpread = 0; p.contactDamage = 0; p.heroHp = 999; p.hitstop = false; p.enemySpeed = 0;
+  // Task 48, section 25: the sitting Troll — the values without `trollMove` (a journal before it; the arena turns it on only when it is off).
+  delete (p as Partial<Params>).trollMove;
   return p;
 }
 interface Den { sim: Simulation; w: World; core: Enemy; club: Enemy; rock: Enemy; tail: Enemy }

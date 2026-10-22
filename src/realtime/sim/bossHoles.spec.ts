@@ -39,6 +39,8 @@ function quiet(key: boolean | undefined, extra: Partial<Params> = {}): Params {
   for (const k of ['coreTrailWard', 'coreShamanWard', 'trollShadowOnce'] as const) {
     if (key === undefined) delete (p as Partial<Params>)[k]; else (p as Params)[k] = key;
   }
+  // Task 48, section 25: the sitting Troll — the values without `trollMove` (a journal before it; his arena turns it on only when it is off).
+  delete (p as Partial<Params>).trollMove;
   return p;
 }
 function ticks(sim: Simulation, n: number, out: WorldEvent[] = [], until: (events: readonly WorldEvent[]) => boolean = () => false): WorldEvent[] {
