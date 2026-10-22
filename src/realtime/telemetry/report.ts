@@ -269,6 +269,8 @@ const SOURCE_TITLES: Record<string, string> = {
   stone: 'камень пращника', wasp: 'оса улья', wisp: 'светляк', slinger: 'касание пращника',
   // Task 57б «Лес: механики» (the firebrand's trail is `fire-trail`, the affix's source).
   rootling: 'касание корневика', slime: 'касание слизня', firebrand: 'касание головешки',
+  // Design 22.10.2026: the Warlock's touch and the Castellan's crossbow's (the Chief's parts touch as `touch`).
+  warlock: 'касание Колдуна', 'castellan-crossbow': 'касание арбалета Кастеляна',
   // Task 55а: the castle's moves and the rook's touch; the shove's kills (the player's).
   'wardrobe-topple': '«Падение шкафа»', 'rook-strike': '«Удар ладьи»', rook: 'касание ладьи', shove: 'толчок',
 };

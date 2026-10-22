@@ -175,15 +175,18 @@ check('every enemy kind whose touch hurts has a killer line: its hit source is a
     const e = world.enemies.find(x => x.id === id)!;
     return enemyKind(kind).touchDamage(world, e) > 0;
   };
-  // Without a touch line yet — asked to design 22.10.2026: the bosses (names and capitals are design's text) and the Castellan's
-  // crossbow on its stand (named, but its touch is not in `RT_DEATH_TOUCH`). Drop each one here once it has its line.
-  const KNOWN_GAPS = new Set(['warlock', 'chief', 'chief-ladle', 'chief-sack', 'castellan-crossbow']);
-  const missing = registeredEnemyKinds()
-    .filter(k => !KNOWN_GAPS.has(k.id) && touches(k.id))
+  // Design 22.10.2026: every body whose touch hurts has its line — no exceptions (the Warlock, the Chief and his parts and the
+  // Castellan's crossbow on its stand were the last ones without it).
+  const touching = registeredEnemyKinds().filter(k => touches(k.id));
+  const missing = touching
     .filter(k => !Object.hasOwn(RT_DEATH_ABILITY, k.hitSource) && !(RT_DEATH_TOUCH.includes(k.hitSource) && Object.hasOwn(RT_KIND_TITLES, k.id)))
     .map(k => `${k.id} (${k.hitSource})`);
   assert(!missing.length, `no killer line for: ${missing.join(', ')}`);
-  for (const id of KNOWN_GAPS) assert(registeredEnemyKinds().some(k => k.id === id) && !(RT_DEATH_TOUCH.includes(enemyKind(id).hitSource) && Object.hasOwn(RT_KIND_TITLES, id)), `${id}: still a gap (drop it from KNOWN_GAPS once it has its line)`);
+  assert(['warlock', 'chief', 'chief-ladle', 'chief-sack', 'castellan-crossbow', 'rootling', 'slime', 'firebrand'].every(id => touching.some(k => k.id === id)), 'the guard sees the touching bodies');
+  // The lines themselves (a touch death saved by the run: its source and kind).
+  const lineOf = (id: string): string | null => rtDeathLine({ source: enemyKind(id).hitSource, enemy: id });
+  const expected: Record<string, string> = { warlock: 'Колдун', chief: 'Главарь', 'chief-ladle': 'половник Главаря', 'chief-sack': 'мешок Главаря', 'castellan-crossbow': 'арбалет Кастеляна' };
+  for (const [id, name] of Object.entries(expected)) assert(lineOf(id) === `Сразил: ${name}`, `${id}: ${lineOf(id)}`);
 });
 
 check('task 40: a death by the Castellan\'s «Спустить пса» — «Сразил: рывок пса Кастеляна» (a real fight on «Двор кастеляна»)', () => {

@@ -47,6 +47,9 @@ export const RT_KIND_TITLES: Readonly<Record<string, string>> = {
   slinger: 'пращник', hive: 'улей', wisp: 'светляк',
   // Task 57б «Лес: механики» (lower case, the decision of task 40; their touches are in `RT_DEATH_TOUCH`).
   rootling: 'корневик', slime: 'слизень', firebrand: 'головешка',
+  // Design 22.10.2026 (the guard of runEnd.spec: every body whose touch hurts has a line): task 54's Chief and his parts (task-54,
+  // the goal table: «Половник», «Мешок»; the pattern of «дубина Тролля»), task 55's Warlock (a capital: a unique boss).
+  chief: 'Главарь', 'chief-ladle': 'половник Главаря', 'chief-sack': 'мешок Главаря', warlock: 'Колдун',
 };
 
 /**
@@ -83,7 +86,7 @@ export const RT_DEATH_ABILITY: Readonly<Record<string, string>> = {
  * 16.10.2026, spec section 10): the garrison's touches too — the guard, the dog handler, the hound (on its leash or in its frenzy: the
  * same body, «пёс»), the keymaster, the Castellan.
  */
-export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper', 'guard', 'handler', 'hound', 'keymaster', 'castellan', 'crossbow', 'knight', 'rook', 'slinger', 'recruit', 'warden', 'pitcher', 'rootling', 'slime', 'firebrand'];
+export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper', 'guard', 'handler', 'hound', 'keymaster', 'castellan', 'crossbow', 'knight', 'rook', 'slinger', 'recruit', 'warden', 'pitcher', 'rootling', 'slime', 'firebrand', 'warlock', 'castellan-crossbow'];
 
 /** Drafts sent to design 12.10.2026 (pending approval). */
 export const RT_RUN_END_TEXT = {
