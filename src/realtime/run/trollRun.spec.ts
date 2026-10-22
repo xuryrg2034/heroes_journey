@@ -21,7 +21,7 @@ import { rtDeathCause } from './rtMeta';
 import { rtRunEndLines } from './rtRunEnd';
 import {
   arenaPreview, createRtRun, parseRtRun, resolveArena, rtArenaLoadout, rtArenaParams, rtAvailableNodes, rtEnterGarrison, rtEnterNode, rtFightArc, rtNode, rtRunParams,
-  rtChooseTalisman, serializeRtRun, RT_TROLL_ALL_PARTS_SLOTS, type RtArenaOutcome, type RtRunState,
+  rtChooseTalisman, serializeRtRun, RT_TROLL_ALL_PARTS_SLOTS, RT_TROLL_MOVE_ON, type RtArenaOutcome, type RtRunState,
 } from './rtRun';
 import { assert, closeNode, ok, quiet, same, seedOf } from './runFight.testkit';
 import { rtTalisman } from './rtTalismans';
@@ -144,6 +144,25 @@ check('the fight the run starts: the boss frame, the boss\'s death ending it, th
     assert(journal.params.trollCrowd === 0.45 && back.world.params.trollCrowd === 0.45 && back.hash() === old.hash(), `seed ${k}: the old journal plays ×0.45`);
   }
   assert(colors.size >= 3, `the parts' colours vary (${[...colors]})`);
+});
+
+check('task 48, section 25 — the run\'s flag `trollMove`: a run created with it plays the walking Troll (the key on in its fight, the core leaves his spot), its save keeps the flag; a new run by `RT_TROLL_MOVE_ON` (off) and a save without the flag — the values without the key, the Troll sits; a malformed flag — no run', () => {
+  assert(RT_TROLL_MOVE_ON === false, 'the flag waits for design (off)');
+  for (let k = 1; k <= 6; k++) {
+    const walk = toBoss(createRtRun(seedOf(k), { gift: 'mini', trollMove: true }), 'den', k).run, sit = toBoss(createRtRun(seedOf(k), { gift: 'mini' }), 'den', k).run;
+    assert(walk.trollMove === true && sit.trollMove === undefined && !serializeRtRun(sit).includes('trollMove'), `seed ${k}: the flag only when asked`);
+    assert(same(parseRtRun(serializeRtRun(walk)), walk) && parseRtRun(serializeRtRun({ ...walk, trollMove: 'yes' as unknown as true })) === null, `seed ${k}: the save`);
+    const play = (run: RtRunState): { moved: boolean; key: boolean | undefined } => {
+      const params = rtArenaParams(run, rtRunParams(quiet()));
+      const sim = new Simulation({ arena: pendingOf(run).arena, params, seed: pendingOf(run).seed, loadout: rtArenaLoadout(run) }), core = sim.world.enemies.find(e => e.kind === TROLL)!;
+      const at = { x: core.x, y: core.y };
+      for (let t = 0; t < 300; t++) sim.tick();
+      return { moved: core.x !== at.x || core.y !== at.y, key: sim.world.params.trollMove };
+    };
+    const a = play(walk), b = play(sit);
+    assert(a.key === true && a.moved, `seed ${k}: the walking Troll (${JSON.stringify(a)})`);
+    assert(b.key === undefined && !b.moved && !('trollMove' in rtArenaParams(sit, rtRunParams(quiet()))), `seed ${k}: the sitting Troll (${JSON.stringify(b)})`);
+  }
 });
 
 check('the won Troll\'s fight with all three parts severed offers 1 of 4: the relics of 1 of 3 first, the empty places a rare talisman each (the same talismans draw); with two parts — 1 of 3 as before; the camp\'s final at most 1 of 3', () => {
