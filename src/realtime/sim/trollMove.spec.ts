@@ -325,10 +325,12 @@ check('a journal without `trollMove` plays the old world: a walking route of 40 
   // The base's hashes (rules-reviewer's probe on 97fdea81, 22.10.2026, the same route): the sitting Troll byte for byte. A journal of
   // the base has none of the keys added after it: the Troll's five, task 57б-1's four and 57б-2's two (merged into main beside this branch; they
   // are hashed defaults too) — so the route deletes all nine (checked on the merge 22.10.2026: with only the five, the 57б keys move it).
+  // Task 55 §23 (core/warlock-v1, merged 22.10.2026): its five hashed defaults (`warlockV1`, `warlockOrbPeriod`, `warlockRugPeriod`,
+  // `warlockShiftRage`, `warlockSummonPeriod`) are deleted too — a journal of the base has none of them.
   const BASE = ['602b0858924b99ed', '384787c42ccfcd4f', 'a0761294781dfab7', 'd3f886deb816e42d'];
   [1, 2, 3, 4].forEach((k, i) => {
     const p = { ...defaultParams(), heroHp: 999, hitstop: false } as Partial<Params>;
-    for (const key of ['trollMove', 'trollWalk', 'trollChargeCd', 'trollChargeLen', 'trollWindowCharge', 'rootRise', 'slimeMerge', 'slimeBigHp', 'brandSeek', 'centiParts', 'centiLungeWindup'] as const) delete p[key];
+    for (const key of ['trollMove', 'trollWalk', 'trollChargeCd', 'trollChargeLen', 'trollWindowCharge', 'rootRise', 'slimeMerge', 'slimeBigHp', 'brandSeek', 'centiParts', 'centiLungeWindup', 'warlockV1', 'warlockOrbPeriod', 'warlockRugPeriod', 'warlockShiftRage', 'warlockSummonPeriod'] as const) delete p[key];
     const sim = new Simulation({ arena: 'troll', params: p as Params, seed: seedOf(k), record: true });
     const dirs = [[1, 0], [0, -1], [-1, 0], [0, 1], [1, -1], [-1, -1]];
     for (let t = 0; t < 60 * 40 && sim.world.status === 'playing'; t++) {

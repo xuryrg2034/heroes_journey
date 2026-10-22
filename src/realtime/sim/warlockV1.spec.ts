@@ -532,7 +532,9 @@ check('values without `warlockV1` (a journal before it, a run saved without the 
   };
   for (const k of SEEDS) {
     const p = defaultParams() as Partial<Params>;
-    for (const key of ['warlockV1', 'warlockOrbPeriod', 'warlockRugPeriod', 'warlockShiftRage', 'warlockSummonPeriod'] as const) delete p[key];
+    // A journal of the base has none of the keys added after it: v1's five and those merged from main beside this branch (the walking
+    // Troll's five, the centipede's two; checked on the merge 22.10.2026).
+    for (const key of ['warlockV1', 'warlockOrbPeriod', 'warlockRugPeriod', 'warlockShiftRage', 'warlockSummonPeriod', 'trollMove', 'trollWalk', 'trollChargeCd', 'trollChargeLen', 'trollWindowCharge', 'centiParts', 'centiLungeWindup'] as const) delete p[key];
     p.heroHp = 999;
     const sim = new Simulation({ arena: WARLOCK_ARENA.id, params: p as Params, seed: seedOf(k), record: true }), w = sim.world;
     const out: string[] = [];
