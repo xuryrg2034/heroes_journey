@@ -291,6 +291,8 @@ function markShift(world: World, core: Enemy): void {
 
 /** He arrives at the marked candle; in phase 2 the window opens. The next shift's timer. */
 function arrive(world: World, core: Enemy): void {
+  // v1: a volley still winding up where he stood is dropped (its lines were his spot's: the shift of phase 2's start cut it short).
+  if (warlockV1On(world)) dropVolley(core);
   if (core.vars.bk) { arriveBlink(world, core); return; }
   const v = core.vars, target = (v.tg ?? 0) - 1, c = candlesOf(world)[target];
   delete v.tg; delete v.sg;
@@ -420,6 +422,8 @@ function arriveBlink(world: World, core: Enemy): void {
   v.fs = 1; v.ci = -1;
   v.hx = v.bx; v.hy = v.by; core.x = v.bx; core.y = v.by;
   delete v.bx; delete v.by;
+  // A hero who walked onto the rune is put out of the solid body at once (its edge; nothing on an arena without solid bodies).
+  pushOutOfSolids(world, world.hero);
   world.events.push({ type: 'warlockShift', action: 'arrive', id: core.id, candle: -1, x: core.x, y: core.y });
   world.events.push({ type: 'bossMove', id: core.id, move: 'blink', stage: 'hit' });
   v.sh = (v.phase ?? 1) >= 3 ? shiftRageOf(world) : shiftFastOf(world);
@@ -478,10 +482,17 @@ function looseVolley(world: World, core: Enemy): void {
       const orb = spawnEnemy(world, { x: v.gx + dx * off, y: v.gy + dy * off }, v.oc, 0, WARLOCK_ORB);
       orb.vars.dx = dx; orb.vars.dy = dy; orb.vars.ol = ORB_LIFE;
     }
-    delete v[`g${i}x`]; delete v[`g${i}y`]; delete v[`g${i}l`];
   }
-  delete v.ow; delete v.owt; delete v.on; delete v.gx; delete v.gy; delete v.ok; delete v.oc;
+  dropVolley(core);
   world.events.push({ type: 'bossMove', id: core.id, move: 'orbs', stage: 'hit' });
+}
+
+/** The volley's windup state goes (none — nothing). */
+function dropVolley(core: Enemy): void {
+  const v = core.vars;
+  if (v.ow === undefined) return;
+  for (let i = 0; i < (v.on ?? 0); i++) { delete v[`g${i}x`]; delete v[`g${i}y`]; delete v[`g${i}l`]; }
+  delete v.ow; delete v.owt; delete v.on; delete v.gx; delete v.gy; delete v.ok; delete v.oc;
 }
 
 /** The rugs of the arena (none — no rug). */
