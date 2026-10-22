@@ -1,7 +1,7 @@
 import { seedOf, walkRun } from '../src/realtime/run/metaWalk.testkit';
 import { createRtProfileStore, RT_PROFILE_STORAGE_KEY, type RunStorage } from '../src/realtime/run/rtRunStorage';
 import { RT_TROPHY_LONG_CHAIN } from '../src/realtime/run/trophies';
-import { SCHEDULE_KINDS } from '../src/realtime/run/schedule';
+import { RT_CHRONICLE_FOREST_KINDS } from '../src/realtime/run/chronicleCatalog';
 import { rtReachedJailer, rtRunWon, type RtArenaOutcome, type RtRunState } from '../src/realtime/run/rtRun';
 import { RT_HERO_ID } from '../src/realtime/run/metaCatalog';
 import { garrisonArenaKinds, garrisonStep2Mode, rtGarrisonNodeId } from '../src/realtime/run/garrison';
@@ -41,7 +41,8 @@ export function trophyProfile(count: number, stopAtFirst = false): TrophyProfile
       if (pending && !longest && run.battles.length === 2 && k % 2 === 0) { longest = true; return fed(run, { bestChain: RT_TROPHY_LONG_CHAIN }); }
       return null;
     } });
-    if (k <= 3) s.chronicleMeet(walk.run, { kinds: SCHEDULE_KINDS.filter((_, i) => i % 3 === k - 1), affixes: [] });
+    // The build's forest chapter (task 57а, 11 kinds with the shooters since 22.10.2026): «Чернильница» needs them all.
+    if (k <= 3) s.chronicleMeet(walk.run, { kinds: RT_CHRONICLE_FOREST_KINDS.filter((_, i) => i % 3 === k - 1), affixes: [] });
     // As the view ends a run: the profile's own record (`won`, the Jailer reached) first, then the meta's end.
     s.endRun({ reachedJailer: rtReachedJailer(walk.run), seeded: !!walk.run.seeded, won: rtRunWon(walk.run), hero: walk.run.heroId ?? RT_HERO_ID });
     const end = s.endRunMeta(walk.run)!;
