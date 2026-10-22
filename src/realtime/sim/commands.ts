@@ -113,6 +113,8 @@ export function applyCommand(world: World, cmd: Command): CommandResult {
       world.markers.length = 0; world.queue.length = 0; world.chain = []; delete world.chainClosed;
       // Task 57б: the rootlings' stumps go with them (no crumble, no credit).
       if (world.stumps) delete world.stumps;
+      // Task 57б-2: the centipedes' trails too.
+      if (world.centiTrails) delete world.centiTrails;
       // Task 38: the tethers whose ends left go with them (absent once none is left).
       if (world.tethers) {
         world.tethers = world.tethers.filter(t => world.enemies.some(e => e.id === t.holder) && world.enemies.some(e => e.id === t.held));

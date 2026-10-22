@@ -105,6 +105,8 @@ export function worldState(world: World): unknown {
     ...world.volley !== undefined ? { volley: world.volley } : {},
     // Task 57б «Корневик» (enemies/rootling.ts): the stumps (absent until the first rootling lies — worlds without rootlings hash as before).
     ...world.stumps ? { stumps: world.stumps } : {},
+    // Task 57б-2 «Сороконожка» (`centiTrail`): the bodies' trails (absent until a centipede appears with the key — worlds without hash as before).
+    ...world.centiTrails ? { centiTrails: world.centiTrails } : {},
   };
 }
 
