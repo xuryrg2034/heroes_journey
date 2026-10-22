@@ -120,6 +120,9 @@ export interface EnemyKindDef {
   /** Body (pushing, touch zone, obstacles) and art (drawing, link reach edge, press circle) as a share of the common size. */
   bodyScale: number;
   artScale: number;
+  /** Task 57б: the body and art shares of this enemy now, when its state changes them (the big slime). Absent — `bodyScale`, `artScale`. */
+  bodyScaleOf?(enemy: Enemy): number;
+  artScaleOf?(enemy: Enemy): number;
   /** Damage of its touch now (the wolf counts its pack). */
   touchDamage(world: World, enemy: Enemy): number;
   /** Share of an overlap it keeps when bodies push apart (the charging boar is heavy). */
@@ -170,7 +173,10 @@ export function registeredEnemyKinds(): EnemyKindDef[] { return [...kinds.values
 export function groupBehaviors(): EnemyBehavior[] { return [...behaviors.values()].filter(b => b.beforeStep); }
 
 /** Body radius of this enemy: the common body (`bodyRadius × enemyScale`) × its kind's share. */
-export function bodyRadiusOf(params: Params, enemy: Enemy): number { return enemyBodyRadius(params) * kindOf(enemy).bodyScale; }
+export function bodyRadiusOf(params: Params, enemy: Enemy): number {
+  const kind = kindOf(enemy);
+  return enemyBodyRadius(params) * (kind.bodyScaleOf?.(enemy) ?? kind.bodyScale);
+}
 
 /** Drawn radius of an enemy of `kind` — the edge the link radius R reaches with «R до края тела» (prototype stage G). */
 export function artRadiusOf(params: Params, kind: string): number { return enemyDrawRadius(params) * enemyKind(kind).artScale; }
@@ -185,7 +191,8 @@ export function enemyArtScale(params: Params, enemy: Pick<Enemy, 'elite' | 'lead
 
 /** Drawn radius of this enemy: its kind's, × `enemyArtScale` for an elite or a leader (stage 2, step 3: the body stays). */
 export function enemyArtRadius(params: Params, enemy: Enemy): number {
-  return artRadiusOf(params, enemy.kind) * enemyArtScale(params, enemy);
+  const kind = kindOf(enemy);
+  return enemyDrawRadius(params) * (kind.artScaleOf?.(enemy) ?? kind.artScale) * enemyArtScale(params, enemy);
 }
 
 /** The common walk only: no own step. */

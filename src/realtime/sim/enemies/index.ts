@@ -40,6 +40,10 @@ import './warlock';
 import './slinger';
 import './hive';
 import './wisp';
+// Task 57б «Лес: механики»: the rootling (stumps), the slime (merges) and the firebrand (its fire and the braziers).
+import './firebrand';
+import './rootling';
+import './slime';
 
 export { BOAR_ART_SCALE, type BoarState } from './boar';
 export { packmates, wolfHowl, wolfRushLine, wolfState, WOLF_RUSH } from './wolf';
@@ -67,4 +71,8 @@ export { BARREL, ROOK, WARDROBE, rookLine, wardrobeLying, wardrobeTopple } from 
 export { SLINGER, slingerLines } from './slinger';
 export { HIVE, hiveSwell } from './hive';
 export { WISP, wispState } from './wisp';
+// Task 57б: the forest's mechanics for the view.
+export { ROOTLING, rootGroup, stumpState, type Stump } from './rootling';
+export { SLIME, slimeBig, slimePairs } from './slime';
+export { FIREBRAND, brandLit, brandState } from './firebrand';
 export * from './kinds';

@@ -237,6 +237,17 @@ export function createFightObserver(start: World): FightObserver {
   /** Task 14: the bag is out and the fight goes on (credited kills count toward `bag.killsAfterGoals`). */
   let bagOpen = !!start.bag && start.status === 'playing';
   if (start.bag) s.bag.appeared = true;
+  /**
+   * A kill counted (its `kill` event; task 57б — a rootling's when its stump crumbles or burns): the player's after the bag (task 14),
+   * then by who killed — the boss's clear, the chain, the player's tools, the enemies.
+   */
+  const tallyKill = (source: string | undefined, credited: boolean | undefined): void => {
+    if (bagOpen && credited) s.bag.killsAfterGoals++;
+    if (source === BOSS_CLEAR) s.kills.bossClear++;
+    else if (source === 'chain') s.kills.chain++;
+    else if (credited) bump(s.kills.tools, source ?? 'other');
+    else s.kills.enemies++;
+  };
   /** «Перебор»: the source of the last hit on the hero (a lost fight names its killing blow). */
   let lastHitSource: string | null = null;
   /** Task 56 «Приметы»: what the omens' rules did in the fight (`FightSummary.omenFired`; empty — none acted). */
@@ -350,6 +361,8 @@ export function createFightObserver(start: World): FightObserver {
         case 'kill': {
           // Task 56: a kill of «Гроза».
           if (ev.source === 'storm') bump(omenFired, 'storm:kill');
+          // Task 57б: a rootling that lay as a stump — its kill counts when its stump crumbles or burns (`stump` `paid`).
+          if (ev.stump) return;
           const elite = elites.get(ev.enemyId);
           if (elite) {
             elites.delete(ev.enemyId);
@@ -369,14 +382,9 @@ export function createFightObserver(start: World): FightObserver {
           // Task 43: a knight killed (by any source).
           if (seen.get(ev.enemyId)?.kind === KNIGHT) s.garrison.knightKills++;
           else if (ev.source === 'slot-bust') s.slot.bustKills++;
-          // Task 14 «Котомка у двери»: the player's kills after the bag appeared.
-          if (bagOpen && ev.credited) s.bag.killsAfterGoals++;
           // Task 28: the boss's core died; the crowd died with it (not the player's, not an ability's).
           if (s.boss && bossCore && ev.enemyId === bossCore.id && s.boss.diedAt === null) s.boss.diedAt = round2(world.time);
-          if (ev.source === BOSS_CLEAR) s.kills.bossClear++;
-          else if (ev.source === 'chain') s.kills.chain++;
-          else if (ev.credited) bump(s.kills.tools, ev.source ?? 'other');
-          else s.kills.enemies++;
+          tallyKill(ev.source, ev.credited);
           return;
         }
         case 'chainHit': {
@@ -528,6 +536,14 @@ export function createFightObserver(start: World): FightObserver {
           if (ev.action !== 'out') return;
           if (ev.why === 'touch') s.forest.wisps.touched++; else if (ev.why === 'block') s.forest.wisps.blocked++; else s.forest.wisps.faded++;
           return;
+        // Task 57б «Лес: механики»: the stumps, the merges, the firebrands' fire.
+        case 'stump':
+          s.forest.rootlings[ev.action]++;
+          // The stumps' kills count now (their `kill` events carried `stump`).
+          for (const k of ev.paid ?? []) tallyKill(k.source, k.credited);
+          return;
+        case 'slime': s.forest.merges++; return;
+        case 'firebrand': bump(ev.action === 'out' ? s.forest.brands.out : s.forest.brands.lit, ev.why); return;
         case 'tether':
           if (ev.action === 'cut') s.chain.cuts++;
           // Task 40: the keymaster's shackles — put on, cut (the game second of the first cut).

@@ -55,6 +55,9 @@ import { updateShoves, type Shove, type ShovePlan, type ShoveStop } from './shov
 import { drowseSweep, floodArena, omensEarly, omensLate, rageFactor, rollcallTouch, type DrowseWorld, type FloodWorld, type RollcallWorld, type StormWorld } from './omens';
 // Task 57а «Лес: стрелки» (shots.ts): the shots of the arena and the shooters' timer.
 import { FOREST_VOLLEY_GAP, updateShots, type Shot, type ShotKind } from './shots';
+// Task 57б «Лес: механики»: the rootling's stumps and its credit, the firebrand's fire.
+import { ROOTLING, lieDown, settleStumps, updateStumps, type Stump } from './enemies/rootling';
+import { FIREBRAND, brandFire, brandLit, douse, fireSource } from './enemies/firebrand';
 
 /**
  * Id of a registered enemy kind (enemies/*): prototype kinds `basic`, `wolf` (fast, hits harder next to other wolves),
@@ -235,6 +238,8 @@ export interface FallenLink {
   embers?: number;
   /** Phase B: it was an elite — noted only on a dash the build layer counts (`HeroMove.build`), so older dashes hash as before. */
   elite?: true;
+  /** Task 57б: a rootling that lay as a stump — its `onChainKill` comes at the crumble (enemies/rootling.ts). Absent otherwise. */
+  stump?: true;
 }
 
 /** A hero move without contact damage: the dash along the chain or a jump. */
@@ -441,7 +446,7 @@ export type WorldEvent =
   | { type: 'pierce'; phase: 'end'; hits: number; kills: number; x: number; y: number }
   | { type: 'pierce'; phase: 'cancel' }
   | { type: 'chainEnd'; kills: number; score: number }
-  | { type: 'kill'; enemyId: number; x: number; y: number; color: number; source?: string; credited?: boolean; fall?: boolean }
+  | { type: 'kill'; enemyId: number; x: number; y: number; color: number; source?: string; credited?: boolean; fall?: boolean; stump?: true }
   /** Stage 3a (М4): the dash took a brazier (`lit` false — it went out) or it burns again (`lit` true). */
   | { type: 'brazier'; objectId: number; x: number; y: number; lit: boolean }
   | { type: 'jump' }
@@ -675,7 +680,21 @@ export type WorldEvent =
    * Task 57а (enemies/wisp.ts, «Светляк»): it lit and flies (`lit`), or it went out without a kill (`out`: its flight ran out —
    * `life`; it touched the hero — `touch`; a shield took the touch — `block`). The rules never read it.
    */
-  | { type: 'wisp'; action: 'lit' | 'out'; id: number; x: number; y: number; why?: 'life' | 'touch' | 'block' };
+  | { type: 'wisp'; action: 'lit' | 'out'; id: number; x: number; y: number; why?: 'life' | 'touch' | 'block' }
+  /**
+   * Task 57б (enemies/rootling.ts, «Корневик»): a rootling lay as a stump (`lie`, `id` — the dead one's), a stump rose (`rise`: `riseId`
+   * — the new rootling), a whole group's stumps crumbled for good (`crumble`: `ids`), fire burnt a stump for good (`burn`). The rules never
+   * read it.
+   */
+  | { type: 'stump'; action: 'lie' | 'rise' | 'burn'; id: number; x: number; y: number; group: number; riseId?: number; paid?: { source: string; credited: boolean }[] }
+  | { type: 'stump'; action: 'crumble'; group: number; ids: number[]; paid: { source: string; credited: boolean }[]; x: number; y: number }
+  /** Task 57б (enemies/slime.ts, «Слизень»): two small slimes merged — `id` stays and is big, `goneId` left the arena (no kill). */
+  | { type: 'slime'; action: 'merge'; id: number; goneId: number; x: number; y: number }
+  /**
+   * Task 57б (enemies/firebrand.ts, «Головешка»): it went out (`out`: a lethal `hit`, the `cold`, `water`) or burns again (`lit`: at a
+   * `brazier`, by `fire`). The rules never read it.
+   */
+  | { type: 'firebrand'; action: 'out' | 'lit'; id: number; x: number; y: number; why: 'hit' | 'cold' | 'water' | 'brazier' | 'fire'; dropped?: number[]; refusal?: 'afterSurvivor' };
 
 export interface World {
   arena: ArenaTemplate;
@@ -842,6 +861,8 @@ export interface World {
   shots?: Shot[];
   /** Task 57а (`Params.volleyGap`, shots.ts): game seconds left on the arena's shooters' timer — absent until the first windup it starts. */
   volley?: number;
+  /** Task 57б (enemies/rootling.ts): the stumps of the rootlings — absent until the first one lies (worlds without rootlings hash as before). */
+  stumps?: Stump[];
 }
 
 /**
@@ -1677,19 +1698,23 @@ export function killEnemy(world: World, e: Enemy, cause: KillCause): void {
   const index = world.enemies.indexOf(e);
   if (index < 0) return;
   world.enemies.splice(index, 1);
-  world.events.push({ type: 'kill', enemyId: e.id, x: e.x, y: e.y, color: e.color, source: cause.source, credited: cause.credited, ...cause.fall ? { fall: true } : {} });
   // A link of the dash ahead of the hero stays a link (chain.ts, `passFallen`): its score comes with the chain's.
   const move = world.move, link = move?.kind === 'dash' && move.links.some(l => l.kind === 'enemy' && l.id === e.id);
+  // Task 57б «Корневик»: a rootling lies as a stump — the world's credit below waits for its group's crumble (enemies/rootling.ts).
+  const stump = e.kind === ROOTLING && lieDown(world, e, cause, { link });
+  world.events.push({ type: 'kill', enemyId: e.id, x: e.x, y: e.y, color: e.color, source: cause.source, credited: cause.credited, ...cause.fall ? { fall: true } : {}, ...stump ? { stump: true as const } : {} });
   // Casino «Котёл»: a link the player's tool killed keeps its embers for the chain's cheque (only while the cauldron is on).
-  if (link) (move.fallen ??= []).push({ id: e.id, x: e.x, y: e.y, credited: cause.credited, ...e.elite && move.build ? { elite: true as const } : {}, ...cause.credited && move.purse ? { embers: fallenEmbers(e) } : {} });
-  if (cause.credited) { world.stats.kills++; if (!link) world.stats.score += world.params.scorePerKill; }
+  if (link) (move.fallen ??= []).push({ id: e.id, x: e.x, y: e.y, credited: cause.credited, ...e.elite && move.build ? { elite: true as const } : {}, ...cause.credited && move.purse ? { embers: fallenEmbers(e) } : {}, ...stump ? { stump: true as const } : {} });
+  if (cause.credited && !stump) { world.stats.kills++; if (!link) world.stats.score += world.params.scorePerKill; }
   // Task 14 «Котомка у двери» (bag.ts): a credited kill after the goals fills the bag (nothing without one).
-  if (cause.credited && world.bag) bagKill(world);
+  if (cause.credited && world.bag && !stump) bagKill(world);
   // Casino «Котёл»: a kill of the player's build outside the chain — 1 ember, no heat (the source decides, purse.ts). A link of
   // the dash ahead is the chain's: its embers come in the cheque (`fallenEmbers`, as its score comes with the chain's).
-  if (!link) purseKill(world, cause);
-  if (e.marked) world.stats.markedKills++;
+  if (!link && !stump) purseKill(world, cause);
+  if (e.marked && !stump) world.stats.markedKills++;
   checkGoals(world);
+  // Task 57б: any rootling's death may leave its group lying whole (a stump, or none: fire, a fall).
+  if (e.kind === ROOTLING) settleStumps(world);
   // Task 40: a prisoner's shackle goes with it (nothing while no shackle holds it).
   if (world.tethers) dropShackleOf(world, e);
   behaviorOf(e).onDeath?.(world, e, cause);
@@ -1730,6 +1755,16 @@ export function damageEnemy(world: World, e: Enemy, damage: number, cause: KillC
   if (e.kind === WARLOCK && warlockWards(world, e, cause.source)) return;
   // Package «Урон имеет значение»: an armoured elite with plates loses plates, not HP (elites.ts — the one place of the rule).
   if (platesOf(e) > 0) { stripPlates(world, e, cause); return; }
+  // Task 57б «Головешка»: fire does not hurt the firebrand (a put-out one burns again); a lethal hit on a burning one puts it out.
+  if (e.kind === FIREBRAND) {
+    if (fireSource(cause.source) && brandFire(world, e)) return;
+    if (damage >= e.hp && brandLit(e)) {
+      e.hurtFlash = Math.max(world.params.hitFlash, 0.01);
+      world.events.push({ type: 'enemyHit', enemyId: e.id, damage, killed: false, x: e.x, y: e.y, source: cause.source });
+      douse(world, e, 'hit');
+      return;
+    }
+  }
   const killed = damage >= e.hp;
   e.hurtFlash = Math.max(world.params.hitFlash, 0.01);
   world.events.push({ type: 'enemyHit', enemyId: e.id, damage, killed, x: e.x, y: e.y, source: cause.source });
@@ -2229,6 +2264,9 @@ export function update(world: World, dt: number, realDt = dt): void {
   updateBurning(world, dt);
   // Task 59а: the pots fly and land, the pools of pitch dry and burn (nothing before the first throw).
   updatePitch(world, dt);
+  if (world.status !== 'playing') return;
+  // Task 57б «Корневик»: the stumps count down, rise and crumble (nothing before the first one lies).
+  updateStumps(world, dt);
   if (world.status !== 'playing') return;
   // Phase B: the build modules' own step (the hammer's fire), after burning, before thorns.
   runHook(world, 'onUpdate', m => { if (world.status === 'playing') m.onUpdate!(world, dt); });

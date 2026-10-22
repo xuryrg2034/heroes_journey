@@ -137,6 +137,7 @@
     "test:realtime-arena-registry": "tsx src/realtime/sim/arenaRegistry.spec.ts",
     "test:realtime-forest-shooters": "tsx src/realtime/sim/forestShooters.spec.ts",
     "test:realtime-forest-shooters-run": "tsx src/realtime/run/forestShootersRun.spec.ts",
+    "test:realtime-forest-tricks": "tsx src/realtime/sim/forestTricks.spec.ts",
     "test:realtime-castle": "tsx src/realtime/sim/castle.spec.ts",
     "test:realtime-warlock": "tsx src/realtime/sim/warlock.spec.ts",
     "test:realtime-castle-view": "tsx src/realtime/view/castleView.spec.ts",

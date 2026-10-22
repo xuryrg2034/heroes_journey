@@ -50,9 +50,9 @@ export type Command =
   /**
    * Test setup: an enemy of `kind` at a point; `elite` (stage 2, step 3) — with the elite modifier over its HP; `affixes`
    * (phase A, T4; elites.ts) — exactly these affixes of the elite (absent — none: the slice's elite; the arena's count is
-   * not drawn for a placed elite).
+   * not drawn for a placed elite). `formation` (task 57б) — a member of the formation n, as a template's (a rootlings' group).
    */
-  | { t: 'place'; x: number; y: number; color: number; hp: number; kind: EnemyKind; elite?: boolean | 'random'; affixes?: string[] }
+  | { t: 'place'; x: number; y: number; color: number; hp: number; kind: EnemyKind; elite?: boolean | 'random'; affixes?: string[]; formation?: number }
   /** Test setup: move the hero. */
   | { t: 'teleport'; x: number; y: number }
   /** Test setup: the jump energy. */
@@ -111,6 +111,8 @@ export function applyCommand(world: World, cmd: Command): CommandResult {
     case 'clear':
       world.enemies = cmd.keepMarked ? world.enemies.filter(e => e.marked) : [];
       world.markers.length = 0; world.queue.length = 0; world.chain = []; delete world.chainClosed;
+      // Task 57б: the rootlings' stumps go with them (no crumble, no credit).
+      if (world.stumps) delete world.stumps;
       // Task 38: the tethers whose ends left go with them (absent once none is left).
       if (world.tethers) {
         world.tethers = world.tethers.filter(t => world.enemies.some(e => e.id === t.holder) && world.enemies.some(e => e.id === t.held));
@@ -119,6 +121,8 @@ export function applyCommand(world: World, cmd: Command): CommandResult {
       return;
     case 'place': {
       const e = spawnEnemy(world, { x: cmd.x, y: cmd.y }, cmd.color, cmd.hp, cmd.kind);
+      // Task 57б: a member of a formation n, as a template's start one (`StartEnemy.formation`: −n in `vars.fm`) — a rootlings' group.
+      if (typeof cmd.formation === 'number') e.vars.fm = -cmd.formation;
       if (cmd.elite) makeElite(world, e, cmd.elite === 'random', Array.isArray(cmd.affixes) ? cmd.affixes : []);
       return e.id;
     }
