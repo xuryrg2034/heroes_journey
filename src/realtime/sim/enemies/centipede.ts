@@ -10,7 +10,8 @@
  * member) is the head's path — a point every `TRAIL_SPACING` with its odometer, the head's live place its front. A part stands on it at its
  * odometer (`vars.co`) and keeps `CENTI_STEP` (0.8) of trail to the one ahead: it walks the trail at the walk's speed while the trail gap is
  * at most `CENTI_CATCH_GAP` (1.2), at up to `CENTI_CATCH_SPEED` (8 u/s) beyond — never straight through a wall. At a division the new head
- * takes the old trail behind it as its own (its tail walks on). **The rope** (no key — the journals before): a part keeps 0.8 to the one
+ * takes the old trail behind it as its own (its tail walks on). A part pushed off it by another body comes back softly (`TRAIL_RETURN`).
+ * The key off — no trails; on again — fresh ones from where the bodies stand. **The rope** (no key — the journals before): a part keeps 0.8 to the one
  * ahead straight, as fast as above; walls slide it. The crowd never moves the body and its parts never push each other (`crowd`
  * `anchored`); the body pushes the crowd. Head class `normal`.
  *
@@ -76,6 +77,8 @@ const TIME_EPS = 1e-9;
 /** The trail: a point every this much of the head's way; at most this many points a body. */
 export const TRAIL_SPACING = 0.2;
 const TRAIL_MAX_POINTS = 64;
+/** A part pushed off its trail (by another body) comes back to it at most this fast (u/s): soft, no snap. */
+export const TRAIL_RETURN = 1;
 
 /**
  * A body's stored trail (`centiTrail`): `id` — its head's (when it was made); `pts` — x, y, odometer of each point, the oldest first. The
@@ -118,8 +121,14 @@ function trailPoint(world: World, t: CentiTrail, o: number): Vec {
 /** The odometer of `e` on its trail: the trail's head — the front; a part — its own. */
 const odoOf = (world: World, t: CentiTrail, e: Enemy): number => (e.id === t.id ? frontOdo(world, t) : e.vars.co ?? 0);
 
-/** The trails' step, once a tick before anyone moves: each head adds its point; the points no member needs go; a trail with no member goes. */
+/**
+ * The trails' step, once a tick before anyone moves: the key off — no trails (a key turned on again starts fresh ones, never a chord from
+ * a stale point); a head without its own trail lays a fresh one through its body as it stands; each head adds its point; the points no
+ * member needs go; a trail with no member goes.
+ */
 function beforeTrails(world: World, members: readonly Enemy[]): void {
+  if (!trailOn(world)) { if (world.centiTrails) delete world.centiTrails; return; }
+  for (const e of members) if (e.vars.ca === undefined && e.vars.cx === undefined && (e.vars.tb !== e.id || !trailOf(world, e.id))) layTrail(world, e);
   if (!world.centiTrails) return;
   for (const t of world.centiTrails) {
     const head = members.find(e => e.id === t.id && e.vars.ca === undefined && e.vars.cx === undefined), n = t.pts.length;
@@ -389,12 +398,15 @@ function noteStuck(world: World, e: Enemy, d: number, dt: number): void {
 /** A part walks its body's trail «след в след», keeping `CENTI_STEP` of it to the one ahead (`centiTrail`). */
 function stepOnTrail(world: World, e: Enemy, ahead: Enemy, t: CentiTrail, dt: number): boolean {
   const v = e.vars, oa = odoOf(world, t, ahead), co = v.co ?? 0, target = oa - CENTI_STEP;
+  // Off the trail by a push of another body (world.ts `separate`, `apart`): the offset shrinks by `TRAIL_RETURN` a second — no snap.
+  const was = trailPoint(world, t, co), ox = e.x - was.x, oy = e.y - was.y, off = dhypot(ox, oy);
+  const keep = off > 1e-9 ? Math.max(0, off - TRAIL_RETURN * dt) / off : 0;
   if (co < target - 1e-9) {
     const speed = oa - co > CENTI_CATCH_GAP + 1e-9 ? CENTI_CATCH_SPEED : enemySpeed(world, e) * enemyGroundFactor(world, e);
     v.co = Math.min(target, co + speed * dt);
   }
   const at = trailPoint(world, t, v.co ?? 0);
-  e.x = at.x; e.y = at.y;
+  e.x = at.x + ox * keep; e.y = at.y + oy * keep;
   noteStuck(world, e, dist(e, ahead), dt);
   return true;
 }
@@ -489,7 +501,7 @@ registerBehavior({
   // A part made by `layParts` is pushed straight to the list: `onSpawn` runs for the head only.
   onSpawn: layParts,
   // The trails (`centiTrail`): the heads' points, once a tick before anyone moves.
-  beforeStep: (world, members) => { if (trailOn(world)) beforeTrails(world, members); },
+  beforeStep: beforeTrails,
   step: (world, e, dt) => (e.vars.ca === undefined && e.vars.cx === undefined ? stepHead(world, e, dt) : stepPart(world, e, dt)),
   // The running head's touch is its run.
   touches: (_world, e) => e.boar !== 'charge',

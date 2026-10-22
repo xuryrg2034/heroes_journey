@@ -50,6 +50,8 @@ registerArena({
 // A wall from the top down to y 9 at x 9.6–10 and a tree: a centipede appearing next to them.
 registerArena({ ...base, id: 'fc-wall', name: 'Стена', width: 26, height: 16, heroStart: { x: 3, y: 4 }, obstacles: [wall(9.6, 0, 0.4, 9), tree(16, 12)], door: { x: 25.3, y: 8 } });
 // A long wall across the field: a body north of it walks round its east end to the hero south of it — its tail catches on the corner.
+// A marked centipede from the start (the `marked` goal).
+registerArena({ ...base, id: 'fc-marked', name: 'Отмеченная', goal: 'marked', width: 26, height: 16, heroStart: { x: 3, y: 5 }, obstacles: [], door: { x: 25.3, y: 8 }, enemies: [{ x: 12, y: 6, color: 1, hp: 1, kind: CENTIPEDE, marked: true }] });
 registerArena({ ...base, id: 'fc-corner', name: 'Угол', width: 26, height: 16, heroStart: { x: 13, y: 2 }, obstacles: [wall(4, 7.8, 16, 0.4)], door: { x: 25.3, y: 8 } });
 
 /** Nothing comes, nobody walks (unless `enemySpeed` is given); the hero has 99 HP and no grace window to blur the count. */
@@ -296,9 +298,11 @@ check(`the trail (\`centiTrail\`, design 22.10.2026): a body walking round the e
     for (const trail of [true, false]) {
       const sim = new Simulation({ arena: 'fc-corner', params: quiet({ enemySpeed: 1.2, centiTrail: trail }), seed: seedOf(k), record: true }), w = sim.world;
       sim.command({ t: 'clear', keepMarked: false });
-      sim.command({ t: 'teleport', x: 13, y: 2 });
-      const parts = body(sim, { x: 13, y: 6.8 }, { x: 13, y: 2 });
-      sim.command({ t: 'teleport', x: 13, y: 12 });
+      // The seed moves the body along the wall and the hero below it (the seeds play different walks).
+      const hx = 11 + 1.3 * k;
+      sim.command({ t: 'teleport', x: hx, y: 2 });
+      const parts = body(sim, { x: hx, y: 6.8 }, { x: hx, y: 2 });
+      sim.command({ t: 'teleport', x: hx - 2 * k, y: 12 });
       // The laid body is the start of the path (tail → head).
       const paths = new Map<number, Vec[]>([[parts[0].id, [...parts].reverse().map(e => ({ x: e.x, y: e.y }))]]);
       const events: WorldEvent[] = [];
@@ -310,7 +314,7 @@ check(`the trail (\`centiTrail\`, design 22.10.2026): a body walking round the e
       }
       const stuck = centi(events).filter(e => e.action === 'stuck');
       if (trail) {
-        assert(dist(parts[0], { x: 13, y: 6.8 }) > 5 && off <= 0.05 && !stuck.length, `seed ${k}: the trail — the parts on the head's path (off ${off.toFixed(4)}), none stuck (${stuck.length})`);
+        assert(dist(parts[0], { x: hx, y: 6.8 }) > 5 && off <= 0.05 && !stuck.length, `seed ${k}: the trail — the parts on the head's path (off ${off.toFixed(4)}), none stuck (${stuck.length})`);
       } else {
         assert(stuck.length >= 1 && new Set(stuck.map(e => e.id)).size === stuck.length && stuck.every(e => parts.some(q => q.id === e.id)), `seed ${k}: the rope — stuck at the corner (${stuck.length})`);
       }
@@ -325,11 +329,80 @@ check(`the trail (\`centiTrail\`, design 22.10.2026): a body walking round the e
   }
 });
 
+check('two bodies touching (laid across each other, standing, then walking side by side) for 10 s: parts of different bodies part — none overlaps another body\'s part at the end of a tick past the first second; a pushed part comes back to its trail softly — no part moves in a tick more than the catch-up step (8 u/s) and a quarter for the parting (3 seeds)', () => {
+  for (const k of [1, 2, 3]) {
+    for (const speed of [0, 1.2]) {
+      const sim = field(k, { enemySpeed: speed }), w = sim.world;
+      // Two bodies laid 0.3 apart (their parts overlap), the hero far west; the seed shifts them.
+      const y = 6 + k;
+      sim.command({ t: 'teleport', x: 2, y });
+      const a = body(sim, { x: 12, y }, { x: 2, y }), b = body(sim, { x: 12.2, y: y + 0.3 }, { x: 2, y: y + 0.3 });
+      const r2 = 2 * bodyRadiusOf(w.params, a[1]);
+      let jump = 0, overlap = 0;
+      const last = new Map([...a, ...b].map(e => [e.id, { x: e.x, y: e.y }] as const));
+      for (let i = 0; i < ticksOf(10) && w.status === 'playing'; i++) {
+        ticks(sim, 1);
+        sim.command({ t: 'teleport', x: 2, y });
+        for (const e of [...a, ...b]) { jump = Math.max(jump, dist(e, last.get(e.id)!)); last.set(e.id, { x: e.x, y: e.y }); }
+        if (i >= ticksOf(1)) for (const p of a) for (const q of b) overlap = Math.max(overlap, r2 - dist(p, q));
+      }
+      // The catch-up step of a tick and a quarter for the bodies' parting itself (the snap back the review found moved 0.235).
+      assert(jump <= 1.25 * 8 * SIM_DT, `seed ${k} speed ${speed}: the widest step of a tick ${jump.toFixed(3)} > ${(1.25 * 8 * SIM_DT).toFixed(3)}`);
+      assert(overlap <= 0.02, `seed ${k} speed ${speed}: the parts of the two bodies overlap by ${overlap.toFixed(3)}`);
+      assert(replays(sim), `seed ${k}: replay`);
+    }
+  }
+});
+
+check('the key turned off and on mid-fight (`param centiTrail`): off — no trails, the parts follow by the rope; on again — fresh trails from where the bodies stand: no part jumps (a step of a tick at most the catch-up step), every part on the paths walked since (3 seeds)', () => {
+  for (const k of [1, 2, 3]) {
+    const sim = new Simulation({ arena: 'fc-corner', params: quiet({ enemySpeed: 1.2 }), seed: seedOf(k), record: true }), w = sim.world;
+    sim.command({ t: 'clear', keepMarked: false });
+    const hx = 11 + 1.3 * k;
+    sim.command({ t: 'teleport', x: hx, y: 2 });
+    const parts = body(sim, { x: hx, y: 6.8 }, { x: hx, y: 2 });
+    sim.command({ t: 'teleport', x: hx - 2 * k, y: 12 });
+    ticks(sim, ticksOf(2));
+    sim.command({ t: 'param', key: 'centiTrail', value: false });
+    ticks(sim, ticksOf(3));
+    assert(!w.centiTrails, `seed ${k}: no trails while the key is off`);
+    sim.command({ t: 'param', key: 'centiTrail', value: true });
+    const paths = new Map<number, Vec[]>([[parts[0].id, [...parts].reverse().map(e => ({ x: e.x, y: e.y }))]]);
+    const last = new Map(parts.map(e => [e.id, { x: e.x, y: e.y }] as const));
+    let jump = 0, off = 0;
+    for (let i = 0; i < ticksOf(6) && w.status === 'playing'; i++) {
+      ticks(sim, 1); headPaths(w, paths);
+      for (const e of parts.slice(1)) { jump = Math.max(jump, dist(e, last.get(e.id)!)); last.set(e.id, { x: e.x, y: e.y }); off = Math.max(off, offPaths(e, paths)); }
+    }
+    assert((w as World).centiTrails?.some(t => t.id === parts[0].id) && jump <= 8 * SIM_DT + 1e-6 && off <= 0.05, `seed ${k}: a fresh trail, the widest step ${jump.toFixed(3)}, off the paths ${off.toFixed(3)}`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
+check('`clear` keeping the marked keeps the trails of those left (as the tethers): a marked centipede\'s head stays with its trail as it was, the parts\' trails go (2 seeds)', () => {
+  for (const k of [1, 2]) {
+    const sim = new Simulation({ arena: 'fc-marked', params: quiet({ enemySpeed: 1.2 }), seed: seedOf(k), record: true }), w = sim.world;
+    sim.command({ t: 'teleport', x: 3, y: 4 + k });
+    ticks(sim, ticksOf(2));
+    const head = w.enemies.find(e => e.kind === CENTIPEDE && e.marked)!;
+    const before = w.centiTrails?.find(t => t.id === head.id);
+    assert(head && before && before.pts.length >= 9, `seed ${k}: a marked head with its trail (${before?.pts.length})`);
+    const kept = before.pts.slice();
+    sim.command({ t: 'clear', keepMarked: true });
+    assert(w.enemies.length === 1 && w.centiTrails?.length === 1 && w.centiTrails[0].pts.join() === kept.join(), `seed ${k}: its trail kept as it was`);
+    sim.command({ t: 'clear', keepMarked: false });
+    assert(!w.centiTrails, `seed ${k}: nobody left — no trail`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
 check('the trail after a division: the new head leads its piece on its own path, its tail walks the old trail behind it and then the new head\'s — every part on a head\'s path; the front piece walks on (3 seeds)', () => {
   for (const k of [1, 2, 3]) {
     const sim = field(k, { enemySpeed: 1.2 }), w = sim.world;
-    sim.command({ t: 'teleport', x: 3, y: 8 });
-    const parts = body(sim, { x: 12, y: 8 }, { x: 3, y: 8 });
+    // The seed moves the body and the hero's turn (the seeds play different walks).
+    const y0 = 6 + 1.2 * k;
+    sim.command({ t: 'teleport', x: 3, y: y0 });
+    const parts = body(sim, { x: 12, y: y0 }, { x: 3, y: y0 });
     const paths = new Map<number, Vec[]>([[parts[0].id, [...parts].reverse().map(e => ({ x: e.x, y: e.y }))]]);
     for (let i = 0; i < ticksOf(1.5); i++) { ticks(sim, 1); headPaths(w, paths); }
     const mid = parts[2];
@@ -338,7 +411,8 @@ check('the trail after a division: the new head leads its piece on its own path,
     release(sim);
     assert(centipedeBodies(w).length === 2, `seed ${k}: divided`);
     // The hero goes south-west: both pieces turn.
-    sim.command({ t: 'teleport', x: 4, y: 14 });
+    const turn = { x: 2 + 2 * k, y: k % 2 ? 14 : 2 };
+    sim.command({ t: 'teleport', x: turn.x, y: turn.y });
     let off = 0, gap = 0;
     const after: WorldEvent[] = [];
     for (let i = 0; i < ticksOf(5) && w.status === 'playing'; i++) {
@@ -349,7 +423,7 @@ check('the trail after a division: the new head leads its piece on its own path,
       }
     }
     assert(gap <= CENTI_CATCH_GAP + 0.15 && !centi(after).some(e => e.action === 'stuck'), `seed ${k}: each piece follows its head (widest gap ${gap.toFixed(3)}), none stuck`);
-    assert(off <= 0.05 && dist(parts[3], { x: 4, y: 14 }) < dist({ x: 12, y: 8 }, { x: 4, y: 14 }) - 2, `seed ${k}: on the heads' paths (off ${off.toFixed(4)}), the new head walked`);
+    assert(off <= 0.05 && dist(parts[3], turn) < dist({ x: 12, y: y0 }, turn) - 2, `seed ${k}: on the heads' paths (off ${off.toFixed(4)}), the new head walked`);
     assert(replays(sim), `seed ${k}: replay`);
   }
 });
