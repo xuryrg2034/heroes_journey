@@ -42,6 +42,10 @@ export const KIND_CAPTIONS: Readonly<Record<string, string>> = {
   slinger: 'Пращник — три камня веером: шагни между линиями',
   hive: 'Улей — кольцо ос: встань в просвет или подойди вплотную',
   wisp: 'Светляк — летит за тобой: возьми в цепь его цвета',
+  // Task 57б (design 17.10.2026, spec 6): the forest's tricksters (the stump and the big slime are no kinds of their own).
+  rootling: 'Корневик — встаёт из пня: руби всю группу разом',
+  slime: 'Слизень — двое сливаются в большого: руби, пока малы',
+  firebrand: 'Головешка — звено её гасит; у жаровни разгорится снова',
   // Task 55а (design 17.10.2026, spec 11): the castle's kinds — the barrel is a thing, no kind of the bestiary.
   wardrobe: 'Шкаф — кончи цепь на нём: толкнёшь',
   rook: 'Ладья — бьёт по прямой первое тело',

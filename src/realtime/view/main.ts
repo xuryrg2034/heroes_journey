@@ -47,6 +47,7 @@ import { isRtDailyDate, rtArenaParams, rtPageParams } from '../run/rtRun';
 import { replay, Simulation, type Journal } from '../sim/simulation';
 import { crowdFactor, focusGuarded, goalLamps, goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World, type WorldEvent } from '../sim/world';
 import { liveShots } from '../sim/shots';
+import { stumpState } from '../sim/enemies/rootling';
 import { castCircle, enemyRefusal, linkPoint, pickRadius } from '../sim/chain';
 import { bossArtEllipse } from '../sim/bossArt';
 import { ChainAudio } from './audio';
@@ -1922,6 +1923,8 @@ async function boot(): Promise<void> {
         objects: w.objects.map(o => ({ ...o })),
         /** Task 57а: the live shots of the forest shooters (sim `liveShots`: empty after the fight). */
         shots: liveShots(w).map(x => ({ ...x })),
+        // Task 57б: the stumps lying (the sim's view helper: place, group, colour, countdown, why it waits).
+        stumps: stumpState(w),
         chain: w.chain.map(l => l.id),
         chainLinks: w.chain.map(l => ({ ...l })),
         moving: w.move?.kind ?? null,
@@ -2049,6 +2052,7 @@ async function boot(): Promise<void> {
         court: { ...renderer.courtShown },
         /** Task 57а: the forest shooters — the slinger's lines, the hive's dots, the shots and the wisps' light drawn in the frame; the sparks shown (shooterView.ts). */
         shooters: { ...renderer.shooters.shown },
+        forest: { ...renderer.forestMech.shown },
         /** Task 43: the knight — plate pips, «Рывок» lanes and «Размах» circles drawn in the frame; the sheds and swing hits seen. */
         knight: { ...renderer.knightShown },
         /**
@@ -2197,8 +2201,8 @@ async function boot(): Promise<void> {
     setParam: (key: ParamKey, value: unknown) => command({ t: 'param', key, value }),
     /** Test setup: remove every enemy (except the marked ones with `keepMarked`), marker and queued newcomer. */
     clear: (keepMarked = false) => command({ t: 'clear', keepMarked }),
-    /** Test setup: put an enemy of `color` with `hp` (and `kind`) at an arena point; returns its id. */
-    place: (x: number, y: number, color: number, hp = 0, kind: EnemyKind = 'basic', elite: boolean | 'random' = false, affixes?: string[]) => command({ t: 'place', x, y, color, hp, kind, ...elite ? { elite } : {}, ...elite && affixes ? { affixes } : {} }),
+    /** Test setup: put an enemy of `color` with `hp` (and `kind`) at an arena point; returns its id. `formation` — task 57б: a rootlings' group. */
+    place: (x: number, y: number, color: number, hp = 0, kind: EnemyKind = 'basic', elite: boolean | 'random' = false, affixes?: string[], formation?: number) => command({ t: 'place', x, y, color, hp, kind, ...elite ? { elite } : {}, ...elite && affixes ? { affixes } : {}, ...formation !== undefined ? { formation } : {} }),
     /** Test setup: move the hero. */
     teleport: (x: number, y: number) => command({ t: 'teleport', x, y }),
     /** The press ring of an enemy (`pickRadius`: the sim's number; the tests aim the pointer by it), null — no such enemy. */
