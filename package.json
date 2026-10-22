@@ -143,6 +143,7 @@
     "test:realtime-forest-tricks-run": "tsx src/realtime/run/forestTricksRun.spec.ts",
     "test:realtime-forest-centipede": "tsx src/realtime/sim/forestCentipede.spec.ts",
     "test:realtime-castle": "tsx src/realtime/sim/castle.spec.ts",
+    "test:realtime-castle-guests": "tsx src/realtime/sim/castleGuests.spec.ts",
     "test:realtime-warlock": "tsx src/realtime/sim/warlock.spec.ts",
     "test:realtime-warlock-v1": "tsx src/realtime/sim/warlockV1.spec.ts",
     "test:realtime-castle-view": "tsx src/realtime/view/castleView.spec.ts",

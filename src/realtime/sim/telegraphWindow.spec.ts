@@ -39,6 +39,11 @@ import { ROOTLING } from './enemies/rootling';
 import { SLIME } from './enemies/slime';
 import { FIREBRAND } from './enemies/firebrand';
 import { CENTIPEDE, CENTI_LANE_WIDTH, CENTI_LUNGE_WINDUP } from './enemies/centipede';
+import {
+  BALL_RADIUS, BUTLER, CANDELABRA, CANDELABRA_LIGHT, CANDELABRA_TURN, CHANDELIER_DROP_RADIUS, CHANDELIER_DROP_TIME, CHANDELIER_FALL_RADIUS, CHANDELIER_FALL_TIME,
+  CROSS_FIRES, FIRE_RADIUS, FIRE_STEP, JESTER, JESTER_BALL, JESTER_BALL_STEP, JESTER_CATCHES, JESTER_NEAR_THROW, POLTERGEIST, POLTERGEIST_FLIGHT, POLTERGEIST_MARK,
+  QUEEN, QUEEN_WINDUP, SHORT_WINDUP, STAR_HANG, STAR_RADIUS,
+} from './enemies/castleGuests';
 import { registerArena, registeredArenas, type ArenaTemplate } from './arenas';
 import './arenasStep3';
 import { defaultParams, enemyBodyRadius, heroRadius, type Params } from './params';
@@ -137,6 +142,21 @@ const THREATS: readonly Threat[] = [
   { id: 'warlock-orbs-ring', source: WARLOCK_ORB, move: 'orbs', title: 'Колдун: кольцо шаров', window: () => ORB_WINDUP, exit: p => enemyBodyRadius(p) * 0.6 + heroRadius(p) },
   { id: 'warlock-rug', source: WARLOCK, move: 'rug', title: 'Колдун: ковёр дёргает', window: () => RUG_WINDUP, exit: p => Math.max(...(WARLOCK_ARENA.warlock?.rugs ?? []).map(r => Math.min(r.w, r.h) / 2)) + heroRadius(p) },
   { id: 'warlock-flash', source: WARLOCK, move: 'flash', title: 'Колдун: вспышка посоха', window: () => SHIFT_SIGN + FLASH_WINDUP, exit: p => FLASH_RADIUS + heroRadius(p) - RUNE_RADIUS },
+  // Task 60а «Замок: гости» (spec 4.3, 5.4, 6.4, 7.3, 8.4; the sandbox's values — the guests are no run's yet, task 60б). The cross's
+  // lighting — the hero on a ray, out sideways (its spin is checked below: the ray's end is slower than the hero); the queen's star — its
+  // windup and hang, out sideways from a line; the wax drop and the chandelier's fall — out of the circle from its centre; the
+  // poltergeist's mark — its flight alone (the lift 1.0 s before it is extra); the jester's ball — the fastest one (after two catches) at
+  // the nearest throw, its short windup included.
+  { id: 'candelabra-light', source: CANDELABRA, title: 'подсвечник: зажигание креста', window: p => p.candelabraLight ?? CANDELABRA_LIGHT, exit: p => FIRE_RADIUS + heroRadius(p) },
+  { id: 'queen-star', source: QUEEN, title: 'ферзь: звезда', window: p => (p.queenWindup ?? QUEEN_WINDUP) + STAR_HANG, exit: p => STAR_RADIUS + heroRadius(p) },
+  { id: 'wax-drop', source: BUTLER, title: 'люстра дворецкого: капля воска', window: p => p.chandelierDropTime ?? CHANDELIER_DROP_TIME, exit: p => (p.chandelierDropRadius ?? CHANDELIER_DROP_RADIUS) + heroRadius(p) },
+  { id: 'chandelier-fall', source: BUTLER, title: 'люстра дворецкого: падение', window: p => p.chandelierFallTime ?? CHANDELIER_FALL_TIME, exit: p => (p.chandelierFallRadius ?? CHANDELIER_FALL_RADIUS) + heroRadius(p) },
+  { id: 'poltergeist-throw', source: POLTERGEIST, title: 'полтергейст: метание', window: p => p.poltergeistFlight ?? POLTERGEIST_FLIGHT, exit: p => (p.poltergeistMark ?? POLTERGEIST_MARK) + heroRadius(p) },
+  {
+    id: 'jester-ball', source: JESTER, title: 'шут: мяч (третий, с ближней точки)',
+    window: p => SHORT_WINDUP + (p.jesterNear ?? JESTER_NEAR_THROW) / ((p.jesterBall ?? JESTER_BALL) + (p.jesterBallStep ?? JESTER_BALL_STEP) * (p.jesterCatches ?? JESTER_CATCHES)),
+    exit: p => BALL_RADIUS + heroRadius(p),
+  },
 ];
 
 /** Task 27: the Jailer's moves without a hit on the hero, and why. */
@@ -301,6 +321,16 @@ check("task 57а: the patterns leave a gap — between the slinger's lines at it
   assert(slingFree >= 0 && hiveFree >= 0, `a gap closed (slinger ${slingFree}, hive ${hiveFree})`);
   assert((RUN.wispSpeed ?? WISP_SPEED) < RUN.heroSpeed, `the wisp is slower than the hero (${RUN.wispSpeed} < ${RUN.heroSpeed})`);
   assert(round2(RUN.markerDelay + WISP_LIGHT) === 1.6, `marker + lighting ${RUN.markerDelay + WISP_LIGHT}`);
+});
+
+check("task 60а: the candelabra's spin — the end of a ray is slower than the hero; by its body the gap at 45° lets his body pass (spec 4.3)", () => {
+  const r = heroRadius(SANDBOX), turn = (SANDBOX.candelabraTurn ?? CANDELABRA_TURN) * Math.PI / 180, end = CROSS_FIRES * FIRE_STEP * turn;
+  // The spec's point by the body (4.3: 0.65 from its centre, the thing's body + the hero's is 0.6): the half gap between two rays
+  // (45° off each) there is d sin 45°.
+  const near = 0.65, gap = near * Math.sin(Math.PI / 4) - (FIRE_RADIUS + r);
+  console.log(`   подсвечник: конец луча ${round2(end)} ед./с при герое ${SANDBOX.heroSpeed}; у тела (${round2(near)}) запас до огня ${round2(gap)} ед.`);
+  assert(end < SANDBOX.heroSpeed, `the ray's end ${end} is not slower than the hero`);
+  assert(near >= enemyBodyRadius(SANDBOX) + r && gap >= 0, `by its body the hero's body does not fit the gap (${round2(gap)})`);
 });
 
 check('coverage: every registered enemy kind is a source of the table or listed outside it with a reason; no entry for a kind that does not exist', () => {
