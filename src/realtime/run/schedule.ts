@@ -37,12 +37,18 @@ export const SCHEDULE_ELEMENTS: readonly string[] = [...SCHEDULE_KINDS, 'elite',
  * history accepts their ids always (`isScheduleElement`: a profile's history from a run with the flag).
  */
 export const SCHEDULE_SHOOTER_KINDS: readonly string[] = ['slinger', 'hive', 'wisp'];
-/** The special kinds of a run (`shooters` — the flag `forestShooters`). */
-export const scheduleKinds = (shooters = false): readonly string[] => (shooters ? [...SCHEDULE_KINDS, ...SCHEDULE_SHOOTER_KINDS] : SCHEDULE_KINDS);
+/**
+ * Task 57б «Лес: механики» (level design 22.10.2026, spec 10.2): the rootling, the slime and the firebrand — special kinds of a run with the
+ * flag `forestTricks` (only with `forestShooters`); the centipede joins with step 57б-2. The history accepts their ids always.
+ */
+export const SCHEDULE_TRICK_KINDS: readonly string[] = ['rootling', 'slime', 'firebrand'];
+/** The special kinds of a run (`shooters` — the flag `forestShooters`, `tricks` — `forestTricks`, only with it). */
+export const scheduleKinds = (shooters = false, tricks = false): readonly string[] =>
+  (shooters ? (tricks ? [...SCHEDULE_KINDS, ...SCHEDULE_SHOOTER_KINDS, ...SCHEDULE_TRICK_KINDS] : [...SCHEDULE_KINDS, ...SCHEDULE_SHOOTER_KINDS]) : SCHEDULE_KINDS);
 export const affixElement = (id: string): string => `affix:${id}`;
-/** A valid id of the history (an element, a new shooter of task 57а, or an affix type). */
+/** A valid id of the history (an element, a new kind of task 57, or an affix type). */
 export const isScheduleElement = (id: unknown): id is string =>
-  typeof id === 'string' && (SCHEDULE_ELEMENTS.includes(id) || SCHEDULE_SHOOTER_KINDS.includes(id) || (id.startsWith('affix:') && (AFFIX_IDS as readonly string[]).includes(id.slice(6))));
+  typeof id === 'string' && (SCHEDULE_ELEMENTS.includes(id) || SCHEDULE_SHOOTER_KINDS.includes(id) || SCHEDULE_TRICK_KINDS.includes(id) || (id.startsWith('affix:') && (AFFIX_IDS as readonly string[]).includes(id.slice(6))));
 
 /** The salt of the node's roll (a constant: changing it changes every scheduled run). */
 export const SCHEDULE_SALT = [...'rt-schedule'].reduce((hash, ch) => Math.imul(hash ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5);
@@ -76,8 +82,20 @@ export const SCHEDULE_ARCS: readonly Arc[] = [
 export const SCHEDULE_SHOOTER_ARCS: readonly Arc[] = [
   { id: 'slinger', needs: ['archer'], minRow: 3, maxRow: 5 }, { id: 'hive', needs: ['slinger'], minRow: 4, maxRow: 6 }, { id: 'wisp', needs: ['water'], minRow: 3, maxRow: 5 },
 ];
-/** The arcs of a run (`shooters` — the flag `forestShooters`). */
-export const scheduleArcs = (shooters = false): readonly Arc[] => (shooters ? [...SCHEDULE_ARCS, ...SCHEDULE_SHOOTER_ARCS] : SCHEDULE_ARCS);
+/**
+ * Task 57б (level design 22.10.2026, spec 10.2): the arcs of the forest's mechanics, after the shooters' — the rootling from run row 2
+ * (needs nothing), the slime after the water from row 3, the firebrand after the braziers from row 3. The first meeting no later than
+ * its first row + 2 (design 21.10.2026, the rule of every arc of task 57 — an acceptance condition of 57б): `maxRow` 4, 5, 5 (the
+ * spec's table lists the rootling under row 5 — asked to design 22.10.2026; the formula's 4 until the answer). Only a run with the flag
+ * `forestTricks` (`scheduleArcs`).
+ */
+export const SCHEDULE_TRICK_ARCS: readonly Arc[] = [
+  { id: 'rootling', needs: ['water'], minRow: 2, maxRow: 4 }, { id: 'slime', needs: ['water'], minRow: 3, maxRow: 5 }, { id: 'firebrand', needs: ['brazier', 'water'], minRow: 3, maxRow: 5 },
+];
+/** The arcs of task 57 of a run (the shooters', then the mechanics' with `tricks`): the «new» side of the alternation. */
+const freshArcs = (tricks = false): readonly Arc[] => (tricks ? [...SCHEDULE_SHOOTER_ARCS, ...SCHEDULE_TRICK_ARCS] : SCHEDULE_SHOOTER_ARCS);
+/** The arcs of a run (`shooters` — the flag `forestShooters`, `tricks` — `forestTricks`). */
+export const scheduleArcs = (shooters = false, tricks = false): readonly Arc[] => (shooters ? [...SCHEDULE_ARCS, ...freshArcs(tricks)] : SCHEDULE_ARCS);
 /** The first arc: the first fight of the run on run row 1 — «Поляна» with only basic enemies (the goblin's bust, its lesson in the prologue's room 8). */
 export const BUST_ARC = 'bust';
 /** The hard node's own arc: «Застава» (its chest). */
@@ -101,6 +119,9 @@ export const SCHEDULE_TEACH: Readonly<Record<string, { arena: string; roster?: s
   // Task 57а (level design 20.10.2026): the new shooters' own arenas («Осыпь», «Пасека»; the hive alone — no partner on its first
   // meeting) and the wisp's roster on «Излучина» (wisps over the water).
   slinger: { arena: 'f-scree', partner: true }, hive: { arena: 'f-apiary', partner: false }, wisp: { arena: 'p-river', roster: 'wisps', partner: false },
+  // Task 57б (level design 22.10.2026): the rootlings' roster on «Прогалина» (a group of 4), the slime's own arena «Трясина», the
+  // firebrands' roster on «Жаровни» — each alone on its first meeting (the known element is the field: the water, the braziers).
+  rootling: { arena: 'p-yard', roster: 'rootlings', partner: false }, slime: { arena: 'f-bog', partner: false }, firebrand: { arena: 'p-braziers', roster: 'firebrands', partner: false },
 };
 /**
  * The practice arenas: a fight of known elements only — an arena is open when all its `own` elements are met (its other kinds
@@ -119,10 +140,18 @@ export const SCHEDULE_PRACTICE: readonly { arena: string; own: readonly string[]
 export const SCHEDULE_SHOOTER_PRACTICE: readonly { arena: string; own: readonly string[]; minRow?: number }[] = [
   { arena: 'f-scree', own: ['slinger'] }, { arena: 'f-apiary', own: ['hive', 'slinger'], minRow: 5 },
 ];
-/** The practice arenas of a run (`shooters` — the flag `forestShooters`). */
-const schedulePractice = (shooters = false) => (shooters ? [...SCHEDULE_PRACTICE, ...SCHEDULE_SHOOTER_PRACTICE] : SCHEDULE_PRACTICE);
+/**
+ * Task 57б: the practice arena of the slime — a run with the flag `forestTricks` only. The rootling and the firebrand practise as partner
+ * roles of known fights (`partnerRoster`: «+корневики», «+головешки» where braziers stand).
+ */
+export const SCHEDULE_TRICK_PRACTICE: readonly { arena: string; own: readonly string[]; minRow?: number }[] = [
+  { arena: 'f-bog', own: ['slime', 'water'] },
+];
+/** The practice arenas of a run (`shooters` — the flag `forestShooters`, `tricks` — `forestTricks`). */
+const schedulePractice = (shooters = false, tricks = false) =>
+  (shooters ? (tricks ? [...SCHEDULE_PRACTICE, ...SCHEDULE_SHOOTER_PRACTICE, ...SCHEDULE_TRICK_PRACTICE] : [...SCHEDULE_PRACTICE, ...SCHEDULE_SHOOTER_PRACTICE]) : SCHEDULE_PRACTICE);
 /** Every arena the schedule may put in a fight (the run's saves name only these and the pools' ones). */
-export const SCHEDULE_RUN_ARENAS: readonly string[] = [...new Set([...SCHEDULE_PRACTICE.map(p => p.arena), ...SCHEDULE_SHOOTER_PRACTICE.map(p => p.arena), ...Object.values(SCHEDULE_TEACH).map(t => t.arena), HARD_ARENA, FINAL_ARENA])];
+export const SCHEDULE_RUN_ARENAS: readonly string[] = [...new Set([...SCHEDULE_PRACTICE.map(p => p.arena), ...SCHEDULE_SHOOTER_PRACTICE.map(p => p.arena), ...SCHEDULE_TRICK_PRACTICE.map(p => p.arena), ...Object.values(SCHEDULE_TEACH).map(t => t.arena), HARD_ARENA, FINAL_ARENA])];
 /** The window of repeats of the practice fights: not one of the last 2 arenas, while another fits. */
 export const SCHEDULE_REPEAT_WINDOW = 2;
 /** В-1: special kinds on a fight at most — run rows 1–5: 2, rows 6–9: 3 (the partner role is added only below it). */
@@ -161,23 +190,28 @@ export interface ScheduleContext {
   alternate?: boolean;
   /** Task 57а: the arcs of the run's fights before this one, in order (`alternate` reads the last). */
   arcs?: readonly string[];
+  /**
+   * Task 57б: the run has the flag `forestTricks` (only with `shooters`) — the forest's mechanics' kinds, arcs and practice; their arcs
+   * join the new side of the alternation. Absent — the schedule of the shooters as before.
+   */
+  tricks?: boolean;
 }
 
 /** The elite arcs need a guaranteed elite: not on the Jailer's node (it has none). Task 28 gives the Jailer's node its own arc (`jailerPlan`). */
 const takesEliteArc = (node: ScheduleNode): boolean => node === 'battle' || node === 'event' || node === 'breakthrough' || node === 'hard';
 /** The first arc ready for this fight (null — none: a practice fight). The Jailer's fight of task 28 has its own (`jailerPlan`). */
-export function readyArc(ctx: Pick<ScheduleContext, 'node' | 'row' | 'fight' | 'met' | 'shooters' | 'alternate' | 'arcs'>): string | null {
+export function readyArc(ctx: Pick<ScheduleContext, 'node' | 'row' | 'fight' | 'met' | 'shooters' | 'alternate' | 'arcs' | 'tricks'>): string | null {
   const ready = (a: Arc): boolean => !ctx.met.has(a.id) && (a.needs ?? []).every(n => ctx.met.has(n)) && ctx.row >= (a.minRow ?? 0) && ctx.row <= (a.maxRow ?? Infinity) && ctx.fight >= (a.minFight ?? 0)
     && (!ELITE_ARCS.includes(a.id) || takesEliteArc(ctx.node));
   // Task 57а (review 21.10.2026): the alternation only among the arcs the node teaches — a hard node teaches only the elite's arc
   // (`schedulePlan`: «Застава» or practice), so there the first ready arc of the list as before (the turn does not move).
-  if (!ctx.alternate || !ctx.shooters || ctx.node === 'hard') return scheduleArcs(ctx.shooters).find(ready)?.id ?? null;
+  if (!ctx.alternate || !ctx.shooters || ctx.node === 'hard') return scheduleArcs(ctx.shooters, ctx.tricks).find(ready)?.id ?? null;
   // Task 57а (design 21.10.2026): both ready — the new shooters' arc when the run's last arc fight was an old one, else the old one
-  // (the bust counts as old: it is the first fight's).
-  const old = SCHEDULE_ARCS.find(ready), fresh = SCHEDULE_SHOOTER_ARCS.find(ready);
+  // (the bust counts as old: it is the first fight's). Task 57б: the mechanics' arcs are new ones too (after the shooters' in the list).
+  const freshList = freshArcs(ctx.tricks), old = SCHEDULE_ARCS.find(ready), fresh = freshList.find(ready);
   if (!old || !fresh) return (old ?? fresh)?.id ?? null;
-  const last = [...ctx.arcs ?? []].reverse().find(id => id === BUST_ARC || SCHEDULE_ARCS.some(a => a.id === id) || SCHEDULE_SHOOTER_ARCS.some(a => a.id === id));
-  return last !== undefined && !SCHEDULE_SHOOTER_ARCS.some(a => a.id === last) ? fresh.id : old.id;
+  const last = [...ctx.arcs ?? []].reverse().find(id => id === BUST_ARC || SCHEDULE_ARCS.some(a => a.id === id) || freshList.some(a => a.id === id));
+  return last !== undefined && !freshList.some(a => a.id === last) ? fresh.id : old.id;
 }
 
 /** The plan of a fight (see the module's comment). */
@@ -195,7 +229,7 @@ export function schedulePlan(ctx: ScheduleContext): SchedulePlan {
   const arc = readyArc(ctx);
   const teach = arc ? SCHEDULE_TEACH[arc] : undefined;
   if (arc && teach) {
-    const roster = teach.roster ?? (teach.partner && !FIXED_ROSTER_ARENAS.includes(teach.arena) ? partnerRoster(teach.arena, ctx.met, ctx.row, roll, arc, ctx.shooters) : undefined);
+    const roster = teach.roster ?? (teach.partner && !FIXED_ROSTER_ARENAS.includes(teach.arena) ? partnerRoster(teach.arena, ctx.met, ctx.row, roll, arc, ctx.shooters, ctx.tricks) : undefined);
     return { arena: teach.arena, ...roster !== undefined ? { roster } : {}, arc };
   }
   return practice(ctx, roll, arc);
@@ -214,16 +248,21 @@ export const jailerWithout = (met: ReadonlySet<string>): string[] => (met.has('s
 
 /** A practice fight (`arc` — an elite arc taught on it, or null): an open arena, not one of the last two while another fits. */
 function practice(ctx: ScheduleContext, roll: number, arc: string | null): SchedulePlan {
-  const fit = schedulePractice(ctx.shooters).filter(p => p.own.every(o => ctx.met.has(o)) && ctx.row >= (p.minRow ?? 0));
+  const fit = schedulePractice(ctx.shooters, ctx.tricks).filter(p => p.own.every(o => ctx.met.has(o)) && ctx.row >= (p.minRow ?? 0));
   const recent = ctx.recent.slice(-SCHEDULE_REPEAT_WINDOW);
   const fresh = fit.filter(p => !recent.includes(p.arena)), list = fresh.length ? fresh : fit;
   const arena = list[mixSeed(roll, 1) % list.length].arena;
-  const roster = FIXED_ROSTER_ARENAS.includes(arena) ? undefined : partnerRoster(arena, ctx.met, ctx.row, mixSeed(roll, 2), arc, ctx.shooters);
+  const roster = FIXED_ROSTER_ARENAS.includes(arena) ? undefined : partnerRoster(arena, ctx.met, ctx.row, mixSeed(roll, 2), arc, ctx.shooters, ctx.tricks);
   return { arena, ...roster !== undefined ? { roster } : {}, arc };
 }
 
 /** Task 57а: a kind's role for the partner rule — its `KIND_ROLE`; the wisp (no role badge) counts as a shooter. */
 const partnerRole = (kind: string): string => KIND_ROLE[kind] ?? (kind === 'wisp' ? 'shooter' : kind);
+
+/** Task 57б: the arena has braziers (an unknown arena — none). */
+function hasBraziers(arena: string): boolean {
+  try { return !!arenaTemplate(arena).braziers?.length; } catch { return false; }
+}
 
 /**
  * A known partner (proposal: «новинка рядом со знакомым»): a met special kind of another role than the kinds that stand on the
@@ -232,13 +271,14 @@ const partnerRole = (kind: string): string => KIND_ROLE[kind] ?? (kind === 'wisp
  * the arena brings (its newcomers, start enemies and the wolf and boar shares of its pace) that are met, or the arc's own (review
  * 15.10.2026: the shares count — «Двор кнопок» with wolves and boars and one more role made three).
  */
-export function partnerRoster(arena: string, met: ReadonlySet<string>, row: number, roll: number, arc: string | null = null, shooters = false): string | undefined {
-  const kinds = scheduleKinds(shooters), brought = arenaKinds(arena), own = kinds.filter(kind => brought.has(kind) && (met.has(kind) || kind === arc));
+export function partnerRoster(arena: string, met: ReadonlySet<string>, row: number, roll: number, arc: string | null = null, shooters = false, tricks = false): string | undefined {
+  const kinds = scheduleKinds(shooters, tricks), brought = arenaKinds(arena), own = kinds.filter(kind => brought.has(kind) && (met.has(kind) || kind === arc));
   if (own.length >= scheduleKindCap(row)) return undefined;
   const roles = new Set(own.map(partnerRole));
   // Task 57а: the wisp has no role badge but partners as a shooter (no two shooters as partners); the hive comes on its own arena only
   // (its points are the template's).
-  const candidates = kinds.filter(kind => met.has(kind) && !own.includes(kind) && !roles.has(partnerRole(kind)) && kind !== 'hive');
+  // Task 57б: the firebrand partners only where braziers stand (her lesson: she runs to one to burn again; spec 6.4).
+  const candidates = kinds.filter(kind => met.has(kind) && !own.includes(kind) && !roles.has(partnerRole(kind)) && kind !== 'hive' && (kind !== 'firebrand' || hasBraziers(arena)));
   if (!candidates.length) return undefined;
   const kind = candidates[roll % candidates.length];
   if (['buttons', 'marked', 'glade'].includes(arena)) {
@@ -272,8 +312,8 @@ export function arenaElements(arena: string, markedGoals: boolean): string[] {
  * kinds that stood on it, `elite` when an elite stood on it, `affix` and `affix:<id>` for the affixes seen on elites, the bust
  * when it was the fight of the bust arc (design 15.10.2026: counted when that fight is played) and the bag when the fight had one.
  */
-export function fightElements(fight: { arena: string; markedGoals: boolean; arc: string | null; kinds?: readonly string[]; elite?: boolean; affixes?: readonly string[]; bag: boolean; shooters?: boolean }): string[] {
-  const out = new Set(arenaElements(fight.arena, fight.markedGoals)), kinds = scheduleKinds(fight.shooters);
+export function fightElements(fight: { arena: string; markedGoals: boolean; arc: string | null; kinds?: readonly string[]; elite?: boolean; affixes?: readonly string[]; bag: boolean; shooters?: boolean; tricks?: boolean }): string[] {
+  const out = new Set(arenaElements(fight.arena, fight.markedGoals)), kinds = scheduleKinds(fight.shooters, fight.tricks);
   for (const kind of fight.kinds ?? []) if (kinds.includes(kind)) out.add(kind);
   if (fight.elite) out.add('elite');
   for (const id of fight.affixes ?? []) if ((AFFIX_IDS as readonly string[]).includes(id)) { out.add('affix'); out.add(affixElement(id)); }
@@ -286,9 +326,9 @@ export function fightElements(fight: { arena: string; markedGoals: boolean; arc:
  * The special kinds a fight's arena may bring that are not met — the run takes them out (`Loadout.withoutKinds`); the arc's own
  * kind stays. Sorted.
  */
-export function unmetKinds(arena: string, roster: string | undefined, met: ReadonlySet<string>, arc: string | null, shooters = false): string[] {
+export function unmetKinds(arena: string, roster: string | undefined, met: ReadonlySet<string>, arc: string | null, shooters = false, tricks = false): string[] {
   const kinds = arenaKinds(arena, roster);
-  return scheduleKinds(shooters).filter(kind => kinds.has(kind) && !met.has(kind) && kind !== arc);
+  return scheduleKinds(shooters, tricks).filter(kind => kinds.has(kind) && !met.has(kind) && kind !== arc);
 }
 
 /**

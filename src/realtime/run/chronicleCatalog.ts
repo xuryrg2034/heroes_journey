@@ -20,7 +20,7 @@ import { scheduleKinds } from './schedule';
 import { GARRISON_FINAL_ARENA, RT_GARRISON_STEP3_ON } from './garrison';
 import { RT_FORMS, RT_FUSIONS, RT_OPENERS, RT_RELICS, RT_TALISMANS } from './rtTalismans';
 import { RT_HERO_IDS, type RtHearthNpc, type RtHeroId } from './metaCatalog';
-import { RT_ASH_MAX, RT_FOREST_SHOOTERS_ON } from './rtRun';
+import { RT_ASH_MAX, RT_FOREST_SHOOTERS_ON, RT_FOREST_TRICKS_ON } from './rtRun';
 
 /** The six pages, in the book's order (the view's tabs). */
 export type RtChroniclePageId = 'bestiary' | 'bosses' | 'events' | 'items' | 'heroes' | 'hearth';
@@ -31,9 +31,10 @@ export const RT_CHRONICLE_LEVELS: readonly number[] = [1, 2];
 /**
  * Bestiary: the forest's kinds — the schedule's special kinds the run of this build may give (the weak enemy has no caption — no entry):
  * task 57а (design 21.10.2026) — the same source as the schedule, `scheduleKinds(shooters)`: with the flag `forestShooters` on
- * (`RT_FOREST_SHOOTERS_ON`) the slinger, the hive and the wisp join the chapter by themselves (8 → 11 entries).
+ * (`RT_FOREST_SHOOTERS_ON`) the slinger, the hive and the wisp join the chapter by themselves (8 → 11 entries); task 57б — with the flag
+ * `forestTricks` on as well (`RT_FOREST_TRICKS_ON`) the rootling, the slime and the firebrand (11 → 14).
  */
-export const chronicleForestKinds = (shooters: boolean = RT_FOREST_SHOOTERS_ON): readonly string[] => [...scheduleKinds(shooters)];
+export const chronicleForestKinds = (shooters: boolean = RT_FOREST_SHOOTERS_ON, tricks: boolean = RT_FOREST_TRICKS_ON): readonly string[] => [...scheduleKinds(shooters, tricks)];
 export const RT_CHRONICLE_FOREST_KINDS: readonly string[] = chronicleForestKinds();
 /**
  * Task 59б (spec 10; review 21.10.2026 — only what this build gives): the garrison’s kinds — with the flag of step 3 (`RT_GARRISON_STEP3_ON`)
@@ -45,7 +46,7 @@ export const RT_CHRONICLE_GARRISON_KINDS: readonly string[] = chronicleGarrisonK
  * Every kind with an entry (what `chronicleMeet` keeps): the forest’s of either value of the flag (task 57а: a shooter met in a run with
  * `forestShooters` stays in the profile whatever this build’s flag says) and the garrison’s of either value of step 3’s flag (task 59б).
  */
-export const RT_CHRONICLE_KINDS: readonly string[] = [...scheduleKinds(true), ...chronicleGarrisonKinds(true)];
+export const RT_CHRONICLE_KINDS: readonly string[] = [...scheduleKinds(true, true), ...chronicleGarrisonKinds(true)];
 export const RT_CHRONICLE_AFFIXES: readonly string[] = AFFIX_IDS;
 
 /** The bosses of this build: the level of each, the arenas of its fight (a won fight there — «побеждён»). */

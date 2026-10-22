@@ -27,6 +27,8 @@ import './arenasBoss';
 import './arenasGarrison';
 // Task 57а: the sandbox arena of the forest shooters registers on import too.
 import './arenasShooters';
+// Task 57б: the arenas of the forest's mechanics («Механики леса (проба)», «Трясина», «Бурелом») register on import too.
+import './arenasTricks';
 // Task 55а: the castle's arenas of step 1а register on import too.
 import './arenasCastle';
 // Task 59а: the probes of the garrison's step 3 (sandbox) register on import too.

@@ -202,8 +202,9 @@ check(`roster mix, ${RUNS} runs: «Застава» and «Брод» keep their 
   // «Шаманский щит» is the recorded exception (design 11.10.2026): with «Логово» on rows 6–8 the shaman is met too late for
   // «Застава» (never on «Брод»), so it almost never comes — not required here.
   console.log(`   runs with each pool roster: ${POOL_ROSTERS.map(def => `${def.id} ${runsWith.get(def.id) ?? 0}`).join(', ')}`);
-  // Task 57а: «Светляки» (`wisps`) is the schedule's lesson of the wisp in a run with `forestShooters` — never in these pool runs.
-  for (const def of POOL_ROSTERS) if (def.id !== 'shaman-shield' && def.id !== 'wisps') assert((runsWith.get(def.id) ?? 0) > 0, `${def.id}: in no run`);
+  // Task 57а: «Светляки» (`wisps`) is the schedule's lesson of the wisp in a run with `forestShooters` — never in these pool runs. Task 57б:
+  // «Корневики» and «Головешки» are the schedule's lessons of a run with `forestTricks` likewise.
+  for (const def of POOL_ROSTERS) if (!['shaman-shield', 'wisps', 'rootlings', 'firebrands'].includes(def.id)) assert((runsWith.get(def.id) ?? 0) > 0, `${def.id}: in no run`);
 });
 
 check(`roster mix off: the arenas and rosters of ${RUNS} runs are those before 11.10.2026 (the fingerprint of the walks at 99af5fb), «Застава» and «Брод» keep their own composition`, () => {
