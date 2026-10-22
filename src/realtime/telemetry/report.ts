@@ -273,12 +273,16 @@ const SOURCE_TITLES: Record<string, string> = {
   warlock: 'касание Колдуна', 'castellan-crossbow': 'касание арбалета Кастеляна',
   // Task 54: the Chief's moves (his and his parts' touches come as `touch` — «касание»); task 56: the omen «Гроза».
   'chief-ladle': '«Взмах половником»', 'chief-pepper': '«Горсть перца»', storm: 'удар грозы',
+  // Task 57б-2: the centipede's «Рывок» and its touch.
+  'centipede-lunge': 'рывок сороконожки', centipede: 'касание сороконожки',
   // Task 55а: the castle's moves and the rook's touch; the shove's kills (the player's).
   'wardrobe-topple': '«Падение шкафа»', 'rook-strike': '«Удар ладьи»', rook: 'касание ладьи', shove: 'толчок',
 };
 const THREAT_TITLES: Record<string, string> = {
   // Task 57а «Лес: стрелки».
   sling: 'веер пращника', hive: 'кольцо улья', wisp: 'светляк',
+  // Task 57б-2.
+  'centipede-lunge': 'рывок сороконожки',
   archer: 'метка лучника', boar: 'полоса кабана', wolf: 'бросок стаи волков', lynx: 'прыжок рыси', sapper: 'фитиль и взрыв сапёра', 'sapper-instant': 'взрыв сапёра без предупреждения',
   flail: 'кистень Тюремщика', throw: 'бросок гири Тюремщика',
   // Task 43: the law of the crossbow (the crossbowman, the Castellan's crossbow).

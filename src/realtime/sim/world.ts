@@ -58,6 +58,8 @@ import { FOREST_VOLLEY_GAP, updateShots, type Shot, type ShotKind } from './shot
 // Task 57б «Лес: механики»: the rootling's stumps and its credit, the firebrand's fire.
 import { ROOTLING, lieDown, settleStumps, updateStumps, type Stump } from './enemies/rootling';
 import { FIREBRAND, brandFire, brandLit, douse, fireSource } from './enemies/firebrand';
+// Task 57б-2 «Сороконожка»: the breaks of the bodies settle after the pass.
+import { settleCentipedes } from './enemies/centipede';
 
 /**
  * Id of a registered enemy kind (enemies/*): prototype kinds `basic`, `wolf` (fast, hits harder next to other wolves),
@@ -704,7 +706,21 @@ export type WorldEvent =
    * Task 57б (enemies/firebrand.ts, «Головешка»): it went out (`out`: a lethal `hit`, the `cold`, `water`) or burns again (`lit`: at a
    * `brazier`, by `fire`). The rules never read it.
    */
-  | { type: 'firebrand'; action: 'out' | 'lit'; id: number; x: number; y: number; why: 'hit' | 'cold' | 'water' | 'brazier' | 'fire'; dropped?: number[]; refusal?: 'afterSurvivor' };
+  | { type: 'firebrand'; action: 'out' | 'lit'; id: number; x: number; y: number; why: 'hit' | 'cold' | 'water' | 'brazier' | 'fire'; dropped?: number[]; refusal?: 'afterSurvivor' }
+  /**
+   * Task 57б-2 (enemies/centipede.ts, «Сороконожка»): the head `id` winds up «Рывок» (`start`: the lane's direction `dx`, `dy`) or its run
+   * ended (`end`: `met` — `hit` the hero, a shield `block`ed it, it `pass`ed him during his move; absent — a wall or the lane's end).
+   */
+  | { type: 'centipede'; action: 'lunge'; stage: 'start' | 'end'; id: number; x: number; y: number; dx?: number; dy?: number; met?: 'hit' | 'block' | 'pass' }
+  /**
+   * Task 57б-2: a body divided (`split`: the part `id` is the head of the piece behind the break, `front` — the head of the piece ahead) or
+   * a piece whose head died got one (`head`); `cut` — the killed part at the break, `x`, `y` — its place; the new head is stunned `stun` s.
+   */
+  | { type: 'centipede'; action: 'split' | 'head'; id: number; front?: number; cut: number; x: number; y: number; stun: number }
+  /** Task 57б-2: a division past the bodies' cap — the piece behind closed up to the part `front` ahead of the break (no new head). */
+  | { type: 'centipede'; action: 'join'; id: number; front: number; x: number; y: number }
+  /** Task 57б-2: a part has been farther than 1.2 behind the part ahead for 2 s (the measure of the rope; the rules never read it). */
+  | { type: 'centipede'; action: 'stuck'; id: number; x: number; y: number };
 
 export interface World {
   arena: ArenaTemplate;
@@ -2037,7 +2053,12 @@ function separate(world: World): Map<Enemy, Enemy> | null {
         // Overlap split by mass: the charging boar barely yields, the crowd gets shoved aside.
         const ma = kindOf(a).mass(world, a), mb = kindOf(b).mass(world, b), overlap = min - d;
         // Task 48: a solid body never yields (the other takes the whole overlap; two solid ones stay as they are).
-        const sa = solidBody(world, a) || crowd[i] === 'anchored', sb = solidBody(world, b) || crowd[j] === 'anchored';
+        let sa = solidBody(world, a) || crowd[i] === 'anchored', sb = solidBody(world, b) || crowd[j] === 'anchored';
+        // Task 57б-2 (`EnemyBehavior.pairWith`): two anchored bodies of one behaviour may part as ordinary ones (two centipedes).
+        if (crowd[i] === 'anchored' && crowd[j] === 'anchored') {
+          const bh = behaviorOf(a);
+          if (bh === behaviorOf(b) && bh.pairWith?.(world, a, b) === 'apart') { sa = solidBody(world, a); sb = solidBody(world, b); }
+        }
         if (sa && sb) continue;
         const pa = sa ? 0 : sb ? overlap : overlap * mb / (ma + mb), pb = sb ? 0 : sa ? overlap : overlap * ma / (ma + mb);
         a.x -= dx * pa; a.y -= dy * pa; b.x += dx * pb; b.y += dy * pb;
@@ -2305,6 +2326,9 @@ export function update(world: World, dt: number, realDt = dt): void {
   contactDamage(world, dt);
   // The prologue: the start enemies' return (only on an arena with `restore`).
   if (!restoreFirst && world.restore && world.status === 'playing') updateRestore(world, world.restore);
+  // Task 57б-2 «Сороконожка»: the breaks of the pass settle once no move runs — after the dash's end, its seal and blast and the fire
+  // hammer's first burn in this tick (the highlight's whole pass); nothing without a break waiting.
+  settleCentipedes(world);
   // Task 16 «Подвиги» (feat.ts): the feat is latched at the end of a tick the hero lived through (nothing without a feat).
   featCheck(world);
 }

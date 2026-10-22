@@ -50,6 +50,8 @@ export const RT_KIND_TITLES: Readonly<Record<string, string>> = {
   // Design 22.10.2026 (the guard of runEnd.spec: every body whose touch hurts has a line): task 54's Chief and his parts (task-54,
   // the goal table: «Половник», «Мешок»; the pattern of «дубина Тролля»), task 55's Warlock (a capital: a unique boss).
   chief: 'Главарь', 'chief-ladle': 'половник Главаря', 'chief-sack': 'мешок Главаря', warlock: 'Колдун',
+  // Task 57б-2 «Сороконожка» (its head and parts are one kind).
+  centipede: 'сороконожка',
 };
 
 /**
@@ -85,13 +87,15 @@ export const RT_DEATH_ABILITY: Readonly<Record<string, string>> = {
   // 22.10.2026 (design asked for the report's names; the same hits had no killer line): task 54's Chief's moves (the pattern of
   // «удар дубиной Тролля») and task 56's omen «Гроза» (its strike in the mark hurts the hero too).
   'chief-ladle': 'взмах половником Главаря', 'chief-pepper': 'горсть перца Главаря', storm: 'удар грозы',
+  // Task 57б-2 (spec 6.3, «кто убил»): the centipede's «Рывок» (its touch — «сороконожка»).
+  'centipede-lunge': 'рывок сороконожки',
 };
 /**
  * The touch sources (each kind's `hitSource`): the line names the striker's kind, its elite mark, armour and affixes. Task 40 (design
  * 16.10.2026, spec section 10): the garrison's touches too — the guard, the dog handler, the hound (on its leash or in its frenzy: the
  * same body, «пёс»), the keymaster, the Castellan.
  */
-export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper', 'guard', 'handler', 'hound', 'keymaster', 'castellan', 'crossbow', 'knight', 'rook', 'slinger', 'recruit', 'warden', 'pitcher', 'rootling', 'slime', 'firebrand', 'warlock', 'castellan-crossbow'];
+export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper', 'guard', 'handler', 'hound', 'keymaster', 'castellan', 'crossbow', 'knight', 'rook', 'slinger', 'recruit', 'warden', 'pitcher', 'rootling', 'slime', 'firebrand', 'warlock', 'castellan-crossbow', 'centipede'];
 
 /** Drafts sent to design 12.10.2026 (pending approval). */
 export const RT_RUN_END_TEXT = {

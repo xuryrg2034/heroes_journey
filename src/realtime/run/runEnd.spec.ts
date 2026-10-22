@@ -274,6 +274,20 @@ check('the killer of an ability: an archer\'s arrow; a sapper\'s blast (the sapp
   assert(lines(lostToBlast)[0] === 'Сразил: взрыв сапёра', lines(lostToBlast)[0]);
 });
 
+check('task 57б-2: a death by «Рывок» of the centipede — «Сразил: рывок сороконожки» (a real fight: the quiet field, touches off, only its lunges hurt)', () => {
+  const run = newRun(31);
+  const lunged = playFight(run, { chains: [], k: 31, finish: (sim, seen) => {
+    const hero = sim.world.hero;
+    sim.command({ t: 'place', x: hero.x + 3, y: hero.y, color: 0, hp: 1, kind: 'centipede' });
+    ticks(sim, 60 * 300, seen);
+  } });
+  const hits = lunged.events.filter(ev => ev.type === 'hit');
+  assert(lunged.sim.world.status === 'defeat' && hits.length > 0 && hits.every(ev => ev.type === 'hit' && ev.source === 'centipede-lunge'), `only the lunges hit (${lunged.sim.world.status})`);
+  assert(same(lunged.outcome.death, { source: 'centipede-lunge', enemy: 'centipede' }), JSON.stringify(lunged.outcome.death));
+  const lost = ok(resolveArena(run, lunged.outcome), 'lost');
+  assert(lines(lost)[0] === 'Сразил: рывок сороконожки', lines(lost)[0]);
+});
+
 /**
  * The goblin's arrows kill: the hero's HP is set low and the arrows' damage to its highest (journalled `param` commands, clamped
  * by the panel's ranges), bare pulls until the pull is a rain or a volley, then the arrows land (marks over the hero).

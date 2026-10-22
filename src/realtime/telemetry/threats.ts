@@ -45,6 +45,11 @@
  *   touch hurt — hit, a shield took it — shielded, its flight ran out — dodged (the exit time is the flight it survived), the chain or
  *   anything else killed it — interrupted.
  *
+ * - `centipede-lunge` (task 57б-2 «Сороконожка») — the head's «Рывок» from its windup (`centipede` `lunge` `start`) with the hero's body in
+ *   its lane (`centipedeLane`: the whole lane while it winds up, the rest while it runs; half `CENTI_LANE_WIDTH` + the hero's body). A
+ *   `centipede-lunge` hit — hit; the run's end (`lunge` `end`): a shield took it (`met` `block`) or it passed the hero during his move
+ *   (`pass`) — shielded, else dodged; the head died (or became a part) before — interrupted.
+ *
  * - `pot`, `warden-swing` (task 59б «Гарнизон, шаг 3») — the pitcher's pot from its throw (`pot` `throw`) with the hero's body in its mark
  *   (`pitchMarkRadius` + the hero's body round the point fixed at the throw); its landing (`pot` `land`): a `pot` hit — hit, the hero in
  *   the circle unhurt (a dash, a jump, a shield) — shielded, else dodged (the pot lands after its thrower's death too). The angry warden's
@@ -64,6 +69,7 @@ import { LYNX_LEAP, LYNX_STUN, LYNX_WINDUP } from '../sim/enemies/lynx';
 import { inFlail, jailerMove, JAILER } from '../sim/enemies/jailer';
 import { BOLT_HALF } from '../sim/enemies/crossbow';
 import { STONE_RADIUS } from '../sim/enemies/slinger';
+import { CENTI_LANE_WIDTH, CENTI_LUNGE_SOURCE, centipedeLane } from '../sim/enemies/centipede';
 import { HIVE_SPEED, WASP_LIFE, WASP_RADIUS } from '../sim/enemies/hive';
 import { KNIGHT_CHARGE_SOURCE, KNIGHT_LANE_WIDTH, KNIGHT_SWING_SOURCE, knightLane, knightSwing } from '../sim/enemies/garrison';
 import { WARDEN_SWING_SOURCE, wardenSwing } from '../sim/enemies/warden';
@@ -76,8 +82,8 @@ import { enemyFrozen, touchReachOf, type Enemy, type World, type WorldEvent } fr
 import { EventCursor } from './observe';
 import type { ThreatTally } from './schema';
 
-export type ThreatKind = 'archer' | 'boar' | 'wolf' | 'lynx' | 'sapper' | 'sapper-instant' | 'flail' | 'throw' | 'bolt' | 'knight-charge' | 'knight-swing' | 'sling' | 'hive' | 'wisp' | 'pot' | 'warden-swing';
-export const THREAT_KINDS: readonly ThreatKind[] = ['archer', 'boar', 'wolf', 'lynx', 'sapper', 'sapper-instant', 'flail', 'throw', 'bolt', 'knight-charge', 'knight-swing', 'sling', 'hive', 'wisp', 'pot', 'warden-swing'];
+export type ThreatKind = 'archer' | 'boar' | 'wolf' | 'lynx' | 'sapper' | 'sapper-instant' | 'flail' | 'throw' | 'bolt' | 'knight-charge' | 'knight-swing' | 'sling' | 'hive' | 'wisp' | 'pot' | 'warden-swing' | 'centipede-lunge';
+export const THREAT_KINDS: readonly ThreatKind[] = ['archer', 'boar', 'wolf', 'lynx', 'sapper', 'sapper-instant', 'flail', 'throw', 'bolt', 'knight-charge', 'knight-swing', 'sling', 'hive', 'wisp', 'pot', 'warden-swing', 'centipede-lunge'];
 export type ThreatOutcome = 'hit' | 'shielded' | 'dodged' | 'interrupted';
 export type CoverKind = 'wall' | 'cliff';
 
@@ -161,6 +167,9 @@ export class ThreatTracker {
   /** Task 57а: the open volley warnings by the shooter's id — the hit source, and its shots once loosed. */
   private readonly volleyOpen = new Map<number, { o: Open; source: string; shots: Set<number> | null; snuffed: boolean }>();
   private readonly wispOpen = new Map<number, Open>();
+  /** Task 57б-2: this tick's centipede lunges; the open warnings by the head's id. */
+  private centiEvents: Extract<WorldEvent, { type: 'centipede' }>[] = [];
+  private readonly centiOpen = new Map<number, Open>();
   /** Task 59б: this tick's pots and wardens' swings; the open warnings by the pot's and the warden's id. */
   private potEvents: Extract<WorldEvent, { type: 'pot' }>[] = [];
   private wardenEvents: Extract<WorldEvent, { type: 'warden' }>[] = [];
@@ -178,7 +187,7 @@ export class ThreatTracker {
   tick(world: World, realDt: number = SIM_DT): void {
     this.real += realDt;
     this.hits = []; this.kills.clear(); this.blasts = []; this.used.clear(); this.bossStarts = []; this.bossHits = []; this.boltAims = []; this.boltShots = []; this.knightStarts = []; this.knightEnds = [];
-    this.shooterEvents = []; this.shotEnds = []; this.wispEvents = []; this.potEvents = []; this.wardenEvents = [];
+    this.shooterEvents = []; this.shotEnds = []; this.wispEvents = []; this.potEvents = []; this.wardenEvents = []; this.centiEvents = [];
     this.cursor.read(world, ev => {
       if (ev.type === 'hit') this.hits.push({ enemyId: ev.enemyId, source: ev.source });
       else if (ev.type === 'knightMove') { if (ev.stage === 'start') this.knightStarts.push({ id: ev.id, move: ev.move }); else if (ev.stage === 'end' || ev.stage === 'hit') this.knightEnds.push({ id: ev.id, move: ev.move }); }
@@ -191,6 +200,7 @@ export class ThreatTracker {
       else if (ev.type === 'wisp') this.wispEvents.push(ev);
       else if (ev.type === 'pot') this.potEvents.push(ev);
       else if (ev.type === 'warden') this.wardenEvents.push(ev);
+      else if (ev.type === 'centipede') this.centiEvents.push(ev);
     });
     this.enemies = new Map(world.enemies.map(e => [e.id, e]));
     // Exit times first: the strike tick counts too.
@@ -671,6 +681,31 @@ export class ThreatTracker {
       if (zone?.(world)) this.volleyOpen.set(ev.id, { o: this.add(ev.lines ? 'sling' : 'hive', [ev.id], world, zone), source: ev.lines ? 'stone' : 'wasp', shots: null, snuffed: false });
     }
     for (const ev of this.wispEvents) if (ev.action === 'lit') this.wispOpen.set(ev.id, this.add('wisp', [ev.id], world, () => true));
+    this.resolveCentipedes(world);
+  }
+
+  // ---- Task 57б-2: the centipede's «Рывок» ----
+
+  private resolveCentipedes(world: World): void {
+    for (const [id, o] of this.centiOpen) {
+      const done = (outcome: ThreatOutcome, reason?: string): void => { this.centiOpen.delete(id); this.close(o, world, outcome, reason); };
+      if (this.hitBy([id], CENTI_LUNGE_SOURCE)) { done('hit'); continue; }
+      const end = this.centiEvents.find(e => e.action === 'lunge' && e.stage === 'end' && e.id === id);
+      if (end && end.action === 'lunge') { done(end.met === 'block' || end.met === 'pass' ? 'shielded' : 'dodged', end.met === 'pass' ? 'move' : undefined); continue; }
+      if (!this.enemies.has(id)) { done('interrupted', 'dead'); continue; }
+      if (world.status !== 'playing') done('interrupted', 'end');
+    }
+    if (world.status !== 'playing') return;
+    const hr = heroRadius(world.params);
+    for (const ev of this.centiEvents) {
+      if (ev.action !== 'lunge' || ev.stage !== 'start') continue;
+      const id = ev.id;
+      const zone: Open['inZone'] = w => {
+        const k = this.enemies.get(id), lane = k ? centipedeLane(w, k) : null;
+        return k && lane ? rayDistance(k, lane.dx, lane.dy, lane.len, w.hero) <= CENTI_LANE_WIDTH / 2 + hr : null;
+      };
+      if (zone(world)) this.centiOpen.set(id, this.add('centipede-lunge', [id], world, zone));
+    }
   }
 
   // ---- New warnings ----

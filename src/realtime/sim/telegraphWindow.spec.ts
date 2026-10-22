@@ -37,6 +37,7 @@ import { WISP, WISP_LIGHT, WISP_SPEED } from './enemies/wisp';
 import { ROOTLING } from './enemies/rootling';
 import { SLIME } from './enemies/slime';
 import { FIREBRAND } from './enemies/firebrand';
+import { CENTIPEDE, CENTI_LANE_WIDTH, CENTI_LUNGE_WINDUP } from './enemies/centipede';
 import { registerArena, registeredArenas, type ArenaTemplate } from './arenas';
 import './arenasStep3';
 import { defaultParams, heroRadius, type Params } from './params';
@@ -114,6 +115,9 @@ const THREATS: readonly Threat[] = [
   // swell before them is extra.
   { id: 'slinger-stone', source: SLINGER, title: 'пращник: камень', window: p => p.slingWindup ?? SLING_WINDUP, exit: p => STONE_RADIUS + heroRadius(p) },
   { id: 'hive-wasp', source: HIVE, title: 'улей: оса', window: p => WASP_HANG + (HIVE_NEAR - RING_RADIUS) / (p.hiveSpeed ?? HIVE_SPEED), exit: p => WASP_RADIUS + heroRadius(p) },
+  // Task 57б-2 (design 7): the centipede's «Рывок» — the lane fixed at the windup's start, the way out sideways from its axis (half its
+  // width + the hero's body).
+  { id: 'centipede-lunge', source: CENTIPEDE, title: 'сороконожка: рывок', window: p => p.centiLungeWindup ?? CENTI_LUNGE_WINDUP, exit: p => CENTI_LANE_WIDTH / 2 + heroRadius(p) },
   { id: 'troll-tail', source: TROLL_TAIL, move: 'tail', title: 'Тролль: хвост метёт', window: () => TAIL_WINDUP, exit: p => TAIL_OUTER + heroRadius(p) - TAIL_INNER },
   // Task 48, section 25 (`Params.trollMove`): «Рывок» — the lane 1.6 wide from the core through the hero, the way out sideways from its
   // axis; the windup alone (the first ×1.5 and the run to the hero, ≥ 3.5 / 12 s, are extra).

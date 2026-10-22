@@ -546,6 +546,15 @@ export function createFightObserver(start: World): FightObserver {
           return;
         case 'slime': s.forest.merges++; return;
         case 'firebrand': bump(ev.action === 'out' ? s.forest.brands.out : s.forest.brands.lit, ev.why); return;
+        // Task 57б-2 «Сороконожка»: lunges, divisions, new heads, divisions closed up past the cap.
+        case 'centipede': {
+          const c = s.forest.centipedes;
+          if (ev.action === 'lunge') { if (ev.stage === 'start') c.lunges++; }
+          else if (ev.action === 'join') c.joins++;
+          else if (ev.action === 'stuck') c.stuck++;
+          else { c.heads++; if (ev.action === 'split') c.splits++; }
+          return;
+        }
         case 'tether':
           if (ev.action === 'cut') s.chain.cuts++;
           // Task 40: the keymaster's shackles — put on, cut (the game second of the first cut).
