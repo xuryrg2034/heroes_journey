@@ -633,6 +633,34 @@ export function farLinkIds(world: World, links: readonly ChainLink[]): Set<numbe
 }
 
 /**
+ * Task 55 §23.2 «Ковёр дёргает» (enemies/warlock.ts): the drawn chain after a pull moved the hero or its bodies — read from its start by
+ * the drawing's reach (`reachOf` of the chain before the link; the anchors — the link's fork, else the previous link on the arena, the
+ * hero for the first, and the hero with «Якорь у героя»): the first link no anchor reaches now drops with the links after it (the
+ * refusal `far`, the same as drawing). The ids dropped (none — the chain as it is). Nothing during a move or with no chain.
+ */
+export function dropBeyondReach(world: World): number[] {
+  if (!world.chain.length || world.move) return [];
+  const hero = { x: world.hero.x, y: world.hero.y }, both = heroAnchorOn(world);
+  let prev: Vec = hero;
+  for (let i = 0; i < world.chain.length; i++) {
+    const link = world.chain[i], p = linkPoint(world, link);
+    if (!p) continue;
+    const enemy = link.kind === 'enemy' ? findEnemy(world, link.id) : undefined;
+    const reach = reachOf({ ...world, chain: world.chain.slice(0, i) }, enemy ? enemyArtRadius(world.params, enemy) : OBJECT_RADIUS);
+    const fork = link.fork ? linkPoint(world, link.fork as ChainLink) : null;
+    const anchors = fork ? [fork] : both ? [prev, hero] : [prev];
+    if (!anchors.some(a => dist(a, p) <= reach)) {
+      const dropped = world.chain.slice(i).map(l => l.id);
+      world.chain = world.chain.slice(0, i);
+      delete world.chainClosed;
+      return dropped;
+    }
+    prev = p;
+  }
+  return [];
+}
+
+/**
  * Task 50: the counters' rank II at the end of the planned dash (`end` — the drawn chain's own plan: the waves, the shield and the
  * neighbour; otherwise only `far`). The end as `planFusionEnd` reads it: the first pass (`planDashEnd`), then the modules' end shadows
  * (the waves round the end and round the start). Pure.

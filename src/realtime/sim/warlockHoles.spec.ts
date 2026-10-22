@@ -41,6 +41,8 @@ const of = <T extends WorldEvent['type']>(events: readonly WorldEvent[], type: T
 function quiet(key: true | undefined, extra: Partial<Params> = {}): Params {
   const p: Partial<Params> = { ...defaultParams(), baseFloor: 0, baseIntervalMin: 1e6, baseIntervalMax: 1e6, speedSpread: 0, contactDamage: 0, heroHp: 999, hitstop: false, invulnerability: 0, chainShield: 0, shoveDistance: 6, ...extra };
   if (key) p.warlockHoles = true; else delete p.warlockHoles;
+  // Task 55 §23: these routes are Колдун v0's — values without `warlockV1` (the hall puts v1 on only when the values have it off).
+  delete p.warlockV1;
   return p as Params;
 }
 function ticks(sim: Simulation, n: number, out: WorldEvent[] = [], until: (w: World, events: readonly WorldEvent[]) => boolean = () => false): WorldEvent[] {

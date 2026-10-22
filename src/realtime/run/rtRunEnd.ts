@@ -45,6 +45,8 @@ export const RT_KIND_TITLES: Readonly<Record<string, string>> = {
   rook: 'ладья', wardrobe: 'шкаф', barrel: 'бочка',
   // Task 57а «Лес: стрелки» (the user's name «Светляк», 17.10.2026; not «Огонёк»).
   slinger: 'пращник', hive: 'улей', wisp: 'светляк',
+  // Task 55 §23 «Колдун v1»: his orb, a living shot (its touch is its own source `warlock-orb`).
+  'warlock-orb': 'шар Колдуна',
 };
 
 /**
@@ -75,6 +77,8 @@ export const RT_DEATH_ABILITY: Readonly<Record<string, string>> = {
   'wardrobe-topple': 'падение шкафа', 'rook-strike': 'удар ладьи',
   // Task 57а (spec 5): the slinger's stone («камень пращника», not «камень» — the Troll's), the hive's wasp, the wisp's own touch.
   stone: 'камень пращника', wasp: 'оса улья', wisp: 'светляк',
+  // Task 55 §23 «Колдун v1»: his orb's touch and «Вспышка посоха».
+  'warlock-orb': 'шар Колдуна', 'warlock-flash': 'вспышка посоха Колдуна',
 };
 /**
  * The touch sources (each kind's `hitSource`): the line names the striker's kind, its elite mark, armour and affixes. Task 40 (design

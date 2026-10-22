@@ -33,7 +33,7 @@ import { TROLL, TROLL_CROWD, trollWards } from './enemies/troll';
 import { RECRUIT, noteRefused, orderRecruits, recruitInOrder } from './enemies/recruit';
 // Task 54: the Chief's feast guards his core from every source but the chain in his window (enemies/chief.ts).
 import { CHIEF, chiefWards, seatedEater } from './enemies/chief';
-import { WARLOCK, WARLOCK_CROWD, warlockWards } from './enemies/warlock';
+import { WARLOCK, WARLOCK_CROWD, warlockWards, type WarlockMove } from './enemies/warlock';
 // Task 59а: the law of pitch — the pots, the pools and their slowdown (pitch.ts).
 import { enemyPitchFactor, heroPitchFactor, updatePitch, type PitchState, type Pot } from './pitch';
 // Casino stage 1 («Однорукий гоблин», slot.ts): the slot's state and step.
@@ -569,7 +569,7 @@ export type WorldEvent =
    * a part died (`partSevered`: its id and spot; only while its core lives); after the dash the core lost plates to severed parts
    * (`bossPlate`: plates left) or entered a phase (`bossPhase`). The rules never read them.
    */
-  | { type: 'bossMove'; id: number; move: 'flail' | 'throw' | 'whistle' | 'club' | 'rock' | 'tail' | 'roar' | 'snore' | 'swing' | 'pepper' | 'feast' | 'season'; stage: 'start' | 'hit' }
+  | { type: 'bossMove'; id: number; move: 'flail' | 'throw' | 'whistle' | 'club' | 'rock' | 'tail' | 'roar' | 'snore' | 'swing' | 'pepper' | 'feast' | 'season' | WarlockMove; stage: 'start' | 'hit' }
   | { type: 'partSevered'; id: number; x: number; y: number }
   | { type: 'bossPlate'; id: number; plates: number }
   | { type: 'bossPhase'; id: number; phase: number }
@@ -650,8 +650,15 @@ export type WorldEvent =
   | { type: 'warlockCharm'; action: 'block' | 'broken'; id: number; x: number; y: number; source?: string }
   /** Task 55, stage Д: the warlock's window after an arrival (his charm gone): `dropped` — the links an `unlink` took from the chain. */
   | { type: 'warlockWindow'; action: 'open' | 'hit' | 'block' | 'close' | 'unlink'; id: number; x: number; y: number; source?: string; dropped?: number[] }
-  /** Task 55, stage Д: «Перенос» — the target candle's sign begins (`mark`), he stands at it (`arrive`). */
+  /**
+   * Task 55, stage Д: «Перенос» — the target candle's sign begins (`mark`), he stands at it (`arrive`). Task 55 §23 (v1): «Перенос к
+   * герою» — `candle` −1, (`x`, `y`) the rune's point.
+   */
   | { type: 'warlockShift'; action: 'mark' | 'arrive'; id: number; candle: number; x: number; y: number }
+  /** Task 55 §23 «Колдун v1»: an orb goes out with no kill — its life over, a wall or the edge, the hero touched (`touch`) or a shield took it (`block`), a sliding thing (`thing`, not the player's). */
+  | { type: 'warlockOrb'; action: 'out'; id: number; x: number; y: number; why: 'life' | 'wall' | 'touch' | 'block' | 'thing' }
+  /** Task 55 §23: «Ковёр дёргает» moved the drawn chain's bodies or the hero — the links beyond the reach dropped (`dropped`; the refusal `far`). */
+  | { type: 'warlockRug'; action: 'unlink'; id: number; x: number; y: number; dropped: number[]; refusal: 'far' }
   /**
    * Task 55а: «Удар ладьи» — `aim` (the axis fixed both ways, from (`x0`, `y0`) to (`x1`, `y1`)) and `shot` (`plus`, `minus` — what each
    * half struck: `hero`, `enemy`, `thing` — the shelter; absent — nothing).
@@ -979,6 +986,9 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   }
   // «Дыры ядра» Колдуна (21.10.2026): «Зал колдуна» plays `warlockHoles` when the values have it off (without the key — the old paths).
   if (arena.warlock && params.warlockHoles === false) params = { ...copyParams(params), warlockHoles: true };
+  // Task 55 §23 «Колдун v1»: «Зал колдуна» plays v1 when the values have it off; values without the key (a journal before it, a run
+  // saved without `warlockV1`: run/rtRun.ts `rtArenaParams`) — v0 byte for byte. A journal keeps the copy.
+  if (arena.warlock && params.warlockV1 === false) params = { ...copyParams(params), warlockV1: true };
   // Task 55а: an arena of the castle plays the law of the shove (when the values have it off; a journal keeps the copy).
   if (arena.castle && !params.shove) params = { ...copyParams(params), shove: true };
   // Task 55, stage Д: the warlock's arena plays his charm, the boss's solid bodies and his crowd (when the values hold the old ones).

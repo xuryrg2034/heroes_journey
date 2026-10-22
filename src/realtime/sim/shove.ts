@@ -24,7 +24,7 @@
  * stop: `target`, or the wall), `stop` (the thing stands at its point), `fall` (it fell into a cliff), `cancel` (the dash did not reach
  * it, chain.ts); `thing` `break` (`by`: `wall`, `thing`, `body`, `core`, `end` — the barrel breaks at any stop).
  */
-import { blockedAt, overCliff, type Vec } from './geometry';
+import { blockedAt, dist, overCliff, type Vec } from './geometry';
 import { behaviorOf, bodyRadiusOf, kindOf } from './enemies/kinds';
 import { BOSS_CORES } from './enemies/jailer';
 import { platesOf } from './elites';
@@ -68,6 +68,8 @@ export const PATH_STEP = 0.05;
 /** The barrel and the wardrobe (enemies/castle.ts; no import: the kinds register after); the warlock's core (enemies/warlock.ts). */
 const BARREL = 'barrel';
 const WARLOCK = 'warlock';
+/** Task 55 §23 «Колдун v1»: his orb — a living shot; no part of the plan (it flies): a sliding thing that meets it kills it, not the player's. */
+const WARLOCK_ORB = 'warlock-orb';
 /** Task 55, stage Д: a thing's strike at the warlock's core (spec 2.3, 6.2): a plate, none — 1 HP. */
 export const WARLOCK_IMPACT = 1;
 // ---- Баланс (journals without the keys play these) ----
@@ -112,7 +114,7 @@ export function shovePath(world: World, thing: Enemy, dir: Vec, gone?: ReadonlyS
   // Bodies: where the thing's circle first touches each (its lane is the thing's diameter wide); ahead of it only.
   const met: { e: Enemy; at: number; kind: 'thing' | 'core' | 'body' | null }[] = [];
   for (const e of world.enemies) {
-    if (e === thing) continue;
+    if (e === thing || e.kind === WARLOCK_ORB) continue;
     const rx = e.x - from.x, ry = e.y - from.y, along = rx * dir.x + ry * dir.y, lat = Math.abs(rx * dir.y - ry * dir.x), reach = r + bodyRadiusOf(p, e);
     if (along <= 0 || lat > reach) continue;
     met.push({ e, at: Math.max(0, along - Math.sqrt(Math.max(0, reach * reach - lat * lat))), kind: stopKind(e) });
@@ -209,6 +211,11 @@ export function updateShoves(world: World, dt: number): void {
     if (!thing) { list.splice(list.indexOf(s), 1); continue; }
     s.run = Math.min(s.length, s.run + speed * dt);
     thing.x = s.from.x + s.dir.x * s.run; thing.y = s.from.y + s.dir.y * s.run;
+    // Task 55 §23: the warlock's orbs it meets die, not the player's kills (nothing without an orb).
+    for (const orb of world.enemies.filter(e => e.kind === WARLOCK_ORB && dist(e, thing) < bodyRadiusOf(world.params, thing) + bodyRadiusOf(world.params, e))) {
+      killEnemy(world, orb, { source: 'shove', credited: false });
+      if (world.status !== 'playing') return;
+    }
     while (s.met < s.crushed.length && s.crushed[s.met].at <= s.run + 1e-9) {
       const c = s.crushed[s.met++], victim = world.enemies.find(e => e.id === c.id);
       if (!victim) continue;

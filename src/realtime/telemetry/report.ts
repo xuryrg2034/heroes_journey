@@ -269,6 +269,8 @@ const SOURCE_TITLES: Record<string, string> = {
   stone: 'камень пращника', wasp: 'оса улья', wisp: 'светляк', slinger: 'касание пращника',
   // Task 55а: the castle's moves and the rook's touch; the shove's kills (the player's).
   'wardrobe-topple': '«Падение шкафа»', 'rook-strike': '«Удар ладьи»', rook: 'касание ладьи', shove: 'толчок',
+  // Task 55 §23 «Колдун v1».
+  'warlock-orb': '«Цветные шары»', 'warlock-flash': '«Вспышка посоха»',
 };
 const THREAT_TITLES: Record<string, string> = {
   // Task 57а «Лес: стрелки».
