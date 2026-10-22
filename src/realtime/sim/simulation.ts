@@ -31,6 +31,8 @@ import './arenasShooters';
 import './arenasTricks';
 // Task 55а: the castle's arenas of step 1а register on import too.
 import './arenasCastle';
+// Task 60а: the castle's guests' arenas (the probes and «Столовая») register on import too.
+import './arenasCastleGuests';
 // Task 59а: the probes of the garrison's step 3 (sandbox) register on import too.
 import './arenasStep3';
 // The warm-up's arenas («Разминка») register on import too — not only through run/warmup.ts (task 59а: every arena a journal names is

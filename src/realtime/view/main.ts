@@ -28,6 +28,8 @@ import { CAMERA_ARENAS } from '../sim/arenasCamera';
 import { BOSS_ARENAS, FOREST_BOSS_ARENAS, JAILER_RUN_ARENAS } from '../sim/arenasBoss';
 import { SHOOTERS_ARENAS } from '../sim/arenasShooters';
 import { TRICKS_ARENAS } from '../sim/arenasTricks';
+// Task 60а: the castle's guests at the very end of the sandbox menu.
+import { GUEST_ARENAS } from '../sim/arenasCastleGuests';
 // Task 59а: the probes of the garrison's step 3 at the very end of the sandbox menu.
 import { STEP3_ARENAS, STEP3_RUN_ARENAS } from '../sim/arenasStep3';
 import { heroPitchFactor } from '../sim/pitch';
@@ -126,9 +128,11 @@ const NOTE_FLASH_MS = 1000;
  * леса (проба)», «Осыпь», «Пасека» (task 57а, `?arena=36…38`); at the end the probes of the garrison's step 3 (task 59а, no key): «Смолокур (проба)» `?arena=39`,
  * «Новобранцы (проба)» `?arena=40`, «Привратники (проба)» `?arena=41`; after them the full arenas of step 3 (task 59б, no key): «Смолокурня» `?arena=42`, «Казарма»
  * `?arena=43`, «Барбакан» `?arena=44` (counted 21.10.2026); at the very end the forest's mechanics (task 57б, no key): «Механики леса (проба)»
- * `?arena=45`, «Трясина» `?arena=46`, «Бурелом» `?arena=47`. `?arena=N` opens one at once.
+ * `?arena=45`, «Трясина» `?arena=46`, «Бурелом» `?arena=47`; after them the castle's guests (task 60а, no key): «Подсвечник (проба)»
+ * `?arena=48`, «Ферзь (проба)» `?arena=49`, «Дворецкий (проба)» `?arena=50`, «Полтергейст (проба)» `?arena=51`, «Шут (проба)» `?arena=52`,
+ * «Столовая» `?arena=53` (counted 23.10.2026). `?arena=N` opens one at once.
  */
-const SANDBOX_ARENAS: readonly ArenaTemplate[] = [...ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS, ...BEHAVIOR_ARENAS, ...CAMERA_ARENAS, ...BOSS_ARENAS, ...GARRISON_ARENAS, ...FOREST_BOSS_ARENAS, ...CASTLE_ARENAS, ...SHOOTERS_ARENAS, ...STEP3_ARENAS, ...STEP3_RUN_ARENAS, ...TRICKS_ARENAS];
+const SANDBOX_ARENAS: readonly ArenaTemplate[] = [...ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS, ...BEHAVIOR_ARENAS, ...CAMERA_ARENAS, ...BOSS_ARENAS, ...GARRISON_ARENAS, ...FOREST_BOSS_ARENAS, ...CASTLE_ARENAS, ...SHOOTERS_ARENAS, ...STEP3_ARENAS, ...STEP3_RUN_ARENAS, ...TRICKS_ARENAS, ...GUEST_ARENAS];
 /** Arenas on the plain digit keys (1–9, 0); the rest are on Shift + digit (stage 3a). */
 const DIGIT_ARENAS = ARENAS.length + SLICE_ARENAS.length;
 /** What an arena forces over the panel's phase table (stage 2): «стай волков и кабанов нет (доли 0)» and the like. */
@@ -340,7 +344,7 @@ async function boot(): Promise<void> {
   menuCard.append(...menuRunButton ? [menuRunButton] : [], el('h2', '', 'Выбери арену'));
   const arenaList = el('div', 'rt-arenas');
   // The camera sample's button has its own test id: the menu counts of the older tests (`arena-*`) stay as they were.
-  const camera0 = DIGIT_ARENAS + TERRAIN_ARENAS.length + BEHAVIOR_ARENAS.length, boss0 = camera0 + CAMERA_ARENAS.length, garrison0 = boss0 + BOSS_ARENAS.length, forest0 = garrison0 + GARRISON_ARENAS.length, castle0 = forest0 + FOREST_BOSS_ARENAS.length, shooters0 = castle0 + CASTLE_ARENAS.length, step30 = shooters0 + SHOOTERS_ARENAS.length, step3run0 = step30 + STEP3_ARENAS.length, tricks0 = step3run0 + STEP3_RUN_ARENAS.length;
+  const camera0 = DIGIT_ARENAS + TERRAIN_ARENAS.length + BEHAVIOR_ARENAS.length, boss0 = camera0 + CAMERA_ARENAS.length, garrison0 = boss0 + BOSS_ARENAS.length, forest0 = garrison0 + GARRISON_ARENAS.length, castle0 = forest0 + FOREST_BOSS_ARENAS.length, shooters0 = castle0 + CASTLE_ARENAS.length, step30 = shooters0 + SHOOTERS_ARENAS.length, step3run0 = step30 + STEP3_ARENAS.length, tricks0 = step3run0 + STEP3_RUN_ARENAS.length, guests0 = tricks0 + TRICKS_ARENAS.length;
   // The menu shows before the art has loaded (`loadCharacterArt`): a pick made meanwhile is kept and played once the game is ready
   // (before, the click reached `start` before it existed and was lost — more art, task 43, made the wait longer).
   let earlyPick: number | null = null;
@@ -370,7 +374,9 @@ async function boot(): Promise<void> {
     // Task 57б: the forest's mechanics at the very end (the numbers before stay), test id `tricks-arena-N`. No «только песочница»: with
     // `RT_FOREST_TRICKS_ON` (on since 22.10.2026) «Трясина» and «Бурелом» are run arenas; the probe says «(проба)» in its own name.
     if (i === tricks0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Лес: механики — корневик, слизень, головешка, сороконожка'));
-    const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span data-summary="${i}">${markedGoalArena(arena, params.markedGoals).summary}</span>`, i >= tricks0 ? `tricks-arena-${i - tricks0 + 1}` : i >= step3run0 ? `step3-run-arena-${i - step3run0 + 1}` : i >= step30 ? `step3-arena-${i - step30 + 1}` : i >= shooters0 ? `shooters-arena-${i - shooters0 + 1}` : i >= castle0 ? `castle-arena-${i - castle0 + 1}` : i >= forest0 ? `boss-arena-${BOSS_ARENAS.length + i - forest0 + 1}` : i >= garrison0 ? `garrison-arena-${i - garrison0 + 1}` : i >= boss0 ? `boss-arena-${i - boss0 + 1}` : i >= camera0 ? `camera-arena-${i - camera0 + 1}` : `arena-${i + 1}`);
+    // Task 60а: the castle's guests at the very end (the numbers before stay), test id `guests-arena-N`.
+    if (i === guests0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Замок · гости (только песочница)'));
+    const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span data-summary="${i}">${markedGoalArena(arena, params.markedGoals).summary}</span>`, i >= guests0 ? `guests-arena-${i - guests0 + 1}` : i >= tricks0 ? `tricks-arena-${i - tricks0 + 1}` : i >= step3run0 ? `step3-run-arena-${i - step3run0 + 1}` : i >= step30 ? `step3-arena-${i - step30 + 1}` : i >= shooters0 ? `shooters-arena-${i - shooters0 + 1}` : i >= castle0 ? `castle-arena-${i - castle0 + 1}` : i >= forest0 ? `boss-arena-${BOSS_ARENAS.length + i - forest0 + 1}` : i >= garrison0 ? `garrison-arena-${i - garrison0 + 1}` : i >= boss0 ? `boss-arena-${i - boss0 + 1}` : i >= camera0 ? `camera-arena-${i - camera0 + 1}` : `arena-${i + 1}`);
     b.addEventListener('click', () => pick(i));
     arenaList.appendChild(b);
   });
