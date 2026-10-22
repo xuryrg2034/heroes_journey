@@ -36,7 +36,7 @@ import '../src/realtime/sim/arenasStep3';
 import { rtGarrisonNodeId } from '../src/realtime/run/garrison';
 import { walkRun } from '../src/realtime/run/metaWalk.testkit';
 import { outcomeOf } from '../src/realtime/run/runFight.testkit';
-import { rtArenaLoadout, rtArenaParams, rtNode, rtRunParams, type RtArenaOutcome, type RtRunState } from '../src/realtime/run/rtRun';
+import { rtArenaLoadout, rtArenaParams, rtNode, rtRunParams, type RtArenaOutcome, type RtAshLevel, type RtRunState } from '../src/realtime/run/rtRun';
 import { botFight } from './garrisonBot';
 import { arenaKinds } from '../src/realtime/run/arenaKinds';
 import { JAILER_RUN_ARENAS } from '../src/realtime/sim/arenasBoss';
@@ -60,6 +60,8 @@ const MARKERS_OFF = option('--markers', 'on') === 'off';
 const SHOOTERS = args.includes('--shooters') ? true : args.includes('--no-shooters') ? false : undefined, HISTORY = option('--history', 'none');
 /** Task 57б (level design 22.10.2026): `--tricks` — the runs take the flag `forestTricks` (the forest's mechanics: arcs, rosters, «Трясина»; only with the shooters), off in the game until design. */
 const TRICKS = args.includes('--tricks');
+/** Task 57б (design 22.10.2026, the pools' profile rule): `--ash N` — the runs' «Испытание» level (2+ — the pools, the history as the profile's snapshot); absent — 0. */
+const ASH = Number(option('--ash', '0'));
 const ALL_ARCS = ['bust', 'wolf', 'elite', 'brazier', 'cliff', 'boar', 'water', 'shield', 'buttons', 'archer', 'sapper', 'leader', 'lynx', 'affix', 'thorns', 'porcupine', 'shaman', 'horde', 'part', 'chest'];
 /**
  * Design 22.10.2026 (before `RT_FOREST_SHOOTERS_ON`): `--seen k1,k2` — kinds the viewer met besides the history (with `first` or `all`):
@@ -308,7 +310,7 @@ function tuneCastellan(w: World, set: CastellanSet, first: boolean): void {
 function pass(real: (run: RtRunState) => boolean): Tally {
   const t = tally();
   for (let k = 1; k <= SEEDS; k++) {
-    const run = walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, ...MOAT ? { moat: true } : {}, ...STEP2_OFF ? { step2: false } : {}, ...MARKERS_OFF ? { markerSeek: false } : {}, ...SHOOTERS !== undefined ? { forestShooters: SHOOTERS } : {}, ...TRICKS ? { forestTricks: true } : {}, ...SCHEDULE, ...STEP3 ? { step3: true } : {} }, fight: state => (real(state) ? fight(state, t) : null) }).run;
+    const run = walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, ...MOAT ? { moat: true } : {}, ...STEP2_OFF ? { step2: false } : {}, ...MARKERS_OFF ? { markerSeek: false } : {}, ...SHOOTERS !== undefined ? { forestShooters: SHOOTERS } : {}, ...TRICKS ? { forestTricks: true } : {}, ...ASH ? { ash: ASH as RtAshLevel } : {}, ...SCHEDULE, ...STEP3 ? { step3: true } : {} }, fight: state => (real(state) ? fight(state, t) : null) }).run;
     t.runs++;
     const keys = new Set([...run.visited, ...run.result ? [run.result.nodeId] : []].map(id => keyOf(run, id)));
     // A run in the garrison passed every row of the forest.
@@ -361,7 +363,7 @@ if (SET) {
 const whole = GARRISON_ONLY ? null : pass(() => true), garrison = FOREST_ONLY ? null : pass(run => !!run.garrisonLevel);
 if (BOSS_AIM) console.log(`Бот целит в ядро босса (--boss-aim): Тюремщик, Кастелян${TROLL_FIGHT ? ', Тролль (финал леса — «Берлога тролля», --troll)' : '; у финала леса ядра нет'}.\n`);
 const head = (() => { try { return execSync('git rev-parse --short HEAD').toString().trim(); } catch { return '?'; } })();
-console.log(`Задача 40, часть Е: кривая выживания бота через лес и гарнизон, ${SEEDS} seed, предел боя ${LIMIT} с, «Ров» ${MOAT ? 'вкл.' : 'по флагу игры'}, шаг 2 ${STEP2_OFF ? 'выкл.' : 'по флагу игры'}, шаг 3 ${STEP3 ? 'вкл.' : 'по флагу игры'}${PLANNER ? ', пары — планировщик' : ''}${SHOOTERS !== undefined ? `, стрелки леса ${SHOOTERS ? 'вкл.' : 'выкл.'}` : ''}${TRICKS ? ', механики леса вкл.' : ''}${HISTORY !== 'none' ? `, история ${HISTORY}${SEEN.length ? ` + ${SEEN.join(', ')}` : ''}` : ''}${SHARES ? `, доли в шаблонах: ${APPLIED} (ставит скрипт; у «Барбакана» поле pairShare стоит и при 0 — rollColor делает лишний бросок spawnRoll, как в варианте 0 замера долей)` : ''} (эвристика, жадный бот), ${new Date().toISOString().slice(0, 10)}, HEAD ${head}, ${Math.round((Date.now() - started) / 1000)} с.\n`);
+console.log(`Задача 40, часть Е: кривая выживания бота через лес и гарнизон, ${SEEDS} seed, предел боя ${LIMIT} с, «Ров» ${MOAT ? 'вкл.' : 'по флагу игры'}, шаг 2 ${STEP2_OFF ? 'выкл.' : 'по флагу игры'}, шаг 3 ${STEP3 ? 'вкл.' : 'по флагу игры'}${PLANNER ? ', пары — планировщик' : ''}${SHOOTERS !== undefined ? `, стрелки леса ${SHOOTERS ? 'вкл.' : 'выкл.'}` : ''}${TRICKS ? ', механики леса вкл.' : ''}${ASH ? `, Испытание ${ASH}` : ''}${HISTORY !== 'none' ? `, история ${HISTORY}${SEEN.length ? ` + ${SEEN.join(', ')}` : ''}` : ''}${SHARES ? `, доли в шаблонах: ${APPLIED} (ставит скрипт; у «Барбакана» поле pairShare стоит и при 0 — rollColor делает лишний бросок spawnRoll, как в варианте 0 замера долей)` : ''} (эвристика, жадный бот), ${new Date().toISOString().slice(0, 10)}, HEAD ${head}, ${Math.round((Date.now() - started) / 1000)} с.\n`);
 if (whole) print('Весь поход: все бои настоящие', whole, ['л', 'г']);
 if (garrison) print('Гарнизон от «Предместья»: бои леса выиграны обходом, бои гарнизона настоящие', garrison, ['г']);
 // Task 43: the Jailer's fights of both passes (the second plays the forest by the walk: only the first's count).
