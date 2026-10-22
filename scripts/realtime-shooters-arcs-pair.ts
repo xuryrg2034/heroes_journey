@@ -6,10 +6,14 @@
  * The metric — the run in which the viewer met every arc of task 26 (`done`). A viewer who did not end them within `R` runs counts as
  * `R + 1` (censored: the true run is `R + 1` or later), so a difference with such a viewer is a bound, not a value; the table shows how
  * many pairs carry it. Criterion (design): the lag with the key — `done(on) − done(off)` — has the median and the 75th percentile ≤ 1.
+ * When the dumps carry `left` (the arcs of task 26 not met after each run): the same lag on the old arcs' progress — for the run `r`
+ * without the key, the first run `r'` with the key that left no more old arcs, the lag `r' − r` (none within `R` — `R + 1 − r`, a lower
+ * bound). No new viewer ends the old arcs within 8 runs (22.10.2026), so the end alone cannot tell the variants apart.
  */
 import { readFileSync } from 'node:fs';
+import { SCHEDULE_ARCS } from '../src/realtime/run/schedule';
 
-interface Dump { head: string; viewers: number; runs: number; start: string; alternate: boolean; limit: number; viewersRuns: { k: number; done: number; opened: number; first: number }[] }
+interface Dump { head: string; viewers: number; runs: number; start: string; alternate: boolean; limit: number; viewersRuns: { k: number; done: number; opened: number; first: number; left?: number[] }[] }
 
 const [offPath, onPath] = process.argv.slice(2);
 if (!offPath || !onPath) throw new Error('usage: realtime-shooters-arcs-pair.ts OFF.json ON.json');
@@ -69,3 +73,27 @@ console.log('| --- | --- | --- |');
 for (const key of keys) if (la.get(key) || lb.get(key)) console.log(`| ${key} | ${la.get(key) ?? 0} | ${lb.get(key) ?? 0} |`);
 const within1 = (m: Map<string, number>): number => (m.get('0') ?? 0) + (m.get('1') ?? 0), opened = (m: Map<string, number>): number => off.viewers - (m.get('не открылась') ?? 0);
 console.log(`\nВ том же или следующем походе: выкл. ${within1(la)} из ${off.viewers}, вкл. ${within1(lb)} из ${on.viewers} (${Math.round(100 * within1(lb) / on.viewers)} %; дуга открылась у ${opened(lb)}).`);
+
+if (off.viewersRuns.every(v => v.left) && on.viewersRuns.every(v => v.left)) {
+  console.log(`\n### Прогресс старых дуг: сколько дуг задачи 26 осталось после похода (всего ${SCHEDULE_ARCS.length})\n`);
+  const leftOf = (d: Dump): Map<number, number[]> => new Map(d.viewersRuns.map(v => [v.k, v.left!]));
+  const lo = leftOf(off), ln = leftOf(on);
+  console.log('| Поход | Выкл.: медиана (25-я–75-я) | Вкл.: медиана (25-я–75-я) | Отставание с ключом, походов: медиана | 75-я | 90-я | Пар без догона за ' + RUNS + ' (нижняя граница) |');
+  console.log('| --- | --- | --- | --- | --- | --- | --- |');
+  const spread = (list: number[]): string => { const x = [...list].sort((p, q) => p - q); return `${quantile(x, 0.5)} (${quantile(x, 0.25)}–${quantile(x, 0.75)})`; };
+  let final: number[] = [];
+  for (let r = 1; r <= RUNS; r++) {
+    const lags: number[] = [];
+    let open = 0;
+    for (const [k, a0] of lo) {
+      const b0 = ln.get(k)!, target = a0[r - 1], at = b0.findIndex(n => n <= target);
+      if (at < 0) open++;
+      lags.push(at < 0 ? RUNS + 1 - r : at + 1 - r);
+    }
+    const x = [...lags].sort((p, q) => p - q);
+    if (r === RUNS) final = x;
+    console.log(`| ${r} | ${spread([...lo.values()].map(v => v[r - 1]))} | ${spread([...ln.values()].map(v => v[r - 1]))} | ${sign(quantile(x, 0.5))} | ${sign(quantile(x, 0.75))} | ${sign(quantile(x, 0.9))} | ${open} |`);
+  }
+  const f50 = quantile(final, 0.5), f75 = quantile(final, 0.75);
+  console.log(`\n**Критерий дизайна на прогрессе** (после похода ${RUNS}: медиана и 75-я перцентиль отставания ≤ 1): ${f50 <= 1 && f75 <= 1 ? 'выполнен' : 'не выполнен'} — медиана ${sign(f50)}, 75-я ${sign(f75)}. Отставание пары без догона — нижняя граница (${RUNS + 1} − r).`);
+}

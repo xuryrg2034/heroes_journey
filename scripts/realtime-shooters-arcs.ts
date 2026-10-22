@@ -35,7 +35,8 @@ const ALTERNATE = option('--alternate', 'on') !== 'off';
 /**
  * Design 22.10.2026 (the 8-run measure before `RT_FOREST_SHOOTERS_ON`): `--dump FILE` writes each viewer's runs as JSON — `done` (the run
  * in which every arc of task 26 was met, 0 — not within `RUNS`), `opened` and `first` (the runs of section 5) — for the paired difference
- * of two variants by seed (scripts/realtime-shooters-arcs-pair.ts).
+ * of two variants by seed (scripts/realtime-shooters-arcs-pair.ts); `left` — the arcs of task 26 not met by the end of each run 1…R
+ * (no new viewer ends them within 8 runs, 22.10.2026 — the pair compares how far the old arcs went).
  */
 const DUMP = option('--dump', '');
 const ALL_ARCS = ['bust', 'wolf', 'elite', 'brazier', 'cliff', 'boar', 'water', 'shield', 'buttons', 'archer', 'sapper', 'leader', 'lynx', 'affix', 'thorns', 'porcupine', 'shaman', 'horde', 'part', 'chest'];
@@ -76,11 +77,12 @@ let alarms = 0;
  * (0 — not within `RUNS`).
  */
 const lags = new Map<number, number>(), oldDone = new Map<number, number>();
-const dump: { k: number; done: number; opened: number; first: number }[] = [];
+const dump: { k: number; done: number; opened: number; first: number; left: number[] }[] = [];
 const started = Date.now();
 for (let k = 1; k <= VIEWERS; k++) {
   let history = START === 'all' ? [...ALL_ARCS] : [];
   let previousEmpty = false, first = 0, deepest = 0, opened = 0, done = 0;
+  const left: number[] = [];
   for (let r = 1; r <= RUNS; r++) {
     const seed = r === 1 ? Math.imul(k, 2654435761) >>> 0 : mixSeed(Math.imul(k, 2654435761) >>> 0, r);
     const fought: Fought[] = [], open = arcOpen(history);
@@ -100,10 +102,11 @@ for (let k = 1; k <= VIEWERS; k++) {
     history = [...new Set([...history, ...seen])].sort();
     if (!opened && (open || arcOpen(history) || fresh.length)) opened = r;
     if (!done && SCHEDULE_ARCS.every(arc => history.includes(arc.id))) done = r;
+    left.push(SCHEDULE_ARCS.filter(arc => !history.includes(arc.id)).length);
   }
   if (opened) lags.set(first ? first - opened : -1, (lags.get(first ? first - opened : -1) ?? 0) + 1);
   oldDone.set(done, (oldDone.get(done) ?? 0) + 1);
-  dump.push({ k, done, opened, first });
+  dump.push({ k, done, opened, first, left });
   if (SCHEDULE_SHOOTER_KINDS.some(kind => !history.includes(kind))) viewersLeft++;
   firstRun.set(first, (firstRun.get(first) ?? 0) + 1);
   if (!first && deepest >= 3) alarms++;
