@@ -71,6 +71,8 @@ import { HAMMER_IDS, RT_HAMMER_OFFER_SIZE } from './rtTalismans';
 import { isRtOmenPool, rtFairItem, rtLevelOmenRoll, rtNodeOmenPick, rtOmen, rtOmenColors, rtOmenParams, RT_OMEN_FAIR_HEAL, RT_OMEN_IDS, RT_OMEN_NODE_ROW, type RtFightOmens, type RtOmenId, type RtOmenLevel, type RtOmens } from './omens';
 // Task 38 «Гарнизон, шаг 1»: the garrison level after the forest (run/garrison.ts; the flow — section «Task 38» below).
 import { garrisonArena, garrisonBolts, garrisonCombinedMap, garrisonDeep, garrisonKit, garrisonKnights, garrisonRelicOffer, garrisonSeed, GARRISON_RELIC_SLOTS, garrisonDrill, generateGarrisonMap, GARRISON_RUN_ARENAS, RT_GARRISON_MOAT_ON, RT_GARRISON_ON, RT_GARRISON_STEP2_ON, RT_GARRISON_STEP3_ON, rtGarrisonNodeId, type GarrisonDrill } from './garrison';
+// Task 55в «Замок в походе»: the castle level after the garrison (run/castle.ts; the flow — section «Task 55в» below).
+import { castleArena, castleCombinedMap, castleDeep, castleKit, castleSeed, CASTLE_RUN_ARENAS, generateCastleMap, RT_CASTLE_ON, rtCastleNodeId, rtNodeLevel } from './castle';
 
 /**
  * Version 2 (step 3, 08.10.2026): consumables, open consumables, banked energy, the find's choice, crafting, the merchant's
@@ -305,10 +307,10 @@ export interface RtArenaRules {
 }
 export function rtArenaRules(run: RtRunState): RtArenaRules {
   const pending = run.pending, node = pending?.kind === 'battle' ? rtNode(run, pending.nodeId) : undefined;
-  // Task 38: a garrison fight has no gentle row (the invulnerability 0.5 s and the tough touch from its row 1).
-  const gentle = run.gentleEntry && node && !rtGarrisonNodeId(node.id);
-  // Task 57а: the new shooters are the forest's — a garrison fight keeps its values.
-  const shooters = run.forestShooters && !(node && rtGarrisonNodeId(node.id));
+  // Task 38: a garrison fight has no gentle row (the invulnerability 0.5 s and the tough touch from its row 1). Task 55в: nor a castle fight.
+  const gentle = run.gentleEntry && node && rtNodeLevel(node.id) === 1;
+  // Task 57а: the new shooters are the forest's — a garrison (task 55в: a castle) fight keeps its values.
+  const shooters = run.forestShooters && !(node && rtNodeLevel(node.id) > 1);
   const omens = pending?.kind === 'battle' ? fightOmenList(pending.omens) : [];
   return { ...run.markedGoals ? { markedGoals: true as const } : {}, ...gentle ? { gentleRow: runRow(node.row) } : {}, ...run.shortFuse ? { shortFuse: true as const } : {}, ...run.forms ? { forms: true as const } : {}, ...run.potionCap ? { potionCap: run.potionCap } : {}, ...run.markerSeek ? { markerSeek: true as const } : {}, ...omens.length ? { omens } : {}, ...shooters ? { forestShooters: true as const } : {}, ...run.bossHoles ? { bossHoles: true as const } : {}, ...run.corePickFirst ? { corePickFirst: true as const } : {}, ...run.bossPickArt ? { bossPickArt: true as const } : {}, ...run.trollMove ? { trollMove: true as const } : {}, ...run.warlockV1 ? { warlockV1: true as const } : {} };
 }
@@ -593,7 +595,12 @@ export type RtRunPending =
    * Task 38 «Гарнизон»: «Предместье» — after the forest final's relic, before the garrison: HP is full (healed on showing), «В гарнизон»
    * (`rtEnterGarrison`) makes the garrison's map. No node of its own.
    */
-  | { kind: 'outskirts' };
+  | { kind: 'outskirts' }
+  /**
+   * Task 55в «Замок» (spec 4.1): «Подножие» — after the Castellan's relic, before the castle: HP is full (healed on showing), «В замок»
+   * (`rtEnterCastle`) makes the castle's map. No node of its own, no cart, no choices.
+   */
+  | { kind: 'foothill' };
 
 /** One-arena modifiers of events with an analogue in real time (design answer 3 to step 3). */
 export type RtModifier = 'first-chain-power' | 'start-elite' | 'wrath' | 'early-reinforcement';
@@ -849,6 +856,17 @@ export interface RtRunState {
    * until «В гарнизон» (a run in the forest saves as before). Its nodes are on the run's map with the prefix `g:`.
    */
   garrisonLevel?: RtGarrisonLevel;
+  /**
+   * Task 55в «Замок» (spec 4.1, 9): the Castellan does not end the run — his relic, «Подножие», then the castle (run/castle.ts). Set when
+   * a run with the garrison is created (`RT_CASTLE_ON`); only with `garrison`. Absent — a run saved before it (or created without it):
+   * the Castellan wins the run, to its end, byte for byte as before.
+   */
+  castle?: true;
+  /**
+   * Task 55в: the castle level — its map (kept whole) and its own stream counters (the castle's seed, `castleSeed`). Absent until «В
+   * замок». Its nodes are on the run's map with the prefix `c:`.
+   */
+  castleLevel?: RtGarrisonLevel;
   /**
    * Task 40 «Гарнизон, шаг 1б» (design 16.10.2026): the garrison plays «Ров» and the keymaster (run/garrison.ts `GARRISON_MOAT_POOLS`,
    * `garrisonDeep`), and «Предместье» has the cart when the run has the camp (`hearth`). Set when a run with the garrison is created
@@ -1129,6 +1147,8 @@ export type RtRunEvent =
   | { type: 'level-cleared'; level: number; nodeId: string }
   /** Task 38: «В гарнизон» — the garrison's map is made, its first row open. Task 40: `cart` — resources the cart took (with the cart only). */
   | { type: 'garrison-entered'; cart?: number }
+  /** Task 55в: «В замок» — the castle's map is made, its first row open. */
+  | { type: 'castle-entered' }
   | { type: 'run-won'; nodeId: string }
   | { type: 'run-lost'; nodeId: string };
 
@@ -1226,7 +1246,7 @@ export const rtDailySeed = (date: string): number => mixSeed(metaSalt('daily'), 
  * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
  * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
  */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; markerSeek?: boolean; schedule?: readonly string[]; jailer?: boolean; troll?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; relicFill?: boolean; chronicle?: boolean; potionCap?: number; knacks?: boolean; habits?: boolean; hero?: RtHeroId; omens?: readonly string[]; daily?: string; forestShooters?: boolean; bossHoles?: boolean; corePickFirst?: boolean; bossPickArt?: boolean; trollMove?: boolean; arcsAlternate?: boolean; step3?: boolean; forestTricks?: boolean; warlockV1?: boolean } = {}): RtRunState {
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; markerSeek?: boolean; schedule?: readonly string[]; jailer?: boolean; troll?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; relicFill?: boolean; chronicle?: boolean; potionCap?: number; knacks?: boolean; habits?: boolean; hero?: RtHeroId; omens?: readonly string[]; daily?: string; forestShooters?: boolean; bossHoles?: boolean; corePickFirst?: boolean; bossPickArt?: boolean; trollMove?: boolean; arcsAlternate?: boolean; step3?: boolean; forestTricks?: boolean; warlockV1?: boolean; castle?: boolean } = {}): RtRunState {
   const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
   // Task 12 (13.10.2026): the goal layouts of the `marked` arenas, as the mix — on as `RT_RUN_FORCED` says unless the option says.
   const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
@@ -1264,6 +1284,8 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   // Task 40 «Гарнизон, шаг 1б» (16.10.2026): «Ров», the keymaster and the cart — only with the garrison, by `RT_GARRISON_MOAT_ON`
   // (on with the ui view, 16.10.2026) unless the option says.
   const moat = garrison && (options.moat ?? RT_GARRISON_MOAT_ON);
+  // Task 55в «Замок»: the castle after the Castellan — only with the garrison, by `RT_CASTLE_ON` unless the option says.
+  const castle = garrison && (options.castle ?? RT_CASTLE_ON);
   // Task 43 «Гарнизон, шаг 2» (16.10.2026): «Ристалище», «Бойницы», knights and crossbowmen — only with «Ров», by `RT_GARRISON_STEP2_ON`
   // unless the option says.
   const step2 = moat && (options.step2 ?? RT_GARRISON_STEP2_ON);
@@ -1300,7 +1322,7 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   const run: RtRunState = {
     version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {},
     // Task 51з: the run of the day (only seeded, its seed the date's; run/rtDaily.ts `createRtDailyRun`).
-    ...options.seeded && isRtDailyDate(options.daily) && (seed >>> 0) === rtDailySeed(options.daily) ? { daily: options.daily } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...markerSeek ? { markerSeek: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked } : {}, ...heroId ? { heroId } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...step3 ? { step3: { drill: garrisonDrill(seed) } } : {}, ...relicFill ? { relicFill: true as const } : {}, ...chronicle ? { chronicle: true as const } : {}, ...potionCap ? { potionCap } : {}, ...pool.length ? { omens: { pool } } : {}, ...forestShooters ? { forestShooters: true as const } : {}, ...arcsAlternate ? { arcsAlternate: true as const } : {}, ...forestTricks ? { forestTricks: true as const } : {}, ...poolSeen.length ? { poolSeen } : {}, ...bossHoles ? { bossHoles: true as const } : {}, ...corePickFirst ? { corePickFirst: true as const } : {}, ...bossPickArt ? { bossPickArt: true as const } : {}, ...trollMove ? { trollMove: true as const } : {}, ...warlockV1 ? { warlockV1: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    ...options.seeded && isRtDailyDate(options.daily) && (seed >>> 0) === rtDailySeed(options.daily) ? { daily: options.daily } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...markerSeek ? { markerSeek: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked } : {}, ...heroId ? { heroId } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...castle ? { castle: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...step3 ? { step3: { drill: garrisonDrill(seed) } } : {}, ...relicFill ? { relicFill: true as const } : {}, ...chronicle ? { chronicle: true as const } : {}, ...potionCap ? { potionCap } : {}, ...pool.length ? { omens: { pool } } : {}, ...forestShooters ? { forestShooters: true as const } : {}, ...arcsAlternate ? { arcsAlternate: true as const } : {}, ...forestTricks ? { forestTricks: true as const } : {}, ...poolSeen.length ? { poolSeen } : {}, ...bossHoles ? { bossHoles: true as const } : {}, ...corePickFirst ? { corePickFirst: true as const } : {}, ...bossPickArt ? { bossPickArt: true as const } : {}, ...trollMove ? { trollMove: true as const } : {}, ...warlockV1 ? { warlockV1: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
@@ -1509,6 +1531,14 @@ export function rtArenaLoadout(run: RtRunState, options: RtLoadoutOptions = {}):
     const step2 = run.step2 ? { knights: garrisonKnights(pending.arena, node.type, runRow(node.row), before), bolts: garrisonBolts(pending.arena, runRow(node.row), before) } : undefined;
     garrisonKit(kit, node, pending.battle, !!run.moat && garrisonDeep(pending.arena, runRow(node.row), before), step2);
     // Task 45 «Испытание VIII»: the garrison plays the fifth colour too (`garrisonKit` drops the panel's palette by the row).
+    return withOmens({ ...kit, ...rtAshSkill(ash, pending.battle) }, pending);
+  }
+  // Task 55в «Замок»: a castle fight plays the castle's row tables (run/castle.ts, spec 4.4; no schedule, no gentle tables there); its
+  // deep enemies by the castle's arenas before it (`castleDeep`).
+  if (node && pending?.kind === 'battle' && rtCastleNodeId(node.id)) {
+    const before = run.picks.flatMap(pick => pick.arena && rtCastleNodeId(pick.nodeId) && pick.nodeId !== node.id ? [pick.arena] : []);
+    castleKit(kit, node, pending.battle, castleDeep(pending.arena, node.type, runRow(node.row), before));
+    // «Испытание VIII»: the castle plays the fifth colour too (`castleKit` drops the panel's palette by the row).
     return withOmens({ ...kit, ...rtAshSkill(ash, pending.battle) }, pending);
   }
   // Task 26 «Расписание леса»: a scheduled run's fight takes the schedule's elite and enemy rules (it replaces Е2 and the final's rule).
@@ -2027,7 +2057,8 @@ function drawTalismanOffer(run: RtRunState, nodeId: string, source: RtTalismanSo
   if (source === 'oath') {
     const options = rtTalismanOffer(base, source, pool, rtOathSlots(run, nodeId));
     // Task 51: «Караульня» of a run with the flag — the places the oaths and relics left empty take a rare talisman each (the same draw).
-    return run.relicFill && rtGarrisonNodeId(nodeId) ? rtFillRares(options, rtOathSlots(run, nodeId), base, pool) : options;
+    // Task 55в: «Бальный зал» of the castle too (spec 4.5: «как «Караульня»»).
+    return run.relicFill && rtNodeLevel(nodeId) > 1 ? rtFillRares(options, rtOathSlots(run, nodeId), base, pool) : options;
   }
   if (source === 'hard') {
     // Task 30: the rare place of «Застава» holds a form of the other field (`rtFormSlotField`) — by the node's form roll over the
@@ -2132,8 +2163,8 @@ export function rtChooseTalisman(current: RtRunState, chosen: RtTalismanOption |
   run.talismansGone.push(...pending.options.filter(option => option !== chosen && !isRtForm(option)));
   // Task 58в: the forms and the field's items left, the rerolled away.
   noteShown(run, [...pending.rerolled ?? [], ...pending.options.filter(option => option !== chosen && shownApart(option))]);
-  // Task 38: the forest final's relic chosen (its node is completed already) — «Предместье».
-  if (pending.source === 'level') { openOutskirts(run, events); return { ok: true, run, events }; }
+  // Task 38: the forest final's relic chosen (its node is completed already) — «Предместье». Task 55в: the Castellan's — «Подножие».
+  if (pending.source === 'level') { if (rtNodeLevel(pending.nodeId) === 2) openFoothill(run, events); else openOutskirts(run, events); return { ok: true, run, events }; }
   const node = rtNode(run, pending.nodeId)!;
   // Task 30: the Jailer's form screen — its oath and relic screen follows (as after the hammer screen).
   if (pending.source === 'form') { offerOaths(run, node.id, events); return { ok: true, run, events }; }
@@ -2293,17 +2324,23 @@ const mapCache = new WeakMap<object, ForestRunMap>();
  * The graph of a run: the generated map (map rows 5–14). Task 38: in the garrison (`garrisonLevel`) — the forest's map and the
  * garrison's (its ids `g:…`) joined: the forest's boss nodes lead to the garrison's first row.
  */
-export function rtRunMap(run: Pick<RtRunState, 'map' | 'garrisonLevel'>): ForestRunMap {
-  const key = run.garrisonLevel ?? run.map;
+export function rtRunMap(run: Pick<RtRunState, 'map' | 'garrisonLevel'> & { castleLevel?: RtGarrisonLevel }): ForestRunMap {
+  // Task 55в: in the castle (`castleLevel`) — the forest's, the garrison's and the castle's maps joined (the garrison's boss nodes lead
+  // to the castle's first row).
+  const key = run.castleLevel ?? run.garrisonLevel ?? run.map;
   let map = mapCache.get(key);
-  if (!map) { map = run.garrisonLevel ? garrisonCombinedMap(run.map, run.garrisonLevel.map) : generatedRunMap(run.map); mapCache.set(key, map); }
+  if (!map) {
+    map = run.castleLevel && run.garrisonLevel ? castleCombinedMap(run.map, run.garrisonLevel.map, run.castleLevel.map) : run.garrisonLevel ? garrisonCombinedMap(run.map, run.garrisonLevel.map) : generatedRunMap(run.map);
+    mapCache.set(key, map);
+  }
   return map;
 }
 /** The node `id` of the run's map. */
-export function rtNode(run: Pick<RtRunState, 'map' | 'garrisonLevel'>, id: string): ForestMapNode | undefined { return rtRunMap(run).node(id); }
-/** Nodes of the run (map rows 5–14): what the map screen draws — task 38: the level the run is on (the forest, or the garrison). */
-export function rtMapNodes(run: Pick<RtRunState, 'map' | 'garrisonLevel'>): ForestMapNode[] {
-  return rtRunMap(run).nodes.filter(node => !!run.garrisonLevel === rtGarrisonNodeId(node.id));
+export function rtNode(run: Pick<RtRunState, 'map' | 'garrisonLevel'> & { castleLevel?: RtGarrisonLevel }, id: string): ForestMapNode | undefined { return rtRunMap(run).node(id); }
+/** Nodes of the run (map rows 5–14): what the map screen draws — task 38: the level the run is on (the forest, the garrison; task 55в: the castle). */
+export function rtMapNodes(run: Pick<RtRunState, 'map' | 'garrisonLevel'> & { castleLevel?: RtGarrisonLevel }): ForestMapNode[] {
+  const level = rtLevel(run);
+  return rtRunMap(run).nodes.filter(node => rtNodeLevel(node.id) === level);
 }
 
 /** Transitions the player may choose now: empty while a node is open or after the run ended. */
@@ -2324,9 +2361,9 @@ export const isArenaNode = (node: ForestMapNode): boolean => ['battle', 'hard', 
 
 /** One draw of a run stream: `advance` spends it (the state is a clone being changed), a peek does not. */
 function draw(run: RtRunState, stream: RunStream, advance: boolean): number {
-  // Task 38: in the garrison every draw is the garrison's own stream (its seed, its counters from 0).
-  const level = run.garrisonLevel, streams = level ? level.streams : run.streams;
-  const value = streamValue(level ? rtGarrisonSeed(run) : run.seed, stream, streams[stream]);
+  // Task 38: in the garrison every draw is the garrison's own stream (its seed, its counters from 0). Task 55в: in the castle — the castle's.
+  const level = run.castleLevel ?? run.garrisonLevel, streams = level ? level.streams : run.streams;
+  const value = streamValue(run.castleLevel ? castleSeed(run.seed) : level ? rtGarrisonSeed(run) : run.seed, stream, streams[stream]);
   if (advance) streams[stream]++;
   return value;
 }
@@ -2371,6 +2408,11 @@ export const battleKindOf = (node: Pick<ForestMapNode, 'type'>): RtBattleKind =>
  * the draw k, and a save is checked by choosing its arenas again).
  */
 function arenaPick(run: RtRunState, node: ForestMapNode, advance: boolean): RtArenaPick {
+  // Task 55в: a castle node — the castle's arena by its pool stream after the castle's arenas (no roster; spec 5.2).
+  if (rtCastleNodeId(node.id)) {
+    const castleHistory = run.picks.flatMap(pick => pick.arena && rtCastleNodeId(pick.nodeId) ? [pick.arena] : []);
+    return { arena: castleArena(node, castleHistory, draw(run, 'pool', advance)) };
+  }
   // Task 38: a garrison node — the garrison's arena by its pool stream after the garrison's arenas (no roster).
   if (rtGarrisonNodeId(node.id)) {
     const garrisonHistory = run.picks.flatMap(pick => pick.arena && rtGarrisonNodeId(pick.nodeId) ? [pick.arena] : []);
@@ -2392,17 +2434,18 @@ function arenaPick(run: RtRunState, node: ForestMapNode, advance: boolean): RtAr
 export const arenaSeed = (run: Pick<RtRunState, 'seed' | 'garrisonMap'>, nodeId: string): number =>
   // Task 38: a garrison node's seed — from the garrison's seed and its generator id (design 1.2), not the forest's. Task 51б: the
   // garrison's seed of the map chosen (`rtGarrisonSeed`; without «Путь в гарнизон» — `garrisonSeed`, as before).
-  rtGarrisonNodeId(nodeId) ? forestNodeSeed(rtGarrisonSeed(run), nodeId.slice(2)) : forestNodeSeed(run.seed, nodeId);
+  // Task 55в: a castle node's — from the castle's seed and its generator id (spec 4.2).
+  rtCastleNodeId(nodeId) ? forestNodeSeed(castleSeed(run.seed), nodeId.slice(2)) : rtGarrisonNodeId(nodeId) ? forestNodeSeed(rtGarrisonSeed(run), nodeId.slice(2)) : forestNodeSeed(run.seed, nodeId);
 
 // ---------- Task 56 «Приметы» (run/omens.ts; spec docs/design-notes/task-56-omens.md) ----------
 
-/** The level of a node: 2 — the garrison's, 1 — the forest's. */
-const omenLevelOf = (nodeId: string): RtOmenLevel => (rtGarrisonNodeId(nodeId) ? 2 : 1);
+/** The level of a node: 2 — the garrison's, 1 — the forest's (task 55в: 3 — the castle's). */
+const omenLevelOf = (nodeId: string): RtOmenLevel => rtNodeLevel(nodeId);
 /** The level's omen of the run (absent — no omens, the level not started, or no omen fit): by default the level the run is on. */
-export const rtLevelOmen = (run: Pick<RtRunState, 'omens' | 'garrisonLevel'>, level: RtOmenLevel = rtLevel(run)): RtOmenId | undefined => run.omens?.level?.[level];
-/** The level's omen of `run` by its pool and the level's seed (the forest — the run's, the garrison — of the map chosen). */
+export const rtLevelOmen = (run: Pick<RtRunState, 'omens' | 'garrisonLevel' | 'castleLevel'>, level: RtOmenLevel = rtLevel(run)): RtOmenId | undefined => run.omens?.level?.[level];
+/** The level's omen of `run` by its pool and the level's seed (the forest — the run's, the garrison — of the map chosen, the castle — `castleSeed`). */
 const levelOmenOf = (run: Pick<RtRunState, 'seed' | 'garrisonMap'>, pool: readonly string[], level: RtOmenLevel): RtOmenId | undefined =>
-  rtLevelOmenRoll(pool, level === 2 ? rtGarrisonSeed(run) : run.seed, level);
+  rtLevelOmenRoll(pool, level === 3 ? castleSeed(run.seed) : level === 2 ? rtGarrisonSeed(run) : run.seed, level);
 /** Spec 4.1: the level starts — its omen is written (nothing in a run without omens, or when none fits). */
 function startLevelOmen(run: RtRunState, level: RtOmenLevel): void {
   if (!run.omens) return;
@@ -2426,7 +2469,7 @@ export const rtNodeOmen = (run: RtRunState, node: ForestMapNode): RtOmenId | und
 export function rtFightOmens(run: Pick<RtRunState, 'omens' | 'seed' | 'garrisonMap'>, node: Pick<ForestMapNode, 'id' | 'type' | 'row'>): RtFightOmens {
   if (!run.omens) return {};
   const own = rtNodeOmenRoll(run, node), levelId = run.omens.level?.[omenLevelOf(node.id)];
-  const boss = node.type === 'checkpoint' || node.type === 'boss', bag = !boss && (rtGarrisonNodeId(node.id) || runRow(node.row) >= RT_BAG_ROW);
+  const boss = node.type === 'checkpoint' || node.type === 'boss', bag = !boss && (rtNodeLevel(node.id) > 1 || runRow(node.row) >= RT_BAG_ROW);
   const level = levelId && rtOmen(levelId)?.where === 'fight' && !boss && (levelId !== 'harvest' || bag) ? levelId : undefined;
   return { ...own ? { node: own } : {}, ...level ? { level } : {} };
 }
@@ -2440,8 +2483,8 @@ const LINKED_ONLY: readonly string[] = ['checkpoint', 'breakthrough', 'boss'];
 function crossroadsNext(map: ForestRunMap, from: ForestMapNode): string[] {
   const linked = from.next.flatMap(id => { const node = map.node(id); return node ? [node] : []; });
   if (!linked.length || linked.some(node => LINKED_ONLY.includes(node.type) || mapPart(node) !== mapPart(from))) return from.next;
-  const row = linked[0].row, garrison = rtGarrisonNodeId(from.id);
-  const more = map.nodes.filter(node => node.row === row && rtGarrisonNodeId(node.id) === garrison && mapPart(node) === mapPart(from) && !LINKED_ONLY.includes(node.type) && !from.next.includes(node.id));
+  const row = linked[0].row, level = rtNodeLevel(from.id);
+  const more = map.nodes.filter(node => node.row === row && rtNodeLevel(node.id) === level && mapPart(node) === mapPart(from) && !LINKED_ONLY.includes(node.type) && !from.next.includes(node.id));
   return [...from.next, ...more.map(node => node.id)];
 }
 /** The nodes the map's links open now (no «Перепутье»): the first row, or the last node's `next`. */
@@ -2454,9 +2497,9 @@ function linkedNext(run: RtRunState): string[] {
  * the next row (the row after the last node completed in this level; none yet — the level's first row).
  */
 export function rtCrossroadsHidden(run: RtRunState, node: ForestMapNode): boolean {
-  if (rtLevelOmen(run) !== 'crossroads' || rtGarrisonNodeId(node.id) !== !!run.garrisonLevel) return false;
+  if (rtLevelOmen(run) !== 'crossroads' || rtNodeLevel(node.id) !== rtLevel(run)) return false;
   const current = run.currentNodeId ? rtNode(run, run.currentNodeId) : undefined;
-  const here = current && rtGarrisonNodeId(current.id) === !!run.garrisonLevel ? current.row : Math.min(...rtMapNodes(run).map(entry => entry.row)) - 1;
+  const here = current && rtNodeLevel(current.id) === rtLevel(run) ? current.row : Math.min(...rtMapNodes(run).map(entry => entry.row)) - 1;
   return node.row > here + 1;
 }
 /**
@@ -2468,8 +2511,11 @@ function validOmens(value: Record<string, unknown>): boolean {
   if (!isRecord(omens) || Object.keys(omens).some(key => key !== 'pool' && key !== 'level') || !isRtOmenPool(omens.pool) || !omens.pool.length) return false;
   const run = value as unknown as RtRunState, pool = omens.pool, expected: Partial<Record<RtOmenLevel, RtOmenId>> = {};
   const forest = levelOmenOf(run, pool, 1), garrison = value.garrisonLevel !== undefined ? levelOmenOf(run, pool, 2) : undefined;
+  // Task 55в: the castle's once in it.
+  const castle = value.castleLevel !== undefined ? levelOmenOf(run, pool, 3) : undefined;
   if (forest) expected[1] = forest;
   if (garrison) expected[2] = garrison;
+  if (castle) expected[3] = castle;
   return JSON.stringify(omens.level ?? {}) === JSON.stringify(expected) && (omens.level === undefined) === !Object.keys(expected).length;
 }
 
@@ -2568,6 +2614,8 @@ function completeNode(run: RtRunState, node: ForestMapNode, events: RtRunEvent[]
   events.push({ type: 'node-completed', nodeId: node.id });
   // Task 38: the forest final of a run with the garrison does not end it — its relic, then «Предместье» (`openLevelReward`).
   if (node.type === 'boss' && rtGarrisonContinues(run, node)) { openLevelReward(run, node, events); return; }
+  // Task 55в: the Castellan of a run with the castle does not end it — his relic, then «Подножие».
+  if (node.type === 'boss' && rtCastleContinues(run, node)) { openLevelReward(run, node, events); return; }
   if (node.type === 'boss') { run.result = { outcome: 'victory', nodeId: node.id }; events.push({ type: 'run-won', nodeId: node.id }); }
 }
 
@@ -2697,7 +2745,7 @@ export function resolveArena(current: RtRunState, outcome: RtArenaOutcome): RtRu
     // Task 16 «Подвиги»: the open battle's feat and whether the fight did it (a lost fight's too).
     ...pending.feat ? { feat: { ...structuredClone(pending.feat), done: outcome.feat?.done === true } } : {},
     // Task 26: what the fight showed (a lost fight's too) — the next arcs and the viewer's history read it.
-    ...current.schedule && !rtGarrisonNodeId(pending.nodeId) ? { seen: fightElements({ arena: pending.arena, markedGoals: !!current.markedGoals, arc: rtFightArc(current), kinds: outcome.kinds, elite: outcome.elite === true, affixes: outcome.affixes, bag: !rtArenaLoadout(current).noBag, ...current.forestShooters ? { shooters: true } : {}, ...current.forestTricks ? { tricks: true } : {} }) } : {},
+    ...current.schedule && rtNodeLevel(pending.nodeId) === 1 ? { seen: fightElements({ arena: pending.arena, markedGoals: !!current.markedGoals, arc: rtFightArc(current), kinds: outcome.kinds, elite: outcome.elite === true, affixes: outcome.affixes, bag: !rtArenaLoadout(current).noBag, ...current.forestShooters ? { shooters: true } : {}, ...current.forestTricks ? { tricks: true } : {} }) } : {},
     // Task 28: the Jailer's weight severed (a lost fight's too: the record keeps what happened).
     ...outcome.severed === true && current.jailer && JAILER_RUN_ARENAS.includes(pending.arena) ? { severed: true as const } : {},
     // Task 48: the Troll's parts severed (a lost fight's too).
@@ -3259,7 +3307,8 @@ export function rtShopRerollView(run: RtRunState): RtShopRerollView | null {
   if (pending?.kind !== 'shop') return null;
   const garrison = !!rtGarrisonNodeId(pending.nodeId);
   // Task 56: «Ярмарочный день» of the merchant's level gives its own free reroll; with Шиш's the two add up (the omen's goes first).
-  const fairOn = rtLevelOmen(run, omenLevelOf(pending.nodeId)) === 'fair', shishOn = garrison ? shops >= 2 : shops >= 1;
+  // Task 55в: a castle merchant has no Шиш's reroll (his are the forest's and the garrison's) — only the omen's.
+  const fairOn = rtLevelOmen(run, omenLevelOf(pending.nodeId)) === 'fair', shishOn = rtCastleNodeId(pending.nodeId) ? false : garrison ? shops >= 2 : shops >= 1;
   if (!fairOn && !shishOn) return null;
   const fair = fairOn && !run.fairRerolls?.[pending.nodeId], spent = garrison ? run.garrisonShopRerolled : run.shopRerolled;
   const bought = pending.bought.some(entry => entry.good === 'item' || entry.good === 'talisman');
@@ -3294,7 +3343,7 @@ export function rtShopReroll(current: RtRunState): RtRunStep {
 /** Task 51д: `node` is in the zone of the NPC away — its branch (or the trails) and its run rows. */
 export function rtMeetZone(npc: RtHearthLeaver, node: Pick<ForestMapNode, 'id' | 'row'>): boolean {
   const zone = RT_MEET_ZONES[npc], row = runRow(node.row);
-  if (rtGarrisonNodeId(node.id) || row < zone.rows[0] || row > zone.rows[1]) return false;
+  if (rtNodeLevel(node.id) > 1 || row < zone.rows[0] || row > zone.rows[1]) return false;
   const branch = node.id.startsWith('den-') ? 'den' : node.id.startsWith('camp-') ? 'camp' : null;
   return branch === zone.branch;
 }
@@ -3893,14 +3942,21 @@ function markVowReroll(run: RtRunState): void { if (run.hearth?.vows?.includes('
 
 /** Task 38: the garrison level of a run — its map (kept whole) and its own stream counters (the garrison's seed). */
 export interface RtGarrisonLevel { map: GeneratedForestMap; streams: RunStreams }
-/** The level the run is on: 1 — the forest, 2 — the garrison (`garrisonLevel`). */
-export const rtLevel = (run: Pick<RtRunState, 'garrisonLevel'>): 1 | 2 => (run.garrisonLevel ? 2 : 1);
+/** The level the run is on: 1 — the forest, 2 — the garrison (`garrisonLevel`), 3 — the castle (`castleLevel`, task 55в). */
+export const rtLevel = (run: Pick<RtRunState, 'garrisonLevel'> & { castleLevel?: RtGarrisonLevel }): 1 | 2 | 3 => (run.castleLevel ? 3 : run.garrisonLevel ? 2 : 1);
 /** The node is the forest's final of a run that goes on into the garrison. */
 export const rtGarrisonContinues = (run: Pick<RtRunState, 'garrison'>, node: Pick<ForestMapNode, 'id' | 'type'>): boolean =>
-  !!run.garrison && node.type === 'boss' && !rtGarrisonNodeId(node.id);
+  !!run.garrison && node.type === 'boss' && rtNodeLevel(node.id) === 1;
+/** Task 55в: the node is the garrison's final (the Castellan) of a run that goes on into the castle. */
+export const rtCastleContinues = (run: Pick<RtRunState, 'castle'>, node: Pick<ForestMapNode, 'id' | 'type'>): boolean =>
+  !!run.castle && node.type === 'boss' && rtNodeLevel(node.id) === 2;
 /** The run with the garrison has won the forest's final (its boss node is completed). */
 export function rtForestCleared(run: Pick<RtRunState, 'garrison' | 'visited' | 'map' | 'garrisonLevel'>): boolean {
-  return !!run.garrison && run.visited.some(id => !rtGarrisonNodeId(id) && rtNode(run, id)?.type === 'boss');
+  return !!run.garrison && run.visited.some(id => rtNodeLevel(id) === 1 && rtNode(run, id)?.type === 'boss');
+}
+/** Task 55в: the run with the castle has won the garrison's final, the Castellan (its boss node is completed). */
+export function rtGarrisonCleared(run: Pick<RtRunState, 'castle' | 'visited' | 'map' | 'garrisonLevel'>): boolean {
+  return !!run.castle && run.visited.some(id => rtNodeLevel(id) === 2 && rtNode(run, id)?.type === 'boss');
 }
 /**
  * Task 48 «Тролль» (design 16.10.2026, docs/design-notes/task-48-troll.md, 9): the forest final's relic screen offers 1 of 4 when its
@@ -3934,9 +3990,13 @@ export function rtFillRares(options: RtTalismanOption[], slots: number, base: nu
   }
   return options;
 }
-/** The forest final is won: `level-cleared`, then its relic 1 of 3 (task 48: 1 of 4 after the Troll's three parts; the next draw of the forest's `talismans` stream). */
+/**
+ * The forest final is won: `level-cleared`, then its relic 1 of 3 (task 48: 1 of 4 after the Troll's three parts; the next draw of the
+ * forest's `talismans` stream). Task 55в (spec 4.1): the Castellan of a run with the castle — `level-cleared` 2, the relic by the next
+ * draw of the garrison's stream (the level the run is on).
+ */
 function openLevelReward(run: RtRunState, node: ForestMapNode, events: RtRunEvent[]): void {
-  events.push({ type: 'level-cleared', level: 1, nodeId: node.id });
+  events.push({ type: 'level-cleared', level: rtNodeLevel(node.id), nodeId: node.id });
   offerTalismans(run, node.id, 'level', talismanOfferOf(run, node.id, 'level', draw(run, 'talismans', true))!, events);
 }
 /** «Предместье» (design 1.1, answer 3): HP up to the maximum (as Slay the Spire between acts), the screen waits for «В гарнизон». */
@@ -3945,6 +4005,25 @@ function openOutskirts(run: RtRunState, events: RtRunEvent[]): void {
   run.hp = run.maxHp;
   events.push({ type: 'healed', nodeId: run.currentNodeId ?? '', amount });
   run.pending = { kind: 'outskirts' };
+}
+/** Task 55в «Подножие» (spec 4.1): HP up to the maximum (as «Предместье»), the screen waits for «В замок». */
+function openFoothill(run: RtRunState, events: RtRunEvent[]): void {
+  const amount = Math.max(0, run.maxHp - run.hp);
+  run.hp = run.maxHp;
+  events.push({ type: 'healed', nodeId: run.currentNodeId ?? '', amount });
+  run.pending = { kind: 'foothill' };
+}
+/**
+ * Task 55в «В замок» (spec 4.1–4.2): the castle's map (the forest's generator, the salt `castle-map`), its streams from 0, its level's omen
+ * (task 56: by the castle's seed); its first row is open.
+ */
+export function rtEnterCastle(current: RtRunState): RtRunStep {
+  if (current.pending?.kind !== 'foothill' || !current.castle || !current.garrisonLevel || current.castleLevel || current.result) return fail('Сейчас нет пути в замок.');
+  const run = structuredClone(current);
+  run.castleLevel = { map: generateCastleMap(run.seed), streams: emptyStreams() };
+  startLevelOmen(run, 3);
+  run.pending = null;
+  return { ok: true, run, events: [{ type: 'castle-entered' }] };
 }
 /**
  * «В гарнизон»: the garrison's map (the forest's generator, the salt `garrison-map`) and its streams from 0; its first row is open.
@@ -4018,13 +4097,22 @@ export function rtCartView(run: RtRunState): RtCartView | null {
  * forest's boss, the offer drawn again from the last forest `talismans` draw, no reroll) or «Предместье» (after it); both before
  * the garrison's map exists.
  */
-function validLevelPending(run: RtRunState, map: ForestRunMap, pending: Record<string, unknown>, streams: RunStreams): boolean {
+function validLevelPending(run: RtRunState, map: ForestRunMap, pending: Record<string, unknown>, level: { seed: number; streams: RunStreams }): boolean {
   const last = run.currentNodeId !== null ? map.node(run.currentNodeId) : undefined;
-  if (!run.garrison || run.garrisonLevel || !last || !rtGarrisonContinues(run, last)) return false;
-  if (pending.kind === 'outskirts') return Object.keys(pending).length === 1;
-  const options = pending.options;
+  // Task 55в: the Castellan's relic and «Подножие» — before the castle's map exists (the garrison's streams drew the relic).
+  const forest = !!last && !!run.garrison && !run.garrisonLevel && rtGarrisonContinues(run, last);
+  const garrison = !!last && !!run.garrisonLevel && !run.castleLevel && rtCastleContinues(run, last);
+  if (!last || (!forest && !garrison)) return false;
+  if (pending.kind === 'outskirts' || pending.kind === 'foothill') return pending.kind === (garrison ? 'foothill' : 'outskirts') && Object.keys(pending).length === 1;
+  const options = pending.options, streams = level.streams;
   if (pending.nodeId !== last.id || pending.rerolls !== undefined || pending.rerolled !== undefined || !Array.isArray(options) || !(streams.talismans >= 1)) return false;
-  return JSON.stringify(talismanOfferOf(run, last.id, 'level', streamValue(run.seed, 'talismans', streams.talismans - 1))) === JSON.stringify(options);
+  return JSON.stringify(talismanOfferOf(run, last.id, 'level', streamValue(level.seed, 'talismans', streams.talismans - 1))) === JSON.stringify(options);
+}
+/** Task 55в: a save's castle level — the flag, the garrison's level before it, a generated map, the castle's stream counters. */
+function validCastleLevel(value: Record<string, unknown>): RunStreams | null {
+  const level = value.castleLevel;
+  if (value.castle !== true || value.garrisonLevel === undefined || !isRecord(level) || Object.keys(level).length !== 2 || validateStoredMap(level.map).length) return null;
+  return parseStreams(level.streams);
 }
 /** A save's garrison level: the flag, a generated map (the generator's structure), the garrison's stream counters. */
 function validGarrisonLevel(value: Record<string, unknown>): RunStreams | null {
@@ -4218,6 +4306,8 @@ function checkRun(value: unknown): RtRunState | null {
   // Task 40: a flag, only with the garrison; the cart only in a run with it and the camp, once in the garrison (n of 0 … the
   // cart's most, not above the stock it was taken from).
   if (value.moat !== undefined && !(value.moat === true && value.garrison === true)) return null;
+  // Task 55в: the castle — a flag, only with the garrison.
+  if (value.castle !== undefined && !(value.castle === true && value.garrison === true)) return null;
   // Task 51: the relic screens filled — a flag, only with the garrison.
   if (value.relicFill !== undefined && !(value.relicFill === true && value.garrison === true)) return null;
   // Task 58в: the chronicle's flag; `shown` only with it — known items, each once, none held (nor the hammer held), none locked by the
@@ -4272,7 +4362,11 @@ function checkRun(value: unknown): RtRunState | null {
     && (value.npcMeet.deal === undefined || (typeof value.npcMeet.deal === 'string' && /^(item|talisman|sell):[a-z-]+$/.test(value.npcMeet.deal))))) return null;
   // Task 51г: the reroll mark only in a run with «Без переброса».
   if (value.vowRerolled !== undefined && !(value.vowRerolled === true && isRecord(value.hearth) && Array.isArray(value.hearth.vows) && value.hearth.vows.includes('vow-no-reroll'))) return null;
-  const level = garrisonStreams ? { seed: rtGarrisonSeed(value as { seed: number; garrisonMap?: 0 | 1 }), streams: garrisonStreams } : { seed: value.seed as number, streams };
+  // Task 55в: the castle level only with the flag, after the garrison's (its map and streams).
+  const castleStreams = value.castleLevel === undefined ? null : validCastleLevel(value);
+  if (value.castleLevel !== undefined && !castleStreams) return null;
+  const level = castleStreams ? { seed: castleSeed(value.seed as number), streams: castleStreams }
+    : garrisonStreams ? { seed: rtGarrisonSeed(value as { seed: number; garrisonMap?: 0 | 1 }), streams: garrisonStreams } : { seed: value.seed as number, streams };
   const run = value as unknown as RtRunState;
   const map = rtRunMap(run), known = (id: unknown): id is string => typeof id === 'string' && !!map.node(id);
   if (!Array.isArray(run.visited) || !run.visited.every(known) || !(run.currentNodeId === null || known(run.currentNodeId))) return null;
@@ -4342,7 +4436,7 @@ function checkRun(value: unknown): RtRunState | null {
   for (const pick of run.picks) {
     if (!isRecord(pick) || !known(pick.nodeId) || run.picks.filter(other => other.nodeId === pick.nodeId).length > 1) return null;
     if (pick.arena !== undefined && !RUN_ARENAS.includes(pick.arena) && !(run.forestShooters && SHOOTER_RUN_ARENAS.includes(pick.arena)) && !(run.forestTricks && TRICK_RUN_ARENAS.includes(pick.arena)) && !(run.schedule && SCHEDULE_RUN_ARENAS.includes(pick.arena)) && !(run.jailer && JAILER_RUN_ARENAS.includes(pick.arena))
-      && !(run.troll && TROLL_RUN_ARENAS.includes(pick.arena)) && !(rtGarrisonNodeId(pick.nodeId) && GARRISON_RUN_ARENAS.includes(pick.arena))) return null;
+      && !(run.troll && TROLL_RUN_ARENAS.includes(pick.arena)) && !(rtGarrisonNodeId(pick.nodeId) && GARRISON_RUN_ARENAS.includes(pick.arena)) && !(rtCastleNodeId(pick.nodeId) && CASTLE_RUN_ARENAS.includes(pick.arena))) return null;
     if (pick.arc !== undefined && !(run.schedule && pick.arena !== undefined && typeof pick.arc === 'string')) return null;
     if (pick.roster !== undefined && (!isRoster(pick.roster) || pick.arena === undefined)) return null;
     if (pick.eventId !== undefined && (!forestEvent(pick.eventId) || rtIsLocked(run, pick.eventId))) return null;
@@ -4358,12 +4452,20 @@ function checkRun(value: unknown): RtRunState | null {
   const met = new Set(run.schedule?.seen ?? []);
   // Task 38: the garrison's arenas — by its own pool stream after the garrison's arenas before each (no roster, no arc).
   const garrisonHistory: string[] = [];
+  // Task 55в: the castle's — by its own pool stream after the castle's arenas before each (no roster, no arc).
+  const castleHistory: string[] = [];
   for (const pick of run.picks) {
     if (pick.arena === undefined) continue;
     const node = map.node(pick.nodeId)!;
     if (!isArenaNode(node) && !(node.type === 'event' && pick.eventId && battleOption(forestEvent(pick.eventId)!))) return null;
+    if (rtCastleNodeId(node.id)) {
+      if (pick.roster !== undefined || pick.arc !== undefined || !castleStreams || pick.arena !== castleArena(node, castleHistory, streamValue(level.seed, 'pool', castleHistory.length))) return null;
+      castleHistory.push(pick.arena);
+      continue;
+    }
     if (rtGarrisonNodeId(node.id)) {
-      if (pick.roster !== undefined || pick.arc !== undefined || pick.arena !== garrisonArena(node, garrisonHistory, streamValue(level.seed, 'pool', garrisonHistory.length), !!run.moat, !!run.step2, run.step3?.drill)) return null;
+      // Task 55в: by the garrison's seed (the castle's level is another).
+      if (pick.roster !== undefined || pick.arc !== undefined || pick.arena !== garrisonArena(node, garrisonHistory, streamValue(rtGarrisonSeed(run), 'pool', garrisonHistory.length), !!run.moat, !!run.step2, run.step3?.drill)) return null;
       garrisonHistory.push(pick.arena);
       continue;
     }
@@ -4392,9 +4494,12 @@ function checkRun(value: unknown): RtRunState | null {
     history.push(pick.arena);
     if (pick.roster !== undefined) rosters.push(pick.roster);
   }
-  if (streams.pool !== history.length || (garrisonStreams && garrisonStreams.pool !== garrisonHistory.length)) return null;
+  if (streams.pool !== history.length || (garrisonStreams && garrisonStreams.pool !== garrisonHistory.length) || (castleStreams && castleStreams.pool !== castleHistory.length)) return null;
   // Task 38: a run with the garrison past the forest final is on its relic, in «Предместье» or in the garrison (nothing else).
   if (rtForestCleared(run) && !run.garrisonLevel && !(isRecord(run.pending) && (run.pending.kind === 'outskirts' || (run.pending.kind === 'talisman' && run.pending.source === 'level')))) return null;
+  // Task 55в: likewise past the Castellan — his relic, «Подножие» or the castle; the castle only after him.
+  if (rtGarrisonCleared(run) && !run.castleLevel && !(isRecord(run.pending) && (run.pending.kind === 'foothill' || (run.pending.kind === 'talisman' && run.pending.source === 'level')))) return null;
+  if (run.castleLevel && !rtGarrisonCleared(run)) return null;
   // Casino stage 1, item 2: one oath draw for each oath node the run entered (its arena pick), in the order of the picks.
   if (!isCount(run.oathDraws) || run.oathDraws !== run.picks.filter(pick => pick.arena !== undefined && oathNodeOf(map.node(pick.nodeId))).length) return null;
   const eventOf = (nodeId: string) => { const id = run.picks.find(pick => pick.nodeId === nodeId)?.eventId; return id ? forestEvent(id) : undefined; };
@@ -4434,14 +4539,15 @@ function checkRun(value: unknown): RtRunState | null {
   if (run.result !== null && (!isRecord(run.result) || !['victory', 'defeat'].includes(run.result.outcome) || !known(run.result.nodeId))) return null;
   const pending = run.pending as unknown;
   // Task 56: the off-link steps of a run with no node entered (nothing open, the gift, a transition's screen) — all on the path.
-  const entered = isRecord(pending) && pending.kind !== 'gift' && pending.kind !== 'outskirts' && !(pending.kind === 'talisman' && pending.source === 'level');
+  const entered = isRecord(pending) && pending.kind !== 'gift' && pending.kind !== 'outskirts' && pending.kind !== 'foothill' && !(pending.kind === 'talisman' && pending.source === 'level');
   if (!entered && offLinks !== (run.crossroadsFree ?? 0)) return null;
   if (pending === null) return { ...run, streams };
   // An ended run has nothing open.
   if (run.result !== null || !isRecord(pending)) return null;
   if (pending.kind === 'gift') return run.gift && !rtGiftDone(run.seed, run.gift, run.locked) && !run.visited.length ? { ...run, streams } : null;
   // Task 38: the transition's screens — the forest final's relic and «Предместье» (their node is completed: not one of `next`).
-  if (pending.kind === 'outskirts' || (pending.kind === 'talisman' && pending.source === 'level')) return validLevelPending(run, map, pending, streams) ? { ...run, streams } : null;
+  // Task 55в: the Castellan's relic and «Подножие».
+  if (pending.kind === 'outskirts' || pending.kind === 'foothill' || (pending.kind === 'talisman' && pending.source === 'level')) return validLevelPending(run, map, pending, level) ? { ...run, streams } : null;
   if (!known(pending.nodeId)) return null;
   const off = offLink(run.currentNodeId ?? undefined, pending.nodeId);
   if (off === null || offLinks + (off ? 1 : 0) !== (run.crossroadsFree ?? 0)) return null;
@@ -4449,7 +4555,7 @@ function checkRun(value: unknown): RtRunState | null {
   switch (pending.kind) {
     case 'battle': {
       if (typeof pending.arena !== 'string' || !(RUN_ARENAS.includes(pending.arena) || (run.forestShooters && SHOOTER_RUN_ARENAS.includes(pending.arena)) || (run.forestTricks && TRICK_RUN_ARENAS.includes(pending.arena)) || (run.schedule && SCHEDULE_RUN_ARENAS.includes(pending.arena)) || (run.jailer && JAILER_RUN_ARENAS.includes(pending.arena))
-        || (run.troll && TROLL_RUN_ARENAS.includes(pending.arena)) || (rtGarrisonNodeId(node.id) && GARRISON_RUN_ARENAS.includes(pending.arena))) || pick?.arena !== pending.arena) return null;
+        || (run.troll && TROLL_RUN_ARENAS.includes(pending.arena)) || (rtGarrisonNodeId(node.id) && GARRISON_RUN_ARENAS.includes(pending.arena)) || (rtCastleNodeId(node.id) && CASTLE_RUN_ARENAS.includes(pending.arena))) || pick?.arena !== pending.arena) return null;
       // Phase A (Т2): the roster of the open arena is its pick's, chosen again above.
       if (pending.roster !== pick.roster) return null;
       if (!isSeed(pending.seed) || pending.seed !== arenaSeed(run, pending.nodeId)) return null;
@@ -4573,7 +4679,8 @@ function checkRun(value: unknown): RtRunState | null {
       // Task 51в: goods drawn again by «Шишова лавка» — from the stream `hearth-shop` of the node (the counter of its level spent).
       else if (pending.rerolled !== undefined) {
         // Task 56: the omen's reroll (its node's mark), Шиш's, or both (`rerolls` 2: the stream's second value).
-        const garrisonShop = !!rtGarrisonNodeId(node.id), shish = garrisonShop ? run.garrisonShopRerolled === true : run.shopRerolled === true, n = pending.rerolls === 2 ? 2 : 1;
+        // Task 55в: a castle merchant has no Шиш's reroll (only the omen's).
+        const garrisonShop = !!rtGarrisonNodeId(node.id), shish = rtCastleNodeId(node.id) ? false : garrisonShop ? run.garrisonShopRerolled === true : run.shopRerolled === true, n = pending.rerolls === 2 ? 2 : 1;
         if (pending.rerolled !== true || (pending.rerolls !== undefined && pending.rerolls !== 2) || (pending.fairRerolled !== undefined && !(pending.fairRerolled === true && fair && run.fairRerolls?.[node.id] === 1))) return null;
         if (!(pending.fairRerolled ? n === 1 || shish : n === 1 && shish)) return null;
         if (rtShopTalisman(shopRerollBase(run, node.id, n - 1), entering) !== stock.talisman) return null;

@@ -432,13 +432,14 @@ export interface RunRecord extends RtHeader {
    * Task 36: the depth record after the run (run rows) and whether this run beat it. Task 40 (from 16.10.2026): `level` 2 — the
    * record is the garrison's; `wonLevel` — the level it passed (1 the forest, 2 the garrison); absent — the forest, none.
    */
-  record?: { row: number; won: boolean; beaten: boolean; level?: 2; wonLevel?: 1 | 2 };
+  record?: { row: number; won: boolean; beaten: boolean; level?: 2 | 3; wonLevel?: 1 | 2 | 3 };
   /**
    * Task 40 «Гарнизон, шаг 1б» (from 16.10.2026): the level the run ended on (2 — the garrison; absent — the forest, older records)
    * and the highest level it passed (`levelCleared`: 1 — the forest's final won, 2 — the Castellan; absent — none).
    */
-  level?: 2;
-  levelCleared?: 1 | 2;
+  /** Task 55в (from 23.10.2026): 3 — the castle; `levelCleared` 3 — the Warlock. */
+  level?: 2 | 3;
+  levelCleared?: 1 | 2 | 3;
   /** Task 40 «Повозка»: what the cart sent at «Предместье» (`n`) and the stock it was taken from (`before`); absent — no cart. */
   cart?: { n: number; before: number };
   /** Task 59б (from 21.10.2026): the trails' drill of a run of step 3 (`RtRunState.step3.drill`); absent — no step 3, older records. */
@@ -530,8 +531,8 @@ export interface FightRecord extends RtHeader {
   arena: string;
   roster?: string;
   row?: number;
-  /** Task 38 (from 16.10.2026): 2 — a fight of the garrison (`row` is the garrison's); absent — the forest, the sandbox (older records too). */
-  level?: 2;
+  /** Task 38 (from 16.10.2026): 2 — a fight of the garrison (`row` is the garrison's); absent — the forest, the sandbox (older records too). Task 55в: 3 — the castle's. */
+  level?: 2 | 3;
   /** Task 26 (from 15.10.2026): the scheduled fight's arc (`RunNode.arc`; `practice`); absent — not a scheduled fight (older records too). */
   arc?: string;
   /** Task 56 «Приметы» (from 17.10.2026): the fight's omens — its node's and its level's (the run's battle card); absent — none (older records too). */
@@ -710,12 +711,12 @@ function runMetaOk(r: Record<string, unknown>): boolean {
     && xp.parts.every(p => plain(p) && typeof p.id === 'string' && whole(p.xp) && (p.n === undefined || whole(p.n))))) return false;
   if (r.pack !== undefined && !(typeof r.pack === 'string' && r.pack.length > 0)) return false;
   if (record !== undefined && !(plain(record) && whole(record.row) && typeof record.won === 'boolean' && typeof record.beaten === 'boolean'
-    && (record.level === undefined || record.level === 2) && (record.wonLevel === undefined || record.wonLevel === 1 || record.wonLevel === 2))) return false;
+    && (record.level === undefined || record.level === 2 || record.level === 3) && (record.wonLevel === undefined || record.wonLevel === 1 || record.wonLevel === 2 || record.wonLevel === 3))) return false;
   if (r.locked !== undefined && !whole(r.locked)) return false;
   if (carry !== undefined && !(plain(carry) && whole(carry.n) && (carry.share === 1 || carry.share === 0.5) && whole(carry.cap) && whole(carry.resources) && (carry.cart === undefined || whole(carry.cart)))) return false;
   // Task 40 (16.10.2026): the run's level (2), the level it passed (1 or 2), the cart (`n` of `before`).
-  if (r.level !== undefined && r.level !== 2) return false;
-  if (r.levelCleared !== undefined && r.levelCleared !== 1 && r.levelCleared !== 2) return false;
+  if (r.level !== undefined && r.level !== 2 && r.level !== 3) return false;
+  if (r.levelCleared !== undefined && r.levelCleared !== 1 && r.levelCleared !== 2 && r.levelCleared !== 3) return false;
   if (r.cart !== undefined && !(plain(r.cart) && whole(r.cart.n) && whole(r.cart.before) && (r.cart.n as number) <= (r.cart.before as number))) return false;
   // Task 59б: the trails' drill of step 3.
   if (r.drill !== undefined && r.drill !== 'armory' && r.drill !== 'barracks') return false;
@@ -848,7 +849,8 @@ export function checkRecord(value: unknown): string | null {
       if (!['victory', 'defeat', 'restart', 'menu', 'unload'].includes(r.outcome as string)) return `fight outcome ${String(r.outcome)}`;
       if (r.arc !== undefined && !(typeof r.arc === 'string' && r.arc.length > 0)) return 'fight arc';
       // Task 38: the garrison's fights only (a node of the garrison).
-      if (r.level !== undefined && !(r.level === 2 && typeof r.nodeId === 'string' && r.nodeId.startsWith('g:'))) return 'fight level';
+      // Task 55в: 3 — a castle node (`c:`).
+      if (r.level !== undefined && !(typeof r.nodeId === 'string' && ((r.level === 2 && r.nodeId.startsWith('g:')) || (r.level === 3 && r.nodeId.startsWith('c:'))))) return 'fight level';
       // Task 56: the fight's omens (a run's fight), the counters of the summary.
       if (r.omens !== undefined && !(typeof r.nodeId === 'string' && Array.isArray(r.omens) && r.omens.length && r.omens.every(o => { const x = o as Record<string, unknown> | null; return !!x && typeof x.id === 'string' && (x.scope === 'node' || x.scope === 'level'); }))) return 'fight omens';
       const fired = (r.summary as Record<string, unknown>).omenFired;

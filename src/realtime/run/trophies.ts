@@ -6,7 +6,7 @@
  * it reads and writes as before, byte for byte.
  */
 import type { RtMeta } from './rtMeta';
-import { rtForestCleared, rtLevel, type RtRunState } from './rtRun';
+import { rtForestCleared, rtGarrisonCleared, rtLevel, type RtRunState } from './rtRun';
 import { RT_HERO_IDS } from './metaCatalog';
 import { JAILER_RUN_ARENAS, TROLL_RUN_ARENAS } from '../sim/arenasBoss';
 import { RT_CHRONICLE_FOREST_KINDS } from './chronicleCatalog';
@@ -69,7 +69,8 @@ export function rtRunTrophies(run: RtRunState, chronicle: RtChronicle | undefine
   if (run.battles.some(entry => entry.severed)) out.push({ id: 'severed' });
   if (won(TROLL_RUN_ARENAS)) out.push({ id: 'troll' });
   if (run.battles.some(entry => (entry.cuts ?? 0) >= 1)) out.push({ id: 'shackles' });
-  if (run.result?.outcome === 'victory' && rtLevel(run) === 2) out.push({ id: 'castellan' });
+  // Task 55в: in a run with the castle the Castellan does not end the run (`rtGarrisonCleared`).
+  if ((run.result?.outcome === 'victory' && rtLevel(run) === 2) || rtGarrisonCleared(run)) out.push({ id: 'castellan' });
   // The forest passed: the run won (a forest run's final, or the garrison after it) or went on past the forest's final.
   if (run.ash && (run.result?.outcome === 'victory' || rtForestCleared(run))) out.push({ id: 'ash', mark: run.ash });
   if (rtBestiaryFull(chronicle)) out.push({ id: 'bestiary' });

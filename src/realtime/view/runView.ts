@@ -1978,6 +1978,8 @@ export class RunView {
         + (gate ? this.gateHtml(gate) : '')
         + `<button class="rt-again" data-action="garrison" data-testid="run-garrison">В гарнизон</button></div></div>`;
     }
+    // Task 55в: «Подножие» (`rtEnterCastle`) — the ui session's screen; the run reaches it only with `RT_CASTLE_ON` (off).
+    if (pending.kind === 'foothill') return '';
     if (pending.kind === 'hammer') {
       // Phase B (Т2): the Jailer's first screen — a hammer 3 of 4; one hammer a run, it acts on every later arena.
       const fresh = this.newOffers(`hammer:${pending.nodeId}:${pending.options.join(',')}`, pending.options);

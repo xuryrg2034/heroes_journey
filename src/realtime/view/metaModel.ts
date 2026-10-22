@@ -17,7 +17,7 @@ export interface MetaPackItem { id: string; kind: MetaItemKind }
 export interface MetaPack { id: string; title: string; items: MetaPackItem[] }
 /** The parts of a run's experience, in the order the end screen lists them. */
 /** Task 51г (core): `vows` — Евлампий's vows kept. */
-export type MetaXpPart = 'battles' | 'elite' | 'jailer' | 'final' | 'guardroom' | 'castellan' | 'feats' | 'victory' | 'ash' | 'quest' | 'vows';
+export type MetaXpPart = 'battles' | 'elite' | 'jailer' | 'final' | 'guardroom' | 'castellan' | 'ballroom' | 'warlock' | 'feats' | 'victory' | 'ash' | 'quest' | 'vows';
 export type NpcId = 'owl' | 'herb' | 'smith' | 'gambler' | 'monk';
 
 /** The meta at the end of a run (null — no meta: a given seed, the sandbox, the prologue). */
@@ -37,7 +37,7 @@ export interface MetaEnd {
    * Task 38: `level` 2 — the garrison's record (absent — the forest). Task 40: `wonLevel` — the level it passed (1 the forest, 2 the
    * garrison; absent — none): the record's words read it, never `won` (any victory of the profile).
    */
-  record: { before: { row: number; won: boolean; level?: 2; wonLevel?: 1 | 2 } | null; after: { row: number; won: boolean; level?: 2; wonLevel?: 1 | 2 }; beaten: boolean };
+  record: { before: { row: number; won: boolean; level?: 2 | 3; wonLevel?: 1 | 2 | 3 } | null; after: { row: number; won: boolean; level?: 2 | 3; wonLevel?: 1 | 2 | 3 }; beaten: boolean };
   /** Task 40: `cart` — what «Повозка» sent (inside `n`); absent — no cart in the run. */
   carry: { n: number; share: number; cap: number; resources: number; cart?: number };
   stock: { before: number; after: number };
@@ -67,7 +67,7 @@ export interface HearthState {
   thresholds: number[];
   nextPack: { id: string; title: string; at: number; size: number } | null;
   /** Task 40: `wonLevel` — the level the record passed (1 the forest, 2 the garrison; absent — none). */
-  record: { row: number; won: boolean; level?: 2; wonLevel?: 1 | 2 } | null;
+  record: { row: number; won: boolean; level?: 2 | 3; wonLevel?: 1 | 2 | 3 } | null;
   /** The enemy kinds the viewer has met (the bestiary). */
   seen: string[];
   quest?: { npc: NpcId; id: string };
@@ -133,6 +133,9 @@ export function xpPartLabel(id: MetaXpPart, n?: number): string {
     // Task 38 (D1): the garrison's checkpoint and boss on their own lines.
     case 'guardroom': return 'Караульня';
     case 'castellan': return 'Кастелян';
+    // Task 55в (spec 7.2): the castle's checkpoint and boss on their own lines.
+    case 'ballroom': return 'Бальный зал';
+    case 'warlock': return 'Колдун';
     case 'feats': return n !== undefined ? `Подвиги: ${n}` : 'Подвиги';
     case 'victory': return 'Победа похода';
     case 'ash': return 'Испытание';

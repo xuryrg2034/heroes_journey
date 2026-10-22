@@ -21,6 +21,8 @@ import { runRow } from './arenaPools';
 // Types only: rtRun.ts reads `validDeath` from here (no import cycle at run time).
 import type { RtBattleRecord, RtRunState } from './rtRun';
 import { TROLL_RUN_ARENAS } from '../sim/arenasBoss';
+// Task 55в: the castle's map and node ids (a leaf: no import of rtRun.ts).
+import { castleCombinedMap, rtCastleNodeId } from './castle';
 
 /**
  * Russian names of the enemy kinds (the telemetry report's names, telemetry/report.ts reads them from here). `basic` names an
@@ -116,6 +118,10 @@ export const RT_RUN_END_TEXT = {
   /** Task 48: the forest's final played as the Troll's fight (the den branch). */
   rowTrollLost: (row: number): string => `Ряд ${row} · Тролль не пройден`,
   rowTrollWon: (row: number): string => `Ряд ${row} · Тролль пройден`,
+  /** Task 55в (spec 7.3, drafts — the texts are design's): the castle's row of a defeat, and the Warlock's fight. */
+  rowCastle: (row: number): string => `Замок, ряд ${row}`,
+  rowWarlockLost: (row: number): string => `Замок, ряд ${row} · Колдун не пройден`,
+  rowWarlockWon: (row: number): string => `Замок, ряд ${row} · Колдун пройден`,
   jailerPassed: 'Тюремщик пройден',
   jailerNotPassed: 'Тюремщик не пройден',
   peak: (kills: number, row: number): string => `Лучшая цепь похода: ${kills} ${killsWord(kills)} · ряд ${row}`,
@@ -248,6 +254,8 @@ export function rtRunPeak(map: ForestRunMap, battles: readonly RtBattleRecord[])
  * peak. An open run has none.
  */
 export function rtRunEndLines(run: RtRunState): RtRunEndLine[] {
+  // Task 55в: a run that ended in the castle — the killer and the castle's row (the Warlock's lines on his row); no Jailer, no peak.
+  if (run.result && rtCastleNodeId(run.result.nodeId)) return castleEndLines(run);
   const result = run.result, map = generatedRunMap(run.map), node = result ? map.node(result.nodeId) : undefined;
   if (!result || !node) return [];
   const lines: RtRunEndLine[] = [], row = runRow(node.row), finalRow = rtFinalRow(map), peak = rtRunPeak(map, run.battles);
@@ -263,4 +271,16 @@ export function rtRunEndLines(run: RtRunState): RtRunEndLine[] {
   }
   if (peak) lines.push({ id: 'peak', text: RT_RUN_END_TEXT.peak(peak.kills, peak.row) });
   return lines;
+}
+
+/** Task 55в (spec 7.3): the fact lines of a run that ended in the castle — defeat: killer (when known), row; victory: the Warlock's row. */
+function castleEndLines(run: RtRunState): RtRunEndLine[] {
+  const result = run.result!, level = run.castleLevel, garrison = run.garrisonLevel;
+  const node = level && garrison ? castleCombinedMap(run.map, garrison.map, level.map).node(result.nodeId) : undefined;
+  if (!node) return [];
+  const row = runRow(node.row), boss = node.type === 'boss';
+  if (result.outcome === 'victory') return [{ id: 'row', text: RT_RUN_END_TEXT.rowWarlockWon(row) }];
+  const lost = [...run.battles].reverse().find(record => record.nodeId === result.nodeId && !record.won);
+  const killer = rtDeathLine(lost?.death);
+  return [...killer ? [{ id: 'killer' as const, text: killer }] : [], { id: 'row', text: boss ? RT_RUN_END_TEXT.rowWarlockLost(row) : RT_RUN_END_TEXT.rowCastle(row) }];
 }

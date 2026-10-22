@@ -12,7 +12,7 @@ import type { ItemKind } from '../forest/types';
 import {
   createRtRun, resolveArena, rtAvailableNodes, rtCasinoLeave, rtCasinoPlay, rtCasinoView, rtChooseEventOption, rtChooseFind, rtItemRefusal, rtChooseGift, rtChooseGiftPick,
   rtChooseHammer, rtChooseTalisman, rtHammerRerollView, rtRerollHammers, rtEnterNode, rtEventView, rtGiftView, rtNode, rtRerollView, rtRerollTalismans, rtRestCraft, rtRestFinish, rtRestHeal,
-  rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun, rtEnterGarrison, rtChooseHabit, rtChooseKnack, rtRestFuse, type RtArenaOutcome, type RtGateChoice, type RtKnackOption, type RtRunState, type RtRunStep,
+  rtRestView, rtShopBuy, rtShopLeave, rtShopView, serializeRtRun, rtEnterGarrison, rtEnterCastle, rtChooseHabit, rtChooseKnack, rtRestFuse, type RtArenaOutcome, type RtGateChoice, type RtKnackOption, type RtRunState, type RtRunStep,
 } from './rtRun';
 import { RT_HABITS, type RtHabitId } from './rtTalismans';
 
@@ -87,8 +87,9 @@ export function offeredNow(run: RtRunState): string[] {
 /** The walk: see the file's comment. */
 export function walkRun(options: WalkOptions): Walk {
   const { k } = options;
-  // Task 38: a walk is of the forest run (the references of tasks 36–37) unless its options ask for the garrison.
-  let run = createRtRun(options.seed ?? seedOf(k), { garrison: false, ...options.create ?? { gift: k % 2 ? 'full' : 'mini' } });
+  // Task 38: a walk is of the forest run (the references of tasks 36–37) unless its options ask for the garrison. Task 55в: and without
+  // the castle (the Castellan ends a garrison walk, as before) unless they ask for it.
+  let run = createRtRun(options.seed ?? seedOf(k), { garrison: false, castle: false, ...options.create ?? { gift: k % 2 ? 'full' : 'mini' } });
   let digest = fnv(0x811c9dc5, serializeRtRun(run)), steps = 0;
   const offered = new Set<string>();
   const seen = (next: RtRunState): RtRunState => {
@@ -183,6 +184,8 @@ export function walkRun(options: WalkOptions): Walk {
       }
       // Task 38: «Предместье» — «В гарнизон».
       case 'outskirts': run = seen(take(rtEnterGarrison(run, options.deposit?.(run), options.gate?.(run)), 'garrison')); break;
+      // Task 55в: «Подножие» — «В замок».
+      case 'foothill': run = seen(take(rtEnterCastle(run), 'castle')); break;
       // Task 50: the knack screen — the walk's pick by the step (or the caller's).
       case 'knack': {
         const at = step % (pending.options.length + 1), pick = options.knack ? options.knack(run, pending.options) : at < pending.options.length ? pending.options[at] : null;

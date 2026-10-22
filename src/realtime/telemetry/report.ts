@@ -1479,18 +1479,19 @@ function deathRow(d: DeathEntry): (string | number)[] {
   ];
 }
 const DEATH_HEAD = ['Бой', 'Поход', 'Ряд', 'Арена', 'Сразил', 'Удар, HP', `Серия за ${DEATH_SERIES_WINDOW} с`, 'Главный источник', 'Защита при ударе', 'Защита в окне, с', 'Посадка, тактов'];
-const DEATH_LEGEND = `Задача 25 (с 15.10.2026; поле сводки \`death\`, повтор журнала считает его заново): каждая смерть героя в бою — бои походов и песочницы. Ряд — ряд похода (в песочнице «—»); бой гарнизона (задача 38) — «г N», ряд гарнизона, после рядов леса. «Сразил» — смертельный удар (последний \`hit\` перед \`defeat\`): вид врага, источник, элита, аффиксы, как в «Причине смерти» похода (\`RtDeath\`). Серия — удары по герою за последние ${DEATH_SERIES_WINDOW} с игрового времени до смерти, включая смертельный, по источнику: «касание ×6 за 4 с» — шесть касаний, первое за 4 с до смерти; главный источник — снявший больше HP в серии. Защита при ударе — щит цепи (\`chainShield\` после такта), «Щит фокуса» и неуязвимость (на взгляде перед тактом; неуязвимость — за вычетом такта): сквозь них бьют только иглы дикобраза и взрыв гоблина. Защита в окне — игровые секунды каждой защиты в окне серии (на конец каждого такта); неуязвимость даёт и каждый удар серии. Посадка — тактов (1/60 с игрового времени) от конца последнего прохода, прыжка или возврата молота (\`world.move\` кончился) до смертельного удара; «—» — движения в бою до удара не было; «на проходе» — удар пришёл в проходе (иглы). Старые записи без поля и без повтора — «—». Наблюдение на малом числе смертей, не оценка баланса.`;
+const DEATH_LEGEND = `Задача 25 (с 15.10.2026; поле сводки \`death\`, повтор журнала считает его заново): каждая смерть героя в бою — бои походов и песочницы. Ряд — ряд похода (в песочнице «—»); бой гарнизона (задача 38) — «г N», ряд гарнизона, после рядов леса; бой замка (задача 55в) — «з N», после рядов гарнизона. «Сразил» — смертельный удар (последний \`hit\` перед \`defeat\`): вид врага, источник, элита, аффиксы, как в «Причине смерти» похода (\`RtDeath\`). Серия — удары по герою за последние ${DEATH_SERIES_WINDOW} с игрового времени до смерти, включая смертельный, по источнику: «касание ×6 за 4 с» — шесть касаний, первое за 4 с до смерти; главный источник — снявший больше HP в серии. Защита при ударе — щит цепи (\`chainShield\` после такта), «Щит фокуса» и неуязвимость (на взгляде перед тактом; неуязвимость — за вычетом такта): сквозь них бьют только иглы дикобраза и взрыв гоблина. Защита в окне — игровые секунды каждой защиты в окне серии (на конец каждого такта); неуязвимость даёт и каждый удар серии. Посадка — тактов (1/60 с игрового времени) от конца последнего прохода, прыжка или возврата молота (\`world.move\` кончился) до смертельного удара; «—» — движения в бою до удара не было; «на проходе» — удар пришёл в проходе (иглы). Старые записи без поля и без повтора — «—». Наблюдение на малом числе смертей, не оценка баланса.`;
 
-/** Task 38: the level of a fight record — 2 the garrison (`FightRecord.level`, or a node of the garrison, `g:…`), else 1. */
-export const fightLevel = (record: { level?: number; nodeId?: string }): 1 | 2 => (record.level === 2 || record.nodeId?.startsWith('g:') ? 2 : 1);
+/** Task 38: the level of a fight record — 2 the garrison (`FightRecord.level`, or a node of the garrison, `g:…`), else 1. Task 55в: 3 — the castle (`c:…`). */
+export const fightLevel = (record: { level?: number; nodeId?: string }): 1 | 2 | 3 => (record.level === 3 || record.nodeId?.startsWith('c:') ? 3 : record.level === 2 || record.nodeId?.startsWith('g:') ? 2 : 1);
 /** The section «От чего умирают»: each death, then the deaths by run row (task 38: and level) and by arena with the killing blow. */
 export function deathSection(fights: readonly FightEntry[]): string {
   const deaths = deathEntries(fights);
   if (!deaths.length) return `${DEATH_LEGEND}\n\nСмертей нет: боёв ${fights.length}, поражений 0.`;
   const main = (d: DeathEntry): string => (d.death?.series[0] ? deathSourceTitle(d.death.series[0].source) : 'нет данных');
   // Task 38: a garrison fight's row is «г N» (the level first, then the row: the forest's rows, then the garrison's).
-  const rowKey = (d: DeathEntry): string => (d.row === null ? '—' : fightLevel(d.entry.record) === 2 ? `г ${d.row}` : String(d.row));
-  const rowRank = (k: string): number => (k === '—' ? 1e6 : k.startsWith('г ') ? 1000 + Number(k.slice(2)) : Number(k));
+  // Task 55в: a castle fight's — «з N», after the garrison's.
+  const rowKey = (d: DeathEntry): string => (d.row === null ? '—' : fightLevel(d.entry.record) === 3 ? `з ${d.row}` : fightLevel(d.entry.record) === 2 ? `г ${d.row}` : String(d.row));
+  const rowRank = (k: string): number => (k === '—' ? 1e6 : k.startsWith('з ') ? 2000 + Number(k.slice(2)) : k.startsWith('г ') ? 1000 + Number(k.slice(2)) : Number(k));
   const rowKeys = [...new Set(deaths.map(rowKey))].sort((a, b) => rowRank(a) - rowRank(b));
   const byRow = rowKeys.map(k => {
     const list = deaths.filter(d => rowKey(d) === k);
@@ -1865,18 +1866,18 @@ export function threatTotals(entries: readonly FightEntry[]): Record<string, Thr
 
 // ---- Task 40 «Гарнизон» (docs/realtime-telemetry.md, «Гарнизон»; docs/realtime-slice.md, «Гарнизон») ----
 
-/** A run row of a level as the report names it: «л N» — the forest, «г N» — the garrison. */
-export const levelRowKey = (level: 1 | 2, row: number): string => `${level === 2 ? 'г' : 'л'} ${row}`;
-/** The farthest run row a run reached on each level (from its node visits: a garrison node's id begins with `g:`). */
-export function runLevelRows(run: Pick<RunRecord, 'nodes'>): { forest: number; garrison: number } {
-  let forest = 0, garrison = 0;
-  for (const n of run.nodes) { if (n.nodeId.startsWith('g:')) garrison = Math.max(garrison, n.row); else forest = Math.max(forest, n.row); }
-  return { forest, garrison };
+/** A run row of a level as the report names it: «л N» — the forest, «г N» — the garrison, «з N» — the castle (task 55в). */
+export const levelRowKey = (level: 1 | 2 | 3, row: number): string => `${level === 3 ? 'з' : level === 2 ? 'г' : 'л'} ${row}`;
+/** The farthest run row a run reached on each level (from its node visits: a garrison node's id begins with `g:`, a castle one's with `c:`). */
+export function runLevelRows(run: Pick<RunRecord, 'nodes'>): { forest: number; garrison: number; castle: number } {
+  let forest = 0, garrison = 0, castle = 0;
+  for (const n of run.nodes) { if (n.nodeId.startsWith('c:')) castle = Math.max(castle, n.row); else if (n.nodeId.startsWith('g:')) garrison = Math.max(garrison, n.row); else forest = Math.max(forest, n.row); }
+  return { forest, garrison, castle };
 }
-/** The row a lost run died on («л N» / «г N», its last node visit); null — not lost, or no visit. */
+/** The row a lost run died on («л N» / «г N» / «з N», its last node visit); null — not lost, or no visit. */
 function deathRowKey(run: Pick<RunRecord, 'nodes' | 'outcome'>): string | null {
   const last = run.nodes[run.nodes.length - 1];
-  return run.outcome === 'defeat' && last ? levelRowKey(last.nodeId.startsWith('g:') ? 2 : 1, last.row) : null;
+  return run.outcome === 'defeat' && last ? levelRowKey(last.nodeId.startsWith('c:') ? 3 : last.nodeId.startsWith('g:') ? 2 : 1, last.row) : null;
 }
 /** The numbers of the section (the tests read them). */
 export interface GarrisonStats {
@@ -1919,8 +1920,10 @@ export function garrisonStats(runs: readonly RunRecord[], runFights: readonly Fi
   for (const r of runs) {
     const far = runLevelRows(r);
     for (let row = 1; row <= GARRISON_ROWS; row++) {
-      if (far.forest >= row || far.garrison > 0) bump(reached, levelRowKey(1, row));
-      if (far.garrison >= row) bump(reached, levelRowKey(2, row));
+      if (far.forest >= row || far.garrison > 0 || far.castle > 0) bump(reached, levelRowKey(1, row));
+      if (far.garrison >= row || far.castle > 0) bump(reached, levelRowKey(2, row));
+      // Task 55в: the castle's rows (shown only when a run reached one).
+      if (far.castle >= row) bump(reached, levelRowKey(3, row));
     }
     const key = deathRowKey(r);
     if (key) bump(deaths, key);
@@ -1969,11 +1972,11 @@ const GARRISON_SOURCES: readonly [string, string][] = [
   // Task 59б: the step 3's kinds.
   ['pot', 'горшок смолокура'], ['pitcher', 'смолокур (касание)'], ['recruit', 'новобранец'], ['warden', 'привратник (касание)'], ['warden-swing', 'размах привратника'], ['touch', 'обычные враги'],
 ];
-const GARRISON_LEGEND = 'Задача 40 (с 16.10.2026; эвристика, не оценка баланса): походы через оба уровня — лес («л N») и гарнизон («г N»), ряд по посещённым узлам (`RunRecord.nodes`: узел гарнизона — `g:…`). Дошли — походы, вошедшие в узел этого ряда (поход в гарнизоне прошёл все ряды леса); доля — от всех походов отчёта. Смерти — проигранные походы по ряду последнего узла. Бои гарнизона — `FightRecord.level` 2 (или узел `g:`): рубки за бой (`chain.cuts`: поводки и кандалы), убийства яростью пса и узника (`chain.frenzyKills`, не в зачёт игроку), кандалы надеты и разрублены, срывы узников, их убийства и урон герою от их касаний (`garrison.riots`, `riotKills`, `riotDamage`, задача 41), секунда первой рубки кандалов (`garrison`), урон герою по источникам (`damage.bySource`; касания пса в ярости — `garrison.frenzyDamage` — отдельно). Рыцари (задача 43): встречено, латы сняты, убито (любым источником), цепей на рыцаря (`garrison.knights`, `knightSheds`, `knightKills`, `knightChains`). Повозка — сдача у «Предместья» (`RunRecord.cart`). Шаг 3 (задача 59б, `garrison.step3`): бои и смерти на «Смолокурне», «Казарме», «Барбакане»; строёв новобранцев одним проходом из встреченных (`drills` / `formations`); пар привратников без гнева из встреченных (`pairsCleared` / `pairs`) и гневов; секунд героя в смоле на бой со смолой (бой, где бросали горшки); поджогов на бой со смолой и «Огненным проходом»; походы по набору троп (`RunRecord.drill`). Цель плейтеста — отсев 10–15 п. п. на уровень и нет ряда, где смертей больше, чем у обоих соседей.';
+const GARRISON_LEGEND = 'Задача 40 (с 16.10.2026; эвристика, не оценка баланса): походы через оба уровня — лес («л N») и гарнизон («г N»), ряд по посещённым узлам (`RunRecord.nodes`: узел гарнизона — `g:…`); задача 55в — ряды замка («з N», узел `c:…`) видны, когда поход до них дошёл. Дошли — походы, вошедшие в узел этого ряда (поход в гарнизоне прошёл все ряды леса); доля — от всех походов отчёта. Смерти — проигранные походы по ряду последнего узла. Бои гарнизона — `FightRecord.level` 2 (или узел `g:`): рубки за бой (`chain.cuts`: поводки и кандалы), убийства яростью пса и узника (`chain.frenzyKills`, не в зачёт игроку), кандалы надеты и разрублены, срывы узников, их убийства и урон герою от их касаний (`garrison.riots`, `riotKills`, `riotDamage`, задача 41), секунда первой рубки кандалов (`garrison`), урон герою по источникам (`damage.bySource`; касания пса в ярости — `garrison.frenzyDamage` — отдельно). Рыцари (задача 43): встречено, латы сняты, убито (любым источником), цепей на рыцаря (`garrison.knights`, `knightSheds`, `knightKills`, `knightChains`). Повозка — сдача у «Предместья» (`RunRecord.cart`). Шаг 3 (задача 59б, `garrison.step3`): бои и смерти на «Смолокурне», «Казарме», «Барбакане»; строёв новобранцев одним проходом из встреченных (`drills` / `formations`); пар привратников без гнева из встреченных (`pairsCleared` / `pairs`) и гневов; секунд героя в смоле на бой со смолой (бой, где бросали горшки); поджогов на бой со смолой и «Огненным проходом»; походы по набору троп (`RunRecord.drill`). Цель плейтеста — отсев 10–15 п. п. на уровень и нет ряда, где смертей больше, чем у обоих соседей.';
 export function garrisonSection(runs: readonly RunRecord[], runFights: readonly FightEntry[]): string {
   const st = garrisonStats(runs, runFights);
   if (!st.runs && !st.fights) return `${GARRISON_LEGEND}\n\n_походов и боёв гарнизона нет_`;
-  const keys = [...Array.from({ length: GARRISON_ROWS }, (_, i) => levelRowKey(1, i + 1)), ...Array.from({ length: GARRISON_ROWS }, (_, i) => levelRowKey(2, i + 1))];
+  const keys = [...Array.from({ length: GARRISON_ROWS }, (_, i) => levelRowKey(1, i + 1)), ...Array.from({ length: GARRISON_ROWS }, (_, i) => levelRowKey(2, i + 1)), ...Array.from({ length: GARRISON_ROWS }, (_, i) => levelRowKey(3, i + 1))];
   const shown = keys.filter((k, i) => i < GARRISON_ROWS || (st.reached[k] ?? 0) > 0 || (st.deaths[k] ?? 0) > 0);
   const curve = shown.map(k => [k, st.reached[k] ?? 0, pct(st.reached[k] ?? 0, st.runs), st.deaths[k] ?? 0]);
   const mean = (list: readonly number[]): string => (list.length ? n1(list.reduce((a, b) => a + b, 0) / list.length) : '—');

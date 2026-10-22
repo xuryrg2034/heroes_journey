@@ -144,7 +144,7 @@ export function rtChronicleMetaRefs(before: RtMeta | undefined, after: RtMeta): 
 }
 /** The garrison's chapters are open: a hero's record reached the garrison (`level` 2, or passed it). */
 export const rtChronicleGarrisonOpen = (meta: RtMeta | undefined): boolean =>
-  !!meta && RT_HERO_IDS.some(id => { const r = meta.heroes[id]?.record; return !!r && (r.level === 2 || r.wonLevel === 2); });
+  !!meta && RT_HERO_IDS.some(id => { const r = meta.heroes[id]?.record; return !!r && ((r.level ?? 1) >= 2 || (r.wonLevel ?? 0) >= 2); });
 
 /** The meta changed (`rtChronicleMetaRefs`) outside a run's end (the store's `freeHero`): its refs join the chronicle. */
 export function rtChronicleNote(previous: RtChronicle | undefined, refs: readonly string[]): RtChronicle | undefined {
@@ -228,7 +228,8 @@ export function rtChronicleImport(previous: RtChronicle | undefined, memory: RtC
   let bosses = 0;
   const freed = profile.meta?.freed?.toad;
   if (freed && c.bosses?.jailer?.won === undefined) { c.bosses = { ...c.bosses, jailer: { met: c.bosses?.jailer?.met ?? freed.run ?? 0, won: freed.run ?? 0 } }; bosses++; }
-  const castellan = RT_HERO_IDS.some(id => profile.meta?.heroes[id]?.record?.wonLevel === 2);
+  // Task 55в: a record that passed the castle has passed the garrison too.
+  const castellan = RT_HERO_IDS.some(id => (profile.meta?.heroes[id]?.record?.wonLevel ?? 0) >= 2);
   if (castellan && c.bosses?.castellan?.won === undefined) { c.bosses = { ...c.bosses, castellan: { met: c.bosses?.castellan?.met ?? 0, won: 0 } }; bosses++; }
   c.since = profile.runs ?? 0;
   if (k.added.length || a.added.length || elite || bosses) c.retro = true;
