@@ -27,10 +27,10 @@ export async function skipHabit(page: { getByTestId: Page['getByTestId'] }): Pro
 /**
  * The start gift for a route that does not care which button it takes: «Без повадки» first (`skipHabit`), then `gift-1` as the
  * routes always took. A run without `?seed=` (the camp's start, «Новый поход») draws its seed by `Math.random`, and its full gift
- * puts «Тихий лес» — always off in real time (`giftOptionGap`) — on button 1 for one seed in three (smoke v80, meta:182). Then the
- * first button that is on is taken, and its own first choice if it opens one (a consumable of three, a talisman of two); not
- * merely «the first that is on»: button 0 of a full gift may be «a consumable of three», which leaves the gift open. A route
- * that needs a given button clicks it itself.
+ * puts «Тихий лес» — always off in real time (`giftOptionGap`) — on button 1 for one seed in three (smoke v80: the test meta:130,
+ * its click at :182). Then the first button that is on is taken, and its own first choice if it opens one (a consumable of
+ * three, a talisman of two); not merely «the first that is on»: button 0 of a full gift may be «a consumable of three», which
+ * leaves the gift open. A route that needs a given button clicks it itself.
  */
 export async function takeStartGift(page: { getByTestId: Page['getByTestId']; locator: Page['locator'] }): Promise<void> {
   await skipHabit(page);
