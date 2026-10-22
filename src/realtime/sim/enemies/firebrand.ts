@@ -212,4 +212,7 @@ registerEnemyKind({
   speed: (world, e) => world.pressure.enemySpeed * (brandLit(e) ? 1 : world.params.speedFast),
   bodyScale: 1, artScale: 1, touchDamage: world => world.params.contactDamage, mass: () => 1, spread: true, chainable: true, hitSource: FIREBRAND,
   noElite: true,
+  // Level design 22.10.2026 (design: one firebrand on the lesson, as the wisps on «Излучина»): a cap only where the arena or its roster sets
+  // `kindCaps.firebrand` (the roster «Головешки»); without it no cap — the newcomers roll as before.
+  capped: (world, count) => world.arena.kindCaps?.[FIREBRAND] !== undefined && count([FIREBRAND]) >= world.arena.kindCaps[FIREBRAND],
 });

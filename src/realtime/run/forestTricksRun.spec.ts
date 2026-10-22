@@ -263,7 +263,7 @@ function greedyChain(sim: Simulation): void {
   sim.command({ t: 'release' });
 }
 
-check('the fights of the mechanics (the first of each arena and roster, built as the run builds them, 40 s of journal commands): the rootlings in groups of one colour, at most 4 a group and 2 groups; each replays from its journal; the first rootlings\' colours differ across the fights', () => {
+check('the fights of the mechanics (the first of each arena and roster, built as the run builds them, 40 s of journal commands): the rootlings in groups of one colour, at most 4 a group and 2 groups; one firebrand at a time on «Головешки»; each replays from its journal; the first rootlings\' colours differ across the fights', () => {
   const RUN_PARAMS = rtRunParams(defaultParams());
   const wanted = new Map<string, Planned>();
   for (const { fights } of [...SCHEDULED, ...POOLED]) for (const f of fights) {
@@ -277,7 +277,7 @@ check('the fights of the mechanics (the first of each arena and roster, built as
     assert(p?.kind === 'battle', `${tag}: an open battle`);
     const sim = new Simulation({ arena: p.arena, ...p.roster !== undefined ? { roster: p.roster } : {}, params: rtArenaParams(f.state, RUN_PARAMS), seed: p.seed, record: true, loadout: rtArenaLoadout(f.state), hero: { hp: f.state.hp, maxHp: f.state.maxHp } });
     const w = sim.world;
-    let groups = 0, biggest = 0, kinds = new Set<string>(), first: number | undefined;
+    let groups = 0, biggest = 0, brands = 0, kinds = new Set<string>(), first: number | undefined;
     for (let t = 0; t < 2400 && w.status === 'playing'; t++) {
       if (t % 120 === 0) { const [x, y] = [[1, 0], [0, -1], [-1, 0], [0, 1]][(t / 120) % 4]; sim.command({ t: 'walk', x, y }); }
       if (t % 45 === 20) greedyChain(sim);
@@ -292,6 +292,7 @@ check('the fights of the mechanics (the first of each arena and roster, built as
         sizes.set(g, (sizes.get(g) ?? 0) + 1);
       }
       for (const s of w.stumps ?? []) sizes.set(s.group, (sizes.get(s.group) ?? 0) + 1);
+      brands = Math.max(brands, w.enemies.filter(e => e.kind === FIREBRAND).length);
       assert([...members.values()].every(colours => colours.size === 1), `${tag} tick ${t}: a group of two colours`);
       groups = Math.max(groups, new Set([...members.keys(), ...(w.stumps ?? []).map(s => s.group)]).size);
       biggest = Math.max(biggest, ...sizes.values(), 0);
@@ -300,6 +301,8 @@ check('the fights of the mechanics (the first of each arena and roster, built as
     assert(groups <= ROOT_GROUPS_MAX && biggest <= 4, `${tag}: groups ${groups}, the biggest ${biggest}`);
     if (/rootling/.test(tag)) assert(groups >= 1 && biggest === 4, `${tag}: the rootlings came (groups ${groups}, the biggest ${biggest})`);
     if (kinds.has(FIREBRAND)) assert(!!arenaTemplate(p.arena).braziers?.length, `${tag}: a firebrand with no braziers`);
+    // Design 22.10.2026: one firebrand at a time on the lesson («Головешки»).
+    if (p.roster === 'firebrands') assert(brands === 1, `${tag}: firebrands at once ${brands}`);
     assert(replay(JSON.parse(JSON.stringify(sim.exportJournal()!))).hash() === sim.hash(), `${tag}: the fight replays from its journal`);
     console.log(`   ${tag}: kinds ${[...kinds].sort().join(',')}, rootling groups ${groups} (biggest ${biggest}), kills ${w.stats.kills}, ${w.status}`);
   }

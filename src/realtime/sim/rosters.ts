@@ -88,7 +88,8 @@ export const POOL_ROSTERS: readonly RosterDef[] = [
   // the arena — the kind's cap 2) and of the firebrand on «Жаровни» (only an arena with braziers). Need a met kind (`rosterChoices`): a
   // pool run never meets them (no own arena), a run without the flag `forestTricks` never at all.
   { id: 'rootlings', title: 'Корневики', mode: 'replace', kinds: [['rootling', 0.12]], groups: { rootling: 4 } },
-  { id: 'firebrands', title: 'Головешки', mode: 'replace', kinds: [['firebrand', 0.1]] },
+  // Design 22.10.2026: at most one firebrand on the lesson (bodies, markers and the queue; `kindCaps`, as the wisps' cap).
+  { id: 'firebrands', title: 'Головешки', mode: 'replace', kinds: [['firebrand', 0.1]], caps: { firebrand: 1 } },
 ];
 
 /** Баланс: the roles an anchor arena may add — one kind each, a little below a pool roster's share. */
