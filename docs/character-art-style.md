@@ -195,6 +195,7 @@ NOT smooth plastic surfaces, NOT excessive gradients.
 - `public/art/characters/warlock-dazed.png` — тот же Колдун сбит: шляпа набок, глаза-спирали, свеча погасла; сделан по `warlock.png` как образцу, 1145×1200.
 - `public/art/camp/foothill.png` — фон «Подножия», 1280×720: дорога в гору к замку на скале, сумерки, огни окон; низ в центре спокойнее (там панель).
 - Задача 57 (17.10.2026, тот же набор и файл промптов): `forest-slinger.png` (Пращник — гоблин с пращой), `forest-hive.png` (Улей), `forest-wisp.png` (Светляк — светящийся жук, не огонь), `forest-rootling.png` (Корневик), `forest-slime.png` (Слизень), `forest-centipede.png` (Сороконожка), `forest-firebrand.png` (Головешка). `check-art.mjs` — PASS для семи; для карточек «Летописи» и вида 57а/57б.
+- Задача 57б, состояния для боя (22.10.2026, тот же набор и файл промптов, Codex `image_gen` по образцам своих видов): `forest-stump.png` (пень убитого Корневика — та же голова-пень, глаза закрыты, ждёт подъёма), `forest-centipede-head.png` (голова и первая пластина Сороконожки), `forest-centipede-part.png` (одна часть тела без головы), `forest-firebrand-out.png` (погасшая Головешка — угольная голова, дым, испуг). Большой Слизень — тот же `forest-slime.png` ×1,4. `check-art.mjs` — PASS для четырёх; глазами — палитра и контур совпадают с `forest-rootling.png`, `forest-centipede.png`, `forest-firebrand.png`. Подключение в бой — ui (вид 57б).
 
 ### Гарнизон, шаг 3 и враги замка (17.10.2026)
 
