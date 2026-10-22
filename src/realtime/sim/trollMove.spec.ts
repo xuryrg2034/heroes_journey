@@ -328,7 +328,7 @@ check('a journal without `trollMove` plays the old world: a walking route of 40 
   const BASE = ['602b0858924b99ed', '384787c42ccfcd4f', 'a0761294781dfab7', 'd3f886deb816e42d'];
   [1, 2, 3, 4].forEach((k, i) => {
     const p = { ...defaultParams(), heroHp: 999, hitstop: false } as Partial<Params>;
-    for (const key of ['trollMove', 'trollWalk', 'trollChargeCd', 'trollChargeLen', 'trollWindowCharge', 'rootRise', 'slimeMerge', 'slimeBigHp', 'brandSeek', 'centiParts', 'centiLungeWindup'] as const) delete p[key];
+    for (const key of ['trollMove', 'trollWalk', 'trollChargeCd', 'trollChargeLen', 'trollWindowCharge', 'rootRise', 'slimeMerge', 'slimeBigHp', 'brandSeek', 'centiParts', 'centiLungeWindup', 'centiTrail'] as const) delete p[key];
     const sim = new Simulation({ arena: 'troll', params: p as Params, seed: seedOf(k), record: true });
     const dirs = [[1, 0], [0, -1], [-1, 0], [0, 1], [1, -1], [-1, -1]];
     for (let t = 0; t < 60 * 40 && sim.world.status === 'playing'; t++) {
