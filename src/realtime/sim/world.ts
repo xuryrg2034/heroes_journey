@@ -59,7 +59,7 @@ import { FOREST_VOLLEY_GAP, updateShots, type Shot, type ShotKind } from './shot
 import { ROOTLING, lieDown, settleStumps, updateStumps, type Stump } from './enemies/rootling';
 import { FIREBRAND, brandFire, brandLit, douse, fireSource } from './enemies/firebrand';
 // Task 57б-2 «Сороконожка»: the breaks of the bodies settle after the pass.
-import { settleCentipedes } from './enemies/centipede';
+import { settleCentipedes, type CentiTrail } from './enemies/centipede';
 
 /**
  * Id of a registered enemy kind (enemies/*): prototype kinds `basic`, `wolf` (fast, hits harder next to other wolves),
@@ -896,6 +896,8 @@ export interface World {
   volley?: number;
   /** Task 57б (enemies/rootling.ts): the stumps of the rootlings — absent until the first one lies (worlds without rootlings hash as before). */
   stumps?: Stump[];
+  /** Task 57б-2 (enemies/centipede.ts, `centiTrail`): the centipedes' stored trails, by id — absent until one appears with the key. */
+  centiTrails?: CentiTrail[];
 }
 
 /**

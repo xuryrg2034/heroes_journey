@@ -6,9 +6,14 @@
  * touch 1, a link of its colour; never an elite. The head comes as any newcomer (a marker, a template, a roster; `capped`: at most
  * `CENTI_START_MAX` heads on the arena, at markers and in the queue); its parts appear with it (`onSpawn`: new ids, no spawn event, not
  * counted as spawned), `CENTI_STEP` apart on the line from the hero through the head. A part knows the one ahead (`vars.ca`); the head
- * has none. **The rope:** a part keeps `CENTI_STEP` (0.8) to the one ahead — it moves toward it at the walk's speed while the gap is at
- * most `CENTI_CATCH_GAP` (1.2), at up to `CENTI_CATCH_SPEED` (8 u/s) beyond; walls slide it. The crowd never moves the body and its
- * parts never push each other (`crowd` `anchored`); the body pushes the crowd. Head class `normal`.
+ * has none. **The trail** (`centiTrail`, design 22.10.2026): the body's trail (`world.centiTrails`, its id the head's; `vars.tb` on each
+ * member) is the head's path — a point every `TRAIL_SPACING` with its odometer, the head's live place its front. A part stands on it at its
+ * odometer (`vars.co`) and keeps `CENTI_STEP` (0.8) of trail to the one ahead: it walks the trail at the walk's speed while the trail gap is
+ * at most `CENTI_CATCH_GAP` (1.2), at up to `CENTI_CATCH_SPEED` (8 u/s) beyond — never straight through a wall. At a division the new head
+ * takes the old trail behind it as its own (its tail walks on). A part pushed off it by another body comes back softly (`TRAIL_RETURN`).
+ * The key off — no trails; on again — fresh ones from where the bodies stand. **The rope** (no key — the journals before): a part keeps 0.8 to the one
+ * ahead straight, as fast as above; walls slide it. The crowd never moves the body and its parts never push each other (`crowd`
+ * `anchored`); the body pushes the crowd. Head class `normal`.
  *
  * **«Рывок».** The head walks to the hero. Its pause over (`CENTI_FIRST_LUNGE` 2 s after it appeared, `CENTI_PAUSE` 3 s after a lunge),
  * the hero within `CENTI_TRIGGER` (4) and in sight — it winds up `centiLungeWindup` s (1.0) on a lane fixed at the windup's start:
@@ -29,7 +34,7 @@
  *
  * State in `enemy.vars`: `ca` — the part ahead; `cx`, `bx`, `by` — a break waiting; `cs` — stun left (game s); `cg` — game s a part has been
  * farther than `CENTI_CATCH_GAP` behind (stuck past `CENTI_STUCK`); `cn` 1 — a head that came while a move ran or a break waited
- * (the cap does not count it until the settle); `cm` 1 — the run passed
+ * (the cap does not count it until the settle); `tb` — the trail it walks, `co` — a part's odometer on it; `cm` 1 — the run passed
  * the hero during his move. The head's lunge in the boar's fields: `boar` `walk` / `windup` / `charge`, `boarTimer` (the pause, the
  * windup), `dirX`/`dirY` (the lane), `charged` (run so far).
  */
@@ -69,6 +74,79 @@ export const CENTI_BODIES_MAX = 4;
 export const CENTI_STUCK = 2;
 const BODY_SCALE = 0.9;
 const TIME_EPS = 1e-9;
+/** The trail: a point every this much of the head's way; at most this many points a body. */
+export const TRAIL_SPACING = 0.2;
+const TRAIL_MAX_POINTS = 64;
+/** A part pushed off its trail (by another body) comes back to it at most this fast (u/s): soft, no snap. */
+export const TRAIL_RETURN = 1;
+
+/**
+ * A body's stored trail (`centiTrail`): `id` — its head's (when it was made); `pts` — x, y, odometer of each point, the oldest first. The
+ * head's place is its front (its odometer — the newest point's + the distance to it).
+ */
+export interface CentiTrail { id: number; pts: number[] }
+
+const trailOn = (world: World): boolean => world.params.centiTrail === true;
+const trailOf = (world: World, id: number | undefined): CentiTrail | undefined => (id === undefined ? undefined : world.centiTrails?.find(t => t.id === id));
+
+/** The trail's front: its head's place (alive and still its head), else its newest point. */
+function trailFront(world: World, t: CentiTrail): Vec {
+  const head = findSegment(world, t.id), n = t.pts.length;
+  return head && head.vars.ca === undefined && head.vars.cx === undefined ? head : { x: t.pts[n - 3], y: t.pts[n - 2] };
+}
+
+/** The odometer of the trail's front. */
+function frontOdo(world: World, t: CentiTrail): number {
+  const n = t.pts.length, f = trailFront(world, t);
+  return t.pts[n - 1] + dhypot(f.x - t.pts[n - 3], f.y - t.pts[n - 2]);
+}
+
+/** The place at odometer `o` on the trail (before its oldest point — that point; past the front — the front). */
+function trailPoint(world: World, t: CentiTrail, o: number): Vec {
+  const p = t.pts, n = p.length;
+  if (o >= p[n - 1]) {
+    const f = trailFront(world, t), len = dhypot(f.x - p[n - 3], f.y - p[n - 2]), k = len > 1e-9 ? Math.min(1, (o - p[n - 1]) / len) : 1;
+    return { x: p[n - 3] + (f.x - p[n - 3]) * k, y: p[n - 2] + (f.y - p[n - 2]) * k };
+  }
+  if (o <= p[2]) return { x: p[0], y: p[1] };
+  for (let i = n / 3 - 2; i >= 0; i--) {
+    const a = i * 3, oa = p[a + 2];
+    if (oa > o) continue;
+    const ob = p[a + 5], k = ob - oa > 1e-9 ? (o - oa) / (ob - oa) : 1;
+    return { x: p[a] + (p[a + 3] - p[a]) * k, y: p[a + 1] + (p[a + 4] - p[a + 1]) * k };
+  }
+  return { x: p[0], y: p[1] };
+}
+
+/** The odometer of `e` on its trail: the trail's head — the front; a part — its own. */
+const odoOf = (world: World, t: CentiTrail, e: Enemy): number => (e.id === t.id ? frontOdo(world, t) : e.vars.co ?? 0);
+
+/**
+ * The trails' step, once a tick before anyone moves: the key off — no trails (a key turned on again starts fresh ones, never a chord from
+ * a stale point); a head without its own trail lays a fresh one through its body as it stands; each head adds its point; the points no
+ * member needs go; a trail with no member goes.
+ */
+function beforeTrails(world: World, members: readonly Enemy[]): void {
+  if (!trailOn(world)) { if (world.centiTrails) delete world.centiTrails; return; }
+  for (const e of members) if (e.vars.ca === undefined && e.vars.cx === undefined && (e.vars.tb !== e.id || !trailOf(world, e.id))) layTrail(world, e);
+  if (!world.centiTrails) return;
+  for (const t of world.centiTrails) {
+    const head = members.find(e => e.id === t.id && e.vars.ca === undefined && e.vars.cx === undefined), n = t.pts.length;
+    if (head) {
+      const d = dhypot(head.x - t.pts[n - 3], head.y - t.pts[n - 2]);
+      if (d >= TRAIL_SPACING - 1e-9) t.pts.push(head.x, head.y, t.pts[n - 1] + d);
+    }
+    let lo = Infinity;
+    for (const e of members) if (e.vars.tb === t.id && e.id !== t.id) lo = Math.min(lo, e.vars.co ?? 0);
+    // Keep one point at or behind the hindmost part; never more than `TRAIL_MAX_POINTS`.
+    let drop = 0;
+    while (drop + 6 <= t.pts.length - 3 && t.pts[drop + 5] <= lo) drop += 3;
+    drop = Math.max(drop, t.pts.length - TRAIL_MAX_POINTS * 3);
+    if (drop > 0) t.pts.splice(0, drop);
+  }
+  const kept = world.centiTrails.filter(t => members.some(e => e.vars.tb === t.id));
+  if (kept.length) world.centiTrails = kept; else delete world.centiTrails;
+}
 
 const partsOf = (world: World): number => Math.max(1, Math.round(world.params.centiParts ?? CENTI_PARTS));
 const windupOf = (world: World): number => Math.max(0, world.params.centiLungeWindup ?? CENTI_LUNGE_WINDUP);
@@ -204,10 +282,14 @@ export function settleCentipedes(world: World): void {
   if (breaksWaiting(world)) settleBreaks(world);
   // The heads that came during the pass count from now on.
   for (const e of world.enemies) if (e.kind === CENTIPEDE && e.vars.cn !== undefined) delete e.vars.cn;
+  // The trails of bodies all gone (the group step runs only with members).
+  if (world.centiTrails && !world.enemies.some(e => e.kind === CENTIPEDE)) delete world.centiTrails;
 }
 
 function settleBreaks(world: World): void {
   const { promote, join } = resolveBreaks(world, new Set());
+  // The trail (`centiTrail`): each new head takes the old trail behind it as its own, made before any member moves to it.
+  const made = promote.flatMap(s => { const e = findSegment(world, s.newHead)!, t = trailOf(world, e.vars.tb); return t ? [{ head: e, t: takeTrail(world, t, e) }] : []; });
   for (const s of promote) {
     const e = findSegment(world, s.newHead)!, v = e.vars;
     delete v.ca; delete v.cx; delete v.bx; delete v.by; delete v.cm; delete v.cg;
@@ -221,6 +303,24 @@ function settleBreaks(world: World): void {
     v.ca = j.ahead; delete v.cx; delete v.bx; delete v.by;
     world.events.push({ type: 'centipede', action: 'join', id: e.id, front: j.ahead, x: e.x, y: e.y });
   }
+  if (!made.length) return;
+  const behind = new Map<number, Enemy>();
+  for (const e of world.enemies) if (e.kind === CENTIPEDE && e.vars.ca !== undefined) behind.set(e.vars.ca, e);
+  for (const { head, t } of made) {
+    world.centiTrails!.push(t);
+    head.vars.tb = t.id; delete head.vars.co;
+    for (let e = behind.get(head.id); e; e = behind.get(e.id)) e.vars.tb = t.id;
+  }
+  world.centiTrails!.sort((a, b) => a.id - b.id);
+}
+
+/** A new head's own trail: the old trail's points behind it and its place (its odometer kept — its tail's stay true). */
+function takeTrail(world: World, t: CentiTrail, e: Enemy): CentiTrail {
+  const o = e.vars.co ?? 0, pts: number[] = [];
+  for (let i = 0; i < t.pts.length; i += 3) if (t.pts[i + 2] < o - 1e-9) pts.push(t.pts[i], t.pts[i + 1], t.pts[i + 2]);
+  const at = trailPoint(world, t, o);
+  pts.push(at.x, at.y, o);
+  return { id: e.id, pts };
 }
 
 /** A part died: the part behind it closes on the part ahead (none — the head died) and keeps the break until it settles. */
@@ -285,20 +385,42 @@ function stepHead(world: World, e: Enemy, dt: number): boolean {
   return true;
 }
 
-/** A part: toward the part ahead, keeping `CENTI_STEP`; a part waiting on a break stands. */
-function stepPart(world: World, e: Enemy, dt: number): boolean {
+/** Stuck (the measure, design 22.10.2026): game seconds a part has been farther than `CENTI_CATCH_GAP` from the one ahead; past `CENTI_STUCK` once — event `centipede` `stuck`. */
+function noteStuck(world: World, e: Enemy, d: number, dt: number): void {
   const v = e.vars;
-  if (v.cx !== undefined) { delete v.cg; return true; }
-  const ahead = v.ca !== undefined ? findSegment(world, v.ca) : undefined;
-  if (!ahead) { delete v.cg; return true; }
-  const d = dist(e, ahead);
-  // Stuck (the measure of the rope, design 22.10.2026): game seconds it has been farther than `CENTI_CATCH_GAP` behind; past
-  // `CENTI_STUCK` once — event `centipede` `stuck`.
   if (d > CENTI_CATCH_GAP + 1e-9) {
     const was = v.cg ?? 0;
     v.cg = was + dt;
     if (was < CENTI_STUCK - TIME_EPS && v.cg >= CENTI_STUCK - TIME_EPS) world.events.push({ type: 'centipede', action: 'stuck', id: e.id, x: e.x, y: e.y });
   } else delete v.cg;
+}
+
+/** A part walks its body's trail «след в след», keeping `CENTI_STEP` of it to the one ahead (`centiTrail`). */
+function stepOnTrail(world: World, e: Enemy, ahead: Enemy, t: CentiTrail, dt: number): boolean {
+  const v = e.vars, oa = odoOf(world, t, ahead), co = v.co ?? 0, target = oa - CENTI_STEP;
+  // Off the trail by a push of another body (world.ts `separate`, `apart`): the offset shrinks by `TRAIL_RETURN` a second — no snap.
+  const was = trailPoint(world, t, co), ox = e.x - was.x, oy = e.y - was.y, off = dhypot(ox, oy);
+  const keep = off > 1e-9 ? Math.max(0, off - TRAIL_RETURN * dt) / off : 0;
+  if (co < target - 1e-9) {
+    const speed = oa - co > CENTI_CATCH_GAP + 1e-9 ? CENTI_CATCH_SPEED : enemySpeed(world, e) * enemyGroundFactor(world, e);
+    v.co = Math.min(target, co + speed * dt);
+  }
+  const at = trailPoint(world, t, v.co ?? 0);
+  e.x = at.x + ox * keep; e.y = at.y + oy * keep;
+  noteStuck(world, e, dist(e, ahead), dt);
+  return true;
+}
+
+/** A part: on its trail (`centiTrail`), else toward the part ahead (the rope), keeping `CENTI_STEP`; a part waiting on a break stands. */
+function stepPart(world: World, e: Enemy, dt: number): boolean {
+  const v = e.vars;
+  if (v.cx !== undefined) { delete v.cg; return true; }
+  const ahead = v.ca !== undefined ? findSegment(world, v.ca) : undefined;
+  if (!ahead) { delete v.cg; return true; }
+  const t = trailOn(world) ? trailOf(world, v.tb) : undefined;
+  if (t) return stepOnTrail(world, e, ahead, t, dt);
+  const d = dist(e, ahead);
+  noteStuck(world, e, d, dt);
   if (d <= CENTI_STEP + 1e-9) return true;
   const speed = d > CENTI_CATCH_GAP ? CENTI_CATCH_SPEED : enemySpeed(world, e) * enemyGroundFactor(world, e);
   const step = Math.min(speed * dt, d - CENTI_STEP);
@@ -348,6 +470,21 @@ function layParts(world: World, head: Enemy): void {
   }
   // Design 22.10.2026: «Врагов пришло» counts the parts (5 credited kills a body: kills / spawned stays true); one `spawn` event a body.
   world.stats.spawned += n;
+  if (trailOn(world)) layTrail(world, head);
+}
+
+/** The new body's trail (`centiTrail`): through its laid parts from the tail to the head — each part at its odometer on it. */
+function layTrail(world: World, head: Enemy): void {
+  const body = centipedeBody(world, head.id).map(id => findSegment(world, id)!).reverse(), pts: number[] = [];
+  let o = 0;
+  body.forEach((e, i) => {
+    if (i > 0) o += dist(e, body[i - 1]);
+    pts.push(e.x, e.y, o);
+    e.vars.tb = head.id;
+    if (e !== head) e.vars.co = o;
+  });
+  (world.centiTrails ??= []).push({ id: head.id, pts });
+  world.centiTrails.sort((a, b) => a.id - b.id);
 }
 
 /** Heads on the arena, at markers and in the queue. */
@@ -363,6 +500,8 @@ registerBehavior({
   id: CENTIPEDE,
   // A part made by `layParts` is pushed straight to the list: `onSpawn` runs for the head only.
   onSpawn: layParts,
+  // The trails (`centiTrail`): the heads' points, once a tick before anyone moves.
+  beforeStep: beforeTrails,
   step: (world, e, dt) => (e.vars.ca === undefined && e.vars.cx === undefined ? stepHead(world, e, dt) : stepPart(world, e, dt)),
   // The running head's touch is its run.
   touches: (_world, e) => e.boar !== 'charge',

@@ -1383,6 +1383,11 @@ export interface Params {
   centiParts: number;
   /** Task 57б-2: the windup of its «Рывок» (game s; 1.0). */
   centiLungeWindup: number;
+  /**
+   * Task 57б-2 (design 22.10.2026, after «Бурелом»'s measure): the parts walk the head's stored trail «след в след»; off (a journal without
+   * the key) — the rope of before (a part straight to the part ahead).
+   */
+  centiTrail: boolean;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -1980,6 +1985,7 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   brandSeek: 4,
   centiParts: 5,
   centiLungeWindup: 1,
+  centiTrail: true,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -2643,6 +2649,7 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   // Task 57б-2 (enemies/centipede.ts).
   n('centiParts', 'Механики леса', 'Сороконожка: частей', 2, 8, 1, 5, undefined, 'Голова и части одного цвета. Убитая середина делит тело надвое: у куска без головы — новая голова.'),
   n('centiLungeWindup', 'Механики леса', 'Сороконожка: замах рывка', 0.4, 2, 0.1, 5, 'с'),
+  { kind: 'bool', key: 'centiTrail', group: 'Механики леса', label: 'Сороконожка: части идут след в след', stage: 5, hint: 'Части идут по пути головы. Выключено — по прямой к впереди идущей (прежняя «верёвка»).' },
 ];
 
 const MAX_PHASES = 8;
