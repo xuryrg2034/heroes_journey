@@ -78,10 +78,15 @@ if (off.viewersRuns.every(v => v.left) && on.viewersRuns.every(v => v.left)) {
   console.log(`\n### Прогресс старых дуг: сколько дуг задачи 26 осталось после похода (всего ${SCHEDULE_ARCS.length})\n`);
   const leftOf = (d: Dump): Map<number, number[]> => new Map(d.viewersRuns.map(v => [v.k, v.left!]));
   const lo = leftOf(off), ln = leftOf(on);
-  console.log('| Поход | Выкл.: медиана (25-я–75-я) | Вкл.: медиана (25-я–75-я) | Отставание с ключом, походов: медиана | 75-я | 90-я | Пар без догона за ' + RUNS + ' (нижняя граница) |');
-  console.log('| --- | --- | --- | --- | --- | --- | --- |');
+  console.log('| Поход | Выкл.: медиана (25-я–75-я) | Вкл.: медиана (25-я–75-я) | Отставание с ключом, походов: медиана | 75-я | 90-я | Пар без догона за ' + RUNS + ' (нижняя граница) | Критерий |');
+  console.log('| --- | --- | --- | --- | --- | --- | --- | --- |');
   const spread = (list: number[]): string => { const x = [...list].sort((p, q) => p - q); return `${quantile(x, 0.5)} (${quantile(x, 0.25)}–${quantile(x, 0.75)})`; };
   let final: number[] = [];
+  /**
+   * A lag without a catch-up is a lower bound, so it can only grow: a median or a 75th percentile above 1 fails the criterion as it is;
+   * within 1 it passes only while the pairs without a catch-up stay under a quarter (else the true percentile may be above).
+   */
+  const verdicts: string[] = [];
   for (let r = 1; r <= RUNS; r++) {
     const lags: number[] = [];
     let open = 0;
@@ -92,7 +97,9 @@ if (off.viewersRuns.every(v => v.left) && on.viewersRuns.every(v => v.left)) {
     }
     const x = [...lags].sort((p, q) => p - q);
     if (r === RUNS) final = x;
-    console.log(`| ${r} | ${spread([...lo.values()].map(v => v[r - 1]))} | ${spread([...ln.values()].map(v => v[r - 1]))} | ${sign(quantile(x, 0.5))} | ${sign(quantile(x, 0.75))} | ${sign(quantile(x, 0.9))} | ${open} |`);
+    const verdict = quantile(x, 0.5) > 1 || quantile(x, 0.75) > 1 ? 'не выполнен' : open * 4 >= x.length ? 'не различить' : 'выполнен';
+    verdicts.push(verdict);
+    console.log(`| ${r} | ${spread([...lo.values()].map(v => v[r - 1]))} | ${spread([...ln.values()].map(v => v[r - 1]))} | ${sign(quantile(x, 0.5))} | ${sign(quantile(x, 0.75))} | ${sign(quantile(x, 0.9))} | ${open} | ${verdict} |`);
   }
   const f50 = quantile(final, 0.5), f75 = quantile(final, 0.75);
   /** Design 22.10.2026: the old arcs left after the last run in both variants and their paired difference (with − without the key). */
@@ -100,5 +107,7 @@ if (off.viewersRuns.every(v => v.left) && on.viewersRuns.every(v => v.left)) {
   const lastDiff = [...lo].map(([k, v]) => ln.get(k)![RUNS - 1] - v[RUNS - 1]).sort((p, q) => p - q);
   console.log(`\nСтарых дуг осталось после похода ${RUNS}: выкл. — медиана ${quantile(lastOff, 0.5)}, 75-я ${quantile(lastOff, 0.75)}; вкл. — медиана ${quantile(lastOn, 0.5)}, 75-я ${quantile(lastOn, 0.75)}; парная разность вкл. − выкл. — медиана ${sign(quantile(lastDiff, 0.5))}, 75-я ${sign(quantile(lastDiff, 0.75))}, 90-я ${sign(quantile(lastDiff, 0.9))}, от ${sign(lastDiff[0])} до ${sign(lastDiff[lastDiff.length - 1])}.`);
   console.log(`Пар, упёршихся в нижнюю границу после похода ${RUNS} (с ключом не догнали за ${RUNS} походов): ${[...lo].filter(([k, v]) => !ln.get(k)!.some(n => n <= v[RUNS - 1])).length} из ${final.length}.`);
-  console.log(`\n**Критерий дизайна на прогрессе** (после похода ${RUNS}: медиана и 75-я перцентиль отставания ≤ 1): ${f50 <= 1 && f75 <= 1 ? 'выполнен' : 'не выполнен'} — медиана ${sign(f50)}, 75-я ${sign(f75)}. Отставание пары без догона — нижняя граница (${RUNS + 1} − r).`);
+  const failed = verdicts.indexOf('не выполнен') + 1, unclear = verdicts.indexOf('не различить') + 1;
+  const overall = failed ? `не выполнен с похода ${failed}` : unclear ? `выполнен до похода ${unclear - 1}, дальше не различить` : 'выполнен';
+  console.log(`\n**Критерий дизайна на прогрессе** (медиана и 75-я перцентиль отставания ≤ 1 после каждого похода): ${overall}; после похода ${RUNS} — медиана ${sign(f50)}, 75-я ${sign(f75)}. Отставание пары без догона — нижняя граница (${RUNS + 1} − r).`);
 }
