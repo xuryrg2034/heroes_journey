@@ -23,6 +23,7 @@ import { arenaTemplate } from '../sim/arenas';
 import { rootGroup, ROOT_GROUPS_MAX, ROOTLING } from '../sim/enemies/rootling';
 import { FIREBRAND } from '../sim/enemies/firebrand';
 import { SLIME } from '../sim/enemies/slime';
+import { CENTIPEDE } from '../sim/enemies/centipede';
 import { rtGarrisonNodeId } from './garrison';
 import { seedOf, walkRun } from './metaWalk.testkit';
 import { arenaKinds } from './arenaKinds';
@@ -72,10 +73,10 @@ check('the flag is off by default; with the option it comes only with the shoote
 });
 
 check('the history accepts the new ids always; the kinds of the schedule and the chapter «Лес» grow only with the flag', () => {
-  assert(SCHEDULE_TRICK_KINDS.join() === 'rootling,slime,firebrand' && SCHEDULE_TRICK_KINDS.every(isScheduleElement) && !isScheduleElement('rootlings'), 'the ids');
+  assert(SCHEDULE_TRICK_KINDS.join() === 'rootling,slime,firebrand,centipede' && SCHEDULE_TRICK_KINDS.every(isScheduleElement) && !isScheduleElement('rootlings'), 'the ids');
   assert(scheduleKinds(true, false).join() === [...SCHEDULE_KINDS, ...SCHEDULE_SHOOTER_KINDS].join() && scheduleKinds(false, true) === SCHEDULE_KINDS, 'no flag — the kinds of before');
   assert(scheduleKinds(true, true).join() === [...SCHEDULE_KINDS, ...SCHEDULE_SHOOTER_KINDS, ...SCHEDULE_TRICK_KINDS].join(), 'the kinds with the flag');
-  assert(chronicleForestKinds(true, false).length === 11 && chronicleForestKinds(true, true).length === 14 && chronicleForestKinds().length === 11, 'the chapter: 11, 14 with the flag');
+  assert(chronicleForestKinds(true, false).length === 11 && chronicleForestKinds(true, true).length === 15 && chronicleForestKinds().length === 11, 'the chapter: 11, 15 with the flag');
 });
 
 // ---------- Without the flag: byte for byte; with it: the forest's own outputs ----------
@@ -135,8 +136,11 @@ check('the arcs\' rows (readyArc): the rootling rows 2–5 after the water, the 
   assert(at(2, met(), false) === null && at(4, met(), false) === null, 'without the flag no arc of the mechanics');
   const noWater = new Set([...met()].filter(id => id !== 'water'));
   assert(at(3, noWater) === 'water', `no water — the water's own arc, none of the mechanics: ${at(3, noWater)}`);
-  assert(at(3, met(['rootling'])) === 'slime' && at(5, met(['rootling'])) === 'slime' && at(6, met(['rootling'])) === null, 'the slime rows 3–5');
-  assert(at(3, met(['rootling', 'slime'])) === 'firebrand' && at(5, met(['rootling', 'slime'])) === 'firebrand' && at(6, met(['rootling', 'slime'])) === null, 'the firebrand rows 3–5');
+  assert(at(3, met(['rootling'])) === 'slime' && at(5, met(['rootling'])) === 'slime' && at(6, met(['rootling'])) === 'centipede', 'the slime rows 3–5 (row 6: the centipede)');
+  assert(at(3, met(['rootling', 'slime'])) === 'firebrand' && at(5, met(['rootling', 'slime'])) === 'firebrand' && at(6, met(['rootling', 'slime'])) === 'centipede', 'the firebrand rows 3–5');
+  // Step 57б-2: the centipede after the rootling, rows 4–6 (the cap max(4 + 2, 5)).
+  const all3 = met(['rootling', 'slime', 'firebrand']);
+  assert(at(3, all3) === null && at(4, all3) === 'centipede' && at(6, all3) === 'centipede' && at(7, all3) === null && at(4, met(['slime', 'firebrand'])) === 'rootling', `the centipede rows 4–6 after the rootling: ${at(3, all3)} ${at(4, all3)} ${at(7, all3)}`);
   assert(at(3, new Set([...met(['rootling', 'slime'])].filter(id => id !== 'brazier'))) === 'brazier', 'the firebrand after the braziers');
   // The shooters' arcs come first in the list: a viewer of every first-run arc meets the slinger before the rootling on row 3.
   assert(readyArc({ node: 'battle', row: 3, fight: 4, met: new Set(ALL_ARCS), shooters: true, tricks: true }) === 'slinger', 'the shooters first');
@@ -168,6 +172,7 @@ check('the schedule (60 runs, 5 histories): the rootling first on «Прогал
       for (const kind of fresh) {
         if (kind === ROOTLING) assert(f.arena === 'p-yard' && f.roster === 'rootlings' && f.arc === 'rootling' && f.row >= 2 && f.row <= 5 && met.has('water'), `run ${k}: the rootling first on ${f.arena}/${f.roster} row ${f.row} arc ${f.arc}`);
         if (kind === SLIME) assert(f.arena === 'f-bog' && f.roster === undefined && f.arc === 'slime' && f.row >= 3 && f.row <= 5 && met.has('water'), `run ${k}: the slime first on ${f.arena} row ${f.row} arc ${f.arc}`);
+        if (kind === CENTIPEDE) assert(f.arena === 'f-windfall' && f.roster === undefined && f.arc === 'centipede' && f.row >= 4 && f.row <= 6 && met.has(ROOTLING), `run ${k}: the centipede first on ${f.arena}/${f.roster} row ${f.row} arc ${f.arc}`);
         if (kind === FIREBRAND) assert(f.arena === 'p-braziers' && f.roster === 'firebrands' && f.arc === 'firebrand' && f.row >= 3 && f.row <= 5 && met.has('brazier') && met.has('water'), `run ${k}: the firebrand first on ${f.arena}/${f.roster} row ${f.row}`);
         if (SCHEDULE_TRICK_KINDS.includes(kind)) { firsts[kind] = (firsts[kind] ?? 0) + 1; (rows[kind] ??= new Set()).add(f.row); }
       }
@@ -177,8 +182,8 @@ check('the schedule (60 runs, 5 histories): the rootling first on «Прогал
   }
   console.log(`   first meetings ${JSON.stringify(firsts)}, their rows ${JSON.stringify(Object.fromEntries(Object.entries(rows).map(([kind, set]) => [kind, [...set].sort()])))}, partner roles ${partners}`);
   // The walks' coverage, not a rate: each kind met in several runs and on more than one row (the seeds differ).
-  assert((firsts[ROOTLING] ?? 0) >= 10 && (firsts[SLIME] ?? 0) >= 5 && (firsts[FIREBRAND] ?? 0) >= 3, JSON.stringify(firsts));
-  assert(SCHEDULE_TRICK_KINDS.every(kind => (rows[kind]?.size ?? 0) >= 2) && partners >= 3, `rows ${JSON.stringify(Object.fromEntries(Object.entries(rows).map(([kind, set]) => [kind, [...set]])))}, partners ${partners}`);
+  assert((firsts[ROOTLING] ?? 0) >= 10 && (firsts[SLIME] ?? 0) >= 5 && (firsts[FIREBRAND] ?? 0) >= 3 && (firsts[CENTIPEDE] ?? 0) >= 1, JSON.stringify(firsts));
+  assert([ROOTLING, SLIME, FIREBRAND].every(kind => (rows[kind]?.size ?? 0) >= 2) && partners >= 3, `rows ${JSON.stringify(Object.fromEntries(Object.entries(rows).map(([kind, set]) => [kind, [...set]])))}, partners ${partners}`);
 });
 
 /**
@@ -201,29 +206,32 @@ check('a new viewer (100 viewers, 6 runs each, the history carried over): no kin
   }
   console.log(`   first met in runs 1…6: ${kinds.map(kind => `${kind} ${byRun[kind].join('/')}`).join('; ')}`);
   assert(SCHEDULE_TRICK_KINDS.every(kind => byRun[kind][0] === 0), 'a kind of the mechanics in the first run');
-  // The table of 22.10.2026 (docs/realtime-slice.md, «Лес: механики в походе»): 421 first meetings of task 57's kinds by run 6.
-  const pinned = 'slinger 0/0/0/26/42/23; hive 0/0/0/1/17/26; wisp 0/50/28/8/4/1; rootling 0/48/43/8/1/0; slime 0/0/7/38/9/16; firebrand 0/0/0/0/7/18';
+  // The table of 22.10.2026 (docs/realtime-slice.md, «Лес: механики в походе»): 421 first meetings of task 57's kinds by run 6, with the
+  // centipede (57б-2, last in the list: the others unchanged) 464.
+  const pinned = 'slinger 0/0/0/26/42/23; hive 0/0/0/1/17/26; wisp 0/50/28/8/4/1; rootling 0/48/43/8/1/0; slime 0/0/7/38/9/16; firebrand 0/0/0/0/7/18; centipede 0/4/15/14/6/4';
   assert(kinds.map(kind => `${kind} ${byRun[kind].join('/')}`).join('; ') === pinned, 'the first meetings by run differ from the order without gates');
 });
 
 // ---------- The pools of «Испытание II» ----------
 
 check('the pools (30 runs of «Испытание II», no profile): «Трясина» only rows 3–7, the slime first there; the rootling and the firebrand never in the pools without the profile; «+слизни» only after «Трясина»', () => {
-  let bog = 0, slimePartner = 0;
+  let bog = 0, windfall = 0, slimePartner = 0;
   const bogRows = new Set<number>();
   for (const { k, fights } of POOLED) {
     const before: string[] = [];
     for (const f of fights) {
       if (f.arena === 'f-bog') { bog++; bogRows.add(f.row); assert(f.row >= TRICK_POOLS[0].rows[0] && f.row <= TRICK_POOLS[0].rows[1], `run ${k}: «Трясина» on row ${f.row}`); }
       if (f.kinds.includes(SLIME) && !before.includes('f-bog')) assert(f.arena === 'f-bog', `run ${k}: the slime first on ${f.arena}`);
+      if (f.arena === 'f-windfall') { windfall++; assert(f.row >= TRICK_POOLS[1].rows[0] && f.row <= TRICK_POOLS[1].rows[1], `run ${k}: «Бурелом» on row ${f.row}`); }
+      if (f.kinds.includes(CENTIPEDE) && !before.includes('f-windfall')) assert(f.arena === 'f-windfall', `run ${k}: the centipede first on ${f.arena}`);
       assert(!f.kinds.includes(ROOTLING) && !f.kinds.includes(FIREBRAND), `run ${k}: ${f.arena}/${f.roster} brings ${f.kinds}`);
       if (f.roster === '+slime') { slimePartner++; assert(before.includes('f-bog'), `run ${k}: «+слизни» before «Трясина»`); }
       before.push(f.arena);
     }
   }
-  console.log(`   «Трясина» ${bog} fights on rows ${[...bogRows].sort()}, «+слизни» ${slimePartner}`);
+  console.log(`   «Трясина» ${bog} fights on rows ${[...bogRows].sort()}, «Бурелом» ${windfall}, «+слизни» ${slimePartner}`);
   // The walks' coverage, not a rate: rule 2 offers «Трясина» among the own arenas of the row's unmet kinds (9 of 30 runs here).
-  assert(bog >= 5 && bogRows.size >= 2, `«Трясина» ${bog}, rows ${[...bogRows]}`);
+  assert(bog >= 5 && bogRows.size >= 2 && windfall >= 1, `«Трясина» ${bog}, rows ${[...bogRows]}, «Бурелом» ${windfall}`);
 });
 
 /**
@@ -331,9 +339,9 @@ check('the fights of the mechanics (the first of each arena and roster, built as
   const wanted = new Map<string, Planned>();
   for (const { fights } of [...SCHEDULED, ...POOLED]) for (const f of fights) {
     const tag = `${f.arena}|${f.roster ?? ''}`;
-    if ((f.arena === 'f-bog' || /rootling|slime|firebrand/.test(f.roster ?? '')) && !wanted.has(tag)) wanted.set(tag, f);
+    if ((f.arena === 'f-bog' || f.arena === 'f-windfall' || /rootling|slime|firebrand|centipede/.test(f.roster ?? '')) && !wanted.has(tag)) wanted.set(tag, f);
   }
-  assert(['f-bog|', 'p-yard|rootlings', 'p-braziers|firebrands'].every(tag => wanted.has(tag)), `fights: ${[...wanted.keys()]}`);
+  assert(['f-bog|', 'f-windfall|', 'p-yard|rootlings', 'p-braziers|firebrands'].every(tag => wanted.has(tag)), `fights: ${[...wanted.keys()]}`);
   const firstColours = new Set<number>();
   for (const [tag, f] of wanted) {
     const p = f.state.pending;
@@ -377,7 +385,7 @@ check('saves of a run with the flag read back at every fight; with the flag take
   for (const { fights } of [...SCHEDULED.slice(0, 15), ...POOLED.slice(0, 10)]) for (const f of fights) {
     const text = serializeRtRun(f.state), back = parseRtRun(text);
     assert(back && serializeRtRun(back) === text, `${f.nodeId}: the save reads back`);
-    if (f.state.picks.some(pick => pick.arena === 'f-bog' || /rootling|slime|firebrand/.test(pick.roster ?? ''))) {
+    if (f.state.picks.some(pick => pick.arena === 'f-bog' || pick.arena === 'f-windfall' || /rootling|slime|firebrand|centipede/.test(pick.roster ?? ''))) {
       const copy = JSON.parse(text) as Partial<RtRunState>; delete copy.forestTricks;
       assert(parseRtRun(JSON.stringify(copy)) === null, `${f.nodeId}: without the flag the picks are not the old ones'`);
       stripped++;

@@ -39,9 +39,9 @@ export const SCHEDULE_ELEMENTS: readonly string[] = [...SCHEDULE_KINDS, 'elite',
 export const SCHEDULE_SHOOTER_KINDS: readonly string[] = ['slinger', 'hive', 'wisp'];
 /**
  * Task 57б «Лес: механики» (level design 22.10.2026, spec 10.2): the rootling, the slime and the firebrand — special kinds of a run with the
- * flag `forestTricks` (only with `forestShooters`); the centipede joins with step 57б-2. The history accepts their ids always.
+ * flag `forestTricks` (only with `forestShooters`); the centipede (step 57б-2) after them. The history accepts their ids always.
  */
-export const SCHEDULE_TRICK_KINDS: readonly string[] = ['rootling', 'slime', 'firebrand'];
+export const SCHEDULE_TRICK_KINDS: readonly string[] = ['rootling', 'slime', 'firebrand', 'centipede'];
 /** The special kinds of a run (`shooters` — the flag `forestShooters`, `tricks` — `forestTricks`, only with it). */
 export const scheduleKinds = (shooters = false, tricks = false): readonly string[] =>
   (shooters ? (tricks ? [...SCHEDULE_KINDS, ...SCHEDULE_SHOOTER_KINDS, ...SCHEDULE_TRICK_KINDS] : [...SCHEDULE_KINDS, ...SCHEDULE_SHOOTER_KINDS]) : SCHEDULE_KINDS);
@@ -90,6 +90,8 @@ export const SCHEDULE_SHOOTER_ARCS: readonly Arc[] = [
  */
 export const SCHEDULE_TRICK_ARCS: readonly Arc[] = [
   { id: 'rootling', needs: ['water'], minRow: 2, maxRow: 5 }, { id: 'slime', needs: ['water'], minRow: 3, maxRow: 5 }, { id: 'firebrand', needs: ['brazier', 'water'], minRow: 3, maxRow: 5 },
+  // Step 57б-2 (level design 22.10.2026, spec 10.2): the centipede after the rootling from row 4, the cap max(4 + 2, 5) = 6.
+  { id: 'centipede', needs: ['rootling'], minRow: 4, maxRow: 6 },
 ];
 /** The arcs of task 57 of a run (the shooters', then the mechanics' with `tricks`): the «new» side of the alternation. */
 const freshArcs = (tricks = false): readonly Arc[] => (tricks ? [...SCHEDULE_SHOOTER_ARCS, ...SCHEDULE_TRICK_ARCS] : SCHEDULE_SHOOTER_ARCS);
@@ -121,6 +123,8 @@ export const SCHEDULE_TEACH: Readonly<Record<string, { arena: string; roster?: s
   // Task 57б (level design 22.10.2026): the rootlings' roster on «Прогалина» (a group of 4), the slime's own arena «Трясина», the
   // firebrands' roster on «Жаровни» — each alone on its first meeting (the known element is the field: the water, the braziers).
   rootling: { arena: 'p-yard', roster: 'rootlings', partner: false }, slime: { arena: 'f-bog', partner: false }, firebrand: { arena: 'p-braziers', roster: 'firebrands', partner: false },
+  // Step 57б-2: the centipede's own arena «Бурелом», alone (its one centipede at the start and its newcomers).
+  centipede: { arena: 'f-windfall', partner: false },
 };
 /**
  * The practice arenas: a fight of known elements only — an arena is open when all its `own` elements are met (its other kinds
@@ -145,6 +149,8 @@ export const SCHEDULE_SHOOTER_PRACTICE: readonly { arena: string; own: readonly 
  */
 export const SCHEDULE_TRICK_PRACTICE: readonly { arena: string; own: readonly string[]; minRow?: number }[] = [
   { arena: 'f-bog', own: ['slime', 'water'] },
+  // Step 57б-2: «Бурелом» once the centipede is met.
+  { arena: 'f-windfall', own: ['centipede'] },
 ];
 /** The practice arenas of a run (`shooters` — the flag `forestShooters`, `tricks` — `forestTricks`). */
 const schedulePractice = (shooters = false, tricks = false) =>

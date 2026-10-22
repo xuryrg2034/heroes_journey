@@ -39,6 +39,8 @@ export const KIND_ROLE: Readonly<Record<string, EnemyRole>> = {
   slinger: 'shooter', hive: 'shooter',
   // Task 57б «Лес: механики» (spec 10.2): the rootling and the slime press, the firebrand punishes (its fire trail).
   rootling: 'presser', slime: 'presser', firebrand: 'punisher',
+  // Task 57б-2: the centipede rushes in (its lunge).
+  centipede: 'diver',
 };
 /** Kinds every run has met from its start: no roster waits for them. */
 export const ALWAYS_MET: readonly string[] = ['basic', 'wolf', 'boar'];
@@ -110,6 +112,8 @@ export const ANCHOR_ROLES: readonly RosterDef[] = [
   { id: '+rootling', title: 'корневики', mode: 'add', kinds: [['rootling', 0.06]], groups: { rootling: 4 } },
   { id: '+slime', title: 'слизни', mode: 'add', kinds: [['slime', 0.1]] },
   { id: '+firebrand', title: 'головешки', mode: 'add', kinds: [['firebrand', 0.06]] },
+  // Task 57б-2 (level design 22.10.2026): the centipede as a partner role (a body of 5; the kind's cap holds 2 heads coming).
+  { id: '+centipede', title: 'сороконожки', mode: 'add', kinds: [['centipede', 0.04]] },
 ];
 
 /**

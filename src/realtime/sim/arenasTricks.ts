@@ -1,13 +1,14 @@
 /**
  * Task 57б «Лес: механики» (level design 22.10.2026, docs/design-notes/task-57-forest-enemies.md, 10.2–10.4): the arenas of the forest's
  * new mechanics. The sandbox probe «Механики леса (проба)» plays the rootling, the slime and the firebrand by hand; «Трясина» is the
- * slime's own arena (the run's arc `slime` and the pools of a run with `forestTricks`); «Бурелом» is the centipede's field — its template
- * only until the centipede (step 57б-2): no roster, arc or pool yet (docs/realtime-slice.md, «Лес: механики»).
+ * slime's own arena (the run's arc `slime` and the pools of a run with `forestTricks`); «Бурелом» is the centipede's own arena (the arc
+ * `centipede` and the pools) (docs/realtime-slice.md, «Лес: механики в походе»).
  * The rootling's and the firebrand's first meetings are rosters on the schedule's arenas («Корневики» on «Прогалина», «Головешки» on
  * «Жаровни», sim/rosters.ts), not arenas of their own.
  */
 import { registerArena, type ArenaTemplate } from './arenas';
 import { pond, tree, wall } from './geometry';
+import { CENTIPEDE } from './enemies/centipede';
 import { FIREBRAND } from './enemies/firebrand';
 import { ROOTLING } from './enemies/rootling';
 import { SLIME } from './enemies/slime';
@@ -78,12 +79,15 @@ export const BOG_ARENA: ArenaTemplate = registerArena({
 });
 
 /**
- * Task 57б «Бурелом» (`f-windfall`; level design 22.10.2026, spec 10.2): kill 25 — the field of the centipede (step 57б-2): one long
- * fallen trunk (a wall, 10 × 0.6) lies across the middle and leaves two long passages along it, 4.7 wide, joined round its ends by
- * gaps 4 wide (design 22.10.2026: the parts follow «on a rope», no passage under 4) — the body walks a passage in a file and the chain
- * takes it end to end. A mixed start group; basic newcomers (no packs, no boars). Sandbox only until the centipede: its roster, arc and
- * pool come with 57б-2.
+ * Task 57б «Бурелом» (`f-windfall`; level design 22.10.2026, spec 10.2): kill 25 — the centipede's own arena (the arc `centipede`, after
+ * the rootling; the pools of a run with `forestTricks`, rows 5–7). One feature: one long fallen trunk (a wall, 10 × 0.6) lies across the
+ * middle and leaves two long passages along it, 4.7 wide, joined round its ends by gaps 4 wide (design 22.10.2026: the parts follow «on a
+ * rope», no passage under 4) — the body walks a passage in a file and the chain takes it end to end. The decision: start the chain at an
+ * end (the head or the tail), not at the part nearest the hero, and step off the lunge's lane. One centipede stands at the start in the
+ * upper passage (colour 2) beside a mixed weak group; the newcomers — centipedes by `WINDFALL_CENTIPEDE_SHARE` (the kind's cap: 2 heads
+ * coming; 4 after divisions; 5 bodies each under the arena's limit), the rest basic (no packs, no boars).
  */
+export const WINDFALL_CENTIPEDE_SHARE = 0.05;
 export const WINDFALL_ARENA: ArenaTemplate = registerArena({
   id: 'f-windfall',
   name: 'Бурелом',
@@ -97,9 +101,11 @@ export const WINDFALL_ARENA: ArenaTemplate = registerArena({
   buttons: [],
   door: { x: 9, y: 0.7 },
   enemies: [
-    weak(5.0, 2.6, 1), weak(6.2, 3.0, 1), weak(7.4, 2.6, 1), weak(11.6, 2.8, 2), weak(13.0, 2.4, 0), weak(9.0, 1.4, 3),
+    { x: 13.4, y: 2.4, color: 2, kind: CENTIPEDE },
+    weak(5.0, 2.6, 1), weak(6.2, 3.0, 1), weak(7.4, 2.6, 1), weak(9.0, 7.4, 0), weak(4.2, 7.6, 3), weak(9.0, 1.4, 3),
   ],
   phaseOverride: { wolfShare: 0, boarShare: 0 },
+  newcomers: [{ kind: CENTIPEDE, share: WINDFALL_CENTIPEDE_SHARE }],
 });
 
 /** The sandbox menu's group «Лес: механики» (view/main.ts, at the end of the menu: the numbers before stay). */

@@ -21,7 +21,7 @@
  * node's own roll (`pickRoster`), not by a stream: the arenas are chosen as before.
  */
 import { APIARY_ARENA, SCREE_ARENA } from '../sim/arenasShooters';
-import { BOG_ARENA } from '../sim/arenasTricks';
+import { BOG_ARENA, WINDFALL_ARENA } from '../sim/arenasTricks';
 import { FOREST_TRUNK_LAST_ROW } from '../forest/forestMap';
 import { arenaTemplate } from '../sim/arenas';
 import { poolRosterChoices, rosterChoices, rosterDef, rosterKinds } from '../sim/rosters';
@@ -94,11 +94,12 @@ export const runArenaPools = (mix: boolean, gentle = false, shooters = false, tr
 export const SHOOTER_POOLS: readonly ArenaPoolEntry[] = [{ arena: SCREE_ARENA.id, rows: [3, 7] }, { arena: APIARY_ARENA.id, rows: [4, 7] }];
 /**
  * Баланс, task 57б «Лес: механики» (level design 22.10.2026, spec 10.3; a run with the flag `forestTricks`, only with `forestShooters`):
- * «Трясина» on run rows 3–7 (the slime's own arena; the spec's hypothesis) — at the end of the list, after the shooters', so the order of
- * the earlier candidates stays. «Бурелом» 5–9 joins with the centipede (step 57б-2). The rootling and the firebrand have no arena of
- * their own in the pools (their rosters need a meeting): the pools never bring them, as the wisp.
+ * «Трясина» on run rows 3–7 (the slime's own arena; the spec's hypothesis) and «Бурелом» 5–7 (the centipede's, step 57б-2; the spec's
+ * 5–9 gave row 8 to rule 2 — «Логово», «Брод», «Круг шамана» gone from it, as «Пасека» 4–8 did, design 22.10.2026) — at the end of the
+ * list, after the shooters', so the order of the earlier candidates stays. The rootling and the firebrand have no arena of their
+ * own in the pools: they come by the profile's rule «а» (`POOL_PROFILE_KINDS`) as roles.
  */
-export const TRICK_POOLS: readonly ArenaPoolEntry[] = [{ arena: BOG_ARENA.id, rows: [3, 7] }];
+export const TRICK_POOLS: readonly ArenaPoolEntry[] = [{ arena: BOG_ARENA.id, rows: [3, 7] }, { arena: WINDFALL_ARENA.id, rows: [5, 7] }];
 /** Arena 9 «Застава»: every hard battle (section 5, «трудные узлы»). */
 export const HARD_ARENA = 'outpost';
 /** Arena 10 «Последний рубеж»: the final of the run — every boss node (section 3: the boss nodes lead to the final arena). */
@@ -118,7 +119,7 @@ export const ARENA_TITLES: Readonly<Record<string, string>> = {
   troll: 'Берлога тролля',
   // Task 57а «Лес: стрелки»: the new shooters' own arenas (sim/arenasShooters.ts).
   'f-scree': 'Осыпь', 'f-apiary': 'Пасека',
-  // Task 57б «Лес: механики»: the slime's own arena (sim/arenasTricks.ts); «Бурелом» — with the centipede (57б-2).
+  // Task 57б «Лес: механики»: the slime's and the centipede's own arenas (sim/arenasTricks.ts).
   'f-bog': 'Трясина', 'f-windfall': 'Бурелом',
 };
 export const arenaTitle = (arena: string): string => ARENA_TITLES[arena] ?? arena;
@@ -143,9 +144,9 @@ export const OWN_ARENAS: Readonly<Record<string, string>> = { shield: 'shields',
 /** Task 57а: the new shooters of the pools (a run with `forestShooters`) and their own arenas («Осыпь», «Пасека»). The wisp has none in the pools. */
 export const SHOOTER_NEW_KINDS: readonly string[] = ['slinger', 'hive'];
 export const SHOOTER_OWN_ARENAS: Readonly<Record<string, string>> = { slinger: 'f-scree', hive: 'f-apiary' };
-/** Task 57б: the slime of the pools (a run with `forestTricks`) and its own arena «Трясина». The rootling and the firebrand have none in the pools. */
-export const TRICK_NEW_KINDS: readonly string[] = ['slime'];
-export const TRICK_OWN_ARENAS: Readonly<Record<string, string>> = { slime: 'f-bog' };
+/** Task 57б: the slime and the centipede of the pools (a run with `forestTricks`) and their own arenas «Трясина», «Бурелом». The rootling and the firebrand have none in the pools. */
+export const TRICK_NEW_KINDS: readonly string[] = ['slime', 'centipede'];
+export const TRICK_OWN_ARENAS: Readonly<Record<string, string>> = { slime: 'f-bog', centipede: 'f-windfall' };
 /** The new kinds of the pools' rule (`shooters` — the flag `forestShooters`, `tricks` — `forestTricks`, only with it). */
 export const poolNewKinds = (shooters = false, tricks = false): readonly string[] =>
   (shooters ? (tricks ? [...NEW_KINDS, ...SHOOTER_NEW_KINDS, ...TRICK_NEW_KINDS] : [...NEW_KINDS, ...SHOOTER_NEW_KINDS]) : NEW_KINDS);
