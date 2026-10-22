@@ -288,7 +288,9 @@ check('task 59б: an arena without `pairTint` and `pairShare` draws as before �
   // Task 48 §25 (core/troll-move, merged 22.10.2026) moved them again: `trollMove`, `trollWalk`, `trollChargeCd`, `trollChargeLen`,
   // `trollWindowCharge` in defaultParams; without those five the same run gives d4b065a5…, ed657cef…, 1817d441… (the 57б-1 pins), without
   // all nine new keys the base's 135b38fd… (checked on the merge 22.10.2026) — the fight is the same.
-  const want = ['1cd42c61a86ae511', 'cc3afffbdeb88242', '82a28825f4e00d70'];
+  // Task 57б-2 (core/task57b2, merged 22.10.2026) moved them again: `centiParts`, `centiLungeWindup`; without the two the same run gives
+  // main 650fef41's 1cd42c61…, cc3afffb…, 82a28825… (checked on the merge) — the fight is the same.
+  const want = ['066fe0d34bb64f4f', '9f8d7e85622ac564', 'df13c96fe05398b2'];
   [1, 2, 3].forEach((k, i) => {
     const p = defaultParams(); p.contactDamage = 0; p.heroHp = 99; p.hitstop = false;
     const sim = new Simulation({ arena: 'g-warden-test', params: p, seed: seedOf(k), record: true });
