@@ -24,7 +24,7 @@ import { APIARY_ARENA, SCREE_ARENA } from '../sim/arenasShooters';
 import { BOG_ARENA } from '../sim/arenasTricks';
 import { FOREST_TRUNK_LAST_ROW } from '../forest/forestMap';
 import { arenaTemplate } from '../sim/arenas';
-import { poolRosterChoices, rosterChoices } from '../sim/rosters';
+import { poolRosterChoices, rosterChoices, rosterDef, rosterKinds } from '../sim/rosters';
 // The behaviour arenas register themselves (the pools name them without going through the simulation).
 import '../sim/arenasStage3';
 
@@ -234,12 +234,27 @@ export function pickArena(candidates: readonly string[], history: readonly strin
  * shaman once the run entered their own arena (design answer 3, 09.10.2026). A roster never brings an unmet kind, so a
  * roster does not change what the run has met: the choice of arenas stays as before.
  */
-export function rosterMet(history: readonly string[], shooters = false, tricks = false): Set<string> {
+export function rosterMet(history: readonly string[], shooters = false, tricks = false, seen: readonly string[] = []): Set<string> {
   const met: Set<string> = metKinds(history, poolNewKinds(shooters, tricks));
+  // Task 57б (design 22.10.2026, rule «а»): the kinds with no own pool arena that the profile met (the run's snapshot `poolSeen`).
+  for (const kind of seen) met.add(kind);
   if (history.includes('lynx-den')) met.add('lynx');
   if (history.includes('shaman-circle')) met.add('shaman');
   return met;
 }
+
+/**
+ * Task 57б (design 22.10.2026, rule «а», a narrow exception — every other kind keeps `metKinds`): in a run with `forestTricks` the pools
+ * count these kinds as met when the profile's history has them — they have no own pool arena, so a veteran would never meet them again
+ * there. The run snapshots them at its creation (`RtRunState.poolSeen`); they come as roles in known fights, never by the lesson rosters
+ * (`LESSON_ROSTERS`), the firebrand only where braziers stand.
+ */
+export const POOL_PROFILE_KINDS: readonly string[] = ['firebrand', 'rootling', 'wisp'];
+/** The schedule's lesson rosters (`wisps`, `rootlings`, `firebrands`): never a pools' roster. */
+export const LESSON_ROSTERS: readonly string[] = ['wisps', 'rootlings', 'firebrands'];
+/** A roster or role the pools may give `arena`: not a lesson roster; one with the firebrand only on an arena with braziers. */
+const poolAdmits = (arena: string) => (id: string): boolean =>
+  !LESSON_ROSTERS.includes(id) && (!rosterKinds(rosterDef(id)!).includes('firebrand') || !!arenaTemplate(arena).braziers?.length);
 
 /** Salt of the roster roll: «rt-roster» (FNV-1a) mixed into the node's arena seed — not a stream of the run. */
 export const ROSTER_SALT = [...'rt-roster'].reduce((hash, ch) => Math.imul(hash ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5);
@@ -262,15 +277,16 @@ export const MIXED_ROSTER_ARENAS: Readonly<Record<string, readonly string[]>> = 
  * run is spent: the arenas are chosen as before. `mix` — the run's roster mix (`MIXED_ROSTER_ARENAS`); without it «Застава»
  * and «Брод» keep their own composition, as before 11.10.2026.
  */
-export function pickRoster(arena: string, row: number, history: readonly string[], rosters: readonly string[], roll: number, mix = false, shooters = false, tricks = false): string | undefined {
+export function pickRoster(arena: string, row: number, history: readonly string[], rosters: readonly string[], roll: number, mix = false, shooters = false, tricks = false, seen: readonly string[] = []): string | undefined {
   const excluded = mix ? MIXED_ROSTER_ARENAS[arena] : undefined;
   if (excluded) {
     // The roster mix: the top bit of the roll keeps the own composition, else the window over the admissible pool rosters
     // (its low bits choose, as for any roster).
     if ((roll >>> 31) === 0) return undefined;
-    return pickWithWindow(poolRosterChoices(rosterMet(history, shooters, tricks)).filter(id => !excluded.includes(id)), rosters, roll) ?? undefined;
+    return pickWithWindow(poolRosterChoices(rosterMet(history, shooters, tricks, seen)).filter(id => !excluded.includes(id) && poolAdmits(arena)(id)), rosters, roll) ?? undefined;
   }
-  const choices = rosterChoices(arena, row, rosterMet(history, shooters, tricks));
+  // Task 57б: the filter changes nothing without `seen` (a lesson roster or a firebrand needs a kind no pool run met before it).
+  const choices = rosterChoices(arena, row, rosterMet(history, shooters, tricks, seen))?.filter(poolAdmits(arena));
   if (!choices) return undefined;
   const roster = pickWithWindow(choices, rosters, roll);
   if (!roster) throw new Error(`no roster for «${arena}»`);

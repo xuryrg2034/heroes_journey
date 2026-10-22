@@ -34,7 +34,7 @@ import type { TalismanId } from '../forest/talismans';
 import { isRtOath, isRtTalisman, RELICS, RT_DEW_FLASK_HEAL, RT_TOUGH_HIDE_HP, rtShopTalisman, rtTalisman, rtTalismanOffer, turnPool,
   type RtTalismanId, type RtTalismanOption } from './rtTalismans';
 import { emptyStreams, parseStreams, streamValue, type RunStream, type RunStreams } from '../forest/runStreams';
-import { arenaTitle, FINAL_ARENA, GENTLE_FIRST_MEETING_LAST_ROW, HARD_ARENA, ordinaryArenaChoices, pickArena, pickRoster, poolNewKinds, ROSTER_SALT, RUN_ARENAS, runArenaPools, runRow, SHOOTER_RUN_ARENAS, TRICK_RUN_ARENAS } from './arenaPools';
+import { arenaTitle, FINAL_ARENA, GENTLE_FIRST_MEETING_LAST_ROW, HARD_ARENA, ordinaryArenaChoices, pickArena, pickRoster, poolNewKinds, POOL_PROFILE_KINDS, ROSTER_SALT, RUN_ARENAS, runArenaPools, runRow, SHOOTER_RUN_ARENAS, TRICK_RUN_ARENAS } from './arenaPools';
 import { isRoster } from '../sim/rosters';
 import { allowedAffixes, fightElements, isScheduleElement, jailerWithout, PART_ARC, SCHEDULE_RUN_ARENAS, SCHEDULE_HARD_FLOOR, SCHEDULE_KINDS, SCHEDULE_NUMBERS_ROWS, schedulePlan, unmetKinds, type ScheduleNode } from './schedule';
 import { JAILER_ARENA, JAILER_RUN_ARENAS, TROLL_ARENA, TROLL_RUN_ARENAS } from '../sim/arenasBoss';
@@ -896,6 +896,13 @@ export interface RtRunState {
    */
   forestTricks?: true;
   /**
+   * Task 57б (design 22.10.2026, rule «а»): the kinds of `POOL_PROFILE_KINDS` (the firebrand, the rootling, the wisp) the profile had met
+   * when this run was created, sorted — the pools count them as met (run/arenaPools.ts `rosterMet`). Snapshot: a later profile changes
+   * nothing, the save and its checks choose again the same rosters. Only in a run with `forestTricks` that plays the pools (no schedule),
+   * only when not empty; absent — the pools' rule of before.
+   */
+  poolSeen?: string[];
+  /**
    * Task 58в «Летопись: видел» (design 21.10.2026): the run notes what its screens showed and it did not take (`shown`). Set when the run
    * is created while the chronicle is on (`RT_CHRONICLE_ON`); absent — no note, the save as before.
    */
@@ -1244,6 +1251,9 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   const arcsAlternate = forestShooters && (options.arcsAlternate ?? RT_ARCS_ALTERNATE_ON);
   // Task 57б (level design 22.10.2026): the forest's mechanics — a run with the shooters, by `RT_FOREST_TRICKS_ON` unless the option says.
   const forestTricks = forestShooters && (options.forestTricks ?? RT_FOREST_TRICKS_ON);
+  // Task 57б (design 22.10.2026, rule «а»): a pools run with the mechanics snapshots the profile's firebrand, rootling and wisp (the view
+  // passes the history as `schedule` at every level; from «Испытание II» it plays no schedule).
+  const poolSeen = forestTricks && !schedule ? POOL_PROFILE_KINDS.filter(kind => options.schedule?.includes(kind)) : [];
   // Task 41 «Три зелья» (16.10.2026): the cap of healing potions, `RT_POTION_CAP` unless the option says (0 — none, as a save before it).
   const potionCap = Math.max(0, Math.floor(options.potionCap ?? RT_POTION_CAP));
   // Task 49: Ведунья's run keeps her id (with or without the meta); the cat's — `cat` with the meta's snapshot only, as before.
@@ -1253,7 +1263,7 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   const run: RtRunState = {
     version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {},
     // Task 51з: the run of the day (only seeded, its seed the date's; run/rtDaily.ts `createRtDailyRun`).
-    ...options.seeded && isRtDailyDate(options.daily) && (seed >>> 0) === rtDailySeed(options.daily) ? { daily: options.daily } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...markerSeek ? { markerSeek: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked } : {}, ...heroId ? { heroId } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...step3 ? { step3: { drill: garrisonDrill(seed) } } : {}, ...relicFill ? { relicFill: true as const } : {}, ...chronicle ? { chronicle: true as const } : {}, ...potionCap ? { potionCap } : {}, ...pool.length ? { omens: { pool } } : {}, ...forestShooters ? { forestShooters: true as const } : {}, ...arcsAlternate ? { arcsAlternate: true as const } : {}, ...forestTricks ? { forestTricks: true as const } : {}, ...bossHoles ? { bossHoles: true as const } : {}, ...corePickFirst ? { corePickFirst: true as const } : {}, ...bossPickArt ? { bossPickArt: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    ...options.seeded && isRtDailyDate(options.daily) && (seed >>> 0) === rtDailySeed(options.daily) ? { daily: options.daily } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...markerSeek ? { markerSeek: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked } : {}, ...heroId ? { heroId } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...step3 ? { step3: { drill: garrisonDrill(seed) } } : {}, ...relicFill ? { relicFill: true as const } : {}, ...chronicle ? { chronicle: true as const } : {}, ...potionCap ? { potionCap } : {}, ...pool.length ? { omens: { pool } } : {}, ...forestShooters ? { forestShooters: true as const } : {}, ...arcsAlternate ? { arcsAlternate: true as const } : {}, ...forestTricks ? { forestTricks: true as const } : {}, ...poolSeen.length ? { poolSeen } : {}, ...bossHoles ? { bossHoles: true as const } : {}, ...corePickFirst ? { corePickFirst: true as const } : {}, ...bossPickArt ? { bossPickArt: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
@@ -2499,8 +2509,8 @@ export function scheduleKit(kit: Loadout, run: RtRunState, node: Pick<ForestMapN
  * node's own roll (the arena seed and the salt «rt-roster»), no stream spent (a save is checked with it too). With the
  * run's roster mix «Застава» and «Брод» take a pool roster in about half of their fights (`MIXED_ROSTER_ARENAS`).
  */
-function chooseRoster(run: Pick<RtRunState, 'seed' | 'rosterMix' | 'forestShooters' | 'forestTricks'>, node: Pick<ForestMapNode, 'id' | 'row'>, arena: string, history: readonly string[], rosters: readonly string[]): string | undefined {
-  return pickRoster(arena, runRow(node.row), history, rosters, mixSeed(arenaSeed(run, node.id), ROSTER_SALT), !!run.rosterMix, !!run.forestShooters, !!run.forestTricks);
+function chooseRoster(run: Pick<RtRunState, 'seed' | 'rosterMix' | 'forestShooters' | 'forestTricks' | 'poolSeen'>, node: Pick<ForestMapNode, 'id' | 'row'>, arena: string, history: readonly string[], rosters: readonly string[]): string | undefined {
+  return pickRoster(arena, runRow(node.row), history, rosters, mixSeed(arenaSeed(run, node.id), ROSTER_SALT), !!run.rosterMix, !!run.forestShooters, !!run.forestTricks, run.poolSeen ?? []);
 }
 
 function startArena(run: RtRunState, node: ForestMapNode, battle: RtBattleKind, events: RtRunEvent[]) {
@@ -4196,6 +4206,9 @@ function checkRun(value: unknown): RtRunState | null {
   if (value.arcsAlternate !== undefined && !(value.arcsAlternate === true && value.forestShooters === true)) return null;
   // Task 57б: the forest's mechanics — only with the shooters.
   if (value.forestTricks !== undefined && !(value.forestTricks === true && value.forestShooters === true)) return null;
+  // Task 57б (rule «а»): the profile's kinds of the pools — only with the mechanics in a pools run, sorted, not empty, of `POOL_PROFILE_KINDS`.
+  if (value.poolSeen !== undefined && !(value.forestTricks === true && value.schedule === undefined && Array.isArray(value.poolSeen) && value.poolSeen.length > 0
+    && value.poolSeen.every((kind, i, all) => typeof kind === 'string' && POOL_PROFILE_KINDS.includes(kind) && (i === 0 || (all[i - 1] as string) < kind)))) return null;
   // Task 41: the cap of healing potions, a whole number from 1; absent — a save before it (no cap).
   if (value.potionCap !== undefined && !(isCount(value.potionCap) && value.potionCap >= 1)) return null;
   // Task 56: the omens (the pool and the levels' rolls); the count of off-link steps (1 or more, only under «Перепутье» — the path below).

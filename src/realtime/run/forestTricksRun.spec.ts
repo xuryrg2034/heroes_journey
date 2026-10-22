@@ -207,7 +207,7 @@ check('a new viewer (100 viewers, 6 runs each, the history carried over): no kin
 
 // ---------- The pools of «Испытание II» ----------
 
-check('the pools (30 runs of «Испытание II»): «Трясина» only rows 3–7, the slime first there; the rootling and the firebrand never in the pools; «+слизни» only after «Трясина»', () => {
+check('the pools (30 runs of «Испытание II», no profile): «Трясина» only rows 3–7, the slime first there; the rootling and the firebrand never in the pools without the profile; «+слизни» only after «Трясина»', () => {
   let bog = 0, slimePartner = 0;
   const bogRows = new Set<number>();
   for (const { k, fights } of POOLED) {
@@ -254,6 +254,57 @@ check('the pools of «Испытание II» (240 runs, with the flag and witho
     console.log(`   row ${row}, % with the flag (without): ${line.join(', ')}`);
   }
   for (const arena of ['marked', 'ford', 'shaman-circle']) assert((on.get(8)!.get(arena) ?? 0) >= 1, `row 8 without ${arena}: ${JSON.stringify([...on.get(8)!])}`);
+});
+
+/** A veteran's profile: every arc of the first runs, the shooters and the mechanics met. */
+const VETERAN = [...ALL_ARCS, 'slinger', 'hive', 'wisp', 'rootling', 'slime', 'firebrand'];
+/** The forest fights of a walk at ash 2 (the pools) with the profile `schedule` and the flag `forestTricks`. */
+function pooled(k: number, schedule: readonly string[], forestTricks = true): Planned[] {
+  const out: Planned[] = [];
+  walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', ash: 2, forestTricks, schedule }, fight: madeUp, each: state => {
+    const p = state.pending;
+    if (p?.kind !== 'battle' || out.some(f => f.nodeId === p.nodeId) || rtGarrisonNodeId(p.nodeId)) return;
+    const gone = rtArenaLoadout(state).withoutKinds ?? [];
+    out.push({ nodeId: p.nodeId, row: runRow(rtNode(state, p.nodeId)!.row), arena: p.arena, ...p.roster !== undefined ? { roster: p.roster } : {}, kinds: [...arenaKinds(p.arena, p.roster)].filter(kind => !gone.includes(kind)), state: structuredClone(state) });
+  } });
+  return out;
+}
+
+check('the pools’ profile rule (design 22.10.2026, «а»): a pools run with the flag snapshots the profile’s firebrand, rootling and wisp (`poolSeen`, sorted); not without the flag, not in a scheduled run, not when empty; a broken field is no run', () => {
+  const at2 = createRtRun(seedOf(7), { ash: 2, forestTricks: true, schedule: VETERAN });
+  assert(JSON.stringify(at2.poolSeen) === '["firebrand","rootling","wisp"]' && at2.schedule === undefined, `snapshot ${JSON.stringify(at2.poolSeen)}`);
+  assert(createRtRun(seedOf(7), { ash: 2, schedule: VETERAN }).poolSeen === undefined, 'no flag — no field');
+  assert(createRtRun(seedOf(7), { ash: 0, forestTricks: true, schedule: VETERAN }).poolSeen === undefined, 'a scheduled run — no field');
+  assert(createRtRun(seedOf(7), { ash: 2, forestTricks: true, schedule: ALL_ARCS }).poolSeen === undefined, 'none of the three met — no field');
+  const text = serializeRtRun(at2), raw = JSON.parse(text) as Record<string, unknown>;
+  assert(serializeRtRun(parseRtRun(text)!) === text, 'the save keeps it');
+  for (const bad of [[], ['wisp', 'rootling'], ['slime'], ['wisp', 'wisp'], 'wisp', null]) assert(parseRtRun(JSON.stringify({ ...raw, poolSeen: bad })) === null, `poolSeen ${JSON.stringify(bad)} is no run`);
+  const noFlag = { ...raw }; delete noFlag.forestTricks;
+  assert(parseRtRun(JSON.stringify(noFlag)) === null, 'the field without the flag is no run');
+});
+
+check('the pools’ profile rule: 120 runs at ash 2 with a veteran’s profile — the rootling, the firebrand and the wisp each come in some fights, as roles of known fights (never a lesson roster), the firebrand only where braziers stand; the snapshot decides, not the profile of later; without the flag the profile changes nothing', () => {
+  const n: Record<string, number> = { rootling: 0, firebrand: 0, wisp: 0 };
+  let fights = 0;
+  for (let k = 1; k <= 120; k++) for (const f of pooled(k, VETERAN)) {
+    fights++;
+    for (const kind of Object.keys(n)) if (f.kinds.includes(kind)) n[kind]++;
+    assert(!['wisps', 'rootlings', 'firebrands'].includes(f.roster ?? ''), `run ${k}: a lesson roster ${f.roster} in the pools`);
+    if (f.kinds.includes(FIREBRAND)) assert(!!arenaTemplate(f.arena).braziers?.length, `run ${k}: a firebrand on ${f.arena}`);
+  }
+  console.log(`   ${fights} fights: ${JSON.stringify(n)}`);
+  assert(n.rootling > 0 && n.firebrand > 0 && n.wisp > 0, JSON.stringify(n));
+  // The snapshot: a run created with the veteran's profile, saved before its first fight, and played on — whatever profile is current
+  // later (the run reads none) — chooses the rosters of the run walked at once; the same seed with an empty profile chooses others.
+  const key = (fs: Planned[]): string => fs.map(f => `${f.nodeId}:${f.arena}/${f.roster ?? ''}`).join(' ');
+  let differ = 0;
+  for (let k = 1; k <= 12; k++) {
+    const once = pooled(k, VETERAN), saved = parseRtRun(serializeRtRun(createRtRun(seedOf(k), { gift: k % 2 ? 'full' : 'mini', ash: 2, forestTricks: true, schedule: VETERAN })))!;
+    assert(JSON.stringify(saved.poolSeen) === JSON.stringify(once[0].state.poolSeen), `seed ${k}: the snapshot survives the save`);
+    if (key(once) !== key(pooled(k, []))) differ++;
+    assert(key(pooled(k, VETERAN, false)) === key(pooled(k, [], false)), `seed ${k}: without the flag the profile changes the pools`);
+  }
+  assert(differ >= 3, `the profile changed the pools of ${differ} of 12 runs`);
 });
 
 // ---------- The fights ----------
