@@ -615,6 +615,8 @@ async function main(): Promise<void> {
 
   await check('task 48: the Troll\'s fight — the hero\'s damage by group (`boss.troll.damage`: crowd, core, parts, moves) sums to `damage.total`, its moves are the three sources of `damage.bySource`; the browser summary agrees with the replay; the report shows the line', async () => {
     const p = { ...defaultParams(), heroHp: 999, hitstop: false };
+    // Task 48, section 25: the sitting Troll — the values without `trollMove` (the route below is the sitting Troll's).
+    delete (p as { trollMove?: boolean }).trollMove;
     const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
     const sim = new Simulation({ arena: 'troll', params: p, seed: Math.imul(1, 2654435761) >>> 0, record: true }), w = sim.world, observer = fightObserver(w);
     const cmd = (c: Command): void => { sim.command(c); observer.command(c, w); };

@@ -945,6 +945,23 @@ export interface Params {
   trollRoarPeriod: number;
   trollCrowd: number;
   /**
+   * Task 48, section 25 «Тролль ходит и делает рывок» (user's decision 22.10.2026, docs/design-notes/task-48-troll.md, 25): the Troll
+   * walks to the hero between his moves and charges along a lane when he sees him (the core's move «Рывок»: −2 to the hero on the
+   * lane, the enemies on it thrown aside; struck into a wall, a tree or a rock — a window). Off by default and in journals without the
+   * key: the Troll sits, as before. The arena «Берлога тролля» turns it on when the values have it off; a run only by its flag
+   * (run/rtRun.ts `trollMove`).
+   */
+  trollMove: boolean;
+  /**
+   * Task 48, section 25 — the numbers of the walk and the charge (read only with `trollMove`; journals without a key play the
+   * defaults of enemies/troll.ts): the walk, units per game s; the charge's cooldown, s; its longest lane; the window after a charge
+   * into an obstacle, s.
+   */
+  trollWalk: number;
+  trollChargeCd: number;
+  trollChargeLen: number;
+  trollWindowCharge: number;
+  /**
    * «Дыры ядра боссов» (task 55, stage Д, core's review 21.10.2026). `coreTrailWard`: the fire trail of an elite (elites.ts
    * `updateAffixes`) asks the boss core's rules (world.ts `bossCoreWards`: the Troll's window and its one hit, the Chief's «only the
    * chain») before it burns a core — a closed one rings (`block`), unhurt. `coreShamanWard`: the shaman's beam never takes a boss
@@ -1362,6 +1379,10 @@ export interface Params {
   slimeBigHp: number;
   /** Task 57б «Головешка»: how long the put-out firebrand runs to a burning brazier (game s; 4). */
   brandSeek: number;
+  /** Task 57б-2 «Сороконожка»: the parts of a body with its head (5). */
+  centiParts: number;
+  /** Task 57б-2: the windup of its «Рывок» (game s; 1.0). */
+  centiLungeWindup: number;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -1780,6 +1801,12 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   trollSnoreRegrow: 1,
   trollRoarPeriod: 20,
   trollCrowd: 1,
+  // Task 48, section 25 (22.10.2026): the Troll sits by default (the arena «Берлога тролля» turns the walk on); the spec's numbers.
+  trollMove: false,
+  trollWalk: 1.2,
+  trollChargeCd: 6,
+  trollChargeLen: 10,
+  trollWindowCharge: 1.5,
   // «Дыры ядра боссов» (21.10.2026): off — the old paths.
   coreTrailWard: false,
   coreShamanWard: false,
@@ -1951,6 +1978,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   slimeMerge: 1,
   slimeBigHp: 2,
   brandSeek: 4,
+  centiParts: 5,
+  centiLungeWindup: 1,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -2423,6 +2452,13 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('trollSnoreRegrow', 'Тролль', '«Храп»: пластин за сон', 0, 3, 1, 5, '', '0 — «Храп» без отрастания.'),
   n('trollRoarPeriod', 'Тролль', '«Рык»: раз в', 5, 60, 1, 5, 'с', 'Во второй и третьей фазе; первый — при входе во вторую.'),
   n('trollCrowd', 'Тролль', 'Тролль: толпа', 0.25, 2, 0.05, 5, '×', 'Множитель плотности и темпа пополнения толпы. Арена «Берлога тролля» ставит 0,3, если на панели 1.'),
+  // Task 48, section 25 «Тролль ходит и делает рывок» (22.10.2026).
+  { kind: 'bool', key: 'trollMove', group: 'Тролль', label: 'Тролль ходит и делает рывок', stage: 5,
+    hint: 'Между приёмами Тролль идёт к герою. Видит героя в 3,5–9 по свободной линии — может сделать «Рывок»: полоса до стены или 10 ед., замах 0,9 с, бег 12 ед./с; герою на полосе −2, враги отброшены вбок. Врезался в стену, дерево или скалу — застрял: окно. Арена «Берлога тролля» включает сама; поход — только по своему флагу.' },
+  n('trollWalk', 'Тролль', 'Тролль: ходьба', 0.2, 4, 0.1, 5, 'ед./с', 'Скорость ходьбы между приёмами (герой — 4).'),
+  n('trollChargeCd', 'Тролль', '«Рывок»: перезарядка', 1, 20, 0.5, 5, 'с'),
+  n('trollChargeLen', 'Тролль', '«Рывок»: длина полосы', 4, 16, 0.5, 5, 'ед.', 'Наибольшая; полоса кончается раньше у стены, дерева или скалы.'),
+  n('trollWindowCharge', 'Тролль', 'Окно после «Рывка» в препятствие', 0.2, 5, 0.1, 5, 'с'),
   // «Дыры ядра боссов» (21.10.2026).
   { kind: 'bool', key: 'coreTrailWard', group: 'Босс', label: 'Огненный след уважает ядро', stage: 5,
     hint: 'Огненный след элиты не жжёт закрытое ядро босса (Тролль вне окна, Главарь всегда — «звон»); в окне Тролля след — его одно попадание. Арены Тролля и Главаря и поход включают сами.' },
@@ -2604,6 +2640,9 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('slimeMerge', 'Механики леса', 'Слизни сливаются за', 0.25, 5, 0.25, 5, 'с', 'Два малых слизня одного цвета касаются столько — сливаются в большого.'),
   n('slimeBigHp', 'Механики леса', 'Большой слизень: HP', 1, 5, 1, 5),
   n('brandSeek', 'Механики леса', 'Головешка: бежит к жаровне', 1, 10, 0.5, 5, 'с', 'Погасшая головешка бежит к горящей жаровне и разгорается у неё.'),
+  // Task 57б-2 (enemies/centipede.ts).
+  n('centiParts', 'Механики леса', 'Сороконожка: частей', 2, 8, 1, 5, undefined, 'Голова и части одного цвета. Убитая середина делит тело надвое: у куска без головы — новая голова.'),
+  n('centiLungeWindup', 'Механики леса', 'Сороконожка: замах рывка', 0.4, 2, 0.1, 5, 'с'),
 ];
 
 const MAX_PHASES = 8;

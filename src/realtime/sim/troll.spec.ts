@@ -46,6 +46,8 @@ function quiet(extra: Partial<Params> = {}): Params {
   p.baseFloor = 0; p.baseIntervalMin = 1e6; p.baseIntervalMax = 1e6; p.speedSpread = 0; p.contactDamage = 0; p.heroHp = 999; p.hitstop = false; p.enemySpeed = 0;
   // The rules are checked on the spec's first numbers (HP 4, 5 plates); the defaults of the design (HP 2, 4 plates) — the run's test.
   p.trollHp = 4; p.trollPlates = 5;
+  // Task 48, section 25: the sitting Troll — the values without `trollMove` (a journal before it; the arena turns it on only when it is off).
+  delete (p as Partial<Params>).trollMove;
   return Object.assign(p, extra);
 }
 interface Den { sim: Simulation; w: World; core: Enemy; club: Enemy; rock: Enemy; tail: Enemy }

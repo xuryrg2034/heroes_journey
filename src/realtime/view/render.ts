@@ -15,7 +15,7 @@ import { Application, Container, Graphics, GraphicsContext, Particle, ParticleCo
 import { COLORS, PALE, drawTerrain, makePlayer, type HeroArtId } from '../art/art';
 import { characterSprite, hasCharacterArt, type CharacterArtId } from '../art/characterAssets';
 import type { ArenaLayout } from '../sim/arenas';
-import { OBJECT_RADIUS, armedDamage, canJump, castCircle, chainAnchor, chainAnchors, chainColor, colorGroups, colorJoin, colorShiftIds, colorShiftLeft, colorlessLink, enemyAnchors, forkAnchorOf, heroAnchorOn, inCast, jumpLanding, linkPoint, loopCandidates, loopOn, nextCandidates, nextObjectCandidates, planChain, sameColor, twinsNextColor, type ChainPlan } from '../sim/chain';
+import { OBJECT_RADIUS, armedDamage, canJump, castCircle, chainAnchor, chainAnchors, chainColor, colorGroups, colorJoin, colorShiftIds, colorShiftLeft, colorlessLink, enemyAnchors, forkAnchorOf, heroAnchorOn, inCast, jumpLanding, linkPoint, loopCandidates, loopOn, nextCandidates, nextObjectCandidates, planChain, sameColor, twinsNextColor, REFUSAL_TEXT, type ChainPlan } from '../sim/chain';
 import { forkAnchorNow } from '../sim/forms';
 import { FROST_PASS_LIFE, FROST_PASS_RADIUS, frostPassPoints, frostPassPreview } from '../sim/frostPass';
 import { drawAlienRing, drawForkMark, drawFrostPoint, drawFrostPreview, drawIceMark, drawReturnPower, drawReturnRoute, drawTwinLine } from './formsView';
@@ -76,11 +76,14 @@ import { FLAIL_RADIUS, JAILER, JAILER_WEIGHT, jailerCore, jailerMove, jailerShie
 import { CHAIN_BREAK_LIFE, drawFlailArc, drawFlailChain, drawSeverPip, drawWeight, drawWhistleMark } from './jailerView';
 import { TROLL, TROLL_ROCK, trollCore } from '../sim/enemies/troll';
 import { ShooterView, hiveMarks, slingerMarks, wispMarks } from './shooterView';
+import { ForestMechView, centipedeMarks, drawFlame, firebrandMarks, rootlingMarks, slimeMarks } from './forestMechView';
+import { CENTIPEDE, centipedeHead } from '../sim/enemies/centipede';
+import { FIREBRAND, brandLit } from '../sim/enemies/firebrand';
 import { CHIEF, chiefCore } from '../sim/enemies/chief';
 import { WARLOCK, warlockCore } from '../sim/enemies/warlock';
 import { WARLOCK_ART, WARLOCK_FEET, WarlockView, buildWarlock, reticleInk, warlockBadgeAt, type WarlockArt } from './warlockView';
 import { CHIEF_ART, CHIEF_FEET, ChiefView, buildChief, buildChiefPart, chiefBadgeAt, chiefPartBadgeAt, eaterSits, isChiefKind, type ChiefArt } from './chiefView';
-import { TROLL_ART, TROLL_ART_ASPECT, TROLL_FEET, TrollView, buildCore, buildPartArt, coreBadgeAt, corePips, isTrollKind, partBadgeAt, partOutward, posePartArt, type CoreArt, type SignTools } from './trollView';
+import { TROLL_ART, TROLL_ART_ASPECT, TROLL_FAR_WORDS, TROLL_FEET, TrollView, buildCore, buildPartArt, coreBadgeAt, corePips, isTrollKind, partBadgeAt, partOutward, posePartArt, type CoreArt, type SignTools } from './trollView';
 
 /**
  * Phase B (Т5, design 10.10.2026): the chain colours of the real-time view. Red, green and blue are those of the turn-based
@@ -183,9 +186,20 @@ const GARRISON_ART: Readonly<Record<string, { id: CharacterArtId; size: number }
   [KNIGHT]: { id: 'garrison-knight', size: 3.7 },
   // Task 57а: the forest shooters (the box is in body radii of the kind's own drawing scale; the colour reads on the disc and the plaque).
   slinger: { id: 'forest-slinger', size: 3.4 }, hive: { id: 'forest-hive', size: 3.1 }, wisp: { id: 'forest-wisp', size: 3.0 },
+  // Task 57б: the forest's tricksters (the slime's box is its small one's: the big one is the same art ×1.4, `ForestMechView.slimeScale`).
+  rootling: { id: 'forest-rootling', size: 3.2 }, slime: { id: 'forest-slime', size: 2.6 }, [FIREBRAND]: { id: 'forest-firebrand', size: 3.0 },
+  // Task 57б-2: a centipede's part (its head — `CENTIPEDE_HEAD_ART`).
+  [CENTIPEDE]: { id: 'forest-centipede-part', size: 2.6 },
   // Task 55а: the castle's art (a thing has no colour plaque; the rook keeps its colour's plaque and disc).
   [WARDROBE]: { id: 'castle-wardrobe', size: 3.1 }, [ROOK]: { id: 'castle-rook', size: 3.9 }, [BARREL]: { id: 'castle-barrel', size: 2 },
 };
+/** Task 57б: the put-out firebrand's art (the burning one's is in `GARRISON_ART`). */
+const FIREBRAND_OUT_ART: { id: CharacterArtId; size: number } = { id: 'forest-firebrand-out', size: 3.0 };
+/** The art of this body now: its kind's; a put-out firebrand — its own (task 57б: the body is rebuilt when it changes). */
+/** Task 57б-2: the centipede's head (a promoted part is rebuilt with it). */
+const CENTIPEDE_HEAD_ART: { id: CharacterArtId; size: number } = { id: 'forest-centipede-head', size: 3.0 };
+const artOf = (e: Enemy): { id: CharacterArtId; size: number } | undefined =>
+  (e.kind === FIREBRAND && !brandLit(e) ? FIREBRAND_OUT_ART : e.kind === CENTIPEDE && centipedeHead(e) ? CENTIPEDE_HEAD_ART : GARRISON_ART[e.kind]);
 /** Task 40: the prisoner's padlock — its width (body radii) and its gap over the drawing's top (radii). */
 const LOCK_SIZE = 0.95, LOCK_GAP = 0.15;
 /** Task 40: the prisoner's padlock over its drawing (its art's top, or the disc's) — its centre y and width, arena px (`r` — the body's radius, px). */
@@ -387,6 +401,10 @@ interface EnemyView {
   chiefArt?: ChiefArt;
   /** Task 55 Д: the warlock's drawing (the core), its dazed one and the glow copy - warlockView.ts. */
   warlockArt?: WarlockArt;
+  /** Task 57б: the art the body was built with (`artOf`: a firebrand burning or put out) — another one rebuilds the body. */
+  art?: CharacterArtId;
+  /** Task 57б: the slime's drawing scale it was built with (`ForestMechView.slimeScale`; a merge — another one rebuilds the body). */
+  size: number;
 }
 
 /** A killed enemy: spins and shrinks for `deathDuration` (design answer 22); one that fell into a cliff also darkens. */
@@ -484,6 +502,8 @@ export class RealtimeRenderer {
   private readonly troll = new TrollView(UNIT, chainInk);
   /** Task 57а: the forest shooters' signs, shots and light (shooterView.ts); `shown` is what the tests read. */
   readonly shooters = new ShooterView();
+  /** Task 57б: the forest's tricksters — stumps, leaves, slime pairs, the firebrands' fire, the plan's signs (forestMechView.ts); `shown` is what the tests read. */
+  readonly forestMech = new ForestMechView(chainInk);
   /** Task 54a: the Chief's view - his drawing, window, queue, cauldron, signs and effects (chiefView.ts). */
   private readonly chief = new ChiefView(UNIT, chainInk);
   get chiefShown(): ChiefView['shown'] { return this.chief.shown; }
@@ -835,7 +855,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.cage.layer, this.objectLayer, this.markerLayer, this.trailLayer, this.chief.floor, this.warlock.floor, this.laneLayer, this.rippleLayer, this.castLayer, this.castMask, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.omenLayer, this.troll.layer, this.chief.layer, this.warlock.layer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.shooters.layer, this.overlay, this.prologueLayer, this.fxLayer, this.omenFlash, this.snapLayer, this.shardLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.cage.layer, this.objectLayer, this.markerLayer, this.trailLayer, this.forestMech.floor, this.chief.floor, this.warlock.floor, this.laneLayer, this.rippleLayer, this.castLayer, this.castMask, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.omenLayer, this.troll.layer, this.chief.layer, this.warlock.layer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.shooters.layer, this.forestMech.layer, this.overlay, this.prologueLayer, this.fxLayer, this.omenFlash, this.snapLayer, this.shardLayer, this.flash);
     this.heroRoot.addChild(this.reachLayer, this.reachMask, this.heroLayer);
     this.app.stage.addChild(this.root, this.viewBorder, this.heroRoot, this.edgeLayer);
     this.initShards();
@@ -1306,6 +1326,13 @@ export class RealtimeRenderer {
       if (kind === 'hive') hiveMarks(ctx, r);
       if (kind === 'wisp') wispMarks(ctx, r);
     }
+    // Task 57б: the forest's tricksters' stand-in silhouettes (the design's art registered in characterAssets.ts replaces them).
+    if (!shooterArt || !hasCharacterArt(shooterArt.id)) {
+      if (kind === 'rootling') rootlingMarks(ctx, r);
+      if (kind === 'slime') slimeMarks(ctx, r);
+      if (kind === FIREBRAND) firebrandMarks(ctx, r);
+      if (kind === CENTIPEDE) centipedeMarks(ctx, r);
+    }
     // Porcupine (iteration 2.1): its quills go up and down — drawn per frame over the texture (`quillGraphics`).
     if (kind === 'sapper') {
       // Sapper: a black powder keg on its back with a short fuse (silhouette, not a color).
@@ -1388,7 +1415,7 @@ export class RealtimeRenderer {
     }
     // Task 38: the garrison's art (design, Codex) over the disc of its colour, its feet at the disc's bottom; the colour's plaque at
     // its belt (the Castellan — colourless: the grey plaque, no sigil); no art — the silhouette of `enemyContext`.
-    const gart = GARRISON_ART[e.kind];
+    const gart = artOf(e);
     if (gart && e.color !== NO_COLOR) {
       const sprite = characterSprite(gart.id, r * gart.size, r * gart.size);
       if (sprite) {
@@ -1449,6 +1476,10 @@ export class RealtimeRenderer {
       body.addChild(exclaim);
     }
     if (e.kind === 'boar') body.scale.set(BOAR_SCALE);
+    // Task 57б: a slime's body is drawn at its kind's own art scale (small ×0.85, big ×1.4: `enemyArtRadius`, the radius of its press
+    // circle and reach — the boar's way); a merge rebuilds the body (`EnemyView.size`), so the scale is set once here.
+    const slime = this.forestMech.slimeScale(e);
+    if (slime !== 1) body.scale.set(slime);
     return { body, grey, hpLabel, exclaim, quills, ...trollArt ? { trollArt } : {}, ...weapon ? { weapon } : {}, ...chiefArt ? { chiefArt } : {}, ...warlockArt ? { warlockArt } : {} };
   }
 
@@ -1468,7 +1499,7 @@ export class RealtimeRenderer {
       seen.add(e.id);
       let view = this.enemyViews.get(e.id);
       const colorless = colorlessBody(world, e);
-      if (view && (view.look !== look || view.color !== e.color || view.colorless !== colorless || (view.hp > 0) !== (e.hp > 0))) {
+      if (view && (view.look !== look || view.color !== e.color || view.colorless !== colorless || (view.hp > 0) !== (e.hp > 0) || view.art !== artOf(e)?.id || view.size !== this.forestMech.slimeScale(e))) {
         // Task 46 «Клеймо»: a painted body's old drawing stays as a ghost and fades out while the new one fades in (`PAINT_FADE`).
         if (view.look === look && view.color !== e.color && this.clock - (this.paintAt.get(e.id) ?? -9) < PAINT_FADE) this.ghosts.push({ root: view.root, life: PAINT_FADE });
         else view.root.destroy({ children: true });
@@ -1477,7 +1508,7 @@ export class RealtimeRenderer {
       if (!view) {
         const root = new Container(), { body, grey, hpLabel, exclaim, quills, trollArt, weapon, chiefArt, warlockArt } = this.buildEnemyBody(e, look, colorless);
         root.addChild(body); this.enemyLayer.addChild(root);
-        view = { root, body, grey, hpLabel, exclaim, hp: e.hp, look, color: e.color, colorless, quills, ...trollArt ? { trollArt } : {}, ...weapon ? { weapon } : {}, ...chiefArt ? { chiefArt } : {}, ...warlockArt ? { warlockArt } : {} };
+        view = { root, body, grey, hpLabel, exclaim, hp: e.hp, look, color: e.color, colorless, quills, art: artOf(e)?.id, size: this.forestMech.slimeScale(e), ...trollArt ? { trollArt } : {}, ...weapon ? { weapon } : {}, ...chiefArt ? { chiefArt } : {}, ...warlockArt ? { warlockArt } : {} };
         this.enemyViews.set(e.id, view);
       }
       if (view.hpLabel && view.hp !== e.hp) { view.hpLabel.text = String(e.hp); view.hp = e.hp; }
@@ -1652,6 +1683,8 @@ export class RealtimeRenderer {
     // Task 55а: the wardrobe's topple strip, the rook's line, the running shoves.
     this.castle.beginFrame();
     this.castle.drawLanes(g, world, this.signTools, p => this.sees(p, 6));
+    // Task 57б-2: the centipede's «Рывок» — the boar's strip (forestMechView.ts).
+    this.forestMech.drawLanes(g, world, this.signTools, UNIT, heroRadius(p), (pt, margin) => this.sees(pt, margin));
     // Task 48: the Troll's signs — the club's strip, the rock's circle, the tail's ring, the lairs' circles (the sim's `trollMove`).
     this.troll.drawSigns(g, world, this.signTools, p => this.sees(p, 6));
     // Task 54a: the Chief's signs - the ladle's half-disc, the pepper's circles, the feast's dashed circle and seat marks, the whistle.
@@ -1974,6 +2007,8 @@ export class RealtimeRenderer {
     this.archerMarksSeen = marks;
     // Task 57а: the slinger's lines, the hive's swell, the shots in the air and the wisps' light.
     this.shooters.draw(g, world, this.clock, UNIT, r, (pt, margin) => this.sees(pt, margin));
+    // Task 57б: the stumps' arcs and the cold on them, the rootlings' leaves, the firebrands' fire, smoke and relight.
+    this.forestMech.draw(g, world, this.clock, UNIT, r, (pt, margin) => this.sees(pt, margin));
     this.drawBoss(world, g);
     this.drawTroll(world, g);
     this.chief.drawOver(g, world, this.clock, this.frameDt, enemyDrawRadius(world.params) * UNIT, 1 / Math.max(0.1, this.scale), e => this.sees(e, 1.5));
@@ -2332,6 +2367,9 @@ export class RealtimeRenderer {
       g.circle(X, Y, R).fill({ color: EMBER, alpha: 0.38 * k });
       g.circle(X, Y, R * 0.6 * f).fill({ color: FLAME, alpha: 0.4 * k });
       g.circle(X, Y, R).stroke({ color: 0x7a2a12, width: 2, alpha: 0.5 * k });
+      // Design 22.10.2026 (task 57б): a point reads as fire, not a brown spot on the grass — a flickering tongue of flame on it (the
+      // elite's «Огненный» and the firebrand's trail are one fire; it fades with the point).
+      drawFlame(g, X, Y + R * 0.35, R * 1.5, this.clock, t.x * 7 + t.y * 5, 0.6 + 0.4 * k, 0.5 + 0.5 * k);
     }
     this.trailCount = count;
     // Phase B (design answer 23): the fire of the hammer «Огненный проход» — the same embers, but with the pale-blue rim of
@@ -3091,9 +3129,15 @@ export class RealtimeRenderer {
       if ((ev.type === 'bossMove' || ev.type === 'chiefFeast' || ev.type === 'chiefBrew' || ev.type === 'partSevered' || ev.type === 'enemySignal') && this.chief.onEvent(ev, world, this.clock, enemyDrawRadius(world.params) * UNIT)) continue;
       // Task 55 Д: the warlock's events (the charm's «звон» and end, the window's hit and the links dropped, the shift's arrival) - the rest go on.
       if ((ev.type === 'warlockCharm' || ev.type === 'warlockWindow' || ev.type === 'warlockShift') && this.warlock.onEvent(ev, world, this.clock, enemyDrawRadius(world.params) * UNIT)) continue;
-      if ((ev.type === 'bossMove' || ev.type === 'trollWindow' || ev.type === 'partSevered' || ev.type === 'bossPlate') && this.troll.onEvent(ev, world, this.clock, enemyDrawRadius(world.params) * UNIT)) continue;
+      // Task 48 §25: a part of the drawn chain carried out of reach — the refusal's words over it (the rings are the Troll view's).
+      if (ev.type === 'trollLinkFar') this.notice(TROLL_FAR_WORDS, ev.x, ev.y);
+      if ((ev.type === 'bossMove' || ev.type === 'trollWindow' || ev.type === 'partSevered' || ev.type === 'bossPlate' || ev.type === 'trollPush' || ev.type === 'trollLinkFar') && this.troll.onEvent(ev, world, this.clock, enemyDrawRadius(world.params) * UNIT)) continue;
       // Task 57а: the sparks of the shots (put out, taken by a shield, a hit, an end of flight), a wisp going out, a hive's ring leaving.
       if (this.shooters.onEvent(ev, UNIT)) continue;
+      // Task 57б: Fire lit a firebrand of the drawn chain — the links after it dropped: the refusal's words over it («после выжившего»).
+      if (ev.type === 'firebrand' && ev.dropped?.length) this.notice(REFUSAL_TEXT[ev.refusal ?? 'afterSurvivor'], ev.x, ev.y);
+      // Task 57б: a stump laid, risen, crumbled, burnt; a slimes' merge; a firebrand put out or lit again.
+      if (this.forestMech.onEvent(ev, world, UNIT)) continue;
       if (ev.type === 'bossMove') {
         const m = ev.stage === 'hit' ? this.bossMovesSeen.get(ev.id) : undefined;
         if (m) { this.bossFlashes.push({ ...m, until: this.clock + 0.3 }); this.bossShown.hits++; }
@@ -3645,6 +3689,8 @@ export class RealtimeRenderer {
     this.drawnPlan = plan;
     // Task 59а: the fiery rim of the pools the path lights, the ring of the warden who will be angry, gold keys, the bans on recruits out of order — all from the plan.
     this.garrison3.drawPlan(g, world, plan, this.clock, enemyDrawRadius(p) * UNIT, e => this.sees(e, 1.5));
+    // Task 57б: «рассыплются» (the light leaf and splinters on the group's stumps and links), «погаснет» (smoke over the link).
+    this.forestMech.drawPlan(g, world, plan, this.clock, UNIT, enemyDrawRadius(p) * UNIT);
     this.loopShown.hint = 0;
     // Line hero → links, navy under the chain color.
     // Task 62 (design 21.10.2026): Ведунья v2's thread runs through the runes, not the bodies.
@@ -4609,10 +4655,12 @@ export class RealtimeRenderer {
     this.updateClearWaves(realDt);
     this.updateFireFlares(realDt);
     this.shooters.update(realDt);
+    this.forestMech.update(realDt);
     this.cage.update(world, realDt);
     this.drawObjects(world);
     this.drawMarkers(world);
     this.drawTrails(world);
+    this.forestMech.drawFloor(world, this.clock, UNIT, enemyDrawRadius(world.params) * UNIT, (pt, margin) => this.sees(pt, margin));
     this.troll.beginFrame();
     this.drawLanes(world);
     this.drawRipples(world);
@@ -4707,6 +4755,7 @@ export class RealtimeRenderer {
     for (const sp of this.sparks) sp.g.destroy();
     this.sparks.length = 0;
     this.shooters.reset();
+    this.forestMech.reset();
     this.garrison3.reset();
     for (const f of this.floating) f.text.destroy();
     this.floating.length = 0;

@@ -36,7 +36,7 @@ import '../src/realtime/sim/arenasStep3';
 import { rtGarrisonNodeId } from '../src/realtime/run/garrison';
 import { walkRun } from '../src/realtime/run/metaWalk.testkit';
 import { outcomeOf } from '../src/realtime/run/runFight.testkit';
-import { rtArenaLoadout, rtArenaParams, rtNode, rtRunParams, type RtArenaOutcome, type RtRunState } from '../src/realtime/run/rtRun';
+import { rtArenaLoadout, rtArenaParams, rtNode, rtRunParams, type RtArenaOutcome, type RtAshLevel, type RtRunState } from '../src/realtime/run/rtRun';
 import { botFight } from './garrisonBot';
 import { arenaKinds } from '../src/realtime/run/arenaKinds';
 import { JAILER_RUN_ARENAS } from '../src/realtime/sim/arenasBoss';
@@ -58,6 +58,10 @@ const MARKERS_OFF = option('--markers', 'on') === 'off';
  */
 // `--no-shooters` (22.10.2026, the flag on in the game since): the runs without `forestShooters`, the base of a comparison.
 const SHOOTERS = args.includes('--shooters') ? true : args.includes('--no-shooters') ? false : undefined, HISTORY = option('--history', 'none');
+/** Task 57б (level design 22.10.2026): `--tricks` — the runs take the flag `forestTricks` (the forest's mechanics: arcs, rosters, «Трясина»; only with the shooters), off in the game until design. */
+const TRICKS = args.includes('--tricks');
+/** Task 57б (design 22.10.2026, the pools' profile rule): `--ash N` — the runs' «Испытание» level (2+ — the pools, the history as the profile's snapshot); absent — 0. */
+const ASH = Number(option('--ash', '0'));
 const ALL_ARCS = ['bust', 'wolf', 'elite', 'brazier', 'cliff', 'boar', 'water', 'shield', 'buttons', 'archer', 'sapper', 'leader', 'lynx', 'affix', 'thorns', 'porcupine', 'shaman', 'horde', 'part', 'chest'];
 /**
  * Design 22.10.2026 (before `RT_FOREST_SHOOTERS_ON`): `--seen k1,k2` — kinds the viewer met besides the history (with `first` or `all`):
@@ -157,7 +161,7 @@ const CHIEF_KEYS: Partial<Params> = option('--chief-keys', '') ? Object.fromEntr
 type BossFight = { won: boolean; time: number; hpIn: number; groups: Record<TrollGroup, number> };
 const chiefFights: BossFight[] = [], ownTrollFights: BossFight[] = [];
 /** Task 54: the group of a hit on the hero in a boss fight (the Troll's and the Chief's moves by source, the cores' and parts' touches by the striker). */
-const bossGroup = (source: string, kind: string | undefined): TrollGroup => ['troll-club', 'troll-rock', 'troll-tail', 'chief-ladle', 'chief-pepper'].includes(source) ? 'moves'
+const bossGroup = (source: string, kind: string | undefined): TrollGroup => ['troll-club', 'troll-rock', 'troll-tail', 'troll-charge', 'chief-ladle', 'chief-pepper'].includes(source) ? 'moves'
   : kind === 'troll' || kind === 'chief' ? 'core' : kind?.startsWith('troll-') || kind?.startsWith('chief-') ? 'parts' : 'crowd';
 /**
  * Task 48 (`--troll`; design 16.10.2026, spec 24.3): the forest's final («Последний рубеж» on either branch) is played by the bot as the
@@ -184,6 +188,10 @@ if (SET_NAME && !SET) throw new Error(`no set ${SET_NAME}: ${Object.keys(CASTELL
 const castellanFights: { won: boolean; time: number; source: string | null; hpIn: number }[] = [];
 /** Task 43: the Jailer's fights (the reference wall): outcome and game time. */
 const jailerFights: { won: boolean; time: number; hpIn: number }[] = [];
+/** Task 57б (spec 16): the fights with a kind of the forest's mechanics — what the kinds did there (both passes). */
+/** Step 57б-2: where a centipede's part got stuck (arena and point), every fight. */
+const stuckAt: string[] = [];
+const mechFights: { rootling: boolean; slime: boolean; firebrand: boolean; centipede: boolean; lie: number; rise: number; crumble: number; burn: number; merges: number; out: number; lit: number; lunges: number; splits: number; stuck: number; tag: string; won: boolean; time: number }[] = [];
 const jailerArena = (id: string): boolean => (JAILER_RUN_ARENAS as readonly string[]).includes(id);
 
 interface Tally { reached: Map<string, number>; deaths: Map<string, number>; damage: Map<string, number[]>; outcomes: Record<string, number>; fights: number; timeouts: number; runs: number;
@@ -218,6 +226,8 @@ function fight(run: RtRunState, t: Tally): RtArenaOutcome {
   const bossGroups: Record<TrollGroup, number> = { crowd: 0, core: 0, parts: 0, moves: 0 }, bossKinds = new Map<number, string>();
   const ownTroll = CHIEF_FIGHT && pending.arena === 'troll';
   const damage: Record<string, number> = {}, groups: Record<TrollGroup, number> = { crowd: 0, core: 0, parts: 0, moves: 0 }, kinds = new Map<number, string>();
+  // Task 57б (spec 16): the forest's mechanics of this fight — the rootlings' stumps, the slimes' merges, the firebrands' douses and lights.
+  const mech = { rootling: false, slime: false, firebrand: false, centipede: false, lie: 0, rise: 0, crumble: 0, burn: 0, merges: 0, out: 0, lit: 0, lunges: 0, splits: 0, stuck: 0 };
   const played = botFight(troll ? { ...run, pending: { ...pending, arena: 'troll' } } : chief ? { ...run, pending: { ...pending, arena: 'chief' } } : run, { params, loadout, limit: LIMIT, ...BOSS_AIM ? { aim: BOSS_CORES } : {}, ...PLANNER ? { pairs: 'planner' as const } : {},
     ...castellan ? { afterTick: (world: World, tick: number) => tuneCastellan(world, castellan, tick === 0) } : {},
     // Task 57а (21.10.2026): every fight's damage by its hit source (the per-arena table splits it); task 54 the boss groups of the Chief and the
@@ -227,17 +237,23 @@ function fight(run: RtRunState, t: Tally): RtArenaOutcome {
         for (const e of world.enemies) if (!bossKinds.has(e.id)) bossKinds.set(e.id, e.kind);
         for (const ev of world.events) if (ev.type === 'hit') bossGroups[bossGroup(ev.source, ev.source === 'touch' ? bossKinds.get(ev.enemyId) : undefined)] += ev.damage;
       }
-      for (const e of world.enemies) if (!kinds.has(e.id)) kinds.set(e.id, e.kind);
+      for (const e of world.enemies) if (!kinds.has(e.id)) { kinds.set(e.id, e.kind); if (e.kind === 'rootling' || e.kind === 'slime' || e.kind === 'firebrand' || e.kind === 'centipede') mech[e.kind] = true; }
       for (const ev of world.events) {
+        if (ev.type === 'stump') mech[ev.action]++;
+        else if (ev.type === 'slime') mech.merges++;
+        else if (ev.type === 'firebrand') mech[ev.action]++;
+        // Step 57б-2: the centipede's lunges, divisions and the rope's stuck parts (design 22.10.2026: stuck in the fights → a stored trail).
+        else if (ev.type === 'centipede') { if (ev.action === 'lunge' && ev.stage === 'start') mech.lunges++; else if (ev.action === 'split') mech.splits++; else if (ev.action === 'stuck') { mech.stuck++; stuckAt.push(`${pending.arena} (${ev.x.toFixed(1)}; ${ev.y.toFixed(1)})`); } }
         if (ev.type !== 'hit') continue;
         damage[ev.source] = (damage[ev.source] ?? 0) + ev.damage;
         if (!troll) continue;
         const kind = ev.source === 'touch' ? kinds.get(ev.enemyId) : undefined;
-        groups[kind === 'troll' ? 'core' : kind?.startsWith('troll-') ? 'parts' : ['troll-club', 'troll-rock', 'troll-tail'].includes(ev.source) ? 'moves' : 'crowd'] += ev.damage;
+        groups[['troll-club', 'troll-rock', 'troll-tail', 'troll-charge'].includes(ev.source) ? 'moves' : kind === 'troll' ? 'core' : kind?.startsWith('troll-') ? 'parts' : 'crowd'] += ev.damage;
       }
     } });
   const w = played.sim.world, lastSource = played.lastSource;
   if (played.timeout) t.timeouts++;
+  if (mech.rootling || mech.slime || mech.firebrand || mech.centipede) mechFights.push({ ...mech, tag: `${pending.arena}${pending.roster ? `/${pending.roster}` : ''}`, won: w.status === 'victory', time: w.time });
   if (w.enemies.some(e => e.kind === 'jailer') || jailerArena(pending.arena)) jailerFights.push({ won: w.status === 'victory', time: w.time, hpIn: run.hp });
   if (troll) trollFights.push({ won: w.status === 'victory', time: w.time, damage, hpIn: run.hp, groups });
   if (chief) chiefFights.push({ won: w.status === 'victory', time: w.time, hpIn: run.hp, groups: bossGroups });
@@ -298,7 +314,7 @@ function tuneCastellan(w: World, set: CastellanSet, first: boolean): void {
 function pass(real: (run: RtRunState) => boolean): Tally {
   const t = tally();
   for (let k = 1; k <= SEEDS; k++) {
-    const run = walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, ...MOAT ? { moat: true } : {}, ...STEP2_OFF ? { step2: false } : {}, ...MARKERS_OFF ? { markerSeek: false } : {}, ...SHOOTERS !== undefined ? { forestShooters: SHOOTERS } : {}, ...SCHEDULE, ...STEP3 ? { step3: true } : {} }, fight: state => (real(state) ? fight(state, t) : null) }).run;
+    const run = walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, ...MOAT ? { moat: true } : {}, ...STEP2_OFF ? { step2: false } : {}, ...MARKERS_OFF ? { markerSeek: false } : {}, ...SHOOTERS !== undefined ? { forestShooters: SHOOTERS } : {}, ...TRICKS ? { forestTricks: true } : {}, ...ASH ? { ash: ASH as RtAshLevel } : {}, ...SCHEDULE, ...STEP3 ? { step3: true } : {} }, fight: state => (real(state) ? fight(state, t) : null) }).run;
     t.runs++;
     const keys = new Set([...run.visited, ...run.result ? [run.result.nodeId] : []].map(id => keyOf(run, id)));
     // A run in the garrison passed every row of the forest.
@@ -351,7 +367,7 @@ if (SET) {
 const whole = GARRISON_ONLY ? null : pass(() => true), garrison = FOREST_ONLY ? null : pass(run => !!run.garrisonLevel);
 if (BOSS_AIM) console.log(`Бот целит в ядро босса (--boss-aim): Тюремщик, Кастелян${TROLL_FIGHT ? ', Тролль (финал леса — «Берлога тролля», --troll)' : '; у финала леса ядра нет'}.\n`);
 const head = (() => { try { return execSync('git rev-parse --short HEAD').toString().trim(); } catch { return '?'; } })();
-console.log(`Задача 40, часть Е: кривая выживания бота через лес и гарнизон, ${SEEDS} seed, предел боя ${LIMIT} с, «Ров» ${MOAT ? 'вкл.' : 'по флагу игры'}, шаг 2 ${STEP2_OFF ? 'выкл.' : 'по флагу игры'}, шаг 3 ${STEP3 ? 'вкл.' : 'по флагу игры'}${PLANNER ? ', пары — планировщик' : ''}${SHOOTERS !== undefined ? `, стрелки леса ${SHOOTERS ? 'вкл.' : 'выкл.'}` : ''}${HISTORY !== 'none' ? `, история ${HISTORY}${SEEN.length ? ` + ${SEEN.join(', ')}` : ''}` : ''}${SHARES ? `, доли в шаблонах: ${APPLIED} (ставит скрипт; у «Барбакана» поле pairShare стоит и при 0 — rollColor делает лишний бросок spawnRoll, как в варианте 0 замера долей)` : ''} (эвристика, жадный бот), ${new Date().toISOString().slice(0, 10)}, HEAD ${head}, ${Math.round((Date.now() - started) / 1000)} с.\n`);
+console.log(`Задача 40, часть Е: кривая выживания бота через лес и гарнизон, ${SEEDS} seed, предел боя ${LIMIT} с, «Ров» ${MOAT ? 'вкл.' : 'по флагу игры'}, шаг 2 ${STEP2_OFF ? 'выкл.' : 'по флагу игры'}, шаг 3 ${STEP3 ? 'вкл.' : 'по флагу игры'}${PLANNER ? ', пары — планировщик' : ''}${SHOOTERS !== undefined ? `, стрелки леса ${SHOOTERS ? 'вкл.' : 'выкл.'}` : ''}${TRICKS ? ', механики леса вкл.' : ''}${ASH ? `, Испытание ${ASH}` : ''}${HISTORY !== 'none' ? `, история ${HISTORY}${SEEN.length ? ` + ${SEEN.join(', ')}` : ''}` : ''}${SHARES ? `, доли в шаблонах: ${APPLIED} (ставит скрипт; у «Барбакана» поле pairShare стоит и при 0 — rollColor делает лишний бросок spawnRoll, как в варианте 0 замера долей)` : ''} (эвристика, жадный бот), ${new Date().toISOString().slice(0, 10)}, HEAD ${head}, ${Math.round((Date.now() - started) / 1000)} с.\n`);
 if (whole) print('Весь поход: все бои настоящие', whole, ['л', 'г']);
 if (garrison) print('Гарнизон от «Предместья»: бои леса выиграны обходом, бои гарнизона настоящие', garrison, ['г']);
 // Task 43: the Jailer's fights of both passes (the second plays the forest by the walk: only the first's count).
@@ -359,10 +375,20 @@ const jl = jailerFights.filter(f => !f.won).length;
 if (TROLL_FIGHT) {
   const tl = trollFights.filter(f => !f.won).length, all: Record<string, number> = {};
   for (const f of trollFights) for (const [s, n] of Object.entries(f.damage)) all[s] = (all[s] ?? 0) + n;
-  const total = Object.values(all).reduce((a, b) => a + b, 0), moves = ['troll-club', 'troll-rock', 'troll-tail'].reduce((a, s) => a + (all[s] ?? 0), 0);
+  const total = Object.values(all).reduce((a, b) => a + b, 0), moves = ['troll-club', 'troll-rock', 'troll-tail', 'troll-charge'].reduce((a, s) => a + (all[s] ?? 0), 0);
   console.log(`Тролль (финал леса сыгран «Берлогой тролля»${Object.keys(TROLL_KEYS).length ? `, ${JSON.stringify(TROLL_KEYS)}` : ''}): боёв ${trollFights.length}, поражений ${tl} (${trollFights.length ? Math.round(100 * tl / trollFights.length) : 0}%), длина боя мед. ${trollFights.length ? f1(median(trollFights.map(f => f.time))) : '—'} с; урон героя ${total}, от приёмов ${moves} (${total ? Math.round(100 * moves / total) : 0}%): ${Object.entries(all).sort((a, b) => b[1] - a[1]).map(([s, n]) => `${s} ${n}`).join(', ')}.`);
   const sums = TROLL_GROUPS.map(g => trollFights.reduce((a, f) => a + f.groups[g], 0)), sum = sums.reduce((a, b) => a + b, 0);
   console.log(`Тролль: HP героя на входе в бой, мед. ${trollFights.length ? f1(median(trollFights.map(f => f.hpIn))) : '—'}; урон героя по группам: ${TROLL_GROUPS.map((g, i) => `${TROLL_GROUP_TITLES[g]} ${sums[i]} (${sum ? Math.round(100 * sums[i] / sum) : 0}%)`).join(', ')}.`);
+}
+if (TRICKS) {
+  const of = (kind: 'rootling' | 'slime' | 'firebrand') => mechFights.filter(f => f[kind]);
+  const sum = (fs: typeof mechFights, key: 'lie' | 'rise' | 'crumble' | 'burn' | 'merges' | 'out' | 'lit' | 'lunges' | 'splits' | 'stuck'): number => fs.reduce((n, f) => n + f[key], 0);
+  const per = (fs: typeof mechFights, key: 'lie' | 'rise' | 'crumble' | 'burn' | 'merges' | 'out' | 'lit' | 'lunges' | 'splits' | 'stuck'): string => (fs.length ? f1(sum(fs, key) / fs.length) : '—');
+  const roots = of('rootling'), slimes = of('slime'), brands = of('firebrand'), centis = mechFights.filter(f => f.centipede);
+  console.log(`Механики леса (оба прохода): бои с корневиками ${roots.length} — на бой легло ${per(roots, 'lie')}, встало ${per(roots, 'rise')}, рассыпалось групп ${per(roots, 'crumble')}, сожжено пней ${per(roots, 'burn')}, боёв без рассыпания ${roots.filter(f => !f.crumble).length}; бои со слизнями ${slimes.length} — слияний на бой ${per(slimes, 'merges')}, боёв без слияния ${slimes.filter(f => !f.merges).length}; бои с головешками ${brands.length} — погасло на бой ${per(brands, 'out')}, разожглось ${per(brands, 'lit')}.`);
+  const stuckBy = new Map<string, { fights: number; stuckFights: number; stuck: number; deaths: number }>();
+  for (const f of centis) { const e = stuckBy.get(f.tag) ?? { fights: 0, stuckFights: 0, stuck: 0, deaths: 0 }; e.fights++; if (f.stuck) e.stuckFights++; e.stuck += f.stuck; if (!f.won) e.deaths++; stuckBy.set(f.tag, e); }
+  console.log(`Сороконожки (оба прохода): боёв ${centis.length}, рывков на бой ${per(centis, 'lunges')}, делений ${per(centis, 'splits')}, застреваний (centipede stuck) всего ${sum(centis, 'stuck')}, боёв с застреванием ${centis.filter(f => f.stuck).length}; места застреваний: ${stuckAt.join(', ') || '—'}; по аренам: ${[...stuckBy].sort((x, y) => y[1].fights - x[1].fights).map(([tag, e]) => `${tag} ${e.fights} боёв, смертей ${e.deaths}, с застреванием ${e.stuckFights} (${e.stuck})`).join('; ')}.`);
 }
 console.log(`Тюремщик (все бои с ним, оба прохода): боёв ${jailerFights.length}, поражений ${jl} (${jailerFights.length ? Math.round(100 * jl / jailerFights.length) : 0}%), длина боя мед. ${jailerFights.length ? f1(median(jailerFights.map(f => f.time))) : '—'} с, HP героя на входе мед. ${jailerFights.length ? f1(median(jailerFights.map(f => f.hpIn))) : '—'}.`);
 // Task 48 (design 17.10.2026): deaths by the hero's HP entering the fight — the Troll's and the Jailer's, the bins 1–5 / 6–10 / 11+.

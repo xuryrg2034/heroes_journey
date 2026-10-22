@@ -22,7 +22,7 @@ import { enemyKind } from '../sim/enemies/kinds';
 import {
   ALWAYS_MET, ANCHOR_ARENAS, ANCHOR_ROLE_ROW, ANCHOR_ROLES, FIXED_ROSTER_ARENAS, KIND_ROLE, POOL_ROSTER_ARENAS, POOL_ROSTERS, rosterChoices, rosterDef, rosterKinds, rosterTitle, withRoster,
 } from '../sim/rosters';
-import { MIXED_ROSTER_ARENAS, rosterMet, RUN_ARENAS, runRow, SHOOTER_RUN_ARENAS } from './arenaPools';
+import { MIXED_ROSTER_ARENAS, rosterMet, RUN_ARENAS, runRow, SHOOTER_RUN_ARENAS, TRICK_RUN_ARENAS } from './arenaPools';
 import { RT_TASK17_OFF,
   arenaPreview, createRtRun, parseRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtItemRefusal, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtChooseTalisman, rtEnterNode,
   rtEventView, rtGiftView, rtNode, rtRestHeal, rtShopLeave, serializeRtRun, RT_RUN_FORCED, RT_RUN_VERSION, type RtRunState, type RtRunStep,
@@ -63,9 +63,10 @@ interface Played { row: number; type: string; arena: string; roster?: string; ru
  * preview (equal, and the preview spends nothing) and the save (it loads back). `mix` — the run's roster mix (a new run:
  * on; off — a run before 11.10.2026, and so without the gentle entry of task 17).
  */
-function walk(seed: number, k: number, mix = true): Played[] {
+function walk(seed: number, k: number, mix = true, tricks = true): Played[] {
   // A run before the mix is also before the gentle entry (task 17, 13.10.2026), the Jailer's fight (task 28) and the forest's shooters (task 57а): its pools are the old ones.
-  let run = createRtRun(seed, { gift: 'mini', garrison: false, rosterMix: mix, ...mix ? {} : { ...RT_TASK17_OFF, jailer: false, troll: false, forms: false, forestShooters: false } });
+  // Task 57б: `tricks` false — a run without the forest's mechanics (`forestTricks: false`, a save before 22.10.2026).
+  let run = createRtRun(seed, { gift: 'mini', garrison: false, rosterMix: mix, ...mix ? {} : { ...RT_TASK17_OFF, jailer: false, troll: false, forms: false, forestShooters: false }, ...tricks ? {} : { forestTricks: false } });
   const played: Played[] = [];
   for (let step = 0; step < 200 && !run.result; step++) {
     const pending = run.pending;
@@ -144,7 +145,8 @@ check(`${RUNS} runs: no roster brings a kind not seen on an earlier arena; «П�
       // Task 48: the Troll's fight (the den branch's final of a new run) has no roster, as the Jailer's.
       else if (entry.arena === 'troll') assert(entry.roster === undefined, `the Troll's fight row ${entry.row}: ${entry.roster}`);
       // Task 57а (the flag on since 22.10.2026): «Осыпь» and «Пасека», the shooters' own arenas, keep their own composition.
-      else if (SHOOTER_RUN_ARENAS.includes(entry.arena)) assert(entry.roster === undefined, `${entry.arena} row ${entry.row}: ${entry.roster}`);
+      // Task 57б (RT_FOREST_TRICKS_ON on since 22.10.2026): «Трясина» and «Бурелом» keep their own composition as the shooters' arenas.
+      else if (SHOOTER_RUN_ARENAS.includes(entry.arena) || TRICK_RUN_ARENAS.includes(entry.arena)) assert(entry.roster === undefined, `${entry.arena} row ${entry.row}: ${entry.roster}`);
       else if (anchor) {
         const pure = !seen.has(anchor.kind) && entry.row < ANCHOR_ROLE_ROW;
         assert((entry.roster === undefined) === pure, `${entry.arena} row ${entry.row}: ${entry.roster}, ${anchor.kind} ${seen.has(anchor.kind) ? 'seen' : 'unseen'}`);
@@ -202,8 +204,14 @@ check(`roster mix, ${RUNS} runs: «Застава» and «Брод» keep their 
   // «Шаманский щит» is the recorded exception (design 11.10.2026): with «Логово» on rows 6–8 the shaman is met too late for
   // «Застава» (never on «Брод»), so it almost never comes — not required here.
   console.log(`   runs with each pool roster: ${POOL_ROSTERS.map(def => `${def.id} ${runsWith.get(def.id) ?? 0}`).join(', ')}`);
-  // Task 57а: «Светляки» (`wisps`) is the schedule's lesson of the wisp in a run with `forestShooters` — never in these pool runs.
-  for (const def of POOL_ROSTERS) if (def.id !== 'shaman-shield' && def.id !== 'wisps') assert((runsWith.get(def.id) ?? 0) > 0, `${def.id}: in no run`);
+  // Task 57а: «Светляки» (`wisps`) is the schedule's lesson of the wisp in a run with `forestShooters` — never in these pool runs. Task 57б:
+  // «Корневики» and «Головешки» are the schedule's lessons of a run with `forestTricks` likewise.
+  // Task 57б (RT_FOREST_TRICKS_ON on since 22.10.2026): «Охота» (the lynx and the archer met) came in 2 of these 300 runs before the flag
+  // and in none with it — «Трясина» and «Бурелом» take ordinary nodes by the own-arena rule; checked on the runs without the flag below.
+  for (const def of POOL_ROSTERS) if (!['shaman-shield', 'wisps', 'rootlings', 'firebrands', 'hunt'].includes(def.id)) assert((runsWith.get(def.id) ?? 0) > 0, `${def.id}: in no run`);
+  const huntBefore = Array.from({ length: RUNS }, (_, n) => walk(seedOf(n + 1), n + 1, true, false)).filter(played => played.some(entry => entry.roster === 'hunt')).length;
+  console.log(`   «Охота»: runs with it — ${runsWith.get('hunt') ?? 0} with the mechanics, ${huntBefore} without them`);
+  assert(huntBefore > 0, `hunt: in no run without the mechanics (${huntBefore})`);
 });
 
 check(`roster mix off: the arenas and rosters of ${RUNS} runs are those before 11.10.2026 (the fingerprint of the walks at 99af5fb), «Застава» and «Брод» keep their own composition`, () => {

@@ -191,7 +191,8 @@ function walkSaves(k: number, chestField = true, events = true): string[] {
   // Task 15 (14.10.2026): the same for the flag `healMap` (one more field; the walk buys no map heal).
   // Task 28 (15.10.2026): the same for the flag `jailer` (one more field, and the Jailer's node plays its pool as the fixture's).
   // Task 57а (22.10.2026): the same for the flag `forestShooters` (its fields, and the pools of the fixture's forest).
-  let run: RtRunState = takeGift(createRtRun(seedOf(k), { gift: 'mini', markedGoals: false, ...RT_TASK17_OFF, healMap: false, shortFuse: false, jailer: false, troll: false, markerSeek: false, chronicle: false, bossHoles: false, corePickFirst: false, bossPickArt: false, forms: false, garrison: false, potionCap: 0, forestShooters: false }));
+  // Task 48 §25 (22.10.2026): the same for the flag `trollMove` (its field; the run has no Troll — `troll: false`).
+  let run: RtRunState = takeGift(createRtRun(seedOf(k), { gift: 'mini', markedGoals: false, ...RT_TASK17_OFF, healMap: false, shortFuse: false, jailer: false, troll: false, trollMove: false, markerSeek: false, chronicle: false, bossHoles: false, corePickFirst: false, bossPickArt: false, forms: false, garrison: false, potionCap: 0, forestShooters: false }));
   const saves = [serializeRtRun(run)];
   for (let step = 0; step < 160 && !run.result; step++) {
     const p = run.pending;

@@ -227,8 +227,9 @@ test('run: two runs walk to the final arena — a new run by the schedule (its a
       await page.reload();
       await expect(page.getByTestId('run')).toBeVisible();
     } else {
-      // A save without the schedule, the Jailer and the Troll (a save before tasks 26, 28 and 48; the full gift, as `?seed=` makes it).
-      await page.evaluate(([key, value]) => localStorage.setItem(key, value), [RT_RUN_STORAGE_KEY, serializeRtRun(createRtRun(seed, { gift: 'full', seeded: true, jailer: false, troll: false, garrison: false }))] as const);
+      // A save without the schedule, the Jailer and the Troll (a save before tasks 26, 28 and 48; the full gift, as `?seed=` makes it) — and
+      // before the forest's mechanics (task 57б, `forestTricks: false`; RT_FOREST_TRICKS_ON on since 22.10.2026).
+      await page.evaluate(([key, value]) => localStorage.setItem(key, value), [RT_RUN_STORAGE_KEY, serializeRtRun(createRtRun(seed, { gift: 'full', seeded: true, jailer: false, troll: false, garrison: false, forestTricks: false }))] as const);
       await page.reload();
       await expect(page.getByTestId('run')).toBeVisible();
     }

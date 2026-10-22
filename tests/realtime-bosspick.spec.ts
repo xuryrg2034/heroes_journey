@@ -273,8 +273,25 @@ test('«Зона по рисунку»: the warlock — in his window the chest 
   await cameraSettled(page);
   // His wardrobe into the wall by the mouse until it breaks (tests/warlockRoute.ts, shared).
   await breakCharm(page);
-  // The window of the next arrival: the core is frozen the moment it opens.
-  const open = await untilFrame(page, (s, _arg: null, late, rt) => s.warlock.state?.window?.open ? (rt.chill(s.warlock.state.id, 60), s.warlock.state) : late ? null : undefined, null, 12);
+  // The window of an arrival whose drawing the crowd leaves free: the core is frozen the moment it opens. The hall's crowd stands (speed 0)
+  // where it came; the candle of an arrival hangs on when the real mouse broke the charm — under load (22.10.2026, a 13-file run) he came to
+  // a candle with three bodies on his drawing, and no point of it was out of their press circles. Such a window is let pass: every arrival
+  // of phase 2 opens one (enemies/warlock.ts), the next candle is another. The free point is `aimBeyondRing`'s own search (the head's rows).
+  const open = await untilFrame(page, (s, _arg: null, late, rt) => {
+    const st = s.warlock.state;
+    if (st?.window?.open) {
+      const z = rt.bossArt(st.id), body = s.enemies.find((e: any) => e.id === st.id);
+      const others = s.enemies.filter((e: any) => e.id !== st.id).map((e: any) => ({ x: e.x, y: e.y, r: rt.pickRadius(e.id) }));
+      let free = false;
+      for (let v = 0.6; v < 1 && !free; v += 0.05) for (const u of [0, 0.25, -0.25, 0.5, -0.5]) {
+        const px = z.x + (u * z.a) * z.cos - (-v * z.b) * z.sin, py = z.y + (u * z.a) * z.sin + (-v * z.b) * z.cos;
+        const dx = px - z.x, dy = py - z.y, du = (dx * z.cos + dy * z.sin) / z.a, dv = (dy * z.cos - dx * z.sin) / z.b;
+        if (du * du + dv * dv <= 1 && Math.hypot(px - body.x, py - body.y) > z.ring + 0.05 && !others.some((e: any) => Math.hypot(e.x - px, e.y - py) <= e.r + 0.05)) { free = true; break; }
+      }
+      if (free) { rt.chill(st.id, 60); return st; }
+    }
+    return late ? null : undefined;
+  }, null, 40);
   expect(open, 'the window opened').not.toBeNull();
   const id = (open as { id: number }).id, c = (await snap(page)).enemies.find(e => e.id === id)!;
   await page.evaluate(([x, y]) => (window as any).__realtime.teleport(x + 0.3, y + 1.6), [c.x, c.y] as const);

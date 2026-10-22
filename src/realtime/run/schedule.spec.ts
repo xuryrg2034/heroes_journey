@@ -19,7 +19,7 @@ import {
   arenaSeed, createRtRun, parseRtRun, resolveArena, RT_FIRST_ELITE_KINDS, rtArenaLoadout, rtArenaParams, rtAvailableNodes, rtEnterNode, rtFightArc, rtNode, rtRunParams, rtScheduleMet,
   serializeRtRun, type RtArenaOutcome, type RtRunState,
 } from './rtRun';
-import { affixElement, allowedAffixes, BUST_ARC, SCHEDULE_ELEMENTS, SCHEDULE_HARD_FLOOR, SCHEDULE_KINDS, SCHEDULE_SHOOTER_KINDS, scheduleKindCap, scheduleSeedHistory } from './schedule';
+import { affixElement, allowedAffixes, BUST_ARC, SCHEDULE_ELEMENTS, SCHEDULE_HARD_FLOOR, SCHEDULE_KINDS, SCHEDULE_SHOOTER_KINDS, SCHEDULE_TRICK_KINDS, scheduleKindCap, scheduleSeedHistory } from './schedule';
 import { cardRules } from '../view/nodeCard';
 import { arenaPreview, isArenaNode } from './rtRun';
 import { assert, closeNode, ok, same, seedOf, takeGift } from './runFight.testkit';
@@ -29,7 +29,8 @@ let checks = 0;
 function check(name: string, run: () => void): void { run(); checks++; console.log(`ok - ${name}`); }
 const TICKS = (s: number): number => Math.round(s * 60);
 /** Every living element but the affix types: a viewer who has met the whole forest (task 57а, on 22.10.2026: its new shooters too). */
-const VETERAN = [...SCHEDULE_ELEMENTS, ...SCHEDULE_SHOOTER_KINDS, ...AFFIX_IDS.map(affixElement)];
+// Task 57б (RT_FOREST_TRICKS_ON on since 22.10.2026): a veteran met the forest's mechanics too.
+const VETERAN = [...SCHEDULE_ELEMENTS, ...SCHEDULE_SHOOTER_KINDS, ...SCHEDULE_TRICK_KINDS, ...AFFIX_IDS.map(affixElement)];
 
 /** Newcomers come, nothing hurts the hero (what stands on the arena is counted, not fought). */
 function harmless(): Params {

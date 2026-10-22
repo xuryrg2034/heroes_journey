@@ -45,6 +45,13 @@ export const RT_KIND_TITLES: Readonly<Record<string, string>> = {
   rook: 'ладья', wardrobe: 'шкаф', barrel: 'бочка',
   // Task 57а «Лес: стрелки» (the user's name «Светляк», 17.10.2026; not «Огонёк»).
   slinger: 'пращник', hive: 'улей', wisp: 'светляк',
+  // Task 57б «Лес: механики» (lower case, the decision of task 40; their touches are in `RT_DEATH_TOUCH`).
+  rootling: 'корневик', slime: 'слизень', firebrand: 'головешка',
+  // Design 22.10.2026 (the guard of runEnd.spec: every body whose touch hurts has a line): task 54's Chief and his parts (task-54,
+  // the goal table: «Половник», «Мешок»; the pattern of «дубина Тролля»), task 55's Warlock (a capital: a unique boss).
+  chief: 'Главарь', 'chief-ladle': 'половник Главаря', 'chief-sack': 'мешок Главаря', warlock: 'Колдун',
+  // Task 57б-2 «Сороконожка» (its head and parts are one kind).
+  centipede: 'сороконожка',
   // Task 55 §23 «Колдун v1»: his orb, a living shot (its touch is its own source `warlock-orb`).
   'warlock-orb': 'шар Колдуна',
 };
@@ -73,10 +80,17 @@ export const RT_DEATH_ABILITY: Readonly<Record<string, string>> = {
   pot: 'горшок смолокура',
   // Task 48: the Troll's moves (their touches — the kinds above).
   'troll-club': 'удар дубиной Тролля', 'troll-rock': 'бросок камня Тролля', 'troll-tail': 'удар хвостом Тролля',
+  // Task 48, section 25: «Рывок» (the walking Troll, `Params.trollMove`).
+  'troll-charge': 'рывок Тролля',
   // Task 55а: «Падение шкафа», «Удар ладьи».
   'wardrobe-topple': 'падение шкафа', 'rook-strike': 'удар ладьи',
   // Task 57а (spec 5): the slinger's stone («камень пращника», not «камень» — the Troll's), the hive's wasp, the wisp's own touch.
   stone: 'камень пращника', wasp: 'оса улья', wisp: 'светляк',
+  // 22.10.2026 (design asked for the report's names; the same hits had no killer line): task 54's Chief's moves (the pattern of
+  // «удар дубиной Тролля») and task 56's omen «Гроза» (its strike in the mark hurts the hero too).
+  'chief-ladle': 'взмах половником Главаря', 'chief-pepper': 'горсть перца Главаря', storm: 'удар грозы',
+  // Task 57б-2 (spec 6.3, «кто убил»): the centipede's «Рывок» (its touch — «сороконожка»).
+  'centipede-lunge': 'рывок сороконожки',
   // Task 55 §23 «Колдун v1»: his orb's touch and «Вспышка посоха».
   'warlock-orb': 'шар Колдуна', 'warlock-flash': 'вспышка посоха Колдуна',
 };
@@ -85,7 +99,7 @@ export const RT_DEATH_ABILITY: Readonly<Record<string, string>> = {
  * 16.10.2026, spec section 10): the garrison's touches too — the guard, the dog handler, the hound (on its leash or in its frenzy: the
  * same body, «пёс»), the keymaster, the Castellan.
  */
-export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper', 'guard', 'handler', 'hound', 'keymaster', 'castellan', 'crossbow', 'knight', 'rook', 'slinger', 'recruit', 'warden', 'pitcher'];
+export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper', 'guard', 'handler', 'hound', 'keymaster', 'castellan', 'crossbow', 'knight', 'rook', 'slinger', 'recruit', 'warden', 'pitcher', 'rootling', 'slime', 'firebrand', 'warlock', 'castellan-crossbow', 'centipede'];
 
 /** Drafts sent to design 12.10.2026 (pending approval). */
 export const RT_RUN_END_TEXT = {

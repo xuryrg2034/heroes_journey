@@ -21,9 +21,10 @@
  * node's own roll (`pickRoster`), not by a stream: the arenas are chosen as before.
  */
 import { APIARY_ARENA, SCREE_ARENA } from '../sim/arenasShooters';
+import { BOG_ARENA, WINDFALL_ARENA } from '../sim/arenasTricks';
 import { FOREST_TRUNK_LAST_ROW } from '../forest/forestMap';
 import { arenaTemplate } from '../sim/arenas';
-import { poolRosterChoices, rosterChoices } from '../sim/rosters';
+import { poolRosterChoices, rosterChoices, rosterDef, rosterKinds } from '../sim/rosters';
 // The behaviour arenas register themselves (the pools name them without going through the simulation).
 import '../sim/arenasStage3';
 
@@ -81,9 +82,9 @@ const GENTLE_POOLS = gentlePools(ARENA_POOLS), GENTLE_POOLS_BEFORE_MIX = gentleP
  * The pools a run plays: with the roster mix (`mix`) — `ARENA_POOLS`, without it (a save before 11.10.2026) —
  * `ARENA_POOLS_BEFORE_MIX`; with the gentle entry (`gentle`, task 17) «Колючие заросли» on rows 7–8 in either.
  */
-export const runArenaPools = (mix: boolean, gentle = false, shooters = false): readonly ArenaPoolEntry[] => {
+export const runArenaPools = (mix: boolean, gentle = false, shooters = false, tricks = false): readonly ArenaPoolEntry[] => {
   const pools = gentle ? (mix ? GENTLE_POOLS : GENTLE_POOLS_BEFORE_MIX) : mix ? ARENA_POOLS : ARENA_POOLS_BEFORE_MIX;
-  return shooters ? [...pools, ...SHOOTER_POOLS] : pools;
+  return shooters ? (tricks ? [...pools, ...SHOOTER_POOLS, ...TRICK_POOLS] : [...pools, ...SHOOTER_POOLS]) : pools;
 };
 /**
  * Баланс, task 57а «Лес: стрелки» (level design 20.10.2026, spec 10.3; a run with the flag `forestShooters`): «Осыпь» on run rows 3–7
@@ -91,6 +92,14 @@ export const runArenaPools = (mix: boolean, gentle = false, shooters = false): r
  * шамана»; the schedule's hive arc ends on row 6) — at the end of the list, so the order of the earlier candidates stays.
  */
 export const SHOOTER_POOLS: readonly ArenaPoolEntry[] = [{ arena: SCREE_ARENA.id, rows: [3, 7] }, { arena: APIARY_ARENA.id, rows: [4, 7] }];
+/**
+ * Баланс, task 57б «Лес: механики» (level design 22.10.2026, spec 10.3; a run with the flag `forestTricks`, only with `forestShooters`):
+ * «Трясина» on run rows 3–7 (the slime's own arena; the spec's hypothesis) and «Бурелом» 5–7 (the centipede's, step 57б-2; the spec's
+ * 5–9 gave row 8 to rule 2 — «Логово», «Брод», «Круг шамана» gone from it, as «Пасека» 4–8 did, design 22.10.2026) — at the end of the
+ * list, after the shooters', so the order of the earlier candidates stays. The rootling and the firebrand have no arena of their
+ * own in the pools: they come by the profile's rule «а» (`POOL_PROFILE_KINDS`) as roles.
+ */
+export const TRICK_POOLS: readonly ArenaPoolEntry[] = [{ arena: BOG_ARENA.id, rows: [3, 7] }, { arena: WINDFALL_ARENA.id, rows: [5, 7] }];
 /** Arena 9 «Застава»: every hard battle (section 5, «трудные узлы»). */
 export const HARD_ARENA = 'outpost';
 /** Arena 10 «Последний рубеж»: the final of the run — every boss node (section 3: the boss nodes lead to the final arena). */
@@ -110,12 +119,16 @@ export const ARENA_TITLES: Readonly<Record<string, string>> = {
   troll: 'Берлога тролля',
   // Task 57а «Лес: стрелки»: the new shooters' own arenas (sim/arenasShooters.ts).
   'f-scree': 'Осыпь', 'f-apiary': 'Пасека',
+  // Task 57б «Лес: механики»: the slime's and the centipede's own arenas (sim/arenasTricks.ts).
+  'f-bog': 'Трясина', 'f-windfall': 'Бурелом',
 };
 export const arenaTitle = (arena: string): string => ARENA_TITLES[arena] ?? arena;
 /** Every arena a run may play (a save naming another one is malformed). */
 export const RUN_ARENAS: readonly string[] = [...ARENA_POOLS.map(entry => entry.arena), HARD_ARENA, FINAL_ARENA];
 /** Task 57а: the arenas a run with the flag `forestShooters` may play besides `RUN_ARENAS` (its saves name them). */
 export const SHOOTER_RUN_ARENAS: readonly string[] = SHOOTER_POOLS.map(entry => entry.arena);
+/** Task 57б: the arenas a run with the flag `forestTricks` may play besides those (its saves name them). */
+export const TRICK_RUN_ARENAS: readonly string[] = TRICK_POOLS.map(entry => entry.arena);
 
 /** Row of the run of a map row: the real-time run starts past the trunk, at map row 5 (run row 1). */
 export const runRow = (mapRow: number): number => mapRow - FOREST_TRUNK_LAST_ROW;
@@ -131,9 +144,13 @@ export const OWN_ARENAS: Readonly<Record<string, string>> = { shield: 'shields',
 /** Task 57а: the new shooters of the pools (a run with `forestShooters`) and their own arenas («Осыпь», «Пасека»). The wisp has none in the pools. */
 export const SHOOTER_NEW_KINDS: readonly string[] = ['slinger', 'hive'];
 export const SHOOTER_OWN_ARENAS: Readonly<Record<string, string>> = { slinger: 'f-scree', hive: 'f-apiary' };
-/** The new kinds of the pools' rule (`shooters` — the flag `forestShooters`). */
-export const poolNewKinds = (shooters = false): readonly string[] => (shooters ? [...NEW_KINDS, ...SHOOTER_NEW_KINDS] : NEW_KINDS);
-const ownArena = (kind: string): string => OWN_ARENAS[kind] ?? SHOOTER_OWN_ARENAS[kind];
+/** Task 57б: the slime and the centipede of the pools (a run with `forestTricks`) and their own arenas «Трясина», «Бурелом». The rootling and the firebrand have none in the pools. */
+export const TRICK_NEW_KINDS: readonly string[] = ['slime', 'centipede'];
+export const TRICK_OWN_ARENAS: Readonly<Record<string, string>> = { slime: 'f-bog', centipede: 'f-windfall' };
+/** The new kinds of the pools' rule (`shooters` — the flag `forestShooters`, `tricks` — `forestTricks`, only with it). */
+export const poolNewKinds = (shooters = false, tricks = false): readonly string[] =>
+  (shooters ? (tricks ? [...NEW_KINDS, ...SHOOTER_NEW_KINDS, ...TRICK_NEW_KINDS] : [...NEW_KINDS, ...SHOOTER_NEW_KINDS]) : NEW_KINDS);
+const ownArena = (kind: string): string => OWN_ARENAS[kind] ?? SHOOTER_OWN_ARENAS[kind] ?? TRICK_OWN_ARENAS[kind];
 /** The new kinds an arena brings: its newcomers and the enemies standing on it from the start (`kinds` — those the rule knows). */
 export function arenaNewKinds(arena: string, kinds: readonly string[] = NEW_KINDS): string[] {
   const t = arenaTemplate(arena), here = new Set([...(t.newcomers ?? []).map(entry => entry.kind), ...t.enemies.map(entry => entry.kind ?? 'basic')]);
@@ -170,6 +187,7 @@ export function ordinaryArenaChoices(row: number, history: readonly string[], po
   // Design 22.10.2026 (task 57а, before `RT_FOREST_SHOOTERS_ON`): the overdue rule is the four kinds' of the slice (`NEW_KINDS`) only —
   // the slinger and the hive keep rule 2 on their pool rows but are not forced past them (as the lynx and the shaman): with six kinds
   // rule 1 moved the teaching to rows 8–9 of every ash 2+ run («Пасека» and «Осыпь» 58 % of row 9, «Брод» and «Логово» gone).
+  // Task 57б (level design 22.10.2026): the slime («Трясина» 3–7) likewise — rule 2, no overdue rule.
   const overdue = kinds.filter(kind => (NEW_KINDS as readonly string[]).includes(kind) && !met.has(kind) && row > lastRow(ownArena(kind), pools)).map(ownArena);
   if (overdue.length) return overdue;
   const own = new Set<string>();
@@ -217,12 +235,27 @@ export function pickArena(candidates: readonly string[], history: readonly strin
  * shaman once the run entered their own arena (design answer 3, 09.10.2026). A roster never brings an unmet kind, so a
  * roster does not change what the run has met: the choice of arenas stays as before.
  */
-export function rosterMet(history: readonly string[], shooters = false): Set<string> {
-  const met: Set<string> = metKinds(history, poolNewKinds(shooters));
+export function rosterMet(history: readonly string[], shooters = false, tricks = false, seen: readonly string[] = []): Set<string> {
+  const met: Set<string> = metKinds(history, poolNewKinds(shooters, tricks));
+  // Task 57б (design 22.10.2026, rule «а»): the kinds with no own pool arena that the profile met (the run's snapshot `poolSeen`).
+  for (const kind of seen) met.add(kind);
   if (history.includes('lynx-den')) met.add('lynx');
   if (history.includes('shaman-circle')) met.add('shaman');
   return met;
 }
+
+/**
+ * Task 57б (design 22.10.2026, rule «а», a narrow exception — every other kind keeps `metKinds`): in a run with `forestTricks` the pools
+ * count these kinds as met when the profile's history has them — they have no own pool arena, so a veteran would never meet them again
+ * there. The run snapshots them at its creation (`RtRunState.poolSeen`); they come as roles in known fights, never by the lesson rosters
+ * (`LESSON_ROSTERS`), the firebrand only where braziers stand.
+ */
+export const POOL_PROFILE_KINDS: readonly string[] = ['firebrand', 'rootling', 'wisp'];
+/** The schedule's lesson rosters (`wisps`, `rootlings`, `firebrands`): never a pools' roster. */
+export const LESSON_ROSTERS: readonly string[] = ['wisps', 'rootlings', 'firebrands'];
+/** A roster or role the pools may give `arena`: not a lesson roster; one with the firebrand only on an arena with braziers. */
+const poolAdmits = (arena: string) => (id: string): boolean =>
+  !LESSON_ROSTERS.includes(id) && (!rosterKinds(rosterDef(id)!).includes('firebrand') || !!arenaTemplate(arena).braziers?.length);
 
 /** Salt of the roster roll: «rt-roster» (FNV-1a) mixed into the node's arena seed — not a stream of the run. */
 export const ROSTER_SALT = [...'rt-roster'].reduce((hash, ch) => Math.imul(hash ^ ch.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5);
@@ -245,15 +278,16 @@ export const MIXED_ROSTER_ARENAS: Readonly<Record<string, readonly string[]>> = 
  * run is spent: the arenas are chosen as before. `mix` — the run's roster mix (`MIXED_ROSTER_ARENAS`); without it «Застава»
  * and «Брод» keep their own composition, as before 11.10.2026.
  */
-export function pickRoster(arena: string, row: number, history: readonly string[], rosters: readonly string[], roll: number, mix = false, shooters = false): string | undefined {
+export function pickRoster(arena: string, row: number, history: readonly string[], rosters: readonly string[], roll: number, mix = false, shooters = false, tricks = false, seen: readonly string[] = []): string | undefined {
   const excluded = mix ? MIXED_ROSTER_ARENAS[arena] : undefined;
   if (excluded) {
     // The roster mix: the top bit of the roll keeps the own composition, else the window over the admissible pool rosters
     // (its low bits choose, as for any roster).
     if ((roll >>> 31) === 0) return undefined;
-    return pickWithWindow(poolRosterChoices(rosterMet(history, shooters)).filter(id => !excluded.includes(id)), rosters, roll) ?? undefined;
+    return pickWithWindow(poolRosterChoices(rosterMet(history, shooters, tricks, seen)).filter(id => !excluded.includes(id) && poolAdmits(arena)(id)), rosters, roll) ?? undefined;
   }
-  const choices = rosterChoices(arena, row, rosterMet(history, shooters));
+  // Task 57б: the filter changes nothing without `seen` (a lesson roster or a firebrand needs a kind no pool run met before it).
+  const choices = rosterChoices(arena, row, rosterMet(history, shooters, tricks, seen))?.filter(poolAdmits(arena));
   if (!choices) return undefined;
   const roster = pickWithWindow(choices, rosters, roll);
   if (!roster) throw new Error(`no roster for «${arena}»`);

@@ -27,6 +27,7 @@ import { BEHAVIOR_ARENAS } from '../sim/arenasStage3';
 import { CAMERA_ARENAS } from '../sim/arenasCamera';
 import { BOSS_ARENAS, FOREST_BOSS_ARENAS, JAILER_RUN_ARENAS } from '../sim/arenasBoss';
 import { SHOOTERS_ARENAS } from '../sim/arenasShooters';
+import { TRICKS_ARENAS } from '../sim/arenasTricks';
 // Task 59а: the probes of the garrison's step 3 at the very end of the sandbox menu.
 import { STEP3_ARENAS, STEP3_RUN_ARENAS } from '../sim/arenasStep3';
 import { heroPitchFactor } from '../sim/pitch';
@@ -47,6 +48,7 @@ import { isRtDailyDate, rtArenaParams, rtPageParams } from '../run/rtRun';
 import { replay, Simulation, type Journal } from '../sim/simulation';
 import { crowdFactor, focusGuarded, goalLamps, goalProgress, heroInCrowd, type EnemyKind, type HeroStart, type World, type WorldEvent } from '../sim/world';
 import { liveShots } from '../sim/shots';
+import { stumpState } from '../sim/enemies/rootling';
 import { castCircle, enemyRefusal, linkPoint, pickRadius } from '../sim/chain';
 import { bossArtEllipse } from '../sim/bossArt';
 import { ChainAudio } from './audio';
@@ -123,9 +125,10 @@ const NOTE_FLASH_MS = 1000;
  * «Берлога тролля» (task 48, no key, `?arena=30`), «Стан Главаря» (`?arena=31`), the castle's four (task 55, `?arena=32…35`), «Стрелки
  * леса (проба)», «Осыпь», «Пасека» (task 57а, `?arena=36…38`); at the end the probes of the garrison's step 3 (task 59а, no key): «Смолокур (проба)» `?arena=39`,
  * «Новобранцы (проба)» `?arena=40`, «Привратники (проба)» `?arena=41`; after them the full arenas of step 3 (task 59б, no key): «Смолокурня» `?arena=42`, «Казарма»
- * `?arena=43`, «Барбакан» `?arena=44` (counted 21.10.2026). `?arena=N` opens one at once.
+ * `?arena=43`, «Барбакан» `?arena=44` (counted 21.10.2026); at the very end the forest's mechanics (task 57б, no key): «Механики леса (проба)»
+ * `?arena=45`, «Трясина» `?arena=46`, «Бурелом» `?arena=47`. `?arena=N` opens one at once.
  */
-const SANDBOX_ARENAS: readonly ArenaTemplate[] = [...ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS, ...BEHAVIOR_ARENAS, ...CAMERA_ARENAS, ...BOSS_ARENAS, ...GARRISON_ARENAS, ...FOREST_BOSS_ARENAS, ...CASTLE_ARENAS, ...SHOOTERS_ARENAS, ...STEP3_ARENAS, ...STEP3_RUN_ARENAS];
+const SANDBOX_ARENAS: readonly ArenaTemplate[] = [...ARENAS, ...SLICE_ARENAS, ...TERRAIN_ARENAS, ...BEHAVIOR_ARENAS, ...CAMERA_ARENAS, ...BOSS_ARENAS, ...GARRISON_ARENAS, ...FOREST_BOSS_ARENAS, ...CASTLE_ARENAS, ...SHOOTERS_ARENAS, ...STEP3_ARENAS, ...STEP3_RUN_ARENAS, ...TRICKS_ARENAS];
 /** Arenas on the plain digit keys (1–9, 0); the rest are on Shift + digit (stage 3a). */
 const DIGIT_ARENAS = ARENAS.length + SLICE_ARENAS.length;
 /** What an arena forces over the panel's phase table (stage 2): «стай волков и кабанов нет (доли 0)» and the like. */
@@ -337,7 +340,7 @@ async function boot(): Promise<void> {
   menuCard.append(...menuRunButton ? [menuRunButton] : [], el('h2', '', 'Выбери арену'));
   const arenaList = el('div', 'rt-arenas');
   // The camera sample's button has its own test id: the menu counts of the older tests (`arena-*`) stay as they were.
-  const camera0 = DIGIT_ARENAS + TERRAIN_ARENAS.length + BEHAVIOR_ARENAS.length, boss0 = camera0 + CAMERA_ARENAS.length, garrison0 = boss0 + BOSS_ARENAS.length, forest0 = garrison0 + GARRISON_ARENAS.length, castle0 = forest0 + FOREST_BOSS_ARENAS.length, shooters0 = castle0 + CASTLE_ARENAS.length, step30 = shooters0 + SHOOTERS_ARENAS.length, step3run0 = step30 + STEP3_ARENAS.length;
+  const camera0 = DIGIT_ARENAS + TERRAIN_ARENAS.length + BEHAVIOR_ARENAS.length, boss0 = camera0 + CAMERA_ARENAS.length, garrison0 = boss0 + BOSS_ARENAS.length, forest0 = garrison0 + GARRISON_ARENAS.length, castle0 = forest0 + FOREST_BOSS_ARENAS.length, shooters0 = castle0 + CASTLE_ARENAS.length, step30 = shooters0 + SHOOTERS_ARENAS.length, step3run0 = step30 + STEP3_ARENAS.length, tricks0 = step3run0 + STEP3_RUN_ARENAS.length;
   // The menu shows before the art has loaded (`loadCharacterArt`): a pick made meanwhile is kept and played once the game is ready
   // (before, the click reached `start` before it existed and was lost — more art, task 43, made the wait longer).
   let earlyPick: number | null = null;
@@ -364,7 +367,10 @@ async function boot(): Promise<void> {
     if (i === step30) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Гарнизон, шаг 3 — пробы: смолокур, новобранцы, привратники (только песочница)'));
     // Task 59б: the full arenas of step 3 after the probes, test id `step3-run-arena-N`.
     if (i === step3run0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Гарнизон, шаг 3 — арены'));
-    const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span data-summary="${i}">${markedGoalArena(arena, params.markedGoals).summary}</span>`, i >= step3run0 ? `step3-run-arena-${i - step3run0 + 1}` : i >= step30 ? `step3-arena-${i - step30 + 1}` : i >= shooters0 ? `shooters-arena-${i - shooters0 + 1}` : i >= castle0 ? `castle-arena-${i - castle0 + 1}` : i >= forest0 ? `boss-arena-${BOSS_ARENAS.length + i - forest0 + 1}` : i >= garrison0 ? `garrison-arena-${i - garrison0 + 1}` : i >= boss0 ? `boss-arena-${i - boss0 + 1}` : i >= camera0 ? `camera-arena-${i - camera0 + 1}` : `arena-${i + 1}`);
+    // Task 57б: the forest's mechanics at the very end (the numbers before stay), test id `tricks-arena-N`. No «только песочница»: with
+    // `RT_FOREST_TRICKS_ON` (on since 22.10.2026) «Трясина» and «Бурелом» are run arenas; the probe says «(проба)» in its own name.
+    if (i === tricks0) arenaList.appendChild(el('h3', 'rt-arenas-head', 'Лес: механики — корневик, слизень, головешка, сороконожка'));
+    const b = button('rt-arena', `<kbd>${arenaKey(i)}</kbd><b>${arena.name}</b><span data-summary="${i}">${markedGoalArena(arena, params.markedGoals).summary}</span>`, i >= tricks0 ? `tricks-arena-${i - tricks0 + 1}` : i >= step3run0 ? `step3-run-arena-${i - step3run0 + 1}` : i >= step30 ? `step3-arena-${i - step30 + 1}` : i >= shooters0 ? `shooters-arena-${i - shooters0 + 1}` : i >= castle0 ? `castle-arena-${i - castle0 + 1}` : i >= forest0 ? `boss-arena-${BOSS_ARENAS.length + i - forest0 + 1}` : i >= garrison0 ? `garrison-arena-${i - garrison0 + 1}` : i >= boss0 ? `boss-arena-${i - boss0 + 1}` : i >= camera0 ? `camera-arena-${i - camera0 + 1}` : `arena-${i + 1}`);
     b.addEventListener('click', () => pick(i));
     arenaList.appendChild(b);
   });
@@ -1922,6 +1928,8 @@ async function boot(): Promise<void> {
         objects: w.objects.map(o => ({ ...o })),
         /** Task 57а: the live shots of the forest shooters (sim `liveShots`: empty after the fight). */
         shots: liveShots(w).map(x => ({ ...x })),
+        // Task 57б: the stumps lying (the sim's view helper: place, group, colour, countdown, why it waits).
+        stumps: stumpState(w),
         chain: w.chain.map(l => l.id),
         chainLinks: w.chain.map(l => ({ ...l })),
         moving: w.move?.kind ?? null,
@@ -2049,6 +2057,7 @@ async function boot(): Promise<void> {
         court: { ...renderer.courtShown },
         /** Task 57а: the forest shooters — the slinger's lines, the hive's dots, the shots and the wisps' light drawn in the frame; the sparks shown (shooterView.ts). */
         shooters: { ...renderer.shooters.shown },
+        forest: { ...renderer.forestMech.shown },
         /** Task 43: the knight — plate pips, «Рывок» lanes and «Размах» circles drawn in the frame; the sheds and swing hits seen. */
         knight: { ...renderer.knightShown },
         /**
@@ -2197,8 +2206,8 @@ async function boot(): Promise<void> {
     setParam: (key: ParamKey, value: unknown) => command({ t: 'param', key, value }),
     /** Test setup: remove every enemy (except the marked ones with `keepMarked`), marker and queued newcomer. */
     clear: (keepMarked = false) => command({ t: 'clear', keepMarked }),
-    /** Test setup: put an enemy of `color` with `hp` (and `kind`) at an arena point; returns its id. */
-    place: (x: number, y: number, color: number, hp = 0, kind: EnemyKind = 'basic', elite: boolean | 'random' = false, affixes?: string[]) => command({ t: 'place', x, y, color, hp, kind, ...elite ? { elite } : {}, ...elite && affixes ? { affixes } : {} }),
+    /** Test setup: put an enemy of `color` with `hp` (and `kind`) at an arena point; returns its id. `formation` — task 57б: a rootlings' group. */
+    place: (x: number, y: number, color: number, hp = 0, kind: EnemyKind = 'basic', elite: boolean | 'random' = false, affixes?: string[], formation?: number) => command({ t: 'place', x, y, color, hp, kind, ...elite ? { elite } : {}, ...elite && affixes ? { affixes } : {}, ...formation !== undefined ? { formation } : {} }),
     /** Test setup: move the hero. */
     teleport: (x: number, y: number) => command({ t: 'teleport', x, y }),
     /** The press ring of an enemy (`pickRadius`: the sim's number; the tests aim the pointer by it), null — no such enemy. */

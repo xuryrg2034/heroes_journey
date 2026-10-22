@@ -68,7 +68,7 @@ import { cutTethers, dashPathPoints, dropShackleOf, planTetherCuts, settleTether
 // Task 43: the full Castellan's grate (the refusal) and its levers.
 import { behindGrate, gateLever, grateLinkDrop, jumpDownFree, onGallery } from './enemies/garrison';
 // Task 48: the Troll's window (the refusal, one hit per window, the drop from the drawn chain).
-import { TROLL, trollLinkDrop, trollReserve, trollShut, trollWards, trollWindowOn } from './enemies/troll';
+import { TROLL, trollLinkDrop, trollPartMoves, trollReserve, trollShut, trollWards, trollWindowOn } from './enemies/troll';
 // «Зона нажатия босса по рисунку»: the drawing's ellipse of a boss body (`Params.bossPickArt`).
 import { artPick } from './bossArt';
 import { WARLOCK, warlockCharmOn, warlockClosed, warlockLinkDrop, warlockReserve, warlockShut, warlockSpellbound, warlockWards } from './enemies/warlock';
@@ -77,6 +77,8 @@ import { snuffAlong, snuffing } from './shots';
 // Task 57б «Лес: механики»: the firebrand's survivor and the rootlings' stumps and crumble.
 import { brandOutcome, brandShadow } from './enemies/firebrand';
 import { ROOTLING, lieDown, planCrumble, settleStumps } from './enemies/rootling';
+// Task 57б-2: the centipedes' divisions after the pass.
+import { CENTIPEDE, planSplits, type CentipedeSplit } from './enemies/centipede';
 import { CHIEF, chiefFeastOn, chiefGuarded, chiefHitOutcome, chiefLinkDrop, chiefQueue, chiefQueueShort, chiefRelease, chiefShut, chiefWards } from './enemies/chief';
 import { NO_COLOR, OBJECT_RADIUS, checkGoals, damageEnemy, doorOf, doorOpen, pushOutOfSolids, enemyFrozen, findObject, nextFiring, startShieldWindow, touchDistanceOf, win, type ArenaObject, type ChainLink, type Enemy, type FallenLink, type HeroMove, type LoopKind, type World, type WorldEvent } from './world';
 // Task 56 «Приметы» (omens.ts): the marks of a link taken in water or of the colour on the roll call.
@@ -274,6 +276,13 @@ export interface ChainPlan {
    * absent — none.
    */
   crumble?: { group: number; stumps: number[]; links: number[] }[];
+  /**
+   * Task 57б-2 «Сороконожка» (enemies/centipede.ts `planSplits`): the bodies this pass breaks — per break the part that becomes a head
+   * (`newHead`, stunned), the head of the piece ahead (`front`; absent — the body's head dies: the piece behind gets a new one), the
+   * killed part at the break (`cut`) and its place («трещина»). A chain end to end kills the body — none. The drawn chain only; absent —
+   * none. (The name `cuts` is the tethers'.)
+   */
+  splits?: CentipedeSplit[];
   /**
    * Loop research, step 2: the drawn chain is closed — its ring and who is inside now (the release fixes the same set).
    * Absent while open.
@@ -600,14 +609,17 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   // after it crumble (the drawn chain only).
   const pairs = wardensOn(world) && world.enemies.some(e => wardenPartner(world, e));
   const roots = links === world.chain && options.back !== false && world.enemies.some(e => e.kind === ROOTLING);
-  const killed = pairs || roots ? passKills(world, out, pierce, seal, back, !!fire?.lit) : null;
+  // Task 57б-2: the centipedes' divisions after it (the drawn chain only).
+  const centi = links === world.chain && options.back !== false && world.enemies.some(e => e.kind === CENTIPEDE);
+  const killed = pairs || roots || centi ? passKills(world, out, pierce, seal, back, !!fire?.lit) : null;
   const anger = pairs ? planAnger(world, killed!) : [];
   const crumble = roots ? planCrumble(world, killed!) : [];
+  const splits = centi ? planSplits(world, killed!) : [];
   // Task 49: the law of Ведунья — the drawn open chain gives no after-chain shield (the dash: heroLaw.ts, `ChainEnd.endForm`).
   const noShield = links === world.chain && !seal && sealOnlyShield(world);
   // Task 62: Ведунья v2 — her circle and the figure the drawn chain would make if closed now.
   const cast = witch ? castCircle(world) : null, glyph = witch && links === world.chain ? glyphOf(world, links) : null;
-  return { ...cast ? { cast } : {}, ...glyph ? { glyph } : {}, ...grate ? { grate } : {}, ...trollDrop ? { trollDrop } : {}, ...chiefDrop ? { chiefDrop } : {}, ...warlockDrop ? { warlockDrop } : {}, links: out, endsOnSurvivor, endsOnObject, ...endsOnThing ? { endsOnThing: true as const } : {}, ...shove ? { shove } : {}, power, kills, ...anger.length ? { anger } : {}, ...crumble.length ? { crumble } : {}, ...seal ? { seal } : {}, ...noShield ? { noShield: true as const } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {}, ...cuts.length ? { cuts } : {}, ...fused?.blast ? { blast: fused.blast } : {}, ...fused?.wave ? { wave: fused.wave } : {}, ...honed && Object.keys(honed).length ? { honed } : {} };
+  return { ...cast ? { cast } : {}, ...glyph ? { glyph } : {}, ...grate ? { grate } : {}, ...trollDrop ? { trollDrop } : {}, ...chiefDrop ? { chiefDrop } : {}, ...warlockDrop ? { warlockDrop } : {}, links: out, endsOnSurvivor, endsOnObject, ...endsOnThing ? { endsOnThing: true as const } : {}, ...shove ? { shove } : {}, power, kills, ...anger.length ? { anger } : {}, ...crumble.length ? { crumble } : {}, ...splits.length ? { splits } : {}, ...seal ? { seal } : {}, ...noShield ? { noShield: true as const } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {}, ...cuts.length ? { cuts } : {}, ...fused?.blast ? { blast: fused.blast } : {}, ...fused?.wave ? { wave: fused.wave } : {}, ...honed && Object.keys(honed).length ? { honed } : {} };
 }
 
 /**
@@ -1595,6 +1607,32 @@ function reachRefusal(world: World, target: Vec, edge: number): Refusal | null {
     if (refusal === 'sight') near = true;
   }
   return near ? 'sight' : 'far';
+}
+
+/**
+ * Task 48, section 25 (design 22.10.2026, §25.8: one reach rule): a part of the walking Troll in the drawn chain that the chain before it
+ * no longer reaches — the drawing's rule (`reachRefusal` with the chain up to it: the previous link, the hero with «Якорь у героя», every
+ * older link with «Развилка»), or the older link it was taken from (`fork`) — leaves the chain with the links after it (event
+ * `trollLinkFar`, the refusal). Run by the simulation's tick after the world's step: the highlight of that frame is the rest's. Nothing
+ * while a move runs, nor without `Params.trollMove`.
+ */
+export function dropFarTrollParts(world: World): void {
+  if (!world.chain.length || world.move || world.status !== 'playing') return;
+  for (let i = 0; i < world.chain.length; i++) {
+    const link = world.chain[i], enemy = link.kind === 'enemy' ? findEnemy(world, link.id) : undefined;
+    if (!enemy || !trollPartMoves(world, enemy)) continue;
+    const edge = enemyArtRadius(world.params, enemy);
+    // The chain as it was when the link was taken (no dwell of «Развилка» going on: its anchor is the link's own `fork`).
+    const before: World = { ...world, chain: world.chain.slice(0, i), forkAnchor: undefined };
+    const refusal = reachRefusal(before, enemy, edge);
+    const fork = link.fork ? linkPoint(world, link.fork as ChainLink) : null;
+    if (!refusal || (fork && !anchorRefusal(world, fork, enemy, reachOf(world, edge)))) continue;
+    const dropped = world.chain.slice(i).map(l => l.id);
+    world.chain = world.chain.slice(0, i);
+    delete world.chainClosed;
+    world.events.push({ type: 'trollLinkFar', id: enemy.id, x: enemy.x, y: enemy.y, dropped, refusal });
+    return;
+  }
 }
 
 /** One anchor's say on `target` at `reach`: null — within reach and in sight; `far`; `sight`. */

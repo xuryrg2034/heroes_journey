@@ -139,6 +139,11 @@ test('«Ядро в окне — первым»: the Troll — in the window a p
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime)).toBe(true);
   await expect.poll(async () => (await snap(page)).arena).toBe('troll');
   await expect.poll(() => page.evaluate(() => (window as any).__realtime.camera().intro)).toBe(0);
+  // Task 48 §25: this route is the sitting Troll's (the club's blow at his spot, presses at the core where it sat) — the values without
+  // `trollMove` (as a journal before it; the arena turns the walk on only when the key is off), a new fight with them.
+  await page.evaluate(() => { const rt = (window as any).__realtime; delete rt.params.trollMove; rt.restart(); });
+  await expect.poll(async () => (await snap(page)).status).toBe('playing');
+  await expect.poll(() => page.evaluate(() => (window as any).__realtime.camera().intro)).toBe(0);
   await page.evaluate(() => {
     const rt = (window as any).__realtime;
     for (const [k, v] of [['enemySpeed', 0], ['speedSpread', 0], ['baseIntervalMin', 1000], ['baseIntervalMax', 1000], ['baseFloor', 0], ['contactDamage', 0]] as const) rt.setParam(k, v);

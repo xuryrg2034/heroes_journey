@@ -14,7 +14,7 @@ import { runRow } from './arenaPools';
 import { rtForestCleared, rtLevel, rtNode, type RtHearthFlags, type RtRunState } from './rtRun';
 import { rtGarrisonNodeId } from './garrison';
 import { TROLL_RUN_ARENAS } from '../sim/arenasBoss';
-import { SCHEDULE_KINDS, SCHEDULE_SHOOTER_KINDS } from './schedule';
+import { SCHEDULE_KINDS, SCHEDULE_SHOOTER_KINDS, SCHEDULE_TRICK_KINDS } from './schedule';
 import {
   HEARTH_GATE_SALT, HEARTH_HERB_SALT, HEARTH_MAPS_SALT, HEARTH_QUEST_SALT, isRtHearthNpc, isRtHeroId, isRtQuest, RT_HEARTH_GATED_LEVEL, RT_HEARTH_LOCKED, RT_HEARTH_MAX_LEVEL, RT_HEARTH_NPCS, RT_HEARTH_NPCS_L3, RT_HEARTH_PRICES, RT_HERO_ID, RT_HERO_IDS, RT_QUEST_NPC,
   HEARTH_VOW_SALT, isRtHearthLeaver, RT_CHRONICLE_ON, RT_TROPHIES_ON, RT_HEARTH_AWAY_ON, RT_HEARTH_GAMBLER_ON, RT_HEARTH_MONK_ON, type RtHearthLeaver, RT_META_THRESHOLDS, RT_VOW_IDS, type RtVowId, RT_TOAD_ID, rtHeroPacks, rtLockedAfter, type RtHearthGuest, type RtHearthLevel, type RtHearthNpc, type RtHeroId, type RtMetaItem, type RtQuest, type RtQuestId, type RtQuestNpc,
@@ -519,8 +519,8 @@ export function rtHearthView(meta: RtMeta | undefined, seen: readonly string[] |
   return {
     stock: hearth.stock, levels: { gambler: 0, monk: 0, ...hearth.levels }, met: { herb: !!hearth.met.herb, smith: !!hearth.met.smith, gambler: !!hearth.met.gambler, monk: !!hearth.met.monk }, self: { ...hearth.self },
     gate3: rtHearthGate3(meta), done: { ...hearth.done }, ...hearth.away ? { away: hearth.away.npc } : {}, met2: { ...hearth.met2 },
-    // Task 57а: the new shooters too, when the viewer met them (a run with the flag `forestShooters`).
-    seen: [...SCHEDULE_KINDS, ...SCHEDULE_SHOOTER_KINDS].filter(kind => seen?.includes(kind)), ...hearth.quest ? { quest: rtQuestFor(hearth.quest, meta?.heroes[hero]?.record) } : {}, ...hearth.last ? { last: { ...hearth.last } } : {}, lines: { ...hearth.lines },
+    // Task 57а: the new shooters too, when the viewer met them (a run with the flag `forestShooters`); task 57б — the mechanics (`forestTricks`).
+    seen: [...SCHEDULE_KINDS, ...SCHEDULE_SHOOTER_KINDS, ...SCHEDULE_TRICK_KINDS].filter(kind => seen?.includes(kind)), ...hearth.quest ? { quest: rtQuestFor(hearth.quest, meta?.heroes[hero]?.record) } : {}, ...hearth.last ? { last: { ...hearth.last } } : {}, lines: { ...hearth.lines },
   };
 }
 /**
