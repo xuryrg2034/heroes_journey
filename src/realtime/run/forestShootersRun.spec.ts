@@ -108,9 +108,9 @@ function madeUp(run: RtRunState): RtArenaOutcome | null {
 }
 interface Planned { nodeId: string; row: number; arena: string; roster?: string; arc?: string; kinds: string[]; state: RtRunState }
 /** The forest fights of a walk with the flag (`schedule` — the viewer's history; absent — the pools of «Испытание II»). */
-function planned(k: number, schedule?: readonly string[], arcsAlternate = true): Planned[] {
+function planned(k: number, schedule?: readonly string[], arcsAlternate = true, forestShooters = true): Planned[] {
   const out: Planned[] = [];
-  walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', forestShooters: true, arcsAlternate, ...schedule ? { schedule } : { ash: 2 } }, fight: madeUp, each: state => {
+  walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', forestShooters, ...forestShooters ? { arcsAlternate } : {}, ...schedule ? { schedule } : { ash: 2 } }, fight: madeUp, each: state => {
     const p = state.pending;
     if (p?.kind !== 'battle' || out.some(f => f.nodeId === p.nodeId) || rtGarrisonNodeId(p.nodeId)) return;
     const gone = rtArenaLoadout(state).withoutKinds ?? [], arc = state.picks.find(pick => pick.nodeId === p.nodeId)?.arc;
@@ -190,20 +190,50 @@ check('the alternation of the arcs (design 21.10.2026, the run key `arcsAlternat
   assert(withKey > without, `with the key ${withKey}, without ${without}`);
 });
 
-check('the pools (30 runs of «Испытание II»): «Осыпь» only rows 3–7 (or the slinger overdue), «Пасека» rows 4–8 (or overdue); the slinger and the hive first on their own arenas; «+пращники» only after «Осыпь»', () => {
+check('the pools (30 runs of «Испытание II»): «Осыпь» only rows 3–7, «Пасека» rows 4–7 — never past, no overdue rule for them (design 22.10.2026); the slinger and the hive first on their own arenas; «+пращники» only after «Осыпь»', () => {
   let scree = 0, apiary = 0, partner = 0;
   for (const { k, fights } of POOLED) {
     const before: string[] = [];
     for (const f of fights) {
-      if (f.arena === 'f-scree') { scree++; assert(f.row >= 3, `run ${k}: «Осыпь» on row ${f.row}`); }
-      if (f.arena === 'f-apiary') { apiary++; assert(f.row >= 4, `run ${k}: «Пасека» on row ${f.row}`); }
+      if (f.arena === 'f-scree') { scree++; assert(f.row >= 3 && f.row <= 7, `run ${k}: «Осыпь» on row ${f.row}`); }
+      if (f.arena === 'f-apiary') { apiary++; assert(f.row >= 4 && f.row <= 7, `run ${k}: «Пасека» on row ${f.row}`); }
       if (f.kinds.includes(SLINGER) && !before.includes('f-scree')) assert(f.arena === 'f-scree', `run ${k}: the slinger first on ${f.arena}`);
       if (f.kinds.includes(HIVE) && !before.includes('f-apiary')) assert(f.arena === 'f-apiary', `run ${k}: the hive first on ${f.arena}`);
       if (f.roster === '+slinger') { partner++; assert(before.includes('f-scree'), `run ${k}: «+пращники» before «Осыпь»`); }
       before.push(f.arena);
     }
   }
-  assert(scree >= 20 && apiary >= 10 && partner >= 3, JSON.stringify({ scree, apiary, partner }));
+  // The walk's own coverage, not a rate: without the overdue rule (22.10.2026) the arenas come on their pool rows only (14 and 7 here).
+  assert(scree >= 10 && apiary >= 5 && partner >= 3, JSON.stringify({ scree, apiary, partner }));
+});
+
+/**
+ * Design 22.10.2026 (before `RT_FOREST_SHOOTERS_ON`): with the overdue rule and «Пасека» on rows 4–8 the pools of «Испытание II» gave
+ * row 9 to «Пасека» and «Осыпь» (58 %) and row 8 lost «Логово», «Брод» and «Круг шамана». The same 240 runs with and without the flag (each of the three — 3–6 fights on row 8):
+ * no shooters' arena past row 7; row 8 keeps those three; on rows 8–9 no arena takes above a quarter of the row and above the run
+ * without the flag by more than 8 p. p. (the design's 2 SE at 120 runs).
+ */
+check('the pools of «Испытание II» (240 runs, with the flag and without): rows 8–9 keep their variety — no arena of the shooters there, «Логово», «Брод» and «Круг шамана» on row 8, no arena above 25 % of a row and above the run without the flag by 8 p. p.', () => {
+  const share = (on: boolean): Map<number, Map<string, number>> => {
+    const rows = new Map<number, Map<string, number>>();
+    for (let k = 1; k <= 240; k++) for (const f of planned(k, undefined, true, on)) {
+      if (f.row < 8 || f.row > 9) continue;
+      const row = rows.get(f.row) ?? new Map<string, number>();
+      row.set(f.arena, (row.get(f.arena) ?? 0) + 1);
+      rows.set(f.row, row);
+    }
+    return rows;
+  };
+  const on = share(true), off = share(false);
+  for (const row of [8, 9]) {
+    const a = on.get(row)!, b = off.get(row)!, total = (m: Map<string, number>) => [...m.values()].reduce((x, y) => x + y, 0);
+    for (const arena of ['f-scree', 'f-apiary']) assert(!a.has(arena), `row ${row}: ${arena} ${a.get(arena)}`);
+    for (const [arena, n] of a) {
+      const p = n / total(a), base = (b.get(arena) ?? 0) / total(b);
+      assert(p <= 0.25 || p - base <= 0.08, `row ${row}: ${arena} ${Math.round(100 * p)} % (without the flag ${Math.round(100 * base)} %)`);
+    }
+  }
+  for (const arena of ['marked', 'ford', 'shaman-circle']) assert((on.get(8)!.get(arena) ?? 0) >= 1, `row 8 without ${arena}: ${JSON.stringify([...on.get(8)!])}`);
 });
 
 /** The greedy chain from the hero (journalled): the nearest enemy, then the nearest of its colour within reach; 1 — released. */

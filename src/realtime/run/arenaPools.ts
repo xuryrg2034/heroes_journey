@@ -87,9 +87,10 @@ export const runArenaPools = (mix: boolean, gentle = false, shooters = false): r
 };
 /**
  * Баланс, task 57а «Лес: стрелки» (level design 20.10.2026, spec 10.3; a run with the flag `forestShooters`): «Осыпь» on run rows 3–7
- * (the slinger's own arena), «Пасека» 4–8 (the hive's) — at the end of the list, so the order of the earlier candidates stays.
+ * (the slinger's own arena), «Пасека» 4–7 (the hive's; design 22.10.2026, was 4–8: its rule 2 took row 8 from «Логово», «Брод» and «Круг
+ * шамана»; the schedule's hive arc ends on row 6) — at the end of the list, so the order of the earlier candidates stays.
  */
-export const SHOOTER_POOLS: readonly ArenaPoolEntry[] = [{ arena: SCREE_ARENA.id, rows: [3, 7] }, { arena: APIARY_ARENA.id, rows: [4, 8] }];
+export const SHOOTER_POOLS: readonly ArenaPoolEntry[] = [{ arena: SCREE_ARENA.id, rows: [3, 7] }, { arena: APIARY_ARENA.id, rows: [4, 7] }];
 /** Arena 9 «Застава»: every hard battle (section 5, «трудные узлы»). */
 export const HARD_ARENA = 'outpost';
 /** Arena 10 «Последний рубеж»: the final of the run — every boss node (section 3: the boss nodes lead to the final arena). */
@@ -166,7 +167,10 @@ export function ordinaryArenaChoices(row: number, history: readonly string[], po
     const fitting = candidates.filter(arena => !unmet(arena).length);
     return fitting.length ? fitting : [...candidates];
   }
-  const overdue = kinds.filter(kind => !met.has(kind) && row > lastRow(ownArena(kind), pools)).map(ownArena);
+  // Design 22.10.2026 (task 57а, before `RT_FOREST_SHOOTERS_ON`): the overdue rule is the four kinds' of the slice (`NEW_KINDS`) only —
+  // the slinger and the hive keep rule 2 on their pool rows but are not forced past them (as the lynx and the shaman): with six kinds
+  // rule 1 moved the teaching to rows 8–9 of every ash 2+ run («Пасека» and «Осыпь» 58 % of row 9, «Брод» and «Логово» gone).
+  const overdue = kinds.filter(kind => (NEW_KINDS as readonly string[]).includes(kind) && !met.has(kind) && row > lastRow(ownArena(kind), pools)).map(ownArena);
   if (overdue.length) return overdue;
   const own = new Set<string>();
   for (const arena of candidates) for (const kind of unmet(arena)) own.add(ownArena(kind));
