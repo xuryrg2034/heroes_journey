@@ -129,7 +129,7 @@ function stepBrand(world: World, e: Enemy, dt: number): boolean {
     return true;
   }
   const r = bodyRadiusOf(world.params, e), reach = OBJECT_RADIUS + r + REACH_SLACK, d = dist(e, target);
-  if (d <= reach) { v.fp = 2; v.fs = BRAND_RELIGHT; return true; }
+  if (d <= reach + 1e-6) { v.fp = 2; v.fs = BRAND_RELIGHT; return true; }
   v.ft = (v.ft ?? 0) - dt;
   if (v.ft <= TIME_EPS) return giveUp(e);
   // Straight at the brazier; walls and trees push it aside (it slides along them).
