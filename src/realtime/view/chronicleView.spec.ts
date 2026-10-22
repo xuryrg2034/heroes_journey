@@ -124,8 +124,9 @@ check('the longest page fits the window: 36 cards, the rows go dense with five r
 check('a full chapter wears its seal; the counts of a chapter come from its entries', () => {
   const v = view('garrison');
   const forest = v.pages[0]!.chapters[0]!;
-  assert(chapterCount(forest)[0] === 8 && chapterCount(forest)[1] === 8, 'forest 8/8');
-  assert(html(v, 'bestiary').includes('data-testid="chron-full"') && html(v, 'bestiary').includes('Лес · <span data-testid="chron-chapter-count-forest">8 / 8</span>'), 'seal and count');
+  // Task 57а: the build's forest chapter — 11 kinds with the shooters' flag (on since 22.10.2026); the fixture met them all.
+  assert(chapterCount(forest)[0] === 11 && chapterCount(forest)[1] === 11, 'forest 11/11');
+  assert(html(v, 'bestiary').includes('data-testid="chron-full"') && html(v, 'bestiary').includes('Лес · <span data-testid="chron-chapter-count-forest">11 / 11</span>'), 'seal and count');
   assert(!html(view('novice'), 'bestiary').includes('chron-full'), 'no seal on the novice');
 });
 

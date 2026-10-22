@@ -22,7 +22,7 @@ import { enemyKind } from '../sim/enemies/kinds';
 import {
   ALWAYS_MET, ANCHOR_ARENAS, ANCHOR_ROLE_ROW, ANCHOR_ROLES, FIXED_ROSTER_ARENAS, KIND_ROLE, POOL_ROSTER_ARENAS, POOL_ROSTERS, rosterChoices, rosterDef, rosterKinds, rosterTitle, withRoster,
 } from '../sim/rosters';
-import { MIXED_ROSTER_ARENAS, rosterMet, RUN_ARENAS, runRow } from './arenaPools';
+import { MIXED_ROSTER_ARENAS, rosterMet, RUN_ARENAS, runRow, SHOOTER_RUN_ARENAS } from './arenaPools';
 import { RT_TASK17_OFF,
   arenaPreview, createRtRun, parseRtRun, resolveArena, rtArenaLoadout, rtAvailableNodes, rtChooseEventOption, rtChooseFind, rtItemRefusal, rtChooseGift, rtChooseGiftPick, rtChooseHammer, rtChooseTalisman, rtEnterNode,
   rtEventView, rtGiftView, rtNode, rtRestHeal, rtShopLeave, serializeRtRun, RT_RUN_FORCED, RT_RUN_VERSION, type RtRunState, type RtRunStep,
@@ -64,8 +64,8 @@ interface Played { row: number; type: string; arena: string; roster?: string; ru
  * on; off — a run before 11.10.2026, and so without the gentle entry of task 17).
  */
 function walk(seed: number, k: number, mix = true): Played[] {
-  // A run before the mix is also before the gentle entry (task 17, 13.10.2026) and the Jailer's fight (task 28): its pools are the old ones.
-  let run = createRtRun(seed, { gift: 'mini', garrison: false, rosterMix: mix, ...mix ? {} : { ...RT_TASK17_OFF, jailer: false, troll: false, forms: false } });
+  // A run before the mix is also before the gentle entry (task 17, 13.10.2026), the Jailer's fight (task 28) and the forest's shooters (task 57а): its pools are the old ones.
+  let run = createRtRun(seed, { gift: 'mini', garrison: false, rosterMix: mix, ...mix ? {} : { ...RT_TASK17_OFF, jailer: false, troll: false, forms: false, forestShooters: false } });
   const played: Played[] = [];
   for (let step = 0; step < 200 && !run.result; step++) {
     const pending = run.pending;
@@ -143,6 +143,8 @@ check(`${RUNS} runs: no roster brings a kind not seen on an earlier arena; «П�
       else if (entry.type === 'checkpoint' && entry.arena === 'jailer') assert(entry.roster === undefined, `the Jailer's fight row ${entry.row}: ${entry.roster}`);
       // Task 48: the Troll's fight (the den branch's final of a new run) has no roster, as the Jailer's.
       else if (entry.arena === 'troll') assert(entry.roster === undefined, `the Troll's fight row ${entry.row}: ${entry.roster}`);
+      // Task 57а (the flag on since 22.10.2026): «Осыпь» and «Пасека», the shooters' own arenas, keep their own composition.
+      else if (SHOOTER_RUN_ARENAS.includes(entry.arena)) assert(entry.roster === undefined, `${entry.arena} row ${entry.row}: ${entry.roster}`);
       else if (anchor) {
         const pure = !seen.has(anchor.kind) && entry.row < ANCHOR_ROLE_ROW;
         assert((entry.roster === undefined) === pure, `${entry.arena} row ${entry.row}: ${entry.roster}, ${anchor.kind} ${seen.has(anchor.kind) ? 'seen' : 'unseen'}`);

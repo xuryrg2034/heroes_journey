@@ -318,10 +318,11 @@ export const RT_FORMS_PARAMS: Readonly<Partial<Params>> = Object.freeze({ counte
  */
 export const RT_FOREST_SHOOTERS_PARAMS: Readonly<Partial<Params>> = Object.freeze({ volleyGap: FOREST_VOLLEY_GAP, snuffShots: true });
 /**
- * Task 57а: a new run keeps the flag `forestShooters`. Off until the forest's arenas, arcs and pools of the new shooters are in
- * (level design, spec 10.2–10.4): the flag alone brings no new kind.
+ * Task 57а: a new run keeps the flag `forestShooters` (the forest's arenas, arcs and pools of the new shooters, level design, spec
+ * 10.2–10.4). On since 22.10.2026 — design, after the 8-run arcs measure and the forest curve; a run saved before has no field and
+ * plays the old forest to its end.
  */
-export const RT_FOREST_SHOOTERS_ON = false;
+export const RT_FOREST_SHOOTERS_ON = true;
 /**
  * «Дыры ядра боссов» (core's decision 21.10.2026: the highlight ≠ the result is a defect): a new run keeps the flag `bossHoles` and
  * its fights play the core's wards (`rtArenaParams`): the fire trail and the shaman keep the Troll's and the Chief's core rules, the

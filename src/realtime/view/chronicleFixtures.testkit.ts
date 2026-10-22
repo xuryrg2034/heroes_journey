@@ -3,7 +3,7 @@
  * recipe, unread marks. They are PROFILES, not contracts: the contract is core's `rtChronicleView` over `parseRtProfile` of these, so the
  * Node checks and the browser tests (which store the same JSON under `RT_PROFILE_STORAGE_KEY`) see what the game would build.
  */
-import { SCHEDULE_KINDS } from '../run/schedule';
+import { RT_CHRONICLE_FOREST_KINDS } from '../run/chronicleCatalog';
 import { parseRtProfile, RT_PROFILE_STORAGE_KEY, type RtProfile } from '../run/rtRunStorage';
 import { rtChronicleView, type RtChronicleView } from '../run/chroniclePages';
 import type { RtChronicle } from '../run/chronicle';
@@ -22,9 +22,9 @@ const profile = (chronicle: RtChronicle, rest: Raw = {}, meta: Raw = {}): Raw =>
 export const CHRONICLE_FIXTURES: Readonly<Record<string, () => Raw>> = {
   /** The first camp of a newcomer: two kinds met, the forest's bosses not yet, nothing else. */
   novice: () => profile({ kinds: ['boar', 'wolf'], events: ['brook'], items: { whetstone: 2, 'dew-flask': 1 } }),
-  /** After the garrison: its chapters open, the Castellan won, Ведунья free, fusions made, the Испытание climbed. */
+  /** After the garrison: its chapters open (every forest kind of the build met — with the shooters' flag, on since 22.10.2026, eleven), the Castellan won, Ведунья free, fusions made, the Испытание climbed. */
   garrison: () => profile({
-    kinds: [...SCHEDULE_KINDS, 'guard', 'handler', 'hound'], affixes: ['fiery', 'swift'],
+    kinds: [...RT_CHRONICLE_FOREST_KINDS, 'guard', 'handler', 'hound'], affixes: ['fiery', 'swift'],
     bosses: { jailer: { met: 3, won: 3 }, troll: { met: 2 }, castellan: { met: 14, won: 14 } },
     events: ['brook', 'goblin-cache', 'owl-hollow', 'warm-den', 'casino', 'porcupine-nest'],
     items: { whetstone: 2, 'dew-flask': 2, 'tough-hide': 1, prism: 2, 'frost-edge': 2, 'form-seal': 2, 'fusion-ice-seal': 2, 'relic-swift-feet': 1, 'fire-pass': 2, 'elite-hunter': 1 },

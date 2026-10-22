@@ -452,16 +452,16 @@ await check('task 59б (spec 10; review 21.10.2026): the chapter «Гарниз�
   assert(novel.some(id => on.has(`kind:${id}`)), `the hint with the flag takes them: ${[...on].join(', ')}`);
 });
 
-await check('task 57а (design 21.10.2026): the chapter «Лес» comes from the kinds of the schedule under the flag — 8 entries with `forestShooters` off (the build now), 11 with it on (the slinger, the hive, the wisp unknown, the met kinds kept); a shooter met before stays in the profile whatever the flag', () => {
-  assert(!RT_FOREST_SHOOTERS_ON && RT_CHRONICLE_FOREST_KINDS.join() === chronicleForestKinds(false).join() && chronicleForestKinds(false).length === 8, `flag off: ${RT_CHRONICLE_FOREST_KINDS}`);
+await check('task 57а (design 21.10.2026): the chapter «Лес» comes from the kinds of the schedule under the flag — 11 entries with `forestShooters` on (the build since 22.10.2026: the slinger, the hive, the wisp unknown, the met kinds kept), 8 with it off; a shooter met before stays in the profile whatever the flag', () => {
+  assert(RT_FOREST_SHOOTERS_ON && RT_CHRONICLE_FOREST_KINDS.join() === chronicleForestKinds(true).join() && chronicleForestKinds(false).length === 8, `the build (flag on since 22.10.2026): ${RT_CHRONICLE_FOREST_KINDS}`);
   assert(chronicleForestKinds(true).length === 11 && ['slinger', 'hive', 'wisp'].every(kind => chronicleForestKinds(true).includes(kind)), `flag on: ${chronicleForestKinds(true)}`);
   const raw = JSON.parse(JSON.stringify(chronicleProfile('unread'))) as Record<string, any>;
   raw.meta.chronicle = { ...raw.meta.chronicle, kinds: [...new Set([...(raw.meta.chronicle?.kinds ?? []), 'wisp'])].sort() };
   const profile = parseRtProfile(JSON.stringify(raw));
   assert(profile.meta?.chronicle?.kinds?.includes('wisp'), 'a wisp met before stays in the profile with the flag off');
   const forest = (on: boolean | undefined) => rtChronicleView(profile, 'cat', { gambler: true, monk: true, ...on === undefined ? {} : { shooters: on } }).pages.find(page => page.id === 'bestiary')!.chapters.find(chapter => chapter.id === 'forest')!;
-  const off = forest(undefined), offExplicit = forest(false), on = forest(true);
-  assert(off.entries.length === 8 && offExplicit.entries.length === 8 && on.entries.length === 11, `entries ${off.entries.length} / ${offExplicit.entries.length} / ${on.entries.length}`);
+  const build = forest(undefined), off = forest(false), on = forest(true);
+  assert(build.entries.length === 11 && off.entries.length === 8 && on.entries.length === 11, `entries ${build.entries.length} / ${off.entries.length} / ${on.entries.length}`);
   const state = (chapter: typeof on, id: string) => chapter.entries.find(entry => entry.id === id)?.state;
   assert(['boar', 'lynx', 'wolf'].every(id => state(off, id) === 'seen' && state(on, id) === 'seen'), 'the met kinds stay seen');
   assert(state(on, 'wisp') === 'seen' && state(on, 'slinger') === 'unknown' && state(on, 'hive') === 'unknown' && state(off, 'wisp') === undefined, 'the shooters with the flag on');

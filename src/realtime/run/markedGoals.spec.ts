@@ -78,8 +78,10 @@ function goalShape(w: World, row: number): { horde: boolean; marked: number; lea
 
 interface Fight { row: number; arena: string; roster?: string; run: RtRunState }
 /** A run walked by its own steps (fights won at once): every battle it opens. `markedGoals` — the run's flag. */
+// Task 57а (the flag on since 22.10.2026): the pools without the forest's shooters — with them the overdue «Осыпь» and «Пасека» take
+// run row 8, the only row «Логово» came on in these 120 runs (2 runs before the flag, none with it); the layouts are the subject here.
 function walk(seed: number, k: number, markedGoals?: boolean): Fight[] {
-  let run = createRtRun(seed, { gift: 'mini', garrison: false, ...markedGoals !== undefined ? { markedGoals } : {} });
+  let run = createRtRun(seed, { gift: 'mini', garrison: false, forestShooters: false, ...markedGoals !== undefined ? { markedGoals } : {} });
   const fights: Fight[] = [];
   for (let step = 0; step < 200 && !run.result; step++) {
     const pending = run.pending;

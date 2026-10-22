@@ -112,7 +112,8 @@ interface Walk { run: RtRunState; arenas: string[]; hards: string[]; finals: str
 function walkRun(seed: number, k: number, options: { gift?: 'mini' | 'full' } = {}): Walk {
   // Task 30: the walk checks the hammer screen and the old pools — a run without forms (`forms: false`, as a save before it).
   // Task 48: and «Последний рубеж» on both branches (`troll: false`, a save before the Troll; his run — trollRun.spec.ts).
-  let run = createRtRun(seed, { gift: options.gift ?? 'mini', forms: false, troll: false, garrison: false });
+  // Task 57а: the pools without the forest's shooters (`forestShooters: false`, a save before 22.10.2026; theirs — forestShootersRun.spec.ts).
+  let run = createRtRun(seed, { gift: options.gift ?? 'mini', forms: false, troll: false, garrison: false, forestShooters: false });
   const walk: Walk = { run, arenas: [], hards: [], finals: [], rowArenas: [], outOfRow: [], events: [], saves: 0, replays: 0, previews: 0, finds: 0, crafts: 0, bought: 0, offers: [], hammers: 0 };
   const save = () => { const loaded = roundTrip(run); assert(loaded && same(loaded, run), `save of seed ${seed} does not load back`); walk.saves++; };
   for (let step = 0; step < 200 && !run.result; step++) {
@@ -449,7 +450,7 @@ interface PathArena { row: number; type: string; arena: string }
  * off — the pools before it, the reference measures below). The Jailer's node plays its pool as before task 28 (`jailer: false`), its hammer screen as before task 30 (`forms: false`).
  */
 function arenaPath(seed: number, k: number, mix: boolean, gentle = false): { path: PathArena[]; previews: number } {
-  let run = createRtRun(seed, { gift: 'mini', rosterMix: mix, ...gentle ? {} : RT_TASK17_OFF, jailer: false, troll: false, forms: false, garrison: false });
+  let run = createRtRun(seed, { gift: 'mini', rosterMix: mix, ...gentle ? {} : RT_TASK17_OFF, jailer: false, troll: false, forms: false, garrison: false, forestShooters: false });
   const path: PathArena[] = [];
   let previews = 0;
   for (let step = 0; step < 200 && !run.result; step++) {

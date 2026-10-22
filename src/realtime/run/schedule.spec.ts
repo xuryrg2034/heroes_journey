@@ -19,7 +19,7 @@ import {
   arenaSeed, createRtRun, parseRtRun, resolveArena, RT_FIRST_ELITE_KINDS, rtArenaLoadout, rtArenaParams, rtAvailableNodes, rtEnterNode, rtFightArc, rtNode, rtRunParams, rtScheduleMet,
   serializeRtRun, type RtArenaOutcome, type RtRunState,
 } from './rtRun';
-import { affixElement, allowedAffixes, BUST_ARC, SCHEDULE_ELEMENTS, SCHEDULE_HARD_FLOOR, SCHEDULE_KINDS, scheduleKindCap, scheduleSeedHistory } from './schedule';
+import { affixElement, allowedAffixes, BUST_ARC, SCHEDULE_ELEMENTS, SCHEDULE_HARD_FLOOR, SCHEDULE_KINDS, SCHEDULE_SHOOTER_KINDS, scheduleKindCap, scheduleSeedHistory } from './schedule';
 import { cardRules } from '../view/nodeCard';
 import { arenaPreview, isArenaNode } from './rtRun';
 import { assert, closeNode, ok, same, seedOf, takeGift } from './runFight.testkit';
@@ -28,8 +28,8 @@ import { SCHEDULE_REFERENCE as reference } from './schedule.reference';
 let checks = 0;
 function check(name: string, run: () => void): void { run(); checks++; console.log(`ok - ${name}`); }
 const TICKS = (s: number): number => Math.round(s * 60);
-/** Every living element but the affix types: a viewer who has met the whole forest. */
-const VETERAN = [...SCHEDULE_ELEMENTS, ...AFFIX_IDS.map(affixElement)];
+/** Every living element but the affix types: a viewer who has met the whole forest (task 57а, on 22.10.2026: its new shooters too). */
+const VETERAN = [...SCHEDULE_ELEMENTS, ...SCHEDULE_SHOOTER_KINDS, ...AFFIX_IDS.map(affixElement)];
 
 /** Newcomers come, nothing hurts the hero (what stands on the arena is counted, not fought). */
 function harmless(): Params {
@@ -141,9 +141,9 @@ check('the forest\'s outputs (300 seeds, the run\'s own commands): a run with th
   }
 });
 
-check('a run without the schedule (40 runs, the walk of the reference): the arenas and rosters of every node are those of main before the task (reference made 15.10.2026 on 9c43931; task 28 — a run without the Jailer fight, `jailer: false, troll: false`); every step saves and reads back the same', () => {
+check('a run without the schedule (40 runs, the walk of the reference): the arenas and rosters of every node are those of main before the task (reference made 15.10.2026 on 9c43931; task 28 — a run without the Jailer fight, `jailer: false, troll: false`; task 57а — without the new forest shooters, `forestShooters: false`); every step saves and reads back the same', () => {
   for (let k = 1; k <= 40; k++) {
-    let run = createRtRun(seedOf(k), { gift: 'mini', jailer: false, troll: false, garrison: false });
+    let run = createRtRun(seedOf(k), { gift: 'mini', jailer: false, troll: false, garrison: false, forestShooters: false });
     for (let step = 0; step < 300 && !run.result; step++) {
       const pending = run.pending;
       // Task 50: the knack screen (RT_KNACKS_ON) is passed over and is not a step (the node choice turns on `step`).

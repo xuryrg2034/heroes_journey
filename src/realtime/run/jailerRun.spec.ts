@@ -73,7 +73,8 @@ const pendingArena = (run: RtRunState): string => (run.pending as { arena: strin
 check('a new run (300 seeds) reaches run row 5 and its Jailer node plays «Тюремщик» (the map\'s preview the same); the pool draws, the map, the visited nodes, the events and the streams are those of a run without the flag; that run (a save before the task) plays the pool\'s arena there', () => {
   const old = new Set<string>();
   for (let k = 1; k <= 300; k++) {
-    const a = toJailer(createRtRun(seedOf(k), { gift: 'mini' }), k), b = toJailer(createRtRun(seedOf(k), { gift: 'mini', jailer: false }), k);
+    // Task 57а (on 22.10.2026): a save before task 28 is before the forest's shooters too (`forestShooters: false`).
+    const a = toJailer(createRtRun(seedOf(k), { gift: 'mini' }), k), b = toJailer(createRtRun(seedOf(k), { gift: 'mini', jailer: false, forestShooters: false }), k);
     const node = rtNode(a.run, (a.run.pending as { nodeId: string }).nodeId)!;
     assert(a.run.jailer === true && b.run.jailer === undefined, `seed ${k}: the flag`);
     assert(pendingArena(a.run) === 'jailer' && a.preview === 'jailer' && (a.run.pending as { roster?: string }).roster === undefined, `seed ${k}: the Jailer's fight (${pendingArena(a.run)}, preview ${a.preview})`);

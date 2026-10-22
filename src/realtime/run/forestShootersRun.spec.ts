@@ -3,8 +3,9 @@
  * `npm run test:realtime-forest-shooters-run`.
  *
  * Walks whole runs by the run's own commands (metaWalk.testkit.ts) and checks what a fight of the run plays:
- * - a run without the flag (the default while `RT_FOREST_SHOOTERS_ON` is off, and an old save): its fights play the values of before —
- *   no shooters' timer, no snuffing;
+ * - the default: `RT_FOREST_SHOOTERS_ON` on since 22.10.2026 — a new run takes `forestShooters` and `arcsAlternate`;
+ * - a run without the flag (an old save, made before 22.10.2026): it reads back without the fields and its fights play the values of
+ *   before — no shooters' timer, no snuffing;
  * - a run with the flag: its forest fights play the timer 2.5 s and the snuffing (`RT_FOREST_SHOOTERS_PARAMS`), its garrison fights do
  *   not; its arenas are those of the run without it until the first fight of a new shooter (level design 20.10.2026);
  * - the save keeps the flag; a broken value is no run;
@@ -49,12 +50,15 @@ function fights(k: number, create: Parameters<typeof createRtRun>[1]): { list: F
   return { list, streams };
 }
 
-check('the flag is off by default (no arena of the new shooters in the run yet): a new run has no `forestShooters`, its fights play no timer and no snuffing', () => {
-  assert(!RT_FOREST_SHOOTERS_ON, 'RT_FOREST_SHOOTERS_ON is off');
+check('the flag is on by default (design 22.10.2026): a new run takes `forestShooters` and `arcsAlternate`; a save made before (no field) reads back without them, its fights play no timer and no snuffing', () => {
+  assert(RT_FOREST_SHOOTERS_ON === true, 'RT_FOREST_SHOOTERS_ON is on');
   for (const k of [1, 2, 3]) {
-    const run = createRtRun(seedOf(k));
-    assert(run.forestShooters === undefined && !serializeRtRun(run).includes('forestShooters'), `seed ${k}: no flag in the save`);
-    const { list } = fights(k, { garrison: true });
+    const run = createRtRun(seedOf(k)), back = parseRtRun(serializeRtRun(run));
+    assert(run.forestShooters === true && run.arcsAlternate === true && back?.forestShooters === true && back.arcsAlternate === true, `seed ${k}: the flag and the key by default, kept by the save`);
+    const old = createRtRun(seedOf(k), { forestShooters: false }), text = serializeRtRun(old), oldBack = parseRtRun(text);
+    assert(old.forestShooters === undefined && old.arcsAlternate === undefined && !text.includes('forestShooters') && !text.includes('arcsAlternate'), `seed ${k}: no field in the old save`);
+    assert(oldBack && oldBack.forestShooters === undefined && oldBack.arcsAlternate === undefined && serializeRtRun(oldBack) === text, `seed ${k}: the old save reads back as it was`);
+    const { list } = fights(k, { garrison: true, forestShooters: false });
     assert(list.length > 5 && list.every(f => f.volleyGap === 0 && !f.snuffShots), `seed ${k}: ${list.length} fights with the values of before`);
   }
 });
@@ -64,7 +68,7 @@ check('a run with the flag: its forest fights play the timer 2.5 and the snuffin
   const shooterFight = (f: Fight): boolean => SHOOTER_POOLS.some(e => e.arena === f.arena) || /slinger|wisp/.test(f.roster ?? '');
   for (let k = 1; k <= 10; k++) {
     const create = { garrison: k % 2 === 0, gift: k % 2 ? 'full' as const : 'mini' as const };
-    const on = fights(k, { ...create, forestShooters: true }), off = fights(k, create);
+    const on = fights(k, { ...create, forestShooters: true }), off = fights(k, { ...create, forestShooters: false });
     const key = (f: Fight): string => `${f.arena}|${f.roster ?? ''}|${f.seed}`;
     const first = on.list.findIndex((f, i) => key(f) !== (off.list[i] ? key(off.list[i]) : ''));
     if (first >= 0) { diverged++; assert(shooterFight(on.list[first]), `seed ${k}: the first different fight is a new shooter's (${key(on.list[first])})`); }

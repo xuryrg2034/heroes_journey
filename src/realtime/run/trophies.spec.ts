@@ -22,7 +22,6 @@ import { JAILER_RUN_ARENAS, TROLL_RUN_ARENAS } from '../sim/arenasBoss';
 import { SCHEDULE_KINDS } from './schedule';
 import { rtBestiaryFull, RT_TROPHY_LONG_CHAIN, type RtTrophy } from './trophies';
 import { chronicleForestKinds, RT_CHRONICLE_FOREST_KINDS } from './chronicleCatalog';
-import { rtChronicleView } from './chroniclePages';
 import { RtRecorder } from '../telemetry/recorder';
 import { memoryJournalStore, type KeyValueStore } from '../telemetry/buffer';
 import { checkRecord, type RunRecord } from '../telemetry/schema';
@@ -69,8 +68,8 @@ await check('every trophy by a real run, with the viewer\'s run; «Доска И
       if (pending && !longest && run.battles.length === 2 && k % 2 === 0) { longest = true; return fed(run, { bestChain: RT_TROPHY_LONG_CHAIN }); }
       return null;
     } });
-    // The forest's kinds met in the run's fights (the view's calls), all of them by the 3rd run.
-    if (k <= 3) s.chronicleMeet(walk.run, { kinds: SCHEDULE_KINDS.filter((_, i) => i % 3 === k - 1), affixes: [] });
+    // The forest's kinds met in the run's fights (the view's calls), all of them by the 3rd run (the build's chapter: task 57а, 11 with the shooters).
+    if (k <= 3) s.chronicleMeet(walk.run, { kinds: RT_CHRONICLE_FOREST_KINDS.filter((_, i) => i % 3 === k - 1), affixes: [] });
     const before = s.trophies(), end = s.endRunMeta(walk.run)!;
     const after = s.trophies(), added = after.filter(t => !before.some(b => b.id === t.id));
     for (const t of added) { assert(t.run === viewerRun, `seed ${k}: ${t.id} in run ${viewerRun}`); seen[t.id] = (seen[t.id] ?? 0) + 1; }
@@ -100,7 +99,7 @@ await check('every trophy by a real run, with the viewer\'s run; «Доска И
 await check('«Чернильница Неясыти» stays when the forest gains a kind (the catalogue of a later build): held, not earned again, not lost', () => {
   const s = store();
   const { walk } = metaRun(s, 1);
-  s.chronicleMeet(walk.run, { kinds: SCHEDULE_KINDS, affixes: [] });
+  s.chronicleMeet(walk.run, { kinds: RT_CHRONICLE_FOREST_KINDS, affixes: [] });
   s.endRunMeta(walk.run);
   const ink = held(s, 'bestiary');
   assert(ink && ink.run === 1, `the chapter full: the trophy (${JSON.stringify(s.trophies())})`);
@@ -116,25 +115,24 @@ await check('«Чернильница Неясыти» stays when the forest gai
   } finally { forest.pop(); }
 });
 
-await check('task 57а: with the shooters flag off (this build) a shooter met before keeps its record and «Чернильница» comes by the eight kinds; with the flag on the chapter shows it met and needs eleven (design 21.10.2026)', () => {
-  assert(!RT_FOREST_SHOOTERS_ON && RT_CHRONICLE_FOREST_KINDS.length === 8, 'the build now: the eight forest kinds');
+await check('task 57а: with the flag of the shooters on (the build since 22.10.2026) the eight kinds of before and a wisp met earlier do not fill the chapter — it shows eleven, «Чернильница» needs them all and comes in the run that meets the last; with the flag off the eight are enough (design 21.10.2026)', () => {
+  assert(RT_FOREST_SHOOTERS_ON && RT_CHRONICLE_FOREST_KINDS.length === 11, 'the build: the eleven forest kinds');
   const storage = memoryStorage(), s = store(storage);
   const { walk } = metaRun(s, 1);
-  // The viewer met a wisp before (a run with the flag `forestShooters`), and now every forest kind of this build.
+  // The viewer met every forest kind of before and a wisp.
   s.chronicleMeet(walk.run, { kinds: [...SCHEDULE_KINDS, 'wisp'], affixes: [] });
   s.endRunMeta(walk.run);
-  const ink = held(s, 'bestiary');
-  assert(ink && ink.run === 1, `the eight kinds: the trophy (${JSON.stringify(s.trophies())})`);
+  assert(!held(s, 'bestiary'), `nine of eleven: no trophy (${JSON.stringify(s.trophies())})`);
   const kinds = () => createRtProfileStore(storage, { trophies: true, chronicle: true }).chronicle().pages.find(p => p.id === 'bestiary')!.chapters.find(ch => ch.id === 'forest')!.entries;
   assert(JSON.parse(text(storage)).meta.chronicle.kinds.includes('wisp'), 'the wisp stays in the profile (read back from storage)');
-  assert(kinds().length === 8 && kinds().every(e => e.state === 'seen'), 'the chapter of this build: eight, all met');
+  assert(kinds().length === 11 && kinds().find(e => e.id === 'wisp')?.state === 'seen' && kinds().find(e => e.id === 'slinger')?.state === 'unknown', 'the chapter of this build: eleven, the wisp met, the slinger «?»');
   const profile = parseRtProfile(text(storage));
-  const on = rtChronicleView(profile, 'cat', { gambler: true, monk: true, shooters: true }).pages.find(p => p.id === 'bestiary')!.chapters.find(ch => ch.id === 'forest')!.entries;
-  assert(on.length === 11 && on.find(e => e.id === 'wisp')?.state === 'seen' && on.find(e => e.id === 'slinger')?.state === 'unknown', 'with the flag on: eleven, the wisp met');
-  assert(!rtBestiaryFull({ kinds: profile.meta?.chronicle?.kinds }, chronicleForestKinds(true)) && rtBestiaryFull({ kinds: [...chronicleForestKinds(true)] }, chronicleForestKinds(true)), 'the flag on: the trophy needs the eleven');
+  assert(rtBestiaryFull({ kinds: profile.meta?.chronicle?.kinds }, chronicleForestKinds(false)) && !rtBestiaryFull({ kinds: profile.meta?.chronicle?.kinds }), 'the flag off: the eight are enough; the build needs the eleven');
   const next = metaRun(s, 2);
+  s.chronicleMeet(next.walk.run, { kinds: ['slinger', 'hive'], affixes: [] });
   s.endRunMeta(next.walk.run);
-  assert(same(held(s, 'bestiary'), ink) && JSON.parse(text(storage)).meta.chronicle.kinds.includes('wisp'), 'the next run: the trophy and the wisp kept');
+  const ink = held(s, 'bestiary');
+  assert(ink && ink.run === 2 && kinds().every(e => e.state === 'seen'), `the eleven met: the trophy in run 2 (${JSON.stringify(s.trophies())})`);
 });
 
 await check('a run with a given seed and «Поход дня» earn nothing; the trophies off — no field ever', () => {
@@ -150,7 +148,7 @@ await check('a run with a given seed and «Поход дня» earn nothing; the
 
 await check('the retro: only the Castellan\'s banner (`wonLevel` 2) and «Чернильница Неясыти» (the chronicle\'s bestiary from the history), run 0, once', () => {
   const storage = memoryStorage();
-  storage.data.set(RT_PROFILE_STORAGE_KEY, JSON.stringify({ version: 1, giftFull: true, runs: 9, won: true, seen: [...SCHEDULE_KINDS, 'elite'],
+  storage.data.set(RT_PROFILE_STORAGE_KEY, JSON.stringify({ version: 1, giftFull: true, runs: 9, won: true, seen: [...RT_CHRONICLE_FOREST_KINDS, 'elite'],
     meta: { heroes: { cat: { xp: 300, packs: [], record: { row: 4, won: true, xp: 90, level: 2, wonLevel: 2 }, ashBest: 4 } }, freed: { toad: { row: 5, run: 2 } } } }));
   const s = store(storage);
   const plain = text(storage);
@@ -175,7 +173,7 @@ await check('the retro once (review 21.10.2026): the forest filled by the fights
   assert(s.trophiesImport() && s.load().meta?.trophiesSince === 0 && same(s.trophies(), []), 'the retro\'s mark, nothing found');
   // A run whose fights meet every forest kind; the camp opens before its end (a reload, an abandoned run): no retro trophy.
   const { walk, viewerRun } = metaRun(s, 2);
-  s.chronicleMeet(walk.run, { kinds: SCHEDULE_KINDS, affixes: [] });
+  s.chronicleMeet(walk.run, { kinds: RT_CHRONICLE_FOREST_KINDS, affixes: [] });
   assert(!s.trophiesImport() && same(s.trophies(), []), 'after the mark: the retro adds nothing');
   s.endRunMeta(walk.run);
   assert(same(held(s, 'bestiary'), { id: 'bestiary', run: viewerRun }) && viewerRun >= 1, `the trophy with the run\'s number ${JSON.stringify(s.trophies())}`);
@@ -183,7 +181,7 @@ await check('the retro once (review 21.10.2026): the forest filled by the fights
   const t = store();
   const run = metaRun(t, 3).walk.run;
   t.chronicleImport({ kinds: [], affixes: [] });
-  t.chronicleMeet(run, { kinds: SCHEDULE_KINDS, affixes: [] });
+  t.chronicleMeet(run, { kinds: RT_CHRONICLE_FOREST_KINDS, affixes: [] });
   assert(t.trophiesImport() && same(t.trophies(), []), 'a first retro: no run 0 for the kinds of a run in progress');
   t.endRunMeta(run);
   assert(held(t, 'bestiary')?.run === 1, 'its end gives it');

@@ -89,7 +89,8 @@ check('a run without the flag plays the garrison of step 2 byte for byte: the ga
   const lines: string[] = [];
   for (let k = 1; k <= 300; k++) {
     const seen = new Set<string>(), out: string[] = [];
-    const walk = walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, step3: false }, each: state => {
+    // Task 57а (on 22.10.2026): the base had no forest shooters — the walk's forest and its save as there (`forestShooters: false`).
+    const walk = walkRun({ k, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, step3: false, forestShooters: false }, each: state => {
       const p = state.pending;
       if (p?.kind !== 'battle' || !rtGarrisonNodeId(p.nodeId) || seen.has(p.nodeId)) return;
       seen.add(p.nodeId);
