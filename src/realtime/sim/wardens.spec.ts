@@ -285,7 +285,9 @@ check('task 59б: an arena without `pairTint` and `pairShare` draws as before �
   // (main fe7b62dc moved them: the new key `bossPickArt: false` in defaultParams, the params are hashed; the fight is the same); on 8afcb20d before the merge of main — 1f69cda4…, 515505ba…, 448f69c0….
   // core/task57b1 (22.10.2026) moved them: the new keys `rootRise`, `slimeMerge`, `slimeBigHp`, `brandSeek` in defaultParams (the params are
   // hashed); without the four keys the same run gives the base's 135b38fd…, 0eac450f…, afc56969… — the fight is the same.
-  const want = ['d4b065a5ca6292f5', 'ed657cef938afdf2', '1817d441b7311e70'];
+  // core/task57b2 (22.10.2026) moved them again: the keys `centiParts`, `centiLungeWindup`; without the two the same run gives 57б-1's
+  // d4b065a5…, ed657cef…, 1817d441… — the fight is the same.
+  const want = ['8acabeefd795e973', '138f59914eca727c', 'e9df4c739d809e0a'];
   [1, 2, 3].forEach((k, i) => {
     const p = defaultParams(); p.contactDamage = 0; p.heroHp = 99; p.hitstop = false;
     const sim = new Simulation({ arena: 'g-warden-test', params: p, seed: seedOf(k), record: true });
