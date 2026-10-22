@@ -180,6 +180,10 @@ test('task 57б view: a burning firebrand — «погаснет» on the lethal
   const out = await snap(page);
   expect(out.forest.outs).toBe(1);
   expect(out.enemies.find(e => e.id === brand)?.vars.fb).toBe(0);
+  // Put out, it runs to the brazier (half way up: the dash's sparks have faded) — smoke over it.
+  await untilFrame(page, (s, _a: number, late) => (s.forest.brandsOut === 1 && s.enemies.find((e: any) => e.kind === 'firebrand').y < 5.9) || late ? true : undefined, 0, 3);
+  expect((await snap(page)).forest.brandsOut).toBe(1);
+  await shot(page, 'firebrand-running');
   await untilFrame(page, (s, _a: number, late) => (s.forest.brandsRelighting === 1 && s.forest.relightFill > 0.4) || late ? true : undefined, 0, 6);
   expect((await snap(page)).forest.brandsRelighting).toBe(1);
   await shot(page, 'firebrand-relight');

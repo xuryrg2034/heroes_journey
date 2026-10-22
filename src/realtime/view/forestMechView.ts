@@ -159,9 +159,10 @@ export function drawStumpArc(g: Graphics, cx: number, cy: number, R: number, fil
  * growing with the merge's clock `fill` (the two bodies touch, so a glow round each would hide behind them).
  */
 export function drawSlimeGlow(g: Graphics, a: { x: number; y: number }, b: { x: number; y: number }, Ra: number, Rb: number, fill: number, ink: number, clock: number): void {
-  const k = Math.max(0, Math.min(1, fill)), pulse = 0.9 + 0.1 * Math.sin(clock * (8 + 10 * k)), R = Math.max(Ra, Rb) * (1.25 + 0.45 * k) * pulse;
-  g.moveTo(a.x, a.y).lineTo(b.x, b.y).stroke({ color: ink, width: R * 2, alpha: 0.14 + 0.3 * k, cap: 'round' });
-  g.moveTo(a.x, a.y).lineTo(b.x, b.y).stroke({ color: SLIME_PALE, width: R * 1.5, alpha: 0.08 + 0.25 * k, cap: 'round' });
+  const k = Math.max(0, Math.min(1, fill)), pulse = 0.9 + 0.1 * Math.sin(clock * (8 + 10 * k)), R = Math.max(Ra, Rb) * (1.6 + 0.7 * k) * pulse;
+  // Design 22.10.2026: the glow reaches its full brightness as the clock fills — the pair is about to merge.
+  g.moveTo(a.x, a.y).lineTo(b.x, b.y).stroke({ color: ink, width: R * 2, alpha: 0.25 + 0.6 * k, cap: 'round' });
+  g.moveTo(a.x, a.y).lineTo(b.x, b.y).stroke({ color: SLIME_PALE, width: R * 1.6, alpha: 0.2 + 0.65 * k, cap: 'round' });
 }
 
 /**
@@ -178,26 +179,26 @@ export function drawSlimeBridge(g: Graphics, a: { x: number; y: number }, b: { x
     for (let i = 1; i <= n; i++) g.lineTo(...at(t0 + (t1 - t0) * i / n));
   };
   path(0, 1);
-  g.stroke({ color: NAVY, width: 4, alpha: 0.45, cap: 'round', join: 'round' });
+  g.stroke({ color: NAVY, width: 6, alpha: 0.7, cap: 'round', join: 'round' });
   path(0, 1);
-  g.stroke({ color: SLIME_PALE, width: 1.5, alpha: 0.5, cap: 'round', join: 'round' });
+  g.stroke({ color: SLIME_PALE, width: 2.5, alpha: 0.75, cap: 'round', join: 'round' });
   if (k > 0.01) {
     for (const [t0, t1] of [[0, 0.5 * k], [1, 1 - 0.5 * k]] as const) {
       path(t0, t1);
-      g.stroke({ color: NAVY, width: 6, alpha: 0.8, cap: 'round', join: 'round' });
+      g.stroke({ color: NAVY, width: 9, cap: 'round', join: 'round' });
       path(t0, t1);
-      g.stroke({ color: SLIME_PALE, width: 3, cap: 'round', join: 'round' });
+      g.stroke({ color: SLIME_PALE, width: 5, cap: 'round', join: 'round' });
     }
     const [mx, my] = at(0.5);
-    g.circle(mx, my, Math.max(2, Math.min(Ra, Rb) * 0.35 * k)).fill({ color: SLIME_PALE, alpha: 0.4 + 0.6 * k }).stroke({ color: NAVY, width: 2, alpha: 0.9 });
+    g.circle(mx, my, Math.max(3, Math.min(Ra, Rb) * 0.5 * k)).fill({ color: SLIME_PALE, alpha: 0.5 + 0.5 * k }).stroke({ color: NAVY, width: 2.5 });
   }
 }
 
-/** A flame (px) standing on `x, y` (its foot), `h` tall, flickering with the clock; `k` — its size 0…1. */
-export function drawFlame(g: Graphics, x: number, y: number, h: number, clock: number, seed: number, k = 1): void {
+/** A flame (px) standing on `x, y` (its foot), `h` tall, flickering with the clock; `k` — its size 0…1; `alpha` — a fading one. */
+export function drawFlame(g: Graphics, x: number, y: number, h: number, clock: number, seed: number, k = 1, alpha = 1): void {
   const H = h * Math.max(0.05, k) * (0.9 + 0.1 * Math.sin(clock * 15 + seed)), w = H * 0.42, lean = Math.sin(clock * 7 + seed * 1.7) * w * 0.25;
-  g.poly([x - w, y, x - w * 0.7, y - H * 0.45, x - w * 0.25, y - H * 0.35, x + lean, y - H, x + w * 0.3, y - H * 0.4, x + w * 0.7, y - H * 0.55, x + w, y]).fill(EMBER).stroke({ color: NAVY, width: 2.5, join: 'round' });
-  g.poly([x - w * 0.5, y, x - w * 0.2, y - H * 0.35, x + lean * 0.6, y - H * 0.65, x + w * 0.25, y - H * 0.3, x + w * 0.5, y]).fill(FLAME);
+  g.poly([x - w, y, x - w * 0.7, y - H * 0.45, x - w * 0.25, y - H * 0.35, x + lean, y - H, x + w * 0.3, y - H * 0.4, x + w * 0.7, y - H * 0.55, x + w, y]).fill({ color: EMBER, alpha }).stroke({ color: NAVY, width: 2.5, alpha, join: 'round' });
+  g.poly([x - w * 0.5, y, x - w * 0.2, y - H * 0.35, x + lean * 0.6, y - H * 0.65, x + w * 0.25, y - H * 0.3, x + w * 0.5, y]).fill({ color: FLAME, alpha });
 }
 
 /** Smoke (px) rising from `x, y`: two or three grey curls drifting with the clock; `alpha` — how thick. */
@@ -243,17 +244,18 @@ function burstOf(kind: Burst, unit: number, ink: number): { g: Graphics; life: n
   }
   if (kind === 'lit') {
     for (let i = 0; i < 8; i++) {
-      const a = i * Math.PI / 4, r0 = u * 0.12, r1 = u * (i % 2 ? 0.4 : 0.55);
+      const a = i * Math.PI / 4, r0 = u * 0.18, r1 = u * (i % 2 ? 0.65 : 0.9);
       g.moveTo(Math.cos(a) * r0, Math.sin(a) * r0).lineTo(Math.cos(a) * r1, Math.sin(a) * r1);
     }
-    g.stroke({ color: NAVY, width: 6, alpha: 0.6, cap: 'round' });
+    g.stroke({ color: NAVY, width: 8, alpha: 0.6, cap: 'round' });
     for (let i = 0; i < 8; i++) {
-      const a = i * Math.PI / 4, r0 = u * 0.12, r1 = u * (i % 2 ? 0.4 : 0.55);
+      const a = i * Math.PI / 4, r0 = u * 0.18, r1 = u * (i % 2 ? 0.65 : 0.9);
       g.moveTo(Math.cos(a) * r0, Math.sin(a) * r0).lineTo(Math.cos(a) * r1, Math.sin(a) * r1);
     }
-    g.stroke({ color: FLAME, width: 3, cap: 'round' });
-    g.circle(0, 0, u * 0.18).fill(EMBER);
-    return { g, life: 0.45, fall: false };
+    g.stroke({ color: FLAME, width: 4, cap: 'round' });
+    g.circle(0, 0, u * 0.32).fill({ color: FLAME, alpha: 0.6 }).circle(0, 0, u * 0.2).fill(EMBER);
+    drawFlame(g, 0, -u * 0.05, u * 0.9, 0, 0);
+    return { g, life: 0.6, fall: false };
   }
   // Put out: a puff — grey smoke for a hit, pale for the cold, a blue splash in water.
   const color = kind === 'cold' ? COLD : kind === 'water' ? WATER : SMOKE;
@@ -397,7 +399,10 @@ export class ForestMechView {
         } else if (st.phase === 'relighting') {
           sh.brandsRelighting++;
           sh.relightFill = Math.max(sh.relightFill, st.share);
-          drawFlame(g, X, Y - R * 0.6, R * 1.5, clock, e.id, 0.2 + 0.8 * st.share);
+          // Design 22.10.2026: «пламя растёт» — a warm glow and a flame over the head, both growing with the relight's share (the burst at `lit`).
+          const k = Math.max(0, Math.min(1, st.share));
+          g.circle(X, Y - R * 0.5, R * (0.7 + 0.9 * k)).fill({ color: FLAME, alpha: 0.15 + 0.3 * k });
+          drawFlame(g, X, Y - R * 0.55, R * 2.6, clock, e.id, 0.3 + 0.7 * k);
         } else {
           sh.brandsOut++;
           if (!art) drawSmoke(g, X, Y - R * 0.7, R * 0.45, clock, e.id, 0.6);

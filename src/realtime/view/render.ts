@@ -76,7 +76,7 @@ import { FLAIL_RADIUS, JAILER, JAILER_WEIGHT, jailerCore, jailerMove, jailerShie
 import { CHAIN_BREAK_LIFE, drawFlailArc, drawFlailChain, drawSeverPip, drawWeight, drawWhistleMark } from './jailerView';
 import { TROLL, TROLL_ROCK, trollCore } from '../sim/enemies/troll';
 import { ShooterView, hiveMarks, slingerMarks, wispMarks } from './shooterView';
-import { ForestMechView, firebrandMarks, rootlingMarks, slimeMarks } from './forestMechView';
+import { ForestMechView, drawFlame, firebrandMarks, rootlingMarks, slimeMarks } from './forestMechView';
 import { FIREBRAND, brandLit } from '../sim/enemies/firebrand';
 import { CHIEF, chiefCore } from '../sim/enemies/chief';
 import { WARLOCK, warlockCore } from '../sim/enemies/warlock';
@@ -2358,6 +2358,9 @@ export class RealtimeRenderer {
       g.circle(X, Y, R).fill({ color: EMBER, alpha: 0.38 * k });
       g.circle(X, Y, R * 0.6 * f).fill({ color: FLAME, alpha: 0.4 * k });
       g.circle(X, Y, R).stroke({ color: 0x7a2a12, width: 2, alpha: 0.5 * k });
+      // Design 22.10.2026 (task 57б): a point reads as fire, not a brown spot on the grass — a flickering tongue of flame on it (the
+      // elite's «Огненный» and the firebrand's trail are one fire; it fades with the point).
+      drawFlame(g, X, Y + R * 0.35, R * 1.5, this.clock, t.x * 7 + t.y * 5, 0.6 + 0.4 * k, 0.5 + 0.5 * k);
     }
     this.trailCount = count;
     // Phase B (design answer 23): the fire of the hammer «Огненный проход» — the same embers, but with the pale-blue rim of
