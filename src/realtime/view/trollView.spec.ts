@@ -329,7 +329,7 @@ check('«Рывок» into a tree: the lane shows the impact mark from the windu
 
 check('a part carried out of reach (`trollLinkFar`): a white ring on each link that dropped out', () => {
   const d = den(1), { w } = d, view = new TrollView(U, c => c);
-  assert(view.onEvent({ type: 'trollLinkFar', id: d.club.id, x: d.club.x, y: d.club.y, dropped: [d.club.id, d.rock.id] }, w, 0, R), 'the Troll\'s event');
+  assert(view.onEvent({ type: 'trollLinkFar', id: d.club.id, x: d.club.x, y: d.club.y, dropped: [d.club.id, d.rock.id], refusal: 'far' }, w, 0, R), 'the Troll\'s event');
   assert(view.onEvent({ type: 'trollPush', id: d.tail.id, x: 3, y: 3, fromX: 1, fromY: 3 }, w, 0, R), 'the push is the Troll\'s too');
   assert(view.shown.farDrops === 2 && view.shown.pushes === 1, `rings ${view.shown.farDrops}, pushes ${view.shown.pushes}`);
 });
