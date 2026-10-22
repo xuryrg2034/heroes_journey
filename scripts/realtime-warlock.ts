@@ -14,6 +14,9 @@
  * - The design's cuts (21.10.2026): the hall with its crowd ×0 (`warlockCrowd` 0.01 — no top-up: the length and the windows of his own
  *   mechanics); the windows' reach — the game seconds from a window's opening to the chain's hit and the hero's distance to the core at
  *   the opening (within the reach of a link or not); what broke his wardrobe (the core, a wall, a thing).
+ * - `--v1` (task 55 §23, Колдун v1): the same run's fight without the key (v0, the run's values as they are) and with `warlockV1` on,
+ *   the same seeds; deaths, the fight's median, the hero's damage by source and the share of the warlock's moves (the topple, the
+ *   orbs, the flash), «Перенос к герою» and those whose flash hit, phase 3. The bot knows v0 only (it neither dodges an orb nor a flash).
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import { execSync } from 'node:child_process';
@@ -30,7 +33,7 @@ import { botFight } from './garrisonBot';
 
 const args = process.argv.slice(2);
 const option = (name: string, fallback: string): string => { const at = args.indexOf(name); return at >= 0 ? args[at + 1] : fallback; };
-const SEEDS = Number(option('--seeds', '300')), LIMIT = Number(option('--limit', '240')), STAND = args.includes('--stand');
+const SEEDS = Number(option('--seeds', '300')), LIMIT = Number(option('--limit', '240')), STAND = args.includes('--stand'), V1 = args.includes('--v1');
 const KEYS = option('--keys', '');
 const SET: Partial<Params> = KEYS ? Object.fromEntries(KEYS.split(',').map(kv => { const [k, v] = kv.split('='); return [k, Number(v)]; })) : {};
 const seedOf = (k: number): number => Math.imul(k, 2654435761) >>> 0;
@@ -49,11 +52,13 @@ interface Fight {
   windows: { opened: number; hit: number; blocks: number }; charmAt: number | null; shoveHits: number; barrels: number;
   /** The design's cuts: the seconds from an opening to the chain's hit (each window hit by the chain); the hero's distance to the core at each opening; what broke his wardrobe. */
   toHit: number[]; openDist: number[]; wardrobeBy: string | null;
+  /** Колдун v1: his «Перенос» to the hero, those whose flash hit the hero. */
+  blinks: number; flashHits: number;
 }
 
 function fight(run: RtRunState, extra: Partial<Params> = {}): Fight {
   const params = Object.assign(rtArenaParams(run, rtRunParams(defaultParams())), extra);
-  const f: Fight = { won: false, time: 0, timeout: false, cleared: null, killer: null, damage: {}, phase: 1, windows: { opened: 0, hit: 0, blocks: 0 }, charmAt: null, shoveHits: 0, barrels: 0, toHit: [], openDist: [], wardrobeBy: null };
+  const f: Fight = { won: false, time: 0, timeout: false, cleared: null, killer: null, damage: {}, phase: 1, windows: { opened: 0, hit: 0, blocks: 0 }, charmAt: null, shoveHits: 0, barrels: 0, toHit: [], openDist: [], wardrobeBy: null, blinks: 0, flashHits: 0 };
   let openedAt: number | null = null, ward: number | null = null;
   const kinds = new Map<number, string>();
   let last: string | null = null;
@@ -61,7 +66,8 @@ function fight(run: RtRunState, extra: Partial<Params> = {}): Fight {
     for (const e of w.enemies) { if (!kinds.has(e.id)) kinds.set(e.id, e.kind); if (ward === null && e.kind === 'wardrobe' && e.vars.wl !== undefined) ward = e.id; }
     const core = w.enemies.find(e => e.kind === WARLOCK);
     for (const ev of w.events as WorldEvent[]) {
-      if (ev.type === 'hit') { const src = ev.source === 'touch' ? `touch:${kinds.get(ev.enemyId) ?? '?'}` : ev.source; f.damage[src] = (f.damage[src] ?? 0) + ev.damage; last = src; }
+      if (ev.type === 'hit') { const src = ev.source === 'touch' ? `touch:${kinds.get(ev.enemyId) ?? '?'}` : ev.source; f.damage[src] = (f.damage[src] ?? 0) + ev.damage; last = src; if (src === 'warlock-flash') f.flashHits++; }
+      else if (ev.type === 'bossMove' && ev.move === 'blink' && ev.stage === 'hit') f.blinks++;
       else if (ev.type === 'bossPhase') f.phase = Math.max(f.phase, ev.phase);
       else if (ev.type === 'warlockWindow') {
         if (ev.action === 'open') { f.windows.opened++; openedAt = w.time; if (core) f.openDist.push(Math.sqrt((core.x - w.hero.x) ** 2 + (core.y - w.hero.y) ** 2)); }
@@ -83,10 +89,10 @@ function fight(run: RtRunState, extra: Partial<Params> = {}): Fight {
 const median = (xs: number[]): number => { if (!xs.length) return NaN; const s = [...xs].sort((a, b) => a - b); return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2; };
 const f1 = (x: number): string => (Number.isFinite(x) ? x.toFixed(1).replace('.', ',') : '—');
 const pct = (a: number, b: number): string => (b ? `${Math.round(a / b * 100)} %` : '—');
-const MOVE_SOURCES = ['wardrobe-topple'];
+const MOVE_SOURCES = ['wardrobe-topple', 'warlock-orb', 'warlock-flash'];
 /** The groups of the hero's damage (as the Troll's and the Chief's): the crowd, the core's touch, the parts' touches, the moves. */
 const CORE_KINDS = ['warlock', 'troll', 'jailer', 'castellan'], PART_KINDS = ['troll-club', 'troll-rock', 'troll-tail', 'jailer-weight', 'hound', 'castellan-crossbow'];
-const BOSS_MOVES = ['wardrobe-topple', 'troll-club', 'troll-rock', 'troll-tail', 'flail', 'throw', 'castellan-bolt', 'lunge', 'castellan'];
+const BOSS_MOVES = ['wardrobe-topple', 'warlock-orb', 'warlock-flash', 'troll-club', 'troll-rock', 'troll-tail', 'flail', 'throw', 'castellan-bolt', 'lunge', 'castellan'];
 function groups(fights: readonly Fight[]): string {
   const g = { crowd: 0, core: 0, parts: 0, moves: 0 };
   for (const f of fights) for (const [src, n] of Object.entries(f.damage)) {
@@ -101,7 +107,29 @@ let head = '?';
 try { head = execSync('git rev-parse --short HEAD').toString().trim(); } catch { /* not a repository */ }
 const date = new Date().toISOString().slice(0, 10);
 
-if (STAND) {
+if (V1) {
+  console.log(`Задача 55 §23 «Колдун v1», --v1: узел босса похода как «Зал колдуна», HP похода, параметры и кит ряда 10 без сборки, бот с целью в ядро (v0: шаров и вспышки не обходит), ${SEEDS} seed, предел ${LIMIT} с${KEYS ? `, ключи ${JSON.stringify(SET)}` : ''} (эвристика), ${date}, HEAD ${head}.\n`);
+  const rows = [
+    { title: 'Колдун v0 (без ключа)', fights: Array.from({ length: SEEDS }, (_, i) => fight(openRun(i + 1, 'boss', 'c-warlock'), SET)) },
+    { title: 'Колдун v1 (warlockV1)', fights: Array.from({ length: SEEDS }, (_, i) => fight(openRun(i + 1, 'boss', 'c-warlock'), { ...SET, warlockV1: true })) },
+  ];
+  console.log('| Бой | Смертей | Бой, с, мед. (все / победа / поражение) | По таймеру | Урон героя: толпа / ядро / части / приёмы | Доля приёмов Колдуна | Чем убит |');
+  console.log('| --- | --- | --- | --- | --- | --- | --- |');
+  for (const { title, fights } of rows) {
+    const deaths = fights.filter(f => !f.won), killers: Record<string, number> = {}, all: Record<string, number> = {};
+    for (const f of deaths) killers[f.killer ?? '—'] = (killers[f.killer ?? '—'] ?? 0) + 1;
+    for (const f of fights) for (const [src, n] of Object.entries(f.damage)) all[src] = (all[src] ?? 0) + n;
+    const total = Object.values(all).reduce((a, b) => a + b, 0), moves = MOVE_SOURCES.reduce((a, src) => a + (all[src] ?? 0), 0);
+    const by = Object.entries(killers).sort((a, b) => b[1] - a[1]).map(([src, n]) => `${src} ${n}`).join(', ') || '—';
+    console.log(`| ${title} | ${deaths.length}/${fights.length} (${pct(deaths.length, fights.length)}) | ${f1(median(fights.map(f => f.time)))} / ${f1(median(fights.filter(f => f.won).map(f => f.time)))} / ${f1(median(deaths.map(f => f.time)))} | ${fights.filter(f => f.timeout).length} | ${groups(fights)} | ${pct(moves, total)} | ${by} |`);
+  }
+  for (const { title, fights } of rows) {
+    const all: Record<string, number> = {};
+    for (const f of fights) for (const [src, n] of Object.entries(f.damage)) all[src] = (all[src] ?? 0) + n;
+    const blinks = fights.reduce((a, f) => a + f.blinks, 0), hits = fights.reduce((a, f) => a + f.flashHits, 0);
+    console.log(`${title}: урон по источникам — ${Object.entries(all).sort((a, b) => b[1] - a[1]).map(([src, n]) => `${src} ${n}`).join(', ')}; «Перенос к герою» ${blinks}, со вспышкой по герою ${hits} (${pct(hits, blinks)}); фаза 3 — ${pct(fights.filter(f => f.phase >= 3).length, fights.length)} боёв, фаза 2 — ${pct(fights.filter(f => f.phase >= 2).length, fights.length)}.`);
+  }
+} else if (STAND) {
   console.log(`Задача 55, этап Д «Колдун», --stand: стоящий герой 6 с у его шкафа (15,4; 6,2), HP 999, параметры похода ряда 10, ${SEEDS} seed (эвристика), ${date}, HEAD ${head}.\n`);
   const totals: Record<string, number[]> = {};
   for (let k = 1; k <= SEEDS; k++) {
