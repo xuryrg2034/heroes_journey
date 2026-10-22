@@ -16,6 +16,7 @@
  *    and two «empty» runs in a row — runs with none of the new kinds though an arc was open at their start.
  */
 import { execSync } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
 import { defaultParams } from '../src/realtime/sim/params';
 import { mixSeed } from '../src/realtime/forest/items';
 import { runRow } from '../src/realtime/run/arenaPools';
@@ -31,6 +32,12 @@ const option = (name: string, fallback: string): string => { const at = args.ind
 const VIEWERS = Number(option('--viewers', '300')), RUNS = Number(option('--runs', '4')), START = option('--start', 'none'), LIMIT = Number(option('--limit', '240'));
 /** Task 57а (design 21.10.2026): `--alternate on|off` — the runs take the key `arcsAlternate` or not (default — on, as a new run). */
 const ALTERNATE = option('--alternate', 'on') !== 'off';
+/**
+ * Design 22.10.2026 (the 8-run measure before `RT_FOREST_SHOOTERS_ON`): `--dump FILE` writes each viewer's runs as JSON — `done` (the run
+ * in which every arc of task 26 was met, 0 — not within `RUNS`), `opened` and `first` (the runs of section 5) — for the paired difference
+ * of two variants by seed (scripts/realtime-shooters-arcs-pair.ts).
+ */
+const DUMP = option('--dump', '');
 const ALL_ARCS = ['bust', 'wolf', 'elite', 'brazier', 'cliff', 'boar', 'water', 'shield', 'buttons', 'archer', 'sapper', 'leader', 'lynx', 'affix', 'thorns', 'porcupine', 'shaman', 'horde', 'part', 'chest'];
 const ARC_IDS = SCHEDULE_SHOOTER_ARCS.map(arc => arc.id);
 const RUN_PARAMS = rtRunParams(defaultParams());
@@ -69,6 +76,7 @@ let alarms = 0;
  * (0 — not within `RUNS`).
  */
 const lags = new Map<number, number>(), oldDone = new Map<number, number>();
+const dump: { k: number; done: number; opened: number; first: number }[] = [];
 const started = Date.now();
 for (let k = 1; k <= VIEWERS; k++) {
   let history = START === 'all' ? [...ALL_ARCS] : [];
@@ -95,6 +103,7 @@ for (let k = 1; k <= VIEWERS; k++) {
   }
   if (opened) lags.set(first ? first - opened : -1, (lags.get(first ? first - opened : -1) ?? 0) + 1);
   oldDone.set(done, (oldDone.get(done) ?? 0) + 1);
+  dump.push({ k, done, opened, first });
   if (SCHEDULE_SHOOTER_KINDS.some(kind => !history.includes(kind))) viewersLeft++;
   firstRun.set(first, (firstRun.get(first) ?? 0) + 1);
   if (!first && deepest >= 3) alarms++;
@@ -147,10 +156,11 @@ console.log(`\n**Тревога:** зрителей, чьи походы дох�
 console.log('\n### 5. Приёмка дизайна (21.10.2026): от открытия дуги 57 до первой встречи; когда кончились старые дуги\n');
 console.log('| Отставание первой встречи от похода, где дуга открылась | Зрителей |');
 console.log('| --- | --- |');
-for (const lag of [0, 1, 2, 3]) console.log(`| ${lag} | ${lags.get(lag) ?? 0} |`);
+for (let lag = 0; lag < Math.max(4, RUNS); lag++) console.log(`| ${lag} | ${lags.get(lag) ?? 0} |`);
 console.log(`| не встречен за ${RUNS} походов (дуга открылась) | ${lags.get(-1) ?? 0} |`);
 console.log(`| дуга не открылась за ${RUNS} походов | ${VIEWERS - [...lags.values()].reduce((a, b) => a + b, 0)} |`);
 console.log('\n| Поход, к концу которого встречены все дуги задачи 26 | Зрителей |');
 console.log('| --- | --- |');
 for (let r = 1; r <= RUNS; r++) console.log(`| ${r} | ${oldDone.get(r) ?? 0} |`);
 console.log(`| не за ${RUNS} походов | ${oldDone.get(0) ?? 0} |`);
+if (DUMP) writeFileSync(DUMP, JSON.stringify({ head, viewers: VIEWERS, runs: RUNS, start: START, alternate: ALTERNATE, limit: LIMIT, viewersRuns: dump }));
