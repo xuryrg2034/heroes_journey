@@ -1348,6 +1348,10 @@ export interface Params {
   slimeBigHp: number;
   /** Task 57б «Головешка»: how long the put-out firebrand runs to a burning brazier (game s; 4). */
   brandSeek: number;
+  /** Task 57б-2 «Сороконожка»: the parts of a body with its head (5). */
+  centiParts: number;
+  /** Task 57б-2: the windup of its «Рывок» (game s; 1.0). */
+  centiLungeWindup: number;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -1932,6 +1936,8 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   slimeMerge: 1,
   slimeBigHp: 2,
   brandSeek: 4,
+  centiParts: 5,
+  centiLungeWindup: 1,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -2578,6 +2584,9 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('slimeMerge', 'Механики леса', 'Слизни сливаются за', 0.25, 5, 0.25, 5, 'с', 'Два малых слизня одного цвета касаются столько — сливаются в большого.'),
   n('slimeBigHp', 'Механики леса', 'Большой слизень: HP', 1, 5, 1, 5),
   n('brandSeek', 'Механики леса', 'Головешка: бежит к жаровне', 1, 10, 0.5, 5, 'с', 'Погасшая головешка бежит к горящей жаровне и разгорается у неё.'),
+  // Task 57б-2 (enemies/centipede.ts).
+  n('centiParts', 'Механики леса', 'Сороконожка: частей', 2, 8, 1, 5, undefined, 'Голова и части одного цвета. Убитая середина делит тело надвое: у куска без головы — новая голова.'),
+  n('centiLungeWindup', 'Механики леса', 'Сороконожка: замах рывка', 0.4, 2, 0.1, 5, 'с'),
 ];
 
 const MAX_PHASES = 8;

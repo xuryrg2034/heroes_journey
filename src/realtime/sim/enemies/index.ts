@@ -44,6 +44,8 @@ import './wisp';
 import './firebrand';
 import './rootling';
 import './slime';
+// Task 57б-2: the centipede (a body of parts; its divisions settle after the pass).
+import './centipede';
 
 export { BOAR_ART_SCALE, type BoarState } from './boar';
 export { packmates, wolfHowl, wolfRushLine, wolfState, WOLF_RUSH } from './wolf';
@@ -75,4 +77,5 @@ export { WISP, wispState } from './wisp';
 export { ROOTLING, rootGroup, stumpState, type Stump } from './rootling';
 export { SLIME, slimeBig, slimePairs } from './slime';
 export { FIREBRAND, brandLit, brandState } from './firebrand';
+export { CENTIPEDE, CENTI_LUNGE_SOURCE, centipedeBodies, centipedeBody, centipedeHead, centipedeLane, centipedeStunned, type CentipedeSplit } from './centipede';
 export * from './kinds';
