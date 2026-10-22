@@ -12,7 +12,7 @@
  * - the firebrand: a flame crest while it burns (the art has its own), smoke while it is out, a flame growing at the brazier, a flash
  *   when it lights; in the plan «погаснет» (`StrikeOutcome.douse`) is the survivor's sign (render.ts) with smoke over the link;
  * - task 57б-2, the centipede («Сороконожка»): the head's art and the parts' art (the head's is rebuilt on a promoted part: render.ts
- *   `artOf`), dark chitin joints between the parts of a body on the floor (one body reads as one, and not as the player's chain),
+ *   `artOf`), a short chitin joint (an oval, no line: a line between enemies is a leash) between each two parts of a body on the floor,
  *   «Рывок» — the boar's strip (the sim's `centipedeLane`, the lane's width plus the hero's body), a new head's stun — three stars;
  *   in the plan (`ChainPlan.splits`) a white zigzag crack across the body at the break and the «новая голова» sign (two antennae)
  *   over the part that will lead the piece behind; a division or a new head — a burst of the crack where it broke.
@@ -296,6 +296,15 @@ export function centipedeMarks(ctx: Draw, r: number): void {
   }
 }
 
+/** A centipede's joint (px): a short dark oval of chitin at the middle between two parts, along their axis, with a light ridge — not a line. */
+export function drawJoint(g: Graphics, ax: number, ay: number, bx: number, by: number, R: number): void {
+  const d = Math.hypot(bx - ax, by - ay) || 1, ux = (bx - ax) / d, uy = (by - ay) / d, cx = (ax + bx) / 2, cy = (ay + by) / 2;
+  const a = Math.min(R * 0.42, d * 0.3), b = R * 0.3, pts: number[] = [];
+  for (let i = 0; i < 16; i++) { const t = i * Math.PI / 8, x = Math.cos(t) * a, y = Math.sin(t) * b; pts.push(cx + ux * x - uy * y, cy + uy * x + ux * y); }
+  g.poly(pts).fill(CHITIN).stroke({ color: NAVY, width: 2.5, join: 'round' });
+  g.moveTo(cx - uy * b * 0.55, cy + ux * b * 0.55).lineTo(cx + uy * b * 0.55, cy - ux * b * 0.55).stroke({ color: CHITIN_LIGHT, width: 2, cap: 'round' });
+}
+
 /** A crack (px): a white zigzag with a navy edge across `(ux, uy)`'s normal at `(x, y)`, `len` long — the plan's break, the burst's shape. */
 export function drawCrack(g: Graphics, x: number, y: number, ux: number, uy: number, len: number): void {
   const nx = -uy, ny = ux, pts: number[] = [], n = 6;
@@ -409,7 +418,8 @@ export class ForestMechView {
       else drawStump(g, s.x * unit, s.y * unit, R);
     }
     for (const [id, sprite] of this.stumpSprites) if (!live.has(id)) { sprite.destroy(); this.stumpSprites.delete(id); }
-    // The centipede's bodies: a dark chitin joint between each two parts (under the bodies; not the player's chain line).
+    // The centipede's bodies: a short chitin joint between each two parts (under the bodies). Design 22.10.2026: no solid line — a line
+    // between enemies means a leash or a garrison's bond; a break then reads as a joint gone.
     sh.centiBodies = 0; sh.centiJoints = 0;
     const seg = new Map(world.enemies.map(e => [e.id, e] as const));
     for (const body of centipedeBodies(world)) {
@@ -417,8 +427,7 @@ export class ForestMechView {
       for (let i = 1; i < body.parts.length; i++) {
         const a = seg.get(body.parts[i - 1]), b = seg.get(body.parts[i]);
         if (!a || !b || (!sees(a, 1.5) && !sees(b, 1.5))) continue;
-        g.moveTo(a.x * unit, a.y * unit).lineTo(b.x * unit, b.y * unit).stroke({ color: NAVY, width: R * 0.75, cap: 'round' });
-        g.moveTo(a.x * unit, a.y * unit).lineTo(b.x * unit, b.y * unit).stroke({ color: CHITIN, width: R * 0.55, cap: 'round' });
+        drawJoint(g, a.x * unit, a.y * unit, b.x * unit, b.y * unit, R);
         sh.centiJoints++; drawn = true;
       }
       if (drawn || body.parts.some(id => { const e = seg.get(id); return !!e && sees(e, 1.5); })) sh.centiBodies++;
