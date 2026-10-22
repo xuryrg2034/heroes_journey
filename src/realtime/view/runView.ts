@@ -71,6 +71,7 @@ import { TOAD_LINES } from './heroLines';
 import type { MetaEnd, MetaHeroId } from './metaModel';
 import type { HearthStart } from './metaModel';
 import { KIND_CAPTIONS } from './newSeen';
+import { resetProgress } from './progressReset';
 import { END_STEP, REVEAL_FADE, endShown, endTotal, revealDelays, revealDone, revealShown, screenTier, type RewardTier } from './reveal';
 import type { ItemKind as KitItem } from '../sim/kit';
 
@@ -434,6 +435,8 @@ export class RunView {
   private confirmReset = false;
   /** П1: the gear's settings are open over the map header. */
   private settingsOpen = false;
+  /** User request 22.10.2026: «Сбросить прогресс» asks once more in the gear's box (closing the box drops the question). */
+  private confirmWipe = false;
   /** П5: the block «Удача похода» of the run-end screen is open (collapsed by default; a new run or a reload closes it). */
   private luckOpen = false;
   /** The arena of the open battle node is on screen. */
@@ -1145,7 +1148,11 @@ export class RunView {
     if (action === 'ash') { const level = Number(target.dataset.level); if (isRtAshLevel(level)) this.profile.chooseAsh(level); this.draw(); return; }
     if (action === 'logs') { this.host.openLogs?.(); return; }
     if (action === 'sandbox') { this.host.openSandbox?.(); return; }
-    if (action === 'settings') { this.settingsOpen = !this.settingsOpen; this.draw(); return; }
+    if (action === 'settings') { this.settingsOpen = !this.settingsOpen; this.confirmWipe = false; this.draw(); return; }
+    // User request 22.10.2026: «Сбросить прогресс» — the question in the box, then the progress goes (progressReset.ts) and the page plays anew.
+    if (action === 'wipe') { this.confirmWipe = true; this.draw(); return; }
+    if (action === 'wipe-cancel') { this.confirmWipe = false; this.draw(); return; }
+    if (action === 'wipe-confirm') { resetProgress(); location.reload(); return; }
     if (action === 'hints-toggle') { this.host.hints?.set((target as HTMLInputElement).checked); this.draw(); return; }
     if (action === 'sound-toggle' && this.host.sound) { this.host.sound.set({ ...this.host.sound.get(), on: (target as HTMLInputElement).checked }); this.draw(); return; }
     if (action === 'sound-volume' || action === 'fx-level') return;
@@ -1734,7 +1741,11 @@ export class RunView {
       + `<label class="rt-run-setting rt-run-volume${sound.on ? '' : ' rt-off'}">Громкость <input type="range" min="0" max="1" step="0.05" value="${sound.volume}" data-action="sound-volume" data-testid="view-sound-volume"${sound.on ? '' : ' disabled'}></label>` : '';
     // Task 35, С1: «Тряска и вспышки» — 100 / 50 / 0 % (at 0 the arena stands still and no flash covers the screen).
     const fxRow = fx !== undefined ? `<label class="rt-run-setting" title="Тряска камеры и вспышки на весь экран. При 0 % их нет. Вспышек не больше трёх в секунду.">Тряска и вспышки <select data-action="fx-level" data-testid="view-fx">${FX_LEVELS.map(l => `<option value="${l}"${l === fx ? ' selected' : ''}>${l} %</option>`).join('')}</select></label>` : '';
-    const rows = soundRows + fxRow + hintRows + toggles.map(t => `<label class="rt-run-setting"${t.hint ? ` title="${escapeHtml(t.hint)}"` : ''}><input type="checkbox" data-action="view-toggle" data-toggle="${t.id}" data-testid="view-${t.id}"${t.get() ? ' checked' : ''}> ${escapeHtml(t.label)}</label>`).join('');
+    // User request 22.10.2026: «Сбросить прогресс» last in the box; a second step asks before anything goes.
+    const wipeRow = this.confirmWipe
+      ? `<span class="rt-run-wipe-ask" data-testid="progress-reset-ask">Удалить поход, героев, «Летопись», трофеи и рекорды? Настройки останутся.<span class="rt-run-wipe-buttons"><button class="rt-run-wipe" data-action="wipe-confirm" data-testid="progress-reset-confirm">Сбросить</button><button data-action="wipe-cancel" data-testid="progress-reset-cancel">Отмена</button></span></span>`
+      : `<button class="rt-run-wipe" data-action="wipe" data-testid="progress-reset" title="Начать игру заново: поход, герои, «Испытание», «Летопись», трофеи и рекорды удаляются. Настройки и логи остаются.">Сбросить прогресс</button>`;
+    const rows = soundRows + fxRow + hintRows + toggles.map(t => `<label class="rt-run-setting"${t.hint ? ` title="${escapeHtml(t.hint)}"` : ''}><input type="checkbox" data-action="view-toggle" data-toggle="${t.id}" data-testid="view-${t.id}"${t.get() ? ' checked' : ''}> ${escapeHtml(t.label)}</label>`).join('') + wipeRow;
     return `<span class="rt-run-gear-wrap"><button class="rt-run-gear" data-action="settings" data-testid="run-settings" title="Настройки" aria-expanded="${this.settingsOpen}">⚙</button>`
       + (this.settingsOpen ? `<span class="rt-run-settings" data-testid="run-settings-panel">${rows}</span>` : '') + '</span>';
   }

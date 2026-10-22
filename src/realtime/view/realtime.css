@@ -437,6 +437,12 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-run-line { margin: 0; padding: 4px 18px; color: var(--rt-muted); font-size: 12px; }
 .rt-run-modal .rt-run-line { padding: 0; margin: 10px 0 0; text-align: center; }
 .rt-run-head button.rt-run-hints-reset { padding: 3px 8px; font-size: 12px; }
+/* User request 22.10.2026: «Сбросить прогресс» — last in the gear's box, apart from the settings; its question wraps in the box. */
+.rt-run-head button.rt-run-wipe { margin-top: 4px; padding: 3px 8px; font-size: 12px; color: #e8a08a; border-color: #6a3a2c; }
+.rt-run-head button.rt-run-wipe:hover { border-color: #c0604a; }
+.rt-run-wipe-ask { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; max-width: 220px; white-space: normal; font-size: 12px; color: #f0c9a0; }
+.rt-run-wipe-buttons { display: flex; gap: 6px; }
+.rt-run-wipe-ask button.rt-run-wipe { margin-top: 0; }
 
 /* The prologue «Опушка» (task 6, step 4; docs/realtime-onboarding.md): the room's name, the corner button, the fade, the lean HUD. */
 .rt-prologue-title { position: absolute; left: 50%; top: 28%; transform: translate(-50%, -50%); z-index: 6; font: bold 56px/1.1 Georgia, serif; letter-spacing: 0.02em; color: #fff2c4; text-shadow: 0 3px 14px #000, 0 0 3px #000; white-space: nowrap; pointer-events: none; }

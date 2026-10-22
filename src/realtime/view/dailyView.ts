@@ -17,7 +17,7 @@ const esc = (s: string): string => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<
 export interface DailySession { date: string; attempt: number; steps: RtStepCall[]; journals: Journal[]; broken: boolean }
 
 export const DAILY_SESSION_KEY = 'ashen-oath-rt-daily-session-v1';
-const DAILY_FIGHTS_KEY = 'ashen-oath-rt-daily-fights-v1';
+export const DAILY_FIGHTS_KEY = 'ashen-oath-rt-daily-fights-v1';
 
 /** The session in the viewer's `localStorage` (steps — small, saved at every step; the journals — their own key, saved when a fight ends). */
 export class DailySessionStore {
