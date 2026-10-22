@@ -32,6 +32,7 @@ import {
 import type { Enemy, World, WorldEvent } from '../sim/world';
 import { ELITE_LEMON } from './eliteView';
 import { drawWhistleMark } from './jailerView';
+import { REFUSAL_TEXT } from '../sim/chain';
 
 const NAVY = 0x18232d;
 const THREAT = 0xffffff;
@@ -58,6 +59,8 @@ export const FALL_LIFE = 0.5;
 export const CRUMBLE_LIFE = 0.6;
 export const REGROW_LIFE = 0.5;
 export const UNLINK_LIFE = 0.3;
+/** Task 48 §25: the words over a part carried out of reach (`trollLinkFar`): the sim's refusal `far` (render.ts says them). */
+export const TROLL_FAR_WORDS = REFUSAL_TEXT.far;
 /** Task 48 §25: «Рывок» — the lane's warm amber (a threat, not a chain colour; the club's strip stays white), the effects' lives, the dust's beat. */
 const CHARGE_TINT = 0xffbf6b;
 const DUST = 0xc8b48c;
@@ -600,7 +603,7 @@ export class TrollView {
     if (st?.stuck) {
       s.stuckStars = 1;
       const cx = st.x * U, cy = st.y * U + r * TROLL_FEET - r * TROLL_ART * TROLL_ART_ASPECT * 0.92;
-      stuckStars(g, cx, cy, r * TROLL_ART * 0.2, clock);
+      stuckStars(g, cx, cy, r * TROLL_ART * 0.24, clock);
     }
     // Effects.
     this.fx = this.fx.filter(f => clock - f.born < f.life);
@@ -619,8 +622,8 @@ export class TrollView {
         }
         fxG.stroke({ color: SPARK_GREY, width: 3, alpha: k, cap: 'round' });
       } else if (f.kind === 'dust') {
-        const R = f.r * (0.35 + 0.55 * (1 - k));
-        fxG.circle(f.x, f.y - f.r * 0.2 * (1 - k), R).fill({ color: DUST, alpha: 0.55 * k });
+        const R = f.r * (0.5 + 0.8 * (1 - k));
+        fxG.circle(f.x, f.y - f.r * 0.3 * (1 - k), R).fill({ color: DUST, alpha: 0.7 * k });
       } else if (f.kind === 'push') {
         // Three speed lines from where it stood to just behind it, shrinking towards the body.
         const fx0 = f.fromX ?? f.x, fy0 = f.fromY ?? f.y, dx = f.x - fx0, dy = f.y - fy0, d = Math.hypot(dx, dy) || 1, nx = -dy / d, ny = dx / d, tail = 1 - k;
@@ -767,8 +770,8 @@ export function chargeLane(g: Graphics, ox: number, oy: number, ux: number, uy: 
 /** Task 48 §25: «застрял» — three pale stars turning over the head (px; the lynx's stun, larger) and a grey spark between them. */
 export function stuckStars(g: Graphics, cx: number, cy: number, R: number, clock: number): void {
   for (let i = 0; i < 3; i++) {
-    const a = clock * 4 + i * Math.PI * 2 / 3, sx = cx + Math.cos(a) * R, sy = cy + Math.sin(a) * R * 0.32, s = R * 0.32, pts: number[] = [];
+    const a = clock * 4 + i * Math.PI * 2 / 3, sx = cx + Math.cos(a) * R, sy = cy + Math.sin(a) * R * 0.32, s = R * 0.5, pts: number[] = [];
     for (let j = 0; j < 10; j++) { const b = -Math.PI / 2 + j * Math.PI / 5, rr = j % 2 ? s * 0.42 : s; pts.push(sx + Math.cos(b) * rr, sy + Math.sin(b) * rr); }
-    g.poly(pts).fill(0xfff2a0).stroke({ color: THREAT_OUTLINE, width: 2.5, join: 'round' });
+    g.poly(pts).fill(0xfff2a0).stroke({ color: THREAT_OUTLINE, width: 3.5, join: 'round' });
   }
 }
