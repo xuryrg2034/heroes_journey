@@ -50,8 +50,9 @@ export const TRICKS_TEST_ARENA: ArenaTemplate = registerArena({
  * a small one below the middle (water: walking at half speed, for the slimes as for all; the chain and the jump as on land). The dry
  * ground: a corridor from the door down the middle, the edges, the strip at the bottom. The slimes wade slowly, so a pair touching in the
  * water stays a pair for a while — the decision: chain the pair across the water before it merges, or wait on the dry ground for a
- * crowd that merges at your feet. Two pairs of one colour stand apart in the pools (colours 1 and 3), single slimes and weak enemies of
- * every colour around; the newcomers — slimes by `BOG_SLIME_SHARE`, the rest basic (no packs, no boars).
+ * crowd that merges at your feet. A pair of colour 0 stands touching on the dry corridor (it merges in the first second unless the chain
+ * cuts it: the lesson is seen at once), two pairs of one colour stand apart in the pools (colours 1 and 3), a single slime and weak
+ * enemies of every colour around; the newcomers — slimes by `BOG_SLIME_SHARE`, the rest basic (no packs, no boars).
  */
 export const BOG_SLIME_SHARE = 0.22;
 export const BOG_ARENA: ArenaTemplate = registerArena({
@@ -69,7 +70,7 @@ export const BOG_ARENA: ArenaTemplate = registerArena({
   enemies: [
     { x: 2.8, y: 2.8, color: 1, kind: SLIME }, { x: 4.9, y: 4.4, color: 1, kind: SLIME },
     { x: 11.1, y: 2.8, color: 3, kind: SLIME }, { x: 13.2, y: 4.4, color: 3, kind: SLIME },
-    { x: 8, y: 2.4, color: 0, kind: SLIME }, { x: 1.2, y: 7.0, color: 2, kind: SLIME },
+    { x: 7.65, y: 3.0, color: 0, kind: SLIME }, { x: 8.35, y: 3.0, color: 0, kind: SLIME }, { x: 1.2, y: 7.0, color: 2, kind: SLIME },
     weak(6.2, 7.8, 2), weak(9.8, 7.6, 0), weak(8.0, 4.2, 1), weak(14.6, 7.4, 3),
   ],
   phaseOverride: { wolfShare: 0, boarShare: 0 },
