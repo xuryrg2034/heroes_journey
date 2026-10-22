@@ -189,6 +189,8 @@ const castellanFights: { won: boolean; time: number; source: string | null; hpIn
 /** Task 43: the Jailer's fights (the reference wall): outcome and game time. */
 const jailerFights: { won: boolean; time: number; hpIn: number }[] = [];
 /** Task 57б (spec 16): the fights with a kind of the forest's mechanics — what the kinds did there (both passes). */
+/** Step 57б-2: where a centipede's part got stuck (arena and point), every fight. */
+const stuckAt: string[] = [];
 const mechFights: { rootling: boolean; slime: boolean; firebrand: boolean; centipede: boolean; lie: number; rise: number; crumble: number; burn: number; merges: number; out: number; lit: number; lunges: number; splits: number; stuck: number; tag: string; won: boolean; time: number }[] = [];
 const jailerArena = (id: string): boolean => (JAILER_RUN_ARENAS as readonly string[]).includes(id);
 
@@ -241,7 +243,7 @@ function fight(run: RtRunState, t: Tally): RtArenaOutcome {
         else if (ev.type === 'slime') mech.merges++;
         else if (ev.type === 'firebrand') mech[ev.action]++;
         // Step 57б-2: the centipede's lunges, divisions and the rope's stuck parts (design 22.10.2026: stuck in the fights → a stored trail).
-        else if (ev.type === 'centipede') { if (ev.action === 'lunge' && ev.stage === 'start') mech.lunges++; else if (ev.action === 'split') mech.splits++; else if (ev.action === 'stuck') mech.stuck++; }
+        else if (ev.type === 'centipede') { if (ev.action === 'lunge' && ev.stage === 'start') mech.lunges++; else if (ev.action === 'split') mech.splits++; else if (ev.action === 'stuck') { mech.stuck++; stuckAt.push(`${pending.arena} (${ev.x.toFixed(1)}; ${ev.y.toFixed(1)})`); } }
         if (ev.type !== 'hit') continue;
         damage[ev.source] = (damage[ev.source] ?? 0) + ev.damage;
         if (!troll) continue;
@@ -386,7 +388,7 @@ if (TRICKS) {
   console.log(`Механики леса (оба прохода): бои с корневиками ${roots.length} — на бой легло ${per(roots, 'lie')}, встало ${per(roots, 'rise')}, рассыпалось групп ${per(roots, 'crumble')}, сожжено пней ${per(roots, 'burn')}, боёв без рассыпания ${roots.filter(f => !f.crumble).length}; бои со слизнями ${slimes.length} — слияний на бой ${per(slimes, 'merges')}, боёв без слияния ${slimes.filter(f => !f.merges).length}; бои с головешками ${brands.length} — погасло на бой ${per(brands, 'out')}, разожглось ${per(brands, 'lit')}.`);
   const stuckBy = new Map<string, { fights: number; stuckFights: number; stuck: number; deaths: number }>();
   for (const f of centis) { const e = stuckBy.get(f.tag) ?? { fights: 0, stuckFights: 0, stuck: 0, deaths: 0 }; e.fights++; if (f.stuck) e.stuckFights++; e.stuck += f.stuck; if (!f.won) e.deaths++; stuckBy.set(f.tag, e); }
-  console.log(`Сороконожки (оба прохода): боёв ${centis.length}, рывков на бой ${per(centis, 'lunges')}, делений ${per(centis, 'splits')}, застреваний (centipede stuck) всего ${sum(centis, 'stuck')}, боёв с застреванием ${centis.filter(f => f.stuck).length}; по аренам: ${[...stuckBy].sort((x, y) => y[1].fights - x[1].fights).map(([tag, e]) => `${tag} ${e.fights} боёв, смертей ${e.deaths}, с застреванием ${e.stuckFights} (${e.stuck})`).join('; ')}.`);
+  console.log(`Сороконожки (оба прохода): боёв ${centis.length}, рывков на бой ${per(centis, 'lunges')}, делений ${per(centis, 'splits')}, застреваний (centipede stuck) всего ${sum(centis, 'stuck')}, боёв с застреванием ${centis.filter(f => f.stuck).length}; места застреваний: ${stuckAt.join(', ') || '—'}; по аренам: ${[...stuckBy].sort((x, y) => y[1].fights - x[1].fights).map(([tag, e]) => `${tag} ${e.fights} боёв, смертей ${e.deaths}, с застреванием ${e.stuckFights} (${e.stuck})`).join('; ')}.`);
 }
 console.log(`Тюремщик (все бои с ним, оба прохода): боёв ${jailerFights.length}, поражений ${jl} (${jailerFights.length ? Math.round(100 * jl / jailerFights.length) : 0}%), длина боя мед. ${jailerFights.length ? f1(median(jailerFights.map(f => f.time))) : '—'} с, HP героя на входе мед. ${jailerFights.length ? f1(median(jailerFights.map(f => f.hpIn))) : '—'}.`);
 // Task 48 (design 17.10.2026): deaths by the hero's HP entering the fight — the Troll's and the Jailer's, the bins 1–5 / 6–10 / 11+.

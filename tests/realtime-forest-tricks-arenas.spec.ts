@@ -6,8 +6,8 @@ import { replay, type Journal } from '../src/realtime/sim/simulation';
 /**
  * Task 57б «Лес: механики», the arenas (level design 22.10.2026): the sandbox menu's group «Лес: механики» at its end — «Механики леса
  * (проба)», «Трясина», «Бурелом» (`tricks-arena-1…3`, `?arena=45…47`). Smoke at 1280×720 with a real click on the menu: each arena
- * opens, its kinds stand from the start (the probe: rootlings, slimes, a firebrand; «Трясина»: slimes; «Бурелом»: weak enemies only,
- * the centipede comes with 57б-2), 8 s of game time pass (or the idle hero falls first — the sandbox's pace) with no page error, and the
+ * opens, its kinds stand from the start (the probe: rootlings, slimes, a firebrand; «Трясина»: slimes; «Бурелом»: a centipede and
+ * weak enemies), 8 s of game time pass (or the idle hero falls first — the sandbox's pace) with no page error, and the
  * page's journal replays in Node to its hash.
  * The run plays «Трясина» only with the flag `forestTricks` (off): its rules are checked in Node (`npm run test:realtime-forest-tricks-run`).
  */
@@ -21,7 +21,7 @@ function collectErrors(page: Page): string[] {
 const ARENAS: readonly { id: string; name: string; kinds: readonly string[] }[] = [
   { id: 'tricks-arena-1', name: 'Механики леса (проба)', kinds: ['basic', 'firebrand', 'rootling', 'slime'] },
   { id: 'tricks-arena-2', name: 'Трясина', kinds: ['basic', 'slime'] },
-  { id: 'tricks-arena-3', name: 'Бурелом', kinds: ['basic'] },
+  { id: 'tricks-arena-3', name: 'Бурелом', kinds: ['basic', 'centipede'] },
 ];
 
 for (const arena of ARENAS) {
