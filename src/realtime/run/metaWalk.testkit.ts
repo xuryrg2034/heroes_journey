@@ -201,6 +201,6 @@ export const REFERENCE_WALKS = (): WalkOptions[] => Array.from({ length: 24 }, (
   // Task 30: the reference predates the forms — its runs are created without them (`forms: false`, as a save before it); task 41:
   // without the cap of healing potions (`potionCap: 0`); task 48: without the Troll (`troll: false`); task 58: without the chronicle (`chronicle: false`);
   // 20.10.2026: the markers of before (`markerSeek: false`); «Дыры ядра боссов»: without the core's wards (`bossHoles: false`); «Ядро в окне — первым»: the nearest pick (`corePickFirst: false`); the press circles only (`bossPickArt: false`);
-  // task 57а (on 22.10.2026): the forest without the new shooters (`forestShooters: false`).
-  return { k, create: { gift: k % 2 ? 'full' : 'mini', ...k % 3 === 0 ? { feats: true } : {}, ...k % 4 === 0 ? { schedule: [] } : {}, forms: false, potionCap: 0, troll: false, markerSeek: false, chronicle: false, bossHoles: false, corePickFirst: false, bossPickArt: false, forestShooters: false }, ...k % 5 === 0 ? { loseAt: (_run: RtRunState, type: string) => type === 'checkpoint' } : {} };
+  // task 57а (on 22.10.2026): the forest without the new shooters (`forestShooters: false`); task 48 §25 (on 22.10.2026): the sitting Troll (`trollMove: false`).
+  return { k, create: { gift: k % 2 ? 'full' : 'mini', ...k % 3 === 0 ? { feats: true } : {}, ...k % 4 === 0 ? { schedule: [] } : {}, forms: false, potionCap: 0, troll: false, trollMove: false, markerSeek: false, chronicle: false, bossHoles: false, corePickFirst: false, bossPickArt: false, forestShooters: false }, ...k % 5 === 0 ? { loseAt: (_run: RtRunState, type: string) => type === 'checkpoint' } : {} };
 });
