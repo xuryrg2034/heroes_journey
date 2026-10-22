@@ -78,6 +78,11 @@ export interface EnemyBehavior {
    * Absent — an ordinary body.
    */
   crowd?(world: World, enemy: Enemy): 'anchored' | 'ghost';
+  /**
+   * Task 57б-2 (world.ts `separate`): two overlapping anchored bodies, both of this behaviour — `kin`: parts of one creature, no push
+   * either way (as any two anchored ones); `apart`: they part as ordinary bodies, by mass (two centipedes). Absent — as two anchored ones.
+   */
+  pairWith?(world: World, a: Enemy, b: Enemy): 'kin' | 'apart';
 }
 
 /**

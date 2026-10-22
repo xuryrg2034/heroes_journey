@@ -22,7 +22,8 @@ import {
   CENTIPEDE, CENTI_BODIES_MAX, CENTI_FIRST_LUNGE, CENTI_LUNGE_SOURCE, CENTI_STEP, CENTI_STUN, centipedeBodies, centipedeBody, centipedeHead,
   CENTI_CATCH_GAP, CENTI_STUCK, centipedeLane, centipedeStuck, centipedeStunned,
 } from './enemies/centipede';
-import { wall, type Vec } from './geometry';
+import { tree, wall, type Vec } from './geometry';
+import { bodyRadiusOf } from './enemies/kinds';
 import { worldState } from './hash';
 import { defaultParams, type Params } from './params';
 import { Simulation, SIM_DT, replay, type Journal } from './simulation';
@@ -43,8 +44,10 @@ registerArena({
   ...base, id: 'fc-come', name: 'Сороконожки идут', width: 26, height: 16, heroStart: { x: 13, y: 8 }, obstacles: [], door: { x: 25.3, y: 8 },
   newcomers: [{ kind: CENTIPEDE, share: 1 }], phaseOverride: { wolfShare: 0, boarShare: 0 },
 });
-// A wall from the top down to y 9 at x 9.6–10: a body walking west with its tail east of the wall drags the tail into it.
-registerArena({ ...base, id: 'fc-wall', name: 'Стена', width: 26, height: 16, heroStart: { x: 3, y: 4 }, obstacles: [wall(9.6, 0, 0.4, 9)], door: { x: 25.3, y: 8 } });
+// A wall from the top down to y 9 at x 9.6–10 and a tree: a centipede appearing next to them.
+registerArena({ ...base, id: 'fc-wall', name: 'Стена', width: 26, height: 16, heroStart: { x: 3, y: 4 }, obstacles: [wall(9.6, 0, 0.4, 9), tree(16, 12)], door: { x: 25.3, y: 8 } });
+// A long wall across the field: a body north of it walks round its east end to the hero south of it — its tail catches on the corner.
+registerArena({ ...base, id: 'fc-corner', name: 'Угол', width: 26, height: 16, heroStart: { x: 13, y: 2 }, obstacles: [wall(4, 7.8, 16, 0.4)], door: { x: 25.3, y: 8 } });
 
 /** Nothing comes, nobody walks (unless `enemySpeed` is given); the hero has 99 HP and no grace window to blur the count. */
 function quiet(extra: Partial<Params> = {}): Params {
@@ -263,17 +266,18 @@ check('off the links — «Прямая», «Возврат», «Печать»,
 
 // ---- The measure of the rope ----
 
-check(`stuck (the measure of the rope): a tail dragged into a wall stays farther than ${CENTI_CATCH_GAP} behind — after ${CENTI_STUCK} s it is stuck (\`centipedeStuck\`, event \`stuck\` once); on the open field and in a lunge none is (2 seeds)`, () => {
+check(`stuck (the measure of the rope): a body walking round the east end of a long wall to the hero behind it — its tail catches on the corner, farther than ${CENTI_CATCH_GAP} behind for ${CENTI_STUCK} s: \`centipedeStuck\`, event \`stuck\` once per part; on the open field and in a lunge none is (2 seeds)`, () => {
   for (const k of [1, 2]) {
-    const sim = new Simulation({ arena: 'fc-wall', params: quiet({ enemySpeed: 1.2 }), seed: seedOf(k), record: true }), w = sim.world;
+    const sim = new Simulation({ arena: 'fc-corner', params: quiet({ enemySpeed: 1.2 }), seed: seedOf(k), record: true }), w = sim.world;
     sim.command({ t: 'clear', keepMarked: false });
-    sim.command({ t: 'teleport', x: 3, y: 4 });
-    const parts = body(sim, { x: 8.6, y: 4 }, { x: 3, y: 4 });
-    sim.command({ t: 'teleport', x: 1, y: 4 });
-    const events = ticks(sim, ticksOf(5));
+    sim.command({ t: 'teleport', x: 13, y: 2 });
+    const parts = body(sim, { x: 13, y: 6.8 }, { x: 13, y: 2 });
+    sim.command({ t: 'teleport', x: 13, y: 12 });
+    const events = ticks(sim, ticksOf(14), [], (_w, out) => centi(out).some(e => e.action === 'stuck'));
     const stuck = centi(events).filter(e => e.action === 'stuck');
-    assert(stuck.length >= 1 && centipedeStuck(w).length >= 1 && stuck.every(e => parts.some(p => p.id === e.id)), `seed ${k}: stuck at the wall (${stuck.length}, now ${centipedeStuck(w)})`);
-    assert(new Set(stuck.map(e => e.id)).size === stuck.length, `seed ${k}: one event per part`);
+    assert(stuck.length >= 1 && stuck.every(e => parts.some(q => q.id === e.id) && centipedeStuck(w).includes(e.id)), `seed ${k}: stuck at the corner (${stuck.length}, now ${centipedeStuck(w)})`);
+    const more = ticks(sim, ticksOf(1));
+    assert(!centi(more).some(e => e.action === 'stuck' && stuck.some(x => x.id === e.id)), `seed ${k}: one event per part while it stays stuck`);
     // The open field, with a lunge (the hero near): none.
     const open = field(k, { enemySpeed: 1.2 }), ow = open.world;
     open.command({ t: 'teleport', x: 6, y: 8 });
@@ -281,6 +285,115 @@ check(`stuck (the measure of the rope): a tail dragged into a wall stays farther
     const free = ticks(open, ticksOf(6));
     assert(lunges(free, 'start').length >= 1 && !centi(free).some(e => e.action === 'stuck') && !centipedeStuck(ow).length, `seed ${k}: none stuck on the open field`);
     assert(replays(sim) && replays(open), `seed ${k}: replay`);
+  }
+});
+
+check('a centipede appearing next to a wall or a tree, the hero beyond its head: no part lies across the wall or in the tree; none stuck in the first 3 s (3 seeds)', () => {
+  for (const k of [1, 2, 3]) {
+    const sim = new Simulation({ arena: 'fc-wall', params: quiet({ enemySpeed: 1.2 }), seed: seedOf(k), record: true }), w = sim.world;
+    sim.command({ t: 'clear', keepMarked: false });
+    // The wall: the hero west of the head, the line through the head goes east into the wall (x 9.6–10).
+    sim.command({ t: 'teleport', x: 3, y: 4 });
+    const atWall = body(sim, { x: 9.0, y: 4 }, { x: 3, y: 4 });
+    assert(atWall.length === 5 && atWall.every(e => e.x < 9.6 - bodyRadiusOf(w.params, e) + 1e-9), `seed ${k}: no part across the wall (${atWall.map(e => e.x.toFixed(2))})`);
+    // The tree at (16, 12): the line from the hero through the head goes into it.
+    const atTree = body(sim, { x: 15.2, y: 12 }, { x: 10, y: 12 });
+    const r = bodyRadiusOf(w.params, atTree[0]);
+    assert(atTree.length === 5 && atTree.every(e => dist(e, { x: 16, y: 12 }) >= 0.42 + r - 1e-9), `seed ${k}: no part in the tree`);
+    sim.command({ t: 'teleport', x: 3, y: 4 });
+    const first = ticks(sim, ticksOf(3));
+    assert(!centi(first).some(e => e.action === 'stuck') && !centipedeStuck(w).length, `seed ${k}: none stuck in 3 s`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
+check('two bodies part as ordinary ones, a body\'s own parts never push each other: the roster brings two, the hero stands — after 6 s the heads and every two parts of different bodies are apart (≥ two body radii), each body keeps its rope (5 seeds)', () => {
+  for (const k of [1, 2, 3, 4, 5]) {
+    const p = defaultParams();
+    p.heroHp = 999; p.contactDamage = 0; p.hitstop = false;
+    const sim = new Simulation({ arena: 'fc-come', params: p, seed: seedOf(k), record: true }), w = sim.world;
+    let checked = false;
+    for (let i = 0; i < ticksOf(30) && w.status === 'playing'; i++) {
+      sim.tick(); w.events.length = 0;
+      sim.command({ t: 'teleport', x: 13, y: 8 });
+      const bodies = centipedeBodies(w);
+      if (bodies.length < 2) continue;
+      const youngest = Math.min(...bodies.map(b => w.enemies.find(e => e.id === b.head)!.age));
+      if (youngest < 6) continue;
+      const parts = bodies.map(b => b.parts.map(id => w.enemies.find(e => e.id === id)!));
+      const r2 = 2 * bodyRadiusOf(w.params, parts[0][0]);
+      let closest = Infinity;
+      for (const a of parts[0]) for (const b of parts[1]) closest = Math.min(closest, dist(a, b));
+      assert(dist(parts[0][0], parts[1][0]) >= r2 - 0.02 && closest >= r2 - 0.02, `seed ${k}: the bodies apart — heads ${dist(parts[0][0], parts[1][0]).toFixed(3)}, closest parts ${closest.toFixed(3)} (2r ${r2.toFixed(3)})`);
+      for (const one of parts) for (let j = 1; j < one.length; j++) assert(dist(one[j], one[j - 1]) <= CENTI_CATCH_GAP + 1e-6, `seed ${k}: the rope holds (${dist(one[j], one[j - 1]).toFixed(3)})`);
+      checked = true;
+      break;
+    }
+    assert(checked, `seed ${k}: two bodies 6 s on the arena`);
+  }
+});
+
+check(`the cap at the settle counts the heads the highlight saw: 2 bodies, a chain with 2 breaks — the highlight promises 2 new heads (4 bodies); a third centipede appears while the dash runs (\`place\`: \`spawnEnemy\`, as a marker opens — reachable with a level's \`kindCaps.centipede\` ≥ 3); the outcome is still the highlight's, no \`join\` (3 seeds)`, () => {
+  let landed = 0;
+  for (const k of [1, 2, 3]) {
+    const sim = field(k), w = sim.world;
+    sim.command({ t: 'teleport', x: 2, y: 8 });
+    const a = body(sim, { x: 8, y: 7.5 }, { x: 2, y: 8 }); body(sim, { x: 8, y: 11 }, { x: 2, y: 11 });
+    sim.command({ t: 'teleport', x: a[1].x - 1, y: a[1].y - 0.5 });
+    draw(sim, [a[1], a[3]]);
+    const plan = planChain(w);
+    assert(splitKey(plan.splits ?? []) === splitKey([{ newHead: a[2].id, front: a[0].id, cut: a[1].id }, { newHead: a[4].id, front: a[2].id, cut: a[3].id }]), `seed ${k}: the highlight — two new heads (${JSON.stringify(plan.splits)})`);
+    assert(sim.command({ t: 'release' }), 'released');
+    const events = ticks(sim, 1);
+    const heads = (): number => centipedeBodies(w).length;
+    const before = heads();
+    sim.command({ t: 'place', x: 20, y: 3, color: 3, hp: 1, kind: CENTIPEDE });
+    assert(w.move, `seed ${k}: still dashing`);
+    if (heads() > before) landed++;
+    ticks(sim, 600, events, x => !x.move);
+    assert(doneKey(events) === splitKey(plan.splits!) && !centi(events).some(e => e.action === 'join'), `seed ${k}: the outcome is the highlight's (${doneKey(events)})`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+  assert(landed === 3, `a head landed during the dash on ${landed} of 3 seeds`);
+});
+
+check('a bomb kills a part while a chain is drawn: the highlight shows the break at once, the next tick settles it (the new head, HP 1, a link of the chain), the highlight recomputes and the dash plays it (3 seeds)', () => {
+  for (const k of [1, 2, 3]) {
+    const sim = field(k), w = sim.world;
+    sim.command({ t: 'teleport', x: 3, y: 8 });
+    const parts = body(sim, { x: 6, y: 8 }, { x: 3, y: 8 });
+    sim.command({ t: 'teleport', x: parts[3].x, y: parts[3].y - 1.2 });
+    draw(sim, [parts[3], parts[4]]);
+    assert(!planChain(w).splits, `seed ${k}: the tail end — no «трещина»`);
+    sim.command({ t: 'items', kind: 'bomb', count: 1 });
+    assert(sim.command({ t: 'item', kind: 'bomb', x: parts[1].x, y: parts[1].y }) === true && !w.enemies.includes(parts[1]), `seed ${k}: the bomb killed part 1`);
+    const now = planChain(w);
+    assert(splitKey(now.splits ?? []) === `${parts[2].id}<${parts[0].id}/${parts[1].id}`, `seed ${k}: the highlight shows the break at once (${JSON.stringify(now.splits)})`);
+    const settle = ticks(sim, 1);
+    assert(doneKey(settle) === splitKey(now.splits!) && parts[2].hp === 1 && w.chain.length === 2, `seed ${k}: the next tick settles it (${doneKey(settle)})`);
+    // The chain now: part 3 → part 4, behind the new head: no break — the plan and the dash agree.
+    const after = planChain(w);
+    const events = release(sim);
+    assert(doneKey(events) === splitKey(after.splits ?? []) && !w.enemies.includes(parts[3]) && !w.enemies.includes(parts[4]), `seed ${k}: the dash as the highlight (${doneKey(events)})`);
+    assert(replays(sim), `seed ${k}: replay`);
+  }
+});
+
+check('«Рывок» passes the hero dashing through its lane: the run meets him during his move — no hit, the run ends `pass` (3 seeds)', () => {
+  for (const k of [1, 2, 3]) {
+    const sim = field(k), w = sim.world;
+    sim.command({ t: 'teleport', x: 6, y: 8 });
+    const parts = body(sim, { x: 9, y: 8 }, { x: 6, y: 8 });
+    // Links of another colour on the lane, between the hero and the head.
+    const links = [6.8, 7.6, 8.4].map(x => { const id = sim.command({ t: 'place', x, y: 8.3, color: 2, hp: 0, kind: 'basic' }); return w.enemies.find(e => e.id === id)!; });
+    ticks(sim, ticksOf(3.5), [], () => parts[0].boar === 'charge');
+    assert(parts[0].boar === 'charge', `seed ${k}: the run starts`);
+    draw(sim, links);
+    const events = release(sim);
+    ticks(sim, ticksOf(0.5), events);
+    const end = lunges(events, 'end').find(e => e.id === parts[0].id);
+    assert(end?.met === 'pass' && !events.some(e => e.type === 'hit' && e.source === CENTI_LUNGE_SOURCE), `seed ${k}: passed during the dash (${JSON.stringify(end)})`);
+    assert(replays(sim), `seed ${k}: replay`);
   }
 });
 

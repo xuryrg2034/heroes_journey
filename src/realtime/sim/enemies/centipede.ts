@@ -28,7 +28,8 @@
  * function (`resolveBreaks`): highlight = the pass.
  *
  * State in `enemy.vars`: `ca` — the part ahead; `cx`, `bx`, `by` — a break waiting; `cs` — stun left (game s); `cg` — game s a part has been
- * farther than `CENTI_CATCH_GAP` behind (stuck past `CENTI_STUCK`); `cm` 1 — the run passed
+ * farther than `CENTI_CATCH_GAP` behind (stuck past `CENTI_STUCK`); `cn` 1 — a head that came while a move ran or a break waited
+ * (the cap does not count it until the settle); `cm` 1 — the run passed
  * the hero during his move. The head's lunge in the boar's fields: `boar` `walk` / `windup` / `charge`, `boarTimer` (the pause, the
  * windup), `dirX`/`dirY` (the lane), `charged` (run so far).
  */
@@ -79,6 +80,13 @@ export const centipedeHead = (e: Pick<Enemy, 'kind' | 'vars'>): boolean => e.kin
 export const centipedeStunned = (e: Pick<Enemy, 'kind' | 'vars'>): boolean => e.kind === CENTIPEDE && (e.vars.cs ?? 0) > TIME_EPS;
 
 const findSegment = (world: World, id: number): Enemy | undefined => world.enemies.find(e => e.id === id && e.kind === CENTIPEDE);
+
+/** The front of `e`'s body: up the parts ahead (`vars.ca`) to the one with none. */
+function bodyFront(world: World, e: Enemy): number {
+  let at = e, guard = world.enemies.length;
+  for (let next = at.vars.ca !== undefined ? findSegment(world, at.vars.ca) : undefined; next && guard-- > 0; next = at.vars.ca !== undefined ? findSegment(world, at.vars.ca) : undefined) at = next;
+  return at.id;
+}
 
 /**
  * The body of `headId` (the view): its parts' ids from the head to the tail, by the parts' links ahead (`vars.ca`). A part waiting on a
@@ -144,7 +152,8 @@ function resolveBreaks(world: World, killed: ReadonlySet<number>): { promote: Ce
       if (cut === undefined) { cut = ahead; x = dead?.x ?? e.x; y = dead?.y ?? e.y; }
       ahead = dead?.vars.ca;
     }
-    if (cut === undefined) { if (ahead === undefined) heads++; continue; }
+    // A head that came while a move ran or a break waited (`vars.cn`) is not counted: the highlight could not see it (design review).
+    if (cut === undefined) { if (ahead === undefined && e.vars.cn === undefined) heads++; continue; }
     breaks.push({ id: e.id, ahead, cut, x, y });
   }
   const promote: CentipedeSplit[] = [], join: { id: number; ahead: number }[] = [];
@@ -177,7 +186,7 @@ export function planSplits(world: World, killed: ReadonlySet<number>): Centipede
 }
 
 /** Any break waiting on the arena (a part whose part ahead died, or is gone). */
-function breaksWaiting(world: World): boolean {
+export function breaksWaiting(world: World): boolean {
   for (const e of world.enemies) {
     if (e.kind !== CENTIPEDE) continue;
     if (e.vars.cx !== undefined) return true;
@@ -191,7 +200,13 @@ function breaksWaiting(world: World): boolean {
  * the highlight's `resolveBreaks` on the world as it is.
  */
 export function settleCentipedes(world: World): void {
-  if (world.status !== 'playing' || world.move || !breaksWaiting(world)) return;
+  if (world.status !== 'playing' || world.move) return;
+  if (breaksWaiting(world)) settleBreaks(world);
+  // The heads that came during the pass count from now on.
+  for (const e of world.enemies) if (e.kind === CENTIPEDE && e.vars.cn !== undefined) delete e.vars.cn;
+}
+
+function settleBreaks(world: World): void {
   const { promote, join } = resolveBreaks(world, new Set());
   for (const s of promote) {
     const e = findSegment(world, s.newHead)!, v = e.vars;
@@ -294,17 +309,36 @@ function stepPart(world: World, e: Enemy, dt: number): boolean {
   return true;
 }
 
-/** Its parts appear with the head: `centiParts` − 1 of them, `CENTI_STEP` apart on the line from the hero through the head. */
+/** The turns `layParts` tries, as (cos, sin): 0°, ±45°, ±90°, ±135°, 180°. */
+const H = Math.SQRT1_2;
+const LAY_TURNS: readonly (readonly [number, number])[] = [[1, 0], [H, H], [H, -H], [0, 1], [0, -1], [-H, H], [-H, -H], [-1, 0]];
+
+/**
+ * Its parts appear with the head: `centiParts` − 1 of them, `CENTI_STEP` apart, each from the part ahead on the line from the hero through
+ * the head — where that way is clear (no wall, tree, cliff or edge on it or at the spot); else turned toward the free side; none — on the
+ * part ahead (design review 22.10.2026: no part across a wall).
+ */
 function layParts(world: World, head: Enemy): void {
   const n = partsOf(world) - 1;
   head.boar = 'walk'; head.boarTimer = CENTI_FIRST_LUNGE;
   if (n <= 0) return;
   const dx = head.x - world.hero.x, dy = head.y - world.hero.y, d = dhypot(dx, dy);
-  const ux = d > 1e-6 ? dx / d : 1, uy = d > 1e-6 ? dy / d : 0, r = bodyRadiusOf(world.params, head);
+  let ux = d > 1e-6 ? dx / d : 1, uy = d > 1e-6 ? dy / d : 0;
+  const r = bodyRadiusOf(world.params, head);
+  // It came while a move ran or a break waited: the cap does not count it until the breaks settle (`resolveBreaks`).
+  if (world.move || breaksWaiting(world)) head.vars.cn = 1;
   let ahead = head;
   for (let i = 1; i <= n; i++) {
+    // The first clear way from the part ahead: straight on, then turned 45°, 90°, 135° to either side, then back; none — on it.
+    let at: Vec = { x: ahead.x, y: ahead.y };
+    for (const [c, s] of LAY_TURNS) {
+      const vx = ux * c - uy * s, vy = ux * s + uy * c, p = { x: ahead.x + vx * CENTI_STEP, y: ahead.y + vy * CENTI_STEP };
+      if (blockedAt(p, r, world.arena) || !lineOfSight(ahead, p, world.arena, r)) continue;
+      at = p; ux = vx; uy = vy;
+      break;
+    }
     const e: Enemy = {
-      id: world.nextId++, kind: CENTIPEDE, x: head.x + ux * CENTI_STEP * i, y: head.y + uy * CENTI_STEP * i, color: head.color, hp: 0, marked: false,
+      id: world.nextId++, kind: CENTIPEDE, x: at.x, y: at.y, color: head.color, hp: 0, marked: false,
       speedFactor: head.speedFactor, brake: 0, age: 0, strikeFlash: 0, hurtFlash: 0, knock: 0, knockVx: 0, knockVy: 0,
       boar: 'walk', boarTimer: 0, dirX: 0, dirY: 0, charged: 0, headX: 0, headY: 0, vars: { ca: ahead.id },
     };
@@ -331,7 +365,9 @@ registerBehavior({
   // The running head's touch is its run.
   touches: (_world, e) => e.boar !== 'charge',
   onDeath: partDied,
+  // The crowd never moves the body; its own parts never push each other, two bodies part as ordinary ones (design review 22.10.2026).
   crowd: () => 'anchored',
+  pairWith: (world, a, b) => (bodyFront(world, a) === bodyFront(world, b) ? 'kin' : 'apart'),
 });
 
 registerEnemyKind({

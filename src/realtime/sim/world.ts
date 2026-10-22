@@ -2040,7 +2040,12 @@ function separate(world: World): Map<Enemy, Enemy> | null {
         // Overlap split by mass: the charging boar barely yields, the crowd gets shoved aside.
         const ma = kindOf(a).mass(world, a), mb = kindOf(b).mass(world, b), overlap = min - d;
         // Task 48: a solid body never yields (the other takes the whole overlap; two solid ones stay as they are).
-        const sa = solidBody(world, a) || crowd[i] === 'anchored', sb = solidBody(world, b) || crowd[j] === 'anchored';
+        let sa = solidBody(world, a) || crowd[i] === 'anchored', sb = solidBody(world, b) || crowd[j] === 'anchored';
+        // Task 57б-2 (`EnemyBehavior.pairWith`): two anchored bodies of one behaviour may part as ordinary ones (two centipedes).
+        if (crowd[i] === 'anchored' && crowd[j] === 'anchored') {
+          const bh = behaviorOf(a);
+          if (bh === behaviorOf(b) && bh.pairWith?.(world, a, b) === 'apart') { sa = solidBody(world, a); sb = solidBody(world, b); }
+        }
         if (sa && sb) continue;
         const pa = sa ? 0 : sb ? overlap : overlap * mb / (ma + mb), pb = sb ? 0 : sa ? overlap : overlap * ma / (ma + mb);
         a.x -= dx * pa; a.y -= dy * pa; b.x += dx * pb; b.y += dy * pb;
