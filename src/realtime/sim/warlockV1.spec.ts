@@ -15,7 +15,7 @@ import { BARREL, WARDROBE } from './enemies/castle';
 import {
   BLINK_RADIUS, FLASH_RADIUS, ORB_DAMAGE, ORB_FAN, ORB_RING, RUG_PULL, SUMMON_SIZE, WARLOCK, WARLOCK_ORB, onRug, warlockState, warlockV1State,
 } from './enemies/warlock';
-import { type Vec } from './geometry';
+import { blockedAt, type Vec } from './geometry';
 import { enemyRefusal, planChain } from './chain';
 import { defaultParams, heroRadius, type Params } from './params';
 import { durabilityOf } from './shove';
@@ -404,7 +404,21 @@ check('phase 3 «ярость»: phase 2 and a plate off — still 2; the second
   assert(until(h, 2, (_w, ev) => moved(ev, 'orbs', 'hit')) && orbs(h.w).length === ORB_RING, `8 orbs (${orbs(h.w).length})`);
 });
 
-check('the provisional rugs keep the barrels\' shoves of v0: no rug under a barrel or on a barrel\'s lane to its candle; with v1 on, B3 and B4 shoved north roll along their columns past C2 and C3', () => {
+check('the provisional rugs keep the barrels\' shoves of v0: no rug under a barrel or on a barrel\'s lane to its candle; with v1 on, B1 and B2 shoved along C1\'s row strike him at C1 (a plate), B3 and B4 shoved north roll along their columns past C2 and C3', () => {
+  for (const k of SEEDS) {
+    // At the start he stands at C1: B1 from the west, then B2 from the east — each a plate (the shove's strike, charmed or not).
+    const h = hall(k, CALM);
+    for (const bx of [2.4, 21.6]) {
+      const b = h.w.enemies.find(e => e.kind === BARREL && Math.abs(e.x - bx) < 1e-9)!, before = plates(h.core);
+      h.sim.command({ t: 'teleport', x: b.x + (bx < 12 ? -1 : 1), y: b.y });
+      draw(h.sim, [b]);
+      const plan = planChain(h.w).shove;
+      assert(plan && plan.stop === 'core' && plan.target === h.core.id && plan.impact?.plate, `seed ${k}: B at ${bx} — the plan strikes him (${JSON.stringify(plan && { stop: plan.stop, to: plan.to })})`);
+      release(h.sim);
+      assert(plates(h.core) === before - 1, `seed ${k}: B at ${bx} took a plate (${plates(h.core)})`);
+    }
+    assert(replays(h.sim), `seed ${k}: replay`);
+  }
   const rugs = WARLOCK_ARENA.warlock!.rugs!, candles = WARLOCK_ARENA.warlock!.candles;
   const barrels = WARLOCK_ARENA.enemies.filter(e => e.kind === BARREL);
   // The lanes (spec 6.6): B1, B2 — C1's row; B3, B4 — the columns of C2, C3. A lane is the barrel's body wide.
@@ -427,6 +441,85 @@ check('the provisional rugs keep the barrels\' shoves of v0: no rug under a barr
     }
     assert(replays(h.sim), `seed ${k}: replay`);
   }
+});
+
+/** Points over a rug: a grid of `step` with its edges and corners (just inside: the rule reads the centre on the rug). */
+function rugGrid(r: { x: number; y: number; w: number; h: number }, step: number): Vec[] {
+  const out: Vec[] = [], e = 0.01, w = r.w - 2 * e, hh = r.h - 2 * e, nx = Math.ceil(w / step), ny = Math.ceil(hh / step);
+  for (let j = 0; j <= ny; j++) for (let i = 0; i <= nx; i++) out.push({ x: r.x + e + w * i / nx, y: r.y + e + hh * j / ny });
+  return out;
+}
+const DIRS: readonly Vec[] = [{ x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 }];
+
+check('design acceptance of the provisional rugs (22.10.2026): from every point of each rug the hero steps off it within the rug\'s windup 1.0 s — the quickest of 4 ways (the slowest point and the ways a pillar blocks printed)', () => {
+  const h = hall(1, CALM);
+  let worst = 0, points = 0;
+  const stuckWays = new Set<string>();
+  for (const rug of WARLOCK_ARENA.warlock!.rugs!) {
+    for (const p of rugGrid(rug, 0.25)) {
+      h.sim.command({ t: 'walk', x: 0, y: 0 });
+      h.sim.command({ t: 'teleport', x: p.x, y: p.y });
+      ticks(h.sim, 1);
+      assert(onRug(h.w, h.w.hero), `(${p.x.toFixed(2)}, ${p.y.toFixed(2)}): the hero stands on the rug`);
+      // The quickest of the 4 ways off (a pillar may stand across one of them: pressed to it, the hero's centre is still on the rug).
+      let t = Infinity;
+      const blocked: string[] = [];
+      for (const d of DIRS) {
+        h.sim.command({ t: 'walk', x: 0, y: 0 });
+        h.sim.command({ t: 'teleport', x: p.x, y: p.y });
+        h.sim.command({ t: 'walk', x: d.x, y: d.y });
+        let n = 0;
+        while (onRug(h.w, h.w.hero) && n < ticksOf(2)) { ticks(h.sim, 1); n++; }
+        if (onRug(h.w, h.w.hero)) blocked.push(`${d.x},${d.y}`); else t = Math.min(t, n * SIM_DT);
+      }
+      if (blocked.length) stuckWays.add(`(${p.x.toFixed(2)}, ${p.y.toFixed(2)}) → ${blocked.join(' ')}`);
+      assert(t <= 1 + 1e-9, `(${p.x.toFixed(2)}, ${p.y.toFixed(2)}): off the rug in ${t.toFixed(2)} s`);
+      worst = Math.max(worst, t); points++;
+    }
+  }
+  console.log(`   ${points} точек двух ковров: сход за ${worst.toFixed(2)} с в худшей (замах ковра 1,0 с; с реакцией 0,2 с — ${(worst + 0.2).toFixed(2)} с)`);
+  console.log(`   точек, где один из 4 путей упирается в столб, а центр героя остаётся на ковре: ${stuckWays.size}${stuckWays.size ? ` (первая: ${[...stuckWays][0]})` : ''}`);
+  assert(worst + 0.2 <= 1, `the slowest step off with a reaction 0.2 s: ${(worst + 0.2).toFixed(2)} s`);
+  assert(replays(h.sim), 'replay');
+});
+
+check('design acceptance of the provisional rugs: a pull never sticks the hero — from points over both rugs (corners, edges, the middle) real pulls towards wherever he stands (candles, runes); after each the hero stands free of walls and of the core, and walks off in each of 4 directions unless a wall touches him on that side', () => {
+  const cores = new Set<string>();
+  let pulls = 0, walled = 0;
+  const r = heroRadius(defaultParams());
+  for (const k of SEEDS) {
+    const h = hall(k, { ...CALM, warlockRugPeriod: 0.5 });
+    phase2(h, { x: 12, y: 14 });
+    for (const rug of WARLOCK_ARENA.warlock!.rugs!) {
+      for (const p of rugGrid(rug, 1.25)) {
+        h.sim.command({ t: 'walk', x: 0, y: 0 });
+        h.sim.command({ t: 'teleport', x: p.x, y: p.y });
+        if (!until(h, 8, (w, ev) => moved(ev, 'rug', 'start') && onRug(w, w.hero))) continue;
+        if (!until(h, 2, w => !!warlockV1State(w)!.rug.sliding)) continue;
+        until(h, 1, w => !warlockV1State(w)!.rug.sliding);
+        const core = h.core, hero = { x: h.w.hero.x, y: h.w.hero.y };
+        cores.add(`${core.x.toFixed(1)},${core.y.toFixed(1)}`);
+        assert(!blockedAt(hero, r - 1e-3, h.w.arena) && dist(hero, core) >= 0.32 + r - 1e-3, `seed ${k}, (${p.x.toFixed(2)}, ${p.y.toFixed(2)}): free after the pull (${hero.x.toFixed(2)}, ${hero.y.toFixed(2)})`);
+        for (const d of DIRS) {
+          const from = { x: h.w.hero.x, y: h.w.hero.y };
+          h.sim.command({ t: 'walk', x: d.x, y: d.y });
+          ticks(h.sim, ticksOf(0.15));
+          h.sim.command({ t: 'walk', x: 0, y: 0 });
+          const went = (h.w.hero.x - from.x) * d.x + (h.w.hero.y - from.y) * d.y;
+          const wall = blockedAt({ x: from.x + d.x * 0.1, y: from.y + d.y * 0.1 }, r, h.w.arena) || dist({ x: from.x + d.x * 0.1, y: from.y + d.y * 0.1 }, core) < 0.32 + r;
+          if (wall) walled++;
+          // Not stuck: he gets on (0.6 in 0.15 s on a free floor; sliding along the core or a pillar — less).
+          assert(went > 0.1 || wall, `seed ${k}, (${p.x.toFixed(2)}, ${p.y.toFixed(2)}): stuck going (${d.x}, ${d.y}) after the pull (${went.toFixed(2)})`);
+          // Back where he stood, for the next way.
+          h.sim.command({ t: 'teleport', x: from.x, y: from.y });
+        }
+        pulls++;
+      }
+    }
+    assert(replays(h.sim), `seed ${k}: replay`);
+  }
+  console.log(`   рывков ковра: ${pulls}, мест Колдуна: ${cores.size}, сторон у стены или ядра: ${walled}`);
+  assert(pulls >= 30 && cores.size >= 3, `pulls ${pulls}, the core's places ${cores.size}`);
 });
 
 check('values without `warlockV1` (a journal before it, a run saved without the flag): the hall plays the fight of the build before v1 — the hashes of 96b737a9 (walks, a barrel shoved, 40 s, 3 seeds)', () => {
