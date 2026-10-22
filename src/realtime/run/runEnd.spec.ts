@@ -15,7 +15,8 @@
  */
 import { createRtRun, parseRtRun, resolveArena, rtArenaLoadout, rtNode, rtRunParams, serializeRtRun, type RtArenaOutcome, type RtRunState } from './rtRun';
 import { createRtRunStore, RT_RUN_STORAGE_KEY, type RunStorage } from './rtRunStorage';
-import { RtDeathWatch, rtDeathLine, rtRunEndLines } from './rtRunEnd';
+import { RT_DEATH_ABILITY, RT_DEATH_TOUCH, RT_KIND_TITLES, RtDeathWatch, rtDeathLine, rtRunEndLines } from './rtRunEnd';
+import { enemyKind, registeredEnemyKinds } from '../sim/enemies/kinds';
 import { runRow } from './arenaPools';
 import { assert, closeNode, ok, outcomeOf, playFight, pullBare, quiet, same, seedOf, summonGoblin, takeGift, ticks, toBattle } from './runFight.testkit';
 import { inThorns } from '../sim/geometry';
@@ -134,6 +135,55 @@ check('task 40: the killer of a garrison touch — «стражник», «пс�
   assert(frenzied && byMad.sim.world.status === 'defeat', 'a frenzied hound hit the hero, the hero fell');
   assert(same(byMad.outcome.death, { source: 'hound', enemy: 'hound' }), JSON.stringify(byMad.outcome.death));
   assert(lines(ok(resolveArena(mad, byMad.outcome), 'lost'))[0] === 'Сразил: пёс', 'the frenzied hound is «пёс»');
+});
+
+check('task 57б: the killer of a forest mechanic\'s touch — «корневик», «слизень», «головешка» (a put-out one: no trail to burn first; a real death)', () => {
+  const cases: { kind: string; text: string; douse?: true }[] = [
+    { kind: 'rootling', text: 'Сразил: корневик' }, { kind: 'slime', text: 'Сразил: слизень' }, { kind: 'firebrand', text: 'Сразил: головешка', douse: true },
+  ];
+  cases.forEach((c, i) => {
+    const run = newRun(31 + i);
+    const { outcome, sim } = playFight(run, { chains: [], k: 31 + i, finish: (fight, seen) => {
+      const hero = fight.world.hero;
+      const id = fight.command({ t: 'place', x: hero.x + 3, y: hero.y, color: 0, hp: 0, kind: c.kind }) as number;
+      if (c.douse) {
+        // A bomb puts the burning one out (a survivor); with no brazier it walks to the hero, unlit — its touch, not its trail.
+        fight.command({ t: 'items', kind: 'bomb', count: 1 });
+        const e = fight.world.enemies.find(x => x.id === id)!;
+        fight.command({ t: 'item', kind: 'bomb', x: e.x, y: e.y });
+        ticks(fight, 1, seen);
+      }
+      touchOn(fight);
+      for (let n = 0; n < 240 && fight.world.status === 'playing'; n++) {
+        const e = fight.world.enemies.find(x => x.id === id)!;
+        fight.command({ t: 'teleport', x: e.x - 0.45, y: e.y });
+        ticks(fight, 30, seen);
+      }
+    } });
+    assert(sim.world.status === 'defeat', `${c.kind}: the hero fell`);
+    assert(same(outcome.death, { source: c.kind, enemy: c.kind }), `${c.kind}: ${JSON.stringify(outcome.death)}`);
+    assert(lines(ok(resolveArena(run, outcome), 'lost'))[0] === c.text, `${c.kind}: ${lines(ok(resolveArena(run, outcome), 'lost'))[0]}`);
+  });
+});
+
+check('every enemy kind whose touch hurts has a killer line: its hit source is an ability, or a touch with the kind\'s name (a new kind without one fails here)', () => {
+  const sim = new Simulation({ arena: 'kills', params: defaultParams(), seed: seedOf(1) }), world = sim.world;
+  /** The kind's touch on a body of it placed on the field (`touchDamage` may read the body). */
+  const touches = (kind: string): boolean => {
+    sim.command({ t: 'clear', keepMarked: false });
+    const id = sim.command({ t: 'place', x: 8, y: 5, color: 0, hp: 1, kind }) as number;
+    const e = world.enemies.find(x => x.id === id)!;
+    return enemyKind(kind).touchDamage(world, e) > 0;
+  };
+  // Without a touch line yet — asked to design 22.10.2026: the bosses (names and capitals are design's text) and the Castellan's
+  // crossbow on its stand (named, but its touch is not in `RT_DEATH_TOUCH`). Drop each one here once it has its line.
+  const KNOWN_GAPS = new Set(['warlock', 'chief', 'chief-ladle', 'chief-sack', 'castellan-crossbow']);
+  const missing = registeredEnemyKinds()
+    .filter(k => !KNOWN_GAPS.has(k.id) && touches(k.id))
+    .filter(k => !Object.hasOwn(RT_DEATH_ABILITY, k.hitSource) && !(RT_DEATH_TOUCH.includes(k.hitSource) && Object.hasOwn(RT_KIND_TITLES, k.id)))
+    .map(k => `${k.id} (${k.hitSource})`);
+  assert(!missing.length, `no killer line for: ${missing.join(', ')}`);
+  for (const id of KNOWN_GAPS) assert(registeredEnemyKinds().some(k => k.id === id) && !(RT_DEATH_TOUCH.includes(enemyKind(id).hitSource) && Object.hasOwn(RT_KIND_TITLES, id)), `${id}: still a gap (drop it from KNOWN_GAPS once it has its line)`);
 });
 
 check('task 40: a death by the Castellan\'s «Спустить пса» — «Сразил: рывок пса Кастеляна» (a real fight on «Двор кастеляна»)', () => {

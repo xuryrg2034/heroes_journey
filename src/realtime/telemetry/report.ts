@@ -267,6 +267,8 @@ const SOURCE_TITLES: Record<string, string> = {
   'troll-club': '«Удар дубиной»', 'troll-rock': '«Бросок камня»', 'troll-tail': '«Хвост метёт»',
   // Task 57а «Лес: стрелки».
   stone: 'камень пращника', wasp: 'оса улья', wisp: 'светляк', slinger: 'касание пращника',
+  // Task 57б «Лес: механики» (the firebrand's trail is `fire-trail`, the affix's source).
+  rootling: 'касание корневика', slime: 'касание слизня', firebrand: 'касание головешки',
   // Task 55а: the castle's moves and the rook's touch; the shove's kills (the player's).
   'wardrobe-topple': '«Падение шкафа»', 'rook-strike': '«Удар ладьи»', rook: 'касание ладьи', shove: 'толчок',
 };

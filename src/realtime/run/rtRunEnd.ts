@@ -45,6 +45,8 @@ export const RT_KIND_TITLES: Readonly<Record<string, string>> = {
   rook: 'ладья', wardrobe: 'шкаф', barrel: 'бочка',
   // Task 57а «Лес: стрелки» (the user's name «Светляк», 17.10.2026; not «Огонёк»).
   slinger: 'пращник', hive: 'улей', wisp: 'светляк',
+  // Task 57б «Лес: механики» (lower case, the decision of task 40; their touches are in `RT_DEATH_TOUCH`).
+  rootling: 'корневик', slime: 'слизень', firebrand: 'головешка',
 };
 
 /**
@@ -81,7 +83,7 @@ export const RT_DEATH_ABILITY: Readonly<Record<string, string>> = {
  * 16.10.2026, spec section 10): the garrison's touches too — the guard, the dog handler, the hound (on its leash or in its frenzy: the
  * same body, «пёс»), the keymaster, the Castellan.
  */
-export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper', 'guard', 'handler', 'hound', 'keymaster', 'castellan', 'crossbow', 'knight', 'rook', 'slinger', 'recruit', 'warden', 'pitcher'];
+export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper', 'guard', 'handler', 'hound', 'keymaster', 'castellan', 'crossbow', 'knight', 'rook', 'slinger', 'recruit', 'warden', 'pitcher', 'rootling', 'slime', 'firebrand'];
 
 /** Drafts sent to design 12.10.2026 (pending approval). */
 export const RT_RUN_END_TEXT = {
