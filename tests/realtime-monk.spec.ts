@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect, skipHabit } from './realtimeTest';
+import { test, expect, takeStartGift } from './realtimeTest';
 import { gameWait } from './realtimeFrames';
 import { serializeRtRun, type RtRunState } from '../src/realtime/run/rtRun';
 import { walkRun } from '../src/realtime/run/metaWalk.testkit';
@@ -46,8 +46,7 @@ test('task 51г view: the third finished run after the garrison brings Евла�
   await open(page, profile(true, hearth({ owl: 0, herb: 0, smith: 0, gambler: 0 }, 40, { monkQuiet: 2 })));
   await page.getByTestId('run-new').click();
   await expect(page.getByTestId('run-gift')).toBeVisible();
-  await skipHabit(page);
-  await page.getByTestId('gift-1').click();
+  await takeStartGift(page);
   await page.getByTestId('run-reset').click();
   await page.getByTestId('run-reset-confirm').click();
   await expect(page.getByTestId('run-result-abandoned')).toBeVisible();

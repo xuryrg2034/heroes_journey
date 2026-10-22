@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect, skipHabit } from './realtimeTest';
+import { test, expect, takeStartGift } from './realtimeTest';
 
 /**
  * Task 8 «Интерфейс боя» (design 13.10.2026), real input at 1280×720:
@@ -148,8 +148,7 @@ test('8c: the node card stands in the middle of the map — goal and enemies, «
   await page.reload();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
   await page.getByTestId('run-new').click();
-  await skipHabit(page);
-  await page.getByTestId('gift-1').click();
+  await takeStartGift(page);
   await expect(page.getByTestId('run-gift')).toBeHidden();
   // No right column: the map takes the width; nothing chosen — the quiet line says what to do.
   await expect(page.getByTestId('run-detail')).toHaveCount(0);

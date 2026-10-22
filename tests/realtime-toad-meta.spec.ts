@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect, skipHabit } from './realtimeTest';
+import { test, expect, takeStartGift } from './realtimeTest';
 import { createRtRun, resolveArena, rtAvailableNodes, rtEnterNode, rtNode, serializeRtRun, type RtRunState } from '../src/realtime/run/rtRun';
 import { RT_PROFILE_STORAGE_KEY, RT_RUN_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
 import { rtMetaLocked } from '../src/realtime/run/rtMeta';
@@ -164,8 +164,7 @@ test('task 49: the first win over the Jailer — his screens, then the cage scen
   expect(started.heroId).toBe('toad');
   expect(started.seeded).toBeFalsy();
   expect(started.locked, 'her own locked items (the packs of her own)').toEqual(rtMetaLocked(undefined, 'toad'));
-  await skipHabit(page);
-  await page.getByTestId('gift-1').click();
+  await takeStartGift(page);
   await expect(page.getByTestId('run-gift')).toBeHidden();
 
   // The first battle of row 1 plays with her: the arena opens, the run keeps her.

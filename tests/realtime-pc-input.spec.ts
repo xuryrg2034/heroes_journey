@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect, skipHabit } from './realtimeTest';
+import { test, expect, takeStartGift } from './realtimeTest';
 
 /**
  * UI-02 of the PC interface plan (20.10.2026; docs/design-notes/codex-idea-pc-ui-tasks.md): the fight's Esc and pause, the
@@ -22,8 +22,7 @@ async function openRun(page: Page, errors: string[]): Promise<void> {
 async function newRunToMap(page: Page): Promise<void> {
   await page.getByTestId('run-new').click();
   await expect(page.getByTestId('run-gift')).toBeVisible();
-  await skipHabit(page);
-  await page.getByTestId('gift-1').click();
+  await takeStartGift(page);
   await expect(page.getByTestId('run-gift')).toBeHidden();
 }
 async function enterFirstNode(page: Page): Promise<void> {

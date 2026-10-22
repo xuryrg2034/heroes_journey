@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect, skipHabit } from './realtimeTest';
+import { test, expect, takeStartGift } from './realtimeTest';
 import { untilFrame } from './realtimeFrames';
 
 /**
@@ -98,8 +98,7 @@ test('task 5 (12.10.2026): a run arena has no cauldron — the HUD shows «оч�
   await page.reload();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
   await page.getByTestId('run-new').click();
-  await skipHabit(page);
-  await page.getByTestId('gift-1').click();
+  await takeStartGift(page);
   await page.locator('[data-status="available"]').first().click();
   await page.getByTestId('run-enter').click();
   await expect(page.getByTestId('run')).toBeHidden();

@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect, skipHabit } from './realtimeTest';
+import { test, expect, takeStartGift } from './realtimeTest';
 import { untilFrame } from './realtimeFrames';
 
 /**
@@ -118,8 +118,7 @@ test('task 34 (user 15.10.2026): in a run, 6 blue free the colour; a quick swipe
   await page.reload();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
   await page.getByTestId('run-new').click();
-  await skipHabit(page);
-  await page.getByTestId('gift-1').click();
+  await takeStartGift(page);
   const node = page.locator('[data-status="available"]').first();
   await node.click();
   await page.getByTestId('run-enter').click();

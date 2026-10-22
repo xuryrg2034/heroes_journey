@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect, skipHabit } from './realtimeTest';
+import { test, expect, skipHabit, takeStartGift } from './realtimeTest';
 import { untilFrame } from './realtimeFrames';
 import { createRtRun, serializeRtRun, type RtRunState } from '../src/realtime/run/rtRun';
 import { walkRun } from '../src/realtime/run/metaWalk.testkit';
@@ -35,8 +35,7 @@ async function openRun(page: Page, errors: string[]): Promise<void> {
 async function newRun(page: Page): Promise<RunState> {
   await page.getByTestId('run-new').click();
   await expect(page.getByTestId('run-gift')).toBeVisible();
-  await skipHabit(page);
-  await page.getByTestId('gift-1').click();
+  await takeStartGift(page);
   await expect(page.getByTestId('run-gift')).toBeHidden();
   return runState(page);
 }
@@ -390,8 +389,7 @@ test('the sandbox opens by the anchor too: a changed #sandbox boots it (a publis
   await expect(page.getByTestId('run')).not.toContainText('#sandbox');
   await expect(page.locator('a[href="#sandbox"]')).toHaveCount(0);
   await page.evaluate(() => (window as any).__realtime.run.newRun(10));
-  await skipHabit(page);
-  await page.getByTestId('gift-1').click();
+  await takeStartGift(page);
   await expect(page.getByTestId('run-map')).toBeVisible();
   await expect(page.locator('.rt-run-head')).not.toContainText('seed');
   // User request 15.10.2026 (over «Обучение v1»): the map's header has the «Песочница» button; still no seed, no anchor link.
@@ -879,8 +877,7 @@ test('run: in an iframe (the published artifact) «Песочница» and «�
   const app = () => page.frames().find(f => f !== page.mainFrame())!;
   await expect.poll(() => app()?.evaluate(() => !!(window as any).__realtime?.run).catch(() => false)).toBe(true);
   await frame.getByTestId('run-new').click();
-  await skipHabit(frame);
-  await frame.getByTestId('gift-1').click();
+  await takeStartGift(frame);
   await expect(frame.getByTestId('run-map')).toBeVisible();
   const before = await app().evaluate(() => (window as any).__realtime.run.state());
   await frame.getByTestId('open-sandbox').click();

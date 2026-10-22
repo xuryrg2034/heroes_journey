@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Page } from '@playwright/test';
-import { test, expect, skipHabit } from './realtimeTest';
+import { test, expect, takeStartGift } from './realtimeTest';
 import { replay, type Journal } from '../src/realtime/sim/simulation';
 import {
   canonicalJson, checkRecord, orderedParts, paramsHash, parseExport, unpackJournal,
@@ -408,8 +408,7 @@ test('the run is recorded: nodes, the gift choice, the fight of a node; a reload
   await page.reload();
   await expect(page.getByTestId('run')).toBeVisible();
   await page.getByTestId('run-new').click();
-  await skipHabit(page);
-  await page.getByTestId('gift-1').click();
+  await takeStartGift(page);
   await expect(page.getByTestId('logs-open')).toBeVisible();
   const node = page.locator('[data-status="available"]').first();
   const nodeId = (await node.getAttribute('data-node'))!;
@@ -533,8 +532,7 @@ test('replayTo in a run is refused and changes nothing: the run save, the run st
   await page.reload();
   await expect(page.getByTestId('run')).toBeVisible();
   await page.getByTestId('run-new').click();
-  await skipHabit(page);
-  await page.getByTestId('gift-1').click();
+  await takeStartGift(page);
   await page.locator('[data-status="available"]').first().click();
   await page.getByTestId('run-enter').click();
   await expect(page.getByTestId('run')).toBeHidden();
@@ -704,8 +702,7 @@ test('task 35 С1: the run record keeps the level of «Тряска и вспы�
     return runs[runs.length - 1]?.fx;
   };
   await expect.poll(fxOf).toEqual({ start: 100, end: 100, changes: 0 });
-  await skipHabit(page);
-  await page.getByTestId('gift-1').click();
+  await takeStartGift(page);
   await expect(page.getByTestId('run-gift')).toBeHidden();
   await page.getByTestId('run-settings').click();
   await page.getByTestId('view-fx').selectOption('0');

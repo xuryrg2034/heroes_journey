@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect, skipHabit } from './realtimeTest';
+import { test, expect, takeStartGift } from './realtimeTest';
 import { untilFrame } from './realtimeFrames';
 import { arenaPreview, createRtRun, isArenaNode, resolveArena, rtAvailableNodes, rtEnterNode, rtNode, rtScheduleMet, serializeRtRun, type RtRunState } from '../src/realtime/run/rtRun';
 import { RT_PROFILE_STORAGE_KEY, RT_RUN_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
@@ -34,8 +34,7 @@ test('task 26: «Обучение» empties the viewer\'s history — the next n
   await page.reload();
   await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
   await page.evaluate(seed => (window as any).__realtime.run.newRun(seed), 31);
-  await skipHabit(page);
-  await page.getByTestId('gift-1').click();
+  await takeStartGift(page);
   const before = await page.evaluate(() => (window as any).__realtime.run.state()) as RtRunState;
   expect(before.schedule?.seen.length).toBe(SCHEDULE_ELEMENTS.length);
   // The gear: «Обучение» plays the prologue; «Пропустить» returns to the same run.
@@ -48,8 +47,7 @@ test('task 26: «Обучение» empties the viewer\'s history — the next n
   // A new run: the header's «Новый поход», confirmed.
   await page.getByTestId('run-reset').click();
   await page.getByTestId('run-reset-confirm').click();
-  await skipHabit(page);
-  await page.getByTestId('gift-1').click();
+  await takeStartGift(page);
   const run = await page.evaluate(() => (window as any).__realtime.run.state()) as RtRunState;
   expect(run.schedule?.seen).toEqual([]);
   const first = rtAvailableNodes(run)[0];

@@ -25,6 +25,23 @@ export async function skipHabit(page: { getByTestId: Page['getByTestId'] }): Pro
   if (await none.count() && await none.isEnabled()) await none.click();
 }
 /**
+ * The start gift for a route that does not care which button it takes: «Без повадки» first (`skipHabit`), then `gift-1` as the
+ * routes always took. A run without `?seed=` (the camp's start, «Новый поход») draws its seed by `Math.random`, and its full gift
+ * puts «Тихий лес» — always off in real time (`giftOptionGap`) — on button 1 for one seed in three (smoke v80, meta:182). Then the
+ * first button that is on is taken, and its own first choice if it opens one (a consumable of three, a talisman of two); not
+ * merely «the first that is on»: button 0 of a full gift may be «a consumable of three», which leaves the gift open. A route
+ * that needs a given button clicks it itself.
+ */
+export async function takeStartGift(page: { getByTestId: Page['getByTestId']; locator: Page['locator'] }): Promise<void> {
+  await skipHabit(page);
+  const on = page.locator('[data-action="gift"]:not([disabled])'), one = page.getByTestId('gift-1');
+  await expect(on.first()).toBeVisible();
+  await (await one.isEnabled() ? one : on.first()).click();
+  const pick = page.locator('[data-action="gift-pick"]:not([disabled])');
+  await expect.poll(async () => await pick.count() > 0 || !(await page.getByTestId('run-gift').isVisible())).toBe(true);
+  if (await pick.count()) await pick.first().click();
+}
+/**
  * Task 49: routes of other mechanics pass the cage scene (a meta run past its first Jailer win frees Ведунья: «Открыть клетку», then
  * «Дальше»). Nothing when the scene is not open. The scene itself is tested by tests/realtime-toad-meta.spec.ts.
  */

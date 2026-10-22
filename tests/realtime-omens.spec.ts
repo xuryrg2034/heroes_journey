@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect } from './realtimeTest';
+import { test, expect, takeStartGift } from './realtimeTest';
 import { leaveResult } from './realtimeResult';
 import { untilFrame } from './realtimeFrames';
 import {
@@ -450,7 +450,7 @@ async function playToEnd(page: Page, profile: object): Promise<void> {
   await expect(page.getByTestId('run-gift')).toBeVisible();
   const none = page.getByTestId('habit-none');
   if (await none.count() && await none.isEnabled()) await none.click();
-  await page.getByTestId('gift-1').click();
+  await takeStartGift(page);
   await expect(page.getByTestId('run-gift')).toBeHidden();
   const toBattle = async (): Promise<void> => {
     for (let step = 0; step < 8; step++) {

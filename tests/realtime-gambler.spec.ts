@@ -1,5 +1,5 @@
 import { type Page } from '@playwright/test';
-import { test, expect, skipHabit } from './realtimeTest';
+import { test, expect, takeStartGift } from './realtimeTest';
 import { serializeRtRun, rtShopReroll, rtShopRerollView, rtShopSwapView, rtNode, type RtHearthFlags, type RtRunState } from '../src/realtime/run/rtRun';
 import { walkRun } from '../src/realtime/run/metaWalk.testkit';
 import { RT_RUN_STORAGE_KEY } from '../src/realtime/run/rtRunStorage';
@@ -42,8 +42,7 @@ test('task 51в view: after three quiet runs Шиш comes by himself — the rig
   // A run started and abandoned: its end counts the quiet run, the fallback brings Шиш.
   await page.getByTestId('run-new').click();
   await expect(page.getByTestId('run-gift')).toBeVisible();
-  await skipHabit(page);
-  await page.getByTestId('gift-1').click();
+  await takeStartGift(page);
   await page.getByTestId('run-reset').click();
   await page.getByTestId('run-reset-confirm').click();
   await expect(page.getByTestId('run-result-abandoned')).toBeVisible();
