@@ -30,7 +30,8 @@ import {
 import { WARDEN } from './enemies/warden';
 import { PITCHER } from './enemies/pitcher';
 import { BARREL, ROOK, ROOK_HALF, ROOK_WINDUP, TOPPLE_WIDTH, WARDROBE, WARDROBE_WINDUP } from './enemies/castle';
-import { WARLOCK } from './enemies/warlock';
+import { FLASH_RADIUS, FLASH_WINDUP, ORB_WINDUP, RUG_WINDUP, RUNE_RADIUS, SHIFT_SIGN, WARLOCK, WARLOCK_MOVES, WARLOCK_ORB } from './enemies/warlock';
+import { WARLOCK_ARENA } from './arenasCastle';
 import { SLINGER, SLING_MIN, SLING_WINDUP, STONE_RADIUS } from './enemies/slinger';
 import { HIVE, HIVE_NEAR, HIVE_RING, HIVE_SPEED, RING_RADIUS, WASP_HANG, WASP_RADIUS } from './enemies/hive';
 import { WISP, WISP_LIGHT, WISP_SPEED } from './enemies/wisp';
@@ -40,7 +41,7 @@ import { FIREBRAND } from './enemies/firebrand';
 import { CENTIPEDE, CENTI_LANE_WIDTH, CENTI_LUNGE_WINDUP } from './enemies/centipede';
 import { registerArena, registeredArenas, type ArenaTemplate } from './arenas';
 import './arenasStep3';
-import { defaultParams, heroRadius, type Params } from './params';
+import { defaultParams, enemyBodyRadius, heroRadius, type Params } from './params';
 import { Simulation, SIM_DT } from './simulation';
 import { touchDistance, type WorldEvent } from './world';
 import { rtArenaParams, rtRunParams } from '../run/rtRun';
@@ -126,6 +127,16 @@ const THREATS: readonly Threat[] = [
   // out along the radius; «Горсть перца» — a circle's centre, out across the line; phase 3's windup ×0.8.
   { id: 'chief-ladle', source: CHIEF_LADLE, move: 'swing', title: 'Главарь: взмах половником', window: () => SWING_WINDUP, exit: p => SWING_RADIUS + heroRadius(p) - touchDistance(p) },
   { id: 'chief-pepper', source: CHIEF_SACK, move: 'pepper', title: 'Главарь: горсть перца', window: () => PEPPER_WINDUP * CHIEF_PHASE3_WINDUP, exit: p => PEPPER_RADIUS + heroRadius(p) },
+  // Task 55 §23 «Колдун v1» (spec 23.1–23.3): «Цветные шары» — the lines fixed at the windup's start, the way out sideways from a line
+  // (the orb's body ×0.6 + the hero's; the fan and the ring alike, the flight is extra; the fight's first windup ×1.5 is extra);
+  // «Ковёр дёргает» — the worst point the rug's middle (half its narrow side + the hero's body; no damage — the pull's place is the
+  // danger); «Вспышка посоха» — the spec's record (23.3): the rune burns 1 s where he arrives, the flash winds up 0.6 s after it; the worst
+  // point — the hero stepped to the rune's edge (the ring + his body − the rune's radius). The hero pressed to the core at the arrival
+  // (the flash's windup alone) is played by journal commands (warlockV1.spec.ts).
+  { id: 'warlock-orbs-fan', source: WARLOCK_ORB, move: 'orbs', title: 'Колдун: веер шаров', window: () => ORB_WINDUP, exit: p => enemyBodyRadius(p) * 0.6 + heroRadius(p) },
+  { id: 'warlock-orbs-ring', source: WARLOCK_ORB, move: 'orbs', title: 'Колдун: кольцо шаров', window: () => ORB_WINDUP, exit: p => enemyBodyRadius(p) * 0.6 + heroRadius(p) },
+  { id: 'warlock-rug', source: WARLOCK, move: 'rug', title: 'Колдун: ковёр дёргает', window: () => RUG_WINDUP, exit: p => Math.max(...(WARLOCK_ARENA.warlock?.rugs ?? []).map(r => Math.min(r.w, r.h) / 2)) + heroRadius(p) },
+  { id: 'warlock-flash', source: WARLOCK, move: 'flash', title: 'Колдун: вспышка посоха', window: () => SHIFT_SIGN + FLASH_WINDUP, exit: p => FLASH_RADIUS + heroRadius(p) - RUNE_RADIUS },
 ];
 
 /** Task 27: the Jailer's moves without a hit on the hero, and why. */
@@ -137,6 +148,9 @@ const MOVES_OUTSIDE: Readonly<Record<string, string>> = {
   // Task 54: the Chief's core and his sack («Свисток» — the record of the Jailer's: markers at the gate).
   feast: '«Обед!» Главаря: героя не бьёт — перекраска у котелка, едоки, окно ядра',
   season: '«Приправа» Главаря: героя не бьёт — новый цвет варева',
+  // Task 55 §23 «Колдун v1».
+  blink: '«Перенос к герою»: героя не бьёт — руна 1 с; удар — «Вспышка посоха» (своя запись)',
+  summon: '«Зов строя» Колдуна: героя не бьёт — метки строя 1 с у дальней свечи',
 };
 
 /** Kinds without a zone-and-moment telegraph, and why. */
@@ -162,8 +176,6 @@ const OUTSIDE: Readonly<Record<string, string>> = {
   [CHIEF]: 'касание, без телеграфа (обед, приправа и свисток героя не бьют; удары — у половника и мешка)',
   // Task 55а: the barrel is a thing — it never strikes (the player shoves it).
   [BARREL]: 'вещь: не бьёт и не касается; толкает её игрок',
-  // Task 55, stage Д: the warlock's core — «Перенос» hurts nobody; his only strike is his wardrobe's «Падение шкафа» (its own record).
-  [WARLOCK]: 'касание, без телеграфа («Перенос» героя не бьёт; удар — падение его шкафа)',
   // Task 57а: the wisp is a living shot — no zone and moment; it lights 1.6 s from its marker and is slower than the hero (checked below).
   [WISP]: 'живой снаряд: метка и зажигание 1,6 с до полёта, летит медленнее героя — догнать не может (проверка ниже)',
   // Task 57б «Лес: механики» (spec 7): no zone-and-moment threat.
@@ -192,7 +204,7 @@ check('window ≥ reaction 0.2 s + the walk out of the worst point at the hero\'
 
 check('task 27: every move of the Jailer (task 48: of the Troll) is a threat of the table or listed outside it with a reason; no record of an unknown move', () => {
   const recorded = new Set([...THREATS.flatMap(t => t.move ? [t.move] : []), ...Object.keys(MOVES_OUTSIDE)]);
-  const moves: readonly string[] = [...new Set([...JAILER_MOVES, ...TROLL_MOVES, ...CHIEF_MOVES])];
+  const moves: readonly string[] = [...new Set([...JAILER_MOVES, ...TROLL_MOVES, ...CHIEF_MOVES, ...WARLOCK_MOVES])];
   const missing = moves.filter(m => !recorded.has(m));
   assert(!missing.length, `the bosses' moves with no record of their window: ${missing.join(', ')}`);
   const stale = [...recorded].filter(m => !moves.includes(m));

@@ -306,7 +306,14 @@ export interface ArenaTemplate extends ArenaShape {
    * when the given values have them off and `warlockCrowd` `WARLOCK_CROWD` when they hold 1 (world.ts `createWorld`; the journal keeps
    * that copy); its crowd's floor and pace go by `warlockCrowd` (spawn.ts). Omitted — the values as given.
    */
-  warlock?: { candles: readonly Vec[] };
+  warlock?: {
+    candles: readonly Vec[];
+    /**
+     * Task 55 §23.2 «Колдун v1»: the rugs of «Ковёр дёргает» — floor rectangles (`x`, `y` the top-left corner; not a wall, not water). Read
+     * only with `Params.warlockV1` (enemies/warlock.ts); the arena is not hashed — journals of v0 play as before. Omitted — no rug.
+     */
+    rugs?: readonly { x: number; y: number; w: number; h: number }[];
+  };
 }
 
 /**

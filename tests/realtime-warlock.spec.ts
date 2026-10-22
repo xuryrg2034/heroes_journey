@@ -56,11 +56,14 @@ async function openHall(page: Page): Promise<void> {
   await expect.poll(async () => (await snap(page)).menuOpen).toBe(false);
 }
 
-/** Nobody walks or hurts, no newcomers; the wardrobe of the hall does not topple; his wardrobe slides 6 (it reaches the wall in two shoves). The hall's crowd is the default (0.9). */
+/**
+ * Nobody walks or hurts, no newcomers; the wardrobe of the hall does not topple; his wardrobe slides 6 (it reaches the wall in two shoves). The hall's crowd is the default (0.9).
+ * Task 55 §23: these are Колдун v0's signs — the hall's v1 off by the sandbox's own `setParam` (journalled), so no orb or flash blurs them.
+ */
 async function quiet(page: Page): Promise<void> {
   await page.evaluate(() => {
     const rt = (window as any).__realtime;
-    for (const [k, v] of [['enemySpeed', 0], ['speedSpread', 0], ['baseIntervalMin', 1000], ['baseIntervalMax', 1000], ['baseFloor', 0], ['contactDamage', 0], ['wardrobePeriod', 1000], ['shoveDistance', 6]] as const) rt.setParam(k, v);
+    for (const [k, v] of [['enemySpeed', 0], ['speedSpread', 0], ['baseIntervalMin', 1000], ['baseIntervalMax', 1000], ['baseFloor', 0], ['contactDamage', 0], ['wardrobePeriod', 1000], ['shoveDistance', 6], ['warlockV1', false]] as const) rt.setParam(k, v);
   });
 }
 

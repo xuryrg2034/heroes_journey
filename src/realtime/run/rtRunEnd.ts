@@ -52,6 +52,8 @@ export const RT_KIND_TITLES: Readonly<Record<string, string>> = {
   chief: 'Главарь', 'chief-ladle': 'половник Главаря', 'chief-sack': 'мешок Главаря', warlock: 'Колдун',
   // Task 57б-2 «Сороконожка» (its head and parts are one kind).
   centipede: 'сороконожка',
+  // Task 55 §23 «Колдун v1»: his orb, a living shot (its touch is its own source `warlock-orb`).
+  'warlock-orb': 'шар Колдуна',
 };
 
 /**
@@ -89,6 +91,8 @@ export const RT_DEATH_ABILITY: Readonly<Record<string, string>> = {
   'chief-ladle': 'взмах половником Главаря', 'chief-pepper': 'горсть перца Главаря', storm: 'удар грозы',
   // Task 57б-2 (spec 6.3, «кто убил»): the centipede's «Рывок» (its touch — «сороконожка»).
   'centipede-lunge': 'рывок сороконожки',
+  // Task 55 §23 «Колдун v1»: his orb's touch and «Вспышка посоха».
+  'warlock-orb': 'шар Колдуна', 'warlock-flash': 'вспышка посоха Колдуна',
 };
 /**
  * The touch sources (each kind's `hitSource`): the line names the striker's kind, its elite mark, armour and affixes. Task 40 (design
