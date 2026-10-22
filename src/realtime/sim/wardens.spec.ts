@@ -285,7 +285,12 @@ check('task 59б: an arena without `pairTint` and `pairShare` draws as before �
   // (main fe7b62dc moved them: the new key `bossPickArt: false` in defaultParams, the params are hashed; the fight is the same); on 8afcb20d before the merge of main — 1f69cda4…, 515505ba…, 448f69c0….
   // core/task57b1 (22.10.2026) moved them: the new keys `rootRise`, `slimeMerge`, `slimeBigHp`, `brandSeek` in defaultParams (the params are
   // hashed); without the four keys the same run gives the base's 135b38fd…, 0eac450f…, afc56969… — the fight is the same.
-  const want = ['d4b065a5ca6292f5', 'ed657cef938afdf2', '1817d441b7311e70'];
+  // Task 48 §25 (core/troll-move, merged 22.10.2026) moved them again: `trollMove`, `trollWalk`, `trollChargeCd`, `trollChargeLen`,
+  // `trollWindowCharge` in defaultParams; without those five the same run gives d4b065a5…, ed657cef…, 1817d441… (the 57б-1 pins), without
+  // all nine new keys the base's 135b38fd… (checked on the merge 22.10.2026) — the fight is the same.
+  // Task 57б-2 (core/task57b2, merged 22.10.2026) moved them again: `centiParts`, `centiLungeWindup`; without the two the same run gives
+  // main 650fef41's 1cd42c61…, cc3afffb…, 82a28825… (checked on the merge) — the fight is the same.
+  const want = ['066fe0d34bb64f4f', '9f8d7e85622ac564', 'df13c96fe05398b2'];
   [1, 2, 3].forEach((k, i) => {
     const p = defaultParams(); p.contactDamage = 0; p.heroHp = 99; p.hitstop = false;
     const sim = new Simulation({ arena: 'g-warden-test', params: p, seed: seedOf(k), record: true });

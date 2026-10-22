@@ -19,6 +19,7 @@ import {
 interface TrollShown {
   core: number; asleep: number; glow: number; count: string; edgeCount: string; sign: string; signProgress: number; strips: number; circles: number; rings: number; gateMarks: number; snoreArc: number;
   tail: number; weapons: number; flight: number; hits: number; sparks: number; severed: number; tailFalls: number; unlinks: number; crumbles: number; regrows: number; opens: number;
+  chargeLanes: number; chargeStops: number; chargeStuck: number; chargeRun: number; stuckStars: number; dusts: number; impacts: number; pushes: number; farDrops: number;
 }
 interface EnemyShot { id: number; kind: string; x: number; y: number; color: number; hp: number; chill: number; armor: { plates: number; max: number } | null; partOf: number | null; vars: Record<string, number> }
 interface Snap {
@@ -200,6 +201,10 @@ test('task 48: after «Удар дубиной» the window is lit and counts wh
   test.setTimeout(120_000);
   const errors = collectErrors(page);
   await openDen(page, errors);
+  // Task 48 §25: this route is the sitting Troll's («Удар дубиной» at his spot, the core clicked where it sat) — the values without
+  // `trollMove` (as a journal before it; the arena turns the walk on only when the key is off), a new fight with them.
+  await page.evaluate(() => { delete (window as any).__realtime.params.trollMove; });
+  await restart(page);
   await quiet(page);
   const s0 = await snap(page), core = kindOf(s0, 'troll')!;
   await page.evaluate(([rock]) => (window as any).__realtime.chill(rock, 600), [kindOf(s0, 'troll-rock')!.id] as const);
@@ -229,6 +234,56 @@ test('task 48: after «Удар дубиной» the window is lit and counts wh
   const after = await snap(page);
   expect(kindOf(after, 'troll')!.armor!.plates, 'the plate is taken').toBe(3);
   await expect.poll(async () => (await snap(page)).troll.glow, 'the window went out after the dash').toBe(0);
+  await sameHash(page);
+  expect(errors).toEqual([]);
+});
+
+test('task 48 §25: «Рывок» led into a tree by real input — the lane to the stop with its impact mark, the hero steps off it (A), the run throws a body aside and raises dust, sticks with stars; a chain drawn with the mouse in the window takes a plate; the journal replays', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = collectErrors(page);
+  await openDen(page, errors);
+  await quiet(page);
+  // The den walks (the arena turns `trollMove` on); a lane long enough to reach the tree at (19.5, 11.5) past the hero; the club and the
+  // rock frozen — «Рывок» is the only move that opens.
+  await page.evaluate(() => (window as any).__realtime.setParam('trollChargeLen', 14));
+  const s0 = await snap(page), core = kindOf(s0, 'troll')!, hp0 = s0.hero.hp, plates0 = core.armor!.plates;
+  await page.evaluate(([club, rock]) => { const rt = (window as any).__realtime; rt.chill(club, 600); rt.chill(rock, 600); }, [kindOf(s0, 'troll-club')!.id, kindOf(s0, 'troll-rock')!.id] as const);
+  // The hero on the line from the core to the tree, 8.7 from the core: the charge opens.
+  await heroTo(page, 17.5, 9);
+  expect(await signAt(page, 'charge', 0.15), 'the lane of «Рывок»').toBe(true);
+  const lane = await snap(page);
+  expect(lane.troll).toMatchObject({ chargeLanes: 1, chargeStops: 1, chargeStuck: 1, chargeRun: 0 });
+  // A body on the lane, between the core and the hero: the run throws it aside.
+  const body = await page.evaluate(() => { const rt = (window as any).__realtime; return rt.place(14.2, 5.0, 0, 1, 'basic'); });
+  await shot(page, 'charge-lane');
+  // The real key A: the hero steps off the lane during the windup.
+  await page.keyboard.down('KeyA');
+  await untilFrame(page, (s, _a: null, late) => s.hero.x < 16 || late ? true : undefined, null, 2);
+  await page.keyboard.up('KeyA');
+  expect(await untilFrame(page, (s, _a: null, late) => s.troll.chargeRun === 1 && s.troll.dusts > 2 ? true : late ? false : undefined, null, 4), 'the run with dust').toBe(true);
+  await shot(page, 'charge-run');
+  expect(await untilFrame(page, (s, _a: null, late) => s.troll.pushes >= 1 ? true : late ? false : undefined, null, 4), 'the body thrown aside').toBe(true);
+  await shot(page, 'charge-push');
+  // Stuck: the stars; the cold on the core in that very frame keeps the window for the player's chain (a journalled command).
+  expect(await untilFrame(page, (s, id: number, late, rt) => { if (s.troll.stuckStars === 1) { rt.chill(id, 20); return true; } return late ? false : undefined; }, core.id, 4), 'stuck: the stars').toBe(true);
+  const stuck = await snap(page);
+  expect(stuck.troll.impacts).toBe(1);
+  expect(stuck.troll.pushes).toBeGreaterThanOrEqual(1);
+  expect(stuck.enemies.some(e => e.id === body), 'the body thrown aside lives').toBe(true);
+  expect(stuck.hero.hp, 'the hero off the lane is not struck').toBe(hp0);
+  await shot(page, 'charge-stuck');
+  // Held for the player's chain (the cold keeps the window): beside the core, press on it and drag a little.
+  const at0 = kindOf(stuck, 'troll')!;
+  await heroTo(page, at0.x - 1.1, at0.y - 1.0);
+  expect((await snap(page)).troll.glow, 'the window is still open').toBe(1);
+  const at = await screen(page, at0.x, at0.y);
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await page.mouse.move(at.x + 2, at.y + 2, { steps: 3 });
+  await expect.poll(async () => (await snap(page)).chain).toEqual([at0.id]);
+  await page.mouse.up();
+  expect(await dashDone(page), 'the dash is over').toBe(true);
+  expect(kindOf(await snap(page), 'troll')!.armor!.plates, 'the plate is taken in the window').toBe(plates0 - 1);
   await sameHash(page);
   expect(errors).toEqual([]);
 });

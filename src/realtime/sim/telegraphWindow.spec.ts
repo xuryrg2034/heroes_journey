@@ -21,7 +21,7 @@ import { FLAIL_RADIUS, JAILER, JAILER_HP, JAILER_MOVES, JAILER_WEIGHT, JAILER_WI
 import { CASTELLAN, KNIGHT, KNIGHT_LANE_WIDTH, LUNGE_WIDTH, LUNGE_WINDUP, PAIR_GAP, PHASE3_WINDUP, STAND } from './enemies/garrison';
 import { BOLT_HALF } from './enemies/crossbow';
 import {
-  CLUB_WIDTH, CLUB_WINDUP, PHASE3_WINDUP as TROLL_PHASE3_WINDUP, ROCK_FLIGHT, ROCK_RADIUS, ROCK_WINDUP, TAIL_INNER, TAIL_OUTER, TAIL_WINDUP, TROLL, TROLL_CLUB,
+  CHARGE_WIDTH, CHARGE_WINDUP, CLUB_WIDTH, CLUB_WINDUP, PHASE3_WINDUP as TROLL_PHASE3_WINDUP, ROCK_FLIGHT, ROCK_RADIUS, ROCK_WINDUP, TAIL_INNER, TAIL_OUTER, TAIL_WINDUP, TROLL, TROLL_CLUB,
   TROLL_MOVES, TROLL_ROCK, TROLL_TAIL,
 } from './enemies/troll';
 import {
@@ -37,6 +37,7 @@ import { WISP, WISP_LIGHT, WISP_SPEED } from './enemies/wisp';
 import { ROOTLING } from './enemies/rootling';
 import { SLIME } from './enemies/slime';
 import { FIREBRAND } from './enemies/firebrand';
+import { CENTIPEDE, CENTI_LANE_WIDTH, CENTI_LUNGE_WINDUP } from './enemies/centipede';
 import { registerArena, registeredArenas, type ArenaTemplate } from './arenas';
 import './arenasStep3';
 import { defaultParams, heroRadius, type Params } from './params';
@@ -114,7 +115,13 @@ const THREATS: readonly Threat[] = [
   // swell before them is extra.
   { id: 'slinger-stone', source: SLINGER, title: 'пращник: камень', window: p => p.slingWindup ?? SLING_WINDUP, exit: p => STONE_RADIUS + heroRadius(p) },
   { id: 'hive-wasp', source: HIVE, title: 'улей: оса', window: p => WASP_HANG + (HIVE_NEAR - RING_RADIUS) / (p.hiveSpeed ?? HIVE_SPEED), exit: p => WASP_RADIUS + heroRadius(p) },
+  // Task 57б-2 (design 7): the centipede's «Рывок» — the lane fixed at the windup's start, the way out sideways from its axis (half its
+  // width + the hero's body).
+  { id: 'centipede-lunge', source: CENTIPEDE, title: 'сороконожка: рывок', window: p => p.centiLungeWindup ?? CENTI_LUNGE_WINDUP, exit: p => CENTI_LANE_WIDTH / 2 + heroRadius(p) },
   { id: 'troll-tail', source: TROLL_TAIL, move: 'tail', title: 'Тролль: хвост метёт', window: () => TAIL_WINDUP, exit: p => TAIL_OUTER + heroRadius(p) - TAIL_INNER },
+  // Task 48, section 25 (`Params.trollMove`): «Рывок» — the lane 1.6 wide from the core through the hero, the way out sideways from its
+  // axis; the windup alone (the first ×1.5 and the run to the hero, ≥ 3.5 / 12 s, are extra).
+  { id: 'troll-charge', source: TROLL, move: 'charge', title: 'Тролль: рывок', window: () => CHARGE_WINDUP, exit: p => CHARGE_WIDTH / 2 + heroRadius(p) },
   // Task 54 (spec 8): «Взмах половником» — the worst point pressed to the core's front (a solid body: the touch's distance), the way
   // out along the radius; «Горсть перца» — a circle's centre, out across the line; phase 3's windup ×0.8.
   { id: 'chief-ladle', source: CHIEF_LADLE, move: 'swing', title: 'Главарь: взмах половником', window: () => SWING_WINDUP, exit: p => SWING_RADIUS + heroRadius(p) - touchDistance(p) },
@@ -150,8 +157,7 @@ const OUTSIDE: Readonly<Record<string, string>> = {
   keymaster: 'касание, без телеграфа (кандалы держат врага, героя не бьют)',
   // Task 59а «Новобранцы»: no move of their own — the touch; their pressure is the living wall of numbers.
   recruit: 'касание, без телеграфа (строй по номерам — живая стена, своего приёма нет)',
-  // Task 48 «Тролль»: the core's own moves («Рык», «Храп») do not hit the hero — `MOVES_OUTSIDE`.
-  [TROLL]: 'касание, без телеграфа (рык и храп героя не бьют; удары — у частей)',
+  // Task 48 «Тролль»: the core's own moves «Рык», «Храп» do not hit the hero — `MOVES_OUTSIDE`; its «Рывок» (section 25) is in the table.
   // Task 54 «Главарь»: the core's own moves («Обед!», «Приправа», «Свисток») do not hit the hero — `MOVES_OUTSIDE`.
   [CHIEF]: 'касание, без телеграфа (обед, приправа и свисток героя не бьют; удары — у половника и мешка)',
   // Task 55а: the barrel is a thing — it never strikes (the player shoves it).

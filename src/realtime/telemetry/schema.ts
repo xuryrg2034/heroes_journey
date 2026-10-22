@@ -1137,6 +1137,8 @@ export interface FightSummary {
  * Task 57б «Лес: механики» (from 22.10.2026; absent in older records — 0 and empty maps): rootlings laid as stumps, stumps risen, groups
  * crumbled, stumps burnt (`stump` `lie` / `rise` / `crumble` / `burn`); slimes merged (`slime` `merge`); firebrands put out by the
  * cause (`firebrand` `out`: `hit`, `cold`, `water`) and lit again (`lit`: `brazier`, `fire`).
+ * Task 57б-2 «Сороконожка» (from 22.10.2026; absent in older records — 0): its lunges begun (`centipede` `lunge` `start`), divisions
+ * (`split`), new heads (`split` and `head` — a piece whose head died), divisions past the bodies' cap closed up (`join`), parts stuck — farther than 1.2 behind for 2 s (`stuck`; the measure of the rope).
  */
 export interface ForestSummary {
   volleys: Record<string, number>;
@@ -1145,6 +1147,7 @@ export interface ForestSummary {
   rootlings: { lie: number; rise: number; crumble: number; burn: number };
   merges: number;
   brands: { out: Record<string, number>; lit: Record<string, number> };
+  centipedes: { lunges: number; splits: number; heads: number; joins: number; stuck: number };
 }
 
 /** Task 40: the garrison's numbers of a fight (`FightSummary.garrison`). */
@@ -1258,6 +1261,11 @@ export interface TrollBossSummary {
    * камня», «Хвост метёт». Their sum is `damage.total`. Absent in records before 17.10.2026.
    */
   damage?: TrollDamage;
+  /**
+   * Task 48, section 25 (design 22.10.2026): the charges of the walking Troll that stuck, by what they stuck in (`wall`, `tree`,
+   * `edge`, `cliff`; event `trollStuck`). Absent while none stuck (every fight before it, every fight of the sitting Troll).
+   */
+  stuck?: Record<string, number>;
 }
 export interface TrollDamage { crowd: number; core: number; parts: number; moves: number }
 /**
@@ -1556,6 +1564,7 @@ export function emptyFightSummary(): FightSummary {
     forest: {
       volleys: {}, shots: { hit: {}, block: {}, snuffDash: 0, snuffBomb: 0 }, wisps: { appeared: 0, chainKills: 0, touched: 0, blocked: 0, faded: 0 },
       rootlings: { lie: 0, rise: 0, crumble: 0, burn: 0 }, merges: 0, brands: { out: {}, lit: {} },
+      centipedes: { lunges: 0, splits: 0, heads: 0, joins: 0, stuck: 0 },
     },
   };
 }

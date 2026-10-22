@@ -15,7 +15,8 @@
  */
 import { createRtRun, parseRtRun, resolveArena, rtArenaLoadout, rtNode, rtRunParams, serializeRtRun, type RtArenaOutcome, type RtRunState } from './rtRun';
 import { createRtRunStore, RT_RUN_STORAGE_KEY, type RunStorage } from './rtRunStorage';
-import { RtDeathWatch, rtDeathLine, rtRunEndLines } from './rtRunEnd';
+import { RT_DEATH_ABILITY, RT_DEATH_TOUCH, RT_KIND_TITLES, RtDeathWatch, rtDeathLine, rtRunEndLines } from './rtRunEnd';
+import { enemyKind, registeredEnemyKinds } from '../sim/enemies/kinds';
 import { runRow } from './arenaPools';
 import { assert, closeNode, ok, outcomeOf, playFight, pullBare, quiet, same, seedOf, summonGoblin, takeGift, ticks, toBattle } from './runFight.testkit';
 import { inThorns } from '../sim/geometry';
@@ -136,6 +137,61 @@ check('task 40: the killer of a garrison touch — «стражник», «пс�
   assert(lines(ok(resolveArena(mad, byMad.outcome), 'lost'))[0] === 'Сразил: пёс', 'the frenzied hound is «пёс»');
 });
 
+check('task 57б: the killer of a forest mechanic\'s touch — «корневик», «слизень», «головешка» (a put-out one: no trail to burn first; a real death)', () => {
+  const cases: { kind: string; text: string; douse?: true }[] = [
+    { kind: 'rootling', text: 'Сразил: корневик' }, { kind: 'slime', text: 'Сразил: слизень' }, { kind: 'firebrand', text: 'Сразил: головешка', douse: true },
+  ];
+  cases.forEach((c, i) => {
+    const run = newRun(31 + i);
+    const { outcome, sim } = playFight(run, { chains: [], k: 31 + i, finish: (fight, seen) => {
+      const hero = fight.world.hero;
+      const id = fight.command({ t: 'place', x: hero.x + 3, y: hero.y, color: 0, hp: 0, kind: c.kind }) as number;
+      if (c.douse) {
+        // A bomb puts the burning one out (a survivor); with no brazier it walks to the hero, unlit — its touch, not its trail.
+        fight.command({ t: 'items', kind: 'bomb', count: 1 });
+        const e = fight.world.enemies.find(x => x.id === id)!;
+        fight.command({ t: 'item', kind: 'bomb', x: e.x, y: e.y });
+        ticks(fight, 1, seen);
+      }
+      touchOn(fight);
+      for (let n = 0; n < 240 && fight.world.status === 'playing'; n++) {
+        const e = fight.world.enemies.find(x => x.id === id)!;
+        fight.command({ t: 'teleport', x: e.x - 0.45, y: e.y });
+        ticks(fight, 30, seen);
+      }
+    } });
+    assert(sim.world.status === 'defeat', `${c.kind}: the hero fell`);
+    assert(same(outcome.death, { source: c.kind, enemy: c.kind }), `${c.kind}: ${JSON.stringify(outcome.death)}`);
+    assert(lines(ok(resolveArena(run, outcome), 'lost'))[0] === c.text, `${c.kind}: ${lines(ok(resolveArena(run, outcome), 'lost'))[0]}`);
+  });
+});
+
+check('every enemy kind whose touch hurts has a killer line: its hit source is an ability, or a touch with the kind\'s name (a new kind without one fails here)', () => {
+  const sim = new Simulation({ arena: 'kills', params: defaultParams(), seed: seedOf(1) }), world = sim.world;
+  /** The kind's touch on a body of it placed on the field (`touchDamage` may read the body). */
+  const touches = (kind: string): boolean => {
+    sim.command({ t: 'clear', keepMarked: false });
+    const id = sim.command({ t: 'place', x: 8, y: 5, color: 0, hp: 1, kind }) as number;
+    const e = world.enemies.find(x => x.id === id)!;
+    return enemyKind(kind).touchDamage(world, e) > 0;
+  };
+  // Design 22.10.2026: every body whose touch hurts has its line — no exceptions (the Warlock, the Chief and his parts and the
+  // Castellan's crossbow on its stand were the last ones without it).
+  const touching = registeredEnemyKinds().filter(k => touches(k.id));
+  const missing = touching
+    .filter(k => !Object.hasOwn(RT_DEATH_ABILITY, k.hitSource) && !(RT_DEATH_TOUCH.includes(k.hitSource) && Object.hasOwn(RT_KIND_TITLES, k.id)))
+    .map(k => `${k.id} (${k.hitSource})`);
+  assert(!missing.length, `no killer line for: ${missing.join(', ')}`);
+  assert(['warlock', 'chief', 'chief-ladle', 'chief-sack', 'castellan-crossbow', 'rootling', 'slime', 'firebrand'].every(id => touching.some(k => k.id === id)), 'the guard sees the touching bodies');
+  // The lines themselves (a touch death saved by the run: its source and kind).
+  const lineOf = (id: string): string | null => rtDeathLine({ source: enemyKind(id).hitSource, enemy: id });
+  const expected: Record<string, string> = { warlock: 'Колдун', chief: 'Главарь', 'chief-ladle': 'половник Главаря', 'chief-sack': 'мешок Главаря', 'castellan-crossbow': 'арбалет Кастеляна' };
+  for (const [id, name] of Object.entries(expected)) assert(lineOf(id) === `Сразил: ${name}`, `${id}: ${lineOf(id)}`);
+  // The moves without a striker kind in the line (22.10.2026): the Chief's ladle and pepper, the omen «Гроза».
+  const moves: Record<string, string> = { 'chief-ladle': 'взмах половником Главаря', 'chief-pepper': 'горсть перца Главаря', storm: 'удар грозы' };
+  for (const [source, text] of Object.entries(moves)) assert(rtDeathLine({ source }) === `Сразил: ${text}`, `${source}: ${rtDeathLine({ source })}`);
+});
+
 check('task 40: a death by the Castellan\'s «Спустить пса» — «Сразил: рывок пса Кастеляна» (a real fight on «Двор кастеляна»)', () => {
   const run = newRun(28), pending = run.pending;
   assert(pending?.kind === 'battle', 'an open battle');
@@ -154,6 +210,23 @@ check('task 40: a death by the Castellan\'s «Спустить пса» — «С
   const after = ok(resolveArena(run, outcome), 'lost');
   assert(lines(after)[0] === 'Сразил: рывок пса Кастеляна', lines(after)[0]);
   assert(serializeRtRun(parseRtRun(serializeRtRun(after))!) === serializeRtRun(after), 'the save with the death reads back');
+});
+
+check('task 48, section 25: a death by the walking Troll\'s «Рывок» — «Сразил: рывок Тролля» (a real fight on «Берлога тролля» with `trollMove`, the hero on the lane with 2 HP, no second wind)', () => {
+  const run = newRun(30), pending = run.pending;
+  assert(pending?.kind === 'battle', 'an open battle');
+  const watch = new RtDeathWatch();
+  const sim = new Simulation({ arena: 'troll', params: { ...rtRunParams(quiet()), trollMove: true }, seed: seedOf(30), hero: { hp: 2, maxHp: run.maxHp }, loadout: { ...rtArenaLoadout(run), secondWind: false }, beforeTick: w => watch.seen(w) });
+  sim.tick(); watch.read(sim.world, sim.world.events); sim.world.events.length = 0;
+  // The club and the rock frozen: «Рывок» alone (phase 1 has no tail); the hero on its lane, 5.8 from the core.
+  for (const kind of ['troll-club', 'troll-rock']) sim.command({ t: 'chill', id: sim.world.enemies.find(e => e.kind === kind)!.id, seconds: 600 });
+  sim.command({ t: 'teleport', x: 12, y: 8 });
+  const sources = new Set<string>();
+  ticks(sim, 60 * 30, w => { watch.read(w, w.events); for (const ev of w.events) if (ev.type === 'hit') sources.add(ev.source); });
+  assert(sim.world.status === 'defeat' && [...sources].join() === 'troll-charge', `the charge took him (${sim.world.status}, ${[...sources]})`);
+  const outcome = outcomeOf(run, sim.world, {}, watch.death);
+  assert(same(outcome.death, { source: 'troll-charge', enemy: 'troll' }), JSON.stringify(outcome.death));
+  assert(lines(ok(resolveArena(run, outcome), 'lost'))[0] === 'Сразил: рывок Тролля', lines(ok(resolveArena(run, outcome), 'lost'))[0]);
 });
 
 check('task 43: a death by the full Castellan\'s «Болт» — «Сразил: болт Кастеляна» (the run\'s «Двор кастеляна», the hero out of the hounds\' reach)', () => {
@@ -199,6 +272,20 @@ check('the killer of an ability: an archer\'s arrow; a sapper\'s blast (the sapp
   assert(same(blown.outcome.death, { source: 'blast', enemy: 'sapper' }), JSON.stringify(blown.outcome.death));
   const lostToBlast = ok(resolveArena(sappers, blown.outcome), 'lost');
   assert(lines(lostToBlast)[0] === 'Сразил: взрыв сапёра', lines(lostToBlast)[0]);
+});
+
+check('task 57б-2: a death by «Рывок» of the centipede — «Сразил: рывок сороконожки» (a real fight: the quiet field, touches off, only its lunges hurt)', () => {
+  const run = newRun(31);
+  const lunged = playFight(run, { chains: [], k: 31, finish: (sim, seen) => {
+    const hero = sim.world.hero;
+    sim.command({ t: 'place', x: hero.x + 3, y: hero.y, color: 0, hp: 1, kind: 'centipede' });
+    ticks(sim, 60 * 300, seen);
+  } });
+  const hits = lunged.events.filter(ev => ev.type === 'hit');
+  assert(lunged.sim.world.status === 'defeat' && hits.length > 0 && hits.every(ev => ev.type === 'hit' && ev.source === 'centipede-lunge'), `only the lunges hit (${lunged.sim.world.status})`);
+  assert(same(lunged.outcome.death, { source: 'centipede-lunge', enemy: 'centipede' }), JSON.stringify(lunged.outcome.death));
+  const lost = ok(resolveArena(run, lunged.outcome), 'lost');
+  assert(lines(lost)[0] === 'Сразил: рывок сороконожки', lines(lost)[0]);
 });
 
 /**

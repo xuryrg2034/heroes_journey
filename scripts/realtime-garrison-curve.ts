@@ -161,7 +161,7 @@ const CHIEF_KEYS: Partial<Params> = option('--chief-keys', '') ? Object.fromEntr
 type BossFight = { won: boolean; time: number; hpIn: number; groups: Record<TrollGroup, number> };
 const chiefFights: BossFight[] = [], ownTrollFights: BossFight[] = [];
 /** Task 54: the group of a hit on the hero in a boss fight (the Troll's and the Chief's moves by source, the cores' and parts' touches by the striker). */
-const bossGroup = (source: string, kind: string | undefined): TrollGroup => ['troll-club', 'troll-rock', 'troll-tail', 'chief-ladle', 'chief-pepper'].includes(source) ? 'moves'
+const bossGroup = (source: string, kind: string | undefined): TrollGroup => ['troll-club', 'troll-rock', 'troll-tail', 'troll-charge', 'chief-ladle', 'chief-pepper'].includes(source) ? 'moves'
   : kind === 'troll' || kind === 'chief' ? 'core' : kind?.startsWith('troll-') || kind?.startsWith('chief-') ? 'parts' : 'crowd';
 /**
  * Task 48 (`--troll`; design 16.10.2026, spec 24.3): the forest's final («Последний рубеж» on either branch) is played by the bot as the
@@ -244,7 +244,7 @@ function fight(run: RtRunState, t: Tally): RtArenaOutcome {
         damage[ev.source] = (damage[ev.source] ?? 0) + ev.damage;
         if (!troll) continue;
         const kind = ev.source === 'touch' ? kinds.get(ev.enemyId) : undefined;
-        groups[kind === 'troll' ? 'core' : kind?.startsWith('troll-') ? 'parts' : ['troll-club', 'troll-rock', 'troll-tail'].includes(ev.source) ? 'moves' : 'crowd'] += ev.damage;
+        groups[['troll-club', 'troll-rock', 'troll-tail', 'troll-charge'].includes(ev.source) ? 'moves' : kind === 'troll' ? 'core' : kind?.startsWith('troll-') ? 'parts' : 'crowd'] += ev.damage;
       }
     } });
   const w = played.sim.world, lastSource = played.lastSource;
@@ -371,7 +371,7 @@ const jl = jailerFights.filter(f => !f.won).length;
 if (TROLL_FIGHT) {
   const tl = trollFights.filter(f => !f.won).length, all: Record<string, number> = {};
   for (const f of trollFights) for (const [s, n] of Object.entries(f.damage)) all[s] = (all[s] ?? 0) + n;
-  const total = Object.values(all).reduce((a, b) => a + b, 0), moves = ['troll-club', 'troll-rock', 'troll-tail'].reduce((a, s) => a + (all[s] ?? 0), 0);
+  const total = Object.values(all).reduce((a, b) => a + b, 0), moves = ['troll-club', 'troll-rock', 'troll-tail', 'troll-charge'].reduce((a, s) => a + (all[s] ?? 0), 0);
   console.log(`Тролль (финал леса сыгран «Берлогой тролля»${Object.keys(TROLL_KEYS).length ? `, ${JSON.stringify(TROLL_KEYS)}` : ''}): боёв ${trollFights.length}, поражений ${tl} (${trollFights.length ? Math.round(100 * tl / trollFights.length) : 0}%), длина боя мед. ${trollFights.length ? f1(median(trollFights.map(f => f.time))) : '—'} с; урон героя ${total}, от приёмов ${moves} (${total ? Math.round(100 * moves / total) : 0}%): ${Object.entries(all).sort((a, b) => b[1] - a[1]).map(([s, n]) => `${s} ${n}`).join(', ')}.`);
   const sums = TROLL_GROUPS.map(g => trollFights.reduce((a, f) => a + f.groups[g], 0)), sum = sums.reduce((a, b) => a + b, 0);
   console.log(`Тролль: HP героя на входе в бой, мед. ${trollFights.length ? f1(median(trollFights.map(f => f.hpIn))) : '—'}; урон героя по группам: ${TROLL_GROUPS.map((g, i) => `${TROLL_GROUP_TITLES[g]} ${sums[i]} (${sum ? Math.round(100 * sums[i] / sum) : 0}%)`).join(', ')}.`);

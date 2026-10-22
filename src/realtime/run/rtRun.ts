@@ -266,6 +266,9 @@ export function rtArenaParams(run: RtArenaRules | RtRunState, params: Params): P
   // «Зона нажатия босса по рисунку» (21.10.2026): a run with the flag presses a boss by its drawing; without it — the values without the
   // key, as before it (the bosses' arenas do not put it on).
   if (rules.bossPickArt) out.bossPickArt = true; else delete (out as Partial<Params>).bossPickArt;
+  // Task 48, section 25 «Тролль ходит и делает рывок»: a run with the flag plays the walking Troll; without it — the values without the
+  // key, the sitting Troll (the Troll's arena turns the walk on only when the values have it off).
+  if (rules.trollMove) out.trollMove = true; else delete (out as Partial<Params>).trollMove;
   // Task 17 «Пологий вход»: the row's invulnerability after a hit and the tough touch from row 3 (`rtRowGrace`).
   if (rules.gentleRow !== undefined) {
     out.invulnerability = rtRowGrace(rules.gentleRow);
@@ -292,6 +295,8 @@ export interface RtArenaRules {
   corePickFirst?: true;
   /** «Зона нажатия босса по рисунку»: a fight of a run with `bossPickArt` presses a boss by its drawing (`Params.bossPickArt`). */
   bossPickArt?: true;
+  /** Task 48, section 25: a fight of a run with `trollMove` plays the walking Troll with «Рывок» (`Params.trollMove`). */
+  trollMove?: true;
 }
 export function rtArenaRules(run: RtRunState): RtArenaRules {
   const pending = run.pending, node = pending?.kind === 'battle' ? rtNode(run, pending.nodeId) : undefined;
@@ -300,7 +305,7 @@ export function rtArenaRules(run: RtRunState): RtArenaRules {
   // Task 57а: the new shooters are the forest's — a garrison fight keeps its values.
   const shooters = run.forestShooters && !(node && rtGarrisonNodeId(node.id));
   const omens = pending?.kind === 'battle' ? fightOmenList(pending.omens) : [];
-  return { ...run.markedGoals ? { markedGoals: true as const } : {}, ...gentle ? { gentleRow: runRow(node.row) } : {}, ...run.shortFuse ? { shortFuse: true as const } : {}, ...run.forms ? { forms: true as const } : {}, ...run.potionCap ? { potionCap: run.potionCap } : {}, ...run.markerSeek ? { markerSeek: true as const } : {}, ...omens.length ? { omens } : {}, ...shooters ? { forestShooters: true as const } : {}, ...run.bossHoles ? { bossHoles: true as const } : {}, ...run.corePickFirst ? { corePickFirst: true as const } : {}, ...run.bossPickArt ? { bossPickArt: true as const } : {} };
+  return { ...run.markedGoals ? { markedGoals: true as const } : {}, ...gentle ? { gentleRow: runRow(node.row) } : {}, ...run.shortFuse ? { shortFuse: true as const } : {}, ...run.forms ? { forms: true as const } : {}, ...run.potionCap ? { potionCap: run.potionCap } : {}, ...run.markerSeek ? { markerSeek: true as const } : {}, ...omens.length ? { omens } : {}, ...shooters ? { forestShooters: true as const } : {}, ...run.bossHoles ? { bossHoles: true as const } : {}, ...run.corePickFirst ? { corePickFirst: true as const } : {}, ...run.bossPickArt ? { bossPickArt: true as const } : {}, ...run.trollMove ? { trollMove: true as const } : {} };
 }
 /** Task 56: the omens of a fight in the order they act (spec 5.1): the level's, then the node's. */
 const fightOmenList = (omens: RtFightOmens | undefined): RtOmenId[] => (omens ? [...omens.level ? [omens.level] : [], ...omens.node ? [omens.node] : []] : []);
@@ -339,6 +344,12 @@ export const RT_CORE_PICK_FIRST_ON = true;
  * (`Params.bossPickArt`, `rtArenaParams`). A save without it plays the press circles only to its end.
  */
 export const RT_BOSS_PICK_ART_ON = true;
+/**
+ * Task 48, section 25 «Тролль ходит и делает рывок» (user's decision 22.10.2026): a new run keeps the flag `trollMove` and its Troll's
+ * fight plays the walk and «Рывок» (`Params.trollMove`, `rtArenaParams`). Off until design accepts the measure (the bot, the playtest);
+ * a save without the flag plays the sitting Troll to its end.
+ */
+export const RT_TROLL_MOVE_ON = false;
 /**
  * Task 57а (design 21.10.2026, after the arcs measure: a new viewer met no new shooter in 4 runs — the old arcs took every fight): a new run
  * with the shooters takes the key `arcsAlternate` (the arcs of task 26 and of the new shooters alternate, run/schedule.ts `readyArc`).
@@ -882,6 +893,12 @@ export interface RtRunState {
    */
   bossPickArt?: true;
   /**
+   * Task 48, section 25 «Тролль ходит и делает рывок» (22.10.2026): the run's fights play `Params.trollMove` (`rtArenaParams`; only the
+   * Troll's arena reads it). Set when the run is created (`RT_TROLL_MOVE_ON`). Absent — a run saved before it (or created without it):
+   * the sitting Troll, to its end.
+   */
+  trollMove?: true;
+  /**
    * Task 57а (design 21.10.2026): the schedule alternates the arcs of task 26 and of the new shooters when both are ready (run/schedule.ts
    * `readyArc`, the old first). Set when a run with `forestShooters` is created (`RT_ARCS_ALTERNATE_ON`); only with it. Absent — the old
    * order (the first ready arc of the list), byte for byte.
@@ -1193,7 +1210,7 @@ export const rtDailySeed = (date: string): number => mixSeed(metaSalt('daily'), 
  * mix (`rosterMix`, design decision 11.10.2026) is the run's own: on as `RT_RUN_FORCED` says unless `options.rosterMix`
  * says otherwise (false — the choices of arenas and rosters before 11.10.2026).
  */
-export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; markerSeek?: boolean; schedule?: readonly string[]; jailer?: boolean; troll?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; relicFill?: boolean; chronicle?: boolean; potionCap?: number; knacks?: boolean; habits?: boolean; hero?: RtHeroId; omens?: readonly string[]; daily?: string; forestShooters?: boolean; bossHoles?: boolean; corePickFirst?: boolean; bossPickArt?: boolean; arcsAlternate?: boolean; step3?: boolean; forestTricks?: boolean } = {}): RtRunState {
+export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: boolean; rosterMix?: boolean; markedGoals?: boolean; gentleEntry?: boolean; startPotion?: boolean; secondWind?: boolean; healMap?: boolean; feats?: boolean; ash?: RtAshLevel; shortFuse?: boolean; markerSeek?: boolean; schedule?: readonly string[]; jailer?: boolean; troll?: boolean; locked?: readonly string[]; hearth?: RtHearthFlags; forms?: boolean; fusions?: boolean; garrison?: boolean; moat?: boolean; step2?: boolean; relicFill?: boolean; chronicle?: boolean; potionCap?: number; knacks?: boolean; habits?: boolean; hero?: RtHeroId; omens?: readonly string[]; daily?: string; forestShooters?: boolean; bossHoles?: boolean; corePickFirst?: boolean; bossPickArt?: boolean; trollMove?: boolean; arcsAlternate?: boolean; step3?: boolean; forestTricks?: boolean } = {}): RtRunState {
   const mix = options.rosterMix ?? RT_RUN_FORCED.rosterMix === true;
   // Task 12 (13.10.2026): the goal layouts of the `marked` arenas, as the mix — on as `RT_RUN_FORCED` says unless the option says.
   const marked = options.markedGoals ?? RT_RUN_FORCED.markedGoals === true;
@@ -1247,6 +1264,8 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   const corePickFirst = options.corePickFirst ?? RT_CORE_PICK_FIRST_ON;
   // «Зона нажатия босса по рисунку» (21.10.2026): by `RT_BOSS_PICK_ART_ON` unless the option says (false — the circles only, as a save before it).
   const bossPickArt = options.bossPickArt ?? RT_BOSS_PICK_ART_ON;
+  // Task 48, section 25 (22.10.2026): the walking Troll, by `RT_TROLL_MOVE_ON` unless the option says (false — the sitting Troll).
+  const trollMove = options.trollMove ?? RT_TROLL_MOVE_ON;
   // Task 57а (design 21.10.2026): the arcs of task 26 and of the new shooters alternate — a run with the shooters, unless the option says.
   const arcsAlternate = forestShooters && (options.arcsAlternate ?? RT_ARCS_ALTERNATE_ON);
   // Task 57б (level design 22.10.2026): the forest's mechanics — a run with the shooters, by `RT_FOREST_TRICKS_ON` unless the option says.
@@ -1263,7 +1282,7 @@ export function createRtRun(seed: number, options: { gift?: GiftKind; seeded?: b
   const run: RtRunState = {
     version: RT_RUN_VERSION, seed: seed >>> 0, ...options.seeded ? { seeded: true as const } : {},
     // Task 51з: the run of the day (only seeded, its seed the date's; run/rtDaily.ts `createRtDailyRun`).
-    ...options.seeded && isRtDailyDate(options.daily) && (seed >>> 0) === rtDailySeed(options.daily) ? { daily: options.daily } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...markerSeek ? { markerSeek: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked } : {}, ...heroId ? { heroId } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...step3 ? { step3: { drill: garrisonDrill(seed) } } : {}, ...relicFill ? { relicFill: true as const } : {}, ...chronicle ? { chronicle: true as const } : {}, ...potionCap ? { potionCap } : {}, ...pool.length ? { omens: { pool } } : {}, ...forestShooters ? { forestShooters: true as const } : {}, ...arcsAlternate ? { arcsAlternate: true as const } : {}, ...forestTricks ? { forestTricks: true as const } : {}, ...poolSeen.length ? { poolSeen } : {}, ...bossHoles ? { bossHoles: true as const } : {}, ...corePickFirst ? { corePickFirst: true as const } : {}, ...bossPickArt ? { bossPickArt: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
+    ...options.seeded && isRtDailyDate(options.daily) && (seed >>> 0) === rtDailySeed(options.daily) ? { daily: options.daily } : {}, ...mix ? { rosterMix: true as const } : {}, ...marked ? { markedGoals: true as const } : {}, ...gentle ? { gentleEntry: true as const } : {}, ...potion ? { startPotion: true as const } : {}, ...wind ? { secondWind: true as const } : {}, ...healMap ? { healMap: true as const } : {}, ...shortFuse ? { shortFuse: true as const } : {}, ...markerSeek ? { markerSeek: true as const } : {}, ...options.feats ? { feats: true as const } : {}, ...ash > 0 ? { ash: ash as Exclude<RtAshLevel, 0> } : {}, ...schedule ? { schedule: { seen: schedule } } : {}, ...jailer ? { jailer: true as const } : {}, ...troll ? { troll: true as const } : {}, ...locked ? { locked } : {}, ...heroId ? { heroId } : {}, ...hearth ? { hearth } : {}, ...forms ? { forms: true as const } : {}, ...fusions ? { fusions: true as const } : {}, ...knacks ? { knacks: true as const } : {}, ...habits ? { habits: true as const } : {}, ...garrison ? { garrison: true as const } : {}, ...moat ? { moat: true as const } : {}, ...step2 ? { step2: true as const } : {}, ...step3 ? { step3: { drill: garrisonDrill(seed) } } : {}, ...relicFill ? { relicFill: true as const } : {}, ...chronicle ? { chronicle: true as const } : {}, ...potionCap ? { potionCap } : {}, ...pool.length ? { omens: { pool } } : {}, ...forestShooters ? { forestShooters: true as const } : {}, ...arcsAlternate ? { arcsAlternate: true as const } : {}, ...forestTricks ? { forestTricks: true as const } : {}, ...poolSeen.length ? { poolSeen } : {}, ...bossHoles ? { bossHoles: true as const } : {}, ...corePickFirst ? { corePickFirst: true as const } : {}, ...bossPickArt ? { bossPickArt: true as const } : {}, ...trollMove ? { trollMove: true as const } : {}, map: generateForestMap(seed >>> 0), streams: emptyStreams(), oathDraws: 0,
     picks: [], currentNodeId: null, visited: [], hp: RT_RUN_HP, maxHp: RT_RUN_HP, materials: emptyMaterials(), items: emptyItemCounts(), openItems: [], energy: 0, hardenings: 0, talismans: [], talismansGone: [],
     eventChoices: [], battles: [], pending: null, result: null,
   };
@@ -4202,6 +4221,8 @@ function checkRun(value: unknown): RtRunState | null {
   if (value.corePickFirst !== undefined && value.corePickFirst !== true) return null;
   // «Зона нажатия босса по рисунку» (21.10.2026): a flag; absent — a save before it (the press circles only).
   if (value.bossPickArt !== undefined && value.bossPickArt !== true) return null;
+  // Task 48, section 25: the walking Troll — a flag; absent — a save before it (the sitting Troll).
+  if (value.trollMove !== undefined && value.trollMove !== true) return null;
   // Task 57а: the alternation of the arcs — only with the shooters.
   if (value.arcsAlternate !== undefined && !(value.arcsAlternate === true && value.forestShooters === true)) return null;
   // Task 57б: the forest's mechanics — only with the shooters.

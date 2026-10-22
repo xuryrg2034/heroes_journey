@@ -10,6 +10,8 @@
  *   same bot in the same command: «Последний рубеж» on the same node, the Jailer on the run's checkpoint node.
  * - `--stand`: the standing hero — 6 s beside the Troll (at (12, 5.6): in the club's and the rock's reach, phase 1), HP 999, no action:
  *   the damage of his moves against the crowd's touches.
+ * - Task 48, section 25 (`--keys trollMove=1`: the walking Troll; design 22.10.2026 — the measure before `RT_TROLL_MOVE_ON`): the damage
+ *   by move with «Рывок» (`troll-charge`) apart, the charges begun, the share that ends stuck (its window), the stuck windows with a hit.
  * - `--set <name>` (`TROLL_SETS`): the Troll's keys put on the params of `--direct` (the fight replays from its journal): the plates 4 / 5 /
  *   6, the crowd 0.5 / 0.6 / 0.75, «Храп» without regrowth; the references are not played again.
  * - `--run` (task 48б): the whole forest with real fights — a new run as the game makes it (the den branch's boss plays the Troll,
@@ -70,12 +72,17 @@ interface Fight {
   play: { chains: number; coreChains: number; openSeconds: number; distSum: number; ticks: number; plates: number; hp: number };
   /** The boss's death (`greedStart`: the crowd cleared, the door open), game seconds; null — he lives. A timeout after it is the bot's walk out. */
   cleared: number | null;
+  /**
+   * Task 48, section 25: «Рывок» begun (`bossMove` `charge` `start`), the runs that stuck (a window of the source `charge` opened) and
+   * their windows with a hit (`hit` while it is open — a window whose hit killed the core never closes, so the closes undercount).
+   */
+  charges: number; stuck: number; stuckHit: number;
 }
 
 /** One fight by the bot (the boss aim at the Troll and the Jailer); the Troll's events counted. */
 function fight(run: RtRunState, extra: Partial<Params> = {}): Fight {
   const params = Object.assign(rtArenaParams(run, rtRunParams(defaultParams())), extra);
-  const f: Fight = { won: false, time: 0, timeout: false, killer: null, damage: {}, parts: [], windows: {}, blocks: 0, slept: 0, woken: 0, wolves: 0, phase: 1, shift: { core: 0, coreSum: 0, part: 0, ticks: 0, inside: 0, overlap: 0, behind: 0 }, coreTouch: { landing: 0, other: 0, dist: [] }, play: { chains: 0, coreChains: 0, openSeconds: 0, distSum: 0, ticks: 0, plates: 0, hp: 0 }, cleared: null };
+  const f: Fight = { won: false, time: 0, timeout: false, killer: null, damage: {}, parts: [], windows: {}, blocks: 0, slept: 0, woken: 0, wolves: 0, phase: 1, shift: { core: 0, coreSum: 0, part: 0, ticks: 0, inside: 0, overlap: 0, behind: 0 }, coreTouch: { landing: 0, other: 0, dist: [] }, play: { chains: 0, coreChains: 0, openSeconds: 0, distSum: 0, ticks: 0, plates: 0, hp: 0 }, cleared: null, charges: 0, stuck: 0, stuckHit: 0 };
   let moving = false, landed = -Infinity, dashing = false;
   const kinds = new Map<number, string>(), wolves = new Set<number>();
   let open: { source: string; hit: boolean } | null = null, last: string | null = null;
@@ -112,9 +119,10 @@ function fight(run: RtRunState, extra: Partial<Params> = {}): Fight {
       if (ev.type === 'hit') { const src = ev.source === 'touch' ? `touch:${kinds.get(ev.enemyId) ?? '?'}` : ev.source; f.damage[src] = (f.damage[src] ?? 0) + ev.damage; last = src; }
       else if (ev.type === 'partSevered') f.parts.push(kinds.get(ev.id) ?? '?');
       else if (ev.type === 'bossPhase') f.phase = Math.max(f.phase, ev.phase);
+      else if (ev.type === 'bossMove' && ev.move === 'charge' && ev.stage === 'start') f.charges++;
       else if (ev.type === 'trollWindow') {
-        if (ev.action === 'open') open = { source: ev.source, hit: false };
-        else if (ev.action === 'hit' && open) open.hit = true;
+        if (ev.action === 'open') { open = { source: ev.source, hit: false }; if (ev.source === 'charge') f.stuck++; }
+        else if (ev.action === 'hit' && open) { if (open.source === 'charge' && !open.hit) f.stuckHit++; open.hit = true; }
         else if (ev.action === 'block') f.blocks++;
         else if (ev.action === 'close' && open) {
           const cell = f.windows[open.source] ??= [0, 0];
@@ -135,8 +143,16 @@ function fight(run: RtRunState, extra: Partial<Params> = {}): Fight {
 const median = (xs: number[]): number => { if (!xs.length) return NaN; const s = [...xs].sort((a, b) => a - b); return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2; };
 const f1 = (x: number): string => (Number.isFinite(x) ? x.toFixed(1).replace('.', ',') : '—');
 const pct = (a: number, b: number): string => (b ? `${Math.round(a / b * 100)} %` : '—');
-const MOVE_SOURCES = ['troll-club', 'troll-rock', 'troll-tail'];
+// Task 48, section 25: «Рывок» (`troll-charge`, with the key `trollMove`: `--keys trollMove=1`) is a move too.
+const MOVE_SOURCES = ['troll-club', 'troll-rock', 'troll-tail', 'troll-charge'];
 const PART_TITLES: Record<string, string> = { 'troll-club': 'дубина', 'troll-rock': 'камень', 'troll-tail': 'хвост' };
+
+/** Task 48, section 25: the damage of the Troll's moves by move («Рывок» apart) and his charges: begun, stuck, stuck windows with a hit. */
+function chargeLines(damage: Record<string, number>, charges: number, stuck: number, window: [number, number] | undefined, fights: number): string {
+  const total = Object.values(damage).reduce((a, b) => a + b, 0);
+  const byMove = MOVE_SOURCES.map(src => `${src} ${damage[src] ?? 0} (${pct(damage[src] ?? 0, total)})`).join(', ');
+  return `Урон приёмов по приёму (доля от всего урона ${total}): ${byMove}.\n«Рывок»: начато ${charges} (${f1(charges / Math.max(1, fights))} на бой), застрял ${stuck} (${pct(stuck, charges)} рывков); окна «застрял» с попаданием — ${window ? `${window[1]} из ${window[0]} (${pct(window[1], window[0])})` : '—'}.`;
+}
 
 let head = '?';
 try { head = execSync('git rev-parse --short HEAD').toString().trim(); } catch { /* not a repository */ }
@@ -173,7 +189,7 @@ if (RUN) {
 } else if (STAND) {
   console.log(`Задача 48 «Тролль», --stand: стоящий герой 6 с у Тролля (12; 5,6), HP 999, параметры похода ряда 10, ${SEEDS} seed (эвристика), ${date}, HEAD ${head}.\n`);
   const totals: Record<string, number[]> = {};
-  let moves = 0;
+  let moves = 0, charges = 0, stuck = 0;
   for (let k = 1; k <= SEEDS; k++) {
     const run = openRun(k, 'boss', 'troll');
     const params = Object.assign(rtArenaParams(run, rtRunParams(defaultParams())), SET);
@@ -182,7 +198,12 @@ if (RUN) {
     const damage: Record<string, number> = {};
     for (let t = 0; t < 6 * 60; t++) {
       sim.tick();
-      for (const ev of w.events) { if (ev.type === 'hit') damage[ev.source] = (damage[ev.source] ?? 0) + ev.damage; if (ev.type === 'bossMove' && ev.stage === 'hit') moves++; }
+      for (const ev of w.events) {
+        if (ev.type === 'hit') damage[ev.source] = (damage[ev.source] ?? 0) + ev.damage;
+        if (ev.type === 'bossMove' && ev.stage === 'hit') moves++;
+        if (ev.type === 'bossMove' && ev.move === 'charge' && ev.stage === 'start') charges++;
+        if (ev.type === 'trollWindow' && ev.action === 'open' && ev.source === 'charge') stuck++;
+      }
       w.events.length = 0;
     }
     for (const src of new Set([...Object.keys(damage), ...MOVE_SOURCES])) (totals[src] ??= []).push(damage[src] ?? 0);
@@ -193,6 +214,8 @@ if (RUN) {
     console.log(`| ${src} | ${f1(xs.reduce((s, x) => s + x, 0) / xs.length)} | ${f1(median(xs))} | ${pct(xs.filter(x => x > 0).length, xs.length)} |`);
   }
   console.log(`\nУдаров приёмов за всё время: ${moves} (${f1(moves / SEEDS)} на бой).`);
+  const all: Record<string, number> = Object.fromEntries(Object.entries(totals).map(([src, xs]) => [src, xs.reduce((a, b) => a + b, 0)]));
+  console.log(chargeLines(all, charges, stuck, undefined, SEEDS) + ' (герой стоит: окна он не бьёт.)');
 } else {
   console.log(`Задача 48 «Тролль», --direct: узел босса ветки логова, HP похода, параметры и кит ряда 10 без сборки, бот с целью в ядро (окно закрыто — к ближайшей части), ${SEEDS} seed, предел ${LIMIT} с${SET_NAME ? `, набор ${SET_NAME} ${JSON.stringify(SET)}` : ''} (эвристика), ${date}, HEAD ${head}.\n`);
   const rows: { title: string; fights: Fight[] }[] = [
@@ -228,6 +251,8 @@ if (RUN) {
   const bySource: Record<string, number> = {};
   for (const f of troll) for (const [src, n] of Object.entries(f.damage)) bySource[src] = (bySource[src] ?? 0) + n;
   console.log(`\nТролль: урон герою всего ${total}, от приёмов ${fromMoves} (${pct(fromMoves, total)}); по источникам: ${Object.entries(bySource).sort((a, b) => b[1] - a[1]).map(([s, n]) => `${s} ${n}`).join(', ')}.`);
+  const stuck = troll.reduce((s, f) => s + f.stuck, 0);
+  console.log(chargeLines(bySource, troll.reduce((s, f) => s + f.charges, 0), stuck, [stuck, troll.reduce((s, f) => s + f.stuckHit, 0)], troll.length));
   const severed: Record<string, number> = {}, orders: Record<string, number> = {};
   for (const f of troll) {
     for (const p of f.parts) severed[p] = (severed[p] ?? 0) + 1;
