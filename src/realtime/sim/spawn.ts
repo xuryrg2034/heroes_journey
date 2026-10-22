@@ -307,7 +307,8 @@ function queuedBodies(world: World): number { let n = 0; for (const q of world.q
 /** Task 55а: the enemies of the crowd — the things (the barrel, the wardrobe) are not in its density or its limit (no thing — every enemy). */
 function crowdOf(world: World): number {
   let n = 0;
-  for (const e of world.enemies) if (!enemyKind(e.kind).thing) n++;
+  // Task 55 §23: the warlock's orbs neither (`noCrowd`; nothing changes without them).
+  for (const e of world.enemies) { const def = enemyKind(e.kind); if (!def.thing && !def.noCrowd) n++; }
   return n;
 }
 
@@ -543,7 +544,7 @@ function topUpToFloor(world: World): void {
   const crowd = crowdFactorOf(world), k = crowd === 1 ? world.kit?.floorScale : (world.kit?.floorScale ?? 1) * crowd;
   const floor = Math.min(floorWithScale(world.pressure.phase.floor, world.arena, k), enemyLimit(world.params, world.arena));
   // Task 57б-2: the markers and the queue by the bodies they bring (a centipede — its parts), as the landed ones count.
-  const present = (): number => world.enemies.filter(e => e.kind !== 'reaper' && !enemyKind(e.kind).thing).length + markedBodies(world) + queuedBodies(world);
+  const present = (): number => world.enemies.filter(e => e.kind !== 'reaper' && !enemyKind(e.kind).thing && !enemyKind(e.kind).noCrowd).length + markedBodies(world) + queuedBodies(world);
   for (let guard = 0; guard < 200 && present() < floor; guard++) {
     const before = world.queue.length;
     rollGroup(world, rollRng(world).next() >= world.pressure.phase.wolfShare);

@@ -1282,6 +1282,20 @@ export interface Params {
   warlockWindow: number;
   /** The crowd's floor and pace on his arena (×; 1 — his arena plays `WARLOCK_CROWD` 0.9 when the values hold 1). */
   warlockCrowd: number;
+  /**
+   * Task 55 §23 «Колдун v1» (sim/enemies/warlock.ts; decisions of the user 22.10.2026): the mage-shooter and summoner — «Цветные шары»,
+   * «Ковёр дёргает», «Перенос к герою» with «Вспышка посоха», «Зов строя», the rage phase 3. Off by default; «Зал колдуна» puts it on
+   * when the values have it off; values without the key (a journal before it, a run saved without `warlockV1`) — Колдун v0.
+   */
+  warlockV1: boolean;
+  /** v1: the orbs' period in phases 1 and 2 (game s; 5). */
+  warlockOrbPeriod: number;
+  /** v1: «Ковёр дёргает» in phase 2 (game s; 8; phase 3 — `RUG_RAGE_PERIOD` 6). */
+  warlockRugPeriod: number;
+  /** v1: «Перенос» in phase 3 (game s; 3). */
+  warlockShiftRage: number;
+  /** v1: «Зов строя» in phase 2 (game s; 15; phase 1 — the 15th s, then every `SUMMON_CHARM_PERIOD` 20). */
+  warlockSummonPeriod: number;
   // ---- Task 56 «Приметы» (sim/omens.ts, docs/realtime-slice.md, «Приметы»; spec docs/design-notes/task-56-omens.md). ----
   // Every rule is off by default; journals without a key play as before (the numbers — their defaults, `omenNum`). The run turns a
   // rule on for the fight of a node or a level with that omen (run/omens.ts); the sandbox — the panel group «Приметы».
@@ -1920,6 +1934,11 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   warlockShiftFast: 5,
   warlockWindow: 1.5,
   warlockCrowd: 1,
+  warlockV1: false,
+  warlockOrbPeriod: 5,
+  warlockRugPeriod: 8,
+  warlockShiftRage: 3,
+  warlockSummonPeriod: 15,
   // Task 56 «Приметы» (sim/omens.ts, bag.ts): every rule off; the numbers of the spec (section 2.2).
   omenStorm: false,
   omenStormFirst: 6,
@@ -2571,6 +2590,13 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('warlockShiftFast', 'Замок', '«Перенос» без чар: раз в', 2, 12, 0.5, 5, 'с'),
   n('warlockWindow', 'Замок', 'Колдун: окно после «Переноса»', 0.5, 4, 0.1, 5, 'с'),
   n('warlockCrowd', 'Замок', 'Колдун: толпа', 0.25, 2, 0.05, 5, '×', 'Множитель плотности и темпа пополнения толпы. Арена «Зал колдуна» ставит 0,9, если на панели 1.'),
+  // Task 55 §23 «Колдун v1» (sim/enemies/warlock.ts).
+  { kind: 'bool', key: 'warlockV1', group: 'Замок', label: 'Колдун v1: шары, ковёр, строй, ярость', stage: 5,
+    hint: 'Цветные шары веером (в ярости — кольцо из 8), ковёр тянет к Колдуну, «Перенос» к герою со вспышкой посоха, зов строя из 4, третья фаза при 2 пластинах. «Зал колдуна» включает сам.' },
+  n('warlockOrbPeriod', 'Замок', 'Колдун v1: шары раз в', 2, 15, 0.5, 5, 'с'),
+  n('warlockRugPeriod', 'Замок', 'Колдун v1: ковёр раз в (Ф2)', 2, 20, 0.5, 5, 'с', 'В ярости (Ф3) — раз в 6 с.'),
+  n('warlockShiftRage', 'Замок', 'Колдун v1: «Перенос» в ярости раз в', 1.5, 10, 0.5, 5, 'с'),
+  n('warlockSummonPeriod', 'Замок', 'Колдун v1: зов строя раз в (Ф2)', 5, 40, 1, 5, 'с', 'Под чарами — на 15-й с, затем раз в 20 с; в ярости не зовёт.'),
   // Task 56 «Приметы» (sim/omens.ts): the sandbox's toggles of the omens that are new rules (off; the run sets them by its omens).
   { kind: 'bool', key: 'omenStorm', group: 'Приметы', label: '«Гроза»', stage: 5,
     hint: 'Раз в 7 с (первая — на 6-й) метка у самой плотной толпы (от 3 врагов); через 1,2 с удар: враги в круге −3 в зачёт, элита — пластина; герой в круге −2 (не в проходе, не в прыжке, щиты не спасают). Жнец и боссы — не цель.' },
