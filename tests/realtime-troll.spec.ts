@@ -200,6 +200,10 @@ test('task 48: after «Удар дубиной» the window is lit and counts wh
   test.setTimeout(120_000);
   const errors = collectErrors(page);
   await openDen(page, errors);
+  // Task 48 §25: this route is the sitting Troll's («Удар дубиной» at his spot, the core clicked where it sat) — the values without
+  // `trollMove` (as a journal before it; the arena turns the walk on only when the key is off), a new fight with them.
+  await page.evaluate(() => { delete (window as any).__realtime.params.trollMove; });
+  await restart(page);
   await quiet(page);
   const s0 = await snap(page), core = kindOf(s0, 'troll')!;
   await page.evaluate(([rock]) => (window as any).__realtime.chill(rock, 600), [kindOf(s0, 'troll-rock')!.id] as const);
