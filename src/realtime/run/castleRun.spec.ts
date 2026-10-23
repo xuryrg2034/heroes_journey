@@ -113,11 +113,12 @@ check('up to the Castellan a run with the flag is the run without it (300 seeds)
 });
 
 check('without the flag the garrison walks are byte for byte those of 8d72788b (their digests; 6 seeds, seed 4 lost at the forest final)', () => {
-  // Digests of `walkRun({ k, create: { gift, garrison: true }, knack: () => null })` at 8d72788b (before the castle), 23.10.2026.
+  // Digests of `walkRun({ k, create: { gift, garrison: true }, knack: () => null })` at 8d72788b (before the castle), 23.10.2026; Колдун v1's
+  // flag was off there (RT_WARLOCK_V1_ON on since 23.10.2026), so the walk passes `warlockV1: false`.
   const before: Record<number, number> = { 1: 1589059432, 2: 1602273783, 3: 1574596048, 4: 1197861252, 5: 2606597032, 6: 2534719147 };
   for (let k = 1; k <= 6; k++) {
     const lose = k % 4 === 0 ? { loseAt: (_run: RtRunState, type: string) => type === 'boss' } : {};
-    const w = walk(k, false, lose);
+    const w = walk(k, false, { ...lose, create: { gift: k % 2 ? 'full' : 'mini', garrison: true, castle: false, warlockV1: false } });
     assert(w.digest === before[k], `seed ${k}: the digest ${w.digest} (was ${before[k]})`);
     assert(w.run.castle === undefined && w.run.castleLevel === undefined, `seed ${k}: no castle field`);
   }
