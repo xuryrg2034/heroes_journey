@@ -26,6 +26,9 @@ import { rtApplyMeta, rtDeathCause, rtRunWonLevel, rtRunXp } from './rtMeta';
 import { rtRunEndLines } from './rtRunEnd';
 import { rtDailyClaim, rtDailyClaimText } from './rtDaily';
 import { rtTrophiesImport } from './trophies';
+import { rtChronicleMeet, isRtChronicleRef, parseRtChronicle } from './chronicle';
+import { rtChronicleHint, rtChronicleView, type RtChronicleOn, type RtChronicleProfile } from './chroniclePages';
+import type { RtMeta } from './rtMeta';
 import { RT_OMEN_IDS } from './omens';
 import { defaultParams } from '../sim/params';
 import { MAX_TOUGH_HP } from '../sim/kit';
@@ -290,6 +293,41 @@ check("a profile whose record passed the castle has passed the garrison: the tro
     delete meta.trophies; delete meta.trophiesSince;
     assert(meta.heroes.cat?.record?.wonLevel === 3, `seed ${k}: the record passed the castle`);
     assert(rtTrophiesImport(meta, 1).trophies?.some(t => t.id === 'castellan'), `seed ${k}: the Castellan's banner from a castle record`);
+  }
+});
+
+check('«Летопись», the chapter «Замок» (task 58 rule 1): hidden until a hero\'s record reached the castle — then «Шкаф», «Ладья» and the boss «Колдун» (won in its run), the ref chapter:castle; the garrison\'s profile shows one blank «…» after it; without the castle in the build the book as before (3 seeds)', () => {
+  const on = (castle?: boolean): RtChronicleOn => ({ gambler: false, monk: false, ...castle !== undefined ? { castle } : {} });
+  const book = (meta: RtMeta, runs: number, castle?: boolean) => rtChronicleView({ meta, runs } as RtChronicleProfile, 'cat', on(castle));
+  const chapters = (view: ReturnType<typeof book>, page: string) => view.pages.find(p => p.id === page)!.chapters.map(c => `${c.id}:${c.state}`);
+  for (const k of [1, 2, 3]) {
+    // A run of the garrison only (the Castellan ends it), then a run into the castle and through it — the meta written by their ends.
+    const garrisonRun = walk(k, false).run, castleRun = walk(k, true).run;
+    const afterGarrison = rtApplyMeta(undefined, garrisonRun, { viewerRun: 1, chronicle: true }).meta;
+    // Without the castle in the build: the book is the build's of before (the default flag is off; the option off is the same).
+    assert(JSON.stringify(book(afterGarrison, 1)) === JSON.stringify(book(afterGarrison, 1, false)), `seed ${k}: no castle in the build — the book as before`);
+    assert(!chapters(book(afterGarrison, 1, false), 'bestiary').some(c => c.startsWith('castle') || c.startsWith('blank')), `seed ${k}: no castle chapter, no blank (${chapters(book(afterGarrison, 1, false), 'bestiary')})`);
+    // With the castle: the garrison's profile has one blank chapter for the next level (no name, no entries, no count).
+    const blank = book(afterGarrison, 1, true);
+    assert(JSON.stringify(chapters(blank, 'bestiary').slice(-1)) === '["blank-3:blank"]' && JSON.stringify(chapters(blank, 'bosses').slice(-1)) === '["blank-3:blank"]', `seed ${k}: «…» after the garrison (${chapters(blank, 'bestiary')})`);
+    assert(JSON.stringify(blank.total) === JSON.stringify(book(afterGarrison, 1, false).total), `seed ${k}: the blank adds no count`);
+    // The castle run: its end opens the chapter (ref chapter:castle), the Warlock won in its run; the view's meeting writes the rook.
+    const end = rtApplyMeta(afterGarrison, castleRun, { viewerRun: 2, chronicle: true });
+    assert(end.end.chronicle?.added.includes('chapter:castle') && end.end.chronicle.added.includes('boss:warlock') && end.end.chronicle.added.every(isRtChronicleRef), `seed ${k}: ${end.end.chronicle?.added}`);
+    const meta = { ...end.meta, chronicle: rtChronicleMeet(end.meta.chronicle, { kinds: ['rook', 'barrel'], affixes: [] }).chronicle };
+    const back = parseRtChronicle(JSON.parse(JSON.stringify(meta.chronicle)));
+    assert(back?.kinds?.includes('rook') && !back.kinds.includes('barrel') && back.bosses?.warlock?.won === 2 && back.unread?.includes('chapter:castle') && back.unread.includes('kind:rook'), `seed ${k}: the chronicle reads back (${JSON.stringify(back)})`);
+    const view = book(meta, 2, true), bestiary = view.pages.find(p => p.id === 'bestiary')!, bosses = view.pages.find(p => p.id === 'bosses')!;
+    const castle = bestiary.chapters.find(c => c.id === 'castle')!, warlock = bosses.chapters.find(c => c.id === 'castle')!;
+    assert(castle.level === 3 && JSON.stringify(castle.entries) === JSON.stringify([{ id: 'wardrobe', state: 'unknown' }, { id: 'rook', state: 'seen' }]), `seed ${k}: «Шкаф», «Ладья» (${JSON.stringify(castle)})`);
+    assert(JSON.stringify(warlock.entries) === JSON.stringify([{ id: 'warlock', state: 'won', run: 2 }]), `seed ${k}: «Колдун» won in run 2 (${JSON.stringify(warlock)})`);
+    assert(!chapters(view, 'bestiary').some(c => c.startsWith('blank')), `seed ${k}: no blank after the last level`);
+    const before = book(meta, 2, false).pages.find(p => p.id === 'bestiary')!;
+    assert(bestiary.known === before.known + 2 && bosses.known === book(meta, 2, false).pages.find(p => p.id === 'bosses')!.known + 1, `seed ${k}: the counts grow by the chapter (${bestiary.known} / ${before.known})`);
+    // The owl's hint may name the castle (a place, not the kind): `hint_castle` for the wardrobe not met.
+    const hints = Array.from({ length: 40 }, (_, runs) => rtChronicleHint({ meta, runs } as RtChronicleProfile, 'cat', on(true))).filter(h => h?.key === 'hint_castle');
+    assert(hints.length && hints.every(h => h!.target === 'kind:wardrobe'), `seed ${k}: the castle's hint (${JSON.stringify(hints[0])})`);
+    assert(!Array.from({ length: 40 }, (_, runs) => rtChronicleHint({ meta: afterGarrison, runs } as RtChronicleProfile, 'cat', on(true))).some(h => h?.key === 'hint_castle' || h?.target === 'boss:warlock'), `seed ${k}: no castle hint before the castle`);
   }
 });
 
