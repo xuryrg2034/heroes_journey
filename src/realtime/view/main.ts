@@ -2066,6 +2066,7 @@ async function boot(): Promise<void> {
         shooters: { ...renderer.shooters.shown },
         forest: { ...renderer.forestMech.shown },
         warlockV1: { ...renderer.warlockV1.shown },
+        guests: { ...renderer.castleGuests.shown },
         /** Task 43: the knight — plate pips, «Рывок» lanes and «Размах» circles drawn in the frame; the sheds and swing hits seen. */
         knight: { ...renderer.knightShown },
         /**

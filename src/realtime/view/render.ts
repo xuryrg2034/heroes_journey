@@ -77,6 +77,8 @@ import { CHAIN_BREAK_LIFE, drawFlailArc, drawFlailChain, drawSeverPip, drawWeigh
 import { TROLL, TROLL_ROCK, trollCore } from '../sim/enemies/troll';
 import { ShooterView, hiveMarks, slingerMarks, wispMarks } from './shooterView';
 import { ForestMechView, centipedeMarks, drawFlame, firebrandMarks, rootlingMarks, slimeMarks } from './forestMechView';
+import { CastleGuestsView } from './castleGuestsView';
+import { BUTLER, CANDELABRA, CASTLE_GUESTS, JESTER, POLTERGEIST, QUEEN } from '../sim/enemies/castleGuests';
 import { CENTIPEDE, centipedeHead } from '../sim/enemies/centipede';
 import { FIREBRAND, brandLit } from '../sim/enemies/firebrand';
 import { CHIEF, chiefCore } from '../sim/enemies/chief';
@@ -193,6 +195,9 @@ const GARRISON_ART: Readonly<Record<string, { id: CharacterArtId; size: number }
   rootling: { id: 'forest-rootling', size: 3.2 }, slime: { id: 'forest-slime', size: 2.6 }, [FIREBRAND]: { id: 'forest-firebrand', size: 3.0 },
   // Task 57б-2: a centipede's part (its head — `CENTIPEDE_HEAD_ART`).
   [CENTIPEDE]: { id: 'forest-centipede-part', size: 2.6 },
+  // Task 60а: the castle's guests (the candelabra is a thing: no plaque; the box is in body radii of the kind's own scale).
+  [CANDELABRA]: { id: 'castle-candelabra', size: 3.0 }, [QUEEN]: { id: 'castle-queen', size: 3.3 }, [BUTLER]: { id: 'castle-butler', size: 3.3 },
+  [POLTERGEIST]: { id: 'castle-poltergeist', size: 3.2 }, [JESTER]: { id: 'castle-jester', size: 3.3 },
   // Task 55а: the castle's art (a thing has no colour plaque; the rook keeps its colour's plaque and disc).
   [WARDROBE]: { id: 'castle-wardrobe', size: 3.1 }, [ROOK]: { id: 'castle-rook', size: 3.9 }, [BARREL]: { id: 'castle-barrel', size: 2 },
 };
@@ -507,6 +512,8 @@ export class RealtimeRenderer {
   readonly shooters = new ShooterView();
   /** Task 57б: the forest's tricksters — stumps, leaves, slime pairs, the firebrands' fire, the plan's signs (forestMechView.ts); `shown` is what the tests read. */
   readonly forestMech = new ForestMechView(chainInk);
+  /** Task 60а: the castle's guests — the cross, the queen's lines and stars, the chandelier, the thrown things, the jester (castleGuestsView.ts). */
+  readonly castleGuests = new CastleGuestsView(UNIT);
   /** Task 54a: the Chief's view - his drawing, window, queue, cauldron, signs and effects (chiefView.ts). */
   private readonly chief = new ChiefView(UNIT, chainInk);
   get chiefShown(): ChiefView['shown'] { return this.chief.shown; }
@@ -860,7 +867,7 @@ export class RealtimeRenderer {
     });
     host.appendChild(this.app.canvas);
     this.staticLayer.addChild(this.floor, this.terrain);
-    this.root.addChild(this.staticLayer, this.cage.layer, this.objectLayer, this.markerLayer, this.trailLayer, this.forestMech.floor, this.chief.floor, this.warlock.floor, this.warlockV1.floor, this.laneLayer, this.rippleLayer, this.castLayer, this.castMask, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.omenLayer, this.troll.layer, this.chief.layer, this.warlock.layer, this.warlockV1.layer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.shooters.layer, this.forestMech.layer, this.overlay, this.prologueLayer, this.fxLayer, this.omenFlash, this.snapLayer, this.shardLayer, this.flash);
+    this.root.addChild(this.staticLayer, this.cage.layer, this.objectLayer, this.markerLayer, this.trailLayer, this.forestMech.floor, this.chief.floor, this.warlock.floor, this.warlockV1.floor, this.castleGuests.floor, this.laneLayer, this.rippleLayer, this.castLayer, this.castMask, this.formLayer, this.bossLayer, this.enemyLayer, this.signalLayer, this.omenLayer, this.troll.layer, this.chief.layer, this.warlock.layer, this.warlockV1.layer, this.bustLayer, this.bustMask, this.badgeLayer, this.affixTextLayer, this.eliteLayer, this.elitePlaqueLayer, this.captionLayer, this.slotView.layer, this.targetLayer, this.chainLayer, this.slotView.textLayer, this.bagView.layer, this.featDoor.layer, this.playerFxLayer, this.shooters.layer, this.forestMech.layer, this.castleGuests.layer, this.overlay, this.prologueLayer, this.fxLayer, this.omenFlash, this.snapLayer, this.shardLayer, this.flash);
     this.heroRoot.addChild(this.reachLayer, this.reachMask, this.heroLayer);
     this.app.stage.addChild(this.root, this.viewBorder, this.heroRoot, this.edgeLayer);
     this.initShards();
@@ -1404,10 +1411,10 @@ export class RealtimeRenderer {
   }
 
   /**
-   * The body's drawing scale against the common one: a slime's (its kind's `artScaleOf`, forestMechView.ts) and the warlock's orb's (task 55
-   * §23: its kind's `artScale` 0.7 — the radius of its press circle); 1 — every other kind (the common drawing).
+   * The body's drawing scale against the common one, by its kind's own art scale (the radius of its press circle and reach): a slime's
+   * (`artScaleOf`, forestMechView.ts), the warlock's orb (×0.7, task 55 §23) and the castle's guests (task 60а: ×1.1–1.3); 1 — the rest.
    */
-  private bodyScale(e: Enemy): number { return e.kind === WARLOCK_ORB ? kindOf(e).artScale : this.forestMech.slimeScale(e); }
+  private bodyScale(e: Enemy): number { return e.kind === WARLOCK_ORB || CASTLE_GUESTS.includes(e.kind) ? kindOf(e).artScale : this.forestMech.slimeScale(e); }
 
   private buildEnemyBody(e: Enemy, look: EnemyLook, colorless: boolean): { body: Container; grey: Sprite | null; hpLabel: Text | null; exclaim: Text | null; quills: { up: Graphics; down: Graphics } | null; trollArt?: CoreArt; weapon?: Container; chiefArt?: ChiefArt; warlockArt?: WarlockArt } {
     const body = new Container();
@@ -1597,6 +1604,10 @@ export class RealtimeRenderer {
       const wl = this.shooters.wispLook(world, e, this.clock);
       if (wl) view.root.scale.set(scale * pop * enemyArtScale(world.params, e) * wl.scale);
       view.root.alpha = (mode === 'alpha' ? 1 - dim : 1) * fade * (wl?.alpha ?? 1);
+      // Task 60а: the butler's bow tilts him, the poltergeist is half transparent, a lifted thing shakes over its shadow, a thrown one flies on an arc.
+      const gl = this.castleGuests.look(world, e, this.clock, enemyDrawRadius(world.params) * UNIT);
+      if (gl) { view.root.position.y -= gl.lift; if (gl.scale !== 1) view.root.scale.set(view.root.scale.x * gl.scale); view.root.alpha *= gl.alpha; view.body.rotation = gl.tilt; }
+      else if ((e.kind === BUTLER || e.kind === BARREL) && view.body.rotation !== 0) view.body.rotation = 0;
       const shade = Math.round(255 * (mode === 'darken' ? 1 - dim : 1));
       view.root.tint = (shade << 16) | (shade << 8) | shade;
       if (view.grey) view.grey.alpha = mode === 'desaturate' ? dim : 0;
@@ -1709,6 +1720,7 @@ export class RealtimeRenderer {
     this.warlock.beginFrame();
     this.warlock.drawFloor(world, this.clock);
     this.warlockV1.drawFloor(world, this.clock, enemyDrawRadius(p) * UNIT, (pt, margin) => this.sees(pt, margin));
+    this.castleGuests.drawFloor(world, this.clock, enemyDrawRadius(p) * UNIT, (pt, margin) => this.sees(pt, margin));
     this.garrisonShown.lunges = 0;
     for (const e of world.enemies) {
       if (e.kind !== CASTELLAN) continue;
@@ -2029,6 +2041,7 @@ export class RealtimeRenderer {
     this.chief.drawOver(g, world, this.clock, this.frameDt, enemyDrawRadius(world.params) * UNIT, 1 / Math.max(0.1, this.scale), e => this.sees(e, 1.5));
     this.warlock.drawOver(g, world, this.clock, enemyDrawRadius(world.params) * UNIT, 1 / Math.max(0.1, this.scale), e => this.sees(e, 1.5));
     this.warlockV1.drawOver(g, world, this.clock, enemyDrawRadius(world.params) * UNIT, (pt, margin) => this.sees(pt, margin));
+    this.castleGuests.drawOver(world, this.clock, enemyDrawRadius(world.params) * UNIT, (pt, margin) => this.sees(pt, margin));
     Object.assign(this.signals, counts);
     // Casino stage 1 («Однорукий гоблин»): the arrows of the rain and the volley — the archer's mark (a hatched threat circle
     // filling until the arrow falls); the fall flashes on its `land` event (`handleEvents`).
@@ -3157,6 +3170,8 @@ export class RealtimeRenderer {
       if (ev.type === 'firebrand' && ev.dropped?.length) this.notice(REFUSAL_TEXT[ev.refusal ?? 'afterSurvivor'], ev.x, ev.y);
       // Task 57б: a stump laid, risen, crumbled, burnt; a slimes' merge; a firebrand put out or lit again.
       if (this.forestMech.onEvent(ev, world, UNIT)) continue;
+      // Task 60а: the guests' bursts (a topple, the chandelier's crash, a wax drop, a landing, a catch, a miss).
+      if (this.castleGuests.onEvent(ev, this.clock)) continue;
       if (ev.type === 'bossMove') {
         const m = ev.stage === 'hit' ? this.bossMovesSeen.get(ev.id) : undefined;
         if (m) { this.bossFlashes.push({ ...m, until: this.clock + 0.3 }); this.bossShown.hits++; }
@@ -3710,6 +3725,8 @@ export class RealtimeRenderer {
     this.garrison3.drawPlan(g, world, plan, this.clock, enemyDrawRadius(p) * UNIT, e => this.sees(e, 1.5));
     // Task 57б: «рассыплются» (the light leaf and splinters on the group's stumps and links), «погаснет» (smoke over the link).
     this.forestMech.drawPlan(g, world, plan, this.clock, UNIT, enemyDrawRadius(p) * UNIT);
+    // Task 60а: the candelabra's topple, the jester's reflects, the chandelier's fall.
+    this.castleGuests.drawPlan(g, world, plan, this.clock, enemyDrawRadius(p) * UNIT);
     this.loopShown.hint = 0;
     // Line hero → links, navy under the chain color.
     // Task 62 (design 21.10.2026): Ведунья v2's thread runs through the runes, not the bodies.
@@ -4775,6 +4792,7 @@ export class RealtimeRenderer {
     this.sparks.length = 0;
     this.shooters.reset();
     this.forestMech.reset();
+    this.castleGuests.reset();
     this.garrison3.reset();
     for (const f of this.floating) f.text.destroy();
     this.floating.length = 0;

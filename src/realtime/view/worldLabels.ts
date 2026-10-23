@@ -173,6 +173,13 @@ const TOPPLE_LABEL_LIFT = 0.9, ROOK_LABEL_LIFT = 1.1;
  * sign of the fight (`warlockShift` `mark`). The refusals «под чарами» and «вне окна» are the cursor's (`REFUSAL_TEXT`); no other text.
  */
 export const WARLOCK_MOVE_TEXT = { shift: 'Перенос' } as const;
+/**
+ * Task 60а (design 23.10.2026, spec 13): the guests' moves are named the same way at their first start in the fight — «Вертушка» over the
+ * candelabra that lights, «Звезда ферзя» over the queen that aims, «Люстра» over the chandelier that comes, «Метание» over the poltergeist that
+ * throws, «Мяч шута» over the jester that aims. The same set `named` holds them (their keys are their own).
+ */
+export const GUEST_MOVE_TEXT = { cross: 'Вертушка', star: 'Звезда ферзя', chandelier: 'Люстра', toss: 'Метание', ball: 'Мяч шута' } as const;
+const GUEST_LABEL_LIFT = 1.3, CHANDELIER_LABEL_LIFT = 2.6;
 const SHIFT_LABEL_LIFT = 0.9;
 
 /**
@@ -208,6 +215,15 @@ export function bossMoveLabels(w: World, named: Set<string>): LabelSpec[] {
       if (!e) continue;
       named.add('strike');
       out.push({ id: 'castle-strike', text: CASTLE_MOVE_TEXT.strike, at: { x: e.x, y: e.y }, place: 'above', lift: ROOK_LABEL_LIFT });
+      continue;
+    }
+    // Task 60а: the guests' moves.
+    const guest = ev.type === 'candelabra' && ev.action === 'light' ? 'cross' : ev.type === 'queen' && ev.action === 'aim' ? 'star' : ev.type === 'chandelier' && ev.action === 'hang' ? 'chandelier'
+      : ev.type === 'poltergeist' && ev.action === 'throw' ? 'toss' : ev.type === 'jester' && ev.action === 'aim' ? 'ball' : null;
+    if (guest && 'x' in ev) {
+      if (named.has(`guest-${guest}`)) continue;
+      named.add(`guest-${guest}`);
+      out.push({ id: `guest-${guest}`, text: GUEST_MOVE_TEXT[guest], at: { x: ev.x, y: ev.y }, place: 'above', lift: guest === 'chandelier' ? CHANDELIER_LABEL_LIFT : GUEST_LABEL_LIFT });
       continue;
     }
     if (ev.type === 'warlockShift' && ev.action === 'mark' && !named.has('shift')) {

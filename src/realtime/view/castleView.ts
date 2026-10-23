@@ -15,6 +15,7 @@
  */
 import type { Graphics, GraphicsContext } from 'pixi.js';
 import { BARREL, ROOK, ROOK_HALF, TOPPLE_LENGTH, WARDROBE, rookLine, wardrobeLying, wardrobeTopple } from '../sim/enemies/castle';
+import { CANDELABRA } from '../sim/enemies/castleGuests';
 import { durabilityOf, type ShovePlan } from '../sim/shove';
 import type { Enemy, World, WorldEvent } from '../sim/world';
 import { drawBoltLine } from './courtView';
@@ -48,7 +49,8 @@ interface Pose { ang: number; sy: number; side: number }
 /** The part of a PixiJS container `poseWardrobe` moves (a Node test passes a stub). */
 export interface Posable { rotation: number; pivot: { set(x: number, y: number): void }; position: { set(x: number, y: number): void }; scale: { set(x: number, y: number): void } }
 
-export const isThingKind = (kind: string): boolean => kind === BARREL || kind === WARDROBE;
+/** A thing of the castle: the barrel, the wardrobe; task 60а — the candelabra (no colour, no plaque, its durability's notch). */
+export const isThingKind = (kind: string): boolean => kind === BARREL || kind === WARDROBE || kind === CANDELABRA;
 
 export class CastleView {
   /** What the last frame drew and what the events brought (the test's snapshot). */

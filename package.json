@@ -150,6 +150,7 @@
     "test:realtime-warlock": "tsx src/realtime/sim/warlock.spec.ts",
     "test:realtime-warlock-v1": "tsx src/realtime/sim/warlockV1.spec.ts",
     "test:realtime-castle-view": "tsx src/realtime/view/castleView.spec.ts",
+    "test:realtime-castle-guests-view": "tsx src/realtime/view/castleGuestsView.spec.ts",
     "test:realtime-warlock-view": "tsx src/realtime/view/warlockView.spec.ts",
     "test:realtime-warlock-v1-view": "tsx src/realtime/view/warlockV1View.spec.ts",
     "test:realtime-import-order": "tsx src/realtime/sim/importOrder.spec.ts",

@@ -306,6 +306,8 @@ export class ShooterView {
       }
     }
     for (const s of liveShots(world)) {
+      // Task 60а: the queen's stars and the jester's balls are the guests' view (castleGuestsView.ts).
+      if (s.kind === 'star' || s.kind === 'ball') continue;
       if (!sees(s, 1)) continue;
       drawShot(g, s, clock, unit);
       sh.shots++;
