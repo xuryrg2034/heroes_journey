@@ -12,6 +12,7 @@
  * View only: the profile already holds the result (`MetaEnd`).
  */
 import { RT_XP_VOW } from '../run/rtMeta';
+import { RT_RUN_END_TEXT } from '../run/rtRunEnd';
 import { GARRISON_TITLE } from '../run/garrison';
 import { CASTLE_TITLE } from '../run/castle';
 import { countUpValue } from './juice';
@@ -45,7 +46,7 @@ export function rowWord(row: number, passed: number, level?: number, forest = fa
 const hasRecord = (r: { row: number; wonLevel?: number; level?: number }): boolean => r.row > 0 || !!r.wonLevel || !!r.level;
 
 /** The block: the experience, the bar, the record, the carry, the pack's cards face down. */
-function blockHtml(m: MetaEnd, chronicle: readonly string[]): string {
+function blockHtml(m: MetaEnd, chronicle: readonly string[], afterWin = false): string {
   // Task 51г (design 17.10.2026): «Обеты: сдержано N из M · +15×N» — the broken ones are seen by the number (a line even at N = 0).
   const kept = m.vows?.filter(v => v.kept).length ?? 0;
   const vows = m.vows?.length ? `<li data-testid="meta-part-vows"><span>Обеты: сдержано ${kept} из ${m.vows.length}</span><b>+${RT_XP_VOW}×${kept}</b></li>` : '';
@@ -71,6 +72,8 @@ function blockHtml(m: MetaEnd, chronicle: readonly string[]): string {
     + `<div class="rt-meta-bar" data-testid="meta-bar"><i class="rt-meta-fill" style="width:${(bar.k * 100).toFixed(1)}%"></i>`
     + `<span class="rt-meta-mark"${bar.to === null ? ' hidden' : ''}></span><em data-testid="meta-xp-now">${m.xp.before}${bar.to !== null ? ` / ${bar.to}` : ''}</em>${next}</div>`
     + record
+    // Task 61б (spec Б.2): the run that opened the layer «после первой победы» — one line in the world's voice, above the chronicle's.
+    + (afterWin ? `<p class="rt-meta-afterwin" data-testid="meta-afterwin">${esc(RT_RUN_END_TEXT.afterWin)}</p>` : '')
     // Task 58: what the run wrote in the chronicle («В летописи: +3 · Рысь · Призма …», «+1 глава · Гарнизон»); no new entry - no line.
     + chronicle.map(line => `<p class="rt-meta-chronicle" data-testid="meta-chronicle${line.startsWith('В летописи') ? '' : '-chapter'}">${esc(line)}</p>`).join('')
     + quest + omens + cards
@@ -86,11 +89,11 @@ export class MetaEndView {
   private frame = 0;
   private played = false;
 
-  constructor(readonly meta: MetaEnd, readonly key: string, private readonly sound: (s: MetaSound) => void, chronicle: readonly string[] = []) {
+  constructor(readonly meta: MetaEnd, readonly key: string, private readonly sound: (s: MetaSound) => void, chronicle: readonly string[] = [], afterWin = false) {
     this.el = document.createElement('section');
     this.el.className = 'rt-meta';
     this.el.setAttribute('data-testid', 'meta-end');
-    this.el.innerHTML = blockHtml(meta, chronicle);
+    this.el.innerHTML = blockHtml(meta, chronicle, afterWin);
     this.shown.xp = meta.xp.before;
   }
 

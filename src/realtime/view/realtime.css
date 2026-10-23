@@ -888,3 +888,61 @@ button { font: inherit; color: inherit; cursor: pointer; }
 /* Task 51е: the header bar is wider than its two items; it must not catch the pointer over the perch and the panel below it (the stock keeps its title). */
 .rt-hearth-head { pointer-events: none; }
 .rt-hearth-head .rt-hearth-stock { pointer-events: auto; }
+/* Task 61а–б «Возвращение» and «после первой победы» (view/returnScene.ts): the scorches on the hearth's stones, the turquoise fire, the
+   camp's scenes. A scene's times count from `--rt-scene-t` (its start, negative), so a redraw keeps the frame. */
+.rt-scorch { position: absolute; width: 34px; height: 14px; transform: translate(-50%, -50%) rotate(var(--r, 0deg)); border-radius: 50%; background: radial-gradient(closest-side, #1c130cd9, #1c130c80 60%, transparent); pointer-events: none; }
+.rt-scorch.rt-dark { width: 26px; height: 11px; background: radial-gradient(closest-side, #050302f2, #0503029e 65%, transparent); }
+.rt-scorch.rt-new { animation: rt-scorch-in .05s linear both; animation-delay: calc(var(--rt-scene-t, -10s) + var(--at, 0s)); }
+.rt-scorch.rt-new::after { content: ''; position: absolute; inset: -6px; border-radius: 50%; background: radial-gradient(closest-side, #ffe08a, #ff7a2acc 55%, transparent); opacity: 0; animation: rt-scorch-glow .4s ease-in both; animation-delay: calc(var(--rt-scene-t, -10s) + var(--at, 0s)); }
+.rt-camp-short .rt-scorch.rt-new::after { animation-duration: .2s; }
+@keyframes rt-scorch-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes rt-scorch-glow { 0% { opacity: 1; } 100% { opacity: 0; } }
+.rt-hearth-say-mark { position: absolute; top: -10px; left: calc(50% - 46px); min-width: 26px; height: 20px; padding: 0 5px; border-radius: 10px; display: flex; align-items: center; justify-content: center; background: #f1e6c8; color: #1b2017; border: 2px solid #18232d; font: 700 15px/1 Georgia, serif; font-style: normal; pointer-events: none; box-shadow: 0 3px 8px #0009; animation: rt-say-mark 1.6s ease-in-out infinite; }
+@keyframes rt-say-mark { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+/* The turquoise fire (spec Б.3, П5): a hue over the background's flames and the lit ground; the drawn fire turns by its hue. */
+.rt-hearth-tint { position: absolute; left: 645px; top: 352px; width: 230px; height: 270px; transform: translate(-50%, -50%); border-radius: 50%; background: radial-gradient(closest-side, #2fd8c8 0 62%, #2fd8c800); mix-blend-mode: hue; pointer-events: none; }
+.rt-hearth-tint-ground { top: 450px; width: 640px; height: 300px; background: radial-gradient(closest-side, #2fd8c8a6, #2fd8c800); }
+.rt-hearth-turq .rt-hearth-glow { background: radial-gradient(closest-side, #48e0d033, #2fb8c814 55%, transparent); }
+.rt-hearth-turq .rt-hearth-fire { filter: hue-rotate(150deg) drop-shadow(0 0 40px #48e0d088); }
+.rt-camp-win .rt-hearth-tint { animation: rt-tint-in 1s ease-in-out both; animation-delay: calc(var(--rt-scene-t) + .5s); }
+@keyframes rt-tint-in { 0% { opacity: 0; } 30% { opacity: .5; } 55% { opacity: .2; } 100% { opacity: 1; } }
+.rt-camp-win .rt-arrive { animation: rt-arrive .8s ease-out both; animation-delay: calc(var(--rt-scene-t) + 2.2s); }
+@keyframes rt-arrive { from { opacity: 0; filter: brightness(2) saturate(0); } to { opacity: 1; filter: none; } }
+/* The scene's layer: the night, the flare and sparks of the fire, the ash and the hero rising, the sneeze or the ash shaken off. */
+.rt-camp-night, .rt-camp-flare, .rt-camp-sparks, .rt-camp-ash, .rt-camp-puff, .rt-camp-drops { position: absolute; pointer-events: none; }
+.rt-camp-night { inset: 0; background: #050814; opacity: 0; animation: rt-night-full 2.5s linear both; animation-delay: var(--rt-scene-t); }
+.rt-camp-short .rt-camp-night { animation: rt-night-short 1s linear both; animation-delay: var(--rt-scene-t); }
+.rt-camp-win .rt-camp-night { animation: rt-night-win 4.5s linear both; animation-delay: var(--rt-scene-t); }
+@keyframes rt-night-full { 0% { opacity: 0; } 12% { opacity: .45; } 88% { opacity: .45; } 100% { opacity: 0; } }
+@keyframes rt-night-short { 0% { opacity: .3; } 100% { opacity: 0; } }
+@keyframes rt-night-win { 0% { opacity: .15; } 100% { opacity: 0; } }
+.rt-camp-flare { left: 640px; top: 370px; width: 380px; height: 330px; transform: translate(-50%, -50%); border-radius: 50%; background: radial-gradient(closest-side, #ffe2a0e6, #ff8a3c66 50%, transparent); mix-blend-mode: screen; opacity: 0; animation: rt-flare .4s ease-out both; animation-delay: calc(var(--rt-scene-t) + .3s); }
+.rt-camp-short .rt-camp-flare { animation-delay: var(--rt-scene-t); }
+.rt-camp-win .rt-camp-flare { background: radial-gradient(closest-side, #b8fff4e6, #2fd8c866 50%, transparent); animation-duration: 1s; animation-delay: calc(var(--rt-scene-t) + .5s); }
+@keyframes rt-flare { 0% { opacity: 0; transform: translate(-50%, -50%) scale(.8); } 40% { opacity: 1; transform: translate(-50%, -50%) scale(1.3); } 100% { opacity: 0; transform: translate(-50%, -50%) scale(1.1); } }
+.rt-camp-sparks { left: 640px; top: 330px; }
+.rt-camp-spark { position: absolute; width: 5px; height: 5px; border-radius: 50%; background: #ffd27a; box-shadow: 0 0 6px #ff8a3c; opacity: 0; animation: rt-spark .7s ease-out both; animation-delay: calc(var(--rt-scene-t) + .3s + var(--d)); }
+.rt-camp-short .rt-camp-spark { animation-delay: calc(var(--rt-scene-t) + var(--d)); }
+.rt-camp-win .rt-camp-spark { background: #b8fff4; box-shadow: 0 0 6px #2fd8c8; animation-delay: calc(var(--rt-scene-t) + .5s + var(--d)); }
+@keyframes rt-spark { 0% { opacity: 1; transform: translate(0, 0); } 100% { opacity: 0; transform: translate(var(--dx), -120px); } }
+.rt-camp-ash { width: 96px; height: 30px; transform: translate(-50%, -70%); border-radius: 50% 50% 40% 40%; background: radial-gradient(ellipse at 50% 70%, #8d8a86, #5e5b58 55%, #3a383600 72%); animation: rt-ash-full 2.5s linear both; animation-delay: var(--rt-scene-t); }
+.rt-camp-short .rt-camp-ash { animation: rt-ash-short 1s linear both; animation-delay: var(--rt-scene-t); }
+@keyframes rt-ash-full { 0%, 28% { opacity: 1; transform: translate(-50%, -70%) scale(1); } 60% { opacity: .6; transform: translate(-50%, -70%) scale(.8, .6); } 100% { opacity: 0; transform: translate(-50%, -70%) scale(.6, .3); } }
+@keyframes rt-ash-short { 0%, 30% { opacity: .9; } 100% { opacity: 0; } }
+.rt-camp-full .rt-rise .rt-hearth-art { animation: rt-rise .8s ease-out both; animation-delay: calc(var(--rt-scene-t) + .7s); }
+.rt-camp-short .rt-rise .rt-hearth-art { animation: rt-rise .5s ease-out both; animation-delay: calc(var(--rt-scene-t) + .3s); }
+@keyframes rt-rise { 0% { clip-path: inset(100% 0 0 0); filter: grayscale(1) brightness(.6); } 75% { clip-path: inset(0 0 0 0); filter: grayscale(.8) brightness(.8); } 100% { clip-path: inset(0 0 0 0); filter: none; } }
+.rt-camp-full .rt-rise .rt-hearth-name, .rt-camp-short .rt-rise .rt-hearth-name { animation: rt-late .01s linear both; animation-delay: calc(var(--rt-scene-t) + 1.5s); }
+.rt-camp-full .rt-rise .rt-hearth-hero-say { animation: rt-late .01s linear both; animation-delay: calc(var(--rt-scene-t) + 2.5s); }
+@keyframes rt-late { from { visibility: hidden; } to { visibility: visible; } }
+.rt-camp-puff { width: 0; height: 0; }
+.rt-camp-puff i { position: absolute; width: 30px; height: 24px; border-radius: 50%; background: #b9b4ad; border: 2px solid #18232d55; opacity: 0; animation: rt-puff .5s ease-out both; animation-delay: calc(var(--rt-scene-t) + 1.5s); }
+.rt-camp-puff i:nth-child(2) { --px: 18px; --py: -6px; width: 16px; height: 13px; animation-delay: calc(var(--rt-scene-t) + 1.55s); }
+.rt-camp-puff i:nth-child(3) { --px: 8px; --py: 10px; width: 13px; height: 11px; animation-delay: calc(var(--rt-scene-t) + 1.6s); }
+@keyframes rt-puff { 0% { opacity: .95; transform: translate(0, 0) scale(.4); } 100% { opacity: 0; transform: translate(calc(14px + var(--px, 0px)), var(--py, -4px)) scale(1.4); } }
+.rt-camp-drops { width: 0; height: 0; }
+.rt-camp-drops i { position: absolute; width: 8px; height: 12px; border-radius: 50% 50% 50% 50% / 30% 30% 70% 70%; background: #cfc9c0; border: 1.5px solid #18232d; opacity: 0; animation: rt-drop .5s ease-in both; animation-delay: calc(var(--rt-scene-t) + 1.5s); }
+.rt-camp-drops i:nth-child(1) { left: -34px; } .rt-camp-drops i:nth-child(2) { left: -18px; animation-delay: calc(var(--rt-scene-t) + 1.56s); } .rt-camp-drops i:nth-child(3) { left: 0; animation-delay: calc(var(--rt-scene-t) + 1.52s); } .rt-camp-drops i:nth-child(4) { left: 18px; animation-delay: calc(var(--rt-scene-t) + 1.6s); } .rt-camp-drops i:nth-child(5) { left: 32px; animation-delay: calc(var(--rt-scene-t) + 1.54s); }
+@keyframes rt-drop { 0% { opacity: 1; transform: translateY(0); } 70% { opacity: 1; } 100% { opacity: 0; transform: translateY(44px); } }
+.rt-meta-afterwin { margin: 2px 0 0; font: italic 15px Georgia, serif; color: #8fe8dc; letter-spacing: .02em; }
+@media (prefers-reduced-motion: reduce) { .rt-camp-scene *, .rt-camp-scene::before { animation-duration: .01s !important; } .rt-hearth-say-mark { animation: none; } }

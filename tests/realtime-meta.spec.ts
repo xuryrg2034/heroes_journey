@@ -110,7 +110,16 @@ test('tasks 36–37: the first run ends — the experience counts up, the bar an
   // Марфа or Ерофей come too when the walk took their event's choice («Перевязать», «Заточка»): the places add up to six.
   const npcs = await page.locator('.rt-hearth-npc').count();
   await expect(page.locator('.rt-hearth-empty')).toHaveCount(6 - npcs);
+  // Task 61а: the run ended with a death — the camp plays the return scene (Esc skips it); Неясыть's first line is the return's
+  // (`revive_first`, above the meeting), her meeting the next time her bubble opens. A new profile had no runs before: no
+  // `scorch_retro` (spec А.5; core's fix 23.10.2026 — the new profile's run count started at 2).
+  await expect.poll(() => page.evaluate(() => (window as any).__realtime.run.returnsShown().scene)).toBe('full');
+  await page.keyboard.press('Escape');
   await page.screenshot({ path: 'artifacts/realtime-hearth-first.png' });
+  await page.getByTestId('hearth-npc-owl').click();
+  await expect(page.getByTestId('hearth-line')).toHaveText('Смерть на странице не считается, кот, — я зачеркнула. Не привыкай.');
+  await page.getByTestId('hearth-npc-owl').click();
+  await expect(page.getByTestId('hearth-bubble')).toHaveCount(0);
   await page.getByTestId('hearth-npc-owl').click();
   await expect(page.getByTestId('hearth-line')).toHaveText('Ещё один кот с топором. Садись, запишу тебя — пока есть что записывать.');
   const stock = Number(await page.getByTestId('hearth-stock').locator('b').textContent());
@@ -143,6 +152,8 @@ test('tasks 36–37: a run that crosses 60 opens «Охотник» — three ca
   await page.screenshot({ path: 'artifacts/realtime-meta-pack-done.png' });
   // The camp with three NPC; «Два пути» bought.
   await page.getByTestId('run-to-hearth').click();
+  // Task 61а: the death's return scene — Esc skips it.
+  await page.keyboard.press('Escape');
   await expect(page.locator('.rt-hearth-npc')).toHaveCount(3);
   // No two names (nor a name and another NPC's figure) overlap (design 15.10.2026).
   const boxes = await page.locator('.rt-hearth-npc').evaluateAll(els => els.map(e => { const n = e.querySelector('.rt-hearth-name')!.getBoundingClientRect(), f = e.querySelector('.rt-hearth-art')!.getBoundingClientRect(); return { n: [n.left, n.top, n.right, n.bottom], f: [f.left, f.top, f.right, f.bottom] }; }));

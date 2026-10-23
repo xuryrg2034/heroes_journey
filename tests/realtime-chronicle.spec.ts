@@ -244,6 +244,8 @@ test('task 58: a kind that comes into view in a fight of a meta run reaches the 
   await page.waitForTimeout(1500);
   await shot(page, 'end-chronicle-line');
   await page.getByTestId('run-to-hearth').click();
+  // Task 61а: the death's return scene — Esc skips it.
+  await page.keyboard.press('Escape');
   await expect(page.getByTestId('hearth-chron-mark')).toBeVisible();
   await page.getByTestId('hearth-npc-owl').click();
   await page.getByTestId('hearth-chronicle').click();

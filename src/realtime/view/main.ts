@@ -57,7 +57,8 @@ import { ChainAudio } from './audio';
 import { chainFeel, QUIET_GAIN } from './chainFeel';
 import { FX_LEVELS, HEAVY_SEMIS, fxLevelOf, waveStrength, type FxLevel } from './juice';
 import type { MetaSound } from './metaEnd';
-type MetaSoundKind = MetaSound | 'buy' | 'open' | 'heal' | 'fuse' | 'reward0' | 'reward1' | 'reward2';
+import type { SceneSound } from './returnScene';
+type MetaSoundKind = MetaSound | 'buy' | 'open' | 'heal' | 'fuse' | 'reward0' | 'reward1' | 'reward2' | SceneSound;
 import { DebugPanel, formatTime } from './debugPanel';
 import { loadFx, loadHintsOn, loadLinkDepth, loadParams, loadRoleBadges, loadSandboxBuild, loadNewOnMap, loadSessionClock, loadShowGlyph, loadSound, PARAMS_STORAGE_KEY, saveFx, saveHintsOn, saveLinkDepth, saveNewOnMap, saveParams, saveRoleBadges, saveSandboxBuild, saveSessionClock, saveShowGlyph, saveSound, type SoundSetting } from './paramStorage';
 import { SessionClock } from './session';
@@ -2281,6 +2282,10 @@ async function boot(): Promise<void> {
       chronicleShown: () => runView.hearth?.shown.chronicle ?? null,
       /** Task 51е (tests): the perch now - the trophies held (ids in order), the ones falling this visit, the hooks, the owl's last trophy line. */
       trophiesShown: () => runView.hearth?.shown.trophies ?? null,
+      /** Task 61а–б (tests): the camp's scene (playing and played), the scorches, the fire's colour, the «…» marks, the scene's lines; the hero line. */
+      /** Task 61а–б, tests only: the camp's scenes do not end by themselves while on (a click, Space or Esc ends one) — their screenshots. */
+      campSceneHold: (on: boolean) => { if (runView.hearth) runView.hearth.holdScene = on; },
+      returnsShown: () => (runView.hearth ? { ...runView.hearth.shown.returns, heroLine: runView.hearth.shown.heroLine, line: runView.hearth.shown.line } : null),
       /** Task 47, tests only: multiplies the times of the staged screens (С6, С8) by `k` — a slow reveal to act in the middle of it. */
       screenPace: (k: number) => { runView.screenPace = k > 0 ? k : 1; },
       winArena: async () => {

@@ -73,7 +73,7 @@ export interface HearthState {
   quest?: { npc: NpcId; id: string };
   /** What the last run was: the lines' occasion (`quest` — the quest's result; `firstWin` — the profile's first victory). */
   /** `habitOffered` / `knackOffered` (task 50 §18): the run offered the archetype / the knack (the core sets them with the hearth; absent until then). */
-  last?: { habitOffered?: true; knackOffered?: true; won: boolean; cause?: string; row: number; beaten: boolean; quest?: boolean; firstWin?: boolean; pack?: boolean; hero?: 'toad'; casino?: 'won' | 'lost'; firstGarrison?: boolean; garrisonWon?: boolean; away?: { npc: NpcId; met: boolean }; cuts?: number; vows?: { id: string; kept: boolean }[] };
+  last?: { habitOffered?: true; knackOffered?: true; won: boolean; cause?: string; row: number; beaten: boolean; quest?: boolean; firstWin?: boolean; pack?: boolean; hero?: 'toad'; casino?: 'won' | 'lost'; firstGarrison?: boolean; garrisonWon?: boolean; away?: { npc: NpcId; met: boolean }; cuts?: number; vows?: { id: string; kept: boolean }[]; firstCastle?: true };
   /** The NPC who came by themselves (the fallback way): their meeting line is `first_self`. */
   self?: Partial<Record<NpcId, boolean>>;
   /** The lines said so far, by `npc:key` (the profile's `lines`). */

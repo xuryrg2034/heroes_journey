@@ -52,6 +52,7 @@ import { omenBadge, omenCardHtml, omenIconSvg, omenSign, omensEnd } from './omen
 import { rtOmen, rtOmensGate, type RtFightOmens } from '../run/omens';
 import type { FirstMeetId } from './firstMeet';
 import { ICON as STOCK_ICON, MetaEndView, type MetaSound } from './metaEnd';
+import type { SceneSound } from './returnScene';
 import { HearthView, NPC_ART, artUrl } from './hearthView';
 import { chronicleEndLines } from './chronicleView';
 import { AFFIX_IDS } from '../sim/elites';
@@ -64,7 +65,7 @@ import { npcLine, type LineKey } from './npcLines';
 import { NPCS, type NpcId } from './metaModel';
 import { ProfileMeta } from './metaSource';
 import { MAP_KINDS, VOW_RULES, mapCounts, mapPreview, RunStart } from './runStart';
-import { rtHearthFlagsWith, rtJailerWonRow, rtRunKey, rtVowsNow, type RtHearthStart, type RtMetaEnd } from '../run/rtMeta';
+import { rtAfterWinLineDue, rtHearthFlagsWith, rtJailerWonRow, rtRunKey, rtVowsNow, type RtHearthStart, type RtMetaEnd } from '../run/rtMeta';
 import { RT_OMENS_ON } from '../run/omens';
 import { RT_HERO_ID, RT_TOAD_ID, type RtHeroId, type RtVowId, RT_VOW_TITLES } from '../run/metaCatalog';
 import { defaultParams } from '../sim/params';
@@ -184,7 +185,7 @@ export interface RunHost {
    * none). `sound` plays the meta's sounds by the run's sound setting.
    */
   meta?: {
-    sound(kind: MetaSound | 'buy' | 'open' | 'heal' | 'fuse' | RewardSound): void;
+    sound(kind: MetaSound | 'buy' | 'open' | 'heal' | 'fuse' | RewardSound | SceneSound): void;
     /** Telemetry (core's recorder): the meta of an ended or abandoned run — before the next run starts; the camp's map, purchases, clicks. */
     end?(run: RtRunState, end: RtMetaEnd): void;
     map?(run: RtRunState, chosen: number): void;
@@ -573,6 +574,8 @@ export class RunView {
       ...host.chronicleOpened ? { chronicleOpened: opened => this.host.chronicleOpened?.(this.run, opened) } : {},
       ...host.daily ? { daily: { view: () => this.dailyViewNow(), start: () => this.startDaily(), tools: this.dailyTools } } : {},
       ...host.warmup ? { warmup: { records: () => this.profile.warmup(), start: (id: WarmupId) => this.host.warmup?.start(id) } } : {},
+      // Task 61а–б: the return scene, the scorches, the turquoise fire and the first win's scene (core's profile store).
+      returns: { view: () => this.profile.returnView(), markReviveSeen: () => this.profile.markReviveSeen(), markAfterWinScene: () => this.profile.markAfterWinScene() },
     }) : null;
   }
 
@@ -628,7 +631,9 @@ export class RunView {
     // Core: the first call for a run applies it (experience, pack, record, carry), a repeated one returns the same.
     const poolBefore = RT_OMENS_ON ? rtProfileOmenPool(this.profile.load()) : [];
     const end = this.profile.endRunMeta(run);
-    this.metaEnd = end ? new MetaEndView(this.withOmens(run, end, poolBefore), key, s => this.host.meta?.sound(s), this.chronicleLines(key)) : null;
+    // Task 61б (spec Б.2): the run that opened the layer «после первой победы» says «Летопись не дописана» once a profile (marked now).
+    const afterWin = !!end && rtAfterWinLineDue(this.profile.load().meta, end) && this.profile.markAfterWinLine();
+    this.metaEnd = end ? new MetaEndView(this.withOmens(run, end, poolBefore), key, s => this.host.meta?.sound(s), this.chronicleLines(key), afterWin) : null;
     if (this.metaEnd && !play) this.metaEnd.finish();
     return this.metaEnd;
   }
