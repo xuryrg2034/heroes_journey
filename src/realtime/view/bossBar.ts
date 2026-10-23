@@ -20,7 +20,7 @@ import { JAILER, PHASE2_PLATES, jailerHpOf } from '../sim/enemies/jailer';
 import { CASTELLAN, CASTELLAN_HP } from '../sim/enemies/garrison';
 import { PHASE3_PLATES, TROLL, TROLL_HP } from '../sim/enemies/troll';
 import { CHIEF, CHIEF_HP, PHASE3_PLATES as CHIEF_PHASE3_PLATES } from '../sim/enemies/chief';
-import { WARLOCK, WARLOCK_HP } from '../sim/enemies/warlock';
+import { RAGE_PLATES, WARLOCK, WARLOCK_HP, warlockV1On } from '../sim/enemies/warlock';
 
 /** Real seconds the bar takes to fade after the core's death. */
 export const BOSS_BAR_FADE = 0.5;
@@ -51,10 +51,11 @@ export function bossBarState(w: World): BossBarState | null {
   if (!core) return null;
   const platesMax = core.armor?.max ?? 0, plates = Math.max(0, core.armor?.plates ?? 0);
   // An enemy keeps no max HP: the core's HP at its spawn (task 32: `Params.jailerHp`, the boss arenas 5; a core with more — its HP now).
-  // Task 55 Д: the warlock's bar is the same (`warlockHp` cells, `warlockPlates` cells) with no phase line: his phase comes from his wardrobe, not from the plates.
+  // Task 55 Д: the warlock's bar is the same (`warlockHp` cells, `warlockPlates` cells) with no phase line: his phase 2 comes from his wardrobe,
+  // not from the plates. Task 55 §23 (v1): the line at `RAGE_PLATES` plates — his rage (phase 3), lit once it has come.
   if (core.kind === WARLOCK) {
-    const hpMax = Math.max(1, Math.round(w.params.warlockHp ?? WARLOCK_HP), core.hp);
-    return { id: core.id, hpMax, hp: Math.max(0, core.hp), platesMax: Math.max(platesMax, 0), plates, phaseAt: 0, phase2: false };
+    const hpMax = Math.max(1, Math.round(w.params.warlockHp ?? WARLOCK_HP), core.hp), v1 = warlockV1On(w);
+    return { id: core.id, hpMax, hp: Math.max(0, core.hp), platesMax: Math.max(platesMax, 0), plates, phaseAt: v1 ? hpMax + Math.min(platesMax, RAGE_PLATES) : 0, phase2: v1 && (core.vars.phase ?? 1) >= 3 };
   }
   const castellan = core.kind === CASTELLAN, troll = core.kind === TROLL, chief = core.kind === CHIEF;
   const hpMax = Math.max(1, castellan ? CASTELLAN_HP : troll ? Math.round(w.params.trollHp ?? TROLL_HP) : chief ? Math.max(1, Math.round(w.params.chiefHp ?? CHIEF_HP)) : jailerHpOf(w.params), core.hp), hp = Math.max(0, core.hp);

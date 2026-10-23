@@ -353,10 +353,10 @@ export const RT_CORE_PICK_FIRST_ON = true;
 export const RT_BOSS_PICK_ART_ON = true;
 /**
  * Task 55 §23 «Колдун v1» (the user's decisions 22.10.2026): a new run keeps the flag `warlockV1` and the castle's final plays Колдун v1
- * (`Params.warlockV1`, `rtArenaParams`). Off until design turns it on (the run does not reach the castle yet — task 55в); a save without
- * it plays v0 to its end.
+ * (`Params.warlockV1`, `rtArenaParams`). On since 23.10.2026 (design and the user); the run does not reach the castle yet (task 55в,
+ * `RT_CASTLE_ON` off), so the flag acts in a run once the castle comes. A save without it plays v0 to its end.
  */
-export const RT_WARLOCK_V1_ON = false;
+export const RT_WARLOCK_V1_ON = true;
 /**
  * Task 48, section 25 «Тролль ходит и делает рывок» (user's decision 22.10.2026): a new run keeps the flag `trollMove` and its Troll's
  * fight plays the walk and «Рывок» (`Params.trollMove`, `rtArenaParams`). On since 22.10.2026 — design, after the bot's measure and the
