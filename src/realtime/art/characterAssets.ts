@@ -28,6 +28,8 @@ export const CHARACTER_ART_IDS = [
   'forest-rootling', 'forest-stump', 'forest-slime', 'forest-firebrand', 'forest-firebrand-out',
   // Task 57б-2: the centipede's head and its part (the drawn legs stay the fallback).
   'forest-centipede-head', 'forest-centipede-part',
+  // Task 60а «Гости замка»: the candelabra, the queen, the butler, his chandelier, the poltergeist and the jester (procedural fallbacks stay).
+  'castle-candelabra', 'castle-queen', 'castle-butler', 'castle-chandelier', 'castle-poltergeist', 'castle-jester',
   // Task 55а «Замок, шаг 1а»: the wardrobe, the rook and the barrel (the drawn stand-ins of view/castleView.ts stay the fallback).
   'castle-wardrobe', 'castle-rook', 'castle-barrel',
   // Task 54a: the camp boss, his cauldron, ladle and sack (the drawn stand-ins of view/chiefView.ts stay the fallback).

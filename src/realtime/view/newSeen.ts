@@ -54,6 +54,12 @@ export const KIND_CAPTIONS: Readonly<Record<string, string>> = {
   pitcher: 'Смолокур — горшок смолы: уйдите с метки, в смоле вязнут все',
   recruit: 'Новобранец — бейте по номерам: 1, 2, 3, 4',
   warden: 'Привратник — двое разных цветов: погиб один — второй в гневе',
+  // Task 60а (design 23.10.2026, spec 13): the castle's guests (the chandelier is no kind: no caption).
+  candelabra: 'Подсвечник — кончи цепь на нём: опрокинешь',
+  queen: 'Ферзь — бьёт во все восемь сторон',
+  butler: 'Дворецкий — убей: люстра упадёт на толпу',
+  poltergeist: 'Полтергейст — швыряет бочки; убей до броска',
+  jester: 'Шут — отбей мяч проходом: промахнётся',
 };
 /** The final captions of the elite affixes (a run fight has the elite armour on: «Толстый» is +1 plate, «Стремительный» −1). */
 export const AFFIX_CAPTIONS: Readonly<Record<AffixId, string>> = {
