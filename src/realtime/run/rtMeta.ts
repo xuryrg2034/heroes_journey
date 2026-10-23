@@ -11,8 +11,8 @@ import { mixSeed, ITEM_KINDS } from '../forest/items';
 import type { ItemKind } from '../forest/types';
 import { stockTotal } from '../forest/merchant';
 import { runRow } from './arenaPools';
-import { rtForestCleared, rtLevel, rtNode, type RtHearthFlags, type RtRunState } from './rtRun';
-import { rtGarrisonNodeId } from './garrison';
+import { rtForestCleared, rtGarrisonCleared, rtLevel, rtNode, type RtHearthFlags, type RtRunState } from './rtRun';
+import { rtNodeLevel } from './castle';
 import { TROLL_RUN_ARENAS } from '../sim/arenasBoss';
 import { SCHEDULE_KINDS, SCHEDULE_SHOOTER_KINDS, SCHEDULE_TRICK_KINDS } from './schedule';
 import {
@@ -84,6 +84,13 @@ export const RT_CARRY_CAP_PER_LEVEL = 20;
  */
 export const RT_XP_GARRISON_FACTOR = 2;
 export const RT_XP_GUARDROOM = 40;
+/**
+ * Баланс, task 55в (spec 7.2, a proposal): a won fight of the castle gives its forest XP × this (an ordinary 15, «Застава» and the
+ * breakthrough 30); its checkpoint «Бальный зал» — `RT_XP_BALLROOM`; its boss, the Warlock, — `RT_XP_WARLOCK` (the run's victory +25 then).
+ */
+export const RT_XP_CASTLE_FACTOR = 3;
+export const RT_XP_BALLROOM = 60;
+export const RT_XP_WARLOCK = 75;
 /** Баланс: an NPC not met comes by itself after this many finished runs since the first camp (or the last arrival). */
 export const RT_HEARTH_FALLBACK_RUNS = 3;
 /** Баланс: the run row of the forest's final (the owl's quest at this record is «Пройди лес»). */
@@ -103,12 +110,13 @@ export const RT_NPC_EVENTS: Readonly<Record<'herb' | 'smith', { event: string; o
  * (`wonLevel` ≥ 1; kept for the profile's format: a record saved before it with `won: true` reads as `wonLevel: 1`). Every logic of
  * the record (beaten, the first win, the record's line) reads `wonLevel` (`rtWonLevelOf`), never `won`.
  */
-export interface RtDepthRecord { row: number; won: boolean; xp: number; level?: 2; wonLevel?: 1 | 2 }
+export interface RtDepthRecord { row: number; won: boolean; xp: number; level?: 2 | 3; wonLevel?: 1 | 2 | 3 }
 /**
  * Task 40: the level a depth passed (0 — none). A depth without `wonLevel` (a record saved before it): 1 when `won`, or when it is the
  * garrison's (`level` 2 — only a run that won the forest reaches the garrison).
  */
-export const rtWonLevelOf = (d: { won?: boolean; wonLevel?: number; level?: number }): number => d.wonLevel ?? (d.won || d.level === 2 ? 1 : 0);
+// Task 55в: a castle record (`level` 3) has passed the garrison (every castle record keeps its `wonLevel`; the fallback is the rule's).
+export const rtWonLevelOf = (d: { won?: boolean; wonLevel?: number; level?: number }): number => d.wonLevel ?? (d.level === 3 ? 2 : d.won || d.level === 2 ? 1 : 0);
 /**
  * Task 38: the depth `a` (level, row) is farther than `b` — the level first, then the row. Task 40: the level passed comes first
  * (`wonLevel`: «Гарнизон пройден» beats any row), then the level, then the row — only on a level not passed yet.
@@ -129,7 +137,7 @@ export function rtDepthBeyond(a: { level?: number; row: number; won?: boolean; w
  */
 export interface RtHeroMeta { xp: number; packs: string[]; record?: RtDepthRecord; ashBest?: Exclude<RtAshLevel, 0>; offered?: string[] }
 /** The death cause the camp's lines read (design lines v1): the Jailer's fight, the final, the fire trail, a touch, an arrow, a blast. */
-export type RtDeathCause = 'crowd' | 'archer' | 'sapper' | 'jailer' | 'final' | 'fire' | 'other' | 'guardroom' | 'castellan' | 'troll';
+export type RtDeathCause = 'crowd' | 'archer' | 'sapper' | 'jailer' | 'final' | 'fire' | 'other' | 'guardroom' | 'castellan' | 'troll' | 'warlock';
 /** The previous run as the camp's lines read it. `quest` — true done, false failed, absent — the run had no quest. */
 /** Task 49 (ui, the camp's lines npc-lines-v2): `hero` — the previous run was Ведунья's (`run.heroId`); absent — the cat's (every `last` before it). */
 /**
@@ -229,7 +237,8 @@ export interface RtMeta {
 
 /** Task 38 (design smoke v65, D1): `guardroom` and `castellan` — the garrison's checkpoint and boss, apart from the forest's Jailer and final. */
 /** Task 51г: `vows` — the vows kept (+15 each, outside «Испытание»). */
-export type RtXpPartId = 'battles' | 'elite' | 'jailer' | 'final' | 'guardroom' | 'castellan' | 'feats' | 'victory' | 'ash' | 'quest' | 'vows';
+/** Task 55в: `ballroom` and `warlock` — the castle's checkpoint and boss (spec 7.2: their own lines). */
+export type RtXpPartId = 'battles' | 'elite' | 'jailer' | 'final' | 'guardroom' | 'castellan' | 'ballroom' | 'warlock' | 'feats' | 'victory' | 'ash' | 'quest' | 'vows';
 export interface RtXpPart { id: RtXpPartId; xp: number; n?: number }
 export interface RtMetaPackView { id: string; title: string; items: RtMetaItem[] }
 export interface RtMetaEnd {
@@ -242,7 +251,7 @@ export interface RtMetaEnd {
    * Task 38: `level` (2 — the garrison) on `before` and `after` only when that record is the garrison's; absent — the forest. Task 40:
    * `wonLevel` — the level the record passed (1 the forest, 2 the garrison: «Гарнизон пройден»); absent — none.
    */
-  record: { before: { row: number; won: boolean; level?: 2; wonLevel?: 1 | 2 } | null; after: { row: number; won: boolean; level?: 2; wonLevel?: 1 | 2 }; beaten: boolean };
+  record: { before: { row: number; won: boolean; level?: 2 | 3; wonLevel?: 1 | 2 | 3 } | null; after: { row: number; won: boolean; level?: 2 | 3; wonLevel?: 1 | 2 | 3 }; beaten: boolean };
   /** Task 40: `cart` — what «Повозка» sent (inside `n`, 100 %); absent — no cart. `resources` — the stock left at the end. */
   carry: { n: number; share: 1 | 0.5; cap: number; resources: number; cart?: number };
   /** Task 51в: the NPCs who came to the camp after this run — by the run's deed or by the fallback path (`self`); absent — none. */
@@ -269,30 +278,28 @@ export const rtRunKey = (run: RtRunState): string => `${run.seed}:${run.result?.
  * The run row the run reached on the level it is on (0 — none). Task 38: in the garrison — the garrison's row (its nodes only), the
  * level `rtRunLevel` 2; elsewhere the forest's, as before.
  */
-export function rtRunDepth(run: RtRunState): number { return levelDepth(run, rtLevel(run) === 2); }
-/** The run row the run reached among the nodes of a level (the garrison's, `g:…`, or the forest's); 0 — none. */
-function levelDepth(run: RtRunState, garrison: boolean): number {
+export function rtRunDepth(run: RtRunState): number { return rtLevelDepth(run, rtLevel(run)); }
+/** The run row the run reached among the nodes of a level (the castle's, `c:…`, the garrison's, `g:…`, or the forest's); 0 — none. */
+export function rtLevelDepth(run: RtRunState, level: 1 | 2 | 3): number {
   const ids = [...run.visited, ...run.pending && 'nodeId' in run.pending && run.pending.nodeId ? [run.pending.nodeId] : [], ...run.result ? [run.result.nodeId] : []]
-    .filter(id => rtGarrisonNodeId(id) === garrison);
+    .filter(id => rtNodeLevel(id) === level);
   return Math.max(0, runRow(Math.max(0, ...ids.map(id => rtNode(run, id)?.row ?? 0))));
 }
-/** Task 38: the level the run reached — 1 the forest, 2 the garrison. */
-export const rtRunLevel = (run: RtRunState): 1 | 2 => rtLevel(run);
+/** Task 38: the level the run reached — 1 the forest, 2 the garrison (task 55в: 3 the castle). */
+export const rtRunLevel = (run: RtRunState): 1 | 2 | 3 => rtLevel(run);
 const won = (run: RtRunState): boolean => run.result?.outcome === 'victory';
 /**
  * Task 40: the level the run passed — 2: it won the garrison (the Castellan); 1: it won the forest (its final; a run that went on
  * into the garrison too); 0 — none.
  */
-export function rtRunWonLevel(run: RtRunState): 0 | 1 | 2 {
-  if (won(run)) return rtRunLevel(run) === 2 ? 2 : 1;
-  return rtForestCleared(run) ? 1 : 0;
+export function rtRunWonLevel(run: RtRunState): 0 | 1 | 2 | 3 {
+  if (won(run)) return rtRunLevel(run);
+  // Task 55в: a run that went on into the castle has passed the garrison (the Castellan won).
+  return rtGarrisonCleared(run) ? 2 : rtForestCleared(run) ? 1 : 0;
 }
 /** Task 61б: the castle — level 3 of the world (task 55, the record's `wonLevel: 3`). */
 export const RT_CASTLE_LEVEL = 3;
-/**
- * Task 61б (spec Б.1): the run won the castle (the Warlock) — the level it passed is the castle's. The castle is not in the run yet
- * (task 55в widens `rtRunWonLevel`): until then no run passes it, and the layer opens only for a profile built in Node.
- */
+/** Task 61б (spec Б.1): the run won the castle (the Warlock, task 55в) — the level it passed is the castle's. */
 export const rtCastleWon = (run: RtRunState): boolean => rtRunWonLevel(run) >= RT_CASTLE_LEVEL;
 /**
  * Task 38: the run's depth as the record keeps it: its row and, in the garrison, `level` 2; task 40 — the level it passed. A run in
@@ -300,21 +307,28 @@ export const rtCastleWon = (run: RtRunState): boolean => rtRunWonLevel(run) >= R
  * (its final row, level 1), so it beats a forest record only where a won forest final does (task 40, found by ui 16.10.2026: «Лес
  * пройден — новый рекорд» over «прежний: лес пройден»).
  */
-const runDepthOf = (run: RtRunState): { row: number; level?: 2; wonLevel?: 1 | 2 } => {
-  const passed = rtRunWonLevel(run), garrisonRow = rtRunLevel(run) === 2 ? rtRunDepth(run) : 0;
-  const row = garrisonRow > 0 ? garrisonRow : levelDepth(run, false);
-  return { row, ...garrisonRow > 0 ? { level: 2 as const } : {}, ...passed ? { wonLevel: passed } : {} };
+const runDepthOf = (run: RtRunState): { row: number; level?: 2 | 3; wonLevel?: 1 | 2 | 3 } => {
+  const passed = rtRunWonLevel(run);
+  // Task 55в: likewise a run in the castle that entered no castle node yet has the garrison's depth.
+  for (let level = rtRunLevel(run); level >= 2; level--) {
+    const row = rtLevelDepth(run, level as 2 | 3);
+    if (row > 0) return { row, level: level as 2 | 3, ...passed ? { wonLevel: passed } : {} };
+  }
+  return { row: rtLevelDepth(run, 1), ...passed ? { wonLevel: passed } : {} };
 };
 
 /** The run's XP before its quest: the parts and the base (before «Испытание»). */
 export function rtRunXp(run: RtRunState): { parts: RtXpPart[]; total: number } {
-  const count = { battles: 0, elite: 0, jailer: 0, final: 0, guardroom: 0, castellan: 0, feats: 0 }, xp = { battles: 0, elite: 0, jailer: 0, final: 0, guardroom: 0, castellan: 0 };
+  const count = { battles: 0, elite: 0, jailer: 0, final: 0, guardroom: 0, castellan: 0, ballroom: 0, warlock: 0, feats: 0 }, xp = { battles: 0, elite: 0, jailer: 0, final: 0, guardroom: 0, castellan: 0, ballroom: 0, warlock: 0 };
   for (const record of run.battles) {
     if (!record.won) continue;
     const type = rtNode(run, record.nodeId)?.type;
-    // Task 38: a garrison fight ×2, its «Караульня» 40, its Castellan a final (+50) — each on its own line (D1).
-    const garrison = rtGarrisonNodeId(record.nodeId), factor = garrison ? RT_XP_GARRISON_FACTOR : 1;
+    // Task 38: a garrison fight ×2, its «Караульня» 40, its Castellan a final (+50) — each on its own line (D1). Task 55в: a castle
+    // fight ×3, its «Бальный зал» 60, its Warlock 75.
+    const level = rtNodeLevel(record.nodeId), garrison = level === 2, factor = level === 3 ? RT_XP_CASTLE_FACTOR : garrison ? RT_XP_GARRISON_FACTOR : 1;
     if (type === 'hard' || type === 'breakthrough') { count.elite++; xp.elite += RT_XP_ELITE * factor; }
+    else if (type === 'checkpoint' && level === 3) { count.ballroom++; xp.ballroom += RT_XP_BALLROOM; }
+    else if (type === 'boss' && level === 3) { count.warlock++; xp.warlock += RT_XP_WARLOCK; }
     else if (type === 'checkpoint' && garrison) { count.guardroom++; xp.guardroom += RT_XP_GUARDROOM; }
     else if (type === 'checkpoint') { count.jailer++; xp.jailer += RT_XP_JAILER; }
     else if (type === 'boss' && garrison) { count.castellan++; xp.castellan += RT_XP_FINAL; }
@@ -326,6 +340,7 @@ export function rtRunXp(run: RtRunState): { parts: RtXpPart[]; total: number } {
     { id: 'battles', xp: xp.battles, n: count.battles }, { id: 'elite', xp: xp.elite, n: count.elite },
     { id: 'jailer', xp: xp.jailer, n: count.jailer }, { id: 'final', xp: xp.final, n: count.final },
     { id: 'guardroom', xp: xp.guardroom, n: count.guardroom }, { id: 'castellan', xp: xp.castellan, n: count.castellan },
+    { id: 'ballroom', xp: xp.ballroom, n: count.ballroom }, { id: 'warlock', xp: xp.warlock, n: count.warlock },
     { id: 'feats', xp: count.feats * RT_XP_FEAT, n: count.feats }, { id: 'victory', xp: won(run) ? RT_XP_VICTORY : 0 },
   ];
   const base = parts.reduce((sum, part) => sum + part.xp, 0), level = run.ash ?? 0;
@@ -376,10 +391,12 @@ export function rtMetByEvents(run: Pick<RtRunState, 'picks' | 'eventChoices'>): 
  */
 export function rtDeathCause(run: RtRunState): RtDeathCause | undefined {
   if (run.result?.outcome !== 'defeat') return undefined;
-  const nodeId = run.result.nodeId, type = rtNode(run, nodeId)?.type, garrison = !!rtGarrisonNodeId(nodeId);
+  const nodeId = run.result.nodeId, type = rtNode(run, nodeId)?.type, level = rtNodeLevel(nodeId), garrison = level === 2;
   if (garrison && type === 'checkpoint') return 'guardroom';
   if (garrison && type === 'boss') return 'castellan';
-  if (type === 'checkpoint') return 'jailer';
+  // Task 55в (spec 7.3): the castle's boss — `warlock`; the rest of the castle by the common rules below (its checkpoint too).
+  if (level === 3 && type === 'boss') return 'warlock';
+  if (type === 'checkpoint' && level === 1) return 'jailer';
   if (type === 'boss') return run.battles.some(record => record.nodeId === nodeId && TROLL_RUN_ARENAS.includes(record.arena)) ? 'troll' : 'final';
   const death = [...run.battles].reverse().find(record => record.nodeId === run.result!.nodeId && !record.won)?.death;
   const source = death?.source;
@@ -408,10 +425,9 @@ export const rtQuestFor = (quest: RtQuest, record: RtDepthRecord | undefined): R
 
 /**
  * The meta after `run` (a run without a given seed, finished or abandoned): the new `meta` and what the end screen shows. The
- * caller checks the seed and the applied key (`RtProfileStore.endRunMeta`). Task 61б: `castleWon` — the run won the castle (default
- * `rtCastleWon`; Node tests build the profile of the first win with it while the castle is not in the run, spec Г.8).
+ * caller checks the seed and the applied key (`RtProfileStore.endRunMeta`).
  */
-export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState, options: { viewerRun?: number; gambler?: boolean; monk?: boolean; away?: boolean; chronicle?: boolean; trophies?: boolean; castleWon?: boolean } = {}): { meta: RtMeta; end: RtMetaEnd } {
+export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState, options: { viewerRun?: number; gambler?: boolean; monk?: boolean; away?: boolean; chronicle?: boolean; trophies?: boolean } = {}): { meta: RtMeta; end: RtMetaEnd } {
   // Task 51в: Шиш comes only while his camp is on (`RT_HEARTH_GAMBLER_ON`, or the option); task 51г: Евлампий likewise; task 51д: the leaving.
   const gambler = options.gambler ?? RT_HEARTH_GAMBLER_ON, monk = options.monk ?? RT_HEARTH_MONK_ON, leaving = options.away ?? RT_HEARTH_AWAY_ON;
   // Task 49: a run that won the Jailer frees Ведунья here too, if the view did not (`rtFreeByJailer`, the camp's fallback).
@@ -444,9 +460,9 @@ export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState, optio
   // Task 38: the depth is (level, row) — the level first, then the row. Task 40: the level passed first (`wonLevel`), then (level, row).
   const depth = runDepthOf(run), row = depth.row, win = won(run), old = hero.record, farther = rtDepthBeyond(depth, old ?? { row: 0 });
   const oldPassed = old ? rtWonLevelOf(old) : 0;
-  const best: { row: number; level?: 2; wonLevel?: 1 | 2 } = !old || farther ? depth
-    : { row: old.row, ...old.level ? { level: old.level } : {}, ...oldPassed ? { wonLevel: oldPassed as 1 | 2 } : {} };
-  const passed = Math.max(oldPassed, best.wonLevel ?? 0) as 0 | 1 | 2;
+  const best: { row: number; level?: 2 | 3; wonLevel?: 1 | 2 | 3 } = !old || farther ? depth
+    : { row: old.row, ...old.level ? { level: old.level } : {}, ...oldPassed ? { wonLevel: oldPassed as 1 | 2 | 3 } : {} };
+  const passed = Math.max(oldPassed, best.wonLevel ?? 0) as 0 | 1 | 2 | 3;
   // `won` — at least the forest passed (the same as `wonLevel` ≥ 1).
   const record: RtDepthRecord = { row: best.row, won: passed > 0, xp: Math.max(old?.xp ?? 0, gained), ...best.level ? { level: best.level } : {}, ...passed ? { wonLevel: passed } : {} };
   // Beaten — farther by (the level passed, the level, the row); a first win is farther by the level passed.
@@ -480,7 +496,7 @@ export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState, optio
   }
   // Task 51г: Евлампий's own queue — the finished runs since the profile's first run into the garrison (this one counts); after
   // `RT_HEARTH_FALLBACK_RUNS` of them he comes by himself.
-  if (monk && !hearth.met.monk && (hearth.monkQuiet !== undefined || rtRunLevel(run) === 2)) {
+  if (monk && !hearth.met.monk && (hearth.monkQuiet !== undefined || rtRunLevel(run) >= 2)) {
     hearth.monkQuiet = (hearth.monkQuiet ?? 0) + 1;
     if (hearth.monkQuiet >= RT_HEARTH_FALLBACK_RUNS) { hearth.met.monk = true; hearth.self = { ...hearth.self, monk: true }; arrived.push({ npc: 'monk', self: true }); }
   }
@@ -490,20 +506,20 @@ export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState, optio
   // Task 51г: the shackles cut (Евлампий's lines), only while his camp is on.
   const cuts = monk ? rtRunCuts(run) : 0;
   // Task 51: the garrison passed the first time for the profile (no hero's record had `wonLevel` 2 before this run).
-  const firstGarrison = passed === 2 && !RT_HERO_IDS.some(id => previous?.heroes[id]?.record && rtWonLevelOf(previous.heroes[id]!.record!) >= 2);
+  const firstGarrison = passed >= 2 && !RT_HERO_IDS.some(id => previous?.heroes[id]?.record && rtWonLevelOf(previous.heroes[id]!.record!) >= 2);
   // Task 61а (spec А.2): a meta run lost — the fire of the hearth brings the hero back (an abandoned run, a won one: no death).
   if (!run.seeded && run.result?.outcome === 'defeat') hearth.revived = (hearth.revived ?? 0) + 1;
   // Task 61б (spec Б.1): the profile's first win over the castle opens the layer «после первой победы» (once, any hero).
-  const castleFirst = !run.seeded && !meta.afterWin && (options.castleWon ?? rtCastleWon(run));
+  const castleFirst = !run.seeded && !meta.afterWin && rtCastleWon(run);
   if (castleFirst) meta.afterWin = { at: options.viewerRun ?? 0, ...hearth.revived ? { revived: hearth.revived } : {} };
-  hearth.last = { won: win, row, beaten, ...castleFirst ? { firstCastle: true as const } : {},...rtDeathCause(run) ? { cause: rtDeathCause(run) } : {}, ...quest ? { quest: questDone } : {}, ...win && !oldPassed ? { firstWin: true as const } : {}, ...pack ? { pack: true as const } : {}, ...heroId === RT_TOAD_ID ? { hero: RT_TOAD_ID } : {}, ...firstGarrison ? { firstGarrison: true as const } : {}, ...rtRunWonLevel(run) === 2 ? { garrisonWon: true as const } : {}, ...casino ? { casino } : {}, ...cuts ? { cuts } : {}, ...vows ? { vows } : {}, ...awayRun ? { away: awayRun } : {}, ...run.habits ? { habitOffered: true as const } : {}, ...rtKnackShown(run) ? { knackOffered: true as const } : {} };
+  hearth.last = { won: win, row, beaten, ...castleFirst ? { firstCastle: true as const } : {}, ...rtDeathCause(run) ? { cause: rtDeathCause(run) } : {}, ...quest ? { quest: questDone } : {}, ...win && !oldPassed ? { firstWin: true as const } : {}, ...pack ? { pack: true as const } : {}, ...heroId === RT_TOAD_ID ? { hero: RT_TOAD_ID } : {}, ...firstGarrison ? { firstGarrison: true as const } : {}, ...rtRunWonLevel(run) >= 2 ? { garrisonWon: true as const } : {}, ...casino ? { casino } : {}, ...cuts ? { cuts } : {}, ...vows ? { vows } : {}, ...awayRun ? { away: awayRun } : {}, ...run.habits ? { habitOffered: true as const } : {}, ...rtKnackShown(run) ? { knackOffered: true as const } : {} };
   hearth.quest = rtNextQuest(run.seed, hearth, record);
   meta.hearth = hearth;
   const end: RtMetaEnd = {
     hero: heroId, xp: { gained, parts, before, after }, thresholds: [...RT_META_THRESHOLDS], pack,
     nextPack: next ? { id: next.id, title: next.title, at: next.at, size: next.items.length } : null,
     record: {
-      before: old ? { row: old.row, won: old.won, ...old.level ? { level: old.level } : {}, ...oldPassed ? { wonLevel: oldPassed as 1 | 2 } : {} } : null,
+      before: old ? { row: old.row, won: old.won, ...old.level ? { level: old.level } : {}, ...oldPassed ? { wonLevel: oldPassed as 1 | 2 | 3 } : {} } : null,
       after: { row: record.row, won: record.won, ...record.level ? { level: record.level } : {}, ...record.wonLevel ? { wonLevel: record.wonLevel } : {} }, beaten,
     },
     carry, stock: { before: stockBefore, after: hearth.stock },
@@ -760,7 +776,7 @@ export function rtChooseHero(meta: RtMeta | undefined, id: RtHeroId): RtMeta | n
  */
 export function rtJailerWonRow(run: Pick<RtRunState, 'battles' | 'map'> & Partial<RtRunState>): number | null {
   for (const record of run.battles) {
-    if (!record.won || rtGarrisonNodeId(record.nodeId)) continue;
+    if (!record.won || rtNodeLevel(record.nodeId) > 1) continue;
     const node = rtNode(run as RtRunState, record.nodeId);
     if (node?.type === 'checkpoint') return runRow(node.row);
   }
@@ -855,11 +871,12 @@ export function parseRtMeta(value: unknown): RtMeta | undefined {
     const order = rtHeroPacks(id).map(pack => pack.id), list = Array.isArray(stored.packs) ? stored.packs as unknown[] : [];
     const packs = order.filter((pack, i) => i < list.length && list[i] === pack);
     const r = stored.record;
-    // Task 40: `wonLevel` 1 or 2; a record saved before it — `won: true` (or a garrison record) reads as the forest passed (1).
-    const passed = isPlain(r) && (r.wonLevel === 1 || r.wonLevel === 2) ? r.wonLevel : isPlain(r) && (r.won === true || r.level === 2) ? 1 : 0;
+    // Task 40: `wonLevel` 1 or 2; a record saved before it — `won: true` (or a garrison record) reads as the forest passed (1). Task 55в:
+    // `wonLevel` 3 and `level` 3 (the castle; such a record has passed the garrison).
+    const passed = isPlain(r) && (r.wonLevel === 1 || r.wonLevel === 2 || r.wonLevel === 3) ? r.wonLevel : isPlain(r) && r.level === 3 ? 2 : isPlain(r) && (r.won === true || r.level === 2) ? 1 : 0;
     const best = isRtAshLevel(stored.ashBest) && stored.ashBest >= 1 ? stored.ashBest as Exclude<RtAshLevel, 0> : undefined;
     const offered = id !== RT_HERO_ID && Array.isArray(stored.offered) ? [...new Set(stored.offered.filter((x): x is string => typeof x === 'string'))] : undefined;
-    heroes[id] = { xp: isCount(stored.xp) ? stored.xp : 0, packs, ...isPlain(r) && isCount(r.row) && isCount(r.xp) && typeof r.won === 'boolean' ? { record: { row: r.row, won: r.won || passed > 0, xp: r.xp, ...r.level === 2 ? { level: 2 as const } : {}, ...passed ? { wonLevel: passed } : {} } } : {}, ...best ? { ashBest: best } : {}, ...offered ? { offered } : {} };
+    heroes[id] = { xp: isCount(stored.xp) ? stored.xp : 0, packs, ...isPlain(r) && isCount(r.row) && isCount(r.xp) && typeof r.won === 'boolean' ? { record: { row: r.row, won: r.won || passed > 0, xp: r.xp, ...r.level === 2 || r.level === 3 ? { level: r.level } : {}, ...passed ? { wonLevel: passed } : {} } } : {}, ...best ? { ashBest: best } : {}, ...offered ? { offered } : {} };
   }
   const f = isPlain(value.freed) ? value.freed.toad : undefined;
   const freed = isPlain(f) && isCount(f.row) && f.row >= 1 ? { toad: { row: f.row, ...isCount(f.run) && f.run >= 1 ? { run: f.run } : {} } } : undefined;

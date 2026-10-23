@@ -92,13 +92,17 @@ function linked(world: World, e: Enemy): boolean {
 
 // ---- Things ----
 
-/** A thing's body: solid for the hero with the law on (he is put out of it); never walks. */
+/**
+ * A thing's body: solid for the hero with the law on (he is put out of it); never walks. Task 60а: a thing the poltergeist holds up or
+ * throws (`vars.lf`) is no body — not solid, no part of the parting (nothing changes without a poltergeist).
+ */
 const thingBehavior = (id: string, step?: (world: World, e: Enemy, dt: number) => void, onShoved?: (world: World, thing: Enemy) => void) => registerBehavior({
   id,
   onSpawn(_world, e) { e.vars.du = e.kind === BARREL ? BARREL_DURABILITY : WARDROBE_DURABILITY; if (e.kind === WARDROBE) { e.vars.tr = 0; e.vars.tw = 0; } },
   step(world, e, dt) { e.knock = 0; step?.(world, e, dt); return true; },
   touches: () => false,
-  solid: world => !!world.params.shove,
+  solid: (world, e) => !!world.params.shove && e.vars.lf === undefined,
+  crowd: (_world, e) => (e.vars.lf !== undefined ? 'ghost' : undefined),
   ...onShoved ? { onShoved } : {},
 });
 
@@ -201,7 +205,8 @@ function alongAxis(e: Enemy, dx: number, dy: number, len: number, b: Vec, r: num
 function rookCover(world: World, e: Enemy, dx: number, dy: number, len: number): number {
   let cover = len;
   for (const other of world.enemies) {
-    if (other === e || !kindOf(other).thing) continue;
+    // Task 60а: a lifted thing (the poltergeist's) is no cover.
+    if (other === e || !kindOf(other).thing || other.vars.lf !== undefined) continue;
     const t = alongAxis(e, dx, dy, len, other, bodyRadiusOf(world.params, other));
     if (t !== null && t < cover) cover = t;
   }

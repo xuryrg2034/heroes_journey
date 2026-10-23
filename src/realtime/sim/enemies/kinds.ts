@@ -77,7 +77,7 @@ export interface EnemyBehavior {
    * the others yield (the hive); `ghost`: it takes no part at all — no push either way, no obstacle, no cliff (the flying wisp).
    * Absent — an ordinary body.
    */
-  crowd?(world: World, enemy: Enemy): 'anchored' | 'ghost';
+  crowd?(world: World, enemy: Enemy): 'anchored' | 'ghost' | undefined;
   /**
    * Task 57б-2 (world.ts `separate`): two overlapping anchored bodies, both of this behaviour — `kin`: parts of one creature, no push
    * either way (as any two anchored ones); `apart`: they part as ordinary bodies, by mass (two centipedes). Absent — as two anchored ones.
@@ -117,6 +117,8 @@ export interface EnemyKindDef {
    * density, a stop of a shove, the shelter of the rook's strike. Absent — an ordinary kind.
    */
   thing?: true;
+  /** Task 55 §23 «Колдун v1»: a living shot of a boss (the warlock's orb) — not in the crowd's density nor its limit (spawn.ts). Absent — it counts. */
+  noCrowd?: true;
   /**
    * Task 57а: true — a newcomer of this kind would pass its cap now: spawn.ts `rollSingle` brings none (the roll goes on to the next
    * kind). `count` — bodies of these kinds on the arena, at markers and in the queue. Absent — no cap (every kind before).

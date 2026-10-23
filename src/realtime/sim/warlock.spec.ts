@@ -34,6 +34,8 @@ function quiet(extra: Partial<Params> = {}): Params {
   const p = defaultParams();
   p.baseFloor = 0; p.baseIntervalMin = 1e6; p.baseIntervalMax = 1e6; p.speedSpread = 0; p.contactDamage = 0; p.heroHp = 999; p.hitstop = false; p.enemySpeed = 0;
   p.invulnerability = 0; p.chainShield = 0;
+  // Task 55 §23: these routes are Колдун v0's — values without `warlockV1` (the hall puts v1 on only when the values have it off).
+  delete (p as Partial<Params>).warlockV1;
   return Object.assign(p, extra);
 }
 interface Hall { sim: Simulation; w: World; core: Enemy; wardrobe: Enemy; barrels: Enemy[] }

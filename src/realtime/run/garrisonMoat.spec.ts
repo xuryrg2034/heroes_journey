@@ -231,7 +231,8 @@ check('telemetry: the run record\'s level, levelCleared and cart pass checkRecor
   assert(checkRecord(base) === null, `the base passes (${checkRecord(base)})`);
   const full = { ...base, level: 2, levelCleared: 1, cart: { n: 5, before: 12 }, record: { row: 3, won: true, beaten: true, level: 2, wonLevel: 1 }, carry: { n: 9, share: 0.5, cap: 40, resources: 7, cart: 5 } };
   assert(checkRecord(full) === null, `the new fields pass (${checkRecord(full)})`);
-  for (const bad of [{ level: 1 }, { levelCleared: 3 }, { cart: { n: 13, before: 12 } }, { record: { row: 3, won: true, beaten: true, wonLevel: 3 } }, { carry: { n: 9, share: 0.5, cap: 40, resources: 7, cart: -1 } }]) {
+  // Task 55в: level 3 (the castle) is a level now — the malformed ones are beyond it.
+  for (const bad of [{ level: 1 }, { levelCleared: 4 }, { cart: { n: 13, before: 12 } }, { record: { row: 3, won: true, beaten: true, wonLevel: 4 } }, { carry: { n: 9, share: 0.5, cap: 40, resources: 7, cart: -1 } }]) {
     assert(checkRecord({ ...full, ...bad }) === 'run meta', `refused: ${JSON.stringify(bad)}`);
   }
   const run = (id: string, outcome: string, nodes: [string, number][], cart?: { n: number; before: number }): RunRecord =>

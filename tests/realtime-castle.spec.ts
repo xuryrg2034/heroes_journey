@@ -92,7 +92,7 @@ async function walkUntil(page: Page, key: string, done: (hero: { x: number; y: n
 test('task 55а: the sandbox menu has the group «Замок» with four arenas (the fourth - «Зал колдуна», task 55 Д); a click opens each — the things with their notches, the parquet and walls (screenshots)', async ({ page }) => {
   const errors = collectErrors(page);
   await openMenu(page);
-  await expect(page.locator('h3.rt-arenas-head', { hasText: 'Замок' })).toBeVisible();
+  await expect(page.locator('h3.rt-arenas-head', { hasText: 'Замок — толчок' })).toBeVisible();
   await expect(page.getByTestId('castle-arena-1')).toContainText('Прихожая');
   await expect(page.getByTestId('castle-arena-2')).toContainText('Анфилада');
   await expect(page.getByTestId('castle-arena-3')).toContainText('Бальный зал');

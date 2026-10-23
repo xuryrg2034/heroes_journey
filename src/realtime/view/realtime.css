@@ -671,6 +671,13 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rt-cart-art { display: block; line-height: 0; }
 .rt-cart-keep { color: var(--rt-muted); font-size: 12px; }
 .rt-run:has(.rt-map-garrison) { background: radial-gradient(ellipse at 50% 40%, #1d2630, #0b0f14 75%); }
+/* Task 55в: the castle's map — dusk stone with a violet of the warlock's magic (the garrison's cold blue before it). */
+.rt-run:has(.rt-map-castle) { background: radial-gradient(ellipse at 50% 40%, #241d30, #0d0b12 75%); }
+.rt-map-castle .rt-edge { stroke: #5a4f6e; }
+.rt-map-castle .rt-node circle { fill: #221c2d; stroke: #66597d; }
+.rt-map-castle .rt-node text { fill: #b4a8c8; }
+.rt-map-castle .rt-node.rt-available circle { stroke: #d2bdf0; fill: #2e2540; }
+.rt-map-castle .rt-node.rt-available text { fill: #efe6fb; }
 .rt-map-garrison .rt-edge { stroke: #4b5a68; }
 .rt-map-garrison .rt-node circle { fill: #1c2530; stroke: #52626f; }
 .rt-map-garrison .rt-node text { fill: #9fb0c0; }

@@ -6,15 +6,15 @@
  * - a won run, an abandoned one and a seeded one count none and play no scene; a death not visited is not shown after a later run;
  * - the first death — Неясыть's `revive_first` (her variant after Ведунья's run) and Ведунья's own line; the key N to its NPC only;
  * - 12 deaths — 10 scorches and 2 darker ones; a profile without the fields reads and writes byte for byte;
- * - the profile built with the first castle win (the castle is not in the run yet, spec Г.8: `rtApplyMeta` with `castleWon` over a real
- *   won run): the end line once, the camp's scene once (the fire turquoise, Евлампий comes and says `first_fire`), `win_castle_first`,
- *   the first death after it — `revive_after` and a full scene.
+ * - the first castle win (a real walk through the castle to the Warlock, task 55в; the run's flag `castle`): the end line once, the
+ *   camp's scene once (the fire turquoise, Евлампий comes and says `first_fire`), `win_castle_first`, the first death after it —
+ *   `revive_after` and a full scene.
  * Seeds `Math.imul(k, 2654435761) >>> 0`.
  */
 import { walkRun, type WalkOptions } from './metaWalk.testkit';
 import { rtNode, type RtRunState } from './rtRun';
 import { runRow } from './arenaPools';
-import { parseRtMeta, rtAfterWinLineDue, rtApplyMeta, RT_REVIVE_FULL } from './rtMeta';
+import { parseRtMeta, rtAfterWinLineDue, rtRunWonLevel, RT_REVIVE_FULL } from './rtMeta';
 import { createRtProfileStore, parseRtProfile, RT_PROFILE_STORAGE_KEY, type RtProfileStore, type RunStorage } from './rtRunStorage';
 import { RT_RUN_END_TEXT } from './rtRunEnd';
 import { RT_TOAD_ID } from './metaCatalog';
@@ -35,10 +35,13 @@ function memoryStorage(): RunStorage & { data: Map<string, string> } {
 }
 const NPCS: NpcId[] = ['owl', 'herb', 'smith', 'gambler', 'monk'];
 const rowOf = (run: RtRunState): number => { const p = run.pending as { nodeId?: string } | null; return p?.nodeId ? runRow(rtNode(run, p.nodeId)!.row) : 0; };
-/** A meta run as the view starts it (`startRun`, the hero chosen, its locked items): won, lost at row 2–4, or left open (abandoned). */
-function metaRun(store: RtProfileStore, k: number, end: 'win' | 'death' | 'open', extra: Partial<WalkOptions> = {}): RtRunState {
+/**
+ * A meta run as the view starts it (`startRun`, the hero chosen, its locked items): won, lost at row 2–4, left open (abandoned), or
+ * `castle` — a run with the garrison and the castle (task 55в, the run's flag `castle`) won to the Warlock.
+ */
+function metaRun(store: RtProfileStore, k: number, end: 'win' | 'death' | 'open' | 'castle', extra: Partial<WalkOptions> = {}): RtRunState {
   store.startRun();
-  const options: WalkOptions = { k, create: { gift: 'mini', feats: true, locked: store.locked(), hero: store.heroChoice() }, ...end === 'death' ? { loseAt: run => rowOf(run) >= 2 + (k % 3) } : {}, ...extra };
+  const options: WalkOptions = { k, create: { gift: 'mini', feats: true, locked: store.locked(), hero: store.heroChoice(), ...end === 'castle' ? { garrison: true, castle: true } : {} }, knack: () => null, ...end === 'death' ? { loseAt: run => rowOf(run) >= 2 + (k % 3) } : {}, ...extra };
   if (end !== 'open') return walkRun(options).run;
   let open: RtRunState | null = null;
   walkRun({ ...options, each: state => { if (!open && !state.pending && state.visited.length >= 4) open = state; } });
@@ -172,16 +175,18 @@ check('Г.1: the stored fields read only when sound — whole counts from 1, `re
   for (const bad of [{}, { at: -1 }, { at: '3' }, 5, null]) assert(read({}, bad).afterWin === undefined, `afterWin ${JSON.stringify(bad)}`);
 });
 
-check('Г.5.5: the profile with the first castle win (Node, spec Г.8): the end line once; the camp scene once — the fire turquoise, Евлампий comes and says `first_fire`; `win_castle_first`', () => {
+check('Г.5.5: the first castle win (a real walk to the Warlock): the end line once; the camp scene once — the fire turquoise, Евлампий comes and says `first_fire`; `win_castle_first`', () => {
   const storage = memoryStorage(), store = createRtProfileStore(storage);
   for (let k = 40; k < 44; k++) store.endRunMeta(metaRun(store, k, 'death'));
   store.markReviveSeen();
-  // The castle is not in the run yet: a real won run applied as the castle's (`castleWon`), the profile written as the store writes it.
-  const run = metaRun(store, 44, 'win'), profile = store.load();
-  assert(run.result?.outcome === 'victory' && !profile.meta!.hearth!.met.monk, 'a won run; Евлампий not at the fire');
-  const applied = rtApplyMeta(profile.meta, run, { viewerRun: profile.runs, castleWon: true });
-  assert(applied.end.afterWin === true && applied.meta.afterWin?.at === profile.runs && applied.meta.afterWin?.revived === 4 && applied.meta.hearth!.last!.firstCastle === true, `the gate: ${JSON.stringify(applied.meta.afterWin)}`);
-  storage.data.set(RT_PROFILE_STORAGE_KEY, JSON.stringify({ ...profile, meta: applied.meta }));
+  // A garrison win (the Castellan) opens nothing; the castle's (the Warlock) does.
+  const garrison = metaRun(store, 43, 'win', { create: { gift: 'mini', locked: store.locked(), garrison: true } });
+  assert(rtRunWonLevel(garrison) === 2 && store.endRunMeta(garrison)!.afterWin === undefined && !store.load().meta!.afterWin, 'the garrison passed: no layer');
+  const run = metaRun(store, 44, 'castle');
+  assert(run.result?.outcome === 'victory' && rtRunWonLevel(run) === 3 && !store.load().meta!.hearth!.met.monk, 'the castle won; Евлампий not at the fire');
+  const end = store.endRunMeta(run)!, profile = store.load();
+  assert(end.afterWin === true && end.record.after.wonLevel === 3 && profile.meta!.afterWin?.at === profile.runs && profile.meta!.afterWin?.revived === 4 && profile.meta!.hearth!.last!.firstCastle === true, `the gate: ${JSON.stringify(profile.meta!.afterWin)}`);
+  const applied = { end };
   // The end screen: the line once (a reload of the screen — the same end — says it no more).
   assert(RT_RUN_END_TEXT.afterWin === 'Летопись не дописана', 'the line (Д11)');
   assert(rtAfterWinLineDue(store.load().meta, applied.end) && store.markAfterWinLine(), 'the line said');
@@ -201,16 +206,14 @@ check('Г.5.5: the profile with the first castle win (Node, spec Г.8): the end 
   const second = campLine(after, 'monk');
   assert(second.key === 'win_castle_first' && second.text === NPC_LINES.monk.win_castle_first![0], `then: ${second.key}`);
   // A second castle win changes nothing of the layer.
-  const twice = rtApplyMeta(after.load().meta, metaRun(after, 45, 'win'), { castleWon: true });
-  assert(twice.end.afterWin === undefined && JSON.stringify(twice.meta.afterWin) === JSON.stringify(after.load().meta!.afterWin) && !twice.meta.hearth!.last!.firstCastle, 'once a profile');
+  const layer = JSON.stringify(after.load().meta!.afterWin), twice = after.endRunMeta(metaRun(after, 45, 'castle'))!;
+  assert(twice.afterWin === undefined && JSON.stringify(after.load().meta!.afterWin) === layer && !after.load().meta!.hearth!.last!.firstCastle, 'once a profile');
 });
 
 check('Б.3, А.4: the first death after the first win — `revive_after` (Неясыть, Евлампий; above `revive_5`) and a full scene; the next death a short one', () => {
   const storage = memoryStorage(), store = createRtProfileStore(storage);
   for (let k = 50; k < 54; k++) { store.endRunMeta(metaRun(store, k, 'death')); store.markReviveSeen(); }
-  const profile = store.load(), won = rtApplyMeta(profile.meta, metaRun(store, 54, 'win'), { viewerRun: store.load().runs, castleWon: true, monk: true });
-  storage.data.set(RT_PROFILE_STORAGE_KEY, JSON.stringify({ ...store.load(), meta: won.meta }));
-  store.markAfterWinScene();
+  assert(store.endRunMeta(metaRun(store, 54, 'castle'))!.afterWin === true && store.markAfterWinScene(), 'the castle won, its scene played');
   store.endRunMeta(metaRun(store, 55, 'death'));
   const view = store.returnView();
   assert(view.revive?.n === 5 && view.revive.after && view.scene === 'full', `the first death after the win: ${JSON.stringify(view)}`);

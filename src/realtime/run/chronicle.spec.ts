@@ -221,9 +221,9 @@ await check('«Свойства элит» from the chronicle itself: the retro 
 await check('a stored chronicle reads strictly: unknown ids, `__proto__`, negative counts, `ash:cat:9`, a non-object dropped; an empty field absent', () => {
   const meta = (chronicle: unknown) => parseRtMeta({ heroes: {}, chronicle });
   const c = meta(JSON.parse(JSON.stringify({ kinds: ['wolf', 'no-kind', 5, 'wolf'], affixes: ['fiery', 'x'], elites: 1,
-    bosses: { jailer: { met: -1 }, troll: { met: 2, won: -3 }, castellan: 'x', warlock: { met: 1 } }, events: ['brook', 'nope'],
+    bosses: { jailer: { met: -1 }, troll: { met: 2, won: -3 }, castellan: 'x', chief: { met: 1 } }, events: ['brook', 'nope'],
     items: { prism: 2, whetstone: 1, 'no-item': 2, 'fire-pass': 3 }, fusions: ['fusion-spear', 'prism'],
-    unread: ['ash:cat:9', 'ash:cat:8', 'kind:wolf', 'kind:no', 'chapter:castle', 'bad', 'kind:wolf'], fresh: 7, since: -1, retro: 'yes' }).replace('"items":{', '"items":{"__proto__":2,')))!.chronicle!;
+    unread: ['ash:cat:9', 'ash:cat:8', 'kind:wolf', 'kind:no', 'chapter:throne', 'bad', 'kind:wolf'], fresh: 7, since: -1, retro: 'yes' }).replace('"items":{', '"items":{"__proto__":2,')))!.chronicle!;
   assert(same(c, { kinds: ['wolf'], affixes: ['fiery'], bosses: { troll: { met: 2 } }, events: ['brook'], items: { prism: 2, whetstone: 1 }, fusions: ['fusion-spear'], unread: ['ash:cat:8', 'kind:wolf'] }), `the garbage dropped: ${JSON.stringify(c)}`);
   assert(Object.getPrototypeOf(c.items) === Object.prototype && !Object.prototype.hasOwnProperty.call(c.items, '__proto__'), '`__proto__` not kept');
   for (const empty of [{}, { kinds: [], items: {}, bosses: {}, unread: [] }, 'chronicle', 5, null, ['wolf']]) assert(meta(empty)!.chronicle === undefined && !('chronicle' in meta(empty)!), `empty or not an object: no field (${JSON.stringify(empty)})`);

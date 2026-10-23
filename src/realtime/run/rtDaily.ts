@@ -31,7 +31,7 @@ import { replay, Simulation, type Journal } from '../sim/simulation';
 import { canonicalJson, gunzipBase64, gzipBase64, paramsHash } from '../telemetry/codec';
 import type { KeyValueStore } from '../telemetry/buffer';
 import { RtFightWatch, rtFightOutcome } from './fightOutcome';
-import { rtDepthBeyond, rtRunDepth, rtRunLevel, rtRunWonLevel } from './rtMeta';
+import { rtLevelDepth, rtDepthBeyond, rtRunDepth, rtRunLevel, rtRunWonLevel } from './rtMeta';
 import {
   createRtRun, healOnMap, isRtDailyDate, resolveArena, rtArenaLoadout, rtArenaParams, rtCasinoLeave, rtCasinoPlay, rtChooseEventOption, rtChooseFind, rtChooseGift,
   rtChooseGiftPick, rtChooseHabit, rtChooseHammer, rtChooseKnack, rtChooseTalisman, rtDailySeed, rtDieChoose, rtEnterGarrison, rtEnterNode, rtItemHintDue, rtOathStakeOn,
@@ -102,9 +102,12 @@ export function rtStep(run: RtRunState, call: RtStepCall): RtRunStep {
  * The outcome of an attempt (design 6.2): how deep — the level passed (`wonLevel`), the level and the row (`rtDepthBeyond`), whether the
  * run is over (`done`), and the fights' time (the sum of `battles[].time`, game seconds; at an equal depth the shorter is better).
  */
-export interface RtDailyClaim { level: 1 | 2; row: number; wonLevel: 0 | 1 | 2; time: number; done: boolean }
+export interface RtDailyClaim { level: 1 | 2 | 3; row: number; wonLevel: 0 | 1 | 2 | 3; time: number; done: boolean }
 export function rtDailyClaim(run: RtRunState): RtDailyClaim {
-  return { level: rtRunLevel(run), row: rtRunDepth(run), wonLevel: rtRunWonLevel(run), time: run.battles.reduce((sum, b) => sum + b.time, 0), done: !!run.result };
+  // Task 55в: a run in the castle that entered no castle node yet claims the garrison's depth (as its record, rtMeta.ts `runDepthOf`),
+  // not «Замок, ряд 0».
+  const level = rtRunLevel(run), row = rtRunDepth(run), back = level === 3 && row === 0;
+  return { level: back ? 2 : level, row: back ? rtLevelDepth(run, 2) : row, wonLevel: rtRunWonLevel(run), time: run.battles.reduce((sum, b) => sum + b.time, 0), done: !!run.result };
 }
 /** `a` is a better attempt than `b`: deeper, or as deep and shorter. */
 export function rtDailyBetter(a: RtDailyClaim, b: RtDailyClaim): boolean {
@@ -113,7 +116,8 @@ export function rtDailyBetter(a: RtDailyClaim, b: RtDailyClaim): boolean {
 }
 /** The claim in words (the screen): «Гарнизон пройден», «Лес пройден», «Гарнизон, ряд N», «Лес, ряд N»; and the fights' time. */
 export function rtDailyClaimText(claim: RtDailyClaim): string {
-  const depth = claim.wonLevel === 2 ? 'Гарнизон пройден' : claim.level === 2 ? `Гарнизон, ряд ${claim.row}` : claim.wonLevel === 1 ? 'Лес пройден' : `Лес, ряд ${claim.row}`;
+  // Task 55в: the castle's («Замок пройден», «Замок, ряд N»; the spec's drafts, 7.3).
+  const depth = claim.wonLevel === 3 ? 'Замок пройден' : claim.level === 3 ? `Замок, ряд ${claim.row}` : claim.wonLevel === 2 ? 'Гарнизон пройден' : claim.level === 2 ? `Гарнизон, ряд ${claim.row}` : claim.wonLevel === 1 ? 'Лес пройден' : `Лес, ряд ${claim.row}`;
   return `${depth} · ${Math.round(claim.time)} с боёв`;
 }
 
@@ -204,8 +208,8 @@ const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isI
 /** A claim of the log, strictly: its five fields and no other. */
 export function isRtDailyClaim(value: unknown): value is RtDailyClaim {
   const c = value as Record<string, unknown> | null;
-  return !!c && typeof c === 'object' && !Array.isArray(c) && Object.keys(c).length === 5 && (c.level === 1 || c.level === 2) && isCount(c.row)
-    && (c.wonLevel === 0 || c.wonLevel === 1 || c.wonLevel === 2) && typeof c.time === 'number' && Number.isFinite(c.time) && c.time >= 0 && typeof c.done === 'boolean';
+  return !!c && typeof c === 'object' && !Array.isArray(c) && Object.keys(c).length === 5 && (c.level === 1 || c.level === 2 || c.level === 3) && isCount(c.row)
+    && (c.wonLevel === 0 || c.wonLevel === 1 || c.wonLevel === 2 || c.wonLevel === 3) && typeof c.time === 'number' && Number.isFinite(c.time) && c.time >= 0 && typeof c.done === 'boolean';
 }
 /**
  * The profile's `daily` read strictly: real dates, at most `RT_DAILY_LOG_DATES`, each `{ tries ≥ 1, first?, best?, build? }` with valid

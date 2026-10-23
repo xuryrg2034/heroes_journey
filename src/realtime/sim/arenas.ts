@@ -142,6 +142,8 @@ export interface ArenaTemplate extends ArenaShape {
    * (world.ts `createWorld`); `volleyArcher` — the archer obeys it too. Omitted — the values as they come.
    */
   volleyGap?: number;
+  /** Task 60а: the dash and a bomb put out the light shots (`Params.snuffShots`) when the values have it off — the castle's guests' arenas. */
+  snuffShots?: true;
   volleyArcher?: true;
   /**
    * Task 57а: the arena plays the layer's rules of the run with the flag `forestShooters` (`RT_FOREST_SHOOTERS_PARAMS`: the shooters' timer
@@ -306,7 +308,14 @@ export interface ArenaTemplate extends ArenaShape {
    * when the given values have them off and `warlockCrowd` `WARLOCK_CROWD` when they hold 1 (world.ts `createWorld`; the journal keeps
    * that copy); its crowd's floor and pace go by `warlockCrowd` (spawn.ts). Omitted — the values as given.
    */
-  warlock?: { candles: readonly Vec[] };
+  warlock?: {
+    candles: readonly Vec[];
+    /**
+     * Task 55 §23.2 «Колдун v1»: the rugs of «Ковёр дёргает» — floor rectangles (`x`, `y` the top-left corner; not a wall, not water). Read
+     * only with `Params.warlockV1` (enemies/warlock.ts); the arena is not hashed — journals of v0 play as before. Omitted — no rug.
+     */
+    rugs?: readonly { x: number; y: number; w: number; h: number }[];
+  };
 }
 
 /**

@@ -292,7 +292,12 @@ check('task 59б: an arena without `pairTint` and `pairShare` draws as before �
   // main 650fef41's 1cd42c61…, cc3afffb…, 82a28825… (checked on the merge) — the fight is the same.
   // The centipede's trail (core/centi-trail, 22.10.2026) moved them again: `centiTrail`; without it the same run gives main 3c48fb62's
   // 066fe0d3…, 9f8d7e85…, df13c96f… — the fight is the same.
-  const want = ['f3c6f99e474f544c', '583f0d94ebdc851f', 'f07d3a72ee0ff23d'];
+  // Task 55 §23 (core/warlock-v1, merged 23.10.2026) moved them again: `warlockV1`, `warlockOrbPeriod`, `warlockRugPeriod`,
+  // `warlockShiftRage`, `warlockSummonPeriod`; without the five the same run gives main d2c820e2's f3c6f99e…, 583f0d94…, f07d3a72…
+  // (checked on the merge) — the fight is the same.
+  // Task 60а (core/task60a, 23.10.2026) moved them again: its 38 keys of the castle's guests (`candelabra*`, `queen*`, `butler*`,
+  // `chandelier*`, `poltergeist*`, `jester*`); without them the same run gives 9e924ac3's 9dd6fab1…, b36ddc97…, fe17539d… — the fight is the same.
+  const want = ['8c5d3fea91c1316c', 'a3590520d0e99a13', 'e9de0cde2618a0a1'];
   [1, 2, 3].forEach((k, i) => {
     const p = defaultParams(); p.contactDamage = 0; p.heroHp = 99; p.hitstop = false;
     const sim = new Simulation({ arena: 'g-warden-test', params: p, seed: seedOf(k), record: true });

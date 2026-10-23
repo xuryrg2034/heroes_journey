@@ -4,7 +4,8 @@
  * (no entry without its content in this build, section 4.6): the forest's kinds of the schedule and the garrison's kinds (sim/enemies),
  * the elite affixes, the forest's events and the goblins' circle, the run's talismans (without the ones the run never offers), «Близнецы»,
  * the relics, the forms, the fusions, the heroes, the «Испытание» ladder, the camp's NPCs. A leaf: no view import. The Chief (task 54)
- * and the castle with the Warlock (task 55) join here with their tasks, once they are in the run.
+ * joins here with his task, once he is in the run. Task 55в: the castle (level 3 — its kinds, the Warlock) with the flag of the castle in
+ * the run (`RT_CASTLE_ON`): without it the build has no level 3, the book as before.
  */
 import { FOREST_EVENTS, type EventBranch } from '../forest/forestEvents';
 import { AFFIX_IDS } from '../sim/elites';
@@ -18,6 +19,9 @@ import { WARDEN } from '../sim/enemies/warden';
 import { JAILER_RUN_ARENAS, TROLL_RUN_ARENAS } from '../sim/arenasBoss';
 import { scheduleKinds } from './schedule';
 import { GARRISON_FINAL_ARENA, RT_GARRISON_STEP3_ON } from './garrison';
+// Task 55в: the castle's kinds, its final, its flag.
+import { ROOK, WARDROBE } from '../sim/enemies/castle';
+import { CASTLE_FINAL_ARENA, RT_CASTLE_ON } from './castle';
 import { RT_FORMS, RT_FUSIONS, RT_OPENERS, RT_RELICS, RT_TALISMANS } from './rtTalismans';
 import { RT_HERO_IDS, type RtHearthNpc, type RtHeroId } from './metaCatalog';
 import { RT_ASH_MAX, RT_FOREST_SHOOTERS_ON, RT_FOREST_TRICKS_ON } from './rtRun';
@@ -25,8 +29,12 @@ import { RT_ASH_MAX, RT_FOREST_SHOOTERS_ON, RT_FOREST_TRICKS_ON } from './rtRun'
 /** The six pages, in the book's order (the view's tabs). */
 export type RtChroniclePageId = 'bestiary' | 'bosses' | 'events' | 'items' | 'heroes' | 'hearth';
 export const RT_CHRONICLE_PAGES: readonly RtChroniclePageId[] = ['bestiary', 'bosses', 'events', 'items', 'heroes', 'hearth'];
-/** The levels of this build (1 — the forest, 2 — the garrison); task 55 adds the castle (3). A chapter of a level not reached is hidden. */
-export const RT_CHRONICLE_LEVELS: readonly number[] = [1, 2];
+/**
+ * The levels of this build (1 — the forest, 2 — the garrison; task 55в — 3, the castle, with `castle`, the flag of the castle in the run).
+ * A chapter of a level not reached is hidden; the next level of the build shows as one blank chapter.
+ */
+export const chronicleLevels = (castle: boolean = RT_CASTLE_ON): readonly number[] => (castle ? [1, 2, 3] : [1, 2]);
+export const RT_CHRONICLE_LEVELS: readonly number[] = chronicleLevels();
 
 /**
  * Bestiary: the forest's kinds — the schedule's special kinds the run of this build may give (the weak enemy has no caption — no entry):
@@ -43,18 +51,25 @@ export const RT_CHRONICLE_FOREST_KINDS: readonly string[] = chronicleForestKinds
 export const chronicleGarrisonKinds = (step3: boolean = RT_GARRISON_STEP3_ON): readonly string[] => [GUARD, HANDLER, HOUND, KEYMASTER, CROSSBOW, KNIGHT, ...step3 ? [PITCHER, RECRUIT, WARDEN] : []];
 export const RT_CHRONICLE_GARRISON_KINDS: readonly string[] = chronicleGarrisonKinds();
 /**
+ * Task 55в (task 58 spec 3.1, 9; task 55 spec 18): the castle's kinds — «Шкаф» and «Ладья» (`KIND_CAPTIONS` of step 1а). The barrel is no
+ * kind of the book (a thing that only rolls, task 58 spec 3.1); the warlock is the bosses' page.
+ */
+export const RT_CHRONICLE_CASTLE_KINDS: readonly string[] = [WARDROBE, ROOK];
+/**
  * Every kind with an entry (what `chronicleMeet` keeps): the forest’s of either value of the flag (task 57а: a shooter met in a run with
  * `forestShooters` stays in the profile whatever this build’s flag says) and the garrison’s of either value of step 3’s flag (task 59б).
  */
-export const RT_CHRONICLE_KINDS: readonly string[] = [...scheduleKinds(true, true), ...chronicleGarrisonKinds(true)];
+export const RT_CHRONICLE_KINDS: readonly string[] = [...scheduleKinds(true, true), ...chronicleGarrisonKinds(true), ...RT_CHRONICLE_CASTLE_KINDS];
 export const RT_CHRONICLE_AFFIXES: readonly string[] = AFFIX_IDS;
 
 /** The bosses of this build: the level of each, the arenas of its fight (a won fight there — «побеждён»). */
-export type RtChronicleBoss = 'jailer' | 'troll' | 'castellan';
+export type RtChronicleBoss = 'jailer' | 'troll' | 'castellan' | 'warlock';
 export const RT_CHRONICLE_BOSSES: readonly { id: RtChronicleBoss; level: number; arenas: readonly string[] }[] = [
   { id: 'jailer', level: 1, arenas: JAILER_RUN_ARENAS },
   { id: 'troll', level: 1, arenas: TROLL_RUN_ARENAS },
   { id: 'castellan', level: 2, arenas: [GARRISON_FINAL_ARENA] },
+  // Task 55в: the castle's final (its chapter shows only in a build with the castle and once a hero reached it).
+  { id: 'warlock', level: 3, arenas: [CASTLE_FINAL_ARENA] },
 ];
 export const isRtChronicleBoss = (id: unknown): id is RtChronicleBoss => RT_CHRONICLE_BOSSES.some(boss => boss.id === id);
 

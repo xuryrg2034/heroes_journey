@@ -20,7 +20,7 @@ import type { Journal, Simulation } from '../sim/simulation';
 import type { World } from '../sim/world';
 import { rtTalisman } from '../run/rtTalismans';
 import { runRow } from '../run/arenaPools';
-import { rtGarrisonNodeId } from '../run/garrison';
+import { rtNodeLevel } from '../run/castle';
 import { fusionOfHalf } from '../sim/buildIds';
 import { rtAvailableNodes, rtEventView, rtFightArc, rtGiftView, rtHandFullOffers, rtLevel, rtNode, rtNodeOmen, rtRestView, rtScheduleMet, rtShopView, type RtRunState, type RtRunStep } from '../run/rtRun';
 import type { GiftOption } from '../forest/runGift';
@@ -279,7 +279,7 @@ function fightOmens(ctx: FightContext): Pick<FightRecord, 'omens'> {
 function runLevels(run: RtRunState): Pick<RunRecord, 'level' | 'levelCleared' | 'cart' | 'drill'> {
   const cleared = rtRunWonLevel(run);
   // Task 59б: the trails' drill of a run of step 3.
-  return { ...rtLevel(run) === 2 ? { level: 2 as const } : {}, ...cleared ? { levelCleared: cleared } : {}, ...run.cart ? { cart: { ...run.cart } } : {}, ...run.step3 ? { drill: run.step3.drill } : {} };
+  return { ...rtLevel(run) >= 2 ? { level: rtLevel(run) as 2 | 3 } : {}, ...cleared ? { levelCleared: cleared } : {}, ...run.cart ? { cart: { ...run.cart } } : {}, ...run.step3 ? { drill: run.step3.drill } : {} };
 }
 
 export function runKit(run: RtRunState): RunRecord['kit'] {
@@ -592,7 +592,7 @@ export class RtRecorder {
     if (!journal || (journal.ticks === 0 && outcome !== 'victory' && outcome !== 'defeat')) return null;
     const body: FightBody = {
       fight: f.key, ...f.ctx.nodeId !== undefined ? { nodeId: f.ctx.nodeId } : {}, arena: world.arena.id, ...f.ctx.roster !== undefined ? { roster: f.ctx.roster } : {},
-      ...f.ctx.row !== undefined ? { row: f.ctx.row } : {}, ...f.ctx.nodeId !== undefined && rtGarrisonNodeId(f.ctx.nodeId) ? { level: 2 as const } : {}, ...f.arc ? { arc: f.arc } : {}, ...fightOmens(f.ctx), seed: f.sim.seed, outcome, ticks: journal.ticks, time: world.time, hpIn: f.hpIn, hpOut: world.hero.hp, endHash,
+      ...f.ctx.row !== undefined ? { row: f.ctx.row } : {}, ...f.ctx.nodeId !== undefined && rtNodeLevel(f.ctx.nodeId) > 1 ? { level: rtNodeLevel(f.ctx.nodeId) as 2 | 3 } : {}, ...f.arc ? { arc: f.arc } : {}, ...fightOmens(f.ctx), seed: f.sim.seed, outcome, ticks: journal.ticks, time: world.time, hpIn: f.hpIn, hpOut: world.hero.hp, endHash,
       ...view ? { view } : {}, summary: f.tap.summary(world),
     };
     // Task 16 telemetry: the view's count of first meetings in the fight; the feat's summary for the run step that feeds it back.

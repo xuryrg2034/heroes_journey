@@ -13,6 +13,7 @@
  */
 import { RT_XP_VOW } from '../run/rtMeta';
 import { GARRISON_TITLE } from '../run/garrison';
+import { CASTLE_TITLE } from '../run/castle';
 import { countUpValue } from './juice';
 import { metaItemCard, xpBar, xpPartLabel, type MetaEnd } from './metaModel';
 
@@ -30,9 +31,12 @@ export interface MetaEndShown { xp: number; gain: number; bar: number; mark: boo
  * The record's depth in words: «ряд 8», «лес пройден». Task 38: a garrison record (`level` 2) — «Гарнизон, ряд 2» (the forest is
  * behind it); `forest` — a forest row next to a garrison one says its level: «лес, ряд 9». A garrison record of row 0 (no garrison
  * node yet) — «лес пройден». Task 40: `passed` — the level the record passed (core's `wonLevel`: 0 none, 1 the forest, 2 the
- * garrison — «гарнизон пройден»); never the profile's `won` (any victory).
+ * garrison — «гарнизон пройден»); never the profile's `won` (any victory). Task 55в: a castle record (`level` 3) — «Замок, ряд N» (row 0 —
+ * «гарнизон пройден»); `passed` 3 — «замок пройден».
  */
 export function rowWord(row: number, passed: number, level?: number, forest = false): string {
+  if (passed >= 3) return `${CASTLE_TITLE.toLowerCase()} пройден`;
+  if (level === 3) return row > 0 ? `${CASTLE_TITLE}, ряд ${row}` : `${GARRISON_TITLE.toLowerCase()} пройден`;
   if (passed >= 2) return `${GARRISON_TITLE.toLowerCase()} пройден`;
   if (level === 2) return row > 0 ? `${GARRISON_TITLE}, ряд ${row}` : 'лес пройден';
   return passed >= 1 ? 'лес пройден' : forest ? `лес, ряд ${row}` : `ряд ${row}`;
@@ -50,7 +54,7 @@ function blockHtml(m: MetaEnd, chronicle: readonly string[]): string {
   const rec = m.record.after, before = m.record.before;
   const word = rowWord(rec.row, rec.wonLevel ?? 0, rec.level);
   const record = m.record.beaten
-    ? `<p class="rt-meta-record rt-meta-beaten" data-testid="meta-record" data-beaten="true"><b>${esc(word[0].toUpperCase() + word.slice(1))} — новый рекорд</b>${before && hasRecord(before) ? `<small>прежний: ${esc(rowWord(before.row, before.wonLevel ?? 0, before.level, rec.level === 2))}</small>` : ''}</p>`
+    ? `<p class="rt-meta-record rt-meta-beaten" data-testid="meta-record" data-beaten="true"><b>${esc(word[0].toUpperCase() + word.slice(1))} — новый рекорд</b>${before && hasRecord(before) ? `<small>прежний: ${esc(rowWord(before.row, before.wonLevel ?? 0, before.level, (rec.level ?? 1) >= 2))}</small>` : ''}</p>`
     // Smoke v62: no record yet (row 0) — no line (a garrison record of row 0 has its line: «лес пройден»).
     : hasRecord(rec) ? `<p class="rt-meta-record" data-testid="meta-record" data-beaten="false"><small>Рекорд: ${esc(word)}</small></p>` : '';
   // Task 56: the omens the end opened — one quiet line, as «В лагерь» (absent or 0 — none).

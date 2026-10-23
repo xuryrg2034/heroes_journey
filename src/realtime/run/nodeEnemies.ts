@@ -11,6 +11,7 @@ import type { ForestMapNode } from '../forest/forestMap';
 import { Simulation } from '../sim/simulation';
 import { defaultParams } from '../sim/params';
 import { rtGarrisonNodeId } from './garrison';
+import { rtCastleNodeId } from './castle';
 import { arenaPreview, arenaSeed, battleKindOf, rtArenaLoadout, rtArenaParams, rtRunParams, rtTrollNode, type RtRunState } from './rtRun';
 
 /** The enemies of a garrison node's fight at its start (`rtNodeEnemies`). */
@@ -33,7 +34,8 @@ export interface RtNodeEnemies {
  * available yet), or a node that is no battle.
  */
 export function rtNodeEnemies(run: RtRunState, node: ForestMapNode): RtNodeEnemies | null {
-  if (!rtGarrisonNodeId(node.id) && !rtTrollNode(run, node)) return null;
+  // Task 55в: the castle's nodes too.
+  if (!rtGarrisonNodeId(node.id) && !rtCastleNodeId(node.id) && !rtTrollNode(run, node)) return null;
   const pending = run.pending;
   const open = pending?.kind === 'battle' && pending.nodeId === node.id ? pending : null;
   const pick = open ? { arena: open.arena, roster: open.roster } : arenaPreview(run, node);

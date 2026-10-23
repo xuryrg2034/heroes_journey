@@ -87,6 +87,12 @@ export const BALLROOM_ARENA: ArenaTemplate = registerArena({
 
 /** The warlock's candles (spec 6.6): C1 — his start, C2 west, C3 east, C4 — the nearest to the hero's start. */
 const CANDLES = [{ x: 12, y: 3.2 }, { x: 4.5, y: 7 }, { x: 19.5, y: 7 }, { x: 12, y: 9.6 }];
+/**
+ * Task 55 §23.6 «Колдун v1»: two rugs (2 wide — the walk out of the middle 1 + the hero's body fits the windup 1.0 s) across the hero's
+ * ways from his start to C2 and C3, between the barrels' lanes (B3, B4: the columns x 4.5 and 19.5) and the pillars, under no barrel.
+ * PROVISIONAL (core, 22.10.2026, to unblock the task) — level design confirms the places by journal commands.
+ */
+const RUGS = [{ x: 5.4, y: 7.8, w: 5, h: 2 }, { x: 13.6, y: 7.8, w: 5, h: 2 }];
 
 /**
  * «Зал колдуна» (`c-warlock`, 24 × 15; task 55, stage Д, spec 6.6): the castle's final — the warlock (enemies/warlock.ts) at candle C1,
@@ -115,7 +121,7 @@ export const WARLOCK_ARENA: ArenaTemplate = registerArena({
   bossClears: true,
   jailerColorless: true,
   castle: true,
-  warlock: { candles: CANDLES },
+  warlock: { candles: CANDLES, rugs: RUGS },
 });
 
 /**

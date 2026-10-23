@@ -33,7 +33,7 @@ import { TROLL, TROLL_CROWD, trollWards } from './enemies/troll';
 import { RECRUIT, noteRefused, orderRecruits, recruitInOrder } from './enemies/recruit';
 // Task 54: the Chief's feast guards his core from every source but the chain in his window (enemies/chief.ts).
 import { CHIEF, chiefWards, seatedEater } from './enemies/chief';
-import { WARLOCK, WARLOCK_CROWD, warlockWards } from './enemies/warlock';
+import { WARLOCK, WARLOCK_CROWD, warlockWards, type WarlockMove } from './enemies/warlock';
 // Task 59а: the law of pitch — the pots, the pools and their slowdown (pitch.ts).
 import { enemyPitchFactor, heroPitchFactor, updatePitch, type PitchState, type Pot } from './pitch';
 // Casino stage 1 («Однорукий гоблин», slot.ts): the slot's state and step.
@@ -54,7 +54,9 @@ import { updateShoves, type Shove, type ShovePlan, type ShoveStop } from './shov
 // Task 56 «Приметы» (omens.ts): the omens' fight rules — the storm, the sleep, the pools, the roll call.
 import { drowseSweep, floodArena, omensEarly, omensLate, rageFactor, rollcallTouch, type DrowseWorld, type FloodWorld, type RollcallWorld, type StormWorld } from './omens';
 // Task 57а «Лес: стрелки» (shots.ts): the shots of the arena and the shooters' timer.
-import { FOREST_VOLLEY_GAP, updateShots, type Shot, type ShotKind } from './shots';
+import { FOREST_VOLLEY_GAP, updateShots, type Shot, type ShotEndBy, type ShotKind } from './shots';
+// Task 60а «Замок: гости»: the chandelier and the poltergeist's flying things (nothing without a guest).
+import { updateGuests, type Chandelier } from './enemies/castleGuests';
 // Task 57б «Лес: механики»: the rootling's stumps and its credit, the firebrand's fire.
 import { ROOTLING, lieDown, settleStumps, updateStumps, type Stump } from './enemies/rootling';
 import { FIREBRAND, brandFire, brandLit, douse, fireSource } from './enemies/firebrand';
@@ -571,7 +573,7 @@ export type WorldEvent =
    * a part died (`partSevered`: its id and spot; only while its core lives); after the dash the core lost plates to severed parts
    * (`bossPlate`: plates left) or entered a phase (`bossPhase`). The rules never read them.
    */
-  | { type: 'bossMove'; id: number; move: 'flail' | 'throw' | 'whistle' | 'club' | 'rock' | 'tail' | 'roar' | 'snore' | 'charge' | 'swing' | 'pepper' | 'feast' | 'season'; stage: 'start' | 'hit' }
+  | { type: 'bossMove'; id: number; move: 'flail' | 'throw' | 'whistle' | 'club' | 'rock' | 'tail' | 'roar' | 'snore' | 'charge' | 'swing' | 'pepper' | 'feast' | 'season' | WarlockMove; stage: 'start' | 'hit' }
   | { type: 'partSevered'; id: number; x: number; y: number }
   | { type: 'bossPlate'; id: number; plates: number }
   | { type: 'bossPhase'; id: number; phase: number }
@@ -662,8 +664,15 @@ export type WorldEvent =
   | { type: 'warlockCharm'; action: 'block' | 'broken'; id: number; x: number; y: number; source?: string }
   /** Task 55, stage Д: the warlock's window after an arrival (his charm gone): `dropped` — the links an `unlink` took from the chain. */
   | { type: 'warlockWindow'; action: 'open' | 'hit' | 'block' | 'close' | 'unlink'; id: number; x: number; y: number; source?: string; dropped?: number[] }
-  /** Task 55, stage Д: «Перенос» — the target candle's sign begins (`mark`), he stands at it (`arrive`). */
+  /**
+   * Task 55, stage Д: «Перенос» — the target candle's sign begins (`mark`), he stands at it (`arrive`). Task 55 §23 (v1): «Перенос к
+   * герою» — `candle` −1, (`x`, `y`) the rune's point.
+   */
   | { type: 'warlockShift'; action: 'mark' | 'arrive'; id: number; candle: number; x: number; y: number }
+  /** Task 55 §23 «Колдун v1»: an orb goes out with no kill — its life over, a wall or the edge, the hero touched (`touch`) or a shield took it (`block`), a sliding thing (`thing`, not the player's). */
+  | { type: 'warlockOrb'; action: 'out'; id: number; x: number; y: number; why: 'life' | 'wall' | 'touch' | 'block' | 'thing' }
+  /** Task 55 §23: «Ковёр дёргает» moved the drawn chain's bodies or the hero — the links beyond the reach dropped (`dropped`; the refusal `far`). */
+  | { type: 'warlockRug'; action: 'unlink'; id: number; x: number; y: number; dropped: number[]; refusal: 'far' }
   /**
    * Task 55а: «Удар ладьи» — `aim` (the axis fixed both ways, from (`x0`, `y0`) to (`x1`, `y1`)) and `shot` (`plus`, `minus` — what each
    * half struck: `hero`, `enemy`, `thing` — the shelter; absent — nothing).
@@ -687,7 +696,20 @@ export type WorldEvent =
    * Task 57а (shots.ts): a shot ended — `hit` the hero, `block` (a shield took it), `snuff` (`by` the dash or a bomb, `snuffShots`),
    * `end` (a wall, a tree, the edge, or its flight ran out; `by: 'owner'` — it hung and its shooter died). The rules never read it.
    */
-  | { type: 'shot'; action: 'hit' | 'block' | 'snuff' | 'end'; id: number; kind: ShotKind; owner: number; x: number; y: number; by?: 'dash' | 'bomb' | 'owner' }
+  | { type: 'shot'; action: 'hit' | 'block' | 'snuff' | 'end'; id: number; kind: ShotKind; owner: number; x: number; y: number; by?: ShotEndBy; target?: number }
+  /**
+   * Task 60а «Замок: гости» (enemies/castleGuests.ts; the rules never read them). `candelabra`: the cross lights (`angle` of its first
+   * ray, `dir` the way), spins, goes out, or the candelabra falls along a shove (shove.ts: its lane to `x1`, `y1`). `queen`: «Ход ферзя»
+   * (`move`, to `x1`, `y1`), the windup of «Звезда ферзя» (`aim`, its 8 `lines`), the volley (`shot`). `chandelier`: the butler bows
+   * (`bow`), it hangs, a wax drop (`drop`: its mark `mark`, then `land`), its fall begins (`fall`) and lands (`crash`), or it is gone
+   * without a fall (`gone`). `poltergeist`: it lifts `things`, throws one (to its mark `x1`, `y1`), one lands, or the held drop with its
+   * death. `jester`: the windup (`aim`), the throw (`ball`, `speed`), a pass reflects its ball, it catches (`catches` now), misses, is stunned.
+   */
+  | { type: 'candelabra'; action: 'light' | 'spin' | 'out' | 'topple'; id: number; x: number; y: number; angle?: number; dir?: number; x1?: number; y1?: number }
+  | { type: 'queen'; action: 'move' | 'aim' | 'shot'; id: number; x: number; y: number; x1?: number; y1?: number; lines?: { x0: number; y0: number; x1: number; y1: number }[] }
+  | { type: 'chandelier'; action: 'bow' | 'hang' | 'drop' | 'fall' | 'crash' | 'gone'; owner: number; x: number; y: number; stage?: 'mark' | 'land'; radius?: number }
+  | { type: 'poltergeist'; action: 'lift' | 'throw' | 'land' | 'drop'; id: number; x: number; y: number; things: number[]; x1?: number; y1?: number; radius?: number }
+  | { type: 'jester'; action: 'aim' | 'throw' | 'reflect' | 'catch' | 'miss' | 'stun'; id: number; x: number; y: number; ball?: number; speed?: number; catches?: number }
   /**
    * Task 57а (enemies/wisp.ts, «Светляк»): it lit and flies (`lit`), or it went out without a kill (`out`: its flight ran out —
    * `life`; it touched the hero — `touch`; a shield took the touch — `block`). The rules never read it.
@@ -891,6 +913,8 @@ export interface World {
   stumps?: Stump[];
   /** Task 57б-2 (enemies/centipede.ts, `centiTrail`): the centipedes' stored trails, by id — absent until one appears with the key. */
   centiTrails?: CentiTrail[];
+  /** Task 60а (enemies/castleGuests.ts): the butler's chandelier — absent while none hangs or falls (worlds without a butler hash as before). */
+  chandelier?: Chandelier;
 }
 
 /**
@@ -1010,6 +1034,9 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   }
   // «Дыры ядра» Колдуна (21.10.2026): «Зал колдуна» plays `warlockHoles` when the values have it off (without the key — the old paths).
   if (arena.warlock && params.warlockHoles === false) params = { ...copyParams(params), warlockHoles: true };
+  // Task 55 §23 «Колдун v1»: «Зал колдуна» plays v1 when the values have it off; values without the key (a journal before it, a run
+  // saved without `warlockV1`: run/rtRun.ts `rtArenaParams`) — v0 byte for byte. A journal keeps the copy.
+  if (arena.warlock && params.warlockV1 === false) params = { ...copyParams(params), warlockV1: true };
   // Task 55а: an arena of the castle plays the law of the shove (when the values have it off; a journal keeps the copy).
   if (arena.castle && !params.shove) params = { ...copyParams(params), shove: true };
   // Task 55, stage Д: the warlock's arena plays his charm, the boss's solid bodies and his crowd (when the values hold the old ones).
@@ -1028,6 +1055,8 @@ export function createWorld(template: ArenaTemplate, params: Params, seed = 1, s
   // Task 57а: the sandbox arena of the shooters plays the run's rules of the layer (as `RT_FOREST_SHOOTERS_PARAMS`).
   if (arena.forestShooters && !params.volleyGap) params = { ...copyParams(params), volleyGap: FOREST_VOLLEY_GAP };
   if (arena.forestShooters && !params.snuffShots) params = { ...copyParams(params), snuffShots: true };
+  // Task 60а: an arena of the castle's guests plays the dash's snuffing of light shots (the queen's stars) — a journal keeps the copy.
+  if (arena.snuffShots && !params.snuffShots) params = { ...copyParams(params), snuffShots: true };
   const maxHp = start ? Math.max(1, Math.floor(start.maxHp)) : params.heroHp;
   const hp = start ? Math.max(1, Math.min(maxHp, Math.floor(start.hp))) : params.heroHp;
   // Stage 2, step 3 («Песочные часы»): the phase table starts later — the delay is the talisman's, read once at the start.
@@ -2290,6 +2319,9 @@ export function update(world: World, dt: number, realDt = dt): void {
   // Task 57а (shots.ts): the shooters' timer and the shots, after the enemies moved, before the blasts and the touches (nothing
   // without a shooter or a shot).
   updateShots(world, dt);
+  if (world.status !== 'playing') return;
+  // Task 60а: the chandelier and the poltergeist's flying things (nothing without them).
+  updateGuests(world, dt);
   if (world.status !== 'playing') return;
   updateBlasts(world, dt);
   if (world.status !== 'playing') return;
