@@ -47,7 +47,7 @@ export interface RtChronicle {
 
 /** A ref of `unread` / `added`. */
 const REF_KINDS = ['kind', 'affix', 'event', 'item', 'boss', 'hero', 'ash', 'npc', 'chapter'] as const;
-export const RT_CHRONICLE_CHAPTER_REFS: readonly string[] = ['garrison'];
+export const RT_CHRONICLE_CHAPTER_REFS: readonly string[] = ['garrison', 'castle'];
 export function isRtChronicleRef(value: unknown): value is string {
   if (typeof value !== 'string') return false;
   const [kind, id, step, ...rest] = value.split(':');
@@ -140,11 +140,20 @@ export function rtChronicleMetaRefs(before: RtMeta | undefined, after: RtMeta): 
   }
   for (const npc of RT_HEARTH_NPCS) if (npc !== 'owl' && after.hearth?.met[npc] && !before?.hearth?.met[npc]) refs.push(`npc:${npc}`);
   if (rtChronicleGarrisonOpen(after) && !rtChronicleGarrisonOpen(before)) refs.push('chapter:garrison');
+  // Task 55в: the castle's chapter open (the first level-3 record of any hero).
+  if (rtChronicleCastleOpen(after) && !rtChronicleCastleOpen(before)) refs.push('chapter:castle');
   return refs;
 }
 /** The garrison's chapters are open: a hero's record reached the garrison (`level` 2, or passed it). */
 export const rtChronicleGarrisonOpen = (meta: RtMeta | undefined): boolean =>
   !!meta && RT_HERO_IDS.some(id => { const r = meta.heroes[id]?.record; return !!r && ((r.level ?? 1) >= 2 || (r.wonLevel ?? 0) >= 2); });
+
+/**
+ * Task 55в (task 58 spec 4, rule 1): the castle's chapters are open — a hero's record reached the castle (`level` 3: a castle node entered,
+ * or `wonLevel` 3). The view shows them only in a build with the castle (`chronicleLevels`).
+ */
+export const rtChronicleCastleOpen = (meta: RtMeta | undefined): boolean =>
+  !!meta && RT_HERO_IDS.some(id => { const r = meta.heroes[id]?.record; return !!r && (r.level === 3 || r.wonLevel === 3); });
 
 /** The meta changed (`rtChronicleMetaRefs`) outside a run's end (the store's `freeHero`): its refs join the chronicle. */
 export function rtChronicleNote(previous: RtChronicle | undefined, refs: readonly string[]): RtChronicle | undefined {

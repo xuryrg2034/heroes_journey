@@ -10,11 +10,14 @@ import type { RtProfile } from './rtRunStorage';
 import { rtLockedAfter, type RtHeroId } from './metaCatalog';
 import { isRtForm } from './rtTalismans';
 import { rtInnate } from './rtRun';
-import { rtChronicleGarrisonOpen, rtChronicleRefPage, type RtChronicle } from './chronicle';
+import { rtChronicleCastleOpen, rtChronicleGarrisonOpen, rtChronicleRefPage, type RtChronicle } from './chronicle';
 import {
   RT_CHRONICLE_AFFIXES, RT_CHRONICLE_ASH_STEPS, RT_CHRONICLE_BOSSES, RT_CHRONICLE_EVENTS, RT_CHRONICLE_FOREST_KINDS, chronicleForestKinds, RT_CHRONICLE_GARRISON_KINDS, chronicleGarrisonKinds, RT_CHRONICLE_HEROES,
-  RT_CHRONICLE_ITEMS, RT_CHRONICLE_LEVELS, RT_CHRONICLE_PAGES, rtChronicleNpcs, rtChronicleParts, type RtChroniclePageId,
+  RT_CHRONICLE_ITEMS, RT_CHRONICLE_PAGES, rtChronicleNpcs, rtChronicleParts, type RtChroniclePageId,
+  // Task 55в: the castle's level and kinds.
+  chronicleLevels, RT_CHRONICLE_CASTLE_KINDS,
 } from './chronicleCatalog';
+import { RT_CASTLE_ON } from './castle';
 
 export type RtChronicleEntryState = 'locked' | 'unknown' | 'seen' | 'taken' | 'met' | 'won';
 /** An entry: its catalogue id, its state; `run` — the viewer's run of a boss met / won, of Ведунья freed (0 — unknown); `half` — a fusion's part taken. */
@@ -40,7 +43,11 @@ export type RtChronicleProfile = Pick<RtProfile, 'meta' | 'runs' | 'won' | 'hero
  * The build's content the book shows: the camp's new NPCs; task 57а — the forest's new shooters (absent — `RT_FOREST_SHOOTERS_ON`); task 59б —
  * the garrison's kinds of step 3 (absent — `RT_GARRISON_STEP3_ON`).
  */
-export interface RtChronicleOn { gambler: boolean; monk: boolean; shooters?: boolean; step3?: boolean }
+export interface RtChronicleOn {
+  gambler: boolean; monk: boolean; shooters?: boolean; step3?: boolean;
+  /** Task 55в: the castle in the run — the book has its level 3 (absent — `RT_CASTLE_ON`). */
+  castle?: boolean;
+}
 /** Task 59б: the garrison's kinds the book shows by `on` (absent — the build's flag). */
 const garrisonKindsOf = (on: RtChronicleOn): readonly string[] => (on.step3 === undefined ? RT_CHRONICLE_GARRISON_KINDS : chronicleGarrisonKinds(on.step3));
 
@@ -49,10 +56,11 @@ const written = (page: RtChroniclePageId, state: RtChronicleEntryState): boolean
   page === 'items' ? state === 'taken' : state === 'seen' || state === 'met' || state === 'won' || state === 'taken';
 
 /** The facts the pages read: the chronicle, the levels reached, the locks of the hero's packs, the ladders open. */
-function factsOf(profile: RtChronicleProfile, hero: RtHeroId) {
-  const meta = profile.meta, c: RtChronicle = meta?.chronicle ?? {};
-  const levels = RT_CHRONICLE_LEVELS.filter(level => level === 1 || (level === 2 && rtChronicleGarrisonOpen(meta)));
-  const next = RT_CHRONICLE_LEVELS.find(level => !levels.includes(level));
+function factsOf(profile: RtChronicleProfile, hero: RtHeroId, on: RtChronicleOn) {
+  const meta = profile.meta, c: RtChronicle = meta?.chronicle ?? {}, build = chronicleLevels(on.castle ?? RT_CASTLE_ON);
+  // Task 55в: the castle once a hero reached it (a level is open only after the one before it).
+  const levels = build.filter(level => level === 1 || (level === 2 && rtChronicleGarrisonOpen(meta)) || (level === 3 && rtChronicleGarrisonOpen(meta) && rtChronicleCastleOpen(meta)));
+  const next = build.find(level => !levels.includes(level));
   const locked = new Set(rtLockedAfter(meta?.heroes[hero]?.packs ?? []));
   const ladder = (id: RtHeroId): boolean => (id === 'toad' ? profile.heroAsh?.toad?.won === true : profile.won === true);
   const jailerMet = !!c.bosses?.jailer || !!meta?.freed?.toad;
@@ -63,7 +71,7 @@ function factsOf(profile: RtChronicleProfile, hero: RtHeroId) {
 
 /** The book for `hero` (the locks are of its packs; the hint is for it). `on` — the camp's NPCs of task 51 on. */
 export function rtChronicleView(profile: RtChronicleProfile, hero: RtHeroId, on: RtChronicleOn): RtChronicleView {
-  const f = factsOf(profile, hero), c = f.c, kinds = new Set(c.kinds ?? []), affixes = new Set(c.affixes ?? []);
+  const f = factsOf(profile, hero, on), c = f.c, kinds = new Set(c.kinds ?? []), affixes = new Set(c.affixes ?? []);
   const blank = (level: number): RtChronicleChapter => ({ id: `blank-${level}`, level, state: 'blank', entries: [] });
   const open = (id: string, level: number, entries: RtChronicleEntry[]): RtChronicleChapter => ({ id, level, state: 'open', entries });
   const levelled = (chapters: { level: number; chapter: () => RtChronicleChapter }[]): RtChronicleChapter[] =>
@@ -77,6 +85,8 @@ export function rtChronicleView(profile: RtChronicleProfile, hero: RtHeroId, on:
     { level: 1, chapter: () => open('forest', 1, (on.shooters === undefined ? RT_CHRONICLE_FOREST_KINDS : chronicleForestKinds(on.shooters)).map(kind)) },
     ...elites ? [{ level: 1, chapter: () => open('affixes', 1, RT_CHRONICLE_AFFIXES.map(id => ({ id, state: affixes.has(id) ? 'seen' as const : 'unknown' as const }))) }] : [],
     { level: 2, chapter: () => open('garrison', 2, garrisonKindsOf(on).map(kind)) },
+    // Task 55в: the castle's kinds (a build with the castle, once a hero reached it).
+    { level: 3, chapter: () => open('castle', 3, RT_CHRONICLE_CASTLE_KINDS.map(kind)) },
   ]);
   // Боссы: by level.
   const boss = (id: (typeof RT_CHRONICLE_BOSSES)[number]['id']): RtChronicleEntry => {
@@ -86,6 +96,7 @@ export function rtChronicleView(profile: RtChronicleProfile, hero: RtHeroId, on:
   const bosses = levelled([
     { level: 1, chapter: () => open('forest', 1, RT_CHRONICLE_BOSSES.filter(b => b.level === 1).map(b => boss(b.id))) },
     { level: 2, chapter: () => open('garrison', 2, RT_CHRONICLE_BOSSES.filter(b => b.level === 2).map(b => boss(b.id))) },
+    { level: 3, chapter: () => open('castle', 3, RT_CHRONICLE_BOSSES.filter(b => b.level === 3).map(b => boss(b.id))) },
   ]);
   // События: the forest's and the circle; an event a pack keeps locked — `locked`.
   const events = [open('forest', 1, RT_CHRONICLE_EVENTS.map(({ id }) => ({ id, state: c.events?.includes(id) ? 'seen' as const : f.locked.has(id) ? 'locked' as const : 'unknown' as const })))];
@@ -132,11 +143,13 @@ export const rtChronicleCounts = (view: RtChronicleView): Record<RtChroniclePage
  * none — no hint. A target seen leaves the candidates.
  */
 export function rtChronicleHint(profile: RtChronicleProfile, hero: RtHeroId, on: RtChronicleOn): RtChronicleHint | undefined {
-  const f = factsOf(profile, hero), c = f.c, out: RtChronicleHint[] = [];
+  const f = factsOf(profile, hero, on), c = f.c, out: RtChronicleHint[] = [];
   for (const { id, branch } of RT_CHRONICLE_EVENTS) if (!c.events?.includes(id) && !f.locked.has(id)) out.push({ key: `hint_event_${branch}`, target: `event:${id}` });
   for (const boss of RT_CHRONICLE_BOSSES) if (f.levels.includes(boss.level) && !c.bosses?.[boss.id]) out.push({ key: `hint_boss_${boss.id}`, target: `boss:${boss.id}` });
   // Task 59б: only the kinds this build gives (a kind of step 3 with its flag off is no obtainable target).
   if (f.levels.includes(2)) for (const id of garrisonKindsOf(on)) if (!c.kinds?.includes(id)) out.push({ key: 'hint_garrison', target: `kind:${id}` });
+  // Task 55в: a castle kind not met (the castle reached; the line `hint_castle` — design's).
+  if (f.levels.includes(3)) for (const id of RT_CHRONICLE_CASTLE_KINDS) if (!c.kinds?.includes(id)) out.push({ key: 'hint_castle', target: `kind:${id}` });
   const innate = rtInnate({ heroId: hero });
   for (const fusion of f.fusionsShown ? RT_CHRONICLE_ITEMS.fusions : []) {
     const parts = rtChronicleParts(fusion);
