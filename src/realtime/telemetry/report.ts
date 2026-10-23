@@ -279,6 +279,10 @@ const SOURCE_TITLES: Record<string, string> = {
   'wardrobe-topple': '«Падение шкафа»', 'rook-strike': '«Удар ладьи»', rook: 'касание ладьи', shove: 'толчок',
   // Task 55 §23 «Колдун v1».
   'warlock-orb': '«Цветные шары»', 'warlock-flash': '«Вспышка посоха»',
+  // Task 60а «Замок: гости»: their moves and touches; the jester struck by its reflected ball (the player's), the poltergeist's dropped things.
+  'candelabra-spin': '«Вертушка»', 'queen-star': '«Звезда ферзя»', 'wax-drop': '«Капля воска»', 'chandelier-fall': '«Падение люстры»',
+  'poltergeist-throw': '«Метание»', 'jester-ball': '«Мяч шута»', queen: 'касание ферзя', butler: 'касание дворецкого',
+  poltergeist: 'касание полтергейста', jester: 'касание шута', reflect: 'отбитый мяч', 'poltergeist-drop': 'вещи полтергейста',
 };
 const THREAT_TITLES: Record<string, string> = {
   // Task 57а «Лес: стрелки».

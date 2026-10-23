@@ -1388,6 +1388,56 @@ export interface Params {
    * the key) — the rope of before (a part straight to the part ahead).
    */
   centiTrail: boolean;
+  // ---- Task 60а «Замок: гости» (enemies/castleGuests.ts; docs/realtime-elite-behaviors.md, «Замок: гости»; spec task-60 §11). ----
+  // The guests come only by an arena's template (no kind roll, no world field, no key read while none stands). Journals without a
+  // key play the default below (the kinds' numbers: `params.x ?? CONST`).
+  /** «Вертушка» подсвечника: the rest, the lighting and the spin (game s; 5, 1.0, 4); the turn (degrees / s; 60); the fire's hit (1). */
+  candelabraPeriod: number;
+  candelabraLight: number;
+  candelabraSpin: number;
+  candelabraTurn: number;
+  candelabraDamage: number;
+  /** The toppled candelabra: its lane's length (units; 2.0) and the fire on it (game s; 2). */
+  candelabraFall: number;
+  candelabraFire: number;
+  /** «Ход ферзя» (units; 4); «Звезда ферзя»: the windup (game s; 1.0, the first ×1.5), the rest from the volley (4.5), the shot's speed (6), its hit (1). */
+  queenMove: number;
+  queenWindup: number;
+  queenPeriod: number;
+  queenShotSpeed: number;
+  queenDamage: number;
+  /** The butler keeps between these from the hero (units; 5 / 7). */
+  butlerNear: number;
+  butlerFar: number;
+  /** The chandelier: its speed (units / s; 3); «Капля воска» — every (s; 3), its fall (0.8), its mark (units; 0.6), its hit (1). */
+  chandelierSpeed: number;
+  chandelierDrop: number;
+  chandelierDropTime: number;
+  chandelierDropRadius: number;
+  chandelierDropDamage: number;
+  /** «Падение люстры»: its sign (game s; 0.8), its circle (units; 1.0), its hit on the hero (2). */
+  chandelierFallTime: number;
+  chandelierFallRadius: number;
+  chandelierFallDamage: number;
+  /** «Метание» полтергейста: the rest (s; 6), the lift (1.0), the flight (0.8), the reach (units; 4), things a throw (2), the mark (0.7), the hit (2). */
+  poltergeistPeriod: number;
+  poltergeistLift: number;
+  poltergeistFlight: number;
+  poltergeistReach: number;
+  poltergeistCarry: number;
+  poltergeistMark: number;
+  poltergeistDamage: number;
+  /** «Мяч шута»: the rest (s; 4), the windup (0.6; after a catch 0.3), the ball's speed (3) and its step a catch (1), the return (6). */
+  jesterPeriod: number;
+  jesterWindup: number;
+  jesterBall: number;
+  jesterBallStep: number;
+  jesterReturn: number;
+  /** The jester catches this many reflected balls in a row (2), the next one stuns him (s; 2); the ball's hit (1); nearer than this he does not throw (2). */
+  jesterCatches: number;
+  jesterStun: number;
+  jesterDamage: number;
+  jesterNear: number;
 }
 
 export type ScalarKey = Exclude<keyof Params, 'phases'>;
@@ -1986,6 +2036,45 @@ export const DEFAULT_PARAMS: Readonly<Params> = Object.freeze({
   centiParts: 5,
   centiLungeWindup: 1,
   centiTrail: true,
+  // Task 60а «Замок: гости» (the kinds come only by a template; spec task-60 §11).
+  candelabraPeriod: 5,
+  candelabraLight: 1,
+  candelabraSpin: 4,
+  candelabraTurn: 60,
+  candelabraDamage: 1,
+  candelabraFall: 2,
+  candelabraFire: 2,
+  queenMove: 4,
+  queenWindup: 1,
+  queenPeriod: 4.5,
+  queenShotSpeed: 6,
+  queenDamage: 1,
+  butlerNear: 5,
+  butlerFar: 7,
+  chandelierSpeed: 3,
+  chandelierDrop: 3,
+  chandelierDropTime: 0.8,
+  chandelierDropRadius: 0.6,
+  chandelierDropDamage: 1,
+  chandelierFallTime: 0.8,
+  chandelierFallRadius: 1,
+  chandelierFallDamage: 2,
+  poltergeistPeriod: 6,
+  poltergeistLift: 1,
+  poltergeistFlight: 0.8,
+  poltergeistReach: 4,
+  poltergeistCarry: 2,
+  poltergeistMark: 0.7,
+  poltergeistDamage: 2,
+  jesterPeriod: 4,
+  jesterWindup: 0.6,
+  jesterBall: 3,
+  jesterBallStep: 1,
+  jesterReturn: 6,
+  jesterCatches: 2,
+  jesterStun: 2,
+  jesterDamage: 1,
+  jesterNear: 2,
 });
 
 const n = (key: ScalarKey, group: string, label: string, min: number, max: number, step: number, stage: 1 | 2 | 3 | 4 | 5 = 1, unit?: string, hint?: string): NumberDef =>
@@ -2650,6 +2739,45 @@ export const PARAM_DEFS: readonly ParamDef[] = [
   n('centiParts', 'Механики леса', 'Сороконожка: частей', 2, 8, 1, 5, undefined, 'Голова и части одного цвета. Убитая середина делит тело надвое: у куска без головы — новая голова.'),
   n('centiLungeWindup', 'Механики леса', 'Сороконожка: замах рывка', 0.4, 2, 0.1, 5, 'с'),
   { kind: 'bool', key: 'centiTrail', group: 'Механики леса', label: 'Сороконожка: части идут след в след', stage: 5, hint: 'Части идут по пути головы. Выключено — по прямой к впереди идущей (прежняя «верёвка»).' },
+  // Task 60а «Замок: гости» (enemies/castleGuests.ts).
+  n('candelabraPeriod', 'Замок · гости', 'Подсвечник: отдых «Вертушки»', 1, 15, 0.5, 5, 'с'),
+  n('candelabraLight', 'Замок · гости', 'Подсвечник: зажигание', 0.3, 3, 0.1, 5, 'с', 'Огни зажигаются от центра к концам лучей и не ранят. Лучи — под 45° к линии на героя.'),
+  n('candelabraSpin', 'Замок · гости', 'Подсвечник: вращение', 1, 10, 0.5, 5, 'с'),
+  n('candelabraTurn', 'Замок · гости', 'Подсвечник: поворот креста', 10, 180, 5, 5, '°/с'),
+  n('candelabraDamage', 'Замок · гости', 'Подсвечник: урон огня', 0, 5, 1, 5),
+  n('candelabraFall', 'Замок · гости', 'Подсвечник: длина полосы падения', 0.5, 5, 0.25, 5, 'ед.', 'Толчок опрокидывает подсвечник: слабые в полосе раздавлены, полоса горит.'),
+  n('candelabraFire', 'Замок · гости', 'Подсвечник: огонь на полосе', 0.5, 6, 0.5, 5, 'с'),
+  n('queenMove', 'Замок · гости', 'Ферзь: длина хода', 1, 8, 0.5, 5, 'ед.'),
+  n('queenWindup', 'Замок · гости', 'Ферзь: замах «Звезды»', 0.3, 3, 0.1, 5, 'с', '8 линий фиксируются в начале замаха. Первый замах боя ×1,5.'),
+  n('queenPeriod', 'Замок · гости', 'Ферзь: отдых от залпа', 1, 12, 0.5, 5, 'с'),
+  n('queenShotSpeed', 'Замок · гости', 'Ферзь: скорость снаряда', 1, 12, 0.5, 5, 'ед./с'),
+  n('queenDamage', 'Замок · гости', 'Ферзь: урон снаряда', 0, 5, 1, 5),
+  n('butlerNear', 'Замок · гости', 'Дворецкий: держится не ближе', 1, 10, 0.5, 5, 'ед.'),
+  n('butlerFar', 'Замок · гости', 'Дворецкий: держится не дальше', 2, 14, 0.5, 5, 'ед.'),
+  n('chandelierSpeed', 'Замок · гости', 'Люстра: скорость', 0.5, 6, 0.25, 5, 'ед./с'),
+  n('chandelierDrop', 'Замок · гости', 'Люстра: капля раз в', 0.5, 10, 0.5, 5, 'с'),
+  n('chandelierDropTime', 'Замок · гости', 'Люстра: падение капли', 0.2, 3, 0.1, 5, 'с'),
+  n('chandelierDropRadius', 'Замок · гости', 'Люстра: метка капли', 0.2, 2, 0.05, 5, 'ед.'),
+  n('chandelierDropDamage', 'Замок · гости', 'Люстра: урон капли', 0, 5, 1, 5),
+  n('chandelierFallTime', 'Замок · гости', 'Падение люстры: знак', 0.2, 3, 0.1, 5, 'с', 'Дворецкий погиб — люстра падает там, где висит.'),
+  n('chandelierFallRadius', 'Замок · гости', 'Падение люстры: круг', 0.3, 3, 0.1, 5, 'ед.'),
+  n('chandelierFallDamage', 'Замок · гости', 'Падение люстры: урон героя', 0, 5, 1, 5),
+  n('poltergeistPeriod', 'Замок · гости', 'Полтергейст: отдых', 1, 15, 0.5, 5, 'с'),
+  n('poltergeistLift', 'Замок · гости', 'Полтергейст: подъём', 0.3, 3, 0.1, 5, 'с'),
+  n('poltergeistFlight', 'Замок · гости', 'Полтергейст: полёт вещи', 0.3, 3, 0.1, 5, 'с'),
+  n('poltergeistReach', 'Замок · гости', 'Полтергейст: дальность подъёма', 1, 10, 0.5, 5, 'ед.'),
+  n('poltergeistCarry', 'Замок · гости', 'Полтергейст: вещей за раз', 1, 4, 1, 5),
+  n('poltergeistMark', 'Замок · гости', 'Полтергейст: метка броска', 0.3, 2, 0.05, 5, 'ед.'),
+  n('poltergeistDamage', 'Замок · гости', 'Полтергейст: урон броска', 0, 5, 1, 5),
+  n('jesterPeriod', 'Замок · гости', 'Шут: отдых', 1, 12, 0.5, 5, 'с'),
+  n('jesterWindup', 'Замок · гости', 'Шут: замах', 0.2, 2, 0.05, 5, 'с', 'После поимки — 0,3 с.'),
+  n('jesterBall', 'Замок · гости', 'Шут: скорость мяча', 1, 10, 0.5, 5, 'ед./с'),
+  n('jesterBallStep', 'Замок · гости', 'Шут: прибавка за поимку', 0, 4, 0.5, 5, 'ед./с'),
+  n('jesterReturn', 'Замок · гости', 'Шут: скорость отбитого мяча', 1, 12, 0.5, 5, 'ед./с'),
+  n('jesterCatches', 'Замок · гости', 'Шут: поимок до промаха', 0, 5, 1, 5, '', 'Отбитый проходом мяч летит к шуту. Он ловит столько подряд; следующий — промах: −1 HP и «оглушён».'),
+  n('jesterStun', 'Замок · гости', 'Шут: «оглушён»', 0.5, 5, 0.25, 5, 'с'),
+  n('jesterDamage', 'Замок · гости', 'Шут: урон мяча', 0, 5, 1, 5),
+  n('jesterNear', 'Замок · гости', 'Шут: ближе не кидает', 0, 6, 0.5, 5, 'ед.'),
 ];
 
 const MAX_PHASES = 8;

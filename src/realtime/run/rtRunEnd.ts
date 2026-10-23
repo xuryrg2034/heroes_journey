@@ -56,6 +56,8 @@ export const RT_KIND_TITLES: Readonly<Record<string, string>> = {
   centipede: 'сороконожка',
   // Task 55 §23 «Колдун v1»: his orb, a living shot (its touch is its own source `warlock-orb`).
   'warlock-orb': 'шар Колдуна',
+  // Task 60а «Замок: гости» (lower case, the decision of task 40; the chandelier is no kind — part of the butler).
+  candelabra: 'подсвечник', queen: 'ферзь', butler: 'дворецкий', poltergeist: 'полтергейст', jester: 'шут',
 };
 
 /**
@@ -95,13 +97,16 @@ export const RT_DEATH_ABILITY: Readonly<Record<string, string>> = {
   'centipede-lunge': 'рывок сороконожки',
   // Task 55 §23 «Колдун v1»: his orb's touch and «Вспышка посоха».
   'warlock-orb': 'шар Колдуна', 'warlock-flash': 'вспышка посоха Колдуна',
+  // Task 60а «Замок: гости» (spec 13; the candelabra's fallen lane burns as the fire trail — `fire-trail`).
+  'candelabra-spin': 'вертушка подсвечника', 'queen-star': 'звезда ферзя', 'wax-drop': 'капля воска', 'chandelier-fall': 'падение люстры',
+  'poltergeist-throw': 'метание полтергейста', 'jester-ball': 'мяч шута',
 };
 /**
  * The touch sources (each kind's `hitSource`): the line names the striker's kind, its elite mark, armour and affixes. Task 40 (design
  * 16.10.2026, spec section 10): the garrison's touches too — the guard, the dog handler, the hound (on its leash or in its frenzy: the
  * same body, «пёс»), the keymaster, the Castellan.
  */
-export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper', 'guard', 'handler', 'hound', 'keymaster', 'castellan', 'crossbow', 'knight', 'rook', 'slinger', 'recruit', 'warden', 'pitcher', 'rootling', 'slime', 'firebrand', 'warlock', 'castellan-crossbow', 'centipede'];
+export const RT_DEATH_TOUCH: readonly string[] = ['touch', 'wolf', 'reaper', 'guard', 'handler', 'hound', 'keymaster', 'castellan', 'crossbow', 'knight', 'rook', 'slinger', 'recruit', 'warden', 'pitcher', 'rootling', 'slime', 'firebrand', 'warlock', 'castellan-crossbow', 'centipede', 'queen', 'butler', 'poltergeist', 'jester'];
 
 /** Drafts sent to design 12.10.2026 (pending approval). */
 export const RT_RUN_END_TEXT = {

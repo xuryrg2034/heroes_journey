@@ -22,18 +22,29 @@
  *   `stepMove`) and a bomb (a circle of `BOMB_SNUFF_RADIUS` round its target, items.ts) put out the light shots (all of them now:
  *   wasps and stones). The highlight promises nothing about shots — it never differs from the dash.
  *
+ * - **Task 60а «Замок: гости»** (enemies/castleGuests.ts): two kinds of the castle's guests. The queen's star (`star`, light: the dash
+ *   and a bomb put it out) hits the FIRST body — the hero as every shot, or an enemy (−1: the weak die, an elite loses a plate; not
+ *   the player's, design В8). The jester's ball (`ball`; not light — the pass reflects it, chain.ts) flies through enemies. A thing that
+ *   stands (not lifted) shelters from both: the shot goes out on it, the thing is whole. A reflected ball (`back`) hurts nobody: it
+ *   flies at its jester and, on reaching him, his kind decides (`ShooterDef.caught`: a catch or the miss). The forest's kinds play as
+ *   before.
+ *
  * Events (the view; the rules never read them): `shooter` — a windup began (`aim`: the slinger's lines, the hive's points) or the
  * volley left (`loose`); `shot` — a shot ended (`hit` the hero, `block`, `snuff` by the dash or a bomb, `end`: a wall, a tree, the
- * edge or its flight ran out; `by: 'owner'` — a hanging shot whose shooter died, design 17.10.2026).
+ * edge or its flight ran out; `by: 'owner'` — a hanging shot whose shooter died, design 17.10.2026; task 60а: `by: 'thing'` — a thing
+ * sheltered, `by: 'body'` — it hit the enemy `target`, `by: 'jester'` — a reflected ball reached its jester).
  */
 import { dhypot } from './detMath';
 import { blockedAt, type Vec } from './geometry';
 import { heroRadius } from './params';
-import { canBeHurt, enemyFrozen, heroGuarded, hurtHero, noteBlock, type Enemy, type World } from './world';
+import { canBeHurt, damageEnemy, enemyFrozen, heroGuarded, hurtHero, noteBlock, type Enemy, type World } from './world';
+import { bodyRadiusOf, kindOf } from './enemies/kinds';
 // The kinds register in a module of their own (no cycle with the kinds that world.ts loads).
 import { shooterOf } from './shooterRegistry';
 
-export type ShotKind = 'stone' | 'wasp';
+export type ShotKind = 'stone' | 'wasp' | 'star' | 'ball';
+/** Task 60а: how a shot ended besides the forest's ways (`by` of the `shot` event). */
+export type ShotEndBy = 'dash' | 'bomb' | 'owner' | 'thing' | 'body' | 'jester';
 
 export interface Shot {
   id: number;
@@ -48,12 +59,16 @@ export interface Shot {
   /** Game seconds it still hangs where it was born (0 — it flies). The hang waits while its shooter is frozen. */
   hang: number;
   owner: number;
+  /** Task 60а: the jester's ball reflected by a pass — it flies back at its owner (absent on every other shot). */
+  back?: 1;
+  /** Task 60а: the release fixed the jester's miss of this reflected ball (the plan's `miss`; absent — he may catch it). */
+  miss?: 1;
 }
 
 /** The hit source of a shot on the hero (the run-end line, the telemetry): the slinger's stone, the hive's wasp. */
-export const SHOT_SOURCE: Readonly<Record<ShotKind, string>> = { stone: 'stone', wasp: 'wasp' };
-/** Light shots: the dash and a bomb put them out (`snuffShots`). Every shot kind of the forest is light. */
-const LIGHT: ReadonlySet<ShotKind> = new Set<ShotKind>(['stone', 'wasp']);
+export const SHOT_SOURCE: Readonly<Record<ShotKind, string>> = { stone: 'stone', wasp: 'wasp', star: 'queen-star', ball: 'jester-ball' };
+/** Light shots: the dash and a bomb put them out (`snuffShots`). Every shot kind of the forest is light; task 60а: the queen's star (the ball is reflected). */
+const LIGHT: ReadonlySet<ShotKind> = new Set<ShotKind>(['stone', 'wasp', 'star']);
 /** Damage of a shot to the hero. */
 export const SHOT_DAMAGE = 1;
 /** The circle round a bomb's target that puts out light shots (`snuffShots`; the bomb itself has no circle — design question). */
@@ -66,6 +81,13 @@ export const SHOT_CAP = 24;
 const TERRAIN_R = 0.02;
 const TIME_EPS = 1e-9;
 
+
+/** A shot's damage to the hero: the forest's — `SHOT_DAMAGE`; task 60а: the star — `queenDamage`, the ball — `jesterDamage`. */
+function shotDamage(world: World, s: Shot): number {
+  if (s.kind === 'star') return Math.max(0, world.params.queenDamage ?? SHOT_DAMAGE);
+  if (s.kind === 'ball') return Math.max(0, world.params.jesterDamage ?? SHOT_DAMAGE);
+  return SHOT_DAMAGE;
+}
 
 /** The arena's timer (game s; 0 — none). */
 export const volleyGapOf = (world: World): number => Math.max(0, world.params.volleyGap ?? 0);
@@ -128,10 +150,42 @@ function runVolleyTimer(world: World, dt: number): void {
 }
 
 /** Puts the shot out with a `shot` event of `action`. */
-function endShot(world: World, s: Shot, action: 'hit' | 'block' | 'snuff' | 'end', by?: 'dash' | 'bomb' | 'owner'): void {
+function endShot(world: World, s: Shot, action: 'hit' | 'block' | 'snuff' | 'end', by?: ShotEndBy, target?: number): void {
   const list = world.shots!, i = list.indexOf(s);
   if (i >= 0) list.splice(i, 1);
-  world.events.push({ type: 'shot', action, id: s.id, kind: s.kind, owner: s.owner, x: s.x, y: s.y, ...by ? { by } : {} });
+  world.events.push({ type: 'shot', action, id: s.id, kind: s.kind, owner: s.owner, x: s.x, y: s.y, ...by ? { by } : {}, ...target !== undefined ? { target } : {} });
+}
+
+/**
+ * Task 60а: the castle's guests' shots meet things and bodies (after the move of this tick, before the hero's touch). A standing thing
+ * shelters (the shot goes out on it); a reflected ball reaches its jester (`ShooterDef.caught`) and never touches the hero; the star hits
+ * the first body — the enemy whose touch comes nearer the point it came from this tick than the hero's (who takes it only when he can
+ * be hurt or a shield guards him: a dashing hero lets it pass). True — the shot is done for this tick.
+ */
+function guestShot(world: World, s: Shot, dt: number): boolean {
+  const p = world.params;
+  for (const e of world.enemies) {
+    if (kindOf(e).thing && e.vars.lf === undefined && dhypot(s.x - e.x, s.y - e.y) <= s.r + bodyRadiusOf(p, e)) { endShot(world, s, 'end', 'thing'); return true; }
+  }
+  if (s.back) {
+    const owner = world.enemies.find(e => e.id === s.owner);
+    if (owner && dhypot(s.x - owner.x, s.y - owner.y) <= s.r + bodyRadiusOf(p, owner)) { endShot(world, s, 'end', 'jester'); shooterOf(owner.kind)?.caught?.(world, owner, s); }
+    return true;
+  }
+  if (s.kind !== 'star') return false;
+  const fx = s.hang > 0 ? s.x : s.x - s.vx * dt, fy = s.hang > 0 ? s.y : s.y - s.vy * dt, hero = world.hero;
+  let best: Enemy | null = null, bestD = Infinity;
+  for (const e of world.enemies) {
+    if (e.id === s.owner || kindOf(e).thing || dhypot(s.x - e.x, s.y - e.y) > s.r + bodyRadiusOf(p, e)) continue;
+    const d = dhypot(fx - e.x, fy - e.y) - bodyRadiusOf(p, e);
+    if (d < bestD) { best = e; bestD = d; }
+  }
+  if (!best) return false;
+  const heroTakes = dhypot(s.x - hero.x, s.y - hero.y) <= s.r + heroRadius(p) && (canBeHurt(world) || heroGuarded(world));
+  if (heroTakes && dhypot(fx - hero.x, fy - hero.y) - heroRadius(p) <= bestD) return false;
+  endShot(world, s, 'end', 'body', best.id);
+  damageEnemy(world, best, 1, { source: SHOT_SOURCE.star, credited: false, plates: 1, firing: s.id });
+  return true;
 }
 
 /**
@@ -155,11 +209,19 @@ export function updateShots(world: World, dt: number): void {
       if (!enemyFrozen(owner)) s.hang = Math.max(0, s.hang - dt);
       if (s.hang <= TIME_EPS) s.hang = 0;
     } else {
+      // Task 60а: a reflected ball flies at its jester where he is now; gone with him.
+      if (s.back) {
+        const owner = world.enemies.find(e => e.id === s.owner);
+        if (!owner) { endShot(world, s, 'end', 'owner'); continue; }
+        const d = dhypot(owner.x - s.x, owner.y - s.y), speed = dhypot(s.vx, s.vy);
+        if (d > 1e-9) { s.vx = (owner.x - s.x) / d * speed; s.vy = (owner.y - s.y) / d * speed; }
+      }
       s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
       if (s.life <= TIME_EPS || blockedAt(s, TERRAIN_R, world.arena, false)) { endShot(world, s, 'end'); continue; }
     }
+    if ((s.kind === 'star' || s.kind === 'ball') && guestShot(world, s, dt)) continue;
     if (dhypot(s.x - hero.x, s.y - hero.y) > s.r + reach) continue;
-    if (canBeHurt(world)) { endShot(world, s, 'hit'); hurtHero(world, { id: s.owner }, SHOT_DAMAGE, SHOT_SOURCE[s.kind]); }
+    if (canBeHurt(world)) { endShot(world, s, 'hit'); hurtHero(world, { id: s.owner }, shotDamage(world, s), SHOT_SOURCE[s.kind]); }
     else if (heroGuarded(world)) { noteBlock(world, s.x, s.y, SHOT_SOURCE[s.kind], s.owner); endShot(world, s, 'block'); }
     // A dash, a jump, a calm arena: it passes through the hero.
   }

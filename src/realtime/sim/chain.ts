@@ -53,7 +53,7 @@ import { RECRUIT, drillEnd, noteRefused, recruitCurrent, recruitGate, recruitGro
 import { FIRE_DAMAGE, FIRE_RADIUS, firePathPoints } from './firePath';
 import { pitchMoveEnd, pitchOnFire } from './pitch';
 // Task 55а «Замок: толчок» (shove.ts): a thing is the chain's last link; the dash's end shoves it.
-import { isThing, shoveOn, shovePath, sliding, startShove, type ShovePlan } from './shove';
+import { isThing, shoveOn, shovePath, sliding, startShove, thingLifted, type ShovePlan } from './shove';
 import { blockedAt, cliffAt, dist, inThorns, lineOfSight, overCliff, pushOutOfObstacles, type Vec } from './geometry';
 import { heroRadius, type Params } from './params';
 import { closingEdgeCrosses, enemiesInside, loopMinOf, sealDamage, sealHoldOf, strikeSeal } from './seal';
@@ -74,6 +74,10 @@ import { artPick } from './bossArt';
 import { WARLOCK, warlockCharmOn, warlockClosed, warlockLinkDrop, warlockReserve, warlockShut, warlockSpellbound, warlockWards } from './enemies/warlock';
 // Task 57а «Лес: стрелки»: the dash puts out the light shots it touches (`Params.snuffShots`).
 import { snuffAlong, snuffing } from './shots';
+// Task 60а «Замок: гости»: the pass reflects the jester's ball; the butler's death drops the chandelier.
+import { chandelierFallPlan, freeBall, planReflects, reflectBall, type BallReflect } from './enemies/castleGuests';
+import { FROST_PASS } from './buildIds';
+import { FROST_PASS_RADIUS, frostPointsAlong } from './frostPass';
 // Task 57б «Лес: механики»: the firebrand's survivor and the rootlings' stumps and crumble.
 import { brandOutcome, brandShadow } from './enemies/firebrand';
 import { ROOTLING, lieDown, planCrumble, settleStumps } from './enemies/rootling';
@@ -354,6 +358,14 @@ export interface ChainPlan {
    * same list (`HeroMove.cuts`). Absent when none.
    */
   cuts?: number[];
+  /**
+   * Task 60а «Замок: гости» (enemies/castleGuests.ts `planReflects`): the jester's balls the dash's path crosses — each turns back to its
+   * jester (`miss` — his count is out, he is frozen or stunned now or this pass freezes him: −1 and «оглушён»). A ball whose jester
+   * this pass kills is not reflected. The release fixes and reflects exactly these (with their `miss`). Absent when none.
+   */
+  reflects?: BallReflect[];
+  /** Task 60а: the drawn chain's pass kills the chandelier's butler — «Падение люстры» in this circle (0.8 s later). Absent otherwise. */
+  chandelierFall?: { x: number; y: number; radius: number };
   /** Task 46 «Подрыв»: the end blast with its bodies (with the fusion in the kit and a blast at this end). */
   blast?: BlastPreview;
   /** Task 46 «Ледяная волна»: the wave with its bodies and its cold (with the fusion in the kit and a wave at this end). */
@@ -552,6 +564,8 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   const cuts = tethersOn(world) && world.tethers?.length && !witch
     ? planTetherCuts(world, dashPathPoints(world.hero, links, reachedLinks, l => linkPoint(world, l)),
       new Set(out.slice(0, reachedLinks).flatMap(l => l.outcome?.killed && l.link.kind === 'enemy' ? [l.link.id] : []))) : [];
+  // Task 60а: the jester's balls the same path crosses (only while one flies at the hero).
+  const crossed = !witch && world.shots?.some(freeBall) ? planReflects(world, dashPathPoints(world.hero, links, reachedLinks, l => linkPoint(world, l))) : [];
   const last = links[links.length - 1];
   const endsOnObject = endsOnThing || (!!last && last.kind === 'object' && !passObject(world, last));
   let seal = links === world.chain && loopClosed(world) ? sealPreview(world, world.chainClosed!) : null;
@@ -611,15 +625,36 @@ export function planChain(world: World, links: readonly ChainLink[] = world.chai
   const roots = links === world.chain && options.back !== false && world.enemies.some(e => e.kind === ROOTLING);
   // Task 57б-2: the centipedes' divisions after it (the drawn chain only).
   const centi = links === world.chain && options.back !== false && world.enemies.some(e => e.kind === CENTIPEDE);
-  const killed = pairs || roots || centi ? passKills(world, out, pierce, seal, back, !!fire?.lit) : null;
+  // Task 60а: the chandelier's butler — its death by the pass (or by the shove at its end) drops the chandelier (the drawn chain only).
+  const butler = links === world.chain && options.back !== false && !!world.chandelier && !world.chandelier.fall;
+  const killed = pairs || roots || centi || butler || crossed.length ? passKills(world, out, pierce, seal, back, !!fire?.lit) : null;
   const anger = pairs ? planAnger(world, killed!) : [];
   const crumble = roots ? planCrumble(world, killed!) : [];
   const splits = centi ? planSplits(world, killed!) : [];
+  // Task 60а: the pass's kills (`passKills`: the links, the hammers, the end's waves and blasts — «Подрыв» too) with the shove's at its end.
+  const endKills = butler || crossed.length ? new Set([...killed!, ...shove ? [...shove.crushed.map(x => x.id), ...shove.impact?.killed ? [shove.impact.id] : [], ...shove.topple?.crushed ?? []] : []]) : null;
+  const chandelierFall = butler ? chandelierFallPlan(world, endKills!) : null;
+  // Task 60а: a ball whose jester this pass kills is not reflected; a jester this pass freezes misses (`passCold`).
+  const cold = crossed.length ? passCold(world, out, pierce, seal, fused, honed) : null;
+  const reflects = crossed.filter(r => !endKills!.has(r.jester)).map(r => (r.miss || !cold!.has(r.jester) ? r : { ...r, miss: true }));
   // Task 49: the law of Ведунья — the drawn open chain gives no after-chain shield (the dash: heroLaw.ts, `ChainEnd.endForm`).
   const noShield = links === world.chain && !seal && sealOnlyShield(world);
   // Task 62: Ведунья v2 — her circle and the figure the drawn chain would make if closed now.
   const cast = witch ? castCircle(world) : null, glyph = witch && links === world.chain ? glyphOf(world, links) : null;
-  return { ...cast ? { cast } : {}, ...glyph ? { glyph } : {}, ...grate ? { grate } : {}, ...trollDrop ? { trollDrop } : {}, ...chiefDrop ? { chiefDrop } : {}, ...warlockDrop ? { warlockDrop } : {}, links: out, endsOnSurvivor, endsOnObject, ...endsOnThing ? { endsOnThing: true as const } : {}, ...shove ? { shove } : {}, power, kills, ...anger.length ? { anger } : {}, ...crumble.length ? { crumble } : {}, ...splits.length ? { splits } : {}, ...seal ? { seal } : {}, ...noShield ? { noShield: true as const } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {}, ...cuts.length ? { cuts } : {}, ...fused?.blast ? { blast: fused.blast } : {}, ...fused?.wave ? { wave: fused.wave } : {}, ...honed && Object.keys(honed).length ? { honed } : {} };
+  return { ...cast ? { cast } : {}, ...glyph ? { glyph } : {}, ...grate ? { grate } : {}, ...trollDrop ? { trollDrop } : {}, ...chiefDrop ? { chiefDrop } : {}, ...warlockDrop ? { warlockDrop } : {}, links: out, endsOnSurvivor, endsOnObject, ...endsOnThing ? { endsOnThing: true as const } : {}, ...shove ? { shove } : {}, power, kills, ...anger.length ? { anger } : {}, ...crumble.length ? { crumble } : {}, ...splits.length ? { splits } : {}, ...seal ? { seal } : {}, ...noShield ? { noShield: true as const } : {}, ...cheque ? { cheque } : {}, ...pierce ? { pierce } : {}, ...back ? { back } : {}, ...over ? { bossClear: true as const } : {}, ...fire ? { fire } : {}, ...cuts.length ? { cuts } : {}, ...reflects.length ? { reflects } : {}, ...chandelierFall ? { chandelierFall } : {}, ...fused?.blast ? { blast: fused.blast } : {}, ...fused?.wave ? { wave: fused.wave } : {}, ...honed && Object.keys(honed).length ? { honed } : {} };
+}
+
+/**
+ * Task 60а (the jester's catch): the enemies the pass of the plan freezes — the seal's hold on those inside, «Ледяная волна»'s ice,
+ * «Иней на клинке» II's survivor and its neighbour, the frost points of «Наледь» along the dash's path (the dash's own sampling). Pure.
+ */
+function passCold(world: World, out: readonly LinkPlan[], pierce: PiercePreview | null, seal: SealPreview | null, fused: FusionRelease | null, honed: HonedPlan | null): Set<number> {
+  const cold = new Set<number>([...seal && seal.hold > 0 ? seal.inside : [], ...fused?.wave?.ice.ids ?? [], ...honed?.frost ? [honed.frost.survivor, honed.frost.near] : []]);
+  if (hasTalisman(world, FROST_PASS)) {
+    const points = frostPointsAlong(world, planDashPath(world, { links: out, pierce }));
+    for (const e of world.enemies) if (!kindOf(e).immune && points.some(p => dist(e, p) <= FROST_PASS_RADIUS)) cold.add(e.id);
+  }
+  return cold;
 }
 
 /**
@@ -1668,6 +1703,8 @@ export function enemyRefusal(world: World, enemy: Enemy, plan: ChainPlan = planC
   // Task 55а: a thing is a link only with the law of the shove; one sliding (or about to be struck by one) is no link now.
   if (isThing(enemy) && !shoveOn(world)) return 'colorless';
   if (world.shoves && sliding(world, enemy.id)) return 'sliding';
+  // Task 60а: a thing the poltergeist holds up or throws moves too («в движении»).
+  if (isThing(enemy) && thingLifted(enemy)) return 'sliding';
   // Task 40: the keymaster's prisoner (only while a shackle holds it: nothing in worlds without one).
   if (world.tethers && shackled(world, enemy)) return 'shackled';
   // Task 43: the full Castellan's core behind its grate.
@@ -2018,6 +2055,8 @@ export function releaseChain(world: World): boolean {
   // Task 55а: the drawn chain ends on a thing — its shove is fixed by the release (`cuts`' pattern).
   const lastDrawn = world.chain[world.chain.length - 1], lastThing = lastDrawn?.kind === 'enemy' ? findEnemy(world, lastDrawn.id) : undefined;
   const shoveFix = live && lastThing && isThing(lastThing) && shoveOn(world) ? (full ?? planChain(world, world.chain, NO_PIERCE)).shove : undefined;
+  // Task 60а: the jester's balls the player saw reflected — fixed and reflected now (only while one flies at the hero).
+  const reflects = live && world.shots?.some(freeBall) ? (full ?? planChain(world)).reflects : undefined;
   const links = world.chain.filter(l => linkPoint(world, l));
   world.chain = [];
   delete world.chainClosed;
@@ -2036,6 +2075,7 @@ export function releaseChain(world: World): boolean {
   if (drill.length) world.move.drill = drill;
   // Task 55а: the shove the player saw — fixed now, run when the dash ends if it reached the thing.
   if (shoveFix) world.move.shove = JSON.parse(JSON.stringify(shoveFix)) as ShovePlan;
+  for (const r of reflects ?? []) reflectBall(world, r.ball, r.miss);
   // Task 48: a move whose plan strikes the Troll's core holds his window's hit for itself until it is over.
   // Task 54: the queue of a chain that strikes the Chief's core (its hit takes two plates with a long one).
   chiefRelease(world, links);
@@ -2639,7 +2679,7 @@ function finishMove(world: World): void {
     // Task 62: Ведунья v2 — the shield only after a figure (`witchFigureShield`, no kills needed; «Быстрые ноги» still take it).
     const witch = witchOn(world), shield = witch ? (move.seal && chainShieldOf(world, end) > 0 ? Math.max(0, witchNum(world, 'witchFigureShield', 0.5)) : 0) : chainShieldOf(world, end);
     // Task 55а: the shove's planned kills are this chain's (spec 2.5) — they count for the shield in the dash's end.
-    const shoveKills = shove && move.shoveHit ? shove.crushed.length + (shove.impact?.killed ? 1 : 0) : 0;
+    const shoveKills = shove && move.shoveHit ? shove.crushed.length + (shove.impact?.killed ? 1 : 0) + (shove.topple?.crushed.length ?? 0) : 0;
     if (shield > 0 && (witch || move.kills + shoveKills >= chainShieldMinKillsOf(world, end))) {
       hero.chainShield = shield;
       // The prologue, task 13 (goal `shield`): a new shield window for the room's lamps (nothing on another arena).

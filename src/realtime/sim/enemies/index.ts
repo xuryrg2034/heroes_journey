@@ -46,6 +46,8 @@ import './rootling';
 import './slime';
 // Task 57б-2: the centipede (a body of parts; its divisions settle after the pass).
 import './centipede';
+// Task 60а «Замок: гости»: the candelabra, the queen, the butler (and its chandelier), the poltergeist, the jester.
+import './castleGuests';
 
 export { BOAR_ART_SCALE, type BoarState } from './boar';
 export { packmates, wolfHowl, wolfRushLine, wolfState, WOLF_RUSH } from './wolf';
@@ -78,4 +80,9 @@ export { ROOTLING, rootGroup, stumpState, type Stump } from './rootling';
 export { SLIME, slimeBig, slimePairs } from './slime';
 export { FIREBRAND, brandLit, brandState } from './firebrand';
 export { CENTIPEDE, CENTI_LUNGE_SOURCE, centipedeBodies, centipedeBody, centipedeHead, centipedeLane, centipedeStuck, centipedeStunned, type CentipedeSplit } from './centipede';
+// Task 60а: the castle's guests for the view.
+export {
+  BUTLER, CANDELABRA, CASTLE_GUESTS, JESTER, POLTERGEIST, QUEEN, butlerBow, candelabraCross, jesterState, jesterStunned, liveChandelier, poltergeistState, queenLines, queenMove,
+  thingFlight, type BallReflect, type Chandelier,
+} from './castleGuests';
 export * from './kinds';

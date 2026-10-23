@@ -4,12 +4,18 @@
  * imports world.ts, which loads the kinds, so the registry may not live in shots.ts (the cycle shots ⇄ enemies).
  */
 import type { Enemy, World } from './world';
+import type { Shot } from './shots';
 
 /**
  * A kind that obeys the arena's timer: how many shots its volley brings (`size`; 0 — the archer: its arrow is no shot of the
  * layer), and how its windup begins (`begin`, called by the timer when its turn comes).
  */
-export interface ShooterDef { size(world: World, e: Enemy): number; begin(world: World, e: Enemy): void }
+export interface ShooterDef {
+  size(world: World, e: Enemy): number;
+  begin(world: World, e: Enemy): void;
+  /** Task 60а: its own shot came back to it (the jester's reflected ball reached him, shots.ts) — the kind decides. */
+  caught?(world: World, e: Enemy, shot: Shot): void;
+}
 
 const shooters = new Map<string, ShooterDef>();
 export function registerShooter(kind: string, def: ShooterDef): void { shooters.set(kind, def); }

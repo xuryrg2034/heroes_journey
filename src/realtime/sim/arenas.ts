@@ -142,6 +142,8 @@ export interface ArenaTemplate extends ArenaShape {
    * (world.ts `createWorld`); `volleyArcher` — the archer obeys it too. Omitted — the values as they come.
    */
   volleyGap?: number;
+  /** Task 60а: the dash and a bomb put out the light shots (`Params.snuffShots`) when the values have it off — the castle's guests' arenas. */
+  snuffShots?: true;
   volleyArcher?: true;
   /**
    * Task 57а: the arena plays the layer's rules of the run with the flag `forestShooters` (`RT_FOREST_SHOOTERS_PARAMS`: the shooters' timer

@@ -20,10 +20,17 @@
  *   the dash is still crushed or struck — the price of «highlight = dash» (spec, risk Р1).
  * - **Credit** (design В4): kills of the shove are the player's (`kill` with `source` `shove`, `credited`).
  *
+ * - **Task 60а «Замок: гости»** (spec task-60 4.4): the candelabra does not slide — a shove **topples** it (`Topple`): a lane
+ *   `candelabraFall` × `FALL_WIDTH` from its centre along the shove (walls cut it); the weak in it are crushed (the player's, as the
+ *   shove's), the tough and the elites are untouched; the lane burns `candelabraFire` s (points of the fire trail, `world.trails`);
+ *   it breaks. A thing that strikes a candelabra wears it (1 → 0) and topples it along its own way — that topple is in the plan of
+ *   that thing (fixed by the release as the rest). A lifted thing (the poltergeist's, `thingLifted`) is no body: a shove passes under it.
+ *
  * Events (the view; the rules never read them): `shove` — `start` (the plan), `crush` (a body crushed), `impact` (the strike at the
  * stop: `target`, or the wall), `stop` (the thing stands at its point), `fall` (it fell into a cliff), `cancel` (the dash did not reach
- * it, chain.ts); `thing` `break` (`by`: `wall`, `thing`, `body`, `core`, `end` — the barrel breaks at any stop).
+ * it, chain.ts); `thing` `break` (`by`: `wall`, `thing`, `body`, `core`, `end` — the barrel breaks at any stop); `candelabra` `topple`.
  */
+import { dhypot } from './detMath';
 import { blockedAt, dist, overCliff, type Vec } from './geometry';
 import { behaviorOf, bodyRadiusOf, kindOf } from './enemies/kinds';
 import { BOSS_CORES } from './enemies/jailer';
@@ -58,7 +65,15 @@ export interface ShovePlan {
   wear: { id: number; left: number }[];
   /** The things that break at the stop (this thing; the other one too when its durability runs out). */
   breaks: number[];
+  /**
+   * Task 60а: the candelabra that falls at the stop — the shoved one itself (it does not slide: `length` 0), or the one this thing
+   * strikes and breaks: its lane (from its centre, the walls cut it) and the weak it crushes (fixed with the plan). Absent — none.
+   */
+  topple?: Topple;
 }
+
+/** Task 60а: a candelabra's fall — its id, its lane (`from` its centre `to` the end, `half` its half width), the weak it crushes. */
+export interface Topple { id: number; from: Vec; to: Vec; half: number; crushed: number[] }
 
 /** A shove running (`world.shoves`): its plan, how far the thing has slid and how many of `crushed` have been met. */
 export interface Shove extends ShovePlan { run: number; met: number }
@@ -68,6 +83,12 @@ export const PATH_STEP = 0.05;
 /** The barrel and the wardrobe (enemies/castle.ts; no import: the kinds register after); the warlock's core (enemies/warlock.ts). */
 const BARREL = 'barrel';
 const WARLOCK = 'warlock';
+/** Task 60а: the candelabra (enemies/castleGuests.ts; no import, as the barrel). */
+const CANDELABRA = 'candelabra';
+/** Task 60а (spec 4.4): the toppled candelabra's lane — its width; its length and its fire (journals without the keys). */
+export const FALL_WIDTH = 0.8;
+export const CANDELABRA_FALL = 2;
+export const CANDELABRA_FIRE = 2;
 /** Task 55 §23 «Колдун v1»: his orb — a living shot; no part of the plan (it flies): a sliding thing that meets it kills it, not the player's. */
 const WARLOCK_ORB = 'warlock-orb';
 /** Task 55, stage Д: a thing's strike at the warlock's core (spec 2.3, 6.2): a plate, none — 1 HP. */
@@ -80,6 +101,8 @@ export const BARREL_ROLL = 16;
 export const BARREL_IMPACT = 2;
 
 export const isThing = (e: Pick<Enemy, 'kind'>): boolean => !!kindOf(e as Enemy).thing;
+/** Task 60а: a thing the poltergeist holds up or throws (`vars.lf` — its lifter) — no body now: no link, no stop, no cover. */
+export const thingLifted = (e: Enemy): boolean => e.vars.lf !== undefined;
 /** A thing's durability now (`vars.du`; set when it appears). */
 export const durabilityOf = (e: Enemy): number => e.vars.du ?? 0;
 /** The law is on (`Params.shove`). */
@@ -103,6 +126,10 @@ function stopKind(e: Enemy): 'thing' | 'core' | 'body' | null {
  */
 export function shovePath(world: World, thing: Enemy, dir: Vec, gone?: ReadonlySet<number>): ShovePlan {
   const p = world.params, arena = world.arena, r = bodyRadiusOf(p, thing), from = { x: thing.x, y: thing.y };
+  // Task 60а: a candelabra does not slide — it falls along the shove where it stands.
+  if (thing.kind === CANDELABRA) {
+    return { thing: thing.id, kind: thing.kind, from, dir: { x: dir.x, y: dir.y }, length: 0, to: { ...from }, stop: 'end', crushed: [], wear: [{ id: thing.id, left: 0 }], breaks: [thing.id], topple: toppleOf(world, thing, dir, gone) };
+  }
   const most = lengthOf(world, thing.kind);
   // Walls, trees, the edge, a cliff: marched along the path.
   let stopAt = most, stop: ShoveStop = 'end', target: number | undefined;
@@ -114,7 +141,7 @@ export function shovePath(world: World, thing: Enemy, dir: Vec, gone?: ReadonlyS
   // Bodies: where the thing's circle first touches each (its lane is the thing's diameter wide); ahead of it only.
   const met: { e: Enemy; at: number; kind: 'thing' | 'core' | 'body' | null }[] = [];
   for (const e of world.enemies) {
-    if (e === thing || e.kind === WARLOCK_ORB) continue;
+    if (e === thing || e.kind === WARLOCK_ORB || thingLifted(e)) continue;
     const rx = e.x - from.x, ry = e.y - from.y, along = rx * dir.x + ry * dir.y, lat = Math.abs(rx * dir.y - ry * dir.x), reach = r + bodyRadiusOf(p, e);
     if (along <= 0 || lat > reach) continue;
     met.push({ e, at: Math.max(0, along - Math.sqrt(Math.max(0, reach * reach - lat * lat))), kind: stopKind(e) });
@@ -137,6 +164,7 @@ export function shovePath(world: World, thing: Enemy, dir: Vec, gone?: ReadonlyS
   const barrel = thing.kind === BARREL, own = durabilityOf(thing);
   let ownLeft = barrel ? 0 : own, impact: ShoveImpact | undefined;
   const wear: { id: number; left: number }[] = [], breaks: number[] = [];
+  let topple: Topple | undefined;
   const hit = target !== undefined ? world.enemies.find(e => e.id === target)! : null;
   if (stop === 'wall') ownLeft = barrel ? 0 : own - 1;
   if ((stop === 'body' || stop === 'core') && hit && !kindOf(hit).immune && hit.id !== refused) {
@@ -151,11 +179,60 @@ export function shovePath(world: World, thing: Enemy, dir: Vec, gone?: ReadonlyS
     const other = durabilityOf(hit) - 1;
     wear.push({ id: hit.id, left: Math.max(0, other) });
     if (other <= 0) breaks.push(hit.id);
+    // Task 60а: a candelabra broken by the strike falls along this thing's way.
+    if (other <= 0 && hit.kind === CANDELABRA) topple = toppleOf(world, hit, dir, new Set([...gone ?? [], ...crushed.map(c => c.id)]));
   }
   wear.unshift({ id: thing.id, left: Math.max(0, ownLeft) });
   if (stop !== 'cliff' && ownLeft <= 0) breaks.unshift(thing.id);
   const to = { x: from.x + dir.x * stopAt, y: from.y + dir.y * stopAt };
-  return { thing: thing.id, kind: thing.kind, from, dir: { x: dir.x, y: dir.y }, length: stopAt, to, stop, ...target !== undefined ? { target } : {}, crushed, ...impact ? { impact } : {}, wear, breaks };
+  return { thing: thing.id, kind: thing.kind, from, dir: { x: dir.x, y: dir.y }, length: stopAt, to, stop, ...target !== undefined ? { target } : {}, crushed, ...impact ? { impact } : {}, wear, breaks, ...topple ? { topple } : {} };
+}
+
+/** Distance from `p` to the segment a–b. */
+function segmentDistance(a: Vec, b: Vec, p: Vec): number {
+  const vx = b.x - a.x, vy = b.y - a.y, len2 = vx * vx + vy * vy;
+  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * vx + (p.y - a.y) * vy) / len2));
+  return dhypot(a.x + vx * t - p.x, a.y + vy * t - p.y);
+}
+
+/**
+ * Task 60а (spec 4.4): the fall of `candelabra` along the unit `dir` — its lane from its centre, `candelabraFall` long (the first wall or
+ * tree cuts it, marched by `PATH_STEP`), `FALL_WIDTH` wide; the weak in it now (HP 0, no plates; not a thing, a core or an immune body; a
+ * recruit out of order is spared — the law of order) are crushed. `gone` — bodies dead by then (the pass, the shove before it). Reads
+ * the world only (the highlight and the release read the same).
+ */
+export function toppleOf(world: World, candelabra: Enemy, dir: Vec, gone?: ReadonlySet<number>): Topple {
+  const p = world.params, from = { x: candelabra.x, y: candelabra.y }, most = Math.max(0, p.candelabraFall ?? CANDELABRA_FALL), half = FALL_WIDTH / 2;
+  let len = most;
+  for (let t = PATH_STEP; t <= most + 1e-9; t += PATH_STEP) if (blockedAt({ x: from.x + dir.x * t, y: from.y + dir.y * t }, 0.02, world.arena, false)) { len = Math.max(0, t - PATH_STEP); break; }
+  const to = { x: from.x + dir.x * len, y: from.y + dir.y * len }, dead = new Set<number>(gone);
+  const crushed: number[] = [];
+  for (const e of world.enemies) {
+    if (e === candelabra || dead.has(e.id) || e.kind === WARLOCK_ORB || thingLifted(e) || stopKind(e) !== null || segmentDistance(from, to, e) > half + bodyRadiusOf(p, e)) continue;
+    if (e.kind === RECRUIT && !recruitInOrder(world, e, world.enemies, dead)) continue;
+    if (e.kind === RECRUIT) dead.add(e.id);
+    crushed.push(e.id);
+  }
+  return { id: candelabra.id, from, to, half, crushed };
+}
+
+/**
+ * Task 60а: the candelabra falls (the arrival of its shove, or of the thing that broke it): the planned weak die — the player's kills
+ * (`shove`, credited; dead already — skipped); its lane burns (fire trail points `trailRadius` apart, `candelabraFire` s). Its break is
+ * the plan's (`breaks`).
+ */
+function fall(world: World, t: Topple): void {
+  world.events.push({ type: 'candelabra', action: 'topple', id: t.id, x: t.from.x, y: t.from.y, x1: t.to.x, y1: t.to.y });
+  for (const id of t.crushed) {
+    const victim = world.enemies.find(e => e.id === id);
+    if (!victim) continue;
+    world.events.push({ type: 'shove', action: 'crush', thingId: t.id, x: victim.x, y: victim.y, target: victim.id });
+    killEnemy(world, victim, { source: 'shove', credited: true });
+    if (world.status !== 'playing') return;
+  }
+  const p = world.params, life = Math.max(0.05, p.candelabraFire ?? CANDELABRA_FIRE), step = Math.max(0.05, p.trailRadius);
+  const dx = t.to.x - t.from.x, dy = t.to.y - t.from.y, len = dhypot(dx, dy);
+  if (len > 1e-9) for (let d = Math.min(step / 2, len); d <= len + 1e-9; d += step) world.trails.push({ x: t.from.x + dx / len * d, y: t.from.y + dy / len * d, life, ownerId: t.id });
 }
 
 /** The thing is sliding now, or a sliding thing is about to strike it (the refusal «в движении», chain.ts). */
@@ -194,6 +271,8 @@ function arrive(world: World, s: Shove, thing: Enemy): void {
   } else if (s.stop === 'wall' || (s.stop === 'thing' && target)) world.events.push({ type: 'shove', action: 'impact', thingId: s.thing, x: s.to.x, y: s.to.y, ...target ? { target: target.id } : {} });
   if (world.status !== 'playing') return;
   for (const w of s.wear) { const t = world.enemies.find(e => e.id === w.id); if (t) t.vars.du = w.left; }
+  // Task 60а: the plan's candelabra falls before it breaks (none — nothing).
+  if (s.topple && world.enemies.some(e => e.id === s.topple!.id)) { fall(world, s.topple); if (world.status !== 'playing') return; }
   for (const id of s.breaks) { const t = world.enemies.find(e => e.id === id); if (t) removeThing(world, t, s.stop); }
 }
 
