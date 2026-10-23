@@ -22,6 +22,8 @@ import { perchHtml, trophyKey } from './trophyView';
 import { warmupRows } from './warmupFlow';
 import { dailyButtonHtml, dailyPanelHtml, dailyReasonHtml, type DailyTools } from './dailyView';
 import type { RtDailyView } from '../run/rtDaily';
+import type { RtReturnView } from '../run/rtMeta';
+import { freshScorch, sceneHtml, SCENE_LENGTH, SCENE_SOUNDS, SCORCH_TIME, scorchesHtml, TINT_HTML, WIN_SAYS, type CampScene, type SceneSound } from './returnScene';
 
 const esc = (s: string): string => s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
 const ICON = '<svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true"><path d="M10 2 L17 7 L14.5 17 L5.5 17 L3 7 Z" fill="#e3b45a" stroke="#1a2330" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 7 L10 9 L17 7 M10 9 L10 17" fill="none" stroke="#1a2330" stroke-width="1.2" stroke-linejoin="round"/></svg>';
@@ -85,7 +87,7 @@ export interface HearthHost {
   bought?(npc: NpcId, level: number, price: number): void;
   /** Back to the open run's map. */
   back(): void;
-  sound?(kind: 'buy' | 'open' | 'reward0'): void;
+  sound?(kind: 'buy' | 'open' | 'reward0' | SceneSound): void;
   /** Task 58: the chronicle (the profile store's: `profileChronicle`). */
   chronicle?: ChronicleSource;
   /** Task 58: the P8 memory of kinds and affixes (view/newSeen.ts), handed to the chronicle once when the camp opens (the retro). */
@@ -101,6 +103,11 @@ export interface HearthHost {
   warmup?: { records(): WarmupRecords | undefined; start(id: WarmupId): void };
   /** Task 51з «Поход дня»: the button under «В поход» (absent - none), its model, «Начать», and the proof's tools. */
   daily?: { view(): RtDailyView; start(): void; tools: DailyTools };
+  /**
+   * Task 61а–б (core's profile store): the camp's return and after-win state (`returnView`), and the marks of a scene shown (or skipped):
+   * the return's (`markReviveSeen`) and the first win's (`markAfterWinScene`; Евлампий comes with it).
+   */
+  returns?: { view(): RtReturnView; markReviveSeen(): boolean; markAfterWinScene(): boolean };
 }
 
 /** What the camp shows now (tests read it). */
@@ -114,6 +121,11 @@ export interface HearthShown {
   trophies: { held: string[]; dropping: string[]; hooks: number; line: string };
   /** Task 51ж: the choice of the warmup's layouts is open now (the rows it shows: id, name, record). */
   warmup: { open: boolean; rows: { id: WarmupId; title: string; record: string }[] };
+  /**
+   * Task 61а–б: the scene playing (null — none; `played` — the scene of this visit, kept after its end), the scorches, the one lit in this
+   * visit, the fire's colour, the NPC with «…» (a return or first-win line waiting), the lines said in the scene.
+   */
+  returns: { scene: CampScene | null; played: CampScene | null; scorches: { light: number; dark: number }; fresh: number | null; fire: 'warm' | 'turquoise'; marks: NpcId[]; says: NpcId[] };
 }
 
 export class HearthView {
@@ -136,7 +148,18 @@ export class HearthView {
   private dropping = new Set<string>();
   /** Task 51з: the panel of the run of the day is open. */
   private dailyOpen = false;
-  readonly shown: HearthShown = { open: false, npcs: [], empty: 0, bubble: null, line: '', bought: 0, heroes: [], hero: 'cat', heroLine: '', warmup: { open: false, rows: [] }, chronicle: { ...EMPTY_CHRONICLE_SHOWN }, trophies: { held: [], dropping: [], hooks: 10, line: '' } };
+  readonly shown: HearthShown = { open: false, npcs: [], empty: 0, bubble: null, line: '', bought: 0, heroes: [], hero: 'cat', heroLine: '', warmup: { open: false, rows: [] }, chronicle: { ...EMPTY_CHRONICLE_SHOWN }, trophies: { held: [], dropping: [], hooks: 10, line: '' }, returns: { scene: null, played: null, scorches: { light: 0, dark: 0 }, fresh: null, fire: 'warm', marks: [], says: [] } };
+  /** Task 61а–б: the return state read when the camp opened (core's `returnView`; read again after a scene's mark). */
+  private ret: RtReturnView | null = null;
+  /** Task 61а–б: the scene playing — its kind, start (`performance.now()`), the hero who rises, the scorch it lights, Евлампий coming. */
+  private scene: { kind: CampScene; t0: number; hero: MetaHeroId; fresh: number | null; monk: boolean } | null = null;
+  /** The scene of this visit (it stays after the scene's end: the scorch it lit keeps no animation, the shown keeps its kind). */
+  private played: { kind: CampScene; fresh: number | null } | null = null;
+  private sceneTimers: number[] = [];
+  /** Tests only (`campSceneHold`): a scene does not end by itself (its screenshots); a click, Space or Esc ends it. */
+  holdScene = false;
+  /** Task 61б: the lines the first win's scene says over Неясыть and Евлампий (until the scene's end). */
+  private sceneSay = new Map<NpcId, string>();
 
   constructor(private readonly host: HearthHost) {
     this.el = document.createElement('div');
@@ -151,6 +174,8 @@ export class HearthView {
     probe.onerror = () => { this.el.classList.add('rt-hearth-noart'); this.el.style.removeProperty('--hearth-art'); };
     probe.src = artUrl('camp/hearth.png');
     window.addEventListener('resize', () => { if (!this.el.hidden) this.fit(); });
+    // Task 61а–б: a click (onClick), Space or Esc skips a scene to its last frame.
+    window.addEventListener('keydown', event => { if (this.scene && !this.el.hidden && (event.key === ' ' || event.key === 'Escape')) { event.preventDefault(); this.endScene(); return; } });
     window.addEventListener('keydown', event => { if (event.key === 'Escape' && !this.el.hidden && (this.bubble || this.chron || this.warmupChoice)) { this.bubble = null; this.dropChron(); this.warmupChoice = false; this.draw(); } });
     // Task 58: the strip under the cards follows the card the pointer is over (a click keeps it).
     this.el.addEventListener('mouseover', event => {
@@ -169,6 +194,7 @@ export class HearthView {
 
   open(): void {
     this.el.hidden = false; this.bubble = null; this.dropChron(); this.warmupChoice = false; this.dailyOpen = false; this.said.clear(); this.leaveSaid.clear(); this.traceSay = null;
+    this.stopScene(); this.played = null;
     // Task 58: the retro - the P8 memory goes to the chronicle (its source ignores a repeat).
     const memory = this.host.memory?.();
     if (memory) this.host.chronicle?.import(memory);
@@ -182,12 +208,19 @@ export class HearthView {
       for (const e of fresh) { this.dropping.add(e.id); this.host.meta.markLine(`trophy-drop:${trophyKey(e)}`); }
       if (fresh.length) this.host.sound?.('reward0');
     }
+    // Task 61а–б: the return scene (a death the fire brought back), else the first win's scene — marked when it starts (a reload plays it
+    // no more; Евлампий comes with the win's mark), then the state is read again.
+    this.ret = this.host.returns?.view() ?? null;
+    const ret = this.ret;
+    if (ret?.scene) { this.host.returns!.markReviveSeen(); this.playScene(ret.scene); }
+    else if (ret?.afterWinScene) { this.host.returns!.markAfterWinScene(); this.playScene('win'); }
+    if (this.scene) this.ret = this.host.returns!.view();
     // Task 49: the first camp after the rescue - her one line names the deed (`first_camp`, said once).
     this.heroLine = '';
     const camp = this.host.meta.hearth();
     if (this.host.meta.heroes().some(h => h.id === 'toad' && h.open)) {
-      // Then, after a run of hers, her line of its record or death (`last.hero`; one line a visit).
-      const run = camp.last?.hero === 'toad' ? toadRunKey(camp.last) : null;
+      // Then, after a run of hers, her line of its record or death (`last.hero`; one line a visit). Task 61а: her first return — her own line.
+      const run = camp.last?.hero === 'toad' ? toadRunKey({ ...camp.last, ...ret?.revive ? { revive: ret.revive.n } : {} }, camp.lines) : null;
       if (!camp.lines['toad:first_camp']) this.sayHero('first_camp'); else if (run) this.sayHero(run);
     }
     this.shown.open = true;
@@ -196,7 +229,48 @@ export class HearthView {
     this.draw();
   }
 
-  close(): void { this.dropChron(); this.el.hidden = true; this.shown.open = false; }
+  close(): void { this.stopScene(); this.dropChron(); this.el.hidden = true; this.shown.open = false; }
+
+  /** Task 61а–б: plays a scene — its sounds and (the first win) its lines on timers, its end; the pictures are CSS (returnScene.ts). */
+  private playScene(kind: CampScene): void {
+    const camp = this.host.meta.hearth(), hero: MetaHeroId = camp.last?.hero === 'toad' ? 'toad' : 'cat';
+    const fresh = kind === 'win' ? null : freshScorch(this.ret?.revive?.n ?? 0);
+    this.scene = { kind, t0: performance.now(), hero, fresh, monk: kind === 'win' && !!this.ret?.monkComes };
+    this.played = { kind, fresh };
+    const later = (t: number, run: () => void): void => { this.sceneTimers.push(window.setTimeout(run, t * 1000)); };
+    for (const cue of SCENE_SOUNDS[kind]) later(cue.t, () => this.host.sound?.(cue.sound === 'sneeze' && hero === 'toad' ? 'ash' : cue.sound));
+    if (kind === 'win') for (const say of WIN_SAYS) later(say.t, () => this.sayInScene(say.npc));
+    if (!this.holdScene) later(SCENE_LENGTH[kind], () => this.endScene());
+  }
+
+  /**
+   * Task 61б: the line over an NPC at the fire in the first win's scene — `win_castle_first` (said: a click after it gives the next
+   * occasion), or Евлампий come with the scene meeting the camp: `first_fire` (core's `pickLine` puts the meeting first; his
+   * `win_castle_first` waits for a click, «…»).
+   */
+  private sayInScene(npc: NpcId): void {
+    const h = this.host.meta.hearth();
+    if (!this.npcsHere(h).includes(npc)) return;
+    const line = pickLine(npc, this.lineCtx(npc, h), h.lines);
+    if (line.key !== 'win_castle_first' && line.key !== 'first_fire') return;
+    this.host.meta.markLine(line.id);
+    if (line.key === 'win_castle_first') this.said.add(npc);
+    this.sceneSay.set(npc, line.text);
+    this.draw();
+  }
+
+  /** The scene's timers stop (the camp closes or opens again). */
+  private stopScene(): void {
+    for (const id of this.sceneTimers) window.clearTimeout(id);
+    this.sceneTimers = []; this.scene = null; this.sceneSay.clear();
+  }
+
+  /** The scene's last frame (its end or a skip): the scorch stands, the fire keeps its colour, the scene's lines close. */
+  private endScene(): void {
+    if (!this.scene) return;
+    this.stopScene();
+    this.draw();
+  }
 
   private sayHero(key: Parameters<typeof toadLine>[0]): void {
     const line = toadLine(key, this.host.meta.hearth().lines);
@@ -210,10 +284,12 @@ export class HearthView {
     this.shown.heroes = ordered.map(h => h.id); this.shown.hero = ordered[0]?.id ?? 'cat';
     return ordered.map((h, i) => {
       const at = i === 0 ? HERO_AT.chosen : HERO_AT.other;
+      // Task 61а: the hero of the run rises from the ash in the scene (the other one sits as it was).
+      const rise = this.scene && this.scene.kind !== 'win' && this.scene.hero === h.id ? ' rt-rise' : '';
       const say = h.id === 'toad' && this.heroLine ? `<span class="rt-hearth-hero-say" data-testid="hearth-hero-line">${esc(this.heroLine)}</span>` : '';
       const fig = `<img class="rt-hearth-art" src="${artUrl(`characters/${HERO_ART[h.id]}.png`)}" alt="" style="height:${Math.round(150 * at.s)}px" onerror="this.hidden=true;this.nextElementSibling.hidden=false">`
         + `<span class="rt-hearth-sil-npc" hidden>${HERO_SVG[h.id]}</span>`;
-      return `<button class="rt-hearth-place rt-hearth-hero${h.chosen ? ' rt-chosen' : ''}" style="left:${at.x}px;top:${at.y}px" data-action="hero" data-hero="${h.id}" data-testid="hearth-hero-${h.id}" aria-pressed="${h.chosen}" title="${esc(h.title)}${h.chosen ? '' : ' — взять в поход'}">${say}${fig}<span class="rt-hearth-name">${esc(h.title)}</span></button>`;
+      return `<button class="rt-hearth-place rt-hearth-hero${h.chosen ? ' rt-chosen' : ''}${rise}" style="left:${at.x}px;top:${at.y}px" data-action="hero" data-hero="${h.id}" data-testid="hearth-hero-${h.id}" aria-pressed="${h.chosen}" title="${esc(h.title)}${h.chosen ? '' : ' — взять в поход'}">${say}${fig}<span class="rt-hearth-name">${esc(h.title)}</span></button>`;
     }).join('');
   }
 
@@ -223,6 +299,7 @@ export class HearthView {
     const h = this.host.meta.hearth(), here = this.npcsHere(h);
     this.unreadCount = this.host.chronicle?.view().unread ?? 0;
     const perch = this.host.trophies ? this.perchHtml() : '';
+    const marks: NpcId[] = [];
     const places = HEARTH_PLACES.map((npc, i) => {
       const at = PLACE_AT[i], live = npc && here.includes(npc) ? npc : null;
       // An empty place: the background's stump or rug as it is (a dark log only without the background).
@@ -235,8 +312,13 @@ export class HearthView {
       // memory `npc:first` / `npc:first_self` counts it, so the sign does not come back after a reload); «!» stays the quest's.
       const fresh = live === 'owl' ? (this.unreadCount ? '<i class="rt-hearth-chron-mark" title="В летописи новое" data-testid="hearth-chron-mark">✦</i>' : '')
         : !h.lines[`${live}:first`] && !h.lines[`${live}:first_self`] ? '<i class="rt-hearth-new-mark" data-testid="hearth-new-' + live + '" title="Новое">✦</i>' : '';
-      const quest = fresh + (h.quest?.npc === live ? '<i class="rt-hearth-quest-mark" title="Задание">!</i>' : '');
-      return `<button class="rt-hearth-place rt-hearth-npc${this.bubble === live ? ' rt-on' : ''}" style="left:${at.x}px;top:${at.y}px" data-action="npc" data-npc="${live}" data-testid="hearth-npc-${live}" title="${esc(NPCS[live].name)}">${fig}${quest}<span class="rt-hearth-name">${esc(NPCS[live].name)}</span></button>`;
+      // Task 61а–б: «…» over an NPC whose return or first-win line waits (after the scene; until the click that says it).
+      const waits = !this.scene && this.lineWaits(live, h) ? `<i class="rt-hearth-say-mark" data-testid="hearth-say-${live}" title="Хочет сказать">…</i>` : '';
+      if (waits) marks.push(live);
+      const said = this.sceneSay.get(live), say = said ? `<span class="rt-hearth-hero-say" data-testid="hearth-scene-line-${live}">${esc(said)}</span>` : '';
+      const arrive = this.scene?.monk && live === 'monk' ? ' rt-arrive' : '';
+      const quest = fresh + waits + (h.quest?.npc === live ? '<i class="rt-hearth-quest-mark" title="Задание">!</i>' : '');
+      return `<button class="rt-hearth-place rt-hearth-npc${this.bubble === live ? ' rt-on' : ''}${arrive}" style="left:${at.x}px;top:${at.y}px" data-action="npc" data-npc="${live}" data-testid="hearth-npc-${live}" title="${esc(NPCS[live].name)}">${say}${fig}${quest}<span class="rt-hearth-name">${esc(NPCS[live].name)}</span></button>`;
     }).join('');
     this.shown.npcs = here; this.shown.empty = HEARTH_PLACES.length - here.length; this.shown.bubble = this.bubble;
     const bar = xpBar(h.xp, h.thresholds);
@@ -247,7 +329,15 @@ export class HearthView {
     const center = `<div class="rt-hearth-fire-wrap">${FIRE_SVG}</div><div class="rt-hearth-glow"></div><div class="rt-hearth-center"><div class="rt-hearth-bar" data-testid="hearth-bar" title="Опыт героя"><i style="width:${(bar.k * 100).toFixed(1)}%"></i><em>${h.xp}${bar.to !== null ? ` / ${bar.to}` : ''}</em></div>${next}${record}${this.host.daily ? `<div class="rt-hearth-gorow">${go}${dailyButtonHtml(this.host.daily.view())}</div>` : go}${this.host.daily ? dailyReasonHtml(this.host.daily.view()) : ''}</div>`;
     const head = `<header class="rt-hearth-head"><b>Очаг</b><span class="rt-hearth-stock" data-testid="hearth-stock" title="Запас лагеря">${ICON}<b>${h.stock}</b></span></header>`;
     this.shown.heroLine = this.heroLine;
-    this.el.innerHTML = head + `<div class="rt-hearth-stage">${perch}${center}${places}${this.heroesHtml()}${this.warmupHtml()}${this.bubbleHtml(h)}</div>${this.chronicleWindow()}${this.warmupChoiceHtml()}${this.dailyOpen && this.host.daily ? dailyPanelHtml(this.host.daily.view(), this.host.daily.tools) : ''}`;
+    // Task 61а–б: the scorches on the stones, the turquoise over the fire, the scene's layers (behind and over the heroes; its clock in `--rt-scene-t`).
+    const ret = this.ret, scene = this.scene, turq = ret?.fire === 'turquoise';
+    const scorches = ret ? scorchesHtml(ret.scorches, scene && scene.kind !== 'win' ? scene.fresh : null, scene?.kind === 'short' ? SCORCH_TIME.short : SCORCH_TIME.full) : '';
+    const heroes = this.heroesHtml(), riser = scene && scene.kind !== 'win' ? this.shown.heroes.indexOf(scene.hero) : -1;
+    const layer = scene ? sceneHtml(scene.kind, scene.hero === 'toad' ? 'toad' : 'cat', riser === 1 ? HERO_AT.other : HERO_AT.chosen) : { back: '', front: '' };
+    const stage = `rt-hearth-stage${turq ? ' rt-hearth-turq' : ''}${scene ? ` rt-camp-scene rt-camp-${scene.kind}` : ''}`;
+    const clock = scene ? ` style="--rt-scene-t:${(-(performance.now() - scene.t0) / 1000).toFixed(3)}s"` : '';
+    Object.assign(this.shown.returns, { scene: scene?.kind ?? null, played: this.played?.kind ?? null, scorches: { ...ret?.scorches ?? { light: 0, dark: 0 } }, fresh: this.played?.fresh ?? null, fire: ret?.fire ?? 'warm', marks, says: [...this.sceneSay.keys()] });
+    this.el.innerHTML = head + `<div class="${stage}" data-testid="hearth-stage"${clock}>${perch}${turq ? TINT_HTML : ''}${center}${scorches}${places}${layer.back}${heroes}${layer.front}${this.warmupHtml()}${this.bubbleHtml(h)}</div>${this.chronicleWindow()}${this.warmupChoiceHtml()}${this.dailyOpen && this.host.daily ? dailyPanelHtml(this.host.daily.view(), this.host.daily.tools) : ''}`;
   }
 
   /**
@@ -368,26 +458,52 @@ export class HearthView {
     return list.length ? { text: list[said % list.length], keys: earned.map(e => `owl:trophy:${trophyKey(e)}`) } : null;
   }
 
+  /**
+   * The context of an NPC's line now (`pickLine`): the last run's occasions until the NPC said one this visit. Task 61а–б: the return
+   * (`revive` N, `reviveAfter`), the first win over the castle (`castleFirst`), Евлампий come with its scene (`fire`).
+   */
+  private lineCtx(npc: NpcId, h: HearthState): Parameters<typeof pickLine>[1] {
+    const l = this.said.has(npc) ? undefined : h.last, revive = this.ret?.revive;
+    // The quest's result belongs to the NPC who gave it (the camp's quest was that run's).
+    const quest = l?.quest !== undefined && h.quest?.npc === npc;
+    const bought = this.boughtNow?.npc === npc ? this.boughtNow.level : undefined;
+    return {
+      ...h.self?.[npc] ? { self: true } : {}, ...npc === 'monk' && this.ret?.monkFire ? { fire: true } : {}, ...bought ? { bought } : {}, others: this.npcsHere(h),
+      ...h.last?.hero ? { hero: h.last.hero } : {},
+      ...l ? { last: { won: l.won, ...l.habitOffered ? { habitOffered: true as const } : {}, ...l.knackOffered ? { knackOffered: true as const } : {}, ...l.firstWin ? { firstWin: true } : {}, ...l.cause ? { cause: l.cause as DeathCause } : {}, ...l.beaten ? { record: true } : {}, ...l.pack ? { pack: true } : {}, ...l.casino ? { casino: l.casino } : {}, ...l.away?.npc === npc ? { away: l.away.met ? 'met' as const : 'missed' as const } : {}, ...l.cuts ? { cuts: l.cuts } : {}, ...l.vows?.length ? { vows: l.vows.every(v => v.kept) ? 'kept' as const : 'broken' as const } : {}, ...l.garrisonWon ? { castellan: true, garrisonWon: true } : {}, ...quest ? (l.quest ? { questDone: true } : { questFail: true }) : {},
+        ...revive ? { revive: revive.n, ...revive.after ? { reviveAfter: true } : {} } : {}, ...l.firstCastle ? { castleFirst: true } : {} } } : {},
+    };
+  }
+
+  /** Task 61а–б: the NPC's next line is its return or first-win line (the «…» over it). */
+  private lineWaits(npc: NpcId, h: HearthState): boolean {
+    if (this.said.has(npc)) return false;
+    const key = pickLine(npc, this.lineCtx(npc, h), h.lines).key;
+    return key.startsWith('revive_') || key === 'win_castle_first';
+  }
+
   private say(npc: NpcId, h: HearthState): void {
+    // Task 61а–б: a return line and the first win's line (the «…» over the NPC) outrank the owl's retro and trophy lines (and the death's
+    // cause: core's `pickLine`) — the line the «…» promised is the one the click says.
+    const first = pickLine(npc, this.lineCtx(npc, h), h.lines);
+    if (first.key.startsWith('revive_') || first.key === 'win_castle_first') { this.said.add(npc); this.boughtNow = null; this.host.meta.markLine(first.id); this.lastLine = first.text; this.shown.line = first.text; return; }
     // Task 58: the retro brought old pages - the owl says why, once a profile (`retro` stays true; the memory of the line is the profile's).
     if (npc === 'owl' && !h.lines['owl:chronicle_retro'] && this.host.chronicle?.view().retro) {
       const retro = npcLine('owl', 'chronicle_retro', undefined, h.lines);
       if (retro) { this.host.meta.markLine(retro.id); this.lastLine = retro.text; this.shown.line = retro.text; return; }
     }
-    const l = this.said.has(npc) ? undefined : h.last;
-    // The quest's result belongs to the NPC who gave it (the camp's quest was that run's).
     // Task 51е: a new trophy on the perch - the owl says it once per trophy (after the retro line, if that is due).
     if (npc === 'owl') {
       const trophy = this.trophyLine(h);
       if (trophy) { for (const key of trophy.keys) this.host.meta.markLine(key); this.lastLine = trophy.text; this.shown.line = trophy.text; return; }
+      // Task 61а (spec А.5): the first scorch of a profile with runs before it — why the old ones are gone, once a profile (a purchase
+      // is answered first).
+      if (this.ret?.retro && !h.lines['owl:scorch_retro'] && !this.boughtNow) {
+        const retro = npcLine('owl', 'scorch_retro', h.last?.hero, h.lines);
+        if (retro) { this.host.meta.markLine(retro.id); this.lastLine = retro.text; this.shown.line = retro.text; return; }
+      }
     }
-    const quest = l?.quest !== undefined && h.quest?.npc === npc;
-    const bought = this.boughtNow?.npc === npc ? this.boughtNow.level : undefined;
-    const line = pickLine(npc, {
-      ...h.self?.[npc] ? { self: true } : {}, ...bought ? { bought } : {}, others: this.npcsHere(h),
-      ...h.last?.hero ? { hero: h.last.hero } : {},
-      ...l ? { last: { won: l.won, ...l.habitOffered ? { habitOffered: true as const } : {}, ...l.knackOffered ? { knackOffered: true as const } : {}, ...l.firstWin ? { firstWin: true } : {}, ...l.cause ? { cause: l.cause as DeathCause } : {}, ...l.beaten ? { record: true } : {}, ...l.pack ? { pack: true } : {}, ...l.casino ? { casino: l.casino } : {}, ...l.away?.npc === npc ? { away: l.away.met ? 'met' as const : 'missed' as const } : {}, ...l.cuts ? { cuts: l.cuts } : {}, ...l.vows?.length ? { vows: l.vows.every(v => v.kept) ? 'kept' as const : 'broken' as const } : {}, ...l.garrisonWon ? { castellan: true, garrisonWon: true } : {}, ...quest ? (l.quest ? { questDone: true } : { questFail: true }) : {} } } : {},
-    }, h.lines);
+    const line = pickLine(npc, this.lineCtx(npc, h), h.lines);
     this.said.add(npc);
     this.boughtNow = null;
     this.host.meta.markLine(line.id);
@@ -395,6 +511,8 @@ export class HearthView {
   }
 
   private onClick(event: MouseEvent): void {
+    // Task 61а–б: a click anywhere skips the scene to its last frame (and does nothing else).
+    if (this.scene) { event.stopPropagation(); this.endScene(); return; }
     const target = (event.target as HTMLElement).closest<HTMLElement>('[data-action]');
     if (!target) { if (this.bubble && !(event.target as HTMLElement).closest('.rt-hearth-bubble')) { this.bubble = null; this.draw(); } return; }
     const action = target.dataset.action, h = this.host.meta.hearth();
