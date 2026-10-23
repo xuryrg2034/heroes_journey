@@ -5,7 +5,7 @@
  */
 import type { LineMemory } from './npcLines';
 
-export type ToadKey = 'cage_1' | 'cage_2' | 'first_camp' | 'pick' | 'about_cat' | 'record' | 'death_crowd' | 'death_jailer' | 'death_other';
+export type ToadKey = 'cage_1' | 'cage_2' | 'first_camp' | 'pick' | 'about_cat' | 'record' | 'death_crowd' | 'death_jailer' | 'death_other' | 'revive_first';
 
 export const TOAD_LINES: Readonly<Record<ToadKey, readonly string[]>> = {
   cage_1: ['Громче бей. Я спать не могу, когда бьют вполсилы.'],
@@ -20,6 +20,8 @@ export const TOAD_LINES: Readonly<Record<ToadKey, readonly string[]>> = {
   death_crowd: ['Толпа. Я тянула нить, а надо было замкнуть — без кольца не прикрыта.'],
   death_jailer: ['Тюремщик. В клетке было теснее, но спалось лучше.'],
   death_other: ['Не спрашивай, что меня уложило. Круг был почти замкнут.'],
+  // Task 61а (docs/design-notes/task-61-return-and-beyond.md, А.4, `toad:revive_first`; the spec's draft): her first return from the ash.
+  revive_first: ['Клетка держала меня. Теперь, выходит, держит огонь — скучно.'],
   about_cat: [
     'Кот рубит, я черчу. Разница — как между криком и заклинанием.',
     'Кот сломал мой замок. Прутья я бы и сама прожгла — лень было.',
@@ -37,9 +39,12 @@ export function toadLine(key: ToadKey, memory: LineMemory): { id: string; text: 
 
 /**
  * The key of her line for the last run (hers: `last.hero` 'toad'): the record, else the death by its cause - the crowd, the Jailer, any
- * other cause takes `death_other` (design: no lines for the rest); a won run without a record - none.
+ * other cause takes `death_other` (design: no lines for the rest); a won run without a record - none. Task 61а (spec А.3, А.4): her first
+ * return - a death the fire brought back (`revive`: the return N, run/rtMeta.ts `rtReviveOccasion`) with `toad:revive_first` not said in
+ * `memory` - is `revive_first`, above the record.
  */
-export function toadRunKey(last: { won: boolean; beaten: boolean; cause?: string }): 'record' | 'death_crowd' | 'death_jailer' | 'death_other' | null {
+export function toadRunKey(last: { won: boolean; beaten: boolean; cause?: string; revive?: number }, memory: LineMemory = {}): 'record' | 'death_crowd' | 'death_jailer' | 'death_other' | 'revive_first' | null {
+  if (last.revive && !memory[toadLineId('revive_first')]) return 'revive_first';
   if (last.beaten) return 'record';
   if (last.won) return null;
   return last.cause === 'crowd' ? 'death_crowd' : last.cause === 'jailer' ? 'death_jailer' : 'death_other';

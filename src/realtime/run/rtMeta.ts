@@ -163,6 +163,11 @@ export interface RtHearthLast {
    * from the run without a mark: a knack node with no cards (`rtKnackOptions` empty) counts too.
    */
   knackOffered?: true;
+  /**
+   * Task 61б (spec Б.3; Неясыть's and Евлампий's `win_castle_first`): this run opened the layer «после первой победы» (`RtMeta.afterWin`
+   * set by it — the profile's first win over the castle). Absent otherwise.
+   */
+  firstCastle?: true;
 }
 /** The NPCs' levels: v1's three always; task 51's Шиш and Евлампий only once bought (absent — 0: a profile before it hashes as before). */
 export type RtHearthLevels = Record<'owl' | 'herb' | 'smith', RtHearthLevel> & Partial<Record<'gambler' | 'monk', RtHearthLevel>>;
@@ -187,7 +192,27 @@ export interface RtHearthMeta {
   /** Finished runs since the first camp or the last arrival (the fallback path). */
   quiet: number;
   last?: RtHearthLast;
+  /**
+   * Task 61а «Возвращение» (spec А.2, А.5, Г.1): the returns of the profile — meta runs lost (both heroes together); the scorches on the
+   * hearth's stones and the return lines `revive_N` read it. Absent — 0 (a profile before it: its old deaths are not counted).
+   */
+  revived?: number;
+  /** Task 61а: the last return the camp showed its scene for (the view, `markReviveSeen`): one scene a death. Absent — none; ≤ `revived`. */
+  reviveSeen?: number;
+  /**
+   * Task 61а (spec А.5, `scorch_retro`): the returns began on a profile that already had a camp — a meta run applied before its first
+   * counted death (an old profile's deaths were never counted). Set with the first return; absent — a new player's first run was lost.
+   */
+  scorchRetro?: true;
 }
+/**
+ * Task 61б (spec Б.1, Г.1): the layer «после первой победы» — open from the profile's first win over the castle (any hero, once). `at` —
+ * the viewer's run number of that run (`RtProfile.runs`; 0 — not counted); `revived` — the profile's returns then (absent — 0: the first
+ * death after it is `revived + 1`, its lines `revive_after` and a full scene). The view's marks: `line` — the end screen said «Летопись не
+ * дописана», `scene` — the camp played its scene (the fire turquoise); `monk` — Евлампий came to the fire with that scene (Д8; his
+ * meeting line `first_fire`). The true final's fields (`won`, `revivedAtWin`, `truth`, `epilogue`) join with steps 61и–61к.
+ */
+export interface RtAfterWin { at: number; revived?: number; line?: true; scene?: true; monk?: true }
 /** Task 49: a hero freed in a run of the meta — the run row of the Jailer's fight and the viewer's run number (`RtProfile.runs`; absent — not counted). */
 export interface RtFreed { row: number; run?: number }
 export interface RtMeta {
@@ -209,6 +234,8 @@ export interface RtMeta {
   applied?: { key: string; end: RtMetaEnd };
   /** Task 51ж «Разминка»: the warmup layouts' records (run/warmup.ts `warmupMerge`); absent until the first attempt with a score. */
   warmup?: WarmupRecords;
+  /** Task 61б: the layer «после первой победы» (`RtAfterWin`); absent — the castle not won yet. */
+  afterWin?: RtAfterWin;
 }
 
 // ---------- The end of a run (the view's contract) ----------
@@ -246,6 +273,8 @@ export interface RtMetaEnd {
   chronicle?: { added: string[]; pages?: Partial<Record<RtChroniclePageId, [number, number]>>; seenItems?: number };
   /** Task 51е: the trophies this run earned — new ones, and new marks of «Доска Испытания» (`mark`); the camp drops them on the perch. Absent — none. */
   trophies?: RtTrophyEarned[];
+  /** Task 61б (spec Б.2): this run opened the layer «после первой победы» — the end screen's line «Летопись не дописана» (`rtAfterWinLineDue`). */
+  afterWin?: true;
 }
 
 /** The key of a run's end (a second call for it returns the applied result). */
@@ -273,6 +302,10 @@ export function rtRunWonLevel(run: RtRunState): 0 | 1 | 2 | 3 {
   // Task 55в: a run that went on into the castle has passed the garrison (the Castellan won).
   return rtGarrisonCleared(run) ? 2 : rtForestCleared(run) ? 1 : 0;
 }
+/** Task 61б: the castle — level 3 of the world (task 55, the record's `wonLevel: 3`). */
+export const RT_CASTLE_LEVEL = 3;
+/** Task 61б (spec Б.1): the run won the castle (the Warlock, task 55в) — the level it passed is the castle's. */
+export const rtCastleWon = (run: RtRunState): boolean => rtRunWonLevel(run) >= RT_CASTLE_LEVEL;
 /**
  * Task 38: the run's depth as the record keeps it: its row and, in the garrison, `level` 2; task 40 — the level it passed. A run in
  * the garrison that entered no garrison node yet (abandoned on its map: row 0) is no garrison depth — its depth stays the forest's
@@ -479,7 +512,16 @@ export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState, optio
   const cuts = monk ? rtRunCuts(run) : 0;
   // Task 51: the garrison passed the first time for the profile (no hero's record had `wonLevel` 2 before this run).
   const firstGarrison = passed >= 2 && !RT_HERO_IDS.some(id => previous?.heroes[id]?.record && rtWonLevelOf(previous.heroes[id]!.record!) >= 2);
-  hearth.last = { won: win, row, beaten, ...rtDeathCause(run) ? { cause: rtDeathCause(run) } : {}, ...quest ? { quest: questDone } : {}, ...win && !oldPassed ? { firstWin: true as const } : {}, ...pack ? { pack: true as const } : {}, ...heroId === RT_TOAD_ID ? { hero: RT_TOAD_ID } : {}, ...firstGarrison ? { firstGarrison: true as const } : {}, ...rtRunWonLevel(run) >= 2 ? { garrisonWon: true as const } : {}, ...casino ? { casino } : {}, ...cuts ? { cuts } : {}, ...vows ? { vows } : {}, ...awayRun ? { away: awayRun } : {}, ...run.habits ? { habitOffered: true as const } : {}, ...rtKnackShown(run) ? { knackOffered: true as const } : {} };
+  // Task 61а (spec А.2): a meta run lost — the fire of the hearth brings the hero back (an abandoned run, a won one: no death).
+  if (!run.seeded && run.result?.outcome === 'defeat') {
+    // The first return of a profile with a camp before it (a run applied earlier): Неясыть's `scorch_retro` (spec А.5).
+    if (!hearth.revived && !firstCamp) hearth.scorchRetro = true;
+    hearth.revived = (hearth.revived ?? 0) + 1;
+  }
+  // Task 61б (spec Б.1): the profile's first win over the castle opens the layer «после первой победы» (once, any hero).
+  const castleFirst = !run.seeded && !meta.afterWin && rtCastleWon(run);
+  if (castleFirst) meta.afterWin = { at: options.viewerRun ?? 0, ...hearth.revived ? { revived: hearth.revived } : {} };
+  hearth.last = { won: win, row, beaten, ...castleFirst ? { firstCastle: true as const } : {}, ...rtDeathCause(run) ? { cause: rtDeathCause(run) } : {}, ...quest ? { quest: questDone } : {}, ...win && !oldPassed ? { firstWin: true as const } : {}, ...pack ? { pack: true as const } : {}, ...heroId === RT_TOAD_ID ? { hero: RT_TOAD_ID } : {}, ...firstGarrison ? { firstGarrison: true as const } : {}, ...rtRunWonLevel(run) >= 2 ? { garrisonWon: true as const } : {}, ...casino ? { casino } : {}, ...cuts ? { cuts } : {}, ...vows ? { vows } : {}, ...awayRun ? { away: awayRun } : {}, ...run.habits ? { habitOffered: true as const } : {}, ...rtKnackShown(run) ? { knackOffered: true as const } : {} };
   hearth.quest = rtNextQuest(run.seed, hearth, record);
   meta.hearth = hearth;
   const end: RtMetaEnd = {
@@ -491,7 +533,7 @@ export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState, optio
     },
     carry, stock: { before: stockBefore, after: hearth.stock },
     ...quest ? { quest: { npc: quest.npc, id: quest.id, done: questDone, xp: questDone ? RT_QUEST_XP : 0, stock: questDone ? RT_QUEST_STOCK : 0 } } : {},
-    ...arrived.length ? { arrived } : {}, ...vows ? { vows: vows.map(v => ({ ...v })) } : {},
+    ...arrived.length ? { arrived } : {}, ...vows ? { vows: vows.map(v => ({ ...v })) } : {}, ...castleFirst ? { afterWin: true as const } : {},
   };
   // Task 58: the chronicle — the run's entries and the meta's own changes (Ведунья freed, a step, an NPC come, the garrison reached).
   if (options.chronicle ?? RT_CHRONICLE_ON) {
@@ -548,6 +590,87 @@ export function rtHearthView(meta: RtMeta | undefined, seen: readonly string[] |
  * moment it first enters the garrison). The camp's upgrades are the profile's, so the gate is too (any hero).
  */
 export const rtHearthGate3 = (meta: RtMeta | undefined): boolean => RT_HERO_IDS.some(id => !!meta?.heroes[id]?.record && rtWonLevelOf(meta.heroes[id]!.record!) >= 1);
+
+// ---------- Task 61 «Возвращение» and «после первой победы» (the view's contract; spec docs/design-notes/task-61-return-and-beyond.md) ----------
+
+/** Баланс [Д] (spec А.2, Д6): the first returns of the profile play the full scene (2,5 с), the later ones the short one (1,0 с). */
+export const RT_REVIVE_FULL = 3;
+/** Spec А.5, Д7: the stones of the hearth — one scorch a return on each, then a darker one over it; above twice that the stones stay black. */
+export const RT_SCORCH_STONES = 10;
+/**
+ * Spec А.4: the occasion of the return lines — the last run applied was a meta run lost (`last.cause`, counted in `revived`): `n` — the
+ * profile's returns after it (the key `revive_N`); `after` — the first death after the first win over the castle (`revive_after`, above
+ * `revive_N`). Null — the last run was no counted death (a win, an abandoned run, a death before task 61).
+ */
+export function rtReviveOccasion(meta: RtMeta | undefined): { n: number; after?: true } | null {
+  const hearth = meta?.hearth, n = hearth?.revived ?? 0;
+  if (!n || hearth?.last?.cause === undefined) return null;
+  return { n, ...meta?.afterWin && n === (meta.afterWin.revived ?? 0) + 1 ? { after: true as const } : {} };
+}
+/**
+ * Spec А.2: the return scene the camp plays on entering it — `full` for the first `RT_REVIVE_FULL` returns and the first after the first
+ * win, `short` later; null — no death to show (the scene is once a death: `reviveSeen`).
+ */
+export function rtReviveScene(meta: RtMeta | undefined): 'full' | 'short' | null {
+  const occasion = rtReviveOccasion(meta);
+  if (!occasion || (meta?.hearth?.reviveSeen ?? 0) >= occasion.n) return null;
+  return occasion.n <= RT_REVIVE_FULL || occasion.after ? 'full' : 'short';
+}
+/** Spec А.5: the scorches on the stones — `light` the first ten returns (one a stone), `dark` the next ten over them; nothing more past 20. */
+export function rtScorches(meta: RtMeta | undefined): { light: number; dark: number } {
+  const n = meta?.hearth?.revived ?? 0;
+  return { light: Math.min(n, RT_SCORCH_STONES), dark: Math.min(Math.max(n - RT_SCORCH_STONES, 0), RT_SCORCH_STONES) };
+}
+/** Spec Б.2: the end screen of `end` says «Летопись не дописана» — its run opened the layer and the line was not said yet (`line`). */
+export const rtAfterWinLineDue = (meta: RtMeta | undefined, end: Pick<RtMetaEnd, 'afterWin'> | null | undefined): boolean => !!end?.afterWin && !meta?.afterWin?.line;
+/** Spec Б.3: the camp's scene of the first win is due — the layer open and the scene not played yet (`scene`). */
+export const rtAfterWinSceneDue = (meta: RtMeta | undefined): boolean => !!meta?.afterWin && !meta.afterWin.scene;
+/** Spec Б.3, П5: the fire of the hearth is turquoise from the first win over the castle (the true final's victory turns it warm again — 61к). */
+export const rtFireTurquoise = (meta: RtMeta | undefined): boolean => !!meta?.afterWin;
+/**
+ * Spec Б.3, Д8: the camp's scene of the first win was played — `scene` marked; Евлампий, if not at the fire (and his camp on: `monk`),
+ * comes with it (`met`, `self`, `afterWin.monk`; his fallback count gone). Null — no layer, or marked before.
+ */
+export function rtMarkAfterWinScene(meta: RtMeta | undefined, monk: boolean): RtMeta | null {
+  if (!rtAfterWinSceneDue(meta)) return null;
+  const next: RtMeta = structuredClone(meta!), comes = monk && !!next.hearth && !next.hearth.met.monk;
+  next.afterWin = { ...next.afterWin!, scene: true, ...comes ? { monk: true as const } : {} };
+  if (comes) {
+    const hearth = next.hearth!;
+    hearth.met = { ...hearth.met, monk: true }; hearth.self = { ...hearth.self, monk: true };
+    delete hearth.monkQuiet;
+  }
+  return next;
+}
+/** The camp's return and after-win state as the view reads it (`RtProfileStore.returnView`). */
+export interface RtReturnView {
+  /** The return scene to play on entering the camp (`rtReviveScene`); null — none. */
+  scene: 'full' | 'short' | null;
+  /** The scorches on the stones (`rtScorches`). */
+  scorches: { light: number; dark: number };
+  /** The return lines' occasion of this visit (`rtReviveOccasion`; `LineContext.last.revive`, `reviveAfter`); absent — none. */
+  revive?: { n: number; after?: true };
+  /**
+   * Spec А.5: Неясыть's `scorch_retro` is due — the first scorch of a profile that had a camp before it (`hearth.scorchRetro`; a new
+   * player's first death — none), not said yet (the memory `owl:scorch_retro`).
+   */
+  retro: boolean;
+  /** The fire's colour (`rtFireTurquoise`). */
+  fire: 'warm' | 'turquoise';
+  /** The camp's scene of the first win is due (`rtAfterWinSceneDue`); `monkComes` — Евлампий is not at the fire and comes with it. */
+  afterWinScene: boolean;
+  monkComes: boolean;
+  /** Евлампий came to the fire with that scene: his meeting line is `first_fire` (`LineContext.fire`). */
+  monkFire: boolean;
+}
+export function rtReturnView(meta: RtMeta | undefined, monk: boolean): RtReturnView {
+  const revive = rtReviveOccasion(meta), scene = rtAfterWinSceneDue(meta);
+  return {
+    scene: rtReviveScene(meta), scorches: rtScorches(meta), ...revive ? { revive } : {},
+    retro: revive?.n === 1 && meta?.hearth?.scorchRetro === true && !meta.hearth.lines['owl:scorch_retro'],
+    fire: rtFireTurquoise(meta) ? 'turquoise' : 'warm', afterWinScene: scene, monkComes: scene && monk && !meta?.hearth?.met.monk, monkFire: meta?.afterWin?.monk === true,
+  };
+}
 /**
  * Why a purchase is refused: too little stock (`need`, `have`), the NPC not in the camp, or the level not the next one. Task 51: `gate` —
  * level 3 before a hero passed the forest (`rtHearthGate3`); `locked` — a level not sold in stage 3 (Евлампий's 3rd, `RT_HEARTH_LOCKED`).
@@ -735,6 +858,8 @@ function lastOf(value: Record<string, unknown>): RtHearthLast {
   // Task 50 §18: `habitOffered`, `knackOffered` — only `true`.
   if ((last as { habitOffered?: unknown }).habitOffered !== undefined && (last as { habitOffered?: unknown }).habitOffered !== true) delete last.habitOffered;
   if ((last as { knackOffered?: unknown }).knackOffered !== undefined && (last as { knackOffered?: unknown }).knackOffered !== true) delete last.knackOffered;
+  // Task 61б: `firstCastle` — only `true`.
+  if ((last as { firstCastle?: unknown }).firstCastle !== undefined && (last as { firstCastle?: unknown }).firstCastle !== true) delete last.firstCastle;
   // Task 51в: `casino` only `won` / `lost`.
   if (last.casino !== undefined && last.casino !== 'won' && last.casino !== 'lost') delete last.casino;
   // Task 51г: `cuts` a whole number from 1; `vows` known ids with a boolean.
@@ -786,7 +911,15 @@ export function parseRtMeta(value: unknown): RtMeta | undefined {
     ...doneOf(h.done) ? { done: doneOf(h.done)! } : {},
     // Task 49: `last.hero` only `toad`; anything else is dropped (the cat's run, as a `last` without the field).
     ...isPlain(h.last) ? { last: lastOf(h.last) } : {},
+    // Task 61а: the returns (whole, from 1; absent — 0) and the last one shown (from 1, not above the returns).
+    ...isCount(h.revived) && h.revived >= 1 ? { revived: h.revived } : {},
+    ...isCount(h.revived) && isCount(h.reviveSeen) && h.reviveSeen >= 1 && h.reviveSeen <= h.revived ? { reviveSeen: h.reviveSeen } : {},
+    ...isCount(h.revived) && h.revived >= 1 && h.scorchRetro === true ? { scorchRetro: true as const } : {},
   } : undefined;
+  // Task 61б: the layer «после первой победы» — `at` a whole number; `revived` from 1; the view's marks only `true`.
+  const w = value.afterWin;
+  const afterWin: RtAfterWin | undefined = isPlain(w) && isCount(w.at)
+    ? { at: w.at, ...isCount(w.revived) && w.revived >= 1 ? { revived: w.revived } : {}, ...w.line === true ? { line: true as const } : {}, ...w.scene === true ? { scene: true as const } : {}, ...w.monk === true ? { monk: true as const } : {} } : undefined;
   const offered = Array.isArray(value.offered) ? [...new Set(value.offered.filter((id): id is string => typeof id === 'string'))] : undefined;
   const applied = isPlain(value.applied) && typeof value.applied.key === 'string' && isPlain(value.applied.end) ? { key: value.applied.key, end: structuredClone(value.applied.end) as unknown as RtMetaEnd } : undefined;
   // Task 58: the chronicle (unknown ids dropped; empty — absent).
@@ -797,5 +930,5 @@ export function parseRtMeta(value: unknown): RtMeta | undefined {
   // Task 51е: the retro's mark; the trophies (known ids, each once; malformed dropped; none — absent), the last key.
   const trophiesSince = typeof value.trophiesSince === 'number' && Number.isInteger(value.trophiesSince) && value.trophiesSince >= 0 ? value.trophiesSince : undefined;
   const trophies = parseRtTrophies(value.trophies);
-  return { heroes, ...hero ? { hero } : {}, ...freed ? { freed } : {}, ...hearth ? { hearth } : {}, ...offered ? { offered } : {}, ...applied ? { applied } : {}, ...warmup ? { warmup } : {}, ...chronicle ? { chronicle } : {}, ...trophiesSince !== undefined ? { trophiesSince } : {}, ...trophies ? { trophies } : {} };
+  return { heroes, ...hero ? { hero } : {}, ...freed ? { freed } : {}, ...hearth ? { hearth } : {}, ...offered ? { offered } : {}, ...applied ? { applied } : {}, ...warmup ? { warmup } : {}, ...afterWin ? { afterWin } : {}, ...chronicle ? { chronicle } : {}, ...trophiesSince !== undefined ? { trophiesSince } : {}, ...trophies ? { trophies } : {} };
 }

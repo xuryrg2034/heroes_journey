@@ -7,7 +7,7 @@
 // The project has no Node typings (the design table is read as text, Node only).
 // @ts-expect-error node:fs has no declarations here
 import { readFileSync } from 'node:fs';
-import { CAT_MARKED, NPC_LINES, pickLine, type DeathCause, type LineContext, type LineKey } from './npcLines';
+import { CAT_MARKED, NPC_LINES, pickLine, RETURN_KEYS, type DeathCause, type LineContext, type LineKey, type ReturnKey } from './npcLines';
 import { toadRunKey, TOAD_LINES } from './heroLines';
 import type { NpcId } from './metaModel';
 import { TOAD_LINES_BY_NPC } from './npcToadLines';
@@ -76,7 +76,8 @@ check('the 89 variants of the design table: every row of Неясыть, Мар�
   const expected: Record<string, string[]> = {};
   for (const r of ours) (expected[`${NAMES[r.who]}.${r.key}`] ??= []).push(r.text);
   const got: Record<string, string[]> = {};
-  for (const npc of NPCS) for (const [key, list] of Object.entries(TOAD_LINES_BY_NPC[npc])) got[`${npc}.${key}`] = [...list!];
+  // Task 61: its keys follow the task's spec (checked below), not this table.
+  for (const npc of NPCS) for (const [key, list] of Object.entries(TOAD_LINES_BY_NPC[npc])) if (!RETURN_KEYS.includes(key as ReturnKey)) got[`${npc}.${key}`] = [...list!];
   assert(JSON.stringify(Object.keys(expected).sort()) === JSON.stringify(Object.keys(got).sort()), 'the same NPC and key pairs');
   for (const k of Object.keys(expected)) assert(JSON.stringify(expected[k]) === JSON.stringify(got[k]), `${k}: the text of the table`);
   assert(ours.length === 89 && Object.values(got).flat().length === 89, `${ours.length} rows of the five NPC`);
@@ -91,7 +92,7 @@ check('the table of the mark cat (v1 rows) is CAT_MARKED, place for place', () =
     if (m) (table[`${NAMES[m[1]]}.${m[3]}`] ??= []).push(m[4] ? Number(m[4]) : 1);
   }
   const ours: Record<string, number[]> = {};
-  for (const npc of NPCS) for (const [key, places] of Object.entries(CAT_MARKED[npc])) ours[`${npc}.${key}`] = [...places!];
+  for (const npc of NPCS) for (const [key, places] of Object.entries(CAT_MARKED[npc])) if (!RETURN_KEYS.includes(key as ReturnKey)) ours[`${npc}.${key}`] = [...places!];
   assert(Object.values(table).flat().length === 75, `${Object.values(table).flat().length} marks in the table`);
   assert(JSON.stringify(Object.keys(table).sort()) === JSON.stringify(Object.keys(ours).sort()), 'the same keys');
   for (const k of Object.keys(table)) assert(JSON.stringify([...table[k]].sort()) === JSON.stringify([...ours[k]].sort()), `${k}: marks ${table[k]} vs ${ours[k]}`);
@@ -160,7 +161,7 @@ check('task 51в: lines of Шиш are the design table words (the Шиш table, 
   const from = DOC.findIndex((l: string) => l.startsWith('## Шиш')), to = DOC.findIndex((l: string) => l.startsWith('## Евлампий')), want: Record<string, string[]> = {};
   for (const l of DOC.slice(from, to)) { const m = /^\| `([a-z_0-9]+)` \| (.*) \|\s*$/.exec(l); if (m) (want[m[1]] ??= []).push(m[2]); }
   for (const l of DOC) { const m = /^\| Шиш \| `locked3` \| [^|]*\| (.*) \|\s*$/.exec(l); if (m) want.locked3 = [m[1]]; }
-  assert(JSON.stringify(Object.keys(want).sort()) === JSON.stringify(Object.keys(NPC_LINES.gambler).sort()), `keys ${Object.keys(want)} vs ${Object.keys(NPC_LINES.gambler)}`);
+  assert(JSON.stringify(Object.keys(want).sort()) === JSON.stringify(Object.keys(NPC_LINES.gambler).filter(k => !RETURN_KEYS.includes(k as ReturnKey)).sort()), `keys ${Object.keys(want)} vs ${Object.keys(NPC_LINES.gambler)}`);
   for (const k of Object.keys(want)) assert(JSON.stringify(want[k]) === JSON.stringify(NPC_LINES.gambler[k as LineKey]), `${k}: the text of the table`);
   const won = pickLine('gambler', { others: NPCS, last: { won: true, casino: 'won' } }, {}), lost = pickLine('gambler', { others: NPCS, last: { won: false, casino: 'lost' } }, {});
   assert(won.key === 'first_won' && won.text === NPC_LINES.gambler.first_won![0] && won.id === 'gambler:first', `won: ${won.key}`);
@@ -180,7 +181,7 @@ check('task 51в: lines of Шиш are the design table words (the Шиш table, 
 check('task 51г: lines of Евлампий are the design table words (his table); about_monk of the others; the occasions vow_kept / vow_broken / memory_castellan / memory_cuts; after her run the marked ones are skipped', () => {
   const from = DOC.findIndex((l: string) => l.startsWith('## Евлампий')), to = DOC.findIndex((l: string) => l.startsWith('## Добавки')), want: Record<string, string[]> = {};
   for (const l of DOC.slice(from, to)) { const m = /^\| `([a-z_0-9]+)` \| (.*) \|\s*$/.exec(l); if (m) (want[m[1]] ??= []).push(m[2]); }
-  assert(JSON.stringify(Object.keys(want).sort()) === JSON.stringify(Object.keys(NPC_LINES.monk).sort()), `keys ${Object.keys(want)} vs ${Object.keys(NPC_LINES.monk)}`);
+  assert(JSON.stringify(Object.keys(want).sort()) === JSON.stringify(Object.keys(NPC_LINES.monk).filter(k => !RETURN_KEYS.includes(k as ReturnKey)).sort()), `keys ${Object.keys(want)} vs ${Object.keys(NPC_LINES.monk)}`);
   for (const k of Object.keys(want)) assert(JSON.stringify(want[k]) === JSON.stringify(NPC_LINES.monk[k as LineKey]), `${k}: the text of the table`);
   const about: Record<string, string> = {};
   for (const l of DOC.slice(0, DOC.findIndex((l: string) => l.startsWith('## Евлампий')) + 0)) { const m = /^\| `about_monk` \| (.*) \|\s*$/.exec(l); if (m) about.gambler = m[1]; }

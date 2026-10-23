@@ -21,6 +21,8 @@ import { warmupMerge, type WarmupId, type WarmupMerge, type WarmupRecords } from
 import { rtChronicleImport, rtChronicleMeet, rtChronicleMetaRefs, rtChronicleNote, rtChronicleRead, type RtChronicleMemory, type RtChronicleMet } from './chronicle';
 import { rtChronicleCounts, rtChronicleView, type RtChronicleView } from './chroniclePages';
 import { rtTrophiesImport, type RtTrophy } from './trophies';
+// Task 61 «Возвращение», «после первой победы»: the camp's return scene, scorches, the layer's marks.
+import { rtMarkAfterWinScene, rtReturnView, type RtReturnView } from './rtMeta';
 
 /**
  * Casino stage 1, item 2: `-v7` (save version 7, the oath stake: the oath stream's counter, the open battle's offer and oath).
@@ -248,6 +250,20 @@ export interface RtProfileStore {
    * (`?seed=`) reads the profile's pool and changes nothing.
    */
   omensStart(input: { ash: number; history: readonly string[]; seeded: boolean }): RtOmenId[] | null;
+  /**
+   * Task 61 (docs/design-notes/task-61-return-and-beyond.md, А and Б.1–Б.3): the camp's return and after-win state — the return scene
+   * to play, the scorches, the return lines' occasion, Неясыть's `scorch_retro`, the fire's colour, the after-win scene and Евлампий.
+   */
+  returnView(): RtReturnView;
+  /** Task 61а: the return scene was shown (or skipped) — `reviveSeen` = `revived`; a reload plays it no more. False — nothing to mark, or not stored. */
+  markReviveSeen(): boolean;
+  /** Task 61б: the end screen said «Летопись не дописана» — `afterWin.line`; it is said once. False — no layer, marked before, or not stored. */
+  markAfterWinLine(): boolean;
+  /**
+   * Task 61б: the camp's scene of the first win was played (or skipped) — `afterWin.scene`; Евлампий comes with it if not at the fire
+   * (`returnView().monkComes`; his camp on). False — no layer, marked before, or not stored.
+   */
+  markAfterWinScene(): boolean;
 }
 
 /** Task 37: the camp's start for a loaded profile (`rtHearthStartOf` over its meta). */
@@ -402,6 +418,24 @@ export function createRtProfileStore(storage: RunStorage | null = browserStorage
       if (!rtOmensGate(profile.omensOpen === true, history, ash)) return null;
       if (!seeded && profile.omensOpen !== true) write({ ...profile, omensOpen: true });
       return rtProfileOmenPool(profile);
+    },
+    returnView: () => { const profile = read(); return rtReturnView(profile.meta, npcs.monk); },
+    markReviveSeen: () => {
+      const profile = read(), hearth = profile.meta?.hearth, revived = hearth?.revived ?? 0;
+      if (!hearth || (hearth.reviveSeen ?? 0) >= revived) return false;
+      return write({ ...profile, meta: { ...profile.meta!, hearth: { ...hearth, reviveSeen: revived } } });
+    },
+    markAfterWinLine: () => {
+      const profile = read(), afterWin = profile.meta?.afterWin;
+      if (!afterWin || afterWin.line) return false;
+      return write({ ...profile, meta: { ...profile.meta!, afterWin: { ...afterWin, line: true } } });
+    },
+    markAfterWinScene: () => {
+      const profile = read(), meta = rtMarkAfterWinScene(profile.meta, npcs.monk);
+      if (!meta) return false;
+      // Task 58: Евлампий come with the scene joins the chronicle (as a hero freed outside a run's end).
+      const chronicle = chronicleOn ? rtChronicleNote(meta.chronicle, rtChronicleMetaRefs(profile.meta, meta)) : undefined;
+      return write({ ...profile, meta: chronicle ? withChronicle(meta, chronicle) : meta });
     },
   };
 }
