@@ -31,7 +31,7 @@ import { replay, Simulation, type Journal } from '../sim/simulation';
 import { canonicalJson, gunzipBase64, gzipBase64, paramsHash } from '../telemetry/codec';
 import type { KeyValueStore } from '../telemetry/buffer';
 import { RtFightWatch, rtFightOutcome } from './fightOutcome';
-import { rtDepthBeyond, rtRunDepth, rtRunLevel, rtRunWonLevel } from './rtMeta';
+import { rtLevelDepth, rtDepthBeyond, rtRunDepth, rtRunLevel, rtRunWonLevel } from './rtMeta';
 import {
   createRtRun, healOnMap, isRtDailyDate, resolveArena, rtArenaLoadout, rtArenaParams, rtCasinoLeave, rtCasinoPlay, rtChooseEventOption, rtChooseFind, rtChooseGift,
   rtChooseGiftPick, rtChooseHabit, rtChooseHammer, rtChooseKnack, rtChooseTalisman, rtDailySeed, rtDieChoose, rtEnterGarrison, rtEnterNode, rtItemHintDue, rtOathStakeOn,
@@ -104,7 +104,10 @@ export function rtStep(run: RtRunState, call: RtStepCall): RtRunStep {
  */
 export interface RtDailyClaim { level: 1 | 2 | 3; row: number; wonLevel: 0 | 1 | 2 | 3; time: number; done: boolean }
 export function rtDailyClaim(run: RtRunState): RtDailyClaim {
-  return { level: rtRunLevel(run), row: rtRunDepth(run), wonLevel: rtRunWonLevel(run), time: run.battles.reduce((sum, b) => sum + b.time, 0), done: !!run.result };
+  // Task 55в: a run in the castle that entered no castle node yet claims the garrison's depth (as its record, rtMeta.ts `runDepthOf`),
+  // not «Замок, ряд 0».
+  const level = rtRunLevel(run), row = rtRunDepth(run), back = level === 3 && row === 0;
+  return { level: back ? 2 : level, row: back ? rtLevelDepth(run, 2) : row, wonLevel: rtRunWonLevel(run), time: run.battles.reduce((sum, b) => sum + b.time, 0), done: !!run.result };
 }
 /** `a` is a better attempt than `b`: deeper, or as deep and shorter. */
 export function rtDailyBetter(a: RtDailyClaim, b: RtDailyClaim): boolean {

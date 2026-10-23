@@ -24,6 +24,8 @@ import { rtTalisman } from './rtTalismans';
 import { runRow } from './arenaPools';
 import { rtApplyMeta, rtDeathCause, rtRunWonLevel, rtRunXp } from './rtMeta';
 import { rtRunEndLines } from './rtRunEnd';
+import { rtDailyClaim, rtDailyClaimText } from './rtDaily';
+import { rtTrophiesImport } from './trophies';
 import { RT_OMEN_IDS } from './omens';
 import { defaultParams } from '../sim/params';
 import { MAX_TOUGH_HP } from '../sim/kit';
@@ -268,6 +270,27 @@ check('telemetry: a castle fight\'s record keeps level 3 (a `c:` node only); the
   assert(rows.indexOf('| г 3 |') < rows.indexOf('| з 3 |') && rows.indexOf('| з 3 |') < rows.indexOf('| з 4 |'), 'the garrison first, then the castle');
   assert(fightLevel({ nodeId: 'c:r5c0' }) === 3 && fightLevel({ level: 3 }) === 3 && fightLevel({ nodeId: 'g:r5c0' }) === 2, 'the level');
   assert(checkRecord({ kind: 'fight', level: 3, nodeId: 'g:r5c0' }) !== null && checkRecord({ kind: 'fight', level: 2, nodeId: 'c:r5c0' }) !== null, 'a level only with its own nodes');
+});
+
+check("a profile whose record passed the castle has passed the garrison: the trophies' retro gives the Castellan's banner; «Поход дня» in the castle before its first node claims the garrison's depth, not «Замок, ряд 0» (3 seeds)", () => {
+  for (const k of [1, 2, 3]) {
+    let entered: RtRunState | null = null, first: RtRunState | null = null;
+    const won = walk(k, true, { each: state => {
+      if (!entered && rtLevel(state) === 3 && !state.pending) entered = state;
+      if (!first && state.pending?.kind === 'battle' && rtCastleNodeId(state.pending.nodeId)) first = state;
+    } }).run;
+    assert(entered && first, `seed ${k}: the walk entered the castle`);
+    const at: RtRunState = entered, open: RtRunState = first;
+    const claim = rtDailyClaim(at);
+    assert(claim.level === 2 && claim.row === 10 && claim.wonLevel === 2 && !rtDailyClaimText(claim).includes('ряд 0'), `seed ${k}: ${JSON.stringify(claim)} «${rtDailyClaimText(claim)}»`);
+    const inCastle = rtDailyClaim(open);
+    assert(inCastle.level === 3 && inCastle.row === runRow(rtNode(open, (open.pending as { nodeId: string }).nodeId)!.row) && rtDailyClaimText(inCastle).startsWith('Замок, ряд '), `seed ${k}: in the castle ${JSON.stringify(inCastle)}`);
+    assert(rtDailyClaimText(rtDailyClaim(won)).startsWith('Замок пройден'), `seed ${k}: the castle passed`);
+    const meta = rtApplyMeta(undefined, won).meta;
+    delete meta.trophies; delete meta.trophiesSince;
+    assert(meta.heroes.cat?.record?.wonLevel === 3, `seed ${k}: the record passed the castle`);
+    assert(rtTrophiesImport(meta, 1).trophies?.some(t => t.id === 'castellan'), `seed ${k}: the Castellan's banner from a castle record`);
+  }
 });
 
 console.log(`castle run: ${checks} checks passed`);
