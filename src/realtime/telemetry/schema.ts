@@ -1119,6 +1119,11 @@ export interface FightSummary {
    */
   forest: ForestSummary;
   /**
+   * Task 55в «Замок» (from 23.10.2026; spec task-55 §10): the shoves of a fight with things (`ShoveSummary`) — present when a barrel or a
+   * wardrobe stood at the start or a shove ran; absent in a fight without things and in older records (the report shows «—»).
+   */
+  shove?: ShoveSummary;
+  /**
    * Task 16 telemetry (from 14.10.2026): the viewer's first meetings during the fight (`RtRecorder.firstMeet`), counted by the view —
    * a replay cannot see them (not compared by `summaryDiff`). Absent — not counted (the sandbox, older records).
    */
@@ -1192,6 +1197,17 @@ export interface GarrisonStep3Summary {
    * 22.10.2026; absent — an older record (the report shows «—»).
    */
   angerKilled?: number; angerCalm?: number; angerAtEnd?: number;
+}
+
+/**
+ * Task 55в «Замок» (observe.ts; spec task-55 §10): the shoves of a fight — started (`shove` `start`), crushed bodies (`crush`, the
+ * player's kills), cancelled (`cancel`: the thing gone before the dash's end), the game second of the first, the length of all
+ * (units); where they stopped (`stop`: `tough` — a tough body, `elite`, `rook`, `thing`, `core`, `wall`, `cliff`, `end`); the things
+ * broken by cause (`thing` `break` `by`, a fall into a cliff — `fall`); the barrels at the start and those shoved (distinct).
+ */
+export interface ShoveSummary {
+  shoves: number; crushed: number; cancels: number; firstAt: number | null; length: number;
+  stops: Record<string, number>; broken: Record<string, number>; barrels: { start: number; used: number };
 }
 
 /** The keys of `GarrisonStep3Summary` (`checkRecord`: a record's step 3 has no other key). */
