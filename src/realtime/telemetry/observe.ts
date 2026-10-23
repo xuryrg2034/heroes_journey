@@ -99,7 +99,9 @@ import { WISP } from '../sim/enemies/wisp';
 import { RECRUIT, recruitGroup } from '../sim/enemies/recruit';
 import { WARDEN, wardenAngry } from '../sim/enemies/warden';
 import { inPitch, PITCH_FIRE_SOURCE, POT_SOURCE } from '../sim/pitch';
-import type { GarrisonStep3Summary } from './schema';
+import type { GarrisonStep3Summary, ShoveSummary } from './schema';
+// Task 55в: the things and the rook (the shoves' summary).
+import { BARREL, ROOK, WARDROBE } from '../sim/enemies/castle';
 import { TROLL, TROLL_CHARGE_SOURCE, TROLL_CLUB, TROLL_CLUB_SOURCE, TROLL_ROCK, TROLL_ROCK_SOURCE, TROLL_TAIL, TROLL_TAIL_SOURCE } from '../sim/enemies/troll';
 import { WARLOCK } from '../sim/enemies/warlock';
 import { kindOf } from '../sim/enemies/kinds';
@@ -282,6 +284,12 @@ export function createFightObserver(start: World): FightObserver {
     ...warlock ? { warlock: { charmBrokenAt: null, wardrobeBy: null, hits: {}, barrels: 0, windows: { opened: 0, hit: 0 }, shifts: 0, blocks: {}, unlinks: 0, phase: 1 } } : {} };
   /** Task 55, stage Д: the warlock's window open now (its hit landed). */
   let warlockWindow: { hit: boolean } | null = null;
+  // Task 55в: the shoves of a fight with things (`summary.shove`, made at the start when a thing stands, else at the first shove); the
+  // barrels shoved (distinct ids).
+  const barrelsAtStart = start.enemies.filter(e => e.kind === BARREL).length;
+  const shoveSummary = (): ShoveSummary => (s.shove ??= { shoves: 0, crushed: 0, cancels: 0, firstAt: null, length: 0, stops: {}, broken: {}, barrels: { start: barrelsAtStart, used: 0 } });
+  if (start.enemies.some(e => e.kind === BARREL || e.kind === WARDROBE)) shoveSummary();
+  const barrelsShoved = new Set<number>();
   /** Task 48: the Troll's window open now (what opened it, its hit landed). */
   let trollWindow: { source: string; hit: boolean } | null = null;
   /** Task 43: the grate's open since (game s; null — down) and the lever's window now (its core hit or not). */
@@ -453,6 +461,20 @@ export function createFightObserver(start: World): FightObserver {
         }
         case 'warlockShift': if (s.boss?.warlock && ev.action === 'arrive') s.boss.warlock.shifts++; return;
         case 'shove': {
+          // Task 55в: the shove's own numbers.
+          const sh = shoveSummary(), thingKind = (world.enemies.find(e => e.id === ev.thingId) ?? seen.get(ev.thingId))?.kind;
+          if (ev.action === 'start') {
+            sh.shoves++;
+            if (sh.firstAt === null) sh.firstAt = round2(world.time);
+            if (ev.x1 !== undefined && ev.y1 !== undefined) sh.length = round2(sh.length + dist({ x: ev.x, y: ev.y }, { x: ev.x1, y: ev.y1 }));
+            if (thingKind === BARREL && !barrelsShoved.has(ev.thingId)) { barrelsShoved.add(ev.thingId); sh.barrels.used++; }
+          } else if (ev.action === 'crush') sh.crushed++;
+          else if (ev.action === 'cancel') sh.cancels++;
+          else if (ev.action === 'fall') bump(sh.broken, 'fall');
+          else if (ev.action === 'stop') {
+            const target = ev.target !== undefined ? world.enemies.find(e => e.id === ev.target) ?? seen.get(ev.target) : undefined;
+            bump(sh.stops, ev.stop !== 'body' ? ev.stop ?? 'end' : target?.kind === ROOK ? 'rook' : target?.elite ? 'elite' : 'tough');
+          }
           const t = s.boss?.warlock;
           if (!t || ev.action !== 'impact' || !bossCore || ev.target !== bossCore.id) return;
           bump(t.hits, 'shove');
@@ -460,6 +482,7 @@ export function createFightObserver(start: World): FightObserver {
           return;
         }
         case 'thing': {
+          bump(shoveSummary().broken, ev.by);
           const t = s.boss?.warlock, thing = world.enemies.find(e => e.id === ev.id) ?? seen.get(ev.id);
           if (t && bossCore && t.wardrobeBy === null && thing?.vars.wl === bossCore.id) t.wardrobeBy = ev.by;
           return;

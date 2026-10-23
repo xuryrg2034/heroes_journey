@@ -254,9 +254,9 @@ export const rtRunKey = (run: RtRunState): string => `${run.seed}:${run.result?.
  * The run row the run reached on the level it is on (0 — none). Task 38: in the garrison — the garrison's row (its nodes only), the
  * level `rtRunLevel` 2; elsewhere the forest's, as before.
  */
-export function rtRunDepth(run: RtRunState): number { return levelDepth(run, rtLevel(run)); }
+export function rtRunDepth(run: RtRunState): number { return rtLevelDepth(run, rtLevel(run)); }
 /** The run row the run reached among the nodes of a level (the castle's, `c:…`, the garrison's, `g:…`, or the forest's); 0 — none. */
-function levelDepth(run: RtRunState, level: 1 | 2 | 3): number {
+export function rtLevelDepth(run: RtRunState, level: 1 | 2 | 3): number {
   const ids = [...run.visited, ...run.pending && 'nodeId' in run.pending && run.pending.nodeId ? [run.pending.nodeId] : [], ...run.result ? [run.result.nodeId] : []]
     .filter(id => rtNodeLevel(id) === level);
   return Math.max(0, runRow(Math.max(0, ...ids.map(id => rtNode(run, id)?.row ?? 0))));
@@ -283,10 +283,10 @@ const runDepthOf = (run: RtRunState): { row: number; level?: 2 | 3; wonLevel?: 1
   const passed = rtRunWonLevel(run);
   // Task 55в: likewise a run in the castle that entered no castle node yet has the garrison's depth.
   for (let level = rtRunLevel(run); level >= 2; level--) {
-    const row = levelDepth(run, level as 2 | 3);
+    const row = rtLevelDepth(run, level as 2 | 3);
     if (row > 0) return { row, level: level as 2 | 3, ...passed ? { wonLevel: passed } : {} };
   }
-  return { row: levelDepth(run, 1), ...passed ? { wonLevel: passed } : {} };
+  return { row: rtLevelDepth(run, 1), ...passed ? { wonLevel: passed } : {} };
 };
 
 /** The run's XP before its quest: the parts and the base (before «Испытание»). */

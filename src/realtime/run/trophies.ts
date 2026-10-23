@@ -102,7 +102,8 @@ export function rtTrophiesImport(meta: RtMeta | undefined, runs: number): { trop
   if (meta?.trophiesSince !== undefined) return { trophies: meta.trophies, since: meta.trophiesSince, changed: false };
   const fresh = meta?.chronicle?.fresh ?? [], kinds = (meta?.chronicle?.kinds ?? []).filter(id => !fresh.includes(`kind:${id}`));
   const earned: RtTrophyEarned[] = [
-    ...RT_HERO_IDS.some(id => meta?.heroes[id]?.record?.wonLevel === 2) ? [{ id: 'castellan' as const }] : [],
+    // Task 55в: a record that passed the castle has passed the garrison too (as the chronicle's retro).
+    ...RT_HERO_IDS.some(id => (meta?.heroes[id]?.record?.wonLevel ?? 0) >= 2) ? [{ id: 'castellan' as const }] : [],
     ...rtBestiaryFull({ kinds }) ? [{ id: 'bestiary' as const }] : [],
   ];
   const { trophies } = rtTrophiesAdd(meta?.trophies, earned, 0);

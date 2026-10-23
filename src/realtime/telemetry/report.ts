@@ -18,8 +18,10 @@ import { createFightObserver, median, DEATH_SERIES_WINDOW, WOLF_RUSH_SOURCE } fr
 import {
   checkRecord, emptyFightSummary, orderedParts, unpackJournal, withSummaryDefaults, OATH_STAKE_SOURCE, DIE_SOURCE, CASINO_SOURCE, RT_TELEMETRY_FORMAT, SANDBOX_RUN,
   type DeathGuard, type FightDeath, type FightRecord, type FightSummary, type JournalPart, type NoteRecord, type PrologueFrom, type PrologueRecord, type RtRecord, type WarmupRecord, type RunRecord, type ThreatTally,
-  type GarrisonStep3Summary, type RunNodeVisit, type TrollBossSummary,
+  type GarrisonStep3Summary, type RunNodeVisit, type TrollBossSummary, type WarlockBossSummary,
 } from './schema';
+// Task 55в: the castle's arenas (the section «Замок»).
+import { CASTLE_ARENAS } from '../sim/arenasCastle';
 import { THREAT_KINDS, ThreatTracker, type ThreatWarning } from './threats';
 import { RT_DEATH_ABILITY, RT_KIND_TITLES } from '../run/rtRunEnd';
 import { HINT_IDS, HINT_TITLES } from '../view/hints';
@@ -180,6 +182,8 @@ export function summaryDiff(browser: FightSummary, replayed: FightSummary): stri
   delete a.novelty; delete b.novelty;
   // Task 48: the Troll's damage by group (from 17.10.2026) — a browser of before did not count it.
   if (a.boss?.troll && !a.boss.troll.damage) delete b.boss?.troll?.damage;
+  // Task 55в: the shoves (from 23.10.2026) — a browser of before did not count them.
+  if (!a.shove) delete b.shove;
   const out: string[] = [];
   const plain = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
   // `base` — the same place in the empty summary: a field of the schema the browser record lacks is skipped; a key of a map
@@ -1390,6 +1394,8 @@ export function reportMarkdown(set: RecordSet, analysis: Analysis, options: Repo
     '## Босс', '', bossSection(fights), '',
     // Task 40 «Гарнизон, шаг 1б»: the survival through both levels, the garrison's fights and the cart.
     '## Гарнизон', '', garrisonSection(runs, runFights), '',
+    // Task 55в «Замок»: the shoves, the things, the castle's deaths.
+    '## Замок', '', castleSection(fights), '',
     // Task 57а «Лес: стрелки».
     '## Лес: новые виды', '', forestShootersSection(fights), '',
     '## Сплавы', '', fusionsSection(runs, fights), '',
@@ -1575,7 +1581,36 @@ function bossSection(fights: readonly FightEntry[]): string {
     `Боёв с боссом: ${st.fights}; побед: ${st.won} (${pct(st.won, st.fights)}); босс убит: ${st.killed} (${pct(st.killed, st.fights)}); гиря отрублена: ${st.severed} (${pct(st.severed, st.fights)}). Смерти по приёму: ${deaths}.`,
     ...castellanLines(list),
     ...trollLines(list),
+    ...warlockLines(list),
   ].join('\n');
+}
+/** Task 55в: what broke the warlock's wardrobe (`boss.warlock.wardrobeBy`; null — whole), and a thing broken (`shove.broken`). */
+const THING_BREAK_TITLES: Readonly<Record<string, string>> = { core: 'о ядро', wall: 'о стену', thing: 'о вещь', body: 'о тело', end: 'в конце пути', cliff: 'в обрыв', fall: 'упала в обрыв' };
+/** Task 55в: the warlock's own moves (the hero's damage by them; the rest — the crowd's and his touch). */
+const WARLOCK_MOVE_SOURCES: readonly string[] = ['wardrobe-topple', 'warlock-orb', 'warlock-flash'];
+/**
+ * Task 55в (spec task-55 §10, the section «Босс»): the warlock's fights (`boss.warlock`) — the fight's length, the share won (a run meets
+ * him once: the first try), his charm broken and its second, the hits on his core by source (the shove's share), the windows after
+ * «Перенос» with a hit, «Перенос», the barrels into the core a fight, what broke his wardrobe, the «звон», the deaths, the hero's damage
+ * by his moves against the rest.
+ */
+export function warlockLines(list: readonly BossEntry[]): string[] {
+  const own = list.filter(b => b.summary.boss?.warlock);
+  if (!own.length) return [];
+  const t = (b: BossEntry): WarlockBossSummary => b.summary.boss!.warlock!;
+  const won = own.filter(b => b.entry.record.outcome === 'victory').length, times = own.map(b => b.entry.record.time);
+  const broken = own.flatMap(b => (t(b).charmBrokenAt === null ? [] : [t(b).charmBrokenAt!]));
+  const hits: Record<string, number> = {}, blocks: Record<string, number> = {}, deaths: Record<string, number> = {}, wardrobe: Record<string, number> = {};
+  for (const b of own) {
+    for (const [src, n] of Object.entries(t(b).hits)) bump(hits, src, n);
+    for (const [src, n] of Object.entries(t(b).blocks)) bump(blocks, src, n);
+    if (b.summary.death) bump(deaths, b.summary.death.source);
+    bump(wardrobe, t(b).wardrobeBy ?? 'whole');
+  }
+  const allHits = Object.values(hits).reduce((a, n) => a + n, 0), sum = (f: (x: WarlockBossSummary) => number): number => own.reduce((a, b) => a + f(t(b)), 0);
+  const list2 = (r: Record<string, number>, title: (k: string) => string): string => Object.entries(r).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k, n]) => `${title(k)} ${n}`).join(', ') || 'нет';
+  const moves = own.reduce((a, b) => a + WARLOCK_MOVE_SOURCES.reduce((x, src) => x + (b.summary.damage.bySource[src] ?? 0), 0), 0), total = own.reduce((a, b) => a + b.summary.damage.total, 0);
+  return ['', `Колдун (задача 55): боёв ${own.length}, побед с первой попытки ${won} (${pct(won, own.length)}); длина боя мед. ${n1(median(times))} с; чары сняты в ${broken.length} боях (${pct(broken.length, own.length)}), мед. ${broken.length ? `${n1(median(broken))} с` : '—'}; попадания по ядру: ${list2(hits, sourceTitle)} (толчком ${pct(hits.shove ?? 0, allHits)}); окна после «Переноса» (открыто / с попаданием): ${sum(x => x.windows.opened)} / ${sum(x => x.windows.hit)}; «Переносов» ${sum(x => x.shifts)}; бочек в ядро на бой ${n2(sum(x => x.barrels) / own.length)}; Шкаф Колдуна: ${list2(wardrobe, k => (k === 'whole' ? 'цел' : THING_BREAK_TITLES[k] ?? k))}; «звон»: ${list2(blocks, sourceTitle)}; смерти: ${list2(deaths, deathSourceTitle)}; урон герою — приёмы Колдуна ${moves} (${pct(moves, total)}), прочее ${total - moves}.`];
 }
 /**
  * Task 43: the full Castellan's fights (`boss.castellan`) — the fight's length, the share won (a run meets him once: the first try),
@@ -1627,6 +1662,56 @@ function trollDamageLine(own: readonly TrollBossSummary[]): string[] {
   return [`Тролль — урон герою по группам (боёв ${with_.length}): ${groups.map(([, title], i) => `${title} ${sums[i]} (${pct(sums[i], all)})`).join(', ')}.`];
 }
 // ---- end «Босс» ----
+
+// ---- Task 55в «Замок» (observe.ts `shove`; docs/realtime-telemetry.md, «Замок») ----
+
+const CASTLE_ARENA_IDS: readonly string[] = CASTLE_ARENAS.map(a => a.id);
+/** Where the shoves stopped (`shove.stops`), in the report's order and names. */
+const SHOVE_STOPS: readonly [string, string][] = [['tough', 'крепкий'], ['elite', 'элита'], ['rook', 'Ладья'], ['thing', 'вещь'], ['core', 'ядро'], ['wall', 'стена'], ['cliff', 'обрыв'], ['end', 'конец пути']];
+/** The numbers of one castle arena (the tests read them). */
+export interface CastleArenaStats {
+  fights: number; deaths: number; topple: number; rook: number;
+  /** The fights whose summary has the shoves (`summary.shove`; older records — not counted below). */
+  counted: number; withShove: number; shoves: number; crushed: number; cancels: number; length: number; firstAt: number[]; barrels: number; barrelsUsed: number;
+}
+export interface CastleStats { arenas: Record<string, CastleArenaStats>; stops: Record<string, number>; broken: Record<string, number> }
+/** The castle's fights (runs and the sandbox) by arena; the shoves' stops and the things broken over all of them. */
+export function castleStats(fights: readonly FightEntry[]): CastleStats {
+  const arenas: Record<string, CastleArenaStats> = {}, stops: Record<string, number> = {}, broken: Record<string, number> = {};
+  for (const e of fights) {
+    if (!CASTLE_ARENA_IDS.includes(e.record.arena)) continue;
+    const summary = e.analysis ? e.analysis.summary : withSummaryDefaults(e.record.summary);
+    const a = arenas[e.record.arena] ??= { fights: 0, deaths: 0, topple: 0, rook: 0, counted: 0, withShove: 0, shoves: 0, crushed: 0, cancels: 0, length: 0, firstAt: [], barrels: 0, barrelsUsed: 0 };
+    a.fights++;
+    if (e.record.outcome === 'defeat') { a.deaths++; if (summary.death?.source === 'wardrobe-topple') a.topple++; if (summary.death?.source === 'rook-strike') a.rook++; }
+    const sh = summary.shove;
+    if (!sh) continue;
+    a.counted++; a.shoves += sh.shoves; a.crushed += sh.crushed; a.cancels += sh.cancels; a.length += sh.length; a.barrels += sh.barrels.start; a.barrelsUsed += sh.barrels.used;
+    if (sh.shoves > 0) a.withShove++;
+    if (sh.firstAt !== null) a.firstAt.push(sh.firstAt);
+    for (const [k, n] of Object.entries(sh.stops)) bump(stops, k, n);
+    for (const [k, n] of Object.entries(sh.broken)) bump(broken, k, n);
+  }
+  return { arenas, stops, broken };
+}
+const CASTLE_HEAD = ['Арена', 'Боёв', 'Со сводкой толчков', 'С толчком', 'Толчков на бой', 'Раздавлено на толчок', 'Первый толчок, с мед.', 'Длина толчка, ед. ср.', 'Бочек сдвинуто / стояло', 'Отменено', 'Смертей', 'От «Падения шкафа»', 'От «Удара ладьи»'];
+const CASTLE_LEGEND = 'Задача 55в (с 23.10.2026; поле сводки `shove`, повтор журнала считает его заново; эвристика, не оценка баланса): бои на аренах замка — «Прихожая», «Анфилада», «Бальный зал», «Зал колдуна» (походы и песочница). Толчок — начатый (`shove` `start`); раздавлено — тела, убитые толчком (`crush`, в зачёт игроку); отменено — вещь пропала до конца прохода (`cancel`); первый толчок — игровая секунда боя; длина — путь вещи, ед.; бочки — стояли в начале боя и сдвинуты хоть раз. Остановки — где толчок кончился (`stop`: крепкий, элита, Ладья, вещь, ядро, стена, обрыв, конец пути); сломанные вещи — по причине (`thing` `break`). Смерти — проигранные бои, из них от «Падения шкафа» (`wardrobe-topple`) и «Удара ладьи» (`rook-strike`). Записи без поля `shove` (до 23.10.2026) и без повтора — в «Боёв» и смертях, не в числах толчков. Тревожно: в «Прихожей» меньше одного толчка на бой — закон не прочитан (смотреть подсветку, не числа).';
+/** The section «Замок» (spec task-55 §10): the castle's fights by arena, the shoves' stops, the things broken; the alarm of «Прихожая». */
+export function castleSection(fights: readonly FightEntry[]): string {
+  const st = castleStats(fights), ids = CASTLE_ARENA_IDS.filter(id => st.arenas[id]);
+  if (!ids.length) return `${CASTLE_LEGEND}\n\n_боёв на аренах замка нет_`;
+  const rows = ids.map(id => {
+    const a = st.arenas[id], c = a.counted;
+    return [arenaTitle(id), a.fights, c, c ? `${a.withShove} (${pct(a.withShove, c)})` : '—', c ? n2(a.shoves / c) : '—', a.shoves ? n2(a.crushed / a.shoves) : '—',
+      a.firstAt.length ? n1(median(a.firstAt)) : '—', a.shoves ? n1(a.length / a.shoves) : '—', c ? `${a.barrelsUsed} / ${a.barrels}` : '—', c ? a.cancels : '—', a.deaths, a.topple, a.rook];
+  });
+  const stops = SHOVE_STOPS.filter(([k]) => st.stops[k]).map(([k, title]) => `${title} ${st.stops[k]}`).join(', ') || 'нет';
+  const broken = Object.entries(st.broken).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k, n]) => `${THING_BREAK_TITLES[k] ?? k} ${n}`).join(', ') || 'нет';
+  const hall = st.arenas['c-hall'];
+  const alarm = hall && hall.counted && hall.shoves / hall.counted < 1 ? [`Тревожно: в «Прихожей» ${n2(hall.shoves / hall.counted)} толчка на бой (меньше одного) — закон, похоже, не прочитан.`] : [];
+  return [CASTLE_LEGEND, '', table(CASTLE_HEAD, rows), '', `Остановки толчков: ${stops}. Сломанные вещи: ${broken}.`, ...alarm].join('\n');
+}
+// ---- end «Замок» ----
 
 // ---- Task 16 «Подвиги» (sim/feat.ts, run/rtRun.ts; docs/realtime-slice.md, «Подвиги») ----
 
