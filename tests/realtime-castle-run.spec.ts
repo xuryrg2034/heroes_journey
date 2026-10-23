@@ -10,7 +10,8 @@ import { rtRunDepth } from '../src/realtime/run/rtMeta';
  * a run with the castle's flag (created in Node with `castle: true` — `RT_CASTLE_ON` is off until design turns it on) walked by its own
  * commands (metaWalk.testkit.ts) and loaded into the page. Real clicks at 1280×720: the Castellan's relic taken — «Подножие» fills the HP bar,
  * «В замок» opens the castle's map (the header «Замок», «Бальный зал» on row 5, «Колдун» on row 10, the castle's class), a node's card names
- * a castle arena; a run won at the Warlock ends with «Замок» and «Замок, ряд 10 · Колдун пройден». Screenshots go to $SHOT_DIR when it is set.
+ * a castle arena; a run won at the Warlock ends with «Замок» and «Замок, ряд 10 · Колдун пройден». Task 61б: the first win over the castle in a
+ * meta run says «Летопись не дописана» on the end screen once a profile. Screenshots go to $SHOT_DIR when it is set.
  */
 const shot = async (page: Page, name: string): Promise<void> => { if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/castle-${name}.png` }); };
 
@@ -105,5 +106,44 @@ test('task 55в view: the depth record names the castle — a meta run walked to
   await shot(page, 'record');
   await page.getByTestId('run-to-hearth').click();
   await expect(page.getByTestId('hearth-record')).toHaveText(`Рекорд: Замок, ряд ${row}`);
+  expect(errors).toEqual([]);
+});
+
+test('task 61б view: the first win over the castle in a meta run — the end screen says «Летопись не дописана» under the record once a profile (a reload — no line); the camp then plays the first win scene, the fire turquoise (screenshot)', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = collectErrors(page);
+  await page.goto('/');
+  // A viewer who passed the garrison before; a meta run (no given seed) with the castle walked in Node by its own commands to the end.
+  const meta = { heroes: { cat: { xp: 400, packs: [], record: { row: 10, won: true, xp: 400, level: 2, wonLevel: 2 } } }, hearth: { stock: 3, levels: { owl: 0, herb: 0, smith: 0 }, met: { herb: false, smith: false }, lines: { 'owl:first': 2 }, quiet: 0 } };
+  const end = walkRun({ k: 3, create: { gift: 'full', garrison: true, castle: true } }).run;
+  expect(end.result?.outcome, 'the walk won the run').toBe('victory');
+  expect(rtLevel(end), 'it ended in the castle').toBe(3);
+  await page.evaluate(([m, key, value]) => {
+    localStorage.clear(); localStorage.setItem('ashen-oath-realtime-prologue-done', '1');
+    localStorage.setItem('ashen-oath-rt-profile-v1', JSON.stringify({ version: 1, giftFull: false, runs: 5, won: true, meta: m }));
+    localStorage.setItem(key as string, value as string);
+  }, [meta, RT_RUN_STORAGE_KEY, serializeRtRun(end)] as const);
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
+  await expect(page.getByTestId('run-end-facts')).toContainText('Замок, ряд 10 · Колдун пройден');
+  await expect(page.getByTestId('meta-afterwin')).toHaveText('Летопись не дописана');
+  // Under the record, above the chronicle's lines.
+  const order = await page.getByTestId('meta-end').evaluate(el => [...el.children].map(c => c.getAttribute('data-testid') ?? ''));
+  expect(order.indexOf('meta-afterwin')).toBeGreaterThan(order.indexOf('meta-record'));
+  if (order.includes('meta-chronicle')) expect(order.indexOf('meta-afterwin')).toBeLessThan(order.indexOf('meta-chronicle'));
+  expect(JSON.parse(await page.evaluate(() => localStorage.getItem('ashen-oath-rt-profile-v1') ?? '{}')).meta?.afterWin?.line).toBe(true);
+  await page.waitForTimeout(1200);
+  await shot(page, 'afterwin-line');
+  // Once a profile: the end screen reloaded has no line.
+  await page.reload();
+  await expect.poll(() => page.evaluate(() => !!(window as any).__realtime?.run)).toBe(true);
+  await expect(page.getByTestId('meta-end')).toBeVisible();
+  await expect(page.getByTestId('meta-afterwin')).toHaveCount(0);
+  // The camp: the first win's scene, the fire turquoise.
+  await page.getByTestId('run-to-hearth').click();
+  await expect.poll(() => page.evaluate(() => (window as any).__realtime.run.returnsShown().scene)).toBe('win');
+  await expect(page.getByTestId('hearth-tint')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  expect(await page.evaluate(() => (window as any).__realtime.run.returnsShown().fire)).toBe('turquoise');
   expect(errors).toEqual([]);
 });
