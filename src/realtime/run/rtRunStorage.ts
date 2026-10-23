@@ -419,7 +419,7 @@ export function createRtProfileStore(storage: RunStorage | null = browserStorage
       if (!seeded && profile.omensOpen !== true) write({ ...profile, omensOpen: true });
       return rtProfileOmenPool(profile);
     },
-    returnView: () => { const profile = read(); return rtReturnView(profile.meta, profile.runs, npcs.monk); },
+    returnView: () => { const profile = read(); return rtReturnView(profile.meta, npcs.monk); },
     markReviveSeen: () => {
       const profile = read(), hearth = profile.meta?.hearth, revived = hearth?.revived ?? 0;
       if (!hearth || (hearth.reviveSeen ?? 0) >= revived) return false;

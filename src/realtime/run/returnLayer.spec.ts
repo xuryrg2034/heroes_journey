@@ -145,9 +145,9 @@ check('Г.5.4: a profile without the fields (saved before task 61, a death in it
   store.endRunMeta(metaRun(store, 31, 'death'));
   // The same profile as the code before task 61 stored it: the return not counted.
   const stored = JSON.parse(storage.data.get(RT_PROFILE_STORAGE_KEY)!);
-  delete stored.meta.hearth.revived;
+  delete stored.meta.hearth.revived; delete stored.meta.hearth.scorchRetro;
   const old = JSON.stringify(stored);
-  assert(!old.includes('revived') && !old.includes('reviveSeen') && !old.includes('afterWin') && old.includes('"cause"'), 'an old profile with a death');
+  assert(!old.includes('revived') && !old.includes('reviveSeen') && !old.includes('scorchRetro') && !old.includes('afterWin') && old.includes('"cause"'), 'an old profile with a death');
   storage.data.set(RT_PROFILE_STORAGE_KEY, old);
   const view = store.returnView();
   assert(view.scene === null && view.revive === undefined && view.scorches.light === 0 && !view.retro && view.fire === 'warm' && !view.afterWinScene, `old: ${JSON.stringify(view)}`);
@@ -159,10 +159,16 @@ check('Г.5.4: a profile without the fields (saved before task 61, a death in it
   assert(store.returnView().revive?.n === 1 && store.returnView().retro, 'scorch_retro due');
   store.markLine('owl:scorch_retro');
   assert(!store.returnView().retro, 'said once');
-  // A new profile's first run lost: no retro (nothing to wash away).
-  const fresh = createRtProfileStore(memoryStorage());
-  fresh.endRunMeta(metaRun(fresh, 33, 'death'));
-  assert(fresh.returnView().revive?.n === 1 && !fresh.returnView().retro, 'a new profile: no retro');
+  // A new player's first run lost: no retro (nothing to wash away) — also when the profile was written before that run (ui 23.10.2026:
+  // the view stores the schedule's history at the start, so `startRun` counts the first run as the second, `runsApprox`).
+  for (const early of [false, true]) {
+    const storage = memoryStorage(), fresh = createRtProfileStore(storage);
+    if (early) fresh.scheduleHistory(() => []);
+    const run = metaRun(fresh, 33, 'death');
+    assert(!early || fresh.load().runs === 2, `the early write starts the count at 2 (${fresh.load().runs})`);
+    fresh.endRunMeta(run);
+    assert(fresh.returnView().revive?.n === 1 && !fresh.returnView().retro && !storage.data.get(RT_PROFILE_STORAGE_KEY)!.includes('scorchRetro'), `a new profile${early ? ' written early' : ''}: no retro`);
+  }
 });
 
 check('Г.1: the stored fields read only when sound — whole counts from 1, `reviveSeen` not above `revived`, `afterWin.at` whole, its marks only `true`', () => {
@@ -170,6 +176,7 @@ check('Г.1: the stored fields read only when sound — whole counts from 1, `re
   const read = (hearth: object, afterWin?: unknown) => parseRtMeta({ ...base, hearth: { ...base.hearth, ...hearth }, ...afterWin !== undefined ? { afterWin } : {} })!;
   assert(read({ revived: 3, reviveSeen: 2 }).hearth!.revived === 3 && read({ revived: 3, reviveSeen: 2 }).hearth!.reviveSeen === 2, 'sound');
   for (const bad of [0, -1, 1.5, '2', null]) assert(read({ revived: bad }).hearth!.revived === undefined, `revived ${bad}`);
+  assert(read({ revived: 1, scorchRetro: true }).hearth!.scorchRetro === true && read({ scorchRetro: true }).hearth!.scorchRetro === undefined && read({ revived: 1, scorchRetro: 1 }).hearth!.scorchRetro === undefined, 'scorchRetro only `true`, only with returns');
   assert(read({ revived: 2, reviveSeen: 3 }).hearth!.reviveSeen === undefined && read({ reviveSeen: 1 }).hearth!.reviveSeen === undefined, 'reviveSeen above revived');
   assert(JSON.stringify(read({}, { at: 7, revived: 2, line: true, scene: 'yes', monk: 1, extra: 1 }).afterWin) === '{"at":7,"revived":2,"line":true}', 'afterWin');
   for (const bad of [{}, { at: -1 }, { at: '3' }, 5, null]) assert(read({}, bad).afterWin === undefined, `afterWin ${JSON.stringify(bad)}`);

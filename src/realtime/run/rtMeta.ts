@@ -199,6 +199,11 @@ export interface RtHearthMeta {
   revived?: number;
   /** Task 61а: the last return the camp showed its scene for (the view, `markReviveSeen`): one scene a death. Absent — none; ≤ `revived`. */
   reviveSeen?: number;
+  /**
+   * Task 61а (spec А.5, `scorch_retro`): the returns began on a profile that already had a camp — a meta run applied before its first
+   * counted death (an old profile's deaths were never counted). Set with the first return; absent — a new player's first run was lost.
+   */
+  scorchRetro?: true;
 }
 /**
  * Task 61б (spec Б.1, Г.1): the layer «после первой победы» — open from the profile's first win over the castle (any hero, once). `at` —
@@ -508,7 +513,11 @@ export function rtApplyMeta(previous: RtMeta | undefined, run: RtRunState, optio
   // Task 51: the garrison passed the first time for the profile (no hero's record had `wonLevel` 2 before this run).
   const firstGarrison = passed >= 2 && !RT_HERO_IDS.some(id => previous?.heroes[id]?.record && rtWonLevelOf(previous.heroes[id]!.record!) >= 2);
   // Task 61а (spec А.2): a meta run lost — the fire of the hearth brings the hero back (an abandoned run, a won one: no death).
-  if (!run.seeded && run.result?.outcome === 'defeat') hearth.revived = (hearth.revived ?? 0) + 1;
+  if (!run.seeded && run.result?.outcome === 'defeat') {
+    // The first return of a profile with a camp before it (a run applied earlier): Неясыть's `scorch_retro` (spec А.5).
+    if (!hearth.revived && !firstCamp) hearth.scorchRetro = true;
+    hearth.revived = (hearth.revived ?? 0) + 1;
+  }
   // Task 61б (spec Б.1): the profile's first win over the castle opens the layer «после первой победы» (once, any hero).
   const castleFirst = !run.seeded && !meta.afterWin && rtCastleWon(run);
   if (castleFirst) meta.afterWin = { at: options.viewerRun ?? 0, ...hearth.revived ? { revived: hearth.revived } : {} };
@@ -642,8 +651,8 @@ export interface RtReturnView {
   /** The return lines' occasion of this visit (`rtReviveOccasion`; `LineContext.last.revive`, `reviveAfter`); absent — none. */
   revive?: { n: number; after?: true };
   /**
-   * Spec А.5: Неясыть's `scorch_retro` is due — the first scorch of a profile with runs before it (`RtProfile.runs` > 1), not said yet
-   * (the memory `owl:scorch_retro`).
+   * Spec А.5: Неясыть's `scorch_retro` is due — the first scorch of a profile that had a camp before it (`hearth.scorchRetro`; a new
+   * player's first death — none), not said yet (the memory `owl:scorch_retro`).
    */
   retro: boolean;
   /** The fire's colour (`rtFireTurquoise`). */
@@ -654,11 +663,11 @@ export interface RtReturnView {
   /** Евлампий came to the fire with that scene: his meeting line is `first_fire` (`LineContext.fire`). */
   monkFire: boolean;
 }
-export function rtReturnView(meta: RtMeta | undefined, runs: number | undefined, monk: boolean): RtReturnView {
+export function rtReturnView(meta: RtMeta | undefined, monk: boolean): RtReturnView {
   const revive = rtReviveOccasion(meta), scene = rtAfterWinSceneDue(meta);
   return {
     scene: rtReviveScene(meta), scorches: rtScorches(meta), ...revive ? { revive } : {},
-    retro: revive?.n === 1 && (runs ?? 0) > 1 && !meta?.hearth?.lines['owl:scorch_retro'],
+    retro: revive?.n === 1 && meta?.hearth?.scorchRetro === true && !meta.hearth.lines['owl:scorch_retro'],
     fire: rtFireTurquoise(meta) ? 'turquoise' : 'warm', afterWinScene: scene, monkComes: scene && monk && !meta?.hearth?.met.monk, monkFire: meta?.afterWin?.monk === true,
   };
 }
@@ -905,6 +914,7 @@ export function parseRtMeta(value: unknown): RtMeta | undefined {
     // Task 61а: the returns (whole, from 1; absent — 0) and the last one shown (from 1, not above the returns).
     ...isCount(h.revived) && h.revived >= 1 ? { revived: h.revived } : {},
     ...isCount(h.revived) && isCount(h.reviveSeen) && h.reviveSeen >= 1 && h.reviveSeen <= h.revived ? { reviveSeen: h.reviveSeen } : {},
+    ...isCount(h.revived) && h.revived >= 1 && h.scorchRetro === true ? { scorchRetro: true as const } : {},
   } : undefined;
   // Task 61б: the layer «после первой победы» — `at` a whole number; `revived` from 1; the view's marks only `true`.
   const w = value.afterWin;
