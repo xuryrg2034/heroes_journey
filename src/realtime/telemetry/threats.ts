@@ -56,6 +56,14 @@
  *   «Размах» (the knight's circle, `wardenSwing`) from its windup (`warden` `swing` `start`) with the hero's body in it: the strike
  *   (`warden` `swing` `hit`) — a `warden-swing` hit, else shielded (in the zone) or dodged; the warden died — interrupted.
  *
+ * - `wardrobe-topple`, `rook` (task 55в «Замок», spec task-55 §10) — «Падение шкафа» from its windup (`wardrobe` `windup`) with the hero's
+ *   body in its lane (`wardrobeTopple`: fixed at the windup, `TOPPLE_WIDTH` + the hero's body); the fall (`wardrobe` `hit`): a
+ *   `wardrobe-topple` hit — hit, the body in the lane unhurt — shielded, else dodged; the wardrobe gone (broken) or its windup dropped (a
+ *   shove) — interrupted. «Удар ладьи» from the rook's windup (`rook` `aim`) with the hero's body on its axis (`rookLine`: each half to its
+ *   first thing-cover now; the line of the aim when none); the strike (`rook` `shot`): a `rook-strike` hit — hit; the shot reached the hero
+ *   unhurt (`plus` / `minus` `hero`) — shielded; else dodged (`reason: 'cover'` when a thing sheltered him: the hero on the aim's axis,
+ *   the half ended at a thing); the rook died — interrupted.
+ *
  * Outcomes: `hit` — a strike of this enemy by this source; `shielded` — the body in the zone on the strike tick but not
  * hurt (invulnerability, the chain's shield, a dash, a jump, the focus spare: decision 12); `dodged` — the body out of the
  * zone on the strike tick; `interrupted` — the enemy died, was knocked back, dropped its attack, or the fight ended (the
@@ -74,6 +82,8 @@ import { HIVE_SPEED, WASP_LIFE, WASP_RADIUS } from '../sim/enemies/hive';
 import { KNIGHT_CHARGE_SOURCE, KNIGHT_LANE_WIDTH, KNIGHT_SWING_SOURCE, knightLane, knightSwing } from '../sim/enemies/garrison';
 import { WARDEN_SWING_SOURCE, wardenSwing } from '../sim/enemies/warden';
 import { pitchMarkRadius, POT_SOURCE } from '../sim/pitch';
+// Task 55в: the castle's moves.
+import { rookLine, ROOK_HALF, ROOK_SOURCE, TOPPLE_SOURCE, wardrobeTopple } from '../sim/enemies/castle';
 import { blockedAt, cliffAt, dist, type Vec } from '../sim/geometry';
 import { bodyRadiusOf } from '../sim/enemies/kinds';
 import { heroRadius } from '../sim/params';
@@ -82,8 +92,8 @@ import { enemyFrozen, touchReachOf, type Enemy, type World, type WorldEvent } fr
 import { EventCursor } from './observe';
 import type { ThreatTally } from './schema';
 
-export type ThreatKind = 'archer' | 'boar' | 'wolf' | 'lynx' | 'sapper' | 'sapper-instant' | 'flail' | 'throw' | 'bolt' | 'knight-charge' | 'knight-swing' | 'sling' | 'hive' | 'wisp' | 'pot' | 'warden-swing' | 'centipede-lunge';
-export const THREAT_KINDS: readonly ThreatKind[] = ['archer', 'boar', 'wolf', 'lynx', 'sapper', 'sapper-instant', 'flail', 'throw', 'bolt', 'knight-charge', 'knight-swing', 'sling', 'hive', 'wisp', 'pot', 'warden-swing', 'centipede-lunge'];
+export type ThreatKind = 'archer' | 'boar' | 'wolf' | 'lynx' | 'sapper' | 'sapper-instant' | 'flail' | 'throw' | 'bolt' | 'knight-charge' | 'knight-swing' | 'sling' | 'hive' | 'wisp' | 'pot' | 'warden-swing' | 'centipede-lunge' | 'wardrobe-topple' | 'rook';
+export const THREAT_KINDS: readonly ThreatKind[] = ['archer', 'boar', 'wolf', 'lynx', 'sapper', 'sapper-instant', 'flail', 'throw', 'bolt', 'knight-charge', 'knight-swing', 'sling', 'hive', 'wisp', 'pot', 'warden-swing', 'centipede-lunge', 'wardrobe-topple', 'rook'];
 export type ThreatOutcome = 'hit' | 'shielded' | 'dodged' | 'interrupted';
 export type CoverKind = 'wall' | 'cliff';
 
@@ -175,6 +185,11 @@ export class ThreatTracker {
   private wardenEvents: Extract<WorldEvent, { type: 'warden' }>[] = [];
   private readonly potOpen = new Map<number, { o: Open; by: number; at: Vec }>();
   private readonly wardenOpen = new Map<number, Open>();
+  /** Task 55в: this tick's wardrobes' and rooks' events; the open warnings by the wardrobe's and the rook's id (the rook's aim line). */
+  private wardrobeEvents: Extract<WorldEvent, { type: 'wardrobe' }>[] = [];
+  private rookEvents: Extract<WorldEvent, { type: 'rook' }>[] = [];
+  private readonly toppleOpen = new Map<number, Open>();
+  private readonly rookOpen = new Map<number, { o: Open; aim: { from: Vec; to: Vec } }>();
   /** Hits already explained by a warning of this tick. */
   private used = new Set<Hit>();
 
@@ -187,7 +202,7 @@ export class ThreatTracker {
   tick(world: World, realDt: number = SIM_DT): void {
     this.real += realDt;
     this.hits = []; this.kills.clear(); this.blasts = []; this.used.clear(); this.bossStarts = []; this.bossHits = []; this.boltAims = []; this.boltShots = []; this.knightStarts = []; this.knightEnds = [];
-    this.shooterEvents = []; this.shotEnds = []; this.wispEvents = []; this.potEvents = []; this.wardenEvents = []; this.centiEvents = [];
+    this.shooterEvents = []; this.shotEnds = []; this.wispEvents = []; this.potEvents = []; this.wardenEvents = []; this.centiEvents = []; this.wardrobeEvents = []; this.rookEvents = [];
     this.cursor.read(world, ev => {
       if (ev.type === 'hit') this.hits.push({ enemyId: ev.enemyId, source: ev.source });
       else if (ev.type === 'knightMove') { if (ev.stage === 'start') this.knightStarts.push({ id: ev.id, move: ev.move }); else if (ev.stage === 'end' || ev.stage === 'hit') this.knightEnds.push({ id: ev.id, move: ev.move }); }
@@ -201,6 +216,8 @@ export class ThreatTracker {
       else if (ev.type === 'pot') this.potEvents.push(ev);
       else if (ev.type === 'warden') this.wardenEvents.push(ev);
       else if (ev.type === 'centipede') this.centiEvents.push(ev);
+      else if (ev.type === 'wardrobe') this.wardrobeEvents.push(ev);
+      else if (ev.type === 'rook') this.rookEvents.push(ev);
     });
     this.enemies = new Map(world.enemies.map(e => [e.id, e]));
     // Exit times first: the strike tick counts too.
@@ -219,6 +236,7 @@ export class ThreatTracker {
     this.resolveKnights(world);
     this.resolveForest(world);
     this.resolveStep3(world);
+    this.resolveCastle(world);
     if (world.status !== 'playing') for (const o of [...this.open]) this.close(o, world, 'interrupted', 'end');
     else this.openNew(world);
     this.wolfState = new Map(world.enemies.filter(e => e.kind === 'wolf').map(e => [e.id, e.vars.st ?? 0]));
@@ -313,6 +331,54 @@ export class ThreatTracker {
       // The circle of the windup (the warden stands while it winds up; the strike clears its state — the circle stays the windup's).
       const circle = { x: swing.x, y: swing.y, r: swing.r };
       this.wardenOpen.set(ev.id, this.add('warden-swing', [ev.id], world, w => dist(w.hero, circle) <= circle.r + heroRadius(w.params)));
+    }
+  }
+
+  // ---- Task 55в: «Падение шкафа» and «Удар ладьи» ----
+
+  private resolveCastle(world: World): void {
+    const hr = heroRadius(world.params);
+    const onSegment = (from: Vec, to: Vec, half: number) => (w: World): boolean => {
+      const len = dist(from, to), dx = len > 0 ? (to.x - from.x) / len : 1, dy = len > 0 ? (to.y - from.y) / len : 0;
+      return rayDistance(from, dx, dy, len, w.hero) <= half + heroRadius(w.params);
+    };
+    for (const [id, o] of this.toppleOpen) {
+      if (this.wardrobeEvents.some(ev => ev.id === id && ev.action === 'hit')) {
+        this.toppleOpen.delete(id);
+        this.close(o, world, this.hitBy([id], TOPPLE_SOURCE) ? 'hit' : o.inZone(world) ? 'shielded' : 'dodged');
+      } else {
+        const e = this.enemies.get(id);
+        if (!e) { this.toppleOpen.delete(id); this.close(o, world, 'interrupted', 'dead'); }
+        else if (!wardrobeTopple(world, e)) { this.toppleOpen.delete(id); this.close(o, world, 'interrupted', 'dropped'); }
+      }
+    }
+    for (const ev of this.wardrobeEvents) {
+      if (ev.action !== 'windup') continue;
+      const e = this.enemies.get(ev.id), lane = e ? wardrobeTopple(world, e) : null;
+      if (!lane) continue;
+      const inLane = onSegment({ ...lane.from }, { ...lane.to }, lane.half);
+      if (inLane(world)) this.toppleOpen.set(ev.id, this.add('wardrobe-topple', [ev.id], world, inLane));
+    }
+    for (const [id, open] of this.rookOpen) {
+      const shot = this.rookEvents.find(ev => ev.id === id && ev.action === 'shot');
+      if (shot) {
+        this.rookOpen.delete(id);
+        const reached = shot.plus === 'hero' || shot.minus === 'hero', sheltered = shot.plus === 'thing' || shot.minus === 'thing';
+        if (this.hitBy([id], ROOK_SOURCE)) this.close(open.o, world, 'hit');
+        else if (reached) this.close(open.o, world, 'shielded');
+        else this.close(open.o, world, 'dodged', sheltered && onSegment(open.aim.from, open.aim.to, ROOK_HALF)(world) ? 'cover' : undefined);
+      } else if (!this.enemies.has(id)) { this.rookOpen.delete(id); this.close(open.o, world, 'interrupted', 'dead'); }
+    }
+    for (const ev of this.rookEvents) {
+      if (ev.action !== 'aim') continue;
+      const aim = { from: { x: ev.x0, y: ev.y0 }, to: { x: ev.x1, y: ev.y1 } };
+      if (!onSegment(aim.from, aim.to, ROOK_HALF)(world)) continue;
+      // The zone: the sign now (a thing shoved onto the axis shortens a half — the hero behind it is out of the zone); the aim's line once gone.
+      const inZone = (w: World): boolean => {
+        const e = this.enemies.get(ev.id) ?? w.enemies.find(x => x.id === ev.id), line = e ? rookLine(w, e) : null;
+        return line ? rayDistance({ x: line.x0, y: line.y0 }, line.axis === 'row' ? 1 : 0, line.axis === 'row' ? 0 : 1, dist({ x: line.x0, y: line.y0 }, { x: line.x1, y: line.y1 }), w.hero) <= line.half + hr : onSegment(aim.from, aim.to, ROOK_HALF)(w);
+      };
+      this.rookOpen.set(ev.id, { o: this.add('rook', [ev.id], world, inZone), aim });
     }
   }
 

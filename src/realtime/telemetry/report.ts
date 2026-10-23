@@ -298,6 +298,8 @@ const THREAT_TITLES: Record<string, string> = {
   // Task 43: the law of the crossbow (the crossbowman, the Castellan's crossbow).
   bolt: 'болт арбалета',
   'knight-charge': 'рывок рыцаря', 'knight-swing': 'размах рыцаря',
+  // Task 55в: the castle's moves.
+  'wardrobe-topple': '«Падение шкафа»', rook: '«Удар ладьи»',
 };
 const OUTCOME_TITLES: Record<string, string> = { victory: 'победа', defeat: 'поражение', abandoned: 'брошен', open: 'не закончен', restart: 'заново', menu: 'выход в меню', unload: 'страница закрыта' };
 
