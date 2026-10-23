@@ -28,12 +28,14 @@ export const CHRONICLE_CHAPTER_TITLES: Readonly<Record<string, string>> = {
   heroes: 'Герои', 'ash-cat': 'Испытание · Кот', 'ash-toad': 'Испытание · Ведунья', hearth: 'Очаг',
 };
 const BOSS_NAMES: Readonly<Record<string, string>> = { jailer: 'Тюремщик', troll: 'Тролль', chief: 'Главарь', castellan: 'Кастелян', warlock: 'Колдун' };
-const BOSS_ART: Readonly<Record<string, string>> = { jailer: 'jailer', troll: 'troll', chief: 'chief', castellan: 'castellan' };
+const BOSS_ART: Readonly<Record<string, string>> = { jailer: 'jailer', troll: 'troll', chief: 'chief', castellan: 'castellan', warlock: 'warlock' };
 const BRANCH_TEXT: Readonly<Record<string, string>> = { trails: 'после Тюремщика', den: 'ветка Тролля', camp: 'ветка Главаря', common: 'любая ветка' };
 const NPC_ART: Readonly<Record<string, string>> = { owl: 'npc-owl', herb: 'npc-herbalist', smith: 'npc-smith', gambler: 'npc-gambler', monk: 'npc-monk' };
 const HERO_ART: Readonly<Record<string, string>> = { cat: 'player', toad: 'toad' };
 const HERO_NAMES: Readonly<Record<string, string>> = { cat: 'Кот', toad: 'Ведунья' };
 const GARRISON_ART: Readonly<Record<string, string>> = { guard: 'garrison-guard', handler: 'garrison-houndmaster', hound: 'garrison-hound', keymaster: 'garrison-keymaster', crossbow: 'garrison-crossbowman', knight: 'garrison-knight' };
+/** Task 55в: the castle's kinds of the book (`RT_CHRONICLE_CASTLE_KINDS`; the barrel is a thing, not a kind). */
+const CASTLE_ART: Readonly<Record<string, string>> = { wardrobe: 'castle-wardrobe', rook: 'castle-rook' };
 const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
 export const CASINO_EVENT = 'casino';
 export const CASINO_TITLE = 'Игорный круг гоблинов';
@@ -134,7 +136,7 @@ function artOf(page: ChroniclePageId, chapter: string, entry: ChronicleEntry): s
   const id = entry.id;
   if (page === 'bestiary') {
     if (chapter === 'affixes') return AFFIX_SVG[id] ?? GENERIC;
-    const file = GARRISON_ART[id] ?? FOREST_ART[id];
+    const file = GARRISON_ART[id] ?? CASTLE_ART[id] ?? FOREST_ART[id];
     return file ? img(file, KIND_SVG[id] ?? GENERIC) : KIND_SVG[id] ?? GENERIC;
   }
   if (page === 'bosses') return BOSS_ART[id] ? img(BOSS_ART[id], GENERIC) : GENERIC;

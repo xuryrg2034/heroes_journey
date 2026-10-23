@@ -70,12 +70,39 @@ check('the elite chapter appears only after a first elite', () => {
   assert(later.includes('Свойства элит') && has(later, 'fiery') && has(later, 'fat'), 'chapter after the elites');
 });
 
-check('after the garrison: its chapter is open, no blank tab is left (the last level of this build), the Castellan is won in run 14', () => {
-  const v = view('garrison'), h = html(v, 'bestiary');
+check('after the garrison: its chapter is open, no blank tab is left (the last level of a build with no castle), the Castellan is won in run 14', () => {
+  const v = chronicleViewOf('garrison', 'cat', { gambler: true, monk: true, castle: false }), h = html(v, 'bestiary');
   assert(has(h, 'guard') && card(h, 'guard').includes('Стражник') && !card(h, 'knight').includes('Рыцарь'), 'garrison kinds follow the contract');
   assert(h.includes('Гарнизон ·') && !h.includes('chron-blank') && !h.includes('Замок'), 'no blank tab: the last level of this build is open');
   const bosses = html(v, 'bosses');
   assert(card(bosses, 'castellan').includes('побеждён, поход 14') && card(bosses, 'jailer').includes('побеждён, поход 3') && card(bosses, 'troll').includes('встречен'), 'boss states');
+});
+
+check('task 55в, a build with the castle: after the garrison one blank «…» tab with no name — the castle\'s kinds and the Warlock are not drawn', () => {
+  const v = chronicleViewOf('garrison', 'cat', { gambler: true, monk: true, castle: true }), h = html(v, 'bestiary');
+  assert(h.includes('Гарнизон ·') && h.split('data-testid="chron-blank"').length === 2 && !h.includes('Замок'), 'one blank tab, no name');
+  for (const kind of ['wardrobe', 'rook']) assert(!has(h, kind), `${kind} is hidden`);
+  const bosses = html(v, 'bosses');
+  assert(bosses.includes('chron-blank') && !has(bosses, 'warlock') && !bosses.includes('Колдун'), 'the Warlock is hidden');
+});
+
+check('task 55в, the castle reached: «Замок · 1 / 2» — the Шкаф by its picture with its line, the Ладья «?»; the Warlock met (his picture, «встречен»); no blank tab', () => {
+  const v = chronicleViewOf('castle', 'cat', { gambler: true, monk: true, castle: true }), h = html(v, 'bestiary', 'wardrobe');
+  assert(h.includes('data-testid="chron-chapter-castle"') && h.includes('<span data-testid="chron-chapter-count-castle">1 / 2</span>') && !h.includes('chron-blank'), 'the chapter and its count');
+  const wardrobe = card(h, 'wardrobe'), rook = card(h, 'rook');
+  assert(wardrobe.includes('art/characters/castle-wardrobe.png') && wardrobe.includes('Шкаф') && wardrobe.includes('data-line="кончи цепь на нём: толкнёшь"'), `the Шкаф: ${wardrobe}`);
+  assert(rook.includes('rt-chron-q') && !rook.includes('Ладья') && !rook.includes('<img'), `the Ладья stays «?»: ${rook}`);
+  assert(h.includes('<p class="rt-chron-line" data-testid="chron-line">кончи цепь на нём: толкнёшь</p>'), 'the strip');
+  const bosses = html(v, 'bosses', 'warlock'), warlock = card(bosses, 'warlock');
+  assert(warlock.includes('art/characters/warlock.png') && warlock.includes('Колдун') && warlock.includes('встречен') && bosses.includes('Колдун — встречен, ещё не побеждён'), `the Warlock: ${warlock}`);
+  assert(bosses.includes('data-testid="chron-chapter-castle"') && !bosses.includes('chron-blank'), 'the bosses\' chapter «Замок»');
+  const off = html(chronicleViewOf('castle', 'cat', { gambler: true, monk: true, castle: false }), 'bestiary');
+  assert(!off.includes('Замок') && !has(off, 'wardrobe') && !off.includes('chron-blank'), 'a build with no castle: no chapter, no blank tab');
+});
+
+check('task 55в: the end screen names the castle — «+1 глава · Замок», the Warlock, the Шкаф and the Ладья', () => {
+  assert(JSON.stringify(chronicleEndLines(['chapter:castle', 'boss:warlock', 'kind:wardrobe', 'kind:rook'])) === JSON.stringify(['В летописи: +3 · Колдун · Шкаф · Ладья', '+1 глава · Замок']), `${chronicleEndLines(['chapter:castle', 'boss:warlock', 'kind:wardrobe', 'kind:rook'])}`);
+  assert(refName('boss:warlock') === 'Колдун' && refName('kind:rook') === 'Ладья', 'the names');
 });
 
 check('a boss «?» keeps its silhouette and no name', () => {

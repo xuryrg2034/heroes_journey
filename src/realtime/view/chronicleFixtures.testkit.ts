@@ -5,7 +5,7 @@
  */
 import { RT_CHRONICLE_FOREST_KINDS } from '../run/chronicleCatalog';
 import { parseRtProfile, RT_PROFILE_STORAGE_KEY, type RtProfile } from '../run/rtRunStorage';
-import { rtChronicleView, type RtChronicleView } from '../run/chroniclePages';
+import { rtChronicleView, type RtChronicleOn, type RtChronicleView } from '../run/chroniclePages';
 import type { RtChronicle } from '../run/chronicle';
 import type { RtHeroId } from '../run/metaCatalog';
 
@@ -34,6 +34,16 @@ export const CHRONICLE_FIXTURES: Readonly<Record<string, () => Raw>> = {
     freed: { toad: { row: 5, run: 3 } },
     hearth: { ...HEARTH, met: { herb: true, smith: true } },
   }),
+  /**
+   * Task 55в: the castle reached (a build with the castle): the cat's record is in the castle (`level` 3), the Шкаф met, the Ладья not,
+   * the Warlock met, not won. Its chapters «Замок» open; with no castle in the build — the book of `garrison`.
+   */
+  castle: () => {
+    const base = CHRONICLE_FIXTURES.garrison!() as { meta: Raw & { chronicle: Raw & { kinds: string[]; bosses: Raw }; heroes: Raw & { cat: Raw } } };
+    const m = base.meta;
+    return { ...base, meta: { ...m, heroes: { ...m.heroes, cat: { ...m.heroes.cat, record: { row: 4, won: false, xp: 1300, level: 3, wonLevel: 2 } } },
+      chronicle: { ...m.chronicle, kinds: [...m.chronicle.kinds, 'wardrobe'], bosses: { ...m.chronicle.bosses, warlock: { met: 20 } } } } };
+  },
   /** A half recipe: «Иней на клинке» is taken, its fusion's «?» shows «Иней на клинке + ?» (a pair of another fusion was held: the chapter shows). */
   fusionHalf: () => profile({ kinds: ['boar', 'wolf'], events: ['brook'], items: { whetstone: 2, 'frost-edge': 2, prism: 1, 'fusion-boomerang': 1 } }),
   /** The retro brought old pages (`retro`, `since` set): the owl says `chronicle_retro` once; the memory of the line is the profile's. */
@@ -46,4 +56,4 @@ export const CHRONICLE_FIXTURES: Readonly<Record<string, () => Raw>> = {
 export const chronicleProfile = (name: string): RtProfile => parseRtProfile(JSON.stringify(CHRONICLE_FIXTURES[name]!()));
 
 /** The book of a fixture for `hero` (the camp's NPCs on). */
-export const chronicleViewOf = (name: string, hero: RtHeroId = 'cat', on = { gambler: true, monk: true }): RtChronicleView => rtChronicleView(chronicleProfile(name), hero, on);
+export const chronicleViewOf = (name: string, hero: RtHeroId = 'cat', on: RtChronicleOn = { gambler: true, monk: true }): RtChronicleView => rtChronicleView(chronicleProfile(name), hero, on);
